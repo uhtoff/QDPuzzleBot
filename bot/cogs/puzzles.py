@@ -18,7 +18,7 @@ class Puzzles(commands.Cog):
     META_REASON = "bot-meta"
     PUZZLE_REASON = "bot-puzzle"
     DELETE_REASON = "bot-delete"
-    SOLVED_PUZZLES_CATEGORY = "SOLVED PUZZLES"  # TODO: this should be a guild setting
+    SOLVED_PUZZLES_CATEGORY = "SOLVED PUZZLES"
     PRIORITIES = ["low", "medium", "high", "very high"]
 
     def __init__(self, bot):
@@ -295,10 +295,15 @@ class Puzzles(commands.Cog):
         await channel.send(embed=embed)
 
     async def send_not_puzzle_channel(self, ctx):
-        if ctx.channel and ctx.channel.category.name == self.SOLVED_PUZZLES_CATEGORY:
+        if ctx.channel and ctx.channel.category.name == self.get_solved_puzzle_category(ctx.guild.id):
             await ctx.send("This puzzle appears to already be solved")
         else:
             await ctx.send("This does not appear to be a puzzle channel")
+
+    def get_solved_puzzle_category(self, guild_id):
+        settings = GuildSettingsDb.get(guild_id)
+        return f"{settings.hunt_name}-{self.SOLVED_PUZZLES_CATEGORY}"
+
 
     def get_puzzle_data_from_channel(self, channel) -> Optional[PuzzleData]:
         """Extract puzzle data based on the channel name and category name
@@ -576,8 +581,7 @@ class Puzzles(commands.Cog):
         # need to stash guild as a botvar:
         # https://stackoverflow.com/questions/64676968/how-to-use-context-within-discord-ext-tasks-loop-in-discord-py
         # channel = .get(channel)
-        # TODO: read this from config?
-        solved_category_name = self.SOLVED_PUZZLES_CATEGORY
+        solved_category_name = self.get_solved_puzzle_category(guild.id)
         solved_category = discord.utils.get(guild.categories, name=solved_category_name)
         if not solved_category:
             avail_categories = [c.name for c in guild.categories]
