@@ -246,7 +246,6 @@ class Puzzles(commands.Cog):
             if created_voice:
                 puzzle_data.voice_channel_id = voice_channel.id
                 PuzzleJsonDb.commit(puzzle_data)
-
         created = created_text or created_voice
         if created:
             if created_text and created_voice:
@@ -263,7 +262,7 @@ class Puzzles(commands.Cog):
             await ctx.send(
                 f"I've found an already existing puzzle channel for {category.mention}: {text_channel.mention}"
             )
-        return (text_channel, voice_channel, created)
+        return (text_channel, created)
 
     async def send_initial_puzzle_channel_messages(self, channel: discord.TextChannel):
         """Send intro message on a puzzle channel"""
@@ -272,8 +271,8 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
             name="Overview",
-            value="This channel and the corresponding voice channel "
-            "are goods places to discuss how to tackle this puzzle. Usually you'll "
+            value="This channel "
+            "is a good place to discuss how to tackle this puzzle. Usually you'll "
             "want to do most of the puzzle work itself on Google Sheets / Docs.",
             inline=False,
         )
