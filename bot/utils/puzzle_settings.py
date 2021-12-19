@@ -13,7 +13,7 @@ if "LADDER_SPOT_DATA_DIR" in os.environ:
 @dataclass_json
 @dataclass
 class HuntSettings:
-    hunt_url_sep: str = "_"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
+    hunt_url_sep: str = "-"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
     hunt_name: str = ""
     hunt_url: str = ""
     drive_nexus_sheet_id: str = ""  # Refer to gsheet_nexus.py

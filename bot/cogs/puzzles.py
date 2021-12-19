@@ -234,7 +234,7 @@ class Puzzles(commands.Cog):
         GuildSettingsDb.commit(settings)
         await self.send_initial_hunt_channel_messages(hs, text_channel)
 
-        return (category, channel, True)
+        return (category, text_channel, True)
 
 
     async def create_puzzle_channel(self, ctx, round_name: str, puzzle_name: str):
