@@ -281,7 +281,7 @@ class Puzzles(commands.Cog):
                     p_name = category_name.lower().replace("-", hunt_settings.hunt_url_sep)
                 else:
                     p_name = channel_name.replace("-", hunt_settings.hunt_url_sep)
-                puzzle_data.hunt_url = f"{hunt_url_base}/puzzle/{hunt_name}"
+                puzzle_data.hunt_url = f"{hunt_url_base}/puzzle/{p_name}"
             PuzzleJsonDb.commit(puzzle_data)
             await self.send_initial_puzzle_channel_messages(text_channel)
 
