@@ -22,6 +22,7 @@ class MissingPuzzleError(RuntimeError):
 @dataclass
 class PuzzleData:
     name: str
+    hunt_name: str
     round_name: str
     round_id: int = 0  # round = category channel
     guild_id: int = 0
@@ -68,7 +69,7 @@ class _PuzzleJsonDb:
     def __init__(self, dir_path: Path):
         self.dir_path = dir_path
 
-    def puzzle_path(self, puzzle, round_id=None, guild_id=None) -> Path:
+    def puzzle_path(self, puzzle, round_id=None, hunt_name=None, guild_id=None) -> Path:
         """Store puzzle metadata to the path `guild/category/puzzle.json`
 
         Use unique ASCII ids (e.g. the discord id snowflakes) for each part of the
@@ -83,14 +84,15 @@ class _PuzzleJsonDb:
             puzzle_id = puzzle.channel_id
             round_id = puzzle.round_id
             guild_id = puzzle.guild_id
+            hunt_name = puzzle.hunt_name
         elif isinstance(puzzle, (int, str)):
             puzzle_id = puzzle
-            if round_id is None or guild_id is None:
+            if round_id is None or guild_id is None or hunt_name is None:
                 raise ValueError(f"round_id / guild_id not passed for puzzle {puzzle}")
         else:
             raise ValueError(f"Unknown puzzle type: {type(puzzle)} for {puzzle}")
         # TODO: Database would be better here .. who wants to sort through puzzle metadata by these ids?
-        return (self.dir_path / str(guild_id) / str(round_id) / str(puzzle_id)).with_suffix(".json")
+        return (self.dir_path / str(guild_id) / str(hunt_name) / str(round_id) / str(puzzle_id)).with_suffix(".json")
 
     def commit(self, puzzle_data):
         """Update puzzle metadata file"""
@@ -107,9 +109,9 @@ class _PuzzleJsonDb:
         except IOError:
             pass
 
-    def get(self, guild_id, puzzle_id, round_id) -> PuzzleData:
+    def get(self, guild_id, puzzle_id, round_id, hunt_name) -> PuzzleData:
         try:
-            with self.puzzle_path(puzzle_id, round_id=round_id, guild_id=guild_id).open() as fp:
+            with self.puzzle_path(puzzle_id,  hunt_name=hunt_name, round_id=round_id, guild_id=guild_id).open() as fp:
                 return PuzzleData.from_json(fp.read())
         except (IOError, OSError) as exc:
             # can also just catch FileNotFoundError
@@ -117,8 +119,8 @@ class _PuzzleJsonDb:
                 raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
             raise
 
-    def get_all(self, guild_id) -> List[PuzzleData]:
-        paths = self.dir_path.rglob(f"{guild_id}/*/*.json")
+    def get_all(self, guild_id, hunt_name="*") -> List[PuzzleData]:
+        paths = self.dir_path.rglob(f"{guild_id}/{hunt_name}/*/*.json")
         puzzle_datas = []
         for path in paths:
             try:

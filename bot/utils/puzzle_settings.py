@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
+from typing import Dict, List
 
 from dataclasses_json import dataclass_json
 
@@ -9,21 +10,27 @@ if "LADDER_SPOT_DATA_DIR" in os.environ:
     # TODO: move to config.json??
     DATA_DIR = Path(os.environ["LADDER_SPOT_DATA_DIR"])
 
+@dataclass_json
+@dataclass
+class HuntSettings:
+    hunt_url_sep: str = "_"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
+    hunt_name: str = ""
+    hunt_url: str = ""
+    drive_nexus_sheet_id: str = ""  # Refer to gsheet_nexus.py
+    drive_parent_id: str = ""       # ID of root drive folder
 
 @dataclass_json
 @dataclass
 class GuildSettings:
     guild_id: int
     guild_name: str = ""
-    hunt_name: str = ""
-    hunt_url: str = ""
-    hunt_url_sep: str = "_"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
     discord_bot_channel: str = ""   # Channel to listen for bot commands
     discord_bot_emoji: str = ":ladder: :dog:"  # Short description string or emoji for bot messages
     discord_use_voice_channels: int = 1  # Whether to create voice channels for puzzles
-    drive_parent_id: str = ""       # ID of root drive folder
-    drive_nexus_sheet_id: str = ""  # Refer to gsheet_nexus.py
+    drive_parent_id: str = ""
     drive_resources_id: str = ""    # Document with resources links, etc
+    hunt_settings: Dict[str, HuntSettings] = field(default_factory=dict)
+    category_mapping: Dict[int, str] = field(default_factory=dict)
 
 
 class GuildSettingsDb:

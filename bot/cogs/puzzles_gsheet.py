@@ -1,5 +1,4 @@
-"""
-Google Drive integration for puzzle organization
+""" Google Drive integration for puzzle organization
 
 This is a separate cog so that Google Drive integration
 can be easily disabled; simply omit this file.
@@ -41,6 +40,32 @@ class GoogleSheets(commands.Cog):
         """Capitalize name for easy comprehension"""
         return string.capwords(name.replace("-", " "))
 
+    async def create_nexus_spreadsheet(self, text_channel: discord.TextChannel, hunt_name: str):
+        guild_id = text_channel.guild.id
+        settings = GuildSettingsDb.get(guild_id)
+        folder_name = self.cap_name(hunt_name)
+        if not settings.drive_parent_id:
+            return
+        try:
+            hunt_folder = await get_or_create_folder(
+                name= folder_name, parent_id=settings.drive_parent_id,
+            )
+
+            hunt_folder_id = hunt_folder["id"]
+            spreadsheet = await create_spreadsheet(agcm=self.agcm, title="Nexus", folder_id=hunt_folder_id)
+            url = urls.spreadsheet_url(spreadsheet.id)
+            embed = discord.Embed(
+                description=f":ladder: :dog: I've created a spreadsheet for you at {url} Check out the `Quick Links` tab for more info!"
+            )
+            await text_channel.send(embed=embed)
+        except Exception as exc:
+            logger.exception(f"Unable to create nexus spreadsheet for {hunt_name}")
+            await text_channel.send(f":exclamation: Unable to create nexus spreadsheet for {hunt_name}: {exc}")
+            return
+
+        return (spreadsheet, hunt_folder)
+
+
     async def create_puzzle_spreadsheet(self, text_channel: discord.TextChannel, puzzle: PuzzleData):
         guild_id = text_channel.guild.id
         name = self.cap_name(puzzle.name)
@@ -50,13 +75,14 @@ class GoogleSheets(commands.Cog):
             name = f"{name} ({round_name})"
 
         settings = GuildSettingsDb.get(guild_id)
-        if not settings.drive_parent_id:
+        hunt_settings = settings.hunt_settings[puzzle.hunt_name]
+        if not hunt_settings.drive_parent_id:
             return
 
         try:
             # create drive folder if needed
             round_folder = await get_or_create_folder(
-                name=round_name, parent_id=settings.drive_parent_id
+                name=round_name, parent_id=hunt_settings.drive_parent_id
             )
             round_folder_id = round_folder["id"]
 
@@ -99,9 +125,11 @@ class GoogleSheets(commands.Cog):
         worksheet = await spreadsheet.add_worksheet(title="Quick Links", rows=10, cols=2)
         cell_range = await worksheet.range(1, 1, 10, 2)
 
+        hunt_settings = settings.hunt_settings[puzzle.hunt_name]
+
         self.update_cell_row(cell_range, 1, "Hunt URL", puzzle.hunt_url)
         self.update_cell_row(cell_range, 2, "Drive folder", urls.drive_folder_url(puzzle.google_folder_id))
-        nexus_url = urls.spreadsheet_url(settings.drive_nexus_sheet_id) if settings.drive_nexus_sheet_id else ""
+        nexus_url = urls.spreadsheet_url(hunt_settings.drive_nexus_sheet_id) if hunt_settings.drive_nexus_sheet_id else ""
         self.update_cell_row(cell_range, 3, "Nexus", nexus_url)
         resources_url = urls.docs_url(settings.drive_resources_id) if settings.drive_resources_id else ""
         self.update_cell_row(cell_range, 4, "Resources", resources_url)
@@ -128,9 +156,10 @@ class GoogleSheets(commands.Cog):
         """Ref: https://discordpy.readthedocs.io/en/latest/ext/tasks/"""
         for guild in self.bot.guilds:
             settings = GuildSettingsDb.get_cached(guild.id)
-            if settings.drive_nexus_sheet_id:
-                puzzles = PuzzleJsonDb.get_all(guild.id)
-                await update_nexus(agcm=self.agcm, file_id=settings.drive_nexus_sheet_id, puzzles=puzzles)
+            for key, hs in settings.hunt_settings.items():
+                if hs.drive_nexus_sheet_id:
+                    puzzles = PuzzleJsonDb.get_all(guild.id, key)
+                    await update_nexus(agcm=self.agcm, file_id=hs.drive_nexus_sheet_id, puzzles=puzzles)
 
     @refresh_nexus.before_loop
     async def before_refreshing_nexus(self):
