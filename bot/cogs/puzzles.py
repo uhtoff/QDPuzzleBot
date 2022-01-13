@@ -132,7 +132,10 @@ class Puzzles(commands.Cog):
         """*(admin) Show guild-level settings*"""
         guild_id = ctx.guild.id
         settings = GuildSettingsDb.get(guild_id)
-        await ctx.channel.send(f"```json\n{settings.to_json()}```")
+        hunt_name = ctx.channel.category.name
+        if hunt_name in settings.hunt_settings:
+            settings = settings.hunt_settings[hunt_name]
+        await ctx.channel.send(f"```json\n{settings.to_json(indent=2)}```")
 
     @commands.command()
     @commands.has_permissions(manage_channels=True)
@@ -140,7 +143,13 @@ class Puzzles(commands.Cog):
         """*(admin) Update guild setting: !update_setting key value*"""
         guild_id = ctx.guild.id
         settings = GuildSettingsDb.get(guild_id)
-        if hasattr(settings, setting_key):
+        hunt_name = ctx.channel.category.name
+        if hunt_name in settings.hunt_settings and hasattr(settings.hunt_settings[hunt_name], setting_key):
+            old_value = getattr(settings.hunt_settings[hunt_name], setting_key)
+            setattr(settings.hunt_settings[hunt_name], setting_key, setting_value)
+            GuildSettingsDb.commit(settings)
+            await ctx.send(f":white_check_mark: Updated `{setting_key}={setting_value}` from old value: `{old_value}` for hunt `{hunt_name}`")
+        elif hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
             setattr(settings, setting_key, setting_value)
             GuildSettingsDb.commit(settings)
@@ -152,7 +161,7 @@ class Puzzles(commands.Cog):
     async def list_puzzles(self, ctx):
         """*List all puzzles and their statuses*"""
 
-        if ctx.channel.name != "general":
+        if ctx.channel.name != self.GENERAL_CHANNEL_NAME:
             return
 
         all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, ctx.channel.category.name)
@@ -179,6 +188,10 @@ class Puzzles(commands.Cog):
             elif puzzle.status:
                 message += f" status:{puzzle.status}"
             message += "\n"
+
+        # add last round
+        if message:
+            embed.add_field(name=cur_round, value=message)
 
         if embed.fields:
             await ctx.send(embed=embed)
