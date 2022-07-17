@@ -1,75 +1,20 @@
-from dataclasses import dataclass, field
-from dataclasses_json import dataclass_json
 import datetime
 import errno
 import json
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import pytz
-
-from bot.utils.puzzle_settings import DATA_DIR
+from .puzzle_data import _PuzzleJsonDb, PuzzleData
+from .puzzle_settings import _GuildSettingsDb, GuildSettings
 
 logger = logging.getLogger(__name__)
-
-
-class MissingPuzzleError(RuntimeError):
-    pass
-
-
-@dataclass_json
-@dataclass
-class PuzzleData:
-    name: str
-    hunt_name: str
-    round_name: str
-    round_id: int = 0  # round = category channel
-    guild_id: int = 0
-    guild_name: str = ""
-    channel_id: int = 0
-    channel_mention: str = ""
-    voice_channel_id: int = 0
-    # archive_channel_id: str = ""
-    archive_channel_mention: str = ""
-    hunt_url: str = ""
-    google_sheet_id: str = ""
-    google_folder_id: str = ""
-    status: str = ""
-    solution: str = ""
-    priority: str = ""
-    puzzle_type: str = ""
-    notes: List[str] = field(default_factory=list)
-    start_time: Optional[datetime.datetime] = None
-    solve_time: Optional[datetime.datetime] = None
-    archive_time: Optional[datetime.datetime] = None
-
-    @classmethod
-    def sort_by_round_start(cls, puzzles: list) -> list:
-        """Return list of PuzzleData objects sorted by start of round time
-
-        Groups puzzles in the same round together, and sorts puzzles within round
-        by start_time.
-        """
-        round_start_times = {}
-
-        for puzzle in puzzles:
-            if puzzle.start_time is None:
-                continue
-
-            start_time = puzzle.start_time.timestamp()  # epoch time
-            round_start_time = round_start_times.get(puzzle.round_name)
-            if round_start_time is None or start_time < round_start_time:
-                round_start_times[puzzle.round_name] = start_time
-
-        return sorted(puzzles, key=lambda p: (round_start_times.get(p.round_name, 0), p.start_time or 0))
-
-
-class _PuzzleJsonDb:
+class FilePuzzleJsonDb(_PuzzleJsonDb):
     def __init__(self, dir_path: Path):
         self.dir_path = dir_path
 
-    def puzzle_path(self, puzzle, round_id=None, hunt_name=None, guild_id=None) -> Path:
+    def puzzle_path(self, puzzle, round_id=None, hunt_id=None, guild_id=None) -> Path:
         """Store puzzle metadata to the path `guild/category/puzzle.json`
 
         Use unique ASCII ids (e.g. the discord id snowflakes) for each part of the
@@ -84,15 +29,15 @@ class _PuzzleJsonDb:
             puzzle_id = puzzle.channel_id
             round_id = puzzle.round_id
             guild_id = puzzle.guild_id
-            hunt_name = puzzle.hunt_name
+            hunt_id = puzzle.hunt_id
         elif isinstance(puzzle, (int, str)):
             puzzle_id = puzzle
-            if round_id is None or guild_id is None or hunt_name is None:
+            if round_id is None or guild_id is None or hunt_id is None:
                 raise ValueError(f"round_id / guild_id not passed for puzzle {puzzle}")
         else:
             raise ValueError(f"Unknown puzzle type: {type(puzzle)} for {puzzle}")
         # TODO: Database would be better here .. who wants to sort through puzzle metadata by these ids?
-        return (self.dir_path / str(guild_id) / str(hunt_name) / str(round_id) / str(puzzle_id)).with_suffix(".json")
+        return (self.dir_path / str(guild_id) / str(hunt_id) / str(round_id) / str(puzzle_id)).with_suffix(".json")
 
     def commit(self, puzzle_data):
         """Update puzzle metadata file"""
@@ -109,9 +54,9 @@ class _PuzzleJsonDb:
         except IOError:
             pass
 
-    def get(self, guild_id, puzzle_id, round_id, hunt_name) -> PuzzleData:
+    def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         try:
-            with self.puzzle_path(puzzle_id,  hunt_name=hunt_name, round_id=round_id, guild_id=guild_id).open() as fp:
+            with self.puzzle_path(puzzle_id, hunt_id=hunt_id, round_id=round_id, guild_id=guild_id).open() as fp:
                 return PuzzleData.from_json(fp.read())
         except (IOError, OSError) as exc:
             # can also just catch FileNotFoundError
@@ -119,8 +64,8 @@ class _PuzzleJsonDb:
                 raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
             raise
 
-    def get_all(self, guild_id, hunt_name="*") -> List[PuzzleData]:
-        paths = self.dir_path.rglob(f"{guild_id}/{hunt_name}/*/*.json")
+    def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
+        paths = self.dir_path.rglob(f"{guild_id}/{hunt_id}/*/*.json")
         puzzle_datas = []
         for path in paths:
             try:
@@ -162,4 +107,33 @@ class _PuzzleJsonDb:
                 result[str(relpath)] = json.load(fp)
         return result
 
-PuzzleJsonDb = _PuzzleJsonDb(dir_path=DATA_DIR)
+class FileGuildSettingsDb():
+    def __init__(self, dir_path: Path):
+        self.dir_path = dir_path
+        self.cached_settings = {}
+
+    def get(self, guild_id: int) -> GuildSettings:
+        settings_path = self.dir_path / str(guild_id) / "settings.json"
+        if settings_path.exists():
+            with settings_path.open() as fp:
+                settings = GuildSettings.from_json(fp.read())
+        else:
+            # Populate empty settings file
+            settings = GuildSettings(guild_id=guild_id)
+            self.commit(settings)
+        return settings
+
+    def get_cached(self, guild_id: int) -> GuildSettings:
+        if guild_id in self.cached_settings:
+            return self.cached_settings[guild_id]
+        settings = self.get(guild_id)
+        self.cached_settings[guild_id] = settings
+        return settings
+
+    def commit(self, settings: GuildSettings):
+        settings_path = self.dir_path / str(settings.guild_id) / "settings.json"
+        settings_path.parent.parent.mkdir(exist_ok=True)
+        settings_path.parent.mkdir(exist_ok=True)
+        with settings_path.open("w") as fp:
+            fp.write(settings.to_json(indent=4))
+        self.cached_settings[settings.guild_id] = settings

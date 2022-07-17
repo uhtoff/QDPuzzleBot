@@ -16,8 +16,7 @@ import gspread_formatting
 import pytz
 
 from bot.utils import urls
-from bot.utils.puzzles_data import MissingPuzzleError, PuzzleData, PuzzleJsonDb
-from bot.utils.puzzle_settings import GuildSettingsDb, GuildSettings
+from bot.store import GuildSettingsDb, GuildSettings, MissingPuzzleError, PuzzleData, PuzzleJsonDb
 from bot.utils.gdrive import get_or_create_folder, rename_file
 from bot.utils.gsheet import create_spreadsheet, get_manager
 from bot.utils.gsheet_nexus import update_nexus
@@ -75,7 +74,7 @@ class GoogleSheets(commands.Cog):
             name = f"{name} ({round_name})"
 
         settings = GuildSettingsDb.get(guild_id)
-        hunt_settings = settings.hunt_settings[puzzle.hunt_name]
+        hunt_settings = settings.hunt_settings[puzzle.hunt_id]
         if not hunt_settings.drive_parent_id:
             return
 
@@ -125,7 +124,7 @@ class GoogleSheets(commands.Cog):
         worksheet = await spreadsheet.add_worksheet(title="Quick Links", rows=10, cols=2)
         cell_range = await worksheet.range(1, 1, 10, 2)
 
-        hunt_settings = settings.hunt_settings[puzzle.hunt_name]
+        hunt_settings = settings.hunt_settings[puzzle.hunt_id]
 
         self.update_cell_row(cell_range, 1, "Hunt URL", puzzle.hunt_url)
         self.update_cell_row(cell_range, 2, "Drive folder", urls.drive_folder_url(puzzle.google_folder_id))
