@@ -153,7 +153,7 @@ class Puzzles(commands.Cog):
         guild_id = ctx.guild.id
         settings = GuildSettingsDb.get(guild_id)
         hunt_id = ctx.channel.category.id
-        hunt_name = ctx.chanel.category.name
+        hunt_name = ctx.channel.category.name
         if hunt_id in settings.hunt_settings and hasattr(settings.hunt_settings[hunt_id], setting_key):
             old_value = getattr(settings.hunt_settings[hunt_id], setting_key)
             setattr(settings.hunt_settings[hunt_id], setting_key, setting_value)
