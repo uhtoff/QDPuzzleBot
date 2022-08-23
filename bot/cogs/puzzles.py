@@ -249,12 +249,12 @@ class Puzzles(commands.Cog):
             role = await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
             overwrites = self.get_overwrites(guild, role)
 
-        category = await guild.create_category(category_name, overwrites=overwrites, position=len(guild.categories) - 2)
+        category = await guild.create_category(category_name, overwrites=overwrites, position=max(len(guild.categories) - 2,0))
         text_channel, created_text = await self.get_or_create_channel(
             guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, overwrites=overwrites, channel_type="text", reason=self.HUNT_REASON
         )
         settings = GuildSettingsDb.get(guild.id)
-        solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=len(guild.categories) - 2)
+        solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=max(len(guild.categories) - 2,0))
 
 
         hs = HuntSettings(
