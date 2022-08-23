@@ -121,7 +121,7 @@ class Puzzles(commands.Cog):
                 role = discord.utils.get(guild.roles, id=hunt_settings.role_id)
             overwrites = self.get_overwrites(guild, role)
             # TODO: debug position?
-            category = await guild.create_category(category_name, overwrites=overwrites, position=len(guild.categories) - 2)
+            category = await guild.create_category(category_name, overwrites=overwrites, position=max(len(guild.categories) - 2,0))
         if not category.id in settings.category_mapping:
             settings.category_mapping[category.id] = hunt_id
             GuildSettingsDb.commit(settings)
