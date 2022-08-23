@@ -42,7 +42,7 @@ class Puzzles(commands.Cog):
     async def on_command_error(self, ctx, error):
         # if isinstance(error, commands.errors.CheckFailure):
         #     await ctx.send('You do not have the correct role for this command.')
-        await ctx.send(":exclamation: " + str(error))
+        await ctx.send(f":exclamation: **{type(error).__name__}**" + "\n" + str(error))
 
     async def check_is_bot_channel(self, ctx) -> bool:
         """Check if command was sent to bot channel configured in settings"""
