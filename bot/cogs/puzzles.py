@@ -1,6 +1,6 @@
 import datetime
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import discord
 from discord.ext import commands, tasks
@@ -161,9 +161,31 @@ class Puzzles(commands.Cog):
             await ctx.send(f":white_check_mark: Updated `{setting_key}={setting_value}` from old value: `{old_value}` for hunt `{hunt_name}`")
         elif hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
-            setattr(settings, setting_key, setting_value)
+            value: Any
+            if type(old_value) == str:
+                value = setting_value
+                setattr(settings, setting_key, setting_value)
+            elif type(old_value) == int:
+                try:
+                    value = int(setting_value)
+                except ValueError:
+                    await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs integer input.")
+                    return
+            elif type(old_value) == bool:
+                if setting_value.strip().lower() in ('false', '0'):
+                    value = False
+                elif setting_value.strip().lower() in ('true', '1'):
+                    value = True
+                else:
+                    await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs boolean input (0, 1, true, false).")
+                    return
+            else:
+                await ctx.send(f":x: `{setting_key}` is type `{type(old_value).__name__}` and cannot be set from this command.")
+                return
+
+            setattr(settings, setting_key, value)
             GuildSettingsDb.commit(settings)
-            await ctx.send(f":white_check_mark: Updated `{setting_key}={setting_value}` from old value: `{old_value}`")
+            await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
         else:
             await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
 
