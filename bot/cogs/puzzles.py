@@ -710,11 +710,11 @@ class Puzzles(commands.Cog):
         puzzles_by_hunt = {}
         for puzz in puzzles_to_archive:
             if not puzz.hunt_id in puzzles_by_hunt:
-                puzzles_by_hunt[puzz.hunt_id] = []
-            puzzles_by_hunt[puzz.hunt_id].append(puzz)
+                puzzles_by_hunt[puzz.hunt_name] = []
+            puzzles_by_hunt[puzz.hunt_name].append(puzz)
 
-        for hunt_id, puzzles in puzzles_by_hunt.items():
-            solved_category_name = self.get_solved_puzzle_category(hunt_id)
+        for hunt_name, puzzles in puzzles_by_hunt.items():
+            solved_category_name = self.get_solved_puzzle_category(hunt_name)
             solved_category = discord.utils.get(guild.categories, name=solved_category_name)
             if not solved_category:
                 avail_categories = [c.name for c in guild.categories]
