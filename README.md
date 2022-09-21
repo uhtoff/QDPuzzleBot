@@ -33,7 +33,7 @@ like
 
 Most users will just need to become familiar with two commands:
 1. To post a new puzzle channel, post `!p puzzle-name` in the `#meta` channel of the corresponding puzzle round.
-   This will create a new text where puzzle discussion can take place, as well as
+   This will create a new text channel where puzzle discussion can take place, as well as
    a new Google Spreadsheet with a handy `Quick Links` worksheet.
    You can scroll the sidebar or use `Ctrl + K` to help search for existing puzzle channels.
 2. When Hunt HQ has confirmed that the puzzle has been solved, post `!solve SOLUTION` in the puzzle channel.
