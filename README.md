@@ -11,11 +11,11 @@ To keep things very simple (and because I started this a week before Hunt starts
 
 ## Creating a hunt
 
-Run the command
+For example, run the command
 
-`!hunt MysteryHunt2021:https://perpendicular.institute/puzzle`
+`!hunt MysteryHunt2021:https://perpendicular.institute/`
 
-This hunt url will be used to guess the link to the puzzle when new puzzles are posted. If the generated
+This hunt URL will be used to guess the link to the puzzle when new puzzles are posted. If the generated
 puzzle link is wrong, it can be updated by posting `!link https://correct-hunt-website-link` in the puzzle channel.
 
 Users with the `manage_channel` role can update administrative settings via `!update_setting {key} {value}`, where
