@@ -26,6 +26,7 @@ class Settings(commands.Cog):
         _ = await db.query_guild(guild.id)
 
     @commands.has_permissions(manage_guild=True)
+    @commands.has_any_role('mod','admin')
     @commands.command()
     async def prefix(self, ctx, new_prefix: str = None):
         """*Change your servers command prefix (admin only)*

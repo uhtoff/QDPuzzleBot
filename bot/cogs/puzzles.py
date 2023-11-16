@@ -60,7 +60,9 @@ class Puzzles(commands.Cog):
         return False
 
     @commands.command(aliases=["h"])
+    @commands.has_any_role('mod','admin')
     async def hunt(self, ctx, *, arg):
+        """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
         guild = ctx.guild
         if not (await self.check_is_bot_channel(ctx)):
             return
@@ -76,6 +78,7 @@ class Puzzles(commands.Cog):
 
 
     @commands.command(aliases=["p"])
+    @commands.has_any_role('mod','admin')
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p round-name: puzzle-name*
 
@@ -103,8 +106,9 @@ class Puzzles(commands.Cog):
         raise ValueError(f"Unable to parse puzzle name {arg}, try using `!p round-name: puzzle-name`")
 
     @commands.command(aliases=["r"])
+    @commands.has_any_role('mod','admin')
     async def round(self, ctx, *, arg):
-        """*Create new puzzle round: !r round-name*"""
+        """*(admin) Create new puzzle round: !r round-name*"""
         if ctx.channel.name != "general":
             return
 
@@ -136,6 +140,7 @@ class Puzzles(commands.Cog):
             return GuildSettingsDb.get(guild_id)
 
     @commands.command()
+    @commands.has_any_role('mod','admin')
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*(admin) Show guild-level settings*"""
@@ -147,6 +152,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{settings.to_json(indent=2)}```")
 
     @commands.command()
+    @commands.has_any_role('mod','admin')
     @commands.has_permissions(manage_channels=True)
     async def update_setting(self, ctx, setting_key: str, setting_value: str):
         """*(admin) Update guild setting: !update_setting key value*"""
@@ -194,9 +200,9 @@ class Puzzles(commands.Cog):
         """*List all puzzles and their statuses*"""
 
         if ctx.channel.name != self.GENERAL_CHANNEL_NAME:
-            return
-
-        all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, ctx.channel.category.name)
+            all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, self.get_puzzle_data_from_channel(ctx.channel).hunt_id)
+        else:
+            all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, ctx.channel.category.id)
         all_puzzles = PuzzleData.sort_by_round_start(all_puzzles)
 
         embed = discord.Embed()
@@ -292,8 +298,9 @@ class Puzzles(commands.Cog):
         if gsheet_cog is not None:
             # update google sheet ID
             nexus_spreadsheet, hunt_folder = await gsheet_cog.create_nexus_spreadsheet(text_channel, hunt_name)
-        hs.drive_nexus_sheet_id = nexus_spreadsheet.id
-        hs.drive_parent_id = hunt_folder["id"]
+            hs.drive_nexus_sheet_id = nexus_spreadsheet.id
+            hs.drive_parent_id = hunt_folder["id"]
+
         # add hunt settings
         settings.hunt_settings[category.id] = hs
         GuildSettingsDb.commit(settings)
@@ -325,6 +332,12 @@ class Puzzles(commands.Cog):
         overwrites = self.get_overwrites(guild, role)
 
         channel_name = self.clean_name(puzzle_name)
+
+        try:
+            sheet_id = self.get_puzzle_data_from_channel(ctx.channel).google_sheet_id
+        except:
+            sheet_id = ''
+
         text_channel, created_text = await self.get_or_create_channel(
             guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", reason=self.PUZZLE_REASON
         )
@@ -340,12 +353,13 @@ class Puzzles(commands.Cog):
                 channel_mention=text_channel.mention,
                 channel_id=text_channel.id,
                 start_time=datetime.datetime.now(tz=pytz.UTC),
+                google_sheet_id=sheet_id,
             )
             if hunt_settings.hunt_url:
                 # NOTE: this is a heuristic and may need to be updated!
                 # This is based on last year's URLs, where the URL format was
                 # https://<site>/puzzle/puzzle_name
-                prefix = hunt_settings.hunt_puzzle_prefix or 'puzzle'
+                prefix = hunt_settings.hunt_puzzle_prefix or 'puzzles'
                 hunt_url_base = hunt_settings.hunt_url.rstrip("/")
                 if channel_name == "meta":
                     # Use the round name in the URL
@@ -403,12 +417,22 @@ class Puzzles(commands.Cog):
         embed.add_field(
             name="Important Links",
             value=f"""The following are some useful links:
-* Hunt Website: {hunt.hunt_url}
-* Nexus Sheet: {urls.spreadsheet_url(hunt.drive_nexus_sheet_id)}
-* Drive URL: {urls.drive_folder_url(hunt.drive_parent_id)}
+• Hunt Website: {hunt.hunt_url}
+• First Round Google Sheet: https://docs.google.com/spreadsheets/d/1_JQdm4AUIfQywDYCMD_UMhzIKcqEGqBDApLHsJLF4cA/edit?usp=sharing
+• Second Round Google Sheet: https://docs.google.com/spreadsheets/d/1EKUnxDGIt6J_G9oyahXWKFXiLQ7M8slOx5_nbo3Ty5g/edit?usp=sharing
+• Third Round Google Sheet: https://docs.google.com/spreadsheets/d/1gAZ4JJz2qQfCkU2-LIn86o0WxMSZtNFOG1sIjgxT6pM/edit?usp=sharing
 """,
             inline=False,
         )
+        embed.add_field(
+                    name="Useful commands",
+                    value=f"""The following are some useful commands:
+        • `!r <round name>` : Create a new round
+        • `!p <round name>:<puzzle name>` : Add a channel within a round for a puzzle - round name can be excluded if done from the #meta channel in a round
+        • `!list` : List all added puzzles
+        """,
+                    inline=False,
+                )
         await channel.send(embed=embed)
 
     async def send_initial_puzzle_channel_messages(self, channel: discord.TextChannel):
@@ -418,26 +442,48 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
             name="Overview",
-            value="This channel "
-            "is a good place to discuss how to tackle this puzzle. Usually you'll "
-            "want to do most of the puzzle work itself on Google Sheets / Docs.",
+            value="This channel is a good place to discuss how to tackle this puzzle. Usually you'll want to do most of the puzzle work itself on Google Sheets / Docs.",
             inline=False,
         )
-        embed.add_field(
-            name="Commands",
-            value="""The following may be useful discord commands:
+        if channel.name == 'meta':
+            embed.add_field(
+                            name="Commands",
+                            value="""The following may be useful discord commands:
+            • `!p <puzzle-name>` will add a puzzle to this round.
+            • `!solve SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
+            • `!link <url>` will update the link to the puzzle on the hunt website
+            • `!info` will re-post this message
+            • `!type crossword` will mark the type of the puzzle, for others to know
+            • `!priority high` will mark the priority of the puzzle, for others to know
+            • `!status extracting` will update the status of the puzzle, for others to know
+            • `!note flavortext clues braille` can be used to leave a note about ideas/progress
+            """,
+                            inline=False,
+                        )
+        else:
+            embed.add_field(
+                name="Commands",
+                value="""The following may be useful discord commands:
 • `!solve SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
 • `!link <url>` will update the link to the puzzle on the hunt website
-• `!doc <url>` will update the Google Drive link
-* `!info` will re-post this message
-• `!delete` should *only* be used if a channel was mistakenly created.
+• `!info` will re-post this message
 • `!type crossword` will mark the type of the puzzle, for others to know
 • `!priority high` will mark the priority of the puzzle, for others to know
 • `!status extracting` will update the status of the puzzle, for others to know
 • `!note flavortext clues braille` can be used to leave a note about ideas/progress
 """,
-            inline=False,
-        )
+                inline=False,
+            )
+        try:
+            puzzle_data = self.get_puzzle_data_from_channel(channel)
+            embed.add_field(name="Hunt URL", value=puzzle_data.hunt_url or "?",inline=False,)
+            spreadsheet_url = urls.spreadsheet_url(puzzle_data.google_sheet_id) if puzzle_data.google_sheet_id else "?"
+            embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
+            embed.add_field(name="Status", value=puzzle_data.status or "?",inline=False,)
+            embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?",inline=False,)
+            embed.add_field(name="Priority", value=puzzle_data.priority or "?",inline=False,)
+        except:
+            pass
         await channel.send(embed=embed)
 
     async def send_not_puzzle_channel(self, ctx):
@@ -475,12 +521,23 @@ class Puzzles(commands.Cog):
     @commands.command()
     async def info(self, ctx):
         """*Show discord command help for a puzzle channel*"""
-        puzzle_data = self.get_puzzle_data_from_channel(ctx.channel)
-        if not puzzle_data:
-            await self.send_not_puzzle_channel(ctx)
-            return
+        guild_id = ctx.guild.id
+        settings = GuildSettingsDb.get(guild_id)
+        hunt_id = ctx.channel.category.id
+        if hunt_id in settings.hunt_settings:
+            settings = settings.hunt_settings[hunt_id]
+            await self.send_initial_hunt_channel_messages(settings,ctx.channel)
+        else:
+            await self.send_initial_puzzle_channel_messages(ctx.channel)
+#       puzzle_data = self.get_puzzle_data_from_channel(ctx.channel)
+#        if not puzzle_data:
+#            await self.send_not_puzzle_channel(ctx)
+#            return
+#        await self.send_state(
+#            ctx.channel, puzzle_data
+#        )
 
-        await self.send_initial_puzzle_channel_messages(ctx.channel)
+
 
     async def update_puzzle_attr_by_command(self, ctx, attr, value, message=None, reply=True):
         """Common pattern where we want to update a single field in PuzzleData based on command"""
@@ -554,10 +611,17 @@ class Puzzles(commands.Cog):
 
         if puzzle_data.notes:
             embed = discord.Embed(description=f"{message}")
-            embed.add_field(
-                name="Notes",
-                value="\n".join([f"{i+1}: {puzzle_data.notes[i]}" for i in range(len(puzzle_data.notes))])
-            )
+            i = len(puzzle_data.notes)
+            for x in range(i):
+                embed.add_field(
+                    name=f"Note {x+1}",
+                    value=puzzle_data.notes[x],
+                    inline=False
+                )
+#             embed.add_field(
+#                 name="Notes",
+#                 value="\n".join([f"{i+1}: {puzzle_data.notes[i]}" for i in range(len(puzzle_data.notes))])
+#             )
         else:
             embed = discord.Embed(description="No notes left yet, use `!note my note here` to leave a note")
         await ctx.send(embed=embed)
@@ -579,10 +643,13 @@ class Puzzles(commands.Cog):
             description = f"Unable to find note {note_index}"
 
         embed = discord.Embed(description=description)
-        embed.add_field(
-            name="Notes",
-            value="\n".join([f"{i+1}, {puzzle_data.notes[i]}" for i in range(len(puzzle_data.notes))])
-        )
+        i = len(puzzle_data.notes)
+        for x in range(i):
+            embed.add_field(
+                name=f"Note {x+1}",
+                value=puzzle_data.notes[x],
+                inline=False
+            )
         await ctx.send(embed=embed)
 
     @commands.command()
@@ -675,6 +742,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
+    @commands.has_any_role('mod','admin')
     @commands.has_permissions(manage_channels=True)
     async def delete(self, ctx):
         """*(admin) Permanently delete a channel*"""

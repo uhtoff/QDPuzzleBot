@@ -19,18 +19,18 @@ class Utility(commands.Cog):
     async def on_ready(self):
         print(f"{type(self).__name__} Cog ready.")
 
-    @commands.command()
-    async def ping(self, ctx):
-        """*Current ping and latency of the bot*
-        **Example**: `{prefix}ping`"""
-        embed = discord.Embed()
-        before_time = time.time()
-        msg = await ctx.send(embed=embed)
-        latency = round(self.bot.latency * 1000)
-        elapsed_ms = round((time.time() - before_time) * 1000) - latency
-        embed.add_field(name="ping", value=f"{elapsed_ms}ms")
-        embed.add_field(name="latency", value=f"{latency}ms")
-        await msg.edit(embed=embed)
+#    @commands.command()
+#    async def ping(self, ctx):
+#        """*Current ping and latency of the bot*
+#        **Example**: `{prefix}ping`"""
+#        embed = discord.Embed()
+#        before_time = time.time()
+#        msg = await ctx.send(embed=embed)
+#        latency = round(self.bot.latency * 1000)
+#        elapsed_ms = round((time.time() - before_time) * 1000) - latency
+#        embed.add_field(name="ping", value=f"{elapsed_ms}ms")
+#        embed.add_field(name="latency", value=f"{latency}ms")
+#        await msg.edit(embed=embed)
 
     @commands.command()
     async def uptime(self, ctx):
@@ -95,7 +95,7 @@ class Utility(commands.Cog):
         **Example**: `{prefix}invite`"""
         embed = discord.Embed()
         embed.description = f"[Invite]({self.bot.invite})"
-        embed.set_footer(text=":ladder: :dog:", icon_url=self.bot.user.avatar_url)
+        embed.set_footer(text=":biohazard: :mag_right:", icon_url=self.bot.user.avatar_url)
         await ctx.send(embed=embed)
 
 
