@@ -13,9 +13,8 @@ class HuntSettings:
     hunt_url_sep: str = "-"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
     hunt_name: str = ""
     hunt_url: str = ""
-    hunt_puzzle_prefix: str = "puzzle"
-    drive_nexus_sheet_id: str = ""  # Refer to gsheet_nexus.py
-    drive_parent_id: str = ""       # ID of root drive folder
+    hunt_puzzle_prefix: str = "puzzles"
+    drive_sheet_id: str = ""  # Refer to gsheet_nexus.py
     role_id: int = 0
 
     def to_entity(self, client: datastore.Client):
@@ -24,8 +23,7 @@ class HuntSettings:
         entity['hunt_url_sep'] = self.hunt_url_sep
         entity['hunt_name'] = self.hunt_name
         entity['hunt_url'] = self.hunt_url
-        entity['drive_nexus_sheet_id'] = self.drive_nexus_sheet_id
-        entity['drive_parent_id'] = self.drive_parent_id
+        entity['drive_sheet_id'] = self.drive_sheet_id
         entity['role_id'] = self.role_id
         return entity
 
@@ -38,8 +36,7 @@ class HuntSettings:
         hunt.hunt_url_sep = entity['hunt_url_sep']
         hunt.hunt_name = entity['hunt_name']
         hunt.hunt_url = entity['hunt_url']
-        hunt.drive_nexus_sheet_id = entity['drive_nexus_sheet_id']
-        hunt.drive_parent_id = entity['drive_parent_id']
+        hunt.drive_sheet_id = entity['drive_sheet_id']
         hunt.role_id = entity['role_id']
         return hunt
 

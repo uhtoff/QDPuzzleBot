@@ -141,3 +141,4 @@ config.json
 data/*
 .DS_store
 */.DS_store
+cardboard*.json

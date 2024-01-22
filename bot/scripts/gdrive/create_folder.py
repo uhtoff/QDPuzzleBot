@@ -6,7 +6,7 @@ python -m bot.scripts.gdrive.create_folder --name [..] --parent [ID]
 """
 import asyncio
 
-from bot.utils.gdrive import get_or_create_folder
+from bot.utils.gdrive_old import get_or_create_folder
 
 if __name__ == "__main__":
     # Find or create a new folder

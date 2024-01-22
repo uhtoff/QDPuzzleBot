@@ -9,7 +9,10 @@ from aiogoogle import Aiogoogle
 from aiogoogle.auth.creds import ServiceAccountCreds
 
 # Not sure if this can be consolidated with the gspread_asyncio credentials?
-creds = ServiceAccountCreds(scopes=["https://www.googleapis.com/auth/drive"], **json.load(open("google_secrets.json")))
+creds = ServiceAccountCreds(scopes=["https://www.googleapis.com/auth/drive","https://www.googleapis.com/auth/spreadsheets.readonly"], **json.load(open("google_secrets.json")))
+
+SAMPLE_SPREADSHEET_ID = "14rrpmxZ6-f0oo-3OdrVMc0Iy_ayTYd3yag0_qt-RmLc"
+SAMPLE_RANGE_NAME = "OVERVIEW!A2:E20"
 
 
 async def create_folder(name: str, parent_id: Optional[str] = None) -> dict:

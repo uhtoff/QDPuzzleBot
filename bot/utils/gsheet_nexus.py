@@ -67,7 +67,7 @@ if __name__ == "__main__":
     # python -m bot.utils.gsheet_nexus --sheet [] --guild []
     import argparse
     import asyncio
-    from bot.utils.gsheet import get_credentials
+    from bot.utils.gsheet_old import get_credentials
     from bot.utils.puzzles_data import PuzzleJsonDb
 
     logging.basicConfig(level=logging.DEBUG)

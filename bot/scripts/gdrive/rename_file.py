@@ -6,7 +6,7 @@ python -m bot.scripts.gdrive.rename_file --id [ID] --name [..]
 """
 import asyncio
 
-from bot.utils.gdrive import rename_file
+from bot.utils.gdrive_old import rename_file
 
 if __name__ == "__main__":
     # Find or create a new folder

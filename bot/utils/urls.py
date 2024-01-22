@@ -4,10 +4,13 @@ from typing import Optional
 REGEX_DRIVE_ID = re.compile(r"[-\w]{25,}")
 REGEX_DRIVE_URL = re.compile(r".*/d/(?P<id>[-\w]{25,})[^-\w]?.*")
 
-def spreadsheet_url(sheet_id: str) -> str:
+def spreadsheet_url(sheet_id: str, page_id=None) -> str:
     if sheet_id.startswith("https://"):
         return sheet_id
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+    if page_id is not None:
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={page_id}"
+    else:
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}"
 
 def docs_url(file_id: str) -> str:
     if file_id.startswith("https://"):

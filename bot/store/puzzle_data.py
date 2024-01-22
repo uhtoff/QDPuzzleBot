@@ -26,7 +26,7 @@ class PuzzleData:
     voice_channel_id: int = 0
     hunt_url: str = ""
     google_sheet_id: str = ""
-    google_folder_id: str = ""
+    google_page_id: str = ""
     status: str = ""
     solution: str = ""
     priority: str = ""
@@ -46,7 +46,7 @@ class PuzzleData:
         entity['voice_channel_id'] = self.voice_channel_id
         entity['hunt_url'] = self.hunt_url
         entity['google_sheet_id'] = self.google_sheet_id
-        entity['google_folder_id'] = self.google_folder_id
+        entity['google_page_id'] = self.google_page_id
         entity['status'] = self.status
         entity['solution'] = self.solution
         entity['priority'] = self.priority
@@ -76,7 +76,7 @@ class PuzzleData:
         puz.voice_channel_id = entity['voice_channel_id']
         puz.hunt_url = entity['hunt_url']
         puz.google_sheet_id = entity['google_sheet_id']
-        puz.google_folder_id = entity['google_folder_id']
+        puz.google_page_id = entity['google_page_id']
         puz.status = entity['status']
         puz.solution = entity['solution']
         puz.priority = entity['priority']
