@@ -438,7 +438,7 @@ class GoogleSheets(commands.Cog):
         self.set_puzzle_data(puzzle_data)
         self.update_cell(puzzle_data.hunt_url, 1, 1)
 
-    async def archive_round(self, round_data):
+    async def archive_round_spreadsheet(self, round_data):
         self.set_puzzle_data(round_data)
         round_data.google_page_id = self.get_overview_page_id()
         self.delete_sheet()

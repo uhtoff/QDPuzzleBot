@@ -934,7 +934,7 @@ class Puzzles(commands.Cog):
         round.hunt_url = hunt_settings.hunt_url
         gsheet_cog = self.bot.get_cog("GoogleSheets")
         if gsheet_cog is not None:
-            await gsheet_cog.archive_round(round)
+            await gsheet_cog.archive_round_spreadsheet(round)
         hunt_general_channel = self.get_hunt_channel(ctx)
         category_name = category.name
         del settings.category_mapping[category.id]
@@ -942,6 +942,101 @@ class Puzzles(commands.Cog):
         await category.delete(reason=self.DELETE_REASON)
         await hunt_general_channel.send(f":white_check_mark: Round {category_name} successfully deleted.  "
                                         f"All puzzle sheets have been marked as DELETED and hidden.")
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_round(self, ctx):
+        """*(admin) Permanently archive a round*"""
+        round_channel = self.get_round_channel(ctx.channel)
+        if ctx.channel != round_channel:
+            await ctx.send(f":x: This command must be done from the main round channel")
+            return
+        category = ctx.channel.category
+        guild = ctx.guild
+        settings = GuildSettingsDb.get(guild.id)
+        hunt_id = settings.category_mapping[category.id]
+        hunt_category = discord.utils.get(guild.categories, id=hunt_id)
+        last_position = 0
+        for hunt_channel in hunt_category.channels:
+            if hunt_channel.position > last_position:
+                last_position = hunt_channel.position
+        hunt_settings = settings.hunt_settings[hunt_id]
+        # Delete the channels without many messages and move the others to the end of the main category
+
+        for channel in ctx.channel.category.channels:
+            if channel != round_channel:
+                num_messages = len(await channel.history(limit=10).flatten())
+                if num_messages > 7:
+                    # print(hunt_category.name)
+                    # print(category.name + "-" + channel.name)
+                    last_position += 1
+                    await channel.edit(category=hunt_category, name=category.name + "-" + channel.name, position=last_position)
+                else:
+                    # Try to delete as a real puzzle channel, if not one then delete anyway
+                    if not await self.delete_puzzle_data(ctx, channel, False):
+                        await channel.delete(reason=self.DELETE_REASON)
+        #create round object for Sheets Cog
+
+
+        # round = PuzzleData(category.name)
+        # round.round_name = category.name
+        # round.round_id = category.id
+        # round.google_sheet_id = hunt_settings.drive_sheet_id
+        # round.hunt_url = hunt_settings.hunt_url
+        # gsheet_cog = self.bot.get_cog("GoogleSheets")
+        # if gsheet_cog is not None:
+        #     await gsheet_cog.archive_round_spreadsheet(round)
+        hunt_general_channel = self.get_hunt_channel(ctx)
+        category_name = category.name
+        del settings.category_mapping[category.id]
+        last_position += 1
+        await round_channel.edit(category=hunt_category, name=category.name + "-" + round_channel.name,
+                                 position=last_position)
+        await category.delete(reason=self.DELETE_REASON)
+        await hunt_general_channel.send(f":white_check_mark: Round {category_name} successfully archived.")
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_solved_manually(self, ctx):
+        """*(admin) Permanently archive solved puzzles*"""
+        guild = ctx.guild
+        settings = GuildSettingsDb.get(guild.id)
+        hunt_id = ctx.channel.category.id
+        hunt_category = discord.utils.get(guild.categories, id=hunt_id)
+        hunt_settings = settings.hunt_settings[hunt_id]
+        solved_category_name = self.get_solved_puzzle_category(hunt_settings.hunt_name)
+        print(solved_category_name)
+        solved_category = discord.utils.get(guild.categories, name=solved_category_name)
+        last_position = 0
+        for hunt_channel in hunt_category.channels:
+            if hunt_channel.position > last_position:
+                last_position = hunt_channel.position
+
+        # Delete the channels without many messages and move the others to the end of the main category
+
+        for channel in solved_category.channels:
+            num_messages = len(await channel.history(limit=10).flatten())
+            if num_messages > 7:
+                # print(hunt_category.name)
+                # print(category.name + "-" + channel.name)
+                last_position += 1
+                await channel.edit(category=hunt_category, name="solved-" + channel.name, position=last_position)
+            else:
+                await channel.delete(reason=self.DELETE_REASON)
+        #create round object for Sheets Cog
+
+
+        # round = PuzzleData(category.name)
+        # round.round_name = category.name
+        # round.round_id = category.id
+        # round.google_sheet_id = hunt_settings.drive_sheet_id
+        # round.hunt_url = hunt_settings.hunt_url
+        # gsheet_cog = self.bot.get_cog("GoogleSheets")
+        # if gsheet_cog is not None:
+        #     await gsheet_cog.archive_round_spreadsheet(round)
+        hunt_general_channel = self.get_hunt_channel(ctx)
+        await solved_category.delete(reason=self.DELETE_REASON)
+        await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -959,24 +1054,24 @@ class Puzzles(commands.Cog):
         except:
             await ctx.send(f":x: Channel deletion failed")
 
-    async def delete_puzzle_data(self, ctx, channel):
+    async def delete_puzzle_data(self, ctx, channel, delete_sheet=True):
         puzzle_data = self.get_puzzle_data_from_channel(channel)
         if not puzzle_data:
             await self.send_not_puzzle_channel(ctx)
-            return
+            return False
 
         if puzzle_data.solution:
             raise ValueError("Unable to delete a solved puzzle channel, please contact discord admins if needed")
 
         category = channel.category
 
-        # TODO: need to confirm deletion first!
+        if delete_sheet is True:
+            gsheet_cog = self.bot.get_cog("GoogleSheets")
+            if gsheet_cog is not None:
+                await gsheet_cog.delete_puzzle_spreadsheet(puzzle_data)
 
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            await gsheet_cog.delete_puzzle_spreadsheet(puzzle_data)
+            PuzzleJsonDb.delete(puzzle_data)
 
-        PuzzleJsonDb.delete(puzzle_data)
         voice_channel = discord.utils.get(
             ctx.guild.channels, category=category, type=discord.ChannelType.voice, name=channel.name
         )
@@ -984,6 +1079,7 @@ class Puzzles(commands.Cog):
             await voice_channel.delete(reason=self.DELETE_REASON)
         # delete text channel last so that errors can be reported
         await channel.delete(reason=self.DELETE_REASON)
+        return True
 
     # async def confirm_delete(self, ctx):
     #     ref: https://github.com/stroupbslayen/discord-pretty-help/blob/master/pretty_help/pretty_help.py
