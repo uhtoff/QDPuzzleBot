@@ -31,6 +31,26 @@ def get_sheet():
     except HttpError as err:
         print(err)
 
+def get_drive():
+    creds = Credentials.from_service_account_file("google_secrets.json")
+    scoped = creds.with_scopes(
+        [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+    )
+
+    try:
+        service = build("drive", "v3", credentials=creds)
+
+        # Call the Drive API
+        # drive = service.files()
+
+        return service
+
+    except HttpError as err:
+        print(err)
 
 def batch_update(body):
     get_sheet().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=body).execute()

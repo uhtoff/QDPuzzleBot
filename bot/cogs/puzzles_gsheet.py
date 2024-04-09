@@ -18,7 +18,7 @@ import pytz
 
 from bot.utils import urls
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings
-from bot.utils.gsheets import get_sheet
+from bot.utils.gsheets import get_sheet, get_drive
 from bot.utils.appscript import create_project, add_javascript
 from bot.utils.gsheet_nexus import update_nexus
 from googleapiclient.discovery import build
@@ -35,6 +35,7 @@ class GoogleSheets(commands.Cog):
     FORMULA_INPUT = "formulaValue"
     PUZZLE_SHEET = "Tab template"
     ROUND_SHEET = "OVERVIEW Template"
+    MASTER_SPREADSHEET_ID = "1CkLpcL8jUVBjSrs8tcfWFp2uGvnVTUJhl0FgXHsXH7M"
 
     def __init__(self, bot):
         self.bot = bot
@@ -467,6 +468,20 @@ class GoogleSheets(commands.Cog):
         self.update_cell("Solved", 3, 1)
         self.move_sheet_to_end()
         self.change_tab_colour('green')
+
+    async def create_hunt_spreadsheet(self, hunt_name):
+        permission = {
+            'type': 'anyone',
+            'role': 'writer'
+        }
+        body = {
+            'name': hunt_name
+        }
+        new_file = get_drive().files().copy(fileId=self.MASTER_SPREADSHEET_ID).execute()
+        new_file_id = new_file['id']
+        get_drive().files().update(fileId=new_file_id, body=body).execute()
+        get_drive().permissions().create(fileId=new_file_id, body=permission).execute()
+        return new_file_id
 
     async def create_round_overview_spreadsheet(self, round_data):
         self.set_puzzle_data(round_data)

@@ -25,6 +25,7 @@ class Puzzles(commands.Cog):
     SOLVE_CATEGORY = False
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
+    MASTER_SPREADSHEET_ID = "1CkLpcL8jUVBjSrs8tcfWFp2uGvnVTUJhl0FgXHsXH7M"
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
@@ -150,7 +151,7 @@ class Puzzles(commands.Cog):
             GuildSettingsDb.commit(settings)
         text_channel, created_text = await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME + "-" + category_name,
-                overwrites=overwrites,
+                overwrites=overwrites, position=1,
                 channel_type="text", reason=self.ROUND_REASON
             )
 
@@ -158,7 +159,7 @@ class Puzzles(commands.Cog):
             await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
                 overwrites=overwrites,
-                channel_type="text", reason=self.ROUND_REASON
+                channel_type="text", reason=self.ROUND_REASON, position = 500
             )
 
         round = PuzzleData(arg)
@@ -403,6 +404,7 @@ class Puzzles(commands.Cog):
         category_name = self.clean_name(hunt_name)
         overwrites = None
         role = None
+        google_drive_id = None
         if role_name:
             role = await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
             overwrites = self.get_overwrites(guild, role)
@@ -416,6 +418,11 @@ class Puzzles(commands.Cog):
         if self.SOLVE_CATEGORY:
             solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=max(len(guild.categories) - 2,0))
 
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+
+        if gsheet_cog is not None:
+            google_drive_id = await gsheet_cog.create_hunt_spreadsheet(hunt_name)
+
 
         hs = HuntSettings(
             hunt_name=hunt_name,
@@ -424,6 +431,8 @@ class Puzzles(commands.Cog):
         )
         if role:
             hs.role_id=role.id
+        if google_drive_id:
+            hs.drive_sheet_id=google_drive_id
 
         # gsheet_cog = self.bot.get_cog("GoogleSheets")
         # print("google sheets cog:", gsheet_cog)
@@ -475,19 +484,33 @@ class Puzzles(commands.Cog):
 
         if self.SOLVE_CATEGORY:
             text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", reason=self.PUZZLE_REASON
+                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites,
+                channel_type="text", reason=self.PUZZLE_REASON
             )
         else:
+            general_channel = self.get_general_channel(category)
+            await general_channel.edit(position=1)
             solved_channel = self.get_solved_channel(category)
-            puzzle_channel_position = solved_channel.position
-            print (solved_channel.position)
-            await solved_channel.edit(position=solved_channel.position + 1)
-            print (solved_channel.position)
+            await solved_channel.edit(position=500)
+            round_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
+            round_puzzles = PuzzleData.sort_by_puzzle_start(round_puzzles)
+            puzzle_position = 2
+            for puzzle in round_puzzles:
+                if puzzle.round_name != round_name:
+                    continue
+                puzzle_channel = discord.utils.get(
+                    guild.channels, type=discord.ChannelType.text, id=puzzle.channel_id
+                )
+                if puzzle.solution:
+                    await puzzle_channel.edit(position=puzzle_position + 1000)
+                else:
+                    await puzzle_channel.edit(position=puzzle_position)
+                puzzle_position = puzzle_position + 1
+
             text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", position=puzzle_channel_position,
-                reason=self.PUZZLE_REASON
+                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text",
+                position=puzzle_position, reason=self.PUZZLE_REASON
             )
-            print (text_channel.position)
 
         if created_text:
             hunt_settings = settings.hunt_settings[hunt_id]
@@ -1250,10 +1273,21 @@ class Puzzles(commands.Cog):
             if c.name.find(self.GENERAL_CHANNEL_NAME) == 0:
                 return c
 
+
+    def get_general_channel(self, category):
+        general_channel = None
+        for channel in category.channels:
+            if channel.name == self.GENERAL_CHANNEL_NAME + "-" + category.name:
+                general_channel = channel
+        return general_channel
+
     def get_solved_channel(self, category):
+        solved_channel = None
         for channel in category.channels:
             if channel.name == self.SOLVE_DIVIDER:
-                return channel
+                solved_channel = channel
+        return solved_channel
+
     @staticmethod
     def get_position_last_channel(category):
         last_position = 0

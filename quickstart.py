@@ -8,8 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # The ID and range of a sample spreadsheet.
-SPREADSHEET_ID = "1CkLpcL8jUVBjSrs8tcfWFp2uGvnVTUJhl0FgXHsXH7M"
-
+MASTER_SPREADSHEET_ID = "1CkLpcL8jUVBjSrs8tcfWFp2uGvnVTUJhl0FgXHsXH7M"
 
 def get_sheet():
     creds = Credentials.from_service_account_file("google_secrets.json")
@@ -27,6 +26,27 @@ def get_sheet():
         # Call the Sheets API
         sheet = service.spreadsheets()
         return sheet
+
+    except HttpError as err:
+        print(err)
+
+def get_drive():
+    creds = Credentials.from_service_account_file("google_secrets.json")
+    scoped = creds.with_scopes(
+        [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+    )
+
+    try:
+        service = build("drive", "v3", credentials=creds)
+
+        # Call the Drive API
+        # drive = service.files()
+
+        return service
 
     except HttpError as err:
         print(err)
@@ -533,7 +553,38 @@ def set_metadata(key, value):
     batch_update(body)
 
 def main():
-    print_sheets()
+    permission = {
+        'type': 'anyone',
+        'role': 'writer'
+    }
+    body = {
+        'name': 'New Hunt Sheet 3'
+    }
+    new_file = get_drive().files().copy(fileId=MASTER_SPREADSHEET_ID).execute()
+    # body = {'name': 'New Hunt Sheet'}
+    # get_drive().update(fileId=new_file['id'], body=body).execute()
+
+    print("\n" + new_file['id'] + " " + new_file['name'])
+
+    #new_file['name'] = "New Hunt Sheet"
+    get_drive().files().update(fileId=new_file['id'], body=body).execute()
+    get_drive().permissions().create(fileId=new_file['id'], body=permission).execute()
+
+    # get_drive().delete(fileId="1gtFe61dElmTaEJkq2lwIaNMp0givlAr5rnQvIeIzH8k").execute()
+    files = get_drive().files().list().execute()
+    items = files["files"]
+    for item in items:
+    #     if item['name'] == 'Copy of Master Bot Puzzle Hunt Sheet Template':
+        print ("\n" + item['id'] + " " + item['name'])
+    #         get_drive().delete(fileId=item['id']).execute()
+    # permission= {
+    #     'type': 'user',
+    #     'role': 'writer',
+    #     'emailAddress': 'russ.hewson@gmail.com'
+    # }
+
+    file = get_drive().files().get(fileId=new_file['id'],fields="webViewLink").execute()
+    print ("\n" + file['webViewLink'])
 
 if __name__ == "__main__":
     main()
