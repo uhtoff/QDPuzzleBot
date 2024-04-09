@@ -1170,18 +1170,7 @@ class Puzzles(commands.Cog):
                 PuzzleJsonDb.commit(puzzle)
         return puzzles_to_archive
 
-    @staticmethod
-    def get_position_last_channel(category):
-        last_position = 0
-        for hunt_channel in category.channels:
-            if hunt_channel.position > last_position:
-                last_position = hunt_channel.position
-        return last_position
 
-    def get_solved_channel(self, category):
-        for channel in category.channels:
-            if channel.name == self.SOLVE_DIVIDER:
-                return channel
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1260,6 +1249,20 @@ class Puzzles(commands.Cog):
         for c in channel.category.channels:
             if c.name.find(self.GENERAL_CHANNEL_NAME) == 0:
                 return c
+
+    def get_solved_channel(self, category):
+        for channel in category.channels:
+            if channel.name == self.SOLVE_DIVIDER:
+                return channel
+    @staticmethod
+    def get_position_last_channel(category):
+        last_position = 0
+        for hunt_channel in category.channels:
+            if hunt_channel.position > last_position:
+                last_position = hunt_channel.position
+        return last_position
+
+
 
 def setup(bot):
     bot.add_cog(Puzzles(bot))
