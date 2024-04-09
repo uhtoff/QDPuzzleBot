@@ -22,6 +22,8 @@ class Puzzles(commands.Cog):
     DELETE_REASON = "bot-delete"
     HUNT_REASON = "bot-hunt-general"
     ROUND_REASON = "bot-round"
+    SOLVE_CATEGORY = False
+    SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
@@ -147,10 +149,18 @@ class Puzzles(commands.Cog):
             settings.category_mapping[category.id] = hunt_id
             GuildSettingsDb.commit(settings)
         text_channel, created_text = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME + "-" + category_name,
-            overwrites=overwrites,
-            channel_type="text", reason=self.ROUND_REASON
-        )
+                guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME + "-" + category_name,
+                overwrites=overwrites,
+                channel_type="text", reason=self.ROUND_REASON
+            )
+
+        if self.SOLVE_CATEGORY is False:
+            await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
+                overwrites=overwrites,
+                channel_type="text", reason=self.ROUND_REASON
+            )
+
         round = PuzzleData(arg)
         round.round_name = category_name
         round.round_id = category.id
@@ -402,7 +412,9 @@ class Puzzles(commands.Cog):
             guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, overwrites=overwrites, channel_type="text", reason=self.HUNT_REASON
         )
         settings = GuildSettingsDb.get(guild.id)
-        solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=max(len(guild.categories) - 2,0))
+
+        if self.SOLVE_CATEGORY:
+            solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=max(len(guild.categories) - 2,0))
 
 
         hs = HuntSettings(
@@ -461,9 +473,22 @@ class Puzzles(commands.Cog):
         # except:
         #     sheet_id = ''
 
-        text_channel, created_text = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", reason=self.PUZZLE_REASON
-        )
+        if self.SOLVE_CATEGORY:
+            text_channel, created_text = await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", reason=self.PUZZLE_REASON
+            )
+        else:
+            solved_channel = self.get_solved_channel(category)
+            puzzle_channel_position = solved_channel.position
+            print (solved_channel.position)
+            await solved_channel.edit(position=solved_channel.position + 1)
+            print (solved_channel.position)
+            text_channel, created_text = await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text", position=puzzle_channel_position,
+                reason=self.PUZZLE_REASON
+            )
+            print (text_channel.position)
+
         if created_text:
             hunt_settings = settings.hunt_settings[hunt_id]
 
@@ -1118,20 +1143,25 @@ class Puzzles(commands.Cog):
             puzzles_by_hunt[puzz.hunt_name].append(puzz)
 
         for hunt_name, puzzles in puzzles_by_hunt.items():
-            solved_category_name = self.get_solved_puzzle_category(hunt_name)
-            solved_category = discord.utils.get(guild.categories, name=solved_category_name)
-            if not solved_category:
-                avail_categories = [c.name for c in guild.categories]
-                raise ValueError(
-                    f"{solved_category_name} category does not exist; available categories: {avail_categories}"
-            )
+            if self.SOLVE_CATEGORY:
+                solved_category_name = self.get_solved_puzzle_category(hunt_name)
+                solved_category = discord.utils.get(guild.categories, name=solved_category_name)
+                if not solved_category:
+                    avail_categories = [c.name for c in guild.categories]
+                    raise ValueError(
+                        f"{solved_category_name} category does not exist; available categories: {avail_categories}"
+                )
 
             for puzzle in puzzles:
                 channel = discord.utils.get(
                     guild.channels, type=discord.ChannelType.text, id=puzzle.channel_id
                 )
                 if channel:
-                    await channel.edit(category=solved_category)
+                    if self.SOLVE_CATEGORY:
+                        await channel.edit(category=solved_category)
+                    else:
+                        last_position=self.get_position_last_channel(channel.category)
+                        await channel.edit(position=last_position+1)
 
                 if gsheet_cog:
                     await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
@@ -1139,6 +1169,19 @@ class Puzzles(commands.Cog):
                 puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
                 PuzzleJsonDb.commit(puzzle)
         return puzzles_to_archive
+
+    @staticmethod
+    def get_position_last_channel(category):
+        last_position = 0
+        for hunt_channel in category.channels:
+            if hunt_channel.position > last_position:
+                last_position = hunt_channel.position
+        return last_position
+
+    def get_solved_channel(self, category):
+        for channel in category.channels:
+            if channel.name == self.SOLVE_DIVIDER:
+                return channel
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin')
