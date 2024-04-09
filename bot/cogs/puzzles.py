@@ -194,11 +194,11 @@ class Puzzles(commands.Cog):
             settings = settings.hunt_settings[hunt_id]
         await ctx.channel.send(f"```json\n{settings.to_json(indent=2)}```")
 
-    @commands.command()
+    @commands.command(aliases=["update_setting"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
-        """*(admin) Update guild setting: !update_setting key value*"""
+        """*(admin) Update guild setting: !update_settings key value*"""
         guild_id = ctx.guild.id
         settings = GuildSettingsDb.get(guild_id)
         hunt_id = ctx.channel.category.id
