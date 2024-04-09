@@ -144,8 +144,9 @@ class Puzzles(commands.Cog):
             if hunt_settings.role_id:
                 role = discord.utils.get(guild.roles, id=hunt_settings.role_id)
             overwrites = self.get_overwrites(guild, role)
-            position = ctx.channel.category.position
-            category = await guild.create_category(category_name, overwrites=overwrites, position=position)
+            position = ctx.channel.category.position + 1
+            category = await ctx.channel.category.clone(name=category_name)
+            await category.edit(overwrites=overwrites, position=position)
         if not category.id in settings.category_mapping:
             settings.category_mapping[category.id] = hunt_id
             GuildSettingsDb.commit(settings)
@@ -962,9 +963,15 @@ class Puzzles(commands.Cog):
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a round*"""
         round_channel = self.get_round_channel(ctx.channel)
+
         if ctx.channel != round_channel:
             await ctx.send(f":x: This command must be done from the main round channel")
             return
+
+        if self.SOLVE_CATEGORY is False:
+            solved_divider = self.get_solved_channel(ctx.channel.category)
+            if solved_divider:
+                await solved_divider.delete(reason=self.DELETE_REASON)
         # Delete the puzzles in the channel
         for channel in ctx.channel.category.channels:
             if channel != round_channel:
@@ -1108,7 +1115,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return False
 
-        if puzzle_data.solution:
+        if puzzle_data.solution and self.SOLVE_CATEGORY is True:
             raise ValueError("Unable to delete a solved puzzle channel, please contact discord admins if needed")
 
         category = channel.category
