@@ -137,6 +137,9 @@ class Puzzles(commands.Cog):
         guild = ctx.guild
         category = discord.utils.get(guild.categories, name=category_name)
         settings = GuildSettingsDb.get(guild.id)
+        if category:
+            category_name = category.name + " — " + ctx.channel.category.name
+            category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             hunt_settings = settings.hunt_settings[hunt_id]
             print(f"Creating a new channel category for round: {category_name}")
@@ -147,6 +150,8 @@ class Puzzles(commands.Cog):
             position = ctx.channel.category.position + 1
             category = await ctx.channel.category.clone(name=category_name)
             await category.edit(overwrites=overwrites, position=position)
+        else:
+            raise ValueError(f"Category {category_name} already present in this server")
         if not category.id in settings.category_mapping:
             settings.category_mapping[category.id] = hunt_id
             GuildSettingsDb.commit(settings)
