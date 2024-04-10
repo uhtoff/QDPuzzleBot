@@ -16,6 +16,8 @@ class HuntSettings:
     hunt_puzzle_prefix: str = "puzzles"
     drive_sheet_id: str = ""  # Refer to gsheet_nexus.py
     role_id: int = 0
+    username: str = ""
+    password: str = ""
 
     def to_entity(self, client: datastore.Client):
         key = client.key('Hunt', self.hunt_id, 'Guild', self.guild_id)
@@ -38,6 +40,8 @@ class HuntSettings:
         hunt.hunt_url = entity['hunt_url']
         hunt.drive_sheet_id = entity['drive_sheet_id']
         hunt.role_id = entity['role_id']
+        hunt.username = entity['username']
+        hunt.password = entity['password']
         return hunt
 
 

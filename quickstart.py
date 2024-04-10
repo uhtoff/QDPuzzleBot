@@ -553,38 +553,41 @@ def set_metadata(key, value):
     batch_update(body)
 
 def main():
-    permission = {
-        'type': 'anyone',
-        'role': 'writer'
-    }
-    body = {
-        'name': 'New Hunt Sheet 3'
-    }
-    new_file = get_drive().files().copy(fileId=MASTER_SPREADSHEET_ID).execute()
-    # body = {'name': 'New Hunt Sheet'}
-    # get_drive().update(fileId=new_file['id'], body=body).execute()
+    # permission = {
+    #     'type': 'anyone',
+    #     'role': 'writer'
+    # }
+    # body = {
+    #     'name': 'New Hunt Sheet 3'
+    # }
+    # new_file = get_drive().files().copy(fileId=MASTER_SPREADSHEET_ID).execute()
+    # # body = {'name': 'New Hunt Sheet'}
+    # # get_drive().update(fileId=new_file['id'], body=body).execute()
+    #
+    # print("\n" + new_file['id'] + " " + new_file['name'])
+    #
+    # #new_file['name'] = "New Hunt Sheet"
+    # get_drive().files().update(fileId=new_file['id'], body=body).execute()
 
-    print("\n" + new_file['id'] + " " + new_file['name'])
-
-    #new_file['name'] = "New Hunt Sheet"
-    get_drive().files().update(fileId=new_file['id'], body=body).execute()
-    get_drive().permissions().create(fileId=new_file['id'], body=permission).execute()
 
     # get_drive().delete(fileId="1gtFe61dElmTaEJkq2lwIaNMp0givlAr5rnQvIeIzH8k").execute()
     files = get_drive().files().list().execute()
     items = files["files"]
+
+    permission= {
+        'type': 'user',
+        'role': 'writer',
+        'emailAddress': 'russ.hewson@gmail.com'
+    }
+
     for item in items:
     #     if item['name'] == 'Copy of Master Bot Puzzle Hunt Sheet Template':
         print ("\n" + item['id'] + " " + item['name'])
+        get_drive().permissions().create(fileId=item['id'], body=permission).execute()
     #         get_drive().delete(fileId=item['id']).execute()
-    # permission= {
-    #     'type': 'user',
-    #     'role': 'writer',
-    #     'emailAddress': 'russ.hewson@gmail.com'
-    # }
 
-    file = get_drive().files().get(fileId=new_file['id'],fields="webViewLink").execute()
-    print ("\n" + file['webViewLink'])
+    # file = get_drive().files().get(fileId=new_file['id'],fields="webViewLink").execute()
+    # print ("\n" + file['webViewLink'])
 
 if __name__ == "__main__":
     main()

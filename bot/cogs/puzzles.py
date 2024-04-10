@@ -602,7 +602,8 @@ class Puzzles(commands.Cog):
             name="Important Links",
             value=f"""The following are some useful links:
 • Hunt Website: {hunt.hunt_url}
-• Login details: Username = qdecrypters Password = Decrypt935
+• Hunt Username: {hunt.username}
+• Hunt Password: {hunt.password}
 • Google Sheet: https://docs.google.com/spreadsheets/d/{hunt.drive_sheet_id}
 """,
             inline=False,
