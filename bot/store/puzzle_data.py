@@ -40,7 +40,7 @@ class PuzzleData:
         key = client.key('Guild', self.guild_id, 'Hunt', self.hunt_id, 'Round', self.round_id, 'Puzzle', self.channel_id)
         entity = datastore.Entity(key)
         entity['name'] = self.name
-        entity['hunt_name'] =  self.hunt_name
+        entity['hunt_name'] = self.hunt_name
         entity['round_name'] = self.round_name
         entity['channel_mention'] = self.channel_mention
         entity['voice_channel_id'] = self.voice_channel_id
