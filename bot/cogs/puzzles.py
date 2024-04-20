@@ -136,7 +136,7 @@ class Puzzles(commands.Cog):
         guild = ctx.guild
         settings = GuildSettingsDb.get(guild.id)
         hunt_name = ctx.channel.category.name
-        category_name = self.clean_name(arg) + " ⟨" + hunt_name + "⟩"
+        category_name = self.clean_name(arg)
         category = discord.utils.get(guild.categories, name=category_name)
         if category:
             category_name = category.name + " — " + ctx.channel.category.name
