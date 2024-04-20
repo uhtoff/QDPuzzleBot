@@ -133,10 +133,11 @@ class Puzzles(commands.Cog):
             return
 
         hunt_id = ctx.channel.category.id
-        category_name = self.clean_name(arg)
         guild = ctx.guild
-        category = discord.utils.get(guild.categories, name=category_name)
         settings = GuildSettingsDb.get(guild.id)
+        hunt_name = ctx.channel.category.name
+        category_name = self.clean_name(arg) + " ⟨" + hunt_name + "⟩"
+        category = discord.utils.get(guild.categories, name=category_name)
         if category:
             category_name = category.name + " — " + ctx.channel.category.name
             category = discord.utils.get(guild.categories, name=category_name)
