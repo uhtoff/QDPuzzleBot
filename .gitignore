@@ -1,5 +1,6 @@
 nohup.out
 processnum
+dbtest.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
