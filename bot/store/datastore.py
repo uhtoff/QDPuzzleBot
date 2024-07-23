@@ -1,4 +1,4 @@
-class DatastorePuzzleJsonDb(_PuzzleJsonDb):
+2class DatastorePuzzleJsonDb(_PuzzleJsonDb):
     def commit(self, puzzle_data):
         pass
     def delete(self, puzzle_data):

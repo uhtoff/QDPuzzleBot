@@ -9,7 +9,7 @@ pytest = "*"
 
 [packages]
 "discord.py" = "*"
-alembic = "*"
+"mysql.connector" = "*"
 gino = "*"
 # psycopg2 = "*"  # not currently used
 dataclasses-json = "*"
@@ -22,3 +22,4 @@ google-api-python-client = "*"
 oauth2client = "*"
 google-cloud-datastore = "*"
 gitpython = "*"
+mysql = {connector = "*"}

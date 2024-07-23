@@ -150,7 +150,8 @@ class Puzzles(commands.Cog):
             overwrites = self.get_overwrites(guild, role)
             position = ctx.channel.category.position + 1
             category = await ctx.channel.category.clone(name=category_name)
-            await category.edit(overwrites=overwrites, position=position)
+            # await category.edit(overwrites=overwrites, position=position)
+            await category.edit(position=position)
         else:
             raise ValueError(f"Category {category_name} already present in this server")
         if not category.id in settings.category_mapping:
@@ -158,14 +159,13 @@ class Puzzles(commands.Cog):
             GuildSettingsDb.commit(settings)
         text_channel, created_text = await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME + "-" + category_name,
-                overwrites=overwrites, position=1,
+                position=1,
                 channel_type="text", reason=self.ROUND_REASON
             )
 
         if self.SOLVE_CATEGORY is False:
             await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
-                overwrites=overwrites,
                 channel_type="text", reason=self.ROUND_REASON, position = 500
             )
 
@@ -245,6 +245,23 @@ class Puzzles(commands.Cog):
             await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
         else:
             await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
+
+    @commands.command(aliases=['import'])
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_permissions(manage_channels=True)
+    async def import_puzzles(self, ctx):
+        """*Import puzzles from the file system to the database*"""
+        guild = ctx.guild
+        settings = GuildSettingsDb.get(guild.id)
+        if ctx.channel.name != self.GENERAL_CHANNEL_NAME:
+            # all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, self.get_puzzle_data_from_channel(ctx.channel).hunt_id)
+            all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
+        else:
+            # all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
+            all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id, ctx.channel.category.id)
+        for puzzle in all_puzzles:
+            PuzzleJsonDb.commit(puzzle)
+
 
     @commands.command(aliases=["list"])
     async def list_puzzles(self, ctx):
@@ -416,14 +433,14 @@ class Puzzles(commands.Cog):
             role = await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
             overwrites = self.get_overwrites(guild, role)
 
-        category = await guild.create_category(category_name, overwrites=overwrites, position=max(len(guild.categories) - 2,0))
+        category = await guild.create_category(category_name, position=max(len(guild.categories) - 2,0))
         text_channel, created_text = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, overwrites=overwrites, channel_type="text", reason=self.HUNT_REASON
+            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, channel_type="text", reason=self.HUNT_REASON
         )
         settings = GuildSettingsDb.get(guild.id)
 
         if self.SOLVE_CATEGORY:
-            solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), overwrites=overwrites, position=max(len(guild.categories) - 2,0))
+            solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), position=max(len(guild.categories) - 2,0))
 
         gsheet_cog = self.bot.get_cog("GoogleSheets")
 
@@ -491,7 +508,7 @@ class Puzzles(commands.Cog):
 
         if self.SOLVE_CATEGORY:
             text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites,
+                guild=guild, category=category, channel_name=channel_name,
                 channel_type="text", reason=self.PUZZLE_REASON
             )
         else:
@@ -515,7 +532,7 @@ class Puzzles(commands.Cog):
                 puzzle_position = puzzle_position + 1
 
             text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="text",
+                guild=guild, category=category, channel_name=channel_name, channel_type="text",
                 position=puzzle_position, reason=self.PUZZLE_REASON
             )
 
@@ -566,7 +583,7 @@ class Puzzles(commands.Cog):
         created_voice = False
         if settings.discord_use_voice_channels:
             voice_channel, created_voice = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, overwrites=overwrites, channel_type="voice", reason=self.PUZZLE_REASON
+                guild=guild, category=category, channel_name=channel_name, channel_type="voice", reason=self.PUZZLE_REASON
             )
             if created_voice:
                 puzzle_data.voice_channel_id = voice_channel.id
@@ -1312,5 +1329,5 @@ class Puzzles(commands.Cog):
 
 
 
-def setup(bot):
-    bot.add_cog(Puzzles(bot))
+async def setup(bot):
+    await bot.add_cog(Puzzles(bot))

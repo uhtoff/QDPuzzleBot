@@ -8,6 +8,7 @@ from dataclasses_json import dataclass_json
 @dataclass_json
 @dataclass
 class HuntSettings:
+    id: int = 0
     hunt_id: int = 0
     guild_id: int = 0
     hunt_url_sep: str = "-"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
@@ -50,6 +51,7 @@ class HuntSettings:
 @dataclass
 class GuildSettings:
     guild_id: int
+    id: int = 0
     guild_name: str = ""
     discord_bot_channel: str = ""   # Channel to listen for bot commands
     discord_bot_emoji: str = ":biohazard: :mag_right:"  # Short description string or emoji for bot messages

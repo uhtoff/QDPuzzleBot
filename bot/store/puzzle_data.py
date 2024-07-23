@@ -3,6 +3,7 @@ from dataclasses_json import dataclass_json
 from google.cloud import datastore
 import datetime
 import logging
+import json
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,8 @@ class MissingPuzzleError(RuntimeError):
 @dataclass_json
 @dataclass
 class PuzzleData:
-    name: str
+    name: str = ""
+    id: int = 0
     hunt_name: str=""
     hunt_id: str = 0
     round_name: str = ""
@@ -57,34 +59,62 @@ class PuzzleData:
         entity['archive_time'] = self.archive_time
         return entity
 
-    @classmethod
-    def from_entity(cls, entity: datastore.Entity):
-        puz = PuzzleData()
-        key = entity.key
-        round_key = key.parent
-        hunt_key = round_key.parent
-        guild_key = hunt_key.parent
+    # @classmethod
+    # def from_entity(cls, entity: datastore.Entity):
+    #     puz = PuzzleData()
+    #     key = entity.key
+    #     round_key = key.parent
+    #     hunt_key = round_key.parent
+    #     guild_key = hunt_key.parent
+    #
+    #     puz.channel_id = key.id_or_name
+    #     puz.round_id = round_key.id_or_name
+    #     puz.hunt_id = hunt_key.id_or_name
+    #     puz.guild_id = guild_key.id_or_name
+    #     puz.name = entity['name']
+    #     puz.hunt_name = entity['hunt_name']
+    #     puz.round_name = entity['round_name']
+    #     puz.channel_mention = entity['channel_mention']
+    #     puz.voice_channel_id = entity['voice_channel_id']
+    #     puz.hunt_url = entity['hunt_url']
+    #     puz.google_sheet_id = entity['google_sheet_id']
+    #     puz.google_page_id = entity['google_page_id']
+    #     puz.status = entity['status']
+    #     puz.solution = entity['solution']
+    #     puz.priority = entity['priority']
+    #     puz.puzzle_type = entity['puzzle_type']
+    #     puz.notes = entity['notes']
+    #     puz.start_time = entity['start_time']
+    #     puz.solve_time = entity['solve_time']
+    #     puz.archive_time = entity['archive_time']
+    #     return puz
 
-        puz.channel_id = key.id_or_name
-        puz.round_id = round_key.id_or_name
-        puz.hunt_id = hunt_key.id_or_name
-        puz.guild_id = guild_key.id_or_name
-        puz.name = entity['name']
-        puz.hunt_name = entity['hunt_name']
-        puz.round_name = entity['round_name']
-        puz.channel_mention = entity['channel_mention']
-        puz.voice_channel_id = entity['voice_channel_id']
-        puz.hunt_url = entity['hunt_url']
-        puz.google_sheet_id = entity['google_sheet_id']
-        puz.google_page_id = entity['google_page_id']
-        puz.status = entity['status']
-        puz.solution = entity['solution']
-        puz.priority = entity['priority']
-        puz.puzzle_type = entity['puzzle_type']
-        puz.notes = entity['notes']
-        puz.start_time = entity['start_time']
-        puz.solve_time = entity['solve_time']
-        puz.archive_time = entity['archive_time']
+    @classmethod
+    def from_dict(puzzle_data: dict):
+        puz = PuzzleData()
+        print(puzzle_data['notes'])
+        print(json.loads(puzzle_data['notes']))
+        puz.id = puzzle_data['id']
+        puz.channel_id = puzzle_data['channel_id']
+        puz.round_id = puzzle_data['round_id']
+        puz.hunt_id = puzzle_data['hunt_id']
+        puz.guild_id = puzzle_data['guild_id']
+        puz.name = puzzle_data['name']
+        puz.hunt_name = puzzle_data['hunt_name']
+        puz.round_name = puzzle_data['round_name']
+        puz.channel_mention = puzzle_data['channel_mention']
+        puz.voice_channel_id = puzzle_data['voice_channel_id']
+        puz.hunt_url = puzzle_data['hunt_url']
+        puz.google_sheet_id = puzzle_data['google_sheet_id']
+        puz.google_page_id = puzzle_data['google_page_id']
+        puz.status = puzzle_data['status']
+        puz.solution = puzzle_data['solution']
+        puz.priority = puzzle_data['priority']
+        puz.puzzle_type = puzzle_data['puzzle_type']
+        puz.notes = json.loads(puzzle_data['notes'])
+        puz.start_time = puzzle_data['start_time']
+        puz.solve_time = puzzle_data['solve_time']
+        puz.archive_time = puzzle_data['archive_time']
         return puz
 
     @classmethod

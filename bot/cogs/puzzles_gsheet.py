@@ -519,6 +519,6 @@ class GoogleSheets(commands.Cog):
         self.set_puzzle_data(puzzle_data)
         return self.get_overview_page_id()
 
-def setup(bot):
+async def setup(bot):
     # Comment this out if google-drive-related package are not installed!
-    bot.add_cog(GoogleSheets(bot))
+    await bot.add_cog(GoogleSheets(bot))
