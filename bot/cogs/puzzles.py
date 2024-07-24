@@ -1082,7 +1082,7 @@ class Puzzles(commands.Cog):
         hunt_general_channel = self.get_hunt_channel(ctx)
         channel = ctx.channel
         bot_id = ctx.bot.application_id
-        thread_message = await hunt_general_channel.send(content=f'Archive of channel {channel.name}')
+        thread_message = await hunt_general_channel.send(content=f'Archive of channel {channel.name}', silent=True)
         puzzle_data = self.get_puzzle_data_from_channel(channel)
         if puzzle_data:
             thread_name = f"{puzzle_data.name} ({puzzle_data.round_name})"
@@ -1091,15 +1091,19 @@ class Puzzles(commands.Cog):
         thread = await hunt_general_channel.create_thread(name=thread_name, message=thread_message)
         webhook = await hunt_general_channel.webhooks()
         messages = []
+        # Get all the messages in the channel
         async for message in channel.history(oldest_first=True):
             messages.append(message)
+        # Get all active threads and iterate for messages
         active_threads = channel.threads
         for active_thread in active_threads:
             async for message in active_thread.history(oldest_first=True):
                 messages.append(message)
+        # Get all archived threads and iterate for messages
         async for archived_thread in channel.archived_threads():
             async for message in archived_thread.history(oldest_first=True):
                 messages.append(message)
+        # Sort the list of messages
         sorted_messages = sorted(messages, key=lambda x: x.created_at)
         for message in sorted_messages:
             if message:
@@ -1113,8 +1117,12 @@ class Puzzles(commands.Cog):
                     files = []
                     for a in message.attachments:
                         files.append(await a.to_file(use_cached=True))
-                    moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
-                                                          embeds=message.embeds, thread=thread, wait=True)
+                    try:
+                        moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
+                                                          embeds=message.embeds, thread=thread, wait=True, silent=True)
+                    except:
+                        await ctx.send(f":x: Webhook not found")
+                        return
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
