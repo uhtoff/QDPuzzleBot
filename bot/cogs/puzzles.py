@@ -5,7 +5,9 @@ from typing import Any, List, Optional
 
 import discord
 from discord.ext import commands, tasks
+from discord import Webhook
 import pytz
+import aiohttp
 
 from bot.utils import urls
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings
@@ -1076,6 +1078,49 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_channel(self, ctx):
+        hunt_general_channel = self.get_hunt_channel(ctx)
+        channel = ctx.channel
+        bot_id = ctx.bot.application_id
+        thread_message = await hunt_general_channel.send(content=f'Archive of channel {channel.name}')
+        puzzle_data = self.get_puzzle_data_from_channel(channel)
+        if puzzle_data:
+            thread_name = f"{puzzle_data.name} ({puzzle_data.round_name})"
+        else:
+            thread_name = channel.name
+        thread = await hunt_general_channel.create_thread(name=thread_name, message=thread_message)
+        webhook = await hunt_general_channel.webhooks()
+        messages = []
+        async for message in channel.history(oldest_first=True):
+            messages.append(message)
+        active_threads = channel.threads
+        for active_thread in active_threads:
+            async for message in active_thread.history(oldest_first=True):
+                messages.append(message)
+        async for archived_thread in channel.archived_threads():
+            async for message in archived_thread.history(oldest_first=True):
+                messages.append(message)
+        sorted_messages = sorted(messages, key=lambda x: x.created_at)
+        for message in sorted_messages:
+            if message:
+                author = message.author
+                if author.id == bot_id:
+                    continue
+                content = message.content
+                if content:
+                    if content[0] == '!' and content[:3] != '!s ':
+                        continue
+                    files = []
+                    for a in message.attachments:
+                        files.append(await a.to_file(use_cached=True))
+                    moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
+                                                          embeds=message.embeds, thread=thread, wait=True)
+                    if message.reactions:
+                        for reaction in message.reactions:
+                            await moved_message.add_reaction(reaction)
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_solved_manually(self, ctx):
         """*(admin) Permanently archive solved puzzles*"""
         guild = ctx.guild
@@ -1092,7 +1137,7 @@ class Puzzles(commands.Cog):
                 last_position = hunt_channel.position
 
         # Delete the channels without many messages and move the others to the end of the main category
-
+        # TODO Look at the channel move method
         for channel in solved_category.channels:
             num_messages = len(await channel.history(limit=10).flatten())
             if num_messages > 7:
