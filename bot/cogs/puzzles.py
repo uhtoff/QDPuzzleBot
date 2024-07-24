@@ -1092,16 +1092,16 @@ class Puzzles(commands.Cog):
         webhook = await hunt_general_channel.webhooks()
         messages = []
         # Get all the messages in the channel
-        async for message in channel.history(oldest_first=True):
+        async for message in channel.history(limit=None, oldest_first=True):
             messages.append(message)
         # Get all active threads and iterate for messages
         active_threads = channel.threads
         for active_thread in active_threads:
-            async for message in active_thread.history(oldest_first=True):
+            async for message in active_thread.history(limit=None, oldest_first=True):
                 messages.append(message)
         # Get all archived threads and iterate for messages
         async for archived_thread in channel.archived_threads():
-            async for message in archived_thread.history(oldest_first=True):
+            async for message in archived_thread.history(limit=None, oldest_first=True):
                 messages.append(message)
         # Sort the list of messages
         sorted_messages = sorted(messages, key=lambda x: x.created_at)
@@ -1117,12 +1117,8 @@ class Puzzles(commands.Cog):
                     files = []
                     for a in message.attachments:
                         files.append(await a.to_file(use_cached=True))
-                    try:
-                        moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
-                                                          embeds=message.embeds, thread=thread, wait=True, silent=True)
-                    except:
-                        await ctx.send(f":x: Webhook not found")
-                        return
+                    moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
+                                                      embeds=message.embeds, thread=thread, wait=True, silent=True)
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
