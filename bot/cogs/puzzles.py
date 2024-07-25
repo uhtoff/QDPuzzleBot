@@ -1026,7 +1026,7 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
-    async def archive_round(self, ctx):
+    async def archive_round_old(self, ctx):
         """*(admin) Permanently archive a round*"""
         round_channel = self.get_round_channel(ctx.channel)
         if ctx.channel != round_channel:
@@ -1078,9 +1078,23 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
-    async def archive_channel(self, ctx):
+    async def archive_round(self, ctx):
+        round_channel = self.get_round_channel(ctx.channel)
+        if ctx.channel != round_channel:
+            await ctx.send(f":x: This command must be done from the main round channel")
+            return
+        channels = ctx.channel.category.channels
+        for channel in channels:
+            if channel.name != self.SOLVE_DIVIDER:
+                await self.archive_channel(ctx, channel)
+
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_channel(self, ctx, channel = None):
         hunt_general_channel = self.get_hunt_channel(ctx)
-        channel = ctx.channel
+        if channel == None:
+            channel = ctx.channel
         bot_id = ctx.bot.application_id
         thread_message = await hunt_general_channel.send(content=f'Archive of channel {channel.name}', silent=True)
         puzzle_data = self.get_puzzle_data_from_channel(channel)
