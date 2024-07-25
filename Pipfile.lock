@@ -1,7 +1,11 @@
 {
     "_meta": {
         "hash": {
+<<<<<<< HEAD
             "sha256": "a7253a127abe4d080a73cd6f3157e2a1f60546c82bf8d255c40e47038cbe8405"
+=======
+            "sha256": "cd193bbaa6acc206636331767c1777e0ba30698574b8da757c612575a0f795eb"
+>>>>>>> b1a07be1cf55a1761bd61cddae32013c593166c2
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -788,10 +792,17 @@
         },
         "pydevd-pycharm": {
             "hashes": [
+<<<<<<< HEAD
                 "sha256:9f5ded3a67c83668cff65a5642804e61d7c24dfb21b03e866c8e7cf0a27ddcfb"
             ],
             "index": "pypi",
             "version": "==241.18034.82"
+=======
+                "sha256:b100398d5ece7c4d1ca4c70344464993e5a6a32977982eac82356b052401a751"
+            ],
+            "index": "pypi",
+            "version": "==242.20224.89"
+>>>>>>> b1a07be1cf55a1761bd61cddae32013c593166c2
         },
         "pyparsing": {
             "hashes": [
