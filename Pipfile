@@ -10,7 +10,7 @@ pytest = "*"
 [packages]
 "discord.py" = "*"
 "mysql.connector" = "*"
-pydevd-pycharm = "*"
+pydevd-pycharm = "~=241.18034.82"
 gino = "*"
 # psycopg2 = "*"  # not currently used
 dataclasses-json = "*"
