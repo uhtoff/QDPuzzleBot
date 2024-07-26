@@ -1149,7 +1149,8 @@ class Puzzles(commands.Cog):
                     files = []
                     for a in message.attachments:
                         files.append(await a.to_file(use_cached=True))
-                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=author.avatar.url, files = files,
+                    avatar_url = getattr(author.avatar, 'url', None)
+                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
                                                       embeds=message.embeds, thread=thread, wait=True, silent=True)
                     if message.reactions:
                         for reaction in message.reactions:
