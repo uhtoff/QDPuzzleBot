@@ -1085,25 +1085,25 @@ class Puzzles(commands.Cog):
             return
         channels = ctx.channel.category.channels
         for channel in channels:
-            if channel.name != self.SOLVE_DIVIDER:
-                await self.archive_channel(ctx, channel)
+            if self.SOLVE_DIVIDER != channel.name:
+                await self.archive_channel(ctx, channel, self.get_hunt_channel(ctx))
 
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
-    async def archive_channel(self, ctx, channel = None):
-        hunt_general_channel = self.get_hunt_channel(ctx)
-        if channel == None:
+    async def archive_channel(self, ctx, channel = None, archive_to = None):
+        if channel is None:
             channel = ctx.channel
-        bot_id = ctx.bot.application_id
-        thread_message = await hunt_general_channel.send(content=f'Archive of channel {channel.name}', silent=True)
+        if archive_to is None:
+            archive_to = self.get_hunt_channel(ctx)
+        thread_message = await archive_to.send(content=f'Archive of channel {channel.name}', silent=True)
         puzzle_data = self.get_puzzle_data_from_channel(channel)
         if puzzle_data:
             thread_name = f"{puzzle_data.name} ({puzzle_data.round_name})"
         else:
             thread_name = channel.name
-        thread = await hunt_general_channel.create_thread(name=thread_name, message=thread_message)
-        webhook = await hunt_general_channel.webhooks()
+        thread = await archive_to.create_thread(name=thread_name, message=thread_message)
+        webhook = await archive_to.webhooks()
         messages = []
         # Get all the messages in the channel
         async for message in channel.history(limit=None, oldest_first=True):
@@ -1119,6 +1119,7 @@ class Puzzles(commands.Cog):
                 messages.append(message)
         # Sort the list of messages
         sorted_messages = sorted(messages, key=lambda x: x.created_at)
+        bot_id = ctx.bot.application_id
         for message in sorted_messages:
             if message:
                 author = message.author
@@ -1131,7 +1132,7 @@ class Puzzles(commands.Cog):
                     files = []
                     for a in message.attachments:
                         files.append(await a.to_file(use_cached=True))
-                    moved_message = await webhook[0].send(content=content, username=author.name, avatar_url=author.avatar.url, files = files,
+                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=author.avatar.url, files = files,
                                                       embeds=message.embeds, thread=thread, wait=True, silent=True)
                     if message.reactions:
                         for reaction in message.reactions:
