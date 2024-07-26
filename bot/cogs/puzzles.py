@@ -1080,15 +1080,32 @@ class Puzzles(commands.Cog):
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_round(self, ctx):
         round_channel = self.get_round_channel(ctx.channel)
+        hunt_general_channel = self.get_hunt_channel(ctx)
+        category = ctx.channel.category
         if ctx.channel != round_channel:
             await ctx.send(f":x: This command must be done from the main round channel")
             return
+        await self.archive_category(ctx, hunt_general_channel, delete_channels=[self.SOLVE_DIVIDER])
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        del settings.category_mapping[category.id]
+        await ctx.channel.category.delete(reason=self.DELETE_REASON)
+        await hunt_general_channel.send(f":white_check_mark: Round {category.name} successfully archived.")
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_category(self, ctx, archive_to = None, ignore_channels = [], delete_channels = [], **kwargs):
+        # If archive_to not set then archive to the channel the command has been sent from
+        if archive_to is None:
+            archive_to = ctx.channel
+            ignore_channels.append(ctx.channel.name)
         channels = ctx.channel.category.channels
         for channel in channels:
-            if self.SOLVE_DIVIDER != channel.name:
-                await self.archive_channel(ctx, channel, self.get_hunt_channel(ctx))
-
-
+            if channel.name in ignore_channels:
+                continue
+            if channel.name not in delete_channels:
+                await self.archive_channel(ctx, channel, archive_to)
+            else:
+                await channel.delete(reason=self.DELETE_REASON)
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_channel(self, ctx, channel = None, archive_to = None):
@@ -1137,6 +1154,7 @@ class Puzzles(commands.Cog):
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
+        await channel.delete(reason=self.DELETE_REASON)
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
