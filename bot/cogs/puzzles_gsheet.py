@@ -62,7 +62,7 @@ class GoogleSheets(commands.Cog):
         return self.get_puzzle_data().google_page_id
 
     def batch_update(self, body):
-        get_sheet().batchUpdate(spreadsheetId=self.get_spreadsheet_id(), body=body).execute()
+        return get_sheet().batchUpdate(spreadsheetId=self.get_spreadsheet_id(), body=body).execute()
 
     def sheet_list(self):
         return get_sheet().get(spreadsheetId=self.get_spreadsheet_id()).execute()
@@ -355,18 +355,20 @@ class GoogleSheets(commands.Cog):
 
             ]
         }
-        self.batch_update(body)
-        self.get_puzzle_data().google_page_id = self.get_page_id_by_name(name)
+        new_sheet = self.batch_update(body)
+        new_sheet_id = new_sheet['replies'][0]['duplicateSheet']['properties']['sheetId']
+        self.get_puzzle_data().google_page_id = new_sheet_id
         self.set_sheet_hidden(False)
+        return new_sheet_id
 
     def add_new_puzzle_sheet(self, index):
         self.add_new_sheet(self.get_puzzle_data().name, index)
 
     def add_new_overview_sheet(self, index):
         overview_name = "OVERVIEW - " + self.get_puzzle_data().name
-        self.add_new_sheet(overview_name, index, self.ROUND_SHEET)
-        self.set_metadata(self.get_puzzle_data().round_id, self.get_page_id_by_name(overview_name))
-
+        new_sheet_id = self.add_new_sheet(overview_name, index, self.ROUND_SHEET)
+        self.set_metadata(self.get_puzzle_data().round_id, new_sheet_id)
+        return new_sheet_id
     def get_overview_page_id(self):
         return self.get_metadata(self.get_puzzle_data().round_id)
 
@@ -468,7 +470,11 @@ class GoogleSheets(commands.Cog):
 
     async def update_url(self, puzzle_data):
         self.set_puzzle_data(puzzle_data)
-        self.update_cell(puzzle_data.hunt_url, 1, 1)
+        requests = [self.update_cell(puzzle_data.hunt_url, 1, 1)]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
 
     async def archive_round_spreadsheet(self, round_data):
         self.set_puzzle_data(round_data)
@@ -495,8 +501,12 @@ class GoogleSheets(commands.Cog):
 
     async def archive_puzzle_spreadsheet(self, puzzle_data):
         self.set_puzzle_data(puzzle_data)
-        self.update_cell(puzzle_data.solution, 4, 1)
-        self.update_cell("Solved", 3, 1)
+        requests = [self.update_cell(puzzle_data.solution, 4, 1),
+            self.update_cell("Solved", 3, 1)]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
         self.move_sheet_to_end()
         self.change_tab_colour('green')
 
@@ -522,9 +532,13 @@ class GoogleSheets(commands.Cog):
             round_counter = 0
             self.set_metadata('num_rounds', 0)
         overview_index = round_counter + 7
-        self.add_new_overview_sheet(overview_index)
-        self.update_cell(round_data.name, 3, 1, self.STRING_INPUT, self.get_overview_page_id())
-        self.update_cell(round_data.hunt_url, 0, 1, self.STRING_INPUT, self.get_overview_page_id())
+        new_sheet_id = self.add_new_overview_sheet(overview_index)
+        requests = [self.update_cell(round_data.name, 3, 1, self.STRING_INPUT, new_sheet_id),
+                    self.update_cell(round_data.hunt_url, 0, 1, self.STRING_INPUT, new_sheet_id)]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
         puzzle_counter = round_data.round_name + "_puzzles"
         self.set_metadata(puzzle_counter, 0)
         round_counter += 1

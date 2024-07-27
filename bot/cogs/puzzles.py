@@ -508,16 +508,10 @@ class Puzzles(commands.Cog):
         # except:
         #     sheet_id = ''
 
-        if self.SOLVE_CATEGORY:
-            text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name,
-                channel_type="text", reason=self.PUZZLE_REASON
-            )
-        else:
-            text_channel, created_text = await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name, channel_type="text",
-                reason=self.PUZZLE_REASON
-            )
+        text_channel, created_text = await self.get_or_create_channel(
+            guild=guild, category=category, channel_name=channel_name,
+            channel_type="text", reason=self.PUZZLE_REASON
+        )
 
 
         if created_text:
