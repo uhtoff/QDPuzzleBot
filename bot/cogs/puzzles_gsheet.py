@@ -200,18 +200,26 @@ class GoogleSheets(commands.Cog):
         new_sheet_id = self.get_page_id_by_name(puzzle_name)
         overview_page_id = self.get_overview_page_id()
         overview_page_name = self.get_page_name_by_id(overview_page_id)
-        self.update_cell(puzzle_name, overview_row, 1, self.STRING_INPUT,
-                         overview_page_id)
-        self.update_cell('=hyperlink("#gid=' + str(new_sheet_id) + '";"LINK")', overview_row, 2, self.FORMULA_INPUT,
-                         overview_page_id)
-        self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B5", overview_row, 3, self.FORMULA_INPUT,
-                         overview_page_id)
-        self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B4", overview_row, 4, self.FORMULA_INPUT,
-                         overview_page_id)
-        self.update_cell("='" + str(overview_page_name) + "'!B" + str(overview_row+1), 0, 1, self.FORMULA_INPUT,
-                         new_sheet_id)
-        self.update_cell(self.get_puzzle_data().hunt_url, 1, 1, self.STRING_INPUT,
-                         new_sheet_id)
+        requests = [self.update_cell(puzzle_name, overview_row, 1, self.STRING_INPUT,
+                                     overview_page_id),
+                    self.update_cell('=hyperlink("#gid=' + str(new_sheet_id) + '";"LINK")', overview_row, 2,
+                                     self.FORMULA_INPUT,
+                                     overview_page_id),
+                    self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B5", overview_row, 3,
+                                     self.FORMULA_INPUT,
+                                     overview_page_id),
+                    self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B4", overview_row, 4,
+                                     self.FORMULA_INPUT,
+                                     overview_page_id),
+                    self.update_cell("='" + str(overview_page_name) + "'!B" + str(overview_row + 1), 0, 1,
+                                     self.FORMULA_INPUT,
+                                     new_sheet_id),
+                    self.update_cell(self.get_puzzle_data().hunt_url, 1, 1, self.STRING_INPUT,
+                                     new_sheet_id)]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
 
     def enter_solution(self):
         body={
@@ -245,9 +253,34 @@ class GoogleSheets(commands.Cog):
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
             sheet_id = self.get_puzzle_data().google_page_id
+        # body = {
+        #     'requests': [
+        #         {
+        #             'updateCells': {
+        #                 'rows': [
+        #                     {
+        #                         'values':
+        #                             {
+        #                                 'userEnteredValue': {
+        #                                     type: value
+        #                                 }
+        #                             }
+        #                     }
+        #                 ],
+        #                 'fields': 'userEnteredValue',
+        #                 'range': {
+        #                     'sheetId': sheet_id,
+        #                     'startRowIndex': start_row,
+        #                     'endRowIndex': start_row+1,
+        #                     'startColumnIndex': start_column,
+        #                     'endColumnIndex': start_column+1
+        #                 }
+        #             }
+        #         }
+        #     ]
+        # }
+        # self.batch_update(body)
         body = {
-            'requests': [
-                {
                     'updateCells': {
                         'rows': [
                             {
@@ -269,9 +302,7 @@ class GoogleSheets(commands.Cog):
                         }
                     }
                 }
-            ]
-        }
-        self.batch_update(body)
+        return body
 
     def move_sheet_to_end(self):
         new_index = 0
