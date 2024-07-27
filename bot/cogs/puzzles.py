@@ -514,31 +514,14 @@ class Puzzles(commands.Cog):
                 channel_type="text", reason=self.PUZZLE_REASON
             )
         else:
-            general_channel = self.get_general_channel(category)
-            await general_channel.edit(position=1)
-            solved_channel = self.get_solved_channel(category)
-            await solved_channel.edit(position=500)
-            round_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
-            round_puzzles = PuzzleData.sort_by_puzzle_start(round_puzzles)
-            puzzle_position = 2
-            for puzzle in round_puzzles:
-                if puzzle.round_name != round_name:
-                    continue
-                puzzle_channel = discord.utils.get(
-                    guild.channels, type=discord.ChannelType.text, id=puzzle.channel_id
-                )
-                if puzzle.solution:
-                    await puzzle_channel.edit(position=puzzle_position + 1000)
-                else:
-                    await puzzle_channel.edit(position=puzzle_position)
-                puzzle_position = puzzle_position + 1
-
             text_channel, created_text = await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=channel_name, channel_type="text",
-                position=puzzle_position, reason=self.PUZZLE_REASON
+                reason=self.PUZZLE_REASON
             )
 
+
         if created_text:
+            await text_channel.move(after=ctx.channel)
             hunt_settings = settings.hunt_settings[hunt_id]
 
             puzzle_data = PuzzleData(
