@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 
 import discord
 from discord.ext import commands, tasks
-from discord import Webhook
+from discord import Webhook, Message
 import pytz
 import aiohttp
 
@@ -182,7 +182,8 @@ class Puzzles(commands.Cog):
             await gsheet_cog.create_round_overview_spreadsheet(round)
 
         #await self.create_puzzle_channel(ctx, category.name, self.META_CHANNEL_NAME)
-        await self.send_initial_round_channel_messages(hunt_settings, text_channel)
+        initial_message = await self.send_initial_round_channel_messages(hunt_settings, text_channel)
+        await initial_message.pin()
 
     @classmethod
     def get_guild_settings_from_ctx(cls, ctx, use_cached: bool = True) -> GuildSettings:
@@ -553,8 +554,8 @@ class Puzzles(commands.Cog):
                     await gsheet_cog.create_puzzle_spreadsheet(puzzle_data)
 
             PuzzleJsonDb.commit(puzzle_data)
-            await self.send_initial_puzzle_channel_messages(text_channel)
-
+            initial_message = await self.send_initial_puzzle_channel_messages(text_channel)
+            await initial_message.pin()
 
         else:
             puzzle_data = self.get_puzzle_data_from_channel(text_channel)
@@ -617,7 +618,7 @@ class Puzzles(commands.Cog):
                 )
         await channel.send(embed=embed)
 
-    async def send_initial_round_channel_messages(self, hunt: HuntSettings, channel: discord.TextChannel):
+    async def send_initial_round_channel_messages(self, hunt: HuntSettings, channel: discord.TextChannel) -> discord.Message:
         """Send intro message on a round channel"""
         embed = discord.Embed(
             description=f"""Welcome to the round channel for {channel.category.name}!"""
@@ -653,10 +654,10 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Google Drive Overview Page", value=spreadsheet_url, inline=False,)
         except:
             pass
-        await channel.send(embed=embed)
+        return await channel.send(embed=embed)
 
 
-    async def send_initial_puzzle_channel_messages(self, channel: discord.TextChannel):
+    async def send_initial_puzzle_channel_messages(self, channel: discord.TextChannel) -> discord.Message:
         """Send intro message on a puzzle channel"""
         embed = discord.Embed(
             description=f"""Welcome to the puzzle channel for {channel.name} in {channel.category.name}!"""
@@ -692,7 +693,47 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle_data.priority or "?", inline=False,)
         except:
             pass
-        await channel.send(embed=embed)
+        return await channel.send(embed=embed)
+
+    async def update_initial_puzzle_channel_messages(self, channel: discord.TextChannel) -> discord.Message:
+        """Send intro message on a puzzle channel"""
+        embed = discord.Embed(
+            description=f"""Welcome to the puzzle channel for {channel.name} in {channel.category.name}!"""
+        )
+        embed.add_field(
+            name="Overview",
+            value="This channel is a good place to discuss how to tackle this puzzle. Usually you'll want to do most of the puzzle work itself on Google Sheets / Docs.",
+            inline=False,
+        )
+        embed.add_field(
+            name="Commands",
+            value="""The following may be useful discord commands:
+        • `!p <puzzle-name>` will add a puzzle to this round.
+        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
+        • `!link <url>` will update the link to the puzzle on the hunt website
+        • `!info` will re-post this message
+        • `!type <puzzle type>` will mark the type of the puzzle
+        • `!priority <priority>` will mark the priority of the puzzle
+        • `!status <status>` will update the status of the puzzle
+        • `!note <note>` can be used to leave a note about ideas/progress
+        • `!notes` can be used to see the notes that have been left
+        • `!erase_note <note number>` can be used to erase the specified note
+        """,
+            inline=False,
+        )
+        try:
+            puzzle_data = self.get_puzzle_data_from_channel(channel)
+            embed.add_field(name="Hunt URL", value=puzzle_data.hunt_url or "?", inline=False, )
+            spreadsheet_url = urls.spreadsheet_url(puzzle_data.google_sheet_id,
+                                                   puzzle_data.google_page_id) if puzzle_data.google_sheet_id else "?"
+            embed.add_field(name="Google Drive", value=spreadsheet_url, inline=False, )
+            embed.add_field(name="Status", value=puzzle_data.status or "?", inline=False, )
+            embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?", inline=False, )
+            embed.add_field(name="Priority", value=puzzle_data.priority or "?", inline=False, )
+        except:
+            pass
+        channel_pins = await channel.pins()
+        return await channel_pins[0].edit(embed=embed)
 
     async def send_not_puzzle_channel(self, ctx):
         # TODO: Fix this
@@ -779,6 +820,7 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
         embed.add_field(name="Priority", value=puzzle_data.priority or "?")
         await channel.send(embed=embed)
+        await self.update_initial_puzzle_channel_messages(channel)
 
     @commands.command()
     async def link(self, ctx, *, url: Optional[str]):
