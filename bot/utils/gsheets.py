@@ -255,6 +255,82 @@ def update_puzzle_info(puzzle_name, overview_row, puzzle_url=None):
         body=body).execute()
 
 
+
+    def set_metadata(self, key, value):
+        body = {
+            'requests': [
+                {
+                    "createDeveloperMetadata": {
+                        "developerMetadata": {
+                            "metadataKey": str(key),
+                            "metadataValue": str(value),
+                            "location": {
+                                "spreadsheet": True
+                            },
+                            "visibility": "PROJECT"
+                        }
+                    }
+                }
+
+            ]
+        }
+        self.batch_update(body)
+
+    def update_metadata(self, key, value):
+        body = {
+            'requests': [
+                {
+                    "updateDeveloperMetadata": {
+                        "dataFilters": [
+                            {
+                                "developerMetadataLookup": {
+                                    "metadataKey": str(key)
+                                }
+                            }
+                        ],
+                        "developerMetadata": {
+                            "metadataValue": str(value),
+                        },
+                        "fields": "metadataValue"
+                    }
+                }
+
+            ]
+        }
+        self.batch_update(body)
+
+    def delete_metadata(self, key):
+        body = {
+            'requests': [
+                {
+                    "deleteDeveloperMetadata": {
+                        "dataFilter":
+                            {
+                                "developerMetadataLookup": {
+                                    "metadataKey": str(key)
+                                }
+                            }
+                    }
+                }
+
+            ]
+        }
+        self.batch_update(body)
+
+    def get_metadata(self, key):
+        body = {
+            "dataFilters": [
+                {
+                    "developerMetadataLookup": {
+                        "metadataKey": str(key)
+                    }
+                }
+            ]
+        }
+        response = self.sheets_service.developerMetadata().search(
+            spreadsheetId=self.get_spreadsheet_id(), body=body).execute()
+        return response['matchedDeveloperMetadata'][0]['developerMetadata']['metadataValue']
+
 def add_new_puzzle(puzzle_name, puzzle_url=None):
     add_new_sheet(puzzle_name)
     num_puzzles = len(get_overview()['values'])

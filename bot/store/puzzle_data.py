@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
-from google.cloud import datastore
 import datetime
 import logging
 import json
@@ -17,17 +16,11 @@ class MissingPuzzleError(RuntimeError):
 class PuzzleData:
     name: str = ""
     id: int = 0
-    hunt_name: str=""
-    hunt_id: str = 0
-    round_name: str = ""
-    round_id: int = 0  # round = category channel
-    guild_id: int = 0
-    #  guild_name: str = ""
+    round_id: int = 0
     channel_id: int = 0
     channel_mention: str = ""
     voice_channel_id: int = 0
-    hunt_url: str = ""
-    google_sheet_id: str = ""
+    url: str = ""
     google_page_id: str = ""
     status: str = ""
     solution: str = ""
@@ -38,83 +31,20 @@ class PuzzleData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
 
-    def to_entity(self, client: datastore.Client):
-        key = client.key('Guild', self.guild_id, 'Hunt', self.hunt_id, 'Round', self.round_id, 'Puzzle', self.channel_id)
-        entity = datastore.Entity(key)
-        entity['name'] = self.name
-        entity['hunt_name'] =  self.hunt_name
-        entity['round_name'] = self.round_name
-        entity['channel_mention'] = self.channel_mention
-        entity['voice_channel_id'] = self.voice_channel_id
-        entity['hunt_url'] = self.hunt_url
-        entity['google_sheet_id'] = self.google_sheet_id
-        entity['google_page_id'] = self.google_page_id
-        entity['status'] = self.status
-        entity['solution'] = self.solution
-        entity['priority'] = self.priority
-        entity['puzzle_type'] = self.puzzle_type
-        entity['notes'] = self.notes
-        entity['start_time'] = self.start_time
-        entity['solve_time'] = self.solve_time
-        entity['archive_time'] = self.archive_time
-        return entity
-
-    # @classmethod
-    # def from_entity(cls, entity: datastore.Entity):
-    #     puz = PuzzleData()
-    #     key = entity.key
-    #     round_key = key.parent
-    #     hunt_key = round_key.parent
-    #     guild_key = hunt_key.parent
-    #
-    #     puz.channel_id = key.id_or_name
-    #     puz.round_id = round_key.id_or_name
-    #     puz.hunt_id = hunt_key.id_or_name
-    #     puz.guild_id = guild_key.id_or_name
-    #     puz.name = entity['name']
-    #     puz.hunt_name = entity['hunt_name']
-    #     puz.round_name = entity['round_name']
-    #     puz.channel_mention = entity['channel_mention']
-    #     puz.voice_channel_id = entity['voice_channel_id']
-    #     puz.hunt_url = entity['hunt_url']
-    #     puz.google_sheet_id = entity['google_sheet_id']
-    #     puz.google_page_id = entity['google_page_id']
-    #     puz.status = entity['status']
-    #     puz.solution = entity['solution']
-    #     puz.priority = entity['priority']
-    #     puz.puzzle_type = entity['puzzle_type']
-    #     puz.notes = entity['notes']
-    #     puz.start_time = entity['start_time']
-    #     puz.solve_time = entity['solve_time']
-    #     puz.archive_time = entity['archive_time']
-    #     return puz
-
     @classmethod
-    def from_dict(puzzle_data: dict):
+    def import_dict(cls, puzzle_data: dict):
         puz = PuzzleData()
-        print(puzzle_data['notes'])
-        print(json.loads(puzzle_data['notes']))
-        puz.id = puzzle_data['id']
-        puz.channel_id = puzzle_data['channel_id']
-        puz.round_id = puzzle_data['round_id']
-        puz.hunt_id = puzzle_data['hunt_id']
-        puz.guild_id = puzzle_data['guild_id']
-        puz.name = puzzle_data['name']
-        puz.hunt_name = puzzle_data['hunt_name']
-        puz.round_name = puzzle_data['round_name']
-        puz.channel_mention = puzzle_data['channel_mention']
-        puz.voice_channel_id = puzzle_data['voice_channel_id']
-        puz.hunt_url = puzzle_data['hunt_url']
-        puz.google_sheet_id = puzzle_data['google_sheet_id']
-        puz.google_page_id = puzzle_data['google_page_id']
-        puz.status = puzzle_data['status']
-        puz.solution = puzzle_data['solution']
-        puz.priority = puzzle_data['priority']
-        puz.puzzle_type = puzzle_data['puzzle_type']
-        puz.notes = json.loads(puzzle_data['notes'])
-        puz.start_time = puzzle_data['start_time']
-        puz.solve_time = puzzle_data['solve_time']
-        puz.archive_time = puzzle_data['archive_time']
+        for attr, value in puz.__dict__.items():
+            if attr == "notes":
+                setattr(puz, attr, json.loads(puzzle_data.get(attr, None)))
+            elif attr.endswith("_time"):
+                db_date = puzzle_data.get(attr,None)
+                if db_date is not None:
+                    utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
+                    setattr(puz,attr,utc_date)
+            else:
+                setattr(puz, attr, puzzle_data.get(attr, None))
+
         return puz
 
     @classmethod

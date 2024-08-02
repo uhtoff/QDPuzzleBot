@@ -5,8 +5,10 @@ from pathlib import Path
 
 from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
 from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError
+from .round_data import RoundData, _RoundJsonDb, MissingRoundError
+from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .fs import FilePuzzleJsonDb, FileGuildSettingsDb
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb
 
 from bot.utils import config
 
@@ -15,9 +17,6 @@ if "LADDER_SPOT_DATA_DIR" in os.environ:
     # TODO: move to config.json??
     DATA_DIR = Path(os.environ["LADDER_SPOT_DATA_DIR"])
 
-
-PuzzleJsonDb = _PuzzleJsonDb
-GuildSettingsDb = _GuildSettingsDb
 if config.storage == 'fs':
     PuzzleJsonDb = FilePuzzleJsonDb(dir_path=DATA_DIR)
     GuildSettingsDb = FileGuildSettingsDb(dir_path=DATA_DIR)
@@ -26,8 +25,12 @@ elif config.storage == 'mysql':
         host="localhost",
         user=config.mysql_username,
         password=config.mysql_password,
-        database=config.database
+        database=config.database,
+        charset="utf8mb4",
+        buffered=True
     )
     mydb.autocommit = True
-    PuzzleJsonDb = MySQLPuzzleJsonDb(dir_path=DATA_DIR, mydb=mydb)
+    PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
     GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
+    RoundJsonDb = MySQLRoundJsonDb(mydb=mydb)
+    HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)

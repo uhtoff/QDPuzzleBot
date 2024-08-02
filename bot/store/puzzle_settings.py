@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from google.cloud import datastore
 from typing import Dict, List
-
+import datetime
 from dataclasses_json import dataclass_json
 
 
@@ -50,7 +50,7 @@ class HuntSettings:
 @dataclass_json
 @dataclass
 class GuildSettings:
-    guild_id: int
+    guild_id: int = 0
     id: int = 0
     guild_name: str = ""
     discord_bot_channel: str = ""   # Channel to listen for bot commands
@@ -58,8 +58,22 @@ class GuildSettings:
     discord_use_voice_channels: bool = False  # Whether to create voice channels for puzzles
     drive_parent_id: str = ""
     drive_resources_id: str = ""    # Document with resources links, etc
-    hunt_settings: Dict[int, HuntSettings] = field(default_factory=dict)
-    category_mapping: Dict[int, int] = field(default_factory=dict)
+
+    @classmethod
+    def import_dict(cls, settings: dict):
+        r = GuildSettings()
+        for attr, value in r.__dict__.items():
+            if attr == "notes":
+                setattr(r, attr, json.loads(settings.get(attr, None)))
+            elif attr.endswith("_time"):
+                db_date = settings.get(attr,None)
+                if db_date is not None:
+                    utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
+                    setattr(r,attr,utc_date)
+            else:
+                setattr(r, attr, settings.get(attr, None))
+
+        return r
 
     def to_entity(self, client: datastore.Client):
         key = client.key('Guild', self.guild_id)
