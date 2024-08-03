@@ -995,16 +995,22 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
             return
 
-        round_channel = self.bot.get_channel(self.hunt_round.channel_id)
-        deleted_channel = ctx.channel
         try:
-            await self.delete_puzzle_data(ctx, ctx.channel)
-            await round_channel.send(f":white_check_mark: Channel "
-                                     f"{deleted_channel.name}"
+            await self.delete_puzzle_data(self.puzzle)
+            # voice_channel = discord.utils.get(
+            #     ctx.guild.channels, category=category, type=discord.ChannelType.voice, name=channel.name
+            # )
+            # if voice_channel:
+            #     await voice_channel.delete(reason=self.DELETE_REASON)
+            # delete text channel last so that errors can be reported
+            await ctx.channel.delete(reason=self.DELETE_REASON)
+            await self.bot.get_channel(self.hunt_round.channel_id).send(f":white_check_mark: Puzzle "
+                                     f"{self.puzzle.name}"
                                      f" successfully deleted and sheet cleaned up.  "
                                      f"The puzzle sheet has been hidden and prefixed with DELETED.")
         except:
             await ctx.send(f":x: Channel deletion failed")
+        self.puzzle = None
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1015,47 +1021,56 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(f":x: This command must be done from the main round channel")
             return
+        hunt_general_channel = self.bot.get_channel(self.hunt.channel_id)
+        await self.delete_round_data(self.hunt_round)
+        await hunt_general_channel.send(f":white_check_mark: Round {self.hunt_round.name} successfully deleted.  "
+                                        f"All puzzle sheets have been marked as DELETED and hidden.")
+        self.hunt_round = None
 
-        if self.SOLVE_CATEGORY is False:
-            solved_divider = self.get_solved_channel(ctx.channel.category)
-            if solved_divider:
-                await solved_divider.delete(reason=self.DELETE_REASON)
-        # Delete the puzzles in the channel
-        for channel in ctx.channel.category.channels:
-            if channel != round_channel:
-                await self.delete_puzzle_data(ctx, channel, True, True)
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def delete_hunt(self, ctx):
+        """*(admin) Permanently delete a Hunt*"""
+        if self.channel_type == "Hunt":
+            round_channel = ctx.channel
+        else:
+            await ctx.send(f":x: This command must be done from the main hunt channel")
+            return
         if self.gsheet_cog is not None:
             await self.gsheet_cog.delete_round_spreadsheet(self.hunt_round)
         hunt_general_channel = self.bot.get_channel(self.hunt.channel_id)
         await round_channel.delete(reason=self.DELETE_REASON)
         await round_channel.category.delete(reason=self.DELETE_REASON)
-        RoundJsonDb.delete(self.hunt_round.id)
         await hunt_general_channel.send(f":white_check_mark: Round {category_name} successfully deleted.  "
                                         f"All puzzle sheets have been marked as DELETED and hidden.")
+        RoundJsonDb.delete(self.hunt_round.id)
 
-    async def delete_puzzle_data(self, ctx, channel, delete_sheet=True, ignore_missing_puzzles=False):
-        puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
-        category = channel.category
-        if puzzle:
-            hunt_round = RoundJsonDb.get_by_attr(category_id=category.id)
-            if delete_sheet is True:
-                if self.gsheet_cog is not None:
-                    await self.gsheet_cog.delete_puzzle_spreadsheet(puzzle, hunt_round)
-                try:
-                    PuzzleJsonDb.delete(puzzle.id)
-                except:
-                    await ctx.send(f":x: Puzzle database deletion failed")
-        else:
-            if not ignore_missing_puzzles:
-                await self.send_not_puzzle_channel(ctx)
+    async def delete_round_data(self, hunt_round: RoundData):
+        round_channel = self.bot.get_channel(hunt_round.channel_id)
+        if self.SOLVE_CATEGORY is False:
+            solved_divider = self.get_solved_channel(round_channel.category)
+            if solved_divider:
+                await solved_divider.delete(reason=self.DELETE_REASON)
+        # Delete the puzzles in the channel
+        for channel in round_channel.category.channels:
+            if channel != round_channel:
+                puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
+                if puzzle:
+                    await self.delete_puzzle_data(puzzle)
+                await channel.delete(reason=self.DELETE_REASON)
+        if self.gsheet_cog is not None:
+            await self.gsheet_cog.delete_round_spreadsheet(hunt_round)
+        await round_channel.delete(reason=self.DELETE_REASON)
+        await round_channel.category.delete(reason=self.DELETE_REASON)
+        RoundJsonDb.delete(hunt_round.id)
+        return True
 
-        voice_channel = discord.utils.get(
-            ctx.guild.channels, category=category, type=discord.ChannelType.voice, name=channel.name
-        )
-        if voice_channel:
-            await voice_channel.delete(reason=self.DELETE_REASON)
-        # delete text channel last so that errors can be reported
-        await channel.delete(reason=self.DELETE_REASON)
+    async def delete_puzzle_data(self, puzzle: PuzzleData, delete_sheet=True):
+        hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
+        if delete_sheet is True:
+            if self.gsheet_cog is not None:
+                await self.gsheet_cog.delete_puzzle_spreadsheet(puzzle, hunt_round)
+        PuzzleJsonDb.delete(puzzle.id)
         return True
 
     # async def confirm_delete(self, ctx):

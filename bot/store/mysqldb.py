@@ -82,12 +82,6 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
 
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
-    def delete(self, round_data):
-        round_path = self.round_path(round_data)
-        try:
-            round_path.unlink()
-        except IOError:
-            pass
 
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
