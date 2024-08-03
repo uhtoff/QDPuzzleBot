@@ -75,6 +75,14 @@ class PuzzleData:
         """
         return sorted(puzzles, key=lambda p: p.start_time)
 
+    @classmethod
+    def sort_by_round_id(cls, puzzles: list) -> list:
+        """Return list of PuzzleData objects sorted by puzzle start time
+
+        Sorts puzzles by start_time.
+        """
+        return sorted(puzzles, key=lambda p: p.round_id)
+
 class _PuzzleJsonDb:
     def commit(self, puzzle_data):
         pass

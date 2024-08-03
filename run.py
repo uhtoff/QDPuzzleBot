@@ -1,5 +1,6 @@
 import bot
 import asyncio
+import cProfile
 from bot.utils import config
 
 if config.debug is True:

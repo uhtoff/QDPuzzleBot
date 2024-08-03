@@ -13,7 +13,6 @@ from .puzzle_settings import _GuildSettingsDb, GuildSettings
 
 logger = logging.getLogger(__name__)
 
-
 class _MySQLBaseDb:
     TABLE_NAME = None
     mydb = None
@@ -71,6 +70,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             else:
                 raise MissingHuntError(f"Unable to find hunt for {keyword} - {value}")
 
+
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
     def delete(self, round_data):
@@ -115,43 +115,6 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         # return RoundData.sort_by_round_start(round_datas) TODO - ideally return by round start time
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    #
-    # def __init__(self, dir_path: Path, mydb):
-    #     self.dir_path = dir_path
-    #     self.mydb = mydb
-
-    # def commit(self, puzzle_data: PuzzleData):
-    #     """Update or insert puzzle metadata file"""
-    #     cursor = self.mydb.cursor()
-    #     notes_json = json.dumps(puzzle_data.notes)
-    #     data = (puzzle_data.name, puzzle_data.hunt_name, puzzle_data.hunt_id,
-    #             puzzle_data.round_name, puzzle_data.round_id, puzzle_data.guild_id, puzzle_data.channel_id,
-    #             puzzle_data.channel_mention, puzzle_data.voice_channel_id, puzzle_data.hunt_url,
-    #             puzzle_data.google_sheet_id, puzzle_data.google_page_id, puzzle_data.status,
-    #             puzzle_data.solution, puzzle_data.priority, puzzle_data.puzzle_type,
-    #             notes_json, puzzle_data.start_time, puzzle_data.solve_time, puzzle_data.archive_time,)
-    #     if puzzle_data.id > 0:
-    #         update_stmt = ("UPDATE `puzzles` SET `name`=%s,`hunt_name`=%s,`hunt_id`=%s,"
-    #                        "`round_name`=%s,`round_id`=%s,`guild_id`=%s,`channel_id`=%s,"
-    #                        "`channel_mention`=%s,`voice_channel_id`=%s,`hunt_url`=%s,"
-    #                        "`google_sheet_id`=%s,`google_page_id`=%s,`status`=%s,"
-    #                        "`solution`=%s,`priority`=%s,`puzzle_type`=%s,"
-    #                        "`notes`=%s,`start_time`=%s,`solve_time`=%s,`archive_time`=%s WHERE id=%s")
-    #         data = data + (puzzle_data.id,)
-    #         cursor.execute(update_stmt,data)
-    #     else:
-    #         insert_stmt = ("INSERT INTO `puzzles` (`name`, `hunt_name`, `hunt_id`, "
-    #                        "`round_name`, `round_id`, `guild_id`, `channel_id`, "
-    #                        "`channel_mention`, `voice_channel_id`, `hunt_url`, "
-    #                        "`google_sheet_id`, `google_page_id`, `status`, "
-    #                        "`solution`, `priority`, `puzzle_type`, "
-    #                        "`notes`, `start_time`, `solve_time`, `archive_time`) "
-    #                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
-    #         cursor.execute(insert_stmt, data)
-    #         puzzle_data.id = cursor.lastrowid
-    #     cursor.close()
-    #     self.mydb.commit()
-
     def delete(self, puzzle_data):
         """Delete single puzzle from database"""
         cursor = self.mydb.cursor(dictionary=True)
@@ -196,6 +159,19 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             puzzle_datas.append(PuzzleData.import_dict(row))
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
+
+    def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
+        """Retrieve all puzzles from database"""
+        puzzle_datas = []
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute("SELECT puzzles.* FROM puzzles "
+                       "LEFT JOIN rounds ON puzzles.round_id = rounds.id "
+                       "WHERE rounds.hunt_id = %s", (hunt_id,))
+        rows = cursor.fetchall()
+        for row in rows:
+            puzzle_datas.append(PuzzleData.import_dict(row))
+        cursor.close()
+        return PuzzleData.sort_by_round_id(puzzle_datas)
 
     def get_all_from_round(self, round_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
