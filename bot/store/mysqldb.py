@@ -56,6 +56,15 @@ class _MySQLBaseDb:
         cursor.close()
         self.mydb.commit()
 
+    def delete(self, delete_id):
+        """Delete single puzzle from database by database id"""
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
+        deleted_rows = cursor.rowcount
+        cursor.close()
+        # if deleted_rows != 1:S
+        #     raise MissingDataError(f"Unable to find puzzle {puzzle_id} for {round_id}")
+
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     def get_by_attr(self,**kwargs):
@@ -115,13 +124,7 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         # return RoundData.sort_by_round_start(round_datas) TODO - ideally return by round start time
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    def delete(self, puzzle_data):
-        """Delete single puzzle from database"""
-        cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("DELETE FROM puzzles WHERE id = %s", (puzzle_data.id,))
-        deleted_rows = cursor.rowcount
-        if deleted_rows != 1:
-            raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
+
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
