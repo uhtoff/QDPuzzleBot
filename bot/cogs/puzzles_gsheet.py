@@ -185,33 +185,6 @@ class GoogleSheets(commands.Cog):
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
             sheet_id = self.get_puzzle_data().google_page_id
-        # body = {
-        #     'requests': [
-        #         {
-        #             'updateCells': {
-        #                 'rows': [
-        #                     {
-        #                         'values':
-        #                             {
-        #                                 'userEnteredValue': {
-        #                                     type: value
-        #                                 }
-        #                             }
-        #                     }
-        #                 ],
-        #                 'fields': 'userEnteredValue',
-        #                 'range': {
-        #                     'sheetId': sheet_id,
-        #                     'startRowIndex': start_row,
-        #                     'endRowIndex': start_row+1,
-        #                     'startColumnIndex': start_column,
-        #                     'endColumnIndex': start_column+1
-        #                 }
-        #             }
-        #         }
-        #     ]
-        # }
-        # self.batch_update(body)
         body = {
                     'updateCells': {
                         'rows': [
@@ -237,10 +210,8 @@ class GoogleSheets(commands.Cog):
         return body
 
     def move_sheet_to_end(self):
-        new_index = 0
-        for sheet in self.sheet_list()["sheets"]:
-            if sheet['properties']['index'] > new_index:
-                new_index = sheet['properties']['index'] + 1
+        sheets = self.sheet_list().get('sheets',[])
+        new_index = len(sheets) - 1
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -350,8 +321,6 @@ class GoogleSheets(commands.Cog):
     def set_sheet_hidden(self, hidden=True):
         sheet_id = self.get_page_id()
         body = {
-            'requests': [
-                {
                     'updateSheetProperties': {
                         'properties': {
                             'sheetId': sheet_id,
@@ -361,15 +330,11 @@ class GoogleSheets(commands.Cog):
 
                     }
                 }
-            ]
-        }
-        self.batch_update(body)
+        return body
 
     def set_sheet_name(self, name):
         sheet_id = self.get_page_id()
         body = {
-            'requests': [
-                {
                     'updateSheetProperties': {
                         'properties': {
                             'sheetId': sheet_id,
@@ -379,36 +344,33 @@ class GoogleSheets(commands.Cog):
 
                     }
                 }
-            ]
-        }
-        self.batch_update(body)
+        return body
 
     def remove_puzzle_from_overview(self):
-        row_number = int(self.get_puzzle_overview_row())
-        body = {
-            'requests': [
-                {
-                    'deleteRange': {
-                        'range': {
-                            'sheetId': self.get_overview_page_id(),
-                            "startRowIndex": row_number,
-                            "endRowIndex": row_number + 1,
-                            "startColumnIndex": 1,
-                            "endColumnIndex": 7
-                        },
-                        'shiftDimension': 'ROWS'
+        if self.get_puzzle_overview_row():
+            row_number = int(self.get_puzzle_overview_row())
+            body = {
+                        'deleteRange': {
+                            'range': {
+                                'sheetId': self.get_overview_page_id(),
+                                "startRowIndex": row_number,
+                                "endRowIndex": row_number + 1,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 7
+                            },
+                            'shiftDimension': 'ROWS'
+                        }
                     }
-                }
-            ]
-        }
-        self.batch_update(body)
+            return body
 
-    def delete_sheet(self):
+    def delete_sheet(self, page_id = None):
+        if page_id is None:
+            page_id = self.get_page_id()
         body = {
             'requests': [
                 {
                     'deleteSheet': {
-                        'sheetId': self.get_page_id(),
+                        'sheetId': page_id,
                     }
                 }
             ]
@@ -423,22 +385,22 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(updates)
 
-    async def archive_round_spreadsheet(self, round_data):
-        self.set_puzzle_data(round_data)
-        self.delete_sheet()
+    async def delete_round_spreadsheet(self, round_data: RoundData ):
+        self.delete_sheet(round_data.google_page_id)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
         self.set_puzzle_data(puzzle_data)
         self.set_overview_page_id(hunt_round.google_page_id)
-        self.set_sheet_hidden()
         new_sheet_name = "DELETED - " + puzzle_data.name
-        self.set_sheet_name(new_sheet_name)
-        requests = [self.move_sheet_to_end()]
+        requests = [self.set_sheet_hidden(),
+                    self.set_sheet_name(new_sheet_name),
+                    self.move_sheet_to_end(),
+                    self.remove_puzzle_from_overview()]
         updates = {
             'requests': requests
         }
         self.batch_update(updates)
-        self.remove_puzzle_from_overview()
+
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
