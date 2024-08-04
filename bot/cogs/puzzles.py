@@ -871,6 +871,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_round(self, ctx):
+        """(admin) * Archives round to threads *"""
         round_channel = self.get_round_channel(ctx.channel)
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
@@ -884,6 +885,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_category(self, ctx, archive_to = None, ignore_channels = [], delete_channels = [], **kwargs):
+        """(admin) * Archives category to threads *"""
         # If archive_to not set then archive to the channel the command has been sent from
         if archive_to is None:
             archive_to = ctx.channel
@@ -899,6 +901,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_channel(self, ctx, channel = None, archive_to = None):
+        """(admin) * Archives channel to threads *"""
         if channel is None:
             channel = ctx.channel
         if archive_to is None:
