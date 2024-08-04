@@ -65,6 +65,15 @@ class _MySQLBaseDb:
         # if deleted_rows != 1:S
         #     raise MissingDataError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
+    def check_duplicates(self, name):
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `name` = %s", (name,))
+        duplicates = cursor.rowcount
+        if duplicates > 0:
+            return True
+        else:
+            return False
+
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     def get_by_attr(self,**kwargs):
@@ -77,9 +86,8 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             if row:
                 return HuntData.import_dict(row)
             else:
-                raise MissingHuntError(f"Unable to find hunt for {keyword} - {value}")
-
-
+                print(f"Unable to find hunt for {keyword} - {value}")
+                return None
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
 
@@ -103,7 +111,8 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
             if row:
                 return RoundData.import_dict(row)
             else:
-                raise MissingRoundError(f"Unable to find Round for {keyword} - {value}")
+                print(f"Unable to find Round for {keyword} - {value}")
+                return None
 
     def get_all(self, hunt_id="*") -> List[RoundData]:
         """Retrieve all rounds for hunt"""
@@ -181,18 +190,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
-    def get_all_fs(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        """Retrieve all puzzles from file system (for import purposes)"""
-        paths = self.dir_path.rglob(f"{guild_id}/{hunt_id}/*/*.json")
-        puzzle_datas = []
-        for path in paths:
-            try:
-                with path.open() as fp:
-                    puzzle_datas.append(PuzzleData.from_json(fp.read()))
-            except Exception:
-                logger.exception(f"Unable to load puzzle data from {path}")
-        return PuzzleData.sort_by_puzzle_start(puzzle_datas)
-
     def get_solved_puzzles_to_archive(self, guild_id, now=None, include_meta=False, minutes=1) -> List[PuzzleData]:
         """Returns list of all solved but unarchived puzzles"""
         all_puzzles = self.get_all(guild_id)
@@ -212,18 +209,16 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                     puzzles_to_archive.append(puzzle)
         return puzzles_to_archive
 
-    def get_channel_type(self, channel_id) -> str:
-        cursor = self.mydb.cursor(dictionary=True)
-        stmt = ("SELECT channel_id, channel_type FROM ( "
-                    "SELECT hunt_id as channel_id, 'Hunt' as channel_type FROM hunts "
-                    "UNION SELECT channel_id, 'Puzzle' as channel_type FROM puzzles "
-                    "UNION SELECT round_channel as channel_id, 'Round' as channel_type FROM rounds "
-                ") channel_types WHERE channel_id=%s")
-        data = (channel_id,)
-        cursor.execute(stmt, data)
-        row = cursor.fetchone()
-        if row:
-            return row['channel_type']
+    def check_duplicates_in_hunt(self, name, hunt_id):
+        cursor = self.mydb.cursor(dictionary = True)
+        cursor.execute("SELECT puzzles.id FROM puzzles "
+                       "LEFT JOIN rounds ON puzzles.round_id = rounds.id "
+                       "WHERE puzzles.name = %s AND rounds.hunt_id = %s", (name, hunt_id,))
+        duplicates = cursor.rowcount
+        if duplicates > 0:
+            return True
+        else:
+            return False
 
 class MySQLGuildSettingsDb():
     def __init__(self, dir_path: Path, mydb):
