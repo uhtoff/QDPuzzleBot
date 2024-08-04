@@ -349,19 +349,22 @@ class GoogleSheets(commands.Cog):
     def remove_puzzle_from_overview(self):
         if self.get_puzzle_overview_row():
             row_number = int(self.get_puzzle_overview_row())
-            body = {
-                        'deleteRange': {
-                            'range': {
-                                'sheetId': self.get_overview_page_id(),
-                                "startRowIndex": row_number,
-                                "endRowIndex": row_number + 1,
-                                "startColumnIndex": 1,
-                                "endColumnIndex": 7
-                            },
-                            'shiftDimension': 'ROWS'
+            if row_number:
+                body = {
+                            'deleteRange': {
+                                'range': {
+                                    'sheetId': self.get_overview_page_id(),
+                                    "startRowIndex": row_number,
+                                    "endRowIndex": row_number + 1,
+                                    "startColumnIndex": 1,
+                                    "endColumnIndex": 7
+                                },
+                                'shiftDimension': 'ROWS'
+                            }
                         }
-                    }
-            return body
+                return body
+            else:
+                return False
 
     def delete_sheet(self, page_id = None):
         if page_id is None:
@@ -388,7 +391,7 @@ class GoogleSheets(commands.Cog):
     async def delete_round_spreadsheet(self, round_data: RoundData ):
         self.delete_sheet(round_data.google_page_id)
 
-    async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
+    async def mark_deleted_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
         self.set_puzzle_data(puzzle_data)
         self.set_overview_page_id(hunt_round.google_page_id)
         new_sheet_name = "DELETED - " + puzzle_data.name
@@ -401,6 +404,16 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(updates)
 
+    async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
+        self.set_puzzle_data(puzzle_data)
+        self.set_overview_page_id(hunt_round.google_page_id)
+        requests = [self.remove_puzzle_from_overview()]
+        if requests[0]:
+            updates = {
+                'requests': requests
+            }
+            self.batch_update(updates)
+        self.delete_sheet(puzzle_data.google_page_id)
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
@@ -427,7 +440,7 @@ class GoogleSheets(commands.Cog):
         get_drive().permissions().create(fileId=new_file_id, body=permission).execute()
         return new_file_id
 
-    async def create_round_overview_spreadsheet(self, round_data: RoundData, hunt: HuntData):
+    def create_round_overview_spreadsheet(self, round_data: RoundData, hunt: HuntData):
         """Creates new round overview spreadsheet"""
         self.set_puzzle_data(round_data)
         overview_index = hunt.num_rounds + self.INITIAL_OFFSET
@@ -439,13 +452,12 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(updates)
 
-    async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData, hunt: HuntData):
+    def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData, hunt: HuntData):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
         self.set_puzzle_data(puzzle_data)
         self.overview_page_id = hunt_round.google_page_id
         puzzle_index = hunt.num_rounds + self.INITIAL_OFFSET
         self.add_new_puzzle_sheet(puzzle_index)
-        hunt_round.num_puzzles += 1
         self.copy_puzzle_info(hunt_round.num_puzzles + 3)
         self.update_puzzle_info(hunt_round.num_puzzles + 3)
 

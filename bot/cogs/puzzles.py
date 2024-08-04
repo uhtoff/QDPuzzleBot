@@ -195,32 +195,11 @@ class Puzzles(commands.Cog):
             puzzle_name = arg
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.hunt.id):
                 return await ctx.send(f":exclamation: **Puzzle {puzzle_name}** already exists in this hunt, please use a different name")
-            await self.create_puzzle_channel(ctx, puzzle_name)
-
-        else:
-            await ctx.send(f":x: This command must be ran from within a round category")
-
-    async def create_puzzle_channel(self, ctx, puzzle_name: str):
-        """Create new text channel for puzzle, and optionally a voice channel
-
-        Save puzzle metadata to data_dir, send initial messages to channel, and
-        create corresponding Google Sheet if GoogleSheets cog is set up.
-        """
-        category = self.bot.get_channel(self.hunt_round.channel_id).category
-        channel_name = self.clean_name(puzzle_name)
-
-        text_channel, created_text = await self.get_or_create_channel(
-            guild=self.guild, category=category, channel_name=channel_name,
-            channel_type="text", reason=self.PUZZLE_REASON, position=2
-        )
-
-        if created_text:
-            await text_channel.move(after=ctx.channel)
+            self.hunt_round.num_puzzles += 1
+            RoundJsonDb.commit(self.hunt_round)
             new_puzzle = PuzzleData(
                 name=puzzle_name,
                 round_id=self.hunt_round.id,
-                channel_mention=text_channel.mention,
-                channel_id=text_channel.id,
                 start_time=datetime.datetime.now(tz=pytz.UTC),
                 status='Unsolved',
                 priority='Normal'
@@ -231,18 +210,34 @@ class Puzzles(commands.Cog):
                 # https://<site>/puzzle/puzzle_name
                 prefix = self.hunt.puzzle_prefix or 'puzzles'
                 hunt_url_base = self.hunt.url.rstrip("/")
-                if channel_name == "meta":
-                    # Use the round name in the URL
-                    p_name = self.hunt_round.name.lower().replace("-", self.hunt.url_sep)
-                else:
-                    p_name = channel_name.replace("-", self.hunt.url_sep)
+                p_name = self.clean_name(puzzle_name).replace("-", self.hunt.url_sep)
                 new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
 
-            if puzzle_name != 'meta':
-                if self.gsheet_cog is not None:
-                    # update google sheet ID
-                    await self.gsheet_cog.create_puzzle_spreadsheet(new_puzzle, self.hunt_round, self.hunt)
+            if self.gsheet_cog is not None:
+                # update google sheet ID
+                self.gsheet_cog.create_puzzle_spreadsheet(new_puzzle, self.hunt_round, self.hunt)
 
+            await self.create_puzzle_channel(ctx, new_puzzle)
+
+        else:
+            await ctx.send(f":x: This command must be ran from within a round category")
+
+    async def create_puzzle_channel(self, ctx, new_puzzle: PuzzleData):
+        """Create new text channel for puzzle, and optionally a voice channel
+
+        Save puzzle metadata to data_dir, send initial messages to channel, and
+        create corresponding Google Sheet if GoogleSheets cog is set up.
+        """
+        category = self.bot.get_channel(self.hunt_round.channel_id).category
+        channel_name = self.clean_name(new_puzzle.name)
+
+        text_channel, created_text = await self.get_or_create_channel(
+            guild=self.guild, category=category, channel_name=channel_name,
+            channel_type="text", reason=self.PUZZLE_REASON, position=2
+        )
+        if created_text:
+            new_puzzle.channel_mention=text_channel.mention
+            new_puzzle.channel_id=text_channel.id
             initial_message = await self.send_initial_puzzle_channel_messages(text_channel, puzzle=new_puzzle)
             await initial_message.pin()
 
@@ -284,6 +279,13 @@ class Puzzles(commands.Cog):
 
         new_round = RoundData(arg)
         new_category_name = self.clean_name(arg)
+
+        if self.gsheet_cog is not None:
+            self.gsheet_cog.create_round_overview_spreadsheet(new_round, self.hunt)
+
+        self.hunt.num_rounds += 1
+        HuntJsonDb.commit(self.hunt)
+
         guild = ctx.guild
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
@@ -301,7 +303,7 @@ class Puzzles(commands.Cog):
             # await category.edit(overwrites=overwrites, position=position)
             await new_category.edit(position=position)
         else:
-            raise ValueError(f"Category {new_category_name} already present in this server.")
+            raise ValueError(f"Category {new_category_name} already present in this server, please name the round differently.")
 
         text_channel, created_text = await self.get_or_create_channel(
                 guild=guild, category=new_category, channel_name=self.GENERAL_CHANNEL_NAME + "-" + self.clean_name(arg),
@@ -319,10 +321,6 @@ class Puzzles(commands.Cog):
         new_round.channel_id = text_channel.id
         new_round.category_id = new_category.id
 
-        if self.gsheet_cog is not None:
-            await self.gsheet_cog.create_round_overview_spreadsheet(new_round, self.hunt)
-
-        self.hunt.num_rounds += 1
 
         RoundJsonDb.commit(new_round)
 
@@ -991,10 +989,9 @@ class Puzzles(commands.Cog):
             #     await voice_channel.delete(reason=self.DELETE_REASON)
             # delete text channel last so that errors can be reported
             await ctx.channel.delete(reason=self.DELETE_REASON)
-            await self.bot.get_channel(self.hunt_round.channel_id).send(f":white_check_mark: Puzzle "
-                                     f"{self.puzzle.name}"
-                                     f" successfully deleted and sheet cleaned up.  "
-                                     f"The puzzle sheet has been hidden and prefixed with DELETED.")
+            self.hunt_round.num_puzzles -= 1
+            await (self.bot.get_channel(self.hunt_round.channel_id)
+                   .send(f":white_check_mark: Puzzle {self.puzzle.name} successfully deleted and sheet cleaned up."))
         except:
             await ctx.send(f":x: Channel deletion failed")
         self.puzzle = None
@@ -1010,8 +1007,9 @@ class Puzzles(commands.Cog):
             return
         hunt_general_channel = self.bot.get_channel(self.hunt.channel_id)
         await self.delete_round_data(self.hunt_round)
+        self.hunt.num_rounds -= 1
         await hunt_general_channel.send(f":white_check_mark: Round {self.hunt_round.name} successfully deleted.  "
-                                        f"All puzzle sheets have been marked as DELETED and hidden.")
+                                        f"All puzzle sheets have been delete.")
         self.hunt_round = None
 
     @commands.command()
