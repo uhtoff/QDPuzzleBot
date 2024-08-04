@@ -55,7 +55,7 @@ class Utility(commands.Cog):
         **Example**: `{prefix}info_bot`"""
         embed = discord.Embed(title="LadderSpot")
         # embed.url = f"https://top.gg/bot/{self.bot.user.id}"
-        embed.set_thumbnail(url=self.bot.user.avatar_url)
+        embed.set_thumbnail(url=self.bot.user.avatar)
         embed.add_field(
             name="Bot Stats",
             value=f"```py\n"
@@ -85,7 +85,7 @@ class Utility(commands.Cog):
             value=f"[Invite]({self.bot.invite})",
             inline=False,
         )
-        embed.set_footer(text=":ladder: :dog:", icon_url=self.bot.user.avatar_url)
+        embed.set_footer(text=":ladder: :dog:", icon_url=self.bot.user.avatar)
         await ctx.send(embed=embed)
 
     @commands.command(aliases=["socials", "links", "support"])
@@ -95,7 +95,7 @@ class Utility(commands.Cog):
         **Example**: `{prefix}invite`"""
         embed = discord.Embed()
         embed.description = f"[Invite]({self.bot.invite})"
-        embed.set_footer(text=":biohazard: :mag_right:", icon_url=self.bot.user.avatar_url)
+        embed.set_footer(text=":biohazard: :mag_right:", icon_url=self.bot.user.avatar)
         await ctx.send(embed=embed)
 
 

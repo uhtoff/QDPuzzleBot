@@ -411,7 +411,7 @@ class Puzzles(commands.Cog):
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def import_puzzles(self, ctx):
-        """*Import puzzles from the file system to the database*"""
+        """(Admin) *Import puzzles from the file system to the database*"""
         guild = ctx.guild
         settings = GuildSettingsDb.get(guild.id)
         if ctx.channel.name != self.GENERAL_CHANNEL_NAME:
@@ -427,7 +427,7 @@ class Puzzles(commands.Cog):
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def import_all_puzzles(self, ctx):
-        """*Import all puzzles from the file system to the database*"""
+        """(Admin) *Import all puzzles from the file system to the database*"""
         all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id)
         for puzzle in all_puzzles:
             PuzzleJsonDb.commit(puzzle)
@@ -707,7 +707,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     async def link(self, ctx, *, url: Optional[str]):
         """*Show or update link to puzzle*"""
-        if self.puzzle:
+        if self.puzzle and self.channel_type == "Puzzle":
             self.puzzle.url = url
             if self.gsheet_cog is not None:
                 # update google sheet ID
@@ -722,7 +722,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     async def status(self, ctx, *, status: Optional[str]):
         """*Show or update puzzle status, e.g. "extracting"*"""
-        if self.puzzle:
+        if self.puzzle and self.channel_type == "Puzzle":
             self.puzzle.status = status
             await self.send_state(
                 ctx.channel, self.puzzle, description=":white_check_mark: I've updated:" if status else None
@@ -733,7 +733,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     async def type(self, ctx, *, puzzle_type: Optional[str]):
         """*Show or update puzzle type, e.g. "crossword"*"""
-        if self.puzzle:
+        if self.puzzle and self.channel_type == "Puzzle":
             self.puzzle.puzzle_type = puzzle_type
             await self.send_state(
                 ctx.channel, self.puzzle, description=":white_check_mark: I've updated:" if puzzle_type else None
@@ -748,7 +748,7 @@ class Puzzles(commands.Cog):
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
 
-        if self.puzzle:
+        if self.puzzle and self.channel_type == "Puzzle":
             self.puzzle.priority = priority
             await self.send_state(
                 ctx.channel, self.puzzle, description=":white_check_mark: I've updated:" if priority else None
@@ -759,7 +759,7 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["notes"])
     async def note(self, ctx, *, note: Optional[str]):
         """*Show or add a note about the puzzle*"""
-        if self.puzzle is None:
+        if self.puzzle is None or self.channel_type != "Puzzle":
             await self.send_not_puzzle_channel(ctx)
             return
 
