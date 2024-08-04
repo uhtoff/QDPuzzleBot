@@ -345,49 +345,67 @@ class Puzzles(commands.Cog):
             data = self.guild_data
         await ctx.channel.send(f"```json\n{data.to_json(indent=2)}```")
 
-    @commands.command(aliases=["update_setting"])
-    @commands.has_any_role('Moderator', 'mod', 'admin')
-    @commands.has_permissions(manage_channels=True)
-    async def update_settings(self, ctx, setting_key: str, setting_value: str):
-        """*(admin) Update guild setting: !update_settings key value*"""
-        guild_id = ctx.guild.id
-        settings = GuildSettingsDb.get(guild_id)
-        hunt_id = ctx.channel.category.id
-        hunt_name = ctx.channel.category.name
-        if hunt_id in settings.hunt_settings and hasattr(settings.hunt_settings[hunt_id], setting_key):
-            old_value = getattr(settings.hunt_settings[hunt_id], setting_key)
-            setattr(settings.hunt_settings[hunt_id], setting_key, setting_value)
-            GuildSettingsDb.commit(settings)
-            await ctx.send(f":white_check_mark: Updated `{setting_key}={setting_value}` from old value: `{old_value}` for hunt `{hunt_name}`")
-        elif hasattr(settings, setting_key):
-            old_value = getattr(settings, setting_key)
-            value: Any
-            if type(old_value) == str:
-                value = setting_value
-                setattr(settings, setting_key, setting_value)
-            elif type(old_value) == int:
-                try:
-                    value = int(setting_value)
-                except ValueError:
-                    await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs integer input.")
-                    return
-            elif type(old_value) == bool:
-                if setting_value.strip().lower() in ('false', '0'):
-                    value = False
-                elif setting_value.strip().lower() in ('true', '1'):
-                    value = True
-                else:
-                    await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs boolean input (0, 1, true, false).")
-                    return
-            else:
-                await ctx.send(f":x: `{setting_key}` is type `{type(old_value).__name__}` and cannot be set from this command.")
-                return
+    @commands.command()
+    async def set_login(self, ctx, *, arg):
+        """*Set username and password for hunt*
+        Format username:password"""
+        if self.channel_type == "Guild":
+            await ctx.send(":x: This must be sent in a channel related to a hunt")
+            return
 
-            setattr(settings, setting_key, value)
-            GuildSettingsDb.commit(settings)
-            await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
-        else:
-            await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
+        if ":" in arg:
+            username, password = arg.split(":", 1)
+            self.hunt.username = username
+            self.hunt.password = password
+            return await ctx.send(
+                f":white_check_mark: I've updated the login details for hunt {self.hunt.name}"
+            )
+
+        await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
+
+    # @commands.command(aliases=["update_setting"])
+    # @commands.has_any_role('Moderator', 'mod', 'admin')
+    # @commands.has_permissions(manage_channels=True)
+    # async def update_settings(self, ctx, setting_key: str, setting_value: str):
+    #     """*(admin) Update guild setting: !update_settings key value*"""
+    #     guild_id = ctx.guild.id
+    #     settings = GuildSettingsDb.get(guild_id)
+    #     hunt_id = ctx.channel.category.id
+    #     hunt_name = ctx.channel.category.name
+    #     if hunt_id in settings.hunt_settings and hasattr(settings.hunt_settings[hunt_id], setting_key):
+    #         old_value = getattr(settings.hunt_settings[hunt_id], setting_key)
+    #         setattr(settings.hunt_settings[hunt_id], setting_key, setting_value)
+    #         GuildSettingsDb.commit(settings)
+    #         await ctx.send(f":white_check_mark: Updated `{setting_key}={setting_value}` from old value: `{old_value}` for hunt `{hunt_name}`")
+    #     elif hasattr(settings, setting_key):
+    #         old_value = getattr(settings, setting_key)
+    #         value: Any
+    #         if type(old_value) == str:
+    #             value = setting_value
+    #             setattr(settings, setting_key, setting_value)
+    #         elif type(old_value) == int:
+    #             try:
+    #                 value = int(setting_value)
+    #             except ValueError:
+    #                 await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs integer input.")
+    #                 return
+    #         elif type(old_value) == bool:
+    #             if setting_value.strip().lower() in ('false', '0'):
+    #                 value = False
+    #             elif setting_value.strip().lower() in ('true', '1'):
+    #                 value = True
+    #             else:
+    #                 await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs boolean input (0, 1, true, false).")
+    #                 return
+    #         else:
+    #             await ctx.send(f":x: `{setting_key}` is type `{type(old_value).__name__}` and cannot be set from this command.")
+    #             return
+    #
+    #         setattr(settings, setting_key, value)
+    #         GuildSettingsDb.commit(settings)
+    #         await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
+    #     else:
+    #         await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
 
     @commands.command(aliases=['import'])
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -520,14 +538,19 @@ class Puzzles(commands.Cog):
             " has info about the hunt itself and it is where you will create new round channels",
             inline=False,
         )
+        puzzle_links = (f"""The following are some useful links:
+                        • Hunt Website: {hunt.url}
+                        • Google Sheet: https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id}
+                        """)
+        if hunt.username:
+            puzzle_links += f"""• Hunt Username: {hunt.username}
+            """
+        if hunt.password:
+            puzzle_links += f"""• Hunt Password: {hunt.password}
+            """
         embed.add_field(
             name="Important Links",
-            value=f"""The following are some useful links:
-• Hunt Website: {hunt.url}
-• Hunt Username: {hunt.username}
-• Hunt Password: {hunt.password}
-• Google Sheet: https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id}
-""",
+            value=puzzle_links,
             inline=False,
         )
         embed.add_field(
@@ -536,6 +559,7 @@ class Puzzles(commands.Cog):
         • `!r <round name>` : Create a new round
         • `!list` : List all added puzzles
         • `!info` : Repeat this message
+        • `!set_login username:password` : Set the login details for the hunt if shared
         """,
                     inline=False,
                 )
