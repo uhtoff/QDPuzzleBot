@@ -74,6 +74,15 @@ class _MySQLBaseDb:
         else:
             return False
 
+    def check_duplicates_in_hunt(self, name, hunt_data: HuntData):
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s", (name, hunt_data.id,))
+        duplicates = cursor.rowcount
+        if duplicates > 0:
+            return True
+        else:
+            return False
+
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     def get_by_attr(self,**kwargs):

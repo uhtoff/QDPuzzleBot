@@ -319,8 +319,8 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: Rounds must be created in the master hunt channel")
             return
 
-        if RoundJsonDb.check_duplicates(arg):
-            return await ctx.send(f":exclamation: **Round {arg}** already exists, please use a different name")
+        if RoundJsonDb.check_duplicates_in_hunt(arg, self.hunt):
+            return await ctx.send(f":exclamation: **Round {arg}** already exists in this hunt, please use a different name")
 
         new_round = RoundData(arg)
         new_category_name = self.clean_name(arg)
