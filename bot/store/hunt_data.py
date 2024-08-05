@@ -23,6 +23,7 @@ class HuntData:
     url: str = ""
     url_sep: str = "-"
     puzzle_prefix: str = "puzzles"
+    parallel_hunt: bool = False
     role_id: int = 0
     num_rounds: int = 0
     username: str = ""

@@ -267,6 +267,51 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(new_puzzle)
         return (text_channel, created)
 
+    @commands.command(aliases=["mp"])
+    async def metapuzzle(self, ctx, *, arg: Optional[str]):
+        """*Create new metapuzzle channel: !mp puzzle-name*
+        Can also mark a puzzle as a metapuzzle if used within a puzzle channel without a name
+        Must be posted from within a round category"""
+        if self.channel_type in ("Puzzle", "Round"):
+            puzzle_name = arg
+            if puzzle_name:
+                if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.hunt.id):
+                    return await ctx.send(
+                        f":exclamation: **Puzzle {puzzle_name}** already exists in this hunt, please use a different name")
+                self.hunt_round.num_puzzles += 1
+                RoundJsonDb.commit(self.hunt_round)
+                new_puzzle = PuzzleData(
+                    name=puzzle_name,
+                    round_id=self.hunt_round.id,
+                    start_time=datetime.datetime.now(tz=pytz.UTC),
+                    status='Unsolved',
+                    priority='Normal',
+                    metapuzzle = 1,
+                )
+                if self.hunt.url:
+                    # NOTE: this is a heuristic and may need to be updated!
+                    # This is based on last year's URLs, where the URL format was
+                    # https://<site>/puzzle/puzzle_name
+                    prefix = self.hunt.puzzle_prefix or 'puzzles'
+                    hunt_url_base = self.hunt.url.rstrip("/")
+                    p_name = self.clean_name(puzzle_name).replace("-", self.hunt.url_sep)
+                    new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
+                round_puzzles = PuzzleJsonDb.get_all_from_round(new_puzzle.round_id)
+                if self.gsheet_cog is not None:
+                    # update google sheet ID
+                    self.gsheet_cog.create_puzzle_spreadsheet(new_puzzle, self.hunt_round, self.hunt)
+                    await self.gsheet_cog.add_metapuzzle_data(new_puzzle, self.hunt_round, round_puzzles)
+                await self.create_puzzle_channel(ctx, new_puzzle)
+                await ctx.send("@here - Metapuzzle opened!")
+            elif self.channel_type == "Puzzle":
+                self.puzzle.metapuzzle = 1
+                round_puzzles = PuzzleJsonDb.get_all_from_round(self.puzzle.round_id)
+                await self.gsheet_cog.add_metapuzzle_data(self.puzzle, self.hunt_round, round_puzzles)
+                await ctx.send(":white_check_mark: Puzzle marked as metapuzzle and links to the round's answers copied to the sheet.")
+
+        else:
+            await ctx.send(f":x: This command must be ran from within a round category")
+
     @commands.command(aliases=["r"])
     async def round(self, ctx, *, arg):
         """*Create new puzzle round: !r round-name*"""
@@ -288,7 +333,7 @@ class Puzzles(commands.Cog):
 
         guild = ctx.guild
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
-        if existing_category:
+        if existing_category or self.hunt.parallel_hunt:
             # Try to append the hunt name to the round category name and check if it still exists
             new_category_name = new_category_name + " — " + self.clean_name(self.hunt.name)
             existing_category = discord.utils.get(guild.categories, name=new_category_name)
@@ -362,6 +407,26 @@ class Puzzles(commands.Cog):
             )
 
         await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
+
+    @commands.command(aliases=["ph"])
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def parallel_hunt(self, ctx):
+        """*Mark that hunts are being done in parallel - more than one team doing at the same time
+        Acts as a toggle."""
+        if self.channel_type != "Hunt":
+            await ctx.send(":x: This must be sent in the main hunt channel")
+            return
+
+        self.hunt.parallel_hunt = not self.hunt.parallel_hunt
+
+        if self.hunt.parallel_hunt:
+            return await ctx.send(
+                f":white_check_mark: I've marked {self.hunt.name} as being run in parallel"
+            )
+        else:
+            return await ctx.send(
+                f":white_check_mark: I've marked {self.hunt.name} as not being run in parallel"
+            )
 
     # @commands.command(aliases=["update_setting"])
     # @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -580,6 +645,7 @@ class Puzzles(commands.Cog):
                         name="Commands",
                         value="""The following may be useful discord commands:
         • `!p <puzzle-name>` will add a puzzle to this round.
+        • `!mp <puzzle-name>` will add a metapuzzle to this round.
         • `!list` : List all puzzles in this round
         • `!info` will re-post this message
         """,
@@ -609,6 +675,7 @@ class Puzzles(commands.Cog):
                         name="Commands",
                         value="""The following may be useful discord commands:
         • `!p <puzzle-name>` will add a puzzle to this round.
+        • `!mp` will mark this puzzle as a metapuzzle.  You can also use this to recopy the links to the round's answers to the sheet if a puzzle is added after the metapuzzle.
         • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
         • `!link <url>` will update the link to the puzzle on the hunt website
         • `!info` will re-post this message
@@ -630,46 +697,11 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
             pass
-        return await channel.send(embed=embed)
-
-    async def update_initial_puzzle_channel_messages(self, channel: discord.TextChannel) -> discord.Message:
-        """Send intro message on a puzzle channel"""
-        embed = discord.Embed(
-            description=f"""Welcome to the puzzle channel for {self.puzzle.name} in {self.hunt_round.name}!"""
-        )
-        embed.add_field(
-            name="Overview",
-            value="This channel is a good place to discuss how to tackle this puzzle. Usually you'll want to do most of the puzzle work itself on Google Sheets / Docs.",
-            inline=False,
-        )
-        embed.add_field(
-            name="Commands",
-            value="""The following may be useful discord commands:
-        • `!p <puzzle-name>` will add a puzzle to this round.
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
-        • `!link <url>` will update the link to the puzzle on the hunt website
-        • `!info` will re-post this message
-        • `!type <puzzle type>` will mark the type of the puzzle
-        • `!priority <priority>` will mark the priority of the puzzle
-        • `!status <status>` will update the status of the puzzle
-        • `!note <note>` can be used to leave a note about ideas/progress
-        • `!notes` can be used to see the notes that have been left
-        • `!erase_note <note number>` can be used to erase the specified note
-        """,
-            inline=False,
-        )
-        try:
-            embed.add_field(name="Hunt URL", value=self.puzzle.url or "?", inline=False, )
-            spreadsheet_url = urls.spreadsheet_url(self.hunt.google_sheet_id,
-                                                   self.puzzle.google_page_id) if self.hunt.google_sheet_id else "?"
-            embed.add_field(name="Google Drive", value=spreadsheet_url, inline=False, )
-            embed.add_field(name="Status", value=self.puzzle.status or "?", inline=False, )
-            embed.add_field(name="Type", value=self.puzzle.puzzle_type or "?", inline=False, )
-            embed.add_field(name="Priority", value=self.puzzle.priority or "?", inline=False, )
-        except:
-            pass
-        channel_pins = await channel.pins()
-        return await channel_pins[0].edit(embed=embed)
+        if kwargs.get("update",False):
+            channel_pins = await channel.pins()
+            return await channel_pins[0].edit(embed=embed)
+        else:
+            return await channel.send(embed=embed)
 
     async def send_not_puzzle_channel(self, ctx):
         # TODO: Fix this
@@ -702,7 +734,7 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
         embed.add_field(name="Priority", value=puzzle_data.priority or "?")
         await channel.send(embed=embed)
-        await self.update_initial_puzzle_channel_messages(channel)
+        await self.send_initial_puzzle_channel_messages(channel, update=True)
 
     @commands.command()
     async def link(self, ctx, *, url: Optional[str]):
@@ -781,10 +813,6 @@ class Puzzles(commands.Cog):
                     value=self.puzzle.notes[x],
                     inline=False
                 )
-#             embed.add_field(
-#                 name="Notes",
-#                 value="\n".join([f"{i+1}: {puzzle_data.notes[i]}" for i in range(len(puzzle_data.notes))])
-#             )
         else:
             embed = discord.Embed(description="No notes left yet, use `!note my note here` to leave a note")
         await ctx.send(embed=embed)
@@ -839,7 +867,7 @@ class Puzzles(commands.Cog):
             "puzzle channel to the bottom and archive the Google Spreadsheet",
         )
         await ctx.send(embed=embed)
-        await self.update_initial_puzzle_channel_messages(ctx.channel)
+        await self.send_initial_puzzle_channel_messages(ctx.channel, update=True)
 
     @commands.command()
     async def unsolve(self, ctx):
@@ -866,7 +894,7 @@ class Puzzles(commands.Cog):
             "You'll get'em next time!"
         )
         await ctx.send(embed=embed)
-        await self.update_initial_puzzle_channel_messages(ctx.channel)
+        await self.send_initial_puzzle_channel_messages(ctx.channel, update=True)
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1036,7 +1064,7 @@ class Puzzles(commands.Cog):
         await self.delete_round_data(self.hunt_round)
         self.hunt.num_rounds -= 1
         await hunt_general_channel.send(f":white_check_mark: Round {self.hunt_round.name} successfully deleted.  "
-                                        f"All puzzle sheets have been delete.")
+                                        f"All puzzle sheets have been deleted.")
         self.hunt_round = None
 
     @commands.command()

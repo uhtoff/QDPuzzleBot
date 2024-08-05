@@ -22,6 +22,7 @@ class PuzzleData:
     voice_channel_id: int = 0
     url: str = ""
     google_page_id: str = ""
+    metapuzzle: int = 0
     status: str = ""
     solution: str = ""
     priority: str = ""

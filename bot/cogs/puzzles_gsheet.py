@@ -8,7 +8,7 @@ import datetime
 import logging
 import string
 import traceback
-from typing import Optional
+from typing import List, Optional
 
 import discord
 from discord.ext import commands, tasks
@@ -143,7 +143,7 @@ class GoogleSheets(commands.Cog):
                     self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B4", overview_row, 4,
                                      self.FORMULA_INPUT,
                                      self.overview_page_id),
-                    self.update_cell("='" + str(overview_page_name) + "'!B" + str(overview_row + 1), 0, 1,
+                    self.update_cell("='" + escape_apostrophes(str(overview_page_name)) + "'!B" + str(overview_row + 1), 0, 1,
                                      self.FORMULA_INPUT,
                                      new_sheet_id),
                     self.update_cell(self.get_puzzle_data().url, 1, 1, self.STRING_INPUT,
@@ -460,6 +460,26 @@ class GoogleSheets(commands.Cog):
         self.add_new_puzzle_sheet(puzzle_index)
         self.copy_puzzle_info(hunt_round.num_puzzles + 3)
         self.update_puzzle_info(hunt_round.num_puzzles + 3)
+
+    async def add_metapuzzle_data(self, puzzle: PuzzleData, hunt_round: RoundData, round_puzzles: List[PuzzleData]):
+        self.set_puzzle_data(puzzle)
+        self.overview_page_id = hunt_round.google_page_id
+        overview_name = self.get_page_name_by_id(self.overview_page_id)
+        requests = [self.update_cell("Puzzle titles",5,0,self.STRING_INPUT,self.get_page_id()),
+                    self.update_cell("Puzzle solutions", 5, 1, self.STRING_INPUT,self.get_page_id()),]
+        row = 6
+        for puzzle in round_puzzles:
+            if puzzle.metapuzzle:
+                continue
+            requests.append(self.update_cell(puzzle.name, row, 0, self.STRING_INPUT,self.get_page_id()))
+            requests.append(self.update_cell(f"""=IF(XLOOKUP(A{row+1},'{escape_apostrophes(overview_name)}'!B:B,'{escape_apostrophes(overview_name)}'!D:D)<>"",
+                                             XLOOKUP(A{row+1},'{escape_apostrophes(overview_name)}'!B:B,'{escape_apostrophes(overview_name)}'!D:D),"Unsolved")""",
+                                             row, 1, self.FORMULA_INPUT,self.get_page_id()))
+            row += 1
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
 
     def retrieve_overview_page_id(self, puzzle_data):
         self.set_puzzle_data(puzzle_data)
