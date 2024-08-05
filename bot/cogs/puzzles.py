@@ -624,6 +624,7 @@ class Puzzles(commands.Cog):
         • `!r <round name>` : Create a new round
         • `!list` : List all added puzzles
         • `!info` : Repeat this message
+        • `!parallel_hunt` : Toggle the hunt being marked as being run in parallel
         • `!set_login username:password` : Set the login details for the hunt if shared
         """,
                     inline=False,
