@@ -859,6 +859,8 @@ class Puzzles(commands.Cog):
         self.puzzle.solution = solution
         self.puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
 
+        PuzzleJsonDb.commit(self.puzzle)
+
         emoji = self.guild_data.discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{solution}`")
         embed.add_field(
@@ -1144,7 +1146,7 @@ class Puzzles(commands.Cog):
             if not hunt.id in puzzles_by_hunt:
                 puzzles_by_hunt[hunt.name] = []
             puzzles_by_hunt[hunt.name].append(puzz)
-
+        logger.info(puzzles_by_hunt)
         for hunt_name, puzzles in puzzles_by_hunt.items():
             if self.SOLVE_CATEGORY:
                 solved_category_name = self.get_solved_puzzle_category(hunt_name)
@@ -1162,6 +1164,8 @@ class Puzzles(commands.Cog):
                         await channel.edit(category=solved_category)
                     else:
                         await channel.move(end=channel.category)
+                        message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
+                        logger.info(message)
                 if gsheet_cog:
                     """TODO This is inefficient, but runs completely away from the main code so should be fine"""
                     hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
