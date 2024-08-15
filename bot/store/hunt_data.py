@@ -32,6 +32,8 @@ class HuntData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
 
+    def __hash__(self):
+        return self.id
     @classmethod
     def import_dict(cls, hunt_data: dict):
         r = HuntData()

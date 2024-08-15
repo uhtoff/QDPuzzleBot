@@ -1143,13 +1143,15 @@ class Puzzles(commands.Cog):
         for puzz in puzzles_to_archive:
             hunt_round = RoundJsonDb.get_by_attr(id=puzz.round_id)
             hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-            if not hunt.id in puzzles_by_hunt:
-                puzzles_by_hunt[hunt.name] = []
-            puzzles_by_hunt[hunt.name].append(puzz)
-        logger.info(puzzles_by_hunt)
-        for hunt_name, puzzles in puzzles_by_hunt.items():
+            logger.info(f"{puzz.name} - archiving")
+            if not hunt in puzzles_by_hunt:
+                puzzles_by_hunt[hunt] = []
+            puzzles_by_hunt[hunt].append(puzz)
+        # if puzzles_by_hunt:
+        #     logger.info(puzzles_by_hunt)
+        for hunt, puzzles in puzzles_by_hunt.items():
             if self.SOLVE_CATEGORY:
-                solved_category_name = self.get_solved_puzzle_category(hunt_name)
+                solved_category_name = self.get_solved_puzzle_category(hunt.name)
                 solved_category = discord.utils.get(guild.categories, name=solved_category_name)
                 if not solved_category:
                     avail_categories = [c.name for c in guild.categories]
@@ -1167,11 +1169,16 @@ class Puzzles(commands.Cog):
                         message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
                         logger.info(message)
                 if gsheet_cog:
-                    """TODO This is inefficient, but runs completely away from the main code so should be fine"""
-                    hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
-                    hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+                    """TODO Less efficient now
+                    Make this more resilient if the sheet has been deleted"""
+                    # hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
+                    # hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
                     gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-                    await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+                    try:
+                        await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+                    except:
+                        message = f"Unable to update {puzzle.name} from {hunt.name} as solved on Google Sheet."
+                        logger.info(message)
 
                 puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
                 PuzzleJsonDb.commit(puzzle)
