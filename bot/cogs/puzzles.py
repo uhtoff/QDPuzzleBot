@@ -961,6 +961,8 @@ class Puzzles(commands.Cog):
             puzzle.archive_time = datetime.datetime.now()
         else:
             thread_name = f"{channel.name} ({channel.category.name})"
+        if len(thread_name) > 100:
+            thread_name = thread_name[:100]
         thread = await archive_to.create_thread(name=thread_name, message=thread_message)
         messages = []
         # Get all the messages in the channel
