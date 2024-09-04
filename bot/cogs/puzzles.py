@@ -909,9 +909,13 @@ class Puzzles(commands.Cog):
         if ctx.channel != round_channel:
             await ctx.send(f":x: This command must be done from the main round channel")
             return
-        await self.archive_category(ctx, hunt_general_channel, delete_channels=[self.SOLVE_DIVIDER])
-        await ctx.channel.category.delete(reason=self.DELETE_REASON)
-        await hunt_general_channel.send(f":white_check_mark: Round {category.name} successfully archived.")
+        success = await self.archive_category(ctx, hunt_general_channel, delete_channels=[self.SOLVE_DIVIDER])
+        if success:
+            await ctx.channel.category.delete(reason=self.DELETE_REASON)
+            await hunt_general_channel.send(f":white_check_mark: Round {category.name} successfully archived.")
+            return True
+        else:
+            return False
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -926,9 +930,12 @@ class Puzzles(commands.Cog):
             if channel.name in ignore_channels:
                 continue
             if channel.name not in delete_channels:
-                await self.archive_channel(ctx, channel, archive_to)
+                success = await self.archive_channel(ctx, channel, archive_to)
+                if success is False:
+                    return False
             else:
                 await channel.delete(reason=self.DELETE_REASON)
+        return True
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_channel(self, ctx, channel = None, archive_to = None):
@@ -937,6 +944,11 @@ class Puzzles(commands.Cog):
             channel = ctx.channel
         if archive_to is None:
             archive_to = self.bot.get_channel(self.hunt.channel_id)
+
+        webhook = await archive_to.webhooks()
+        if len(webhook) == 0:
+            await ctx.channel.send(":x: Can't find a webhook in that channel, please create one before archiving")
+            return False
         thread_message = await archive_to.send(content=f'Archive of channel {channel.name}', silent=True)
         puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
         if puzzle:
@@ -950,7 +962,6 @@ class Puzzles(commands.Cog):
         else:
             thread_name = f"{channel.name} ({channel.category.name})"
         thread = await archive_to.create_thread(name=thread_name, message=thread_message)
-        webhook = await archive_to.webhooks()
         messages = []
         # Get all the messages in the channel
         async for message in channel.history(limit=None, oldest_first=True):
@@ -986,6 +997,7 @@ class Puzzles(commands.Cog):
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
         await channel.delete(reason=self.DELETE_REASON)
+        return True
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1241,23 +1253,10 @@ class Puzzles(commands.Cog):
         await channel.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
 
     def get_hunt_channel(self, ctx):
-        guild_id = ctx.guild.id
-        settings = GuildSettingsDb.get(guild_id)
-        hunt_id = ctx.channel.category.id
-        if hunt_id in settings.hunt_settings:
-            settings = settings.hunt_settings[hunt_id]
-        elif ctx.channel.category.id in settings.category_mapping:
-            hunt_id = settings.category_mapping[ctx.channel.category.id]
-            settings = settings.hunt_settings[hunt_id]
-        hunt_category = self.bot.get_channel(hunt_id)
-        for channel in hunt_category.channels:
-            if channel.name.find(self.GENERAL_CHANNEL_NAME) == 0:
-                return channel
+        return self.bot.get_channel(self.hunt.channel_id)
 
     def get_round_channel(self, channel):
-        for c in channel.category.channels:
-            if c.name.find(self.GENERAL_CHANNEL_NAME) == 0:
-                return c
+        return self.bot.get_channel(self.hunt_round.channel_id)
 
     def get_solved_channel(self, category):
         solved_channel = None
