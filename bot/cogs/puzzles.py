@@ -1210,7 +1210,7 @@ class Puzzles(commands.Cog):
         message = f"Archived {len(puzzles_to_archive)} solved puzzle channels: {mentions}"
         logger.info(message)
         await ctx.send(message)
-    @tasks.loop(seconds=30.0)
+    @tasks.loop(seconds=120.0)
     async def archived_solved_puzzles_loop(self):
         """Ref: https://discordpy.readthedocs.io/en/latest/ext/tasks/"""
         for guild in self.bot.guilds:
