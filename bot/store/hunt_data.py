@@ -22,7 +22,7 @@ class HuntData:
     google_sheet_id: str = ""
     url: str = ""
     url_sep: str = "-"
-    puzzle_prefix: str = "puzzles"
+    puzzle_prefix: str = "puzzle"
     parallel_hunt: bool = False
     role_id: int = 0
     num_rounds: int = 0
