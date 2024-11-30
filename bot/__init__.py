@@ -51,6 +51,11 @@ async def on_ready():
     )
 
 
+@bot.command(name="sync")
+async def sync(ctx):
+    synced = await bot.tree.sync()
+    print(f"Synced {len(synced)} command(s).")
+
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup
     logger = logging.getLogger()  # 'discord')
