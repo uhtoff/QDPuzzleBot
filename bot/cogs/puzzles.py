@@ -1,6 +1,7 @@
 import datetime
 import logging
 import random
+import time
 from typing import Any, List, Optional
 
 import discord
@@ -987,9 +988,9 @@ class Puzzles(commands.Cog):
         round_channel = self.get_round_channel(ctx)
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
-        if ctx.channel != round_channel:
-            await ctx.send(f":x: This command must be done from the main round channel")
-            return
+        # if ctx.channel != round_channel:
+        #     await ctx.send(f":x: This command must be done from the main round channel")
+        #     return
         success = await self.archive_category(ctx, hunt_general_channel, delete_channels=[self.SOLVE_DIVIDER])
         if success:
             await ctx.channel.category.delete(reason=self.DELETE_REASON)
@@ -1079,6 +1080,7 @@ class Puzzles(commands.Cog):
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
+                    time.sleep(0.5)
         await channel.delete(reason=self.DELETE_REASON)
         return True
 
