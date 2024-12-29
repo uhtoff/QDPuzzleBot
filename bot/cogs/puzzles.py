@@ -1080,7 +1080,7 @@ class Puzzles(commands.Cog):
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
-                    time.sleep(0.5)
+                    time.sleep(0.1)
         await channel.delete(reason=self.DELETE_REASON)
         return True
 
