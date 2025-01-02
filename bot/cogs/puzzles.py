@@ -228,6 +228,11 @@ class Puzzles(commands.Cog):
 
         if self.SOLVE_CATEGORY:
             solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), position=max(len(guild.categories) - 2,0))
+        else:
+            await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
+                channel_type="text", reason=self.ROUND_REASON, position=500
+            )
 
         if self.gsheet_cog is not None:
             google_drive_id = await self.gsheet_cog.create_hunt_spreadsheet(hunt_name)

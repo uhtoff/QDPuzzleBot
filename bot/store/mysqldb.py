@@ -97,9 +97,9 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             else:
                 print(f"Unable to find hunt for {keyword} - {value}")
                 return None
+
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
-
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
         cursor = self.mydb.cursor(dictionary = True)
@@ -134,10 +134,9 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         cursor.close()
         return round_datas
         # return RoundData.sort_by_round_start(round_datas) TODO - ideally return by round start time
+
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-
-
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
         cursor = self.mydb.cursor(dictionary = True)

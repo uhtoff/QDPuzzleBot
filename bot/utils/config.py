@@ -22,6 +22,7 @@ class Config:
         self.token = self.config.get("discord_bot_token", default_config.get("discord_bot_token"))
         self.database = os.getenv("DB_DSN")  # for docker
         self.owner_email = self.config.get("owner_email", None)
+        self.master_spreadsheet = self.config.get("master_spreadsheet", None)
         self.storage = self.config.get("storage", default_config.get("storage"))
         if self.storage == "mysql":
             self.mysql_username = self.config.get("mysql_username", None)
