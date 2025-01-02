@@ -1,0 +1,10 @@
+{
+  "discord_bot_token": "",
+  "master_spreadsheet": "",
+  "prefix": "!",
+  "storage": "mysql",
+  "database": "",
+  "mysql_username": "",
+  "mysql_password": "",
+  "debug": false
+}

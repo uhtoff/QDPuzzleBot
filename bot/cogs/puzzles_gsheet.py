@@ -16,7 +16,7 @@ import gspread_asyncio
 import gspread_formatting
 import pytz
 
-from bot.utils import urls
+from bot.utils import urls, config
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, RoundData, RoundJsonDb, HuntJsonDb, HuntData
 from bot.utils.gsheets import get_sheet, get_drive
 from bot.utils.appscript import create_project, add_javascript
@@ -434,7 +434,7 @@ class GoogleSheets(commands.Cog):
         body = {
             'name': hunt_name
         }
-        new_file = get_drive().files().copy(fileId=self.MASTER_SPREADSHEET_ID).execute()
+        new_file = get_drive().files().copy(fileId=config.master_spreadsheet).execute()
         new_file_id = new_file['id']
         get_drive().files().update(fileId=new_file_id, body=body).execute()
         get_drive().permissions().create(fileId=new_file_id, body=permission).execute()

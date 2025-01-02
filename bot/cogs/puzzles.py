@@ -11,7 +11,7 @@ from discord import Webhook, Message
 import pytz
 import aiohttp
 
-from bot.utils import urls
+from bot.utils import urls, config
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, RoundData, RoundJsonDb, HuntData, HuntJsonDb
 
 logger = logging.getLogger(__name__)

@@ -6,11 +6,11 @@ verify_ssl = true
 [dev-packages]
 ipython = "*"
 pytest = "*"
+pydevd-pycharm = "~=241.19416.19"
 
 [packages]
 "discord.py" = "*"
 "mysql.connector" = "*"
-pydevd-pycharm = "~=241.19416.19"
 gino = "*"
 # psycopg2 = "*"  # not currently used
 dataclasses-json = "*"
