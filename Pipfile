@@ -6,13 +6,12 @@ verify_ssl = true
 [dev-packages]
 ipython = "*"
 pytest = "*"
-pydevd-pycharm = "~=241.19416.19"
+pydevd-pycharm = "~=243.22562.220"
 
 [packages]
 "discord.py" = "*"
 "mysql.connector" = "*"
 gino = "*"
-# psycopg2 = "*"  # not currently used
 dataclasses-json = "*"
 pytz = "*"
 aiogoogle = "*"
