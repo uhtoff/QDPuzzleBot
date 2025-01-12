@@ -1037,7 +1037,7 @@ class Puzzles(commands.Cog):
         if not self.get_channel_type(ctx) == "Puzzle":
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solution.len() > 0:
+        elif len(self.get_puzzle(ctx).solution) > 0:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
@@ -1066,7 +1066,7 @@ class Puzzles(commands.Cog):
         if not self.get_channel_type(ctx) == "Puzzle":
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solution.len() == 0:
+        elif len(self.get_puzzle(ctx).solution) == 0:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
         elif self.get_puzzle(ctx).archive_time:
