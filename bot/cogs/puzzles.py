@@ -450,7 +450,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the meta")
 
     @commands.command()
-    async def move_to_meta(self, ctx, meta_code):
+    async def add_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await ctx.send(":x: This does not appear to be a Puzzle channel")
