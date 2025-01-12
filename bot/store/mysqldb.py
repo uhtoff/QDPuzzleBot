@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class _MySQLBaseDb:
     TABLE_NAME = None
+    SPECIAL_ATTR = []
     mydb = None
 
     def __init__(self, mydb):
@@ -26,6 +27,8 @@ class _MySQLBaseDb:
         field_list = []
         database_id = 0
         for attr, value in object_to_commit.__dict__.items():
+            if attr in self.SPECIAL_ATTR:
+                continue
             if attr == "id":
                 database_id = value
             else:
@@ -100,6 +103,16 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
 
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
+    def get_lowest_code_in_hunt(self, hunt_id):
+        """Retrieve lower code from database return 0 if none set"""
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute("SELECT meta_code FROM rounds WHERE hunt_id = %s ORDER BY meta_code DESC LIMIT 0,1", (hunt_id,))
+        row = cursor.fetchone()
+        if row:
+            return row['meta_code']
+        else:
+            return 0
+
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
         cursor = self.mydb.cursor(dictionary = True)
@@ -137,13 +150,17 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
+    SPECIAL_ATTR = ['tags']
+
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
         cursor = self.mydb.cursor(dictionary = True)
         cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
         row = cursor.fetchone()
         if row:
-            return PuzzleData.import_dict(row)
+            puzzle = PuzzleData.import_dict(row)
+            self.get_tags(puzzle)
+            return puzzle
         else:
             raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
@@ -155,7 +172,9 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
             row = cursor.fetchone()
             if row:
-                return PuzzleData.import_dict(row)
+                puzzle = PuzzleData.import_dict(row)
+                self.get_tags(puzzle)
+                return puzzle
             else:
                 print(f"Unable to find puzzle for {keyword} - {value}")
                 return None
@@ -165,12 +184,13 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         puzzle_datas = []
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT puzzles.* FROM puzzles "
-                       "LEFT JOIN rounds ON puzzles.round_id = rounds.id "
-                       "LEFT JOIN hunts ON rounds.hunt_id = hunts.id "
+                       "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
                        "WHERE hunts.guild_id = %s", (guild_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle_datas.append(PuzzleData.import_dict(row))
+            puzzle = PuzzleData.import_dict(row)
+            self.get_tags(puzzle)
+            puzzle_datas.append(puzzle)
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
@@ -179,22 +199,25 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         puzzle_datas = []
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT puzzles.* FROM puzzles "
-                       "LEFT JOIN rounds ON puzzles.round_id = rounds.id "
-                       "WHERE rounds.hunt_id = %s", (hunt_id,))
+                       "WHERE hunt_id = %s", (hunt_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle_datas.append(PuzzleData.import_dict(row))
+            puzzle = PuzzleData.import_dict(row)
+            self.get_tags(puzzle)
+            puzzle_datas.append(puzzle)
         cursor.close()
-        return PuzzleData.sort_by_round_id(puzzle_datas)
+        return puzzle_datas
 
     def get_all_from_round(self, round_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM puzzles WHERE round_id = %s", (round_id,))
+        cursor.execute("SELECT puzzles.* FROM puzzles LEFT JOIN tags ON puzzles.id = tags.puzzle_id WHERE tags.round_id = %s", (round_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle_datas.append(PuzzleData.import_dict(row))
+            puzzle = PuzzleData.import_dict(row)
+            self.get_tags(puzzle)
+            puzzle_datas.append(puzzle)
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
@@ -220,13 +243,49 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def check_duplicates_in_hunt(self, name, hunt_id):
         cursor = self.mydb.cursor(dictionary = True)
         cursor.execute("SELECT puzzles.id FROM puzzles "
-                       "LEFT JOIN rounds ON puzzles.round_id = rounds.id "
-                       "WHERE puzzles.name = %s AND rounds.hunt_id = %s", (name, hunt_id,))
+                       "WHERE puzzles.name = %s AND puzzles.hunt_id = %s", (name, hunt_id,))
         duplicates = cursor.rowcount
         if duplicates > 0:
             return True
         else:
             return False
+
+    def get_tags(self, puzzle):
+        cursor = self.mydb.cursor(dictionary=True)
+        select_stmt = f"SELECT tags.round_id FROM tags WHERE puzzle_id = {puzzle.id}"
+        cursor.execute(select_stmt)
+        rows = cursor.fetchall()
+        for row in rows:
+            puzzle.tags.append(row['round_id'])
+        cursor.close()
+
+    def commit(self, puzzle):
+        super(MySQLPuzzleJsonDb, self).commit(puzzle)
+        cursor = self.mydb.cursor(dictionary=True)
+        select_stmt = f"SELECT round_id FROM tags WHERE puzzle_id = {puzzle.id}"
+        cursor.execute(select_stmt)
+        rows = cursor.fetchall()
+        database_tags = []
+        for row in rows:
+            database_tags.append(row['round_id'])
+        tags_to_remove = set(database_tags) - set(puzzle.tags)
+        if len(tags_to_remove) > 0:
+            delete_stmt = f"DELETE FROM tags WHERE round_id IN ("
+            delete_stmt += f"{','.join(map(str,tags_to_remove))}"
+            delete_stmt += ")"
+            cursor.execute(delete_stmt)
+        tags_to_add = set(puzzle.tags) - set(database_tags)
+        if len(tags_to_add) > 0:
+            insert_stmt = f"INSERT INTO tags (round_id, puzzle_id) VALUES "
+            for tag in tags_to_add:
+                insert_stmt += f"({tag}, {puzzle.id}),"
+            insert_stmt = insert_stmt.rstrip(", ")
+            cursor.execute(insert_stmt)
+        cursor.close()
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.close()
+        self.mydb.commit()
+
 
 class MySQLGuildSettingsDb():
     def __init__(self, dir_path: Path, mydb):
@@ -240,14 +299,15 @@ class MySQLGuildSettingsDb():
                     "SELECT category_id as channel_id, 'Hunt' as channel_type FROM hunts "
                     "UNION SELECT channel_id as channel_id, 'Hunt' as channel_type FROM hunts "
                     "UNION SELECT channel_id, 'Puzzle' as channel_type FROM puzzles "
-                    "UNION SELECT category_id as channel_id, 'Round' as channel_type FROM rounds "
-                    "UNION SELECT channel_id as channel_id, 'Round' as channel_type FROM rounds "
                 ") channel_types WHERE channel_id=%s")
         data = (channel_id,)
         cursor.execute(stmt, data)
         row = cursor.fetchone()
+        channel_type = None
         if row:
-            return row['channel_type']
+            channel_type = row['channel_type']
+        return channel_type
+
     
     def get(self, guild_id: int) -> GuildSettings:
         cursor = self.mydb.cursor(dictionary=True)

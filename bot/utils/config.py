@@ -23,6 +23,10 @@ class Config:
         self.database = os.getenv("DB_DSN")  # for docker
         self.owner_email = self.config.get("owner_email", None)
         self.master_spreadsheet = self.config.get("master_spreadsheet", None)
+        self.puzzle_cell_name = self.config.get("puzzle_cell_name", None)
+        self.puzzle_cell_link = self.config.get("puzzle_cell_link", None)
+        self.puzzle_cell_solution = self.config.get("puzzle_cell_solution", None)
+        self.puzzle_cell_progress = self.config.get("puzzle_cell_progress", None)
         self.storage = self.config.get("storage", default_config.get("storage"))
         if self.storage == "mysql":
             self.mysql_username = self.config.get("mysql_username", None)

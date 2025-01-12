@@ -16,12 +16,10 @@ class MissingRoundError(RuntimeError):
 class RoundData:
     name: str = ""
     id: int = 0
-    hunt_id: str = 0
+    hunt_id: int = 0
     category_id: int = 0  # round = category channel
-    num_puzzles: int = 0
-    channel_id: int = 0
-    google_page_id: str = ""
-    notes: List[str] = field(default_factory=list)
+    meta_id: int = 0
+    meta_code: int = 0
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None

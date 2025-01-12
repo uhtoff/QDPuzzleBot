@@ -1,6 +1,10 @@
 {
   "discord_bot_token": "",
   "master_spreadsheet": "",
+  "puzzle_cell_name": "",
+  "puzzle_cell_link": "",
+  "puzzle_cell_solution": "",
+  "puzzle_cell_progress": "",
   "prefix": "!",
   "storage": "mysql",
   "database": "",

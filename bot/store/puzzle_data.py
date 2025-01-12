@@ -16,7 +16,7 @@ class MissingPuzzleError(RuntimeError):
 class PuzzleData:
     name: str = ""
     id: int = 0
-    round_id: int = 0
+    hunt_id: int = 0
     channel_id: int = 0
     channel_mention: str = ""
     voice_channel_id: int = 0
@@ -31,6 +31,7 @@ class PuzzleData:
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
+    tags: List[int] = field(default_factory=list)
 
     @classmethod
     def import_dict(cls, puzzle_data: dict):
@@ -43,8 +44,8 @@ class PuzzleData:
                 if db_date is not None:
                     utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
                     setattr(puz,attr,utc_date)
-            else:
-                setattr(puz, attr, puzzle_data.get(attr, None))
+            elif attr in puzzle_data:
+                setattr(puz, attr, puzzle_data.get(attr))
 
         return puz
 
@@ -83,6 +84,10 @@ class PuzzleData:
         Sorts puzzles by start_time.
         """
         return sorted(puzzles, key=lambda p: p.round_id)
+
+    def add_tag(self, tag):
+        self.tags.append(tag)
+        return
 
 class _PuzzleJsonDb:
     def commit(self, puzzle_data):

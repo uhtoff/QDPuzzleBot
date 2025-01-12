@@ -35,7 +35,6 @@ class GoogleSheets(commands.Cog):
     FORMULA_INPUT = "formulaValue"
     PUZZLE_SHEET = "Tab template"
     ROUND_SHEET = "OVERVIEW Template"
-    MASTER_SPREADSHEET_ID = "1CkLpcL8jUVBjSrs8tcfWFp2uGvnVTUJhl0FgXHsXH7M"
     INITIAL_OFFSET = 7
     sheets_service = None
     spreadsheet_id = None
@@ -96,6 +95,12 @@ class GoogleSheets(commands.Cog):
                                         valueRenderOption='FORMULA'
                                         ).execute()
 
+    def get_row(self, ref):
+        return int(ref[1]) - 1
+
+    def get_column(self, ref):
+        return ord(ref[0].lower()) - 97
+
     def get_puzzle_overview_row(self):
         body = {
             'dataFilters': [
@@ -128,26 +133,32 @@ class GoogleSheets(commands.Cog):
             except KeyError:
                 pass
 
-    def update_puzzle_info(self, overview_row):
+    def update_puzzle_info(self, overview_row = 0):
         puzzle_name = self.get_puzzle_data().name
         new_sheet_id = self.get_page_id_by_name(puzzle_name)
-        overview_page_name = self.get_page_name_by_id(self.overview_page_id)
-        requests = [self.update_cell(puzzle_name, overview_row, 1, self.STRING_INPUT,
-                                     self.overview_page_id),
-                    self.update_cell('=hyperlink("#gid=' + str(new_sheet_id) + '";"LINK")', overview_row, 2,
-                                     self.FORMULA_INPUT,
-                                     self.overview_page_id),
-                    self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B5", overview_row, 3,
-                                     self.FORMULA_INPUT,
-                                     self.overview_page_id),
-                    self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B4", overview_row, 4,
-                                     self.FORMULA_INPUT,
-                                     self.overview_page_id),
-                    self.update_cell("='" + escape_apostrophes(str(overview_page_name)) + "'!B" + str(overview_row + 1), 0, 1,
-                                     self.FORMULA_INPUT,
-                                     new_sheet_id),
-                    self.update_cell(self.get_puzzle_data().url, 1, 1, self.STRING_INPUT,
-                                     new_sheet_id)]
+        # overview_page_name = self.get_page_name_by_id(self.overview_page_id)
+        # requests = [self.update_cell(puzzle_name, overview_row, 1, self.STRING_INPUT,
+        #                              self.overview_page_id),
+        #             self.update_cell('=hyperlink("#gid=' + str(new_sheet_id) + '";"LINK")', overview_row, 2,
+        #                               self.FORMULA_INPUT,
+        #                               self.overview_page_id),
+        #             self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B5", overview_row, 3,
+        #                              self.FORMULA_INPUT,
+        #                              self.overview_page_id),
+        #             self.update_cell("='" + escape_apostrophes(puzzle_name) + "'!B4", overview_row, 4,
+        #                              self.FORMULA_INPUT,
+        #                              self.overview_page_id),
+        #             self.update_cell("='" + escape_apostrophes(str(overview_page_name)) + "'!B" + str(overview_row + 1), 0, 1,
+        #                              self.FORMULA_INPUT,
+        #                              new_sheet_id),
+        #             self.update_cell(self.get_puzzle_data().url, 1, 1, self.STRING_INPUT,
+        #                              new_sheet_id)]
+        requests = [
+            self.update_cell(puzzle_name, self.get_row(config.puzzle_cell_name), self.get_column(config.puzzle_cell_name), self.STRING_INPUT,
+                new_sheet_id),
+            self.update_cell(self.get_puzzle_data().url, self.get_row(config.puzzle_cell_link), self.get_column(config.puzzle_cell_link), self.STRING_INPUT,
+                new_sheet_id)
+        ]
         updates = {
             'requests': requests
         }
@@ -171,8 +182,8 @@ class GoogleSheets(commands.Cog):
                         'fields': 'userEnteredValue',
                         'range': {
                             'sheetId': self.get_puzzle_data().google_page_id,
-                            'startRowIndex': 4,
-                            'endRowIndex': 5,
+                            'startRowIndex': self.get_row(config.puzzle_cell_solution),
+                            'endRowIndex': self.get_column(config.puzzle_cell_solution),
                             'startColumnIndex': 1,
                             'endColumnIndex': 2
                         }
@@ -380,13 +391,9 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(body)
 
-    async def update_url(self, puzzle_data):
+    async def update_puzzle(self, puzzle_data):
         self.set_puzzle_data(puzzle_data)
-        requests = [self.update_cell(puzzle_data.url, 1, 1)]
-        updates = {
-            'requests': requests
-        }
-        self.batch_update(updates)
+        self.update_puzzle_info()
 
     async def delete_round_spreadsheet(self, round_data: RoundData ):
         self.delete_sheet(round_data.google_page_id)
@@ -404,21 +411,21 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(updates)
 
-    async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
+    async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
-        self.set_overview_page_id(hunt_round.google_page_id)
-        requests = [self.remove_puzzle_from_overview()]
-        if requests[0]:
-            updates = {
-                'requests': requests
-            }
-            self.batch_update(updates)
+        # self.set_overview_page_id(hunt_round.google_page_id)
+        # requests = [self.remove_puzzle_from_overview()]
+        # if requests[0]:
+        #     updates = {
+        #         'requests': requests
+        #     }
+        #     self.batch_update(updates)
         self.delete_sheet(puzzle_data.google_page_id)
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
-        requests = [self.update_cell(puzzle_data.solution, 4, 1),
-            self.update_cell("Solved", 3, 1),
+        requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution)),
+            self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress)),
             self.move_sheet_to_end(),
             self.change_tab_colour('green')]
         updates = {
@@ -452,29 +459,33 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(updates)
 
-    def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData, hunt: HuntData):
+    def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
         self.set_puzzle_data(puzzle_data)
-        self.overview_page_id = hunt_round.google_page_id
-        puzzle_index = hunt.num_rounds + self.INITIAL_OFFSET
+        # self.overview_page_id = hunt_round.google_page_id
+        # puzzle_index = hunt.num_rounds + self.INITIAL_OFFSET
+        puzzle_index = self.INITIAL_OFFSET
         self.add_new_puzzle_sheet(puzzle_index)
-        self.copy_puzzle_info(hunt_round.num_puzzles + 3)
-        self.update_puzzle_info(hunt_round.num_puzzles + 3)
+        # self.copy_puzzle_info(hunt_round.num_puzzles + 3)
+        self.update_puzzle_info()
+        # self.update_puzzle_info(hunt_round.num_puzzles + 3)
 
-    async def add_metapuzzle_data(self, puzzle: PuzzleData, hunt_round: RoundData, round_puzzles: List[PuzzleData]):
+    def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
         self.set_puzzle_data(puzzle)
-        self.overview_page_id = hunt_round.google_page_id
-        overview_name = self.get_page_name_by_id(self.overview_page_id)
+        # self.overview_page_id = hunt_round.google_page_id
+        # overview_name = self.get_page_name_by_id(self.overview_page_id)
         requests = [self.update_cell("Puzzle titles",5,0,self.STRING_INPUT,self.get_page_id()),
                     self.update_cell("Puzzle solutions", 5, 1, self.STRING_INPUT,self.get_page_id()),]
         row = 6
-        for puzzle in round_puzzles:
-            if puzzle.metapuzzle:
+        for round_puzzle in round_puzzles:
+            if round_puzzle.id == puzzle.id: # Skip self
                 continue
-            requests.append(self.update_cell(puzzle.name, row, 0, self.STRING_INPUT,self.get_page_id()))
-            requests.append(self.update_cell(f"""=IF(XLOOKUP(A{row+1},'{escape_apostrophes(overview_name)}'!B:B,'{escape_apostrophes(overview_name)}'!D:D)<>"",
-                                             XLOOKUP(A{row+1},'{escape_apostrophes(overview_name)}'!B:B,'{escape_apostrophes(overview_name)}'!D:D),"Unsolved")""",
-                                             row, 1, self.FORMULA_INPUT,self.get_page_id()))
+            requests.append(self.update_cell(round_puzzle.name, row, 0, self.STRING_INPUT, self.get_page_id()))
+            if round_puzzle.solution:
+                solution = round_puzzle.solution
+            else:
+                solution = "Unsolved"
+            requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT, self.get_page_id()))
             row += 1
         updates = {
             'requests': requests
