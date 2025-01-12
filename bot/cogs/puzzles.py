@@ -1062,7 +1062,7 @@ class Puzzles(commands.Cog):
     async def solve(self, ctx, *, arg):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
-        if not self.get_channel_type(ctx) == "Puzzle":
+        if not self.get_channel_type(ctx) in ("Puzzle","Round"):
             await self.send_not_puzzle_channel(ctx)
             return
         elif self.get_puzzle(ctx).solved:
