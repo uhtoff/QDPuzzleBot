@@ -1037,13 +1037,14 @@ class Puzzles(commands.Cog):
         if not self.get_channel_type(ctx) == "Puzzle":
             await self.send_not_puzzle_channel(ctx)
             return
-        elif len(self.get_puzzle(ctx).solution) > 0:
+        elif self.get_puzzle(ctx).solved:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
         solution = arg.strip().upper()
         self.get_puzzle(ctx).status = "Solved"
         self.get_puzzle(ctx).solution = solution
+        self.get_puzzle(ctx).solved = True
         self.get_puzzle(ctx).solve_time = datetime.datetime.now(tz=pytz.UTC)
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
@@ -1066,7 +1067,7 @@ class Puzzles(commands.Cog):
         if not self.get_channel_type(ctx) == "Puzzle":
             await self.send_not_puzzle_channel(ctx)
             return
-        elif len(self.get_puzzle(ctx).solution) == 0:
+        elif not self.get_puzzle(ctx).solved:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
         elif self.get_puzzle(ctx).archive_time:
@@ -1076,6 +1077,7 @@ class Puzzles(commands.Cog):
         prev_solution = self.get_puzzle(ctx).solution
         self.get_puzzle(ctx).status = "Unsolved"
         self.get_puzzle(ctx).solution = ""
+        self.get_puzzle(ctx).solved = False
         self.get_puzzle(ctx).solve_time = None
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji

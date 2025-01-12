@@ -233,7 +233,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             if puzzle.name == "meta" and not include_meta:
                 # we usually do not want to archive meta channels, only do manually
                 continue
-            if puzzle.status == "solved" and puzzle.solve_time is not None:
+            if puzzle.solved and puzzle.solve_time is not None:
                 # found a solved puzzle
                 if now - puzzle.solve_time > datetime.timedelta(minutes=minutes):
                     # enough time has passed, archive the channel

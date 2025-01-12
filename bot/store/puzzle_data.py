@@ -24,6 +24,7 @@ class PuzzleData:
     google_page_id: str = ""
     metapuzzle: int = 0
     status: str = ""
+    solved: bool = False
     solution: str = ""
     priority: str = ""
     puzzle_type: str = ""
