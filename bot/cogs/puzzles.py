@@ -107,8 +107,8 @@ class Puzzles(commands.Cog):
         """After command invoked ensure changes committed to database"""
         if self.get_puzzle(ctx):
             PuzzleJsonDb.commit(self.get_puzzle(ctx))
-        # if self.get_hunt_round(ctx):
-        #     RoundJsonDb.commit(self.get_hunt_round(ctx))
+        if self.get_hunt_round(ctx):
+            RoundJsonDb.commit(self.get_hunt_round(ctx))
         if self.get_hunt(ctx):
             HuntJsonDb.commit(self.get_hunt(ctx))
         if self.get_guild_data(ctx):
@@ -440,31 +440,59 @@ class Puzzles(commands.Cog):
             return
         meta_category = ctx.channel.category
         meta_round = RoundJsonDb.get_by_attr(category_id=meta_category.id)
+        old_tags = []
         if meta_round:
             for channel in meta_category.channels:
                 puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
                 if puzzle:
+                    if puzzle.tags:
+                        old_tags.extend(puzzle.tags.copy())
+                    puzzle.tags.clear()
                     puzzle.tags.append(meta_round.id)
                     PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
+            unique_old_tags = list(dict.fromkeys(old_tags))
+            for old_tag in unique_old_tags:
+                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
+                self.update_metapuzzle(ctx, old_meta_round)
+
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the meta")
 
     @commands.command()
     async def add_to_meta(self, ctx, meta_code):
-        """*Assign the puzzle to a metapuzzle, this will additionally move it to the category: !move_to_meta <meta_code>*"""
+        """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await ctx.send(":x: This does not appear to be a Puzzle channel")
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
-            new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
-            await ctx.channel.edit(category=new_category, position = 1)
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
 
+    @commands.command()
+    async def move_to_meta(self, ctx, meta_code):
+        """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await ctx.send(":x: This does not appear to be a Puzzle channel")
+        puzzle = self.get_puzzle(ctx)
+        old_tags = []
+        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        if meta_round:
+            new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
+            await ctx.channel.edit(category=new_category, position=1)
+            old_tags.extend(puzzle.tags.copy())
+            puzzle.tags.clear()
+            puzzle.tags.append(meta_round.id)
+            PuzzleJsonDb.commit(puzzle)
+            self.update_metapuzzle(ctx, meta_round)
+            for old_tag in old_tags:
+                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
+                self.update_metapuzzle(ctx, old_meta_round)
+        else:
+            await ctx.send(":x: Please send a valid meta code")
 
     @commands.command(aliases=["r","mp","metapuzzle"])
     async def round(self, ctx, *, arg):

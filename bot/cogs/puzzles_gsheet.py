@@ -487,6 +487,10 @@ class GoogleSheets(commands.Cog):
                 solution = "Unsolved"
             requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT, self.get_page_id()))
             row += 1
+        for x in range(50):
+            requests.append(self.update_cell("", row, 0, self.STRING_INPUT, self.get_page_id()))
+            requests.append(self.update_cell("", row, 1, self.STRING_INPUT, self.get_page_id()))
+            row += 1
         updates = {
             'requests': requests
         }

@@ -272,7 +272,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         if len(tags_to_remove) > 0:
             delete_stmt = f"DELETE FROM tags WHERE round_id IN ("
             delete_stmt += f"{','.join(map(str,tags_to_remove))}"
-            delete_stmt += ")"
+            delete_stmt += f") AND puzzle_id = {puzzle.id}"
             cursor.execute(delete_stmt)
         tags_to_add = set(puzzle.tags) - set(database_tags)
         if len(tags_to_add) > 0:
