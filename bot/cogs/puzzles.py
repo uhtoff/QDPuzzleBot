@@ -343,6 +343,7 @@ class Puzzles(commands.Cog):
         """
         # category = self.bot.get_channel(self.get_hunt_round(ctx).channel_id).category
         send_initial_message = kwargs.get("send_initial_message", True)
+        position = kwargs.get("position", 1)
         if category is None:
             category = ctx.channel.category
         channel_name = self.clean_name(new_puzzle.name)
@@ -350,7 +351,7 @@ class Puzzles(commands.Cog):
         # await round_channel.edit(position=0)
         text_channel, created_text = await self.get_or_create_channel(
             guild=self.get_guild(ctx), category=category, channel_name=channel_name,
-            channel_type="text", reason=self.PUZZLE_REASON, position=1
+            channel_type="text", reason=self.PUZZLE_REASON, position=position
         )
         if created_text:
             new_puzzle.channel_mention=text_channel.mention
@@ -482,7 +483,7 @@ class Puzzles(commands.Cog):
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
             new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
-            await ctx.channel.edit(category=new_category, position=1)
+            await ctx.channel.edit(category=new_category, position=2)
             old_tags.extend(puzzle.tags.copy())
             puzzle.tags.clear()
             puzzle.tags.append(meta_round.id)
@@ -538,10 +539,10 @@ class Puzzles(commands.Cog):
 
         RoundJsonDb.commit(new_round)
 
-        round_puzzle = self.create_puzzle(ctx, self.clean_name(arg) + " - meta", self.get_tag_from_category(new_category))
+        round_puzzle = self.create_puzzle(ctx, arg + " - meta", self.get_tag_from_category(new_category))
         round_puzzle.metapuzzle = 1
 
-        text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False)
+        text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False, position=0)
 
         new_round.meta_id = round_puzzle.id
         new_round.meta_code = int(RoundJsonDb.get_lowest_code_in_hunt(new_round.hunt_id)) + 1
