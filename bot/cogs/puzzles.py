@@ -119,10 +119,10 @@ class Puzzles(commands.Cog):
     async def on_ready(self):
         print(f"{type(self).__name__} Cog ready.")
 
-    @app_commands.command(name="slash", description="test slash command")
-    async def ping(self, interaction: discord.Interaction):
-        bot_latency = round(self.bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! {bot_latency} ms.")
+    # @app_commands.command(name="slash")
+    # async def ping(self, ctx: commands.Context):
+    #     bot_latency = round(self.bot.latency * 1000)
+    #     await ctx.send(f"Pong! {bot_latency} ms.")
 
     def clean_name(self, name):
         """Cleanup name to be appropriate for discord channel"""
@@ -584,7 +584,7 @@ class Puzzles(commands.Cog):
         else:
             GuildSettingsDb.commit(settings)
 
-    @commands.command()
+    @commands.hybrid_command(name="show_settings", description="Show Settings for channel")
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
