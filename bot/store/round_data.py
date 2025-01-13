@@ -20,6 +20,7 @@ class RoundData:
     category_id: int = 0  # round = category channel
     meta_id: int = 0
     meta_code: int = 0
+    type: str = ""
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None

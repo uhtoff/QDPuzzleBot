@@ -298,6 +298,7 @@ class MySQLGuildSettingsDb():
         stmt = ("SELECT channel_id, channel_type FROM ( "
                     "SELECT category_id as channel_id, 'Hunt' as channel_type FROM hunts "
                     "UNION SELECT channel_id as channel_id, 'Hunt' as channel_type FROM hunts "
+                    "UNION SELECT category_id as channel_id, 'Group' as channel_type FROM rounds "
                     "UNION SELECT channel_id, 'Puzzle' as channel_type FROM puzzles "
                 ") channel_types WHERE channel_id=%s")
         data = (channel_id,)
@@ -308,7 +309,6 @@ class MySQLGuildSettingsDb():
             channel_type = row['channel_type']
         return channel_type
 
-    
     def get(self, guild_id: int) -> GuildSettings:
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))

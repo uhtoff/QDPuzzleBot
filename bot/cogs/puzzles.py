@@ -2,6 +2,7 @@ import datetime
 import logging
 import random
 import time
+from encodings.aliases import aliases
 from typing import Any, List, Optional
 
 import discord
@@ -78,15 +79,18 @@ class Puzzles(commands.Cog):
             channel_type = "Guild"
         if channel_type == 'Hunt':
             hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-        # if channel_type == 'Round':
-        #     hunt_round = RoundJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-        #     if hunt_round:
-        #         hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+        if channel_type == 'Group':
+            hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
+            if hunt_round:
+                channel_type = hunt_round.type
+                hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+                if hunt_round.meta_id:
+                    puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
         if channel_type == 'Puzzle':
             puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
             if hunt_round:
-                channel_type = 'Round'
+                channel_type = hunt_round.type
             else:
                 hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
             if puzzle:
@@ -307,8 +311,9 @@ class Puzzles(commands.Cog):
 
     def update_metapuzzle(self, ctx, hunt_round):
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-        self.gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
+        if hunt_round.meta_id:
+            metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+            self.gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
 
     def get_tag_from_category(self, category):
         hunt_round = RoundJsonDb.get_by_attr(category_id=category.id)
@@ -316,6 +321,35 @@ class Puzzles(commands.Cog):
             return hunt_round.id
         else:
             return None
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def list_tags(self, ctx):
+        """*(admin) For troubleshooting only: !list_tags*"""
+        puzzle = self.get_puzzle(ctx)
+        tag_info = ""
+        tags = puzzle.tags.copy()
+        for tag in tags:
+            tag_name = RoundJsonDb.get_by_attr(id=tag).name
+            tag_info += f"{tag_name} - ID:{tag}\n"
+        embed = discord.Embed(
+            description=f"""Tag listing for {puzzle.name}"""
+        )
+        embed.add_field(
+            name="Current tags",
+            value=tag_info,
+            inline=False,
+        )
+        groups = RoundJsonDb.get_all(self.get_hunt(ctx).id)
+        group_info = ""
+        for group in groups:
+            group_info += f"{group.name} - ID:{group.id}\n"
+        embed.add_field(
+            name="Available tags",
+            value=group_info,
+            inline=False,
+        )
+        await ctx.channel.send(embed=embed)
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -379,7 +413,7 @@ class Puzzles(commands.Cog):
 
             await ctx.send(
                 # f":white_check_mark: I've created new puzzle {created_desc} channels for {self.get_hunt_round(ctx).name}: {text_channel.mention}"
-                f":white_check_mark: I've created new puzzle {created_desc} channels for Test: {text_channel.mention}"
+                f":white_check_mark: I've created new puzzle {created_desc} channels for {category.name}: {text_channel.mention}"
             )
         else:
             await ctx.send(
@@ -433,12 +467,12 @@ class Puzzles(commands.Cog):
     #     else:
     #         await ctx.send(f":x: This command must be ran from within a round category")
 
-    @commands.command()
+    @commands.command(aliases=['sync_round'])
     async def sync_meta(self, ctx):
         """*Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
         puzzle = self.get_puzzle(ctx)
-        if puzzle is None or puzzle.metapuzzle != 1:
-            await ctx.send(":x: This does not appear to be a metapuzzle channel")
+        if self.get_channel_type(ctx) not in ["Metaless Round","Metapuzzle","Round"]:
+            await ctx.send(":x: This does not appear to be a main group channel")
             return
         meta_category = ctx.channel.category
         meta_round = RoundJsonDb.get_by_attr(category_id=meta_category.id)
@@ -458,9 +492,9 @@ class Puzzles(commands.Cog):
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
                 self.update_metapuzzle(ctx, old_meta_round)
 
-        await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the meta")
+        await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
 
-    @commands.command()
+    @commands.command(aliases=['add_to_round'])
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -471,10 +505,13 @@ class Puzzles(commands.Cog):
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
+            await ctx.send(
+                f":white_check_mark: This puzzle has been tagged to the group and metas updated if necessary.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.command()
+
+    @commands.command(aliases=['move_to_round'])
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -493,19 +530,39 @@ class Puzzles(commands.Cog):
             for old_tag in old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
                 self.update_metapuzzle(ctx, old_meta_round)
+            await ctx.send(
+                f":white_check_mark: This puzzle has been moved to the group and metas updated if necessary.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.command(aliases=["r","mp","metapuzzle"])
+    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
     async def round(self, ctx, *, arg):
-        """*Create new puzzle round: !r round-name*"""
-        print(ctx.invoked_with)
-        if self.get_channel_type(ctx) != "Hunt":
-            await ctx.channel.send(":x: Rounds must be created in the master hunt channel")
-            return
+        """*Create new puzzle round with: !r round-name*
+        *Create new metapuzzle category with: !mp metapuzzle-name*
+        *Create a new round without a meta with either !roundnometa round-name or !rnm round-name*"""
+        command = ctx.invoked_with
+        puzzle = True
+        round_puzzle = None
+        puzzle_name = self.GENERAL_CHANNEL_NAME
+
+        if command in ["r","round"]:
+            group_type = "Round"
+        elif command in ["mp","metapuzzle"]:
+            group_type = "Metapuzzle"
+        else:
+            group_type = "Metaless Round"
+            puzzle = False
+        # if self.get_channel_type(ctx) != "Hunt":
+        #     await ctx.channel.send(":x: Rounds must be created in the master hunt channel")
+        #     return
 
         if RoundJsonDb.check_duplicates_in_hunt(arg, self.get_hunt(ctx)):
-            return await ctx.send(f":exclamation: **Round {arg}** already exists in this hunt, please use a different name")
+            return await ctx.send(f":exclamation: **{group_type} {arg}** already exists in this hunt, please use a different name.")
+
+        if puzzle:
+            puzzle_name = arg + " - meta" if group_type == "Round" else arg
+            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
+                return await ctx.send(f":exclamation: **{group_type} {arg}** will cause a puzzle name clash within this hunt, please use a different name.")
 
         new_round = RoundData(arg)
         new_category_name = self.clean_name(arg)
@@ -523,7 +580,7 @@ class Puzzles(commands.Cog):
             new_category_name = new_category_name + " — " + self.clean_name(self.get_hunt(ctx).name)
             existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if not existing_category:
-            print(f"Creating a new channel category for round: {new_category_name}")
+            print(f"Creating a new channel category for {group_type}: {new_category_name}")
             role = None
             if self.get_hunt(ctx).role_id:
                 role = discord.utils.get(guild.roles, id=self.get_hunt(ctx).role_id)
@@ -537,15 +594,21 @@ class Puzzles(commands.Cog):
 
         new_round.hunt_id = self.get_hunt(ctx).id
         new_round.category_id = new_category.id
+        new_round.type = group_type
 
         RoundJsonDb.commit(new_round)
 
-        round_puzzle = self.create_puzzle(ctx, arg + " - meta", self.get_tag_from_category(new_category))
-        round_puzzle.metapuzzle = 1
+        if puzzle:
+            round_puzzle = self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(new_category))
+            round_puzzle.metapuzzle = 1
+            text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False, position=0)
+            new_round.meta_id = round_puzzle.id
+        else:
+            text_channel, created_text = await self.get_or_create_channel(
+                guild=self.get_guild(ctx), category=new_category, channel_name=puzzle_name,
+                channel_type="text", reason=self.PUZZLE_REASON, position=0
+            )
 
-        text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False, position=0)
-
-        new_round.meta_id = round_puzzle.id
         new_round.meta_code = int(RoundJsonDb.get_lowest_code_in_hunt(new_round.hunt_id)) + 1
 
         RoundJsonDb.commit(new_round)
@@ -556,10 +619,20 @@ class Puzzles(commands.Cog):
                 channel_type="text", reason=self.ROUND_REASON, position=500
             )
 
-        initial_message = await self.send_initial_metapuzzle_channel_messages(ctx, text_channel, hunt_round=new_round, puzzle=round_puzzle)
+        if group_type == "Round":
+            initial_message = await self.send_initial_round_channel_messages(ctx, text_channel,
+                                                                                  hunt_round=new_round,
+                                                                                  puzzle=round_puzzle)
+        elif group_type == "Metapuzzle":
+            initial_message = await self.send_initial_metapuzzle_channel_messages(ctx, text_channel,
+                                                                                  hunt_round=new_round,
+                                                                                  puzzle=round_puzzle)
+        else:
+            initial_message = await self.send_initial_metaless_round_channel_messages(ctx, text_channel,
+                                                                                  hunt_round=new_round)
         await initial_message.pin()
         await ctx.send(
-            f":white_check_mark: I've created a new round category and meta channel for {self.get_hunt(ctx).name} - {new_round.name}"
+            f":white_check_mark: I've created a new {puzzle_name} category and channel for {self.get_hunt(ctx).name} - {new_round.name}"
         )
 
     def get_settings(self, ctx):
@@ -592,6 +665,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
 
     @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
     async def set_login(self, ctx, *, arg):
         """*Set username and password for hunt*
         Format username:password"""
@@ -695,7 +769,7 @@ class Puzzles(commands.Cog):
         """*List puzzles in the current Round if invoked in Puzzle or Round channels, or in the entire Hunt if in the Hunt channel*"""
         all_puzzles = {}
         embed_title = ""
-        if self.get_channel_type(ctx) == "Round" or self.get_channel_type(ctx) == "Puzzle":
+        if self.get_channel_type(ctx) in ["Round","Puzzle","Metaless Round","Metapuzzle"]:
             round_puzzles = PuzzleJsonDb.get_all_from_round(self.get_hunt_round(ctx).id)
             all_puzzles[self.get_hunt_round(ctx).id] = {
                         'name': self.get_hunt_round(ctx).name,
@@ -814,22 +888,28 @@ class Puzzles(commands.Cog):
         embed.add_field(
                     name="Useful commands",
                     value=f"""The following are some useful commands:
-        • `!r <round name>` : Create a new round
+        • `!r <round name>` : Create a new round with a metapuzzle channel
         • `!mp <metapuzzle name>` : Create a new metapuzzle
+        • `!rnm <round name>` : Create a round without a metapuzzle channel
         • `!info` : Repeat this message
         • `!parallel_hunt` : Toggle the hunt being marked as being run in parallel
         • `!set_login username:password` : Set the login details for the hunt if shared
         """,
                     inline=False,
                 )
-        await channel.send(embed=embed)
+
+        if kwargs.get("update", False):
+            channel_pins = await channel.pins()
+            return await channel_pins[0].edit(embed=embed)
+        else:
+            return await channel.send(embed=embed)
 
     async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
-        """Send intro message on a rond/meta channel"""
+        """Send intro message on a meta channel"""
         hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
         puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
         embed = discord.Embed(
-            description=f"""Welcome to the round/meta channel for {hunt_round.name}!"""
+            description=f"""Welcome to the meta channel for {hunt_round.name}!"""
         )
         embed.add_field(
             name="Overview",
@@ -839,10 +919,12 @@ class Puzzles(commands.Cog):
         embed.add_field(
                         name="General Commands",
                         value=f"""The following may be useful discord commands:
-        • `!p <puzzle-name>` will add a puzzle to this round/meta.
-        • `!list` : List all puzzles in this round/meta.
+        • `!p <puzzle-name>` will add a puzzle to this meta.
+        • `!list` : List all puzzles in this meta.
         • `!info` will re-post this message.
-        • `!add_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta and move it to this category.
+        • `!move_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta and move it to this category.
+        • `!add_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
+        • `!sync_meta` when used in this channel will assign all the puzzles in the category to the meta.
         """,
                         inline=False,
                     )
@@ -871,7 +953,97 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
             pass
-        return await channel.send(embed=embed)
+        if kwargs.get("update", False):
+            channel_pins = await channel.pins()
+            return await channel_pins[0].edit(embed=embed)
+        else:
+            return await channel.send(embed=embed)
+
+    async def send_initial_metaless_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+        """Send intro message on a metaless round channel"""
+        hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
+        embed = discord.Embed(
+            description=f"""Welcome to the round channel for {hunt_round.name}!"""
+        )
+        embed.add_field(
+            name="Overview",
+            value="This channel is for general discussion of the round.",
+            inline=False,
+        )
+        embed.add_field(
+                        name="General Commands",
+                        value=f"""The following may be useful discord commands:
+        • `!p <puzzle-name>` will add a puzzle to this round.
+        • `!list` : List all puzzles in this round.
+        • `!info` will re-post this message.
+        • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
+        • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!sync_round` when used in this channel will assign all the puzzles in the category to the round.
+        """,
+                        inline=False,
+                    )
+
+        if kwargs.get("update", False):
+            channel_pins = await channel.pins()
+            return await channel_pins[0].edit(embed=embed)
+        else:
+            return await channel.send(embed=embed)
+
+    async def send_initial_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+        """Send intro message on a round channel"""
+        hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
+        puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
+        embed = discord.Embed(
+            description=f"""Welcome to the round channel for {hunt_round.name}!"""
+        )
+        embed.add_field(
+            name="Overview",
+            value="This channel is for general discussion of the round and working on the meta, please note the first two column of the sheet are reserved for the puzzle titles and answers and will be overwritten by the bot!",
+            inline=False,
+        )
+        embed.add_field(
+                        name="General Commands",
+                        value=f"""The following may be useful discord commands:
+        • `!p <puzzle-name>` will add a puzzle to this round.
+        • `!list` : List all puzzles in this round.
+        • `!info` will re-post this message.
+        • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
+        • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!sync_round` when used in this channel will assign all the puzzles in the category to the round.
+        • `!rename_meta <puzzle-name>` will rename the metapuzzle.
+        """,
+                        inline=False,
+                    )
+
+        embed.add_field(
+                        name="Metapuzzle commands",
+                        value="""The following may be useful discord commands:
+        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
+        • `!link <url>` will update the link to the puzzle on the hunt website
+        • `!type <puzzle type>` will mark the type of the puzzle
+        • `!priority <priority>` will mark the priority of the puzzle
+        • `!status <status>` will update the status of the puzzle
+        • `!note <note>` can be used to leave a note about ideas/progress
+        • `!notes` can be used to see the notes that have been left
+        • `!erase_note <note number>` can be used to erase the specified note
+        """,
+                        inline=False,
+                    )
+
+        try:
+            embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
+            spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+            embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
+            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
+            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
+        except:
+            pass
+        if kwargs.get("update", False):
+            channel_pins = await channel.pins()
+            return await channel_pins[0].edit(embed=embed)
+        else:
+            return await channel.send(embed=embed)
 
     async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a puzzle channel"""
@@ -932,7 +1104,11 @@ class Puzzles(commands.Cog):
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_initial_hunt_channel_messages(ctx, ctx.channel)
         elif self.get_channel_type(ctx) == "Round":
+            await self.send_initial_round_channel_messages(ctx, ctx.channel)
+        elif self.get_channel_type(ctx) == "Metapuzzle":
             await self.send_initial_metapuzzle_channel_messages(ctx, ctx.channel)
+        elif self.get_channel_type(ctx) == "Metaless Round":
+            await self.send_initial_metaless_round_channel_messages(ctx, ctx.channel)
         elif self.get_channel_type(ctx) == "Puzzle":
             await self.send_initial_puzzle_channel_messages(ctx, ctx.channel)
         else:
@@ -951,9 +1127,20 @@ class Puzzles(commands.Cog):
         await self.send_initial_puzzle_channel_messages(ctx, channel, update=True)
 
     @commands.command()
+    async def rename_meta(self, ctx, *, puzzle_name: str):
+        """Rename the round metapuzzle"""
+        if self.get_channel_type(ctx) == "Round" and self.get_puzzle(ctx):
+            self.get_puzzle(ctx).name = puzzle_name
+            PuzzleJsonDb.commit(self.get_puzzle(ctx))
+            await ctx.channel.edit(name=self.clean_name(puzzle_name))
+            await ctx.channel.send(":white_check_mark: I've updated the metapuzzle and channel names")
+        else:
+            await ctx.send(":x: This does not appear to be a round metapuzzle")
+
+    @commands.command()
     async def link(self, ctx, *, url: Optional[str]):
         """*Show or update link to puzzle*"""
-        if self.get_puzzle(ctx) and self.get_channel_type(ctx) == "Puzzle":
+        if self.get_puzzle(ctx):
             self.get_puzzle(ctx).url = url
             if self.gsheet_cog is not None:
                 # update google sheet ID
@@ -972,7 +1159,7 @@ class Puzzles(commands.Cog):
             await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
             return
 
-        if self.get_puzzle(ctx) and self.get_channel_type(ctx) == "Puzzle":
+        if self.get_puzzle(ctx):
             self.get_puzzle(ctx).status = status
             await self.send_state(
                 ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if status else None
@@ -983,7 +1170,7 @@ class Puzzles(commands.Cog):
     @commands.command()
     async def type(self, ctx, *, puzzle_type: Optional[str]):
         """*Show or update puzzle type, e.g. "crossword"*"""
-        if self.get_puzzle(ctx) and self.get_channel_type(ctx) == "Puzzle":
+        if self.get_puzzle(ctx):
             self.get_puzzle(ctx).puzzle_type = puzzle_type
             await self.send_state(
                 ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if puzzle_type else None
@@ -998,7 +1185,7 @@ class Puzzles(commands.Cog):
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
 
-        if self.get_puzzle(ctx) and self.get_channel_type(ctx) == "Puzzle":
+        if self.get_puzzle(ctx):
             self.get_puzzle(ctx).priority = priority
             await self.send_state(
                 ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if priority else None
@@ -1009,7 +1196,7 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["notes"])
     async def note(self, ctx, *, note: Optional[str]):
         """*Show or add a note about the puzzle*"""
-        if self.get_puzzle(ctx) is None or self.get_channel_type(ctx) != "Puzzle":
+        if self.get_puzzle(ctx) is None:
             await self.send_not_puzzle_channel(ctx)
             return
 
@@ -1039,7 +1226,7 @@ class Puzzles(commands.Cog):
     async def erase_note(self, ctx, note_index: int):
         """*Remove a note by index*"""
 
-        if self.get_channel_type(ctx) != "Puzzle":
+        if self.get_puzzle(ctx) is None:
             await self.send_not_puzzle_channel(ctx)
             return
 
@@ -1064,7 +1251,7 @@ class Puzzles(commands.Cog):
     async def solve(self, ctx, *, arg):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
-        if not self.get_channel_type(ctx) in ("Puzzle","Round"):
+        if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
         elif self.get_puzzle(ctx).solved:
@@ -1097,7 +1284,7 @@ class Puzzles(commands.Cog):
     async def unsolve(self, ctx):
         """*Mark an accidentally solved puzzle as not solved*"""
 
-        if not self.get_channel_type(ctx) == "Puzzle":
+        if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
         elif not self.get_puzzle(ctx).solved:
