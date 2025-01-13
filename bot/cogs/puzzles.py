@@ -92,6 +92,7 @@ class Puzzles(commands.Cog):
             if puzzle:
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
+        # print (f"Group data type: {hunt_round}")
         gsheet_cog = self.gsheet_cog = self.bot.get_cog("GoogleSheets")
         if hunt is not None:
             gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
@@ -1078,6 +1079,9 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
+        if self.get_hunt_round(ctx):
+            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{solution}`")
         embed.add_field(
@@ -1108,6 +1112,11 @@ class Puzzles(commands.Cog):
         self.get_puzzle(ctx).solution = ""
         self.get_puzzle(ctx).solved = False
         self.get_puzzle(ctx).solve_time = None
+
+        PuzzleJsonDb.commit(self.get_puzzle(ctx))
+
+        if self.get_hunt_round(ctx):
+            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(
