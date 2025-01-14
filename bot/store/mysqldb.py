@@ -148,6 +148,12 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         return round_datas
         # return RoundData.sort_by_round_start(round_datas) TODO - ideally return by round start time
 
+    def delete(self, round_id):
+        super(MySQLRoundJsonDb, self).delete(round_id)
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"DELETE FROM tags WHERE round_id = %s", (round_id,))
+        cursor.close()
+
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
     SPECIAL_ATTR = ['tags']
@@ -286,6 +292,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         self.mydb.commit()
 
+    def delete(self, puzzle_id):
+        super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
+        cursor.close()
 
 class MySQLGuildSettingsDb():
     def __init__(self, dir_path: Path, mydb):
