@@ -646,7 +646,7 @@ class Puzzles(commands.Cog):
         data = None
         if self.get_channel_type(ctx) == "Puzzle":
             data = self.get_puzzle(ctx)
-        elif self.get_channel_type(ctx) == "Round":
+        elif self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
             data = self.get_hunt_round(ctx)
         elif self.get_channel_type(ctx) == "Hunt":
             data = self.get_hunt(ctx)
@@ -657,19 +657,29 @@ class Puzzles(commands.Cog):
     def save_settings(self, ctx, settings):
         if self.get_channel_type(ctx) == "Puzzle":
             PuzzleJsonDb.commit(settings)
-        elif self.get_channel_type(ctx) == "Round":
+        elif self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
             RoundJsonDb.commit(settings)
         elif self.get_channel_type(ctx) == "Hunt":
             HuntJsonDb.commit(settings)
         else:
             GuildSettingsDb.commit(settings)
 
-    @commands.hybrid_command(name="show_settings", description="Show Settings for channel")
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*(admin) Show channel settings for debug*"""
         await ctx.channel.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
+
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_permissions(manage_channels=True)
+    async def show_puzzle_settings(self, ctx):
+        """*(admin) Show channel puzzle settings for debug*"""
+        if self.get_puzzle(ctx):
+            await ctx.channel.send(f"```json\n{self.get_puzzle(ctx).to_json(indent=2)}```")
+        else:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -710,12 +720,19 @@ class Puzzles(commands.Cog):
                 f":white_check_mark: I've marked {self.get_hunt(ctx).name} as not being run in parallel"
             )
 
-    @commands.command(aliases=["update_setting"])
+    @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
         """*(admin) Update channel/hunt/guild settings: !update_settings key value - can tolerate spaces in value with inverted commas*"""
-        settings = self.get_settings(ctx)
+        command = ctx.invoked_with
+        if command not in ("update_puzzle_setting", "update_puzzle_settings"):
+            settings = self.get_settings(ctx)
+        elif self.get_puzzle(ctx):
+            settings = self.get_puzzle(ctx)
+        else:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
+            return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
             value: Any
@@ -741,7 +758,10 @@ class Puzzles(commands.Cog):
                 return
 
             setattr(settings, setting_key, value)
-            self.save_settings(ctx, settings)
+            if command not in ("update_puzzle_setting", "update_puzzle_settings"):
+                self.save_settings(ctx, settings)
+            else:
+                PuzzleJsonDb.commit(settings)
             await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
         else:
             await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
