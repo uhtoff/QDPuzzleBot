@@ -778,7 +778,7 @@ class Puzzles(commands.Cog):
                     }
             embed_title = f"Puzzles in Round {self.get_hunt_round(ctx).name}"
         else:
-            await ctx.channel.send(":x: Please use the web interface for an overview of all puzzles")
+            await ctx.channel.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
             # hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
             # for hunt_puzzle in hunt_puzzles:
             #     if hunt_puzzle.round_id not in all_puzzles:
