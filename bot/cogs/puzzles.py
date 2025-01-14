@@ -323,7 +323,7 @@ class Puzzles(commands.Cog):
             return None
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def list_tags(self, ctx):
         """*(admin) For troubleshooting only: !list_tags*"""
         puzzle = self.get_puzzle(ctx)
@@ -352,7 +352,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(embed=embed)
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def add_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !add_tag tag_id*"""
         new_tag = arg
@@ -361,7 +361,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def remove_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !remove_tag tag_id*"""
         remove_tag = int(arg)
@@ -468,8 +468,9 @@ class Puzzles(commands.Cog):
     #         await ctx.send(f":x: This command must be ran from within a round category")
 
     @commands.command(aliases=['sync_round'])
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def sync_meta(self, ctx):
-        """*Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
+        """*(Admin only) Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
         puzzle = self.get_puzzle(ctx)
         if self.get_channel_type(ctx) not in ["Metaless Round","Metapuzzle","Round"]:
             await ctx.send(":x: This does not appear to be a main group channel")
@@ -924,7 +925,8 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta and move it to this category.
         • `!add_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
-        • `!sync_meta` when used in this channel will assign all the puzzles in the category to the meta.
+        • `!sync_meta` (admin_only) when used in this channel will assign all the puzzles in the category to the meta.
+        • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
                         inline=False,
                     )
@@ -978,7 +980,7 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
         • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!sync_round` when used in this channel will assign all the puzzles in the category to the round.
+        • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         """,
                         inline=False,
                     )
@@ -1009,8 +1011,8 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
         • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!sync_round` when used in this channel will assign all the puzzles in the category to the round.
-        • `!rename_meta <puzzle-name>` will rename the metapuzzle.
+        • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
+        • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
                         inline=False,
                     )
@@ -1070,6 +1072,7 @@ class Puzzles(commands.Cog):
         • `!note <note>` can be used to leave a note about ideas/progress
         • `!notes` can be used to see the notes that have been left
         • `!erase_note <note number>` can be used to erase the specified note
+        • `!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.
         """,
                         inline=False,
                     )
@@ -1126,16 +1129,25 @@ class Puzzles(commands.Cog):
         await channel.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, channel, update=True)
 
-    @commands.command()
-    async def rename_meta(self, ctx, *, puzzle_name: str):
-        """Rename the round metapuzzle"""
-        if self.get_channel_type(ctx) == "Round" and self.get_puzzle(ctx):
+    @commands.command(aliases=["rename_meta"])
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    async def rename_puzzle(self, ctx, *, puzzle_name: str):
+        """Rename a puzzle"""
+        if self.get_puzzle(ctx):
+            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
+                return await ctx.send(
+                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
             self.get_puzzle(ctx).name = puzzle_name
             PuzzleJsonDb.commit(self.get_puzzle(ctx))
             await ctx.channel.edit(name=self.clean_name(puzzle_name))
+            if self.gsheet_cog is not None:
+                # update google sheet ID
+                await self.gsheet_cog.update_puzzle(self.get_puzzle(ctx))
+                if self.get_hunt_round(ctx):
+                    self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
             await ctx.channel.send(":white_check_mark: I've updated the metapuzzle and channel names")
         else:
-            await ctx.send(":x: This does not appear to be a round metapuzzle")
+            await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
     async def link(self, ctx, *, url: Optional[str]):
@@ -1476,10 +1488,11 @@ class Puzzles(commands.Cog):
             # if voice_channel:
             #     await voice_channel.delete(reason=self.DELETE_REASON)
             # delete text channel last so that errors can be reported
-            await ctx.channel.delete(reason=self.DELETE_REASON)
-            self.get_hunt_round(ctx).num_puzzles -= 1
-            await (self.bot.get_channel(self.get_hunt_round(ctx).channel_id)
+            if self.get_hunt_round(ctx):
+                self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+            await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
                    .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
+            await ctx.channel.delete(reason=self.DELETE_REASON)
         except:
             await ctx.send(f":x: Channel deletion failed")
         self.set_puzzle(ctx, None)

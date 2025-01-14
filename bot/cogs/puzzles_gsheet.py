@@ -157,7 +157,8 @@ class GoogleSheets(commands.Cog):
             self.update_cell(puzzle_name, self.get_row(config.puzzle_cell_name), self.get_column(config.puzzle_cell_name), self.STRING_INPUT,
                 new_sheet_id),
             self.update_cell(self.get_puzzle_data().url, self.get_row(config.puzzle_cell_link), self.get_column(config.puzzle_cell_link), self.STRING_INPUT,
-                new_sheet_id)
+                new_sheet_id),
+            self.set_sheet_name(puzzle_name)
         ]
         updates = {
             'requests': requests
