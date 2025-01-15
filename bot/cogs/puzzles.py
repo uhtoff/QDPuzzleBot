@@ -285,7 +285,7 @@ class Puzzles(commands.Cog):
             # round_id=self.get_hunt_round(ctx).id,
             hunt_id=self.get_hunt(ctx).id,
             start_time=datetime.datetime.now(tz=pytz.UTC),
-            status='Unsolved',
+            status='Unstarted',
             priority='Normal'
         )
         if self.get_hunt(ctx).url:
