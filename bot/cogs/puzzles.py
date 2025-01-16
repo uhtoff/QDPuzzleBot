@@ -31,7 +31,7 @@ class Puzzles(commands.Cog):
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
-    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission", "solved", "backsolved"]
+    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"]
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
@@ -1176,8 +1176,8 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
-    async def link(self, ctx, *, url: Optional[str]):
-        """*Show or update link to puzzle*"""
+    async def link(self, ctx, *, url: str):
+        """*Update link to puzzle*"""
         if self.get_puzzle(ctx):
             self.get_puzzle(ctx).url = url
             if self.gsheet_cog is not None:
@@ -1191,8 +1191,8 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
-    async def status(self, ctx, *, status: Optional[str]):
-        """*Show or update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
+    async def status(self, ctx, *, status: str):
+        """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
         if status is not None and status.lower() not in self.STATUSES:
             await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
             return
@@ -1206,8 +1206,8 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
-    async def type(self, ctx, *, puzzle_type: Optional[str]):
-        """*Show or update puzzle type, e.g. "crossword"*"""
+    async def type(self, ctx, *, puzzle_type: str):
+        """*Update puzzle type, e.g. "crossword"*"""
         if self.get_puzzle(ctx):
             self.get_puzzle(ctx).puzzle_type = puzzle_type
             await self.send_state(
@@ -1217,8 +1217,8 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
-    async def priority(self, ctx, *, priority: Optional[str]):
-        """*Show or update puzzle priority, one of "low", "medium", "high"*"""
+    async def priority(self, ctx, *, priority: str):
+        """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
         if priority is not None and priority.lower() not in self.PRIORITIES:
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
