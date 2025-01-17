@@ -31,7 +31,7 @@ class Puzzles(commands.Cog):
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
-    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"]
+    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission","solved", "backsolved"]
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
             "Welcome to the α-betical Order and Uptown Local.  I hear we are the Quarantine δ-crypters this time, sounds tasty.",
