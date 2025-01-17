@@ -1499,7 +1499,7 @@ class Puzzles(commands.Cog):
         await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def delete_puzzle(self, ctx):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
         # Wrapper for delete command
