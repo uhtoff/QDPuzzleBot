@@ -272,13 +272,17 @@ class Puzzles(commands.Cog):
         """*Create new puzzle channels: !p puzzle-name*"""
 
         puzzle_name = arg
+        self.start = datetime.datetime.now()
         if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
             return await ctx.send(f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt, please use a different name")
         # self.get_hunt_round(ctx).num_puzzles += 1
         # RoundJsonDb.commit(self.get_hunt_round(ctx))
+        check_duplicate = datetime.datetime.now()
         new_puzzle = self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(ctx.channel.category))
-
+        puzzle_created = datetime.datetime.now()
         await self.create_puzzle_channel(ctx, new_puzzle)
+        channel_sent = datetime.datetime.now()
+        print(f"Check duplicate: {(check_duplicate-self.start).seconds}.{(check_duplicate-self.start).microseconds} s - Create puzzle = {(puzzle_created-check_duplicate).seconds}.{(puzzle_created-check_duplicate).microseconds} s - Send channel = {(channel_sent-puzzle_created).seconds}.{(channel_sent-puzzle_created).microseconds} s - Total = {(channel_sent-self.start).seconds} s")
 
     def create_puzzle(self, ctx, puzzle_name, tag = None):
         new_puzzle = PuzzleData(
@@ -563,7 +567,7 @@ class Puzzles(commands.Cog):
         # if self.get_channel_type(ctx) != "Hunt":
         #     await ctx.channel.send(":x: Rounds must be created in the master hunt channel")
         #     return
-
+        self.start = datetime.datetime.now()
         if RoundJsonDb.check_duplicates_in_hunt(arg, self.get_hunt(ctx)):
             return await ctx.send(f":exclamation: **{group_type} {arg}** already exists in this hunt, please use a different name.")
 
@@ -571,15 +575,9 @@ class Puzzles(commands.Cog):
             puzzle_name = arg + " - meta" if group_type == "Round" else arg
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
                 return await ctx.send(f":exclamation: **{group_type} {arg}** will cause a puzzle name clash within this hunt, please use a different name.")
-
+        check_duplicate = datetime.datetime.now()
         new_round = RoundData(arg)
         new_category_name = self.clean_name(arg)
-
-        # if self.gsheet_cog is not None:
-        #     self.gsheet_cog.create_round_overview_spreadsheet(new_round, self.get_hunt(ctx))
-
-        # self.get_hunt(ctx).num_rounds += 1
-        # HuntJsonDb.commit(self.get_hunt(ctx))
 
         guild = ctx.guild
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
@@ -599,6 +597,8 @@ class Puzzles(commands.Cog):
             await new_category.edit(position=position)
         else:
             raise ValueError(f"Category {new_category_name} already present in this server, please name the round differently.")
+
+        create_category = datetime.datetime.now()
 
         new_round.hunt_id = self.get_hunt(ctx).id
         new_round.category_id = new_category.id
@@ -621,6 +621,8 @@ class Puzzles(commands.Cog):
 
         RoundJsonDb.commit(new_round)
 
+        puzzle_created = datetime.datetime.now()
+
         if self.SOLVE_CATEGORY is False:
             await self.get_or_create_channel(
                 guild=guild, category=new_category, channel_name=self.SOLVE_DIVIDER,
@@ -642,6 +644,9 @@ class Puzzles(commands.Cog):
         await ctx.send(
             f":white_check_mark: I've created a new {puzzle_name} category and channel for {self.get_hunt(ctx).name} - {new_round.name}"
         )
+        channel_sent = datetime.datetime.now()
+        print(
+        f"Check duplicate: {(check_duplicate - self.start).microseconds} s - Create Category = {(create_category - check_duplicate).microseconds} s -  Create puzzle = {(puzzle_created - create_category).microseconds} s - Send channel = {(channel_sent - puzzle_created).microseconds} s")
 
     def get_settings(self, ctx):
         data = None
@@ -1286,6 +1291,39 @@ class Puzzles(commands.Cog):
             )
         await ctx.send(embed=embed)
 
+    @commands.command(aliases=["ps","PS"])
+    async def partial(self, ctx, *, arg):
+        """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
+
+        if not self.get_puzzle(ctx):
+            await self.send_not_puzzle_channel(ctx)
+            return
+        elif self.get_puzzle(ctx).solved:
+            await ctx.send(":x: This puzzle appears to already be solved")
+            return
+
+        solution = arg.strip().upper()
+        self.get_puzzle(ctx).status = "Partially Solved"
+
+        if self.get_puzzle(ctx).solution:
+            self.get_puzzle(ctx).solution += "/" + solution
+        else:
+            self.get_puzzle(ctx).solution = solution
+
+        PuzzleJsonDb.commit(self.get_puzzle(ctx))
+
+        if self.get_hunt_round(ctx):
+            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
+        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        embed = discord.Embed(title="Partially SOLVED!", description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
+        embed.add_field(
+            name="Follow-up",
+            value="If you need to clear the partial solutions then use !unsolve and they will all be wiped. "
+        )
+        await ctx.send(embed=embed)
+        await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
+
     @commands.command(aliases=["s","S"])
     async def solve(self, ctx, *, arg):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
@@ -1299,7 +1337,10 @@ class Puzzles(commands.Cog):
 
         solution = arg.strip().upper()
         self.get_puzzle(ctx).status = "Solved"
-        self.get_puzzle(ctx).solution = solution
+        if self.get_puzzle(ctx).solution:
+            self.get_puzzle(ctx).solution += "/" + solution
+        else:
+            self.get_puzzle(ctx).solution = solution
         self.get_puzzle(ctx).solved = True
         self.get_puzzle(ctx).solve_time = datetime.datetime.now(tz=pytz.UTC)
 
@@ -1309,7 +1350,7 @@ class Puzzles(commands.Cog):
             self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{solution}`")
+        embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{self.get_puzzle(ctx).solution}`")
         embed.add_field(
             name="Follow-up",
             value="If the solution was mistakenly entered, please message `!unsolve`. "
@@ -1326,7 +1367,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif not self.get_puzzle(ctx).solved:
+        elif not self.get_puzzle(ctx).solved and len(self.get_puzzle(ctx).solution) == 0:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
         elif self.get_puzzle(ctx).archive_time:
@@ -1641,7 +1682,7 @@ class Puzzles(commands.Cog):
                     if self.SOLVE_CATEGORY:
                         await channel.edit(category=solved_category)
                     else:
-                        await channel.move(end=channel.category)
+                        await channel.move(end=True, category=channel.category)
                         message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
                         logger.info(message)
                 if gsheet_cog:
