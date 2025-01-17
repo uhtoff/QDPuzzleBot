@@ -1172,7 +1172,7 @@ class Puzzles(commands.Cog):
                 await self.gsheet_cog.update_puzzle(self.get_puzzle(ctx))
                 if self.get_hunt_round(ctx):
                     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
-            await ctx.channel.send(":white_check_mark: I've updated the metapuzzle and channel names")
+            await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
