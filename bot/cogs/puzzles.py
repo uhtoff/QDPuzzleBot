@@ -34,6 +34,7 @@ class Puzzles(commands.Cog):
     STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"]
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
+            "Welcome to the α-betical Order and Uptown Local.  I hear we are the Quarantine δ-crypters this time, sounds tasty.",
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
             "You could even consider having some sleep...",
             "PuzzleBot thinks you should have a drink and a break, you wouldn't want to disappoint PuzzleBot would you?",
@@ -1691,10 +1692,10 @@ class Puzzles(commands.Cog):
     async def reminder_loop(self, channel):
         reminders = self.REMINDERS
         if self.reminder_index % 2 == 0:
-            await channel.send("@everyone You can get help on how to use PuzzleBot with the `!help` command.  "
+            await channel.send("@everyone You can get some help on how to use PuzzleBot by referring to [Edam's guide](https://docs.google.com/document/d/1hY-T2nMwHJLHiR-szsmG2F1ZWGIe88jyQpzKiXE1xLY/edit?usp=sharing) or with the `!help` command.  "
                                "The most useful commands are `!p <puzzle_name>` to make a new puzzle, "
                                "`!s <SOLUTION>` to solve one and "
-                               "`!info` to get info on the puzzle including a link to the sheet")
+                               "`!info` to get info on the puzzle including a link to the sheet.  Don't forget to go to https://quarantinedecrypters.com for our full hunt status.")
         if self.reminder_index == 0:
             await channel.send("@here " + reminders[0])
         else:
