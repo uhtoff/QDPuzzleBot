@@ -1134,18 +1134,19 @@ class Puzzles(commands.Cog):
         return f"{hunt_name}-{self.SOLVED_PUZZLES_CATEGORY}"
 
     @commands.command()
-    async def info(self, ctx):
+    async def info(self, ctx, **kwargs):
         """*Show discord command help for a puzzle channel*"""
+        update = kwargs.get("update", False)
         if self.get_channel_type(ctx) == "Hunt":
-            await self.send_initial_hunt_channel_messages(ctx, ctx.channel)
+            await self.send_initial_hunt_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Round":
-            await self.send_initial_round_channel_messages(ctx, ctx.channel)
+            await self.send_initial_round_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Metapuzzle":
-            await self.send_initial_metapuzzle_channel_messages(ctx, ctx.channel)
+            await self.send_initial_metapuzzle_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Metaless Round":
-            await self.send_initial_metaless_round_channel_messages(ctx, ctx.channel)
+            await self.send_initial_metaless_round_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Puzzle":
-            await self.send_initial_puzzle_channel_messages(ctx, ctx.channel)
+            await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=update)
         else:
             await ctx.send(":x: This does not appear to be a hunt channel")
 
@@ -1159,7 +1160,7 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
         embed.add_field(name="Priority", value=puzzle_data.priority or "?")
         await channel.send(embed=embed)
-        await self.send_initial_puzzle_channel_messages(ctx, channel, update=True)
+        await self.info(ctx, update=True)
 
     @commands.command(aliases=["rename_meta"])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
