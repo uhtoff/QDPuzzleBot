@@ -930,7 +930,7 @@ class Puzzles(commands.Cog):
         """,
                     inline=False,
                 )
-        embed.add_field(name="Overview Website", value="https://quarantinedecypters.com", inline=False)
+        embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
@@ -979,7 +979,7 @@ class Puzzles(commands.Cog):
                     )
 
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecypters.com", inline=False)
+            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -1017,7 +1017,7 @@ class Puzzles(commands.Cog):
         """,
                         inline=False,
                     )
-        embed.add_field(name="Overview Website", value="https://quarantinedecypters.com", inline=False)
+        embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
@@ -1066,7 +1066,7 @@ class Puzzles(commands.Cog):
                     )
 
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecypters.com", inline=False)
+            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -1111,7 +1111,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecypters.com", inline=False)
+            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
