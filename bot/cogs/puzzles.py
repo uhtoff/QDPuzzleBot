@@ -284,7 +284,10 @@ class Puzzles(commands.Cog):
         channel_sent = datetime.datetime.now()
         print(f"Check duplicate: {(check_duplicate-self.start).seconds}.{(check_duplicate-self.start).microseconds} s - Create puzzle = {(puzzle_created-check_duplicate).seconds}.{(puzzle_created-check_duplicate).microseconds} s - Send channel = {(channel_sent-puzzle_created).seconds}.{(channel_sent-puzzle_created).microseconds} s - Total = {(channel_sent-self.start).seconds} s")
 
-    def create_puzzle(self, ctx, puzzle_name, tag = None):
+    def create_metapuzzle(self,ctx, puzzle_name, tag = None):
+        return self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
+
+    def create_puzzle(self, ctx, puzzle_name, tag = None, **kwargs):
         new_puzzle = PuzzleData(
             name=puzzle_name,
             # round_id=self.get_hunt_round(ctx).id,
@@ -293,6 +296,8 @@ class Puzzles(commands.Cog):
             status='Unstarted',
             priority='Normal'
         )
+        if kwargs.get('metapuzzle'):
+            new_puzzle.metapuzzle = kwargs['metapuzzle']
         if self.get_hunt(ctx).url:
             # NOTE: this is a heuristic and may need to be updated!
             # This is based on last year's URLs, where the URL format was
@@ -607,8 +612,7 @@ class Puzzles(commands.Cog):
         RoundJsonDb.commit(new_round)
 
         if puzzle:
-            round_puzzle = self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(new_category))
-            round_puzzle.metapuzzle = 1
+            round_puzzle = self.create_metapuzzle(ctx, puzzle_name, self.get_tag_from_category(new_category))
             text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False, position=0)
             new_round.meta_id = round_puzzle.id
         else:
@@ -930,7 +934,7 @@ class Puzzles(commands.Cog):
         """,
                     inline=False,
                 )
-        embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
+        embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}", inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
@@ -940,6 +944,7 @@ class Puzzles(commands.Cog):
     async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a meta channel"""
         hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
+        hunt = kwargs.get('hunt', self.get_hunt(ctx))
         puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
         embed = discord.Embed(
             description=f"""Welcome to the meta channel for {hunt_round.name}!"""
@@ -979,7 +984,8 @@ class Puzzles(commands.Cog):
                     )
 
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
+            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
+                            inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -997,6 +1003,7 @@ class Puzzles(commands.Cog):
     async def send_initial_metaless_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a metaless round channel"""
         hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
+        hunt = kwargs.get('hunt', self.get_hunt(ctx))
         embed = discord.Embed(
             description=f"""Welcome to the round channel for {hunt_round.name}!"""
         )
@@ -1017,7 +1024,8 @@ class Puzzles(commands.Cog):
         """,
                         inline=False,
                     )
-        embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
+        embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
+                        inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
@@ -1027,6 +1035,7 @@ class Puzzles(commands.Cog):
     async def send_initial_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a round channel"""
         hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
+        hunt = kwargs.get('hunt', self.get_hunt(ctx))
         puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
         embed = discord.Embed(
             description=f"""Welcome to the round channel for {hunt_round.name}!"""
@@ -1066,7 +1075,8 @@ class Puzzles(commands.Cog):
                     )
 
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
+            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
+                            inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -1084,6 +1094,7 @@ class Puzzles(commands.Cog):
     async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a puzzle channel"""
         puzzle = kwargs.get("puzzle", self.get_puzzle(ctx))
+        hunt = kwargs.get('hunt', self.get_hunt(ctx))
         embed = discord.Embed(
             description=f"""Welcome to the puzzle channel for {puzzle.name} in Test!"""
             # description=f"""Welcome to the puzzle channel for {puzzle.name} in {self.get_hunt_round(ctx).name}!"""
@@ -1111,7 +1122,8 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
         try:
-            embed.add_field(name="Overview Website", value="https://quarantinedecrypters.com", inline=False)
+            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
+                            inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)

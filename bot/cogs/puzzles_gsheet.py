@@ -34,6 +34,7 @@ class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
     FORMULA_INPUT = "formulaValue"
     PUZZLE_SHEET = "Tab template"
+    METAPUZZLE_SHEET = "Meta Tab template"
     ROUND_SHEET = "OVERVIEW Template"
     INITIAL_OFFSET = 7
     sheets_service = None
@@ -290,7 +291,12 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     def add_new_puzzle_sheet(self, index):
-        self.add_new_sheet(self.get_puzzle_data().name, index)
+        puzzle = self.get_puzzle_data()
+        print (puzzle)
+        if puzzle.metapuzzle == 1:
+            self.add_new_sheet(puzzle.name, index, self.METAPUZZLE_SHEET)
+        else:
+            self.add_new_sheet(puzzle.name, index)
 
     def add_new_overview_sheet(self, index):
         overview_name = "OVERVIEW - " + self.get_puzzle_data().name
