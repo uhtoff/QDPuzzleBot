@@ -113,6 +113,15 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         else:
             return 0
 
+    def check_duplicate_meta_code(self, meta_code):
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM rounds WHERE meta_code = %s LIMIT 0,1", (meta_code,))
+        row = cursor.fetchone()
+        if row:
+            return True
+        else:
+            return False
+
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
         cursor = self.mydb.cursor(dictionary = True)

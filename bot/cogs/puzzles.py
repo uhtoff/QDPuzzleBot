@@ -13,7 +13,8 @@ import pytz
 import aiohttp
 
 from bot.utils import urls, config
-from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, RoundData, RoundJsonDb, HuntData, HuntJsonDb
+from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, \
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, MySQLRoundJsonDb
 
 logger = logging.getLogger(__name__)
 
@@ -621,7 +622,37 @@ class Puzzles(commands.Cog):
                 channel_type="text", reason=self.PUZZLE_REASON, position=0
             )
 
-        new_round.meta_code = int(RoundJsonDb.get_lowest_code_in_hunt(new_round.hunt_id)) + 1
+        meta_code = ""
+
+        split_name = arg.split()
+        for word in split_name:
+            if word[:2].isascii():
+                meta_code += word[:2].upper()
+
+        meta_code = meta_code[:6]
+
+        import string
+        import random
+
+        while len(meta_code) < 6:
+            meta_code += random.choice(string.ascii_letters).upper()
+
+        loop_count = 0
+
+        while RoundJsonDb.check_duplicate_meta_code(meta_code):
+            loop_count += 1
+            if loop_count < 26:
+                meta_code = meta_code[:5] + random.choice(string.ascii_letters).upper()
+            elif loop_count < 512:
+                meta_code = meta_code[:4]
+                while len(meta_code) < 6:
+                    meta_code += random.choice(string.ascii_letters).upper()
+            else:
+                meta_code = meta_code[:3]
+                while len(meta_code) < 6:
+                    meta_code += random.choice(string.ascii_letters).upper()
+
+        new_round.meta_code = meta_code
 
         RoundJsonDb.commit(new_round)
 
