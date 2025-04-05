@@ -203,7 +203,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f":exclamation: Most bot commands should be sent to #{settings.discord_bot_channel}")
         return False
 
-    @commands.command(aliases=["h"])
+    @commands.command(aliases=["h","H"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def hunt(self, ctx, *, arg):
         """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
@@ -270,7 +270,7 @@ class Puzzles(commands.Cog):
 
         return (category, text_channel, True)
 
-    @commands.command(aliases=["p"])
+    @commands.command(aliases=["p","P"])
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p puzzle-name*"""
 
@@ -566,7 +566,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
+    @commands.command(aliases=["r","R","mp","MP","metapuzzle", "roundnometa", "rnm","RNM"])
     async def round(self, ctx, *, arg):
         """*Create new puzzle round with: !r round-name*
         *Create new metapuzzle category with: !mp metapuzzle-name*
@@ -978,7 +978,6 @@ class Puzzles(commands.Cog):
         • `!mp <metapuzzle name>` : Create a new metapuzzle
         • `!rnm <round name>` : Create a round without a metapuzzle channel
         • `!info` : Repeat this message
-        • `!parallel_hunt` : Toggle the hunt being marked as being run in parallel
         • `!set_login username:password` : Set the login details for the hunt if shared
         """,
                     inline=False,
@@ -1019,18 +1018,26 @@ class Puzzles(commands.Cog):
 
         embed.add_field(
                         name="Metapuzzle commands",
-                        value="""The following may be useful discord commands:
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
-        • `!link <url>` will update the link to the puzzle on the hunt website
-        • `!type <puzzle type>` will mark the type of the puzzle
-        • `!priority <priority>` will mark the priority of the puzzle
-        • `!status <status>` will update the status of the puzzle
-        • `!note <note>` can be used to leave a note about ideas/progress
-        • `!notes` can be used to see the notes that have been left
-        • `!erase_note <note number>` can be used to erase the specified note
+                        value="""
+        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
+        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
         """,
                         inline=False,
                     )
+        embed.add_field(
+            name="Puzzle metadata",
+            value="""
+                • `!link <url>` will update the link to the puzzle on the hunt website
+                • `!type <puzzle type>` will mark the type of the puzzle
+                • `!priority <priority>` will mark the priority of the puzzle
+                • `!status <status>` will update the status of the puzzle
+                • `!note <note>` can be used to leave a note about ideas/progress
+                • `!notes` can be used to see the notes that have been left
+                • `!erase_note <note number>` can be used to erase the specified note
+                """,
+            inline=False,
+        )
 
         try:
             embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
@@ -1039,6 +1046,8 @@ class Puzzles(commands.Cog):
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            if puzzle.solution:
+                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
             embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
@@ -1110,18 +1119,26 @@ class Puzzles(commands.Cog):
 
         embed.add_field(
                         name="Metapuzzle commands",
-                        value="""The following may be useful discord commands:
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
-        • `!link <url>` will update the link to the puzzle on the hunt website
-        • `!type <puzzle type>` will mark the type of the puzzle
-        • `!priority <priority>` will mark the priority of the puzzle
-        • `!status <status>` will update the status of the puzzle
-        • `!note <note>` can be used to leave a note about ideas/progress
-        • `!notes` can be used to see the notes that have been left
-        • `!erase_note <note number>` can be used to erase the specified note
+                        value="""
+        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
+        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
         """,
                         inline=False,
                     )
+        embed.add_field(
+            name="Puzzle metadata",
+            value="""
+                • `!link <url>` will update the link to the puzzle on the hunt website
+                • `!type <puzzle type>` will mark the type of the puzzle
+                • `!priority <priority>` will mark the priority of the puzzle
+                • `!status <status>` will update the status of the puzzle
+                • `!note <note>` can be used to leave a note about ideas/progress
+                • `!notes` can be used to see the notes that have been left
+                • `!erase_note <note number>` can be used to erase the specified note
+                """,
+            inline=False,
+        )
 
         try:
             embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
@@ -1130,6 +1147,8 @@ class Puzzles(commands.Cog):
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            if puzzle.solution:
+                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
             embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
@@ -1155,21 +1174,30 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
                         name="Commands",
-                        value="""The following may be useful discord commands:
-        • `!p <puzzle-name>` will add a puzzle to this round/meta puzzle.
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel to #solved-puzzles
-        • `!link <url>` will update the link to the puzzle on the hunt website
-        • `!info` will re-post this message
-        • `!type <puzzle type>` will mark the type of the puzzle
-        • `!priority <priority>` will mark the priority of the puzzle
-        • `!status <status>` will update the status of the puzzle
-        • `!note <note>` can be used to leave a note about ideas/progress
-        • `!notes` can be used to see the notes that have been left
-        • `!erase_note <note number>` can be used to erase the specified note
-        • `!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.
-        """,
+                        value="""
+                • `!p <puzzle-name>` will add a puzzle to this round/meta puzzle.
+                • `!s SOLUTION` will mark this puzzle as solved and archive this channel
+                • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+                • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
+                """,
                         inline=False,
                     )
+        embed.add_field(
+            name="Puzzle metadata",
+            value="""
+                • `!link <url>` will update the link to the puzzle on the hunt website
+                • `!info` will re-post this message
+                • `!type <puzzle type>` will mark the type of the puzzle
+                • `!priority <priority>` will mark the priority of the puzzle
+                • `!status <status>` will update the status of the puzzle
+                • `!note <note>` can be used to leave a note about ideas/progress
+                • `!notes` can be used to see the notes that have been left
+                • `!erase_note <note number>` can be used to erase the specified note
+                • `!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.
+                """,
+            inline=False,
+        )
+
         try:
             embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
                             inline=False)
@@ -1177,6 +1205,8 @@ class Puzzles(commands.Cog):
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            if puzzle.solution:
+                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
             embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
@@ -1390,7 +1420,7 @@ class Puzzles(commands.Cog):
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
     @commands.command(aliases=["s","S"])
-    async def solve(self, ctx, *, arg):
+    async def solve(self, ctx, solution: str = None):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
         if not self.get_puzzle(ctx):
@@ -1400,30 +1430,42 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
-        solution = arg.strip().upper()
-        self.get_puzzle(ctx).status = "Solved"
-        if self.get_puzzle(ctx).solution:
-            self.get_puzzle(ctx).solution += "/" + solution
-        else:
-            self.get_puzzle(ctx).solution = solution
-        self.get_puzzle(ctx).solved = True
-        self.get_puzzle(ctx).solve_time = datetime.datetime.now(tz=pytz.UTC)
+        puzzle = self.get_puzzle(ctx)
 
-        PuzzleJsonDb.commit(self.get_puzzle(ctx))
+        if solution is None and puzzle.solution in [None,""]:
+            await ctx.send(":x: Nice try, but you need to give a solution!")
+            return
+
+        puzzle.status = "Solved"
+
+        if puzzle.solution and solution is not None:
+            solution = solution.strip().upper()
+            puzzle.solution += "/" + solution
+        elif solution is not None:
+            solution = solution.strip().upper()
+            puzzle.solution = solution
+        puzzle.solved = True
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+
+        PuzzleJsonDb.commit(puzzle)
 
         if self.get_hunt_round(ctx):
             self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{self.get_puzzle(ctx).solution}`")
+        embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
             value="If the solution was mistakenly entered, please message `!unsolve`. "
-            "Otherwise, in around 5 minutes, I will automatically move this "
+            "Otherwise, in a few minutes, I will automatically move this "
             "puzzle channel to the bottom and archive the Google Spreadsheet",
         )
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
+
+    @commands.command(aliases=["mark_as_solved"])
+    async def mark_as_complete(self, ctx):
+        await self.solve(ctx, "✅")
 
     @commands.command()
     async def unsolve(self, ctx):
@@ -1435,15 +1477,18 @@ class Puzzles(commands.Cog):
         elif not self.get_puzzle(ctx).solved and len(self.get_puzzle(ctx).solution) == 0:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
-        elif self.get_puzzle(ctx).archive_time:
-            await ctx.send(":x: This puzzle has already been archived")
-            return
 
-        prev_solution = self.get_puzzle(ctx).solution
-        self.get_puzzle(ctx).status = "Unsolved"
-        self.get_puzzle(ctx).solution = ""
-        self.get_puzzle(ctx).solved = False
-        self.get_puzzle(ctx).solve_time = None
+        puzzle = self.get_puzzle(ctx)
+        prev_solution = puzzle.solution
+        puzzle.status = "Unsolved"
+        puzzle.solution = ""
+        puzzle.solved = False
+        puzzle.solve_time = None
+
+        if self.get_puzzle(ctx).archive_time:
+            puzzle.archive_time = None
+            await self.gsheet_cog.restore_puzzle_spreadsheet(puzzle)
+            await self.move_to_bottom(ctx)
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
@@ -1458,23 +1503,22 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
-    # @commands.command()
-    # @commands.has_any_role('Moderator', 'mod', 'admin')
-    # async def archive_round(self, ctx):
-    #     """(admin) * Archives round to threads *"""
-    #     round_channel = self.get_round_channel(ctx)
-    #     hunt_general_channel = self.get_hunt_channel(ctx)
-    #     category = ctx.channel.category
-    #     # if ctx.channel != round_channel:
-    #     #     await ctx.send(f":x: This command must be done from the main round channel")
-    #     #     return
-    #     success = await self.archive_category(ctx, hunt_general_channel, delete_channels=[self.SOLVE_DIVIDER])
-    #     if success:
-    #         await ctx.channel.category.delete(reason=self.DELETE_REASON)
-    #         await hunt_general_channel.send(f":white_check_mark: Round {category.name} successfully archived.")
-    #         return True
-    #     else:
-    #         return False
+    @commands.command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def archive_round(self, ctx):
+        """(admin) * Archives round to threads *"""
+        hunt_general_channel = self.get_hunt_channel(ctx)
+        category = ctx.channel.category
+        ignore_channels = []
+        if self.get_channel_type(ctx) == 'Hunt':
+            ignore_channels = [ctx.channel.name]
+        success = await self.archive_category(ctx, hunt_general_channel, ignore_channels = ignore_channels, delete_channels=[self.SOLVE_DIVIDER])
+        if success:
+            await ctx.channel.category.delete(reason=self.DELETE_REASON)
+            await hunt_general_channel.send(f":white_check_mark: Round {category.name} successfully archived.")
+            return True
+        else:
+            return False
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1511,7 +1555,7 @@ class Puzzles(commands.Cog):
         thread_message = await archive_to.send(content=f'Archive of channel {channel.name}', silent=True)
         puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
         if puzzle:
-            hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
+            hunt_round = self.get_hunt_round(ctx)
             if hunt_round:
                 round_name = hunt_round.name
             else:

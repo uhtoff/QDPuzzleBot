@@ -222,6 +222,21 @@ class GoogleSheets(commands.Cog):
                 }
         return body
 
+    def move_sheet_to_start(self):
+        sheets = self.sheet_list().get('sheets',[])
+        new_index = self.INITIAL_OFFSET
+        body = {
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': self.get_puzzle_data().google_page_id,
+                            'index': new_index
+                        },
+                        'fields': 'index'
+
+                    }
+                }
+        return body
+
     def move_sheet_to_end(self):
         sheets = self.sheet_list().get('sheets',[])
         new_index = len(sheets) - 1
@@ -232,6 +247,19 @@ class GoogleSheets(commands.Cog):
                             'index': new_index
                         },
                         'fields': 'index'
+
+                    }
+                }
+        return body
+
+    def revert_tab_colour(self):
+        body = {
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': self.get_puzzle_data().google_page_id,
+                            'tabColor': None
+                        },
+                        'fields': 'tabColor'
 
                     }
                 }
@@ -428,6 +456,17 @@ class GoogleSheets(commands.Cog):
         #     }
         #     self.batch_update(updates)
         self.delete_sheet(puzzle_data.google_page_id)
+
+    async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+        self.set_puzzle_data(puzzle_data)
+        requests = [self.update_cell("", self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution)),
+            self.update_cell("", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress)),
+            self.move_sheet_to_start(),
+            self.revert_tab_colour()]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates)
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)

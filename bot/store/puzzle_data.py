@@ -25,7 +25,7 @@ class PuzzleData:
     metapuzzle: int = 0
     status: str = ""
     solved: bool = False
-    solution: str = ""
+    solution: str = None
     priority: str = ""
     puzzle_type: str = ""
     notes: List[str] = field(default_factory=list)
