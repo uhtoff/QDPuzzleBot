@@ -392,7 +392,7 @@ class MySQLGuildSettingsDb():
             insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, `website_url`,"
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
                            "`drive_parent_id`, `drive_resources_id`) "
-                           "VALUES (%s,%s,%s,%s,%s,%s,%s)")
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid
         cursor.close()

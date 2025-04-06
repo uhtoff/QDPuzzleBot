@@ -10,6 +10,7 @@ from discord.ext import commands
 import bot.database as db
 from bot.database.models import Guild
 from bot.utils import get_guild_prefix
+from bot.store import GuildSettings, GuildSettingsDb
 
 
 class Settings(commands.Cog):
@@ -23,7 +24,11 @@ class Settings(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
         """Add new guilds to the database"""
-        _ = await db.query_guild(guild.id)
+        g = GuildSettings()
+        g.guild_id = guild.id
+        g.guild_name = guild.name
+        _ = GuildSettingsDb.commit(g)
+
 
     @commands.has_permissions(manage_guild=True)
     @commands.has_any_role('mod','admin')

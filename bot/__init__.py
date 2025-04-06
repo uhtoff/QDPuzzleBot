@@ -12,7 +12,7 @@ from bot.database.models import Guild
 
 __version__ = "0.1.0"
 
-invite_link = "https://discordapp.com/api/oauth2/authorize?client_id={}&scope=bot&permissions=0"
+invite_link = "https://discordapp.com/api/oauth2/authorize?client_id={}&permissions=8&scope=bot%20applications.commands"
 
 
 async def get_prefix(_bot, message):
@@ -50,10 +50,28 @@ async def on_ready():
     """
     )
 
-# @bot.command(name="sync")
-# async def sync(ctx):
-#     synced = await bot.tree.sync()
-#     print(f"Synced {len(synced)} command(s).")
+    for guild in bot.guilds:
+        try:
+            synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
+            print(f"Synced {len(synced)} commands for guild '{guild.name}' ({guild.id})")
+        except Exception as e:
+            print(f"Failed to sync commands for {guild.name} ({guild.id}): {e}")
+
+    print("\nRegistered App Commands:")
+    for app_command in bot.tree.get_commands():
+        print(f"- {app_command.name} (Type: {type(app_command)})")
+
+@bot.command(name="sync")
+async def sync_tree(ctx):
+    synced = await bot.tree.sync()
+    print(f"Synced {len(synced)} command(s).")
+
+@bot.event
+async def setup_hook():
+    await load_extensions(bot)
+    await bot.tree.sync()
+
+    print(f"Successfully synced {len(bot.tree.get_commands())} commands.")
 
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup
@@ -82,5 +100,4 @@ async def load_extensions(_bot):
 async def main():
     setup_logger()
     async with bot:
-        await load_extensions(bot)
         await bot.start(utils.config.token)

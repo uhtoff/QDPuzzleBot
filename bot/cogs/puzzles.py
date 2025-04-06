@@ -7,8 +7,8 @@ from encodings.aliases import aliases
 from typing import Any, List, Optional
 
 import discord
-from discord import app_commands
-from discord.ext import commands, tasks
+from discord import app_commands, Interaction
+from discord.ext import tasks, commands
 from discord import Webhook, Message
 import pytz
 import asyncio
@@ -1486,11 +1486,11 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
-    @commands.command(aliases=["mark_as_solved"])
+    @commands.hybrid_command(name="mark_as_complete", description="Mark the puzzle as completed", aliases=["mark_as_solved"])
     async def mark_as_complete(self, ctx):
         await self.solve(ctx, "✅")
 
-    @commands.command()
+    @commands.hybrid_command()
     async def unsolve(self, ctx):
         """*Mark an accidentally solved puzzle as not solved*"""
 
