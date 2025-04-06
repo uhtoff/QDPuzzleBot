@@ -2,6 +2,7 @@ import datetime
 import logging
 import random
 import time
+import string
 from encodings.aliases import aliases
 from typing import Any, List, Optional
 
@@ -237,7 +238,7 @@ class Puzzles(commands.Cog):
 
         category = await guild.create_category(category_name, position=max(len(guild.categories) - 2,0))
         text_channel, created_text = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, channel_type="text", reason=self.HUNT_REASON
+            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, channel_type="text", reason=self.HUNT_REASON, position = 0
         )
         settings = self.get_guild_data(ctx)
 
@@ -252,12 +253,15 @@ class Puzzles(commands.Cog):
         if self.gsheet_cog is not None:
             google_drive_id = await self.gsheet_cog.create_hunt_spreadsheet(hunt_name)
 
+        uid = HuntJsonDb.generate_uid('uid')
+
         new_hunt = HuntData(
             name=hunt_name,
             category_id=category.id,
             channel_id=text_channel.id,
             guild_id=settings.id,
             url=hunt_url,
+            uid=uid,
         )
 
         if google_drive_id:
@@ -640,35 +644,34 @@ class Puzzles(commands.Cog):
                 channel_type="text", reason=self.PUZZLE_REASON, position=0
             )
 
-        meta_code = ""
+        # meta_code = ""
+        #
+        # split_name = arg.split()
+        # for word in split_name:
+        #     if word[:2].isascii():
+        #         meta_code += word[:2].upper()
+        #
+        # meta_code = meta_code[:6]
+        #
+        # while len(meta_code) < 6:
+        #     meta_code += random.choice(string.ascii_letters).upper()
+        #
+        # loop_count = 0
+        #
+        # while RoundJsonDb.check_duplicate_meta_code(meta_code):
+        #     loop_count += 1
+        #     if loop_count < 26:
+        #         meta_code = meta_code[:5] + random.choice(string.ascii_letters).upper()
+        #     elif loop_count < 512:
+        #         meta_code = meta_code[:4]
+        #         while len(meta_code) < 6:
+        #             meta_code += random.choice(string.ascii_letters).upper()
+        #     else:
+        #         meta_code = meta_code[:3]
+        #         while len(meta_code) < 6:
+        #             meta_code += random.choice(string.ascii_letters).upper()
 
-        split_name = arg.split()
-        for word in split_name:
-            if word[:2].isascii():
-                meta_code += word[:2].upper()
-
-        meta_code = meta_code[:6]
-
-        import string
-        import random
-
-        while len(meta_code) < 6:
-            meta_code += random.choice(string.ascii_letters).upper()
-
-        loop_count = 0
-
-        while RoundJsonDb.check_duplicate_meta_code(meta_code):
-            loop_count += 1
-            if loop_count < 26:
-                meta_code = meta_code[:5] + random.choice(string.ascii_letters).upper()
-            elif loop_count < 512:
-                meta_code = meta_code[:4]
-                while len(meta_code) < 6:
-                    meta_code += random.choice(string.ascii_letters).upper()
-            else:
-                meta_code = meta_code[:3]
-                while len(meta_code) < 6:
-                    meta_code += random.choice(string.ascii_letters).upper()
+        meta_code = RoundJsonDb.generate_uid('meta_code',6,arg)
 
         new_round.meta_code = meta_code
 
@@ -982,7 +985,12 @@ class Puzzles(commands.Cog):
         """,
                     inline=False,
                 )
-        embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}", inline=False)
+        if hunt.uid:
+            embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
+                            inline=False)
+        else:
+            embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
+                            inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
@@ -1040,8 +1048,13 @@ class Puzzles(commands.Cog):
         )
 
         try:
-            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
-                            inline=False)
+            if hunt.uid:
+                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
+                                inline=False)
+            else:
+                embed.add_field(name="Overview Website",
+                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
+                                inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -1141,8 +1154,13 @@ class Puzzles(commands.Cog):
         )
 
         try:
-            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
-                            inline=False)
+            if hunt.uid:
+                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
+                                inline=False)
+            else:
+                embed.add_field(name="Overview Website",
+                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
+                                inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
@@ -1199,8 +1217,13 @@ class Puzzles(commands.Cog):
         )
 
         try:
-            embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
-                            inline=False)
+            if hunt.uid:
+                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
+                                inline=False)
+            else:
+                embed.add_field(name="Overview Website",
+                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
+                                inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
             spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)

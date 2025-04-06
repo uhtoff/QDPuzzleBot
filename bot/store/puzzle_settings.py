@@ -53,6 +53,7 @@ class GuildSettings:
     guild_id: int = 0
     id: int = 0
     guild_name: str = ""
+    website_url: str = ""
     discord_bot_channel: str = ""   # Channel to listen for bot commands
     discord_bot_emoji: str = ":biohazard: :mag_right:"  # Short description string or emoji for bot messages
     discord_use_voice_channels: bool = False  # Whether to create voice channels for puzzles
@@ -79,6 +80,7 @@ class GuildSettings:
         key = client.key('Guild', self.guild_id)
         entity = datastore.Entity(key)
         entity['guild_name'] = self.guild_name
+        entity['website_url'] = self.website_url
         entity['discord_bot_channel'] = self.discord_bot_channel
         entity['discord_bot_emoji'] = self.discord_bot_emoji
         entity['discord_use_voice_channels'] = self.discord_use_voice_channels
@@ -92,6 +94,7 @@ class GuildSettings:
 
         guild.guild_id = entity.key.id_or_name
         guild.guild_name = entity['guild_name']
+        guild.website_url = entity['website_url']
         guild.discord_bot_channel = entity['discord_bot_channel']
         guild.discord_bot_emoji = entity['discord_bot_emoji']
         guild.discord_use_voice_channels = entity['discord_use_voice_channels']

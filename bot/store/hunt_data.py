@@ -16,6 +16,7 @@ class MissingHuntError(RuntimeError):
 class HuntData:
     name: str = ""
     id: int = 0
+    uid: str = ""
     category_id: int = 0
     channel_id: int = 0
     guild_id: int = 0

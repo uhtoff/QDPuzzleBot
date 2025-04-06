@@ -1,4 +1,6 @@
 import datetime
+import random
+import string
 import errno
 import json
 import logging
@@ -68,14 +70,44 @@ class _MySQLBaseDb:
         # if deleted_rows != 1:S
         #     raise MissingDataError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
-    def check_duplicates(self, name):
+    def check_duplicates(self, value, field = 'name'):
+        """Ensures no duplicate name by default but can check any field if passed"""
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `name` = %s", (name,))
+        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `{field}` = %s", (value,))
         duplicates = cursor.rowcount
         if duplicates > 0:
             return True
         else:
             return False
+
+    def generate_uid(self, field = 'id', chars = 6, input = None):
+        code = ""
+        if input is not None:
+            split_input = input.split()
+            for word in split_input:
+                if word[:2].isascii():
+                    code += word[:2].upper()
+            code = code[:6]
+
+        while len(code) < chars:
+            code += random.choice(string.ascii_letters).upper()
+
+        loop_count = 0
+
+        while self.check_duplicates(code, field):
+            loop_count += 1
+            if loop_count < 26:
+                code = code[:5] + random.choice(string.ascii_letters).upper()
+            elif loop_count < 512:
+                code = code[:4]
+                while len(code) < 6:
+                    code += random.choice(string.ascii_letters).upper()
+            else:
+                code = code[:3]
+                while len(code) < 6:
+                    code += random.choice(string.ascii_letters).upper()
+
+        return code
 
     def check_duplicates_in_hunt(self, name, hunt_data: HuntData):
         cursor = self.mydb.cursor(dictionary=True)
@@ -346,18 +378,18 @@ class MySQLGuildSettingsDb():
 
     def commit(self, settings: GuildSettings):
         cursor = self.mydb.cursor()
-        data = (settings.guild_id, settings.guild_name, 
+        data = (settings.guild_id, settings.guild_name, settings.website_url,
                 settings.discord_bot_channel, settings.discord_bot_emoji, settings.discord_use_voice_channels,
                 settings.drive_parent_id, settings.drive_resources_id)
         if settings.id > 0:
-            update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s,"
+            update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s, `website_url`=%s,"
                            "`discord_bot_channel`=%s,`discord_bot_emoji`=%s,`discord_use_voice_channels`=%s,"
                            "`drive_parent_id`=%s,`drive_resources_id`=%s "
                            "WHERE id=%s")
             data = data + (settings.id,)
             cursor.execute(update_stmt, data)
         else:
-            insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, "
+            insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, `website_url`,"
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
                            "`drive_parent_id`, `drive_resources_id`) "
                            "VALUES (%s,%s,%s,%s,%s,%s,%s)")
