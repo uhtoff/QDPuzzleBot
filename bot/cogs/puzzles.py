@@ -1443,7 +1443,7 @@ class Puzzles(commands.Cog):
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
     @commands.command(aliases=["s","S"])
-    async def solve(self, ctx, solution: str = None):
+    async def solve(self, ctx, *args):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
         if not self.get_puzzle(ctx):
@@ -1453,9 +1453,16 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
+        solution = " ".join(args)
+        solution = solution.strip().upper()
+
+        # for arg in args:
+        #     solution += arg.strip().upper()
+        #     solution += " "
+
         puzzle = self.get_puzzle(ctx)
 
-        if solution is None and puzzle.solution in [None,""]:
+        if solution == "" and puzzle.solution in [None,""]:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
 
