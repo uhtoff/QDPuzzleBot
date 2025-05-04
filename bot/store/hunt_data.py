@@ -27,6 +27,7 @@ class HuntData:
     parallel_hunt: bool = False
     role_id: int = 0
     num_rounds: int = 0
+    start_timestamp: int = 0
     username: str = ""
     password: str = ""
     start_time: Optional[datetime.datetime] = None

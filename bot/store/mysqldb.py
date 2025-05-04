@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List
+import re
 
 import pytz
 from .puzzle_data import _PuzzleJsonDb, PuzzleData, MissingPuzzleError
@@ -14,6 +15,14 @@ from .hunt_data import _HuntJsonDb, HuntData, MissingHuntError
 from .puzzle_settings import _GuildSettingsDb, GuildSettings
 
 logger = logging.getLogger(__name__)
+
+def discord_channel_slug(name):
+    slug = name.lower()
+    slug = re.sub(r'[^a-z0-9\s-]', '', slug)  # remove special characters
+    slug = re.sub(r'\s+', '-', slug)          # replace spaces with hyphens
+    slug = re.sub(r'-+', '-', slug)           # collapse multiple hyphens
+    slug = slug.strip('-')                    # remove leading/trailing hyphens
+    return slug[:100]                         # enforce 100 character limit
 
 class _MySQLBaseDb:
     TABLE_NAME = None
@@ -290,7 +299,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def check_duplicates_in_hunt(self, name, hunt_id):
         cursor = self.mydb.cursor(dictionary = True)
         cursor.execute("SELECT puzzles.id FROM puzzles "
-                       "WHERE puzzles.name = %s AND puzzles.hunt_id = %s", (name, hunt_id,))
+                       "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s", (name, discord_channel_slug(name), hunt_id))
         duplicates = cursor.rowcount
         if duplicates > 0:
             return True

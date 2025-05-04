@@ -19,6 +19,7 @@ class PuzzleData:
     hunt_id: int = 0
     channel_id: int = 0
     channel_mention: str = ""
+    channel_name: str = ""
     voice_channel_id: int = 0
     url: str = ""
     google_page_id: str = ""
