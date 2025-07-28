@@ -588,9 +588,9 @@ class Puzzles(commands.Cog):
         round_puzzle = None
         puzzle_name = self.GENERAL_CHANNEL_NAME
 
-        if command in ["r","round"]:
+        if command in ["r","round","R"]:
             group_type = "Round"
-        elif command in ["mp","metapuzzle"]:
+        elif command in ["mp","metapuzzle","MP"]:
             group_type = "Metapuzzle"
         else:
             group_type = "Metaless Round"
@@ -1085,8 +1085,13 @@ class Puzzles(commands.Cog):
         """,
                         inline=False,
                     )
-        embed.add_field(name="Overview Website", value=f"https://quarantinedecrypters.com?hunt_id={hunt.id}",
-                        inline=False)
+        if hunt.uid:
+            embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
+                            inline=False)
+        else:
+            embed.add_field(name="Overview Website",
+                            value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
+                            inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[0].edit(embed=embed)
