@@ -1168,7 +1168,7 @@ class Puzzles(commands.Cog):
             pass
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[0].edit(embed=embed)
+            return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -1230,7 +1230,12 @@ class Puzzles(commands.Cog):
         except:
             pass
         if kwargs.get("update",False):
-            channel_pins = await channel.pins()
+            channel_pins = await channel.pins(oldest_first=True)
+            if not channel_pins:
+                print("No pins found")
+                return
+            for pin in channel_pins:
+                print(pin.author)
             return await channel_pins[0].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
@@ -1494,7 +1499,7 @@ class Puzzles(commands.Cog):
             "puzzle channel to the bottom and archive the Google Spreadsheet",
         )
         await ctx.send(embed=embed)
-        await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
+        await self.info(ctx, update=True)
 
     @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved"])
     async def mark_as_complete(self, ctx):
@@ -1535,7 +1540,7 @@ class Puzzles(commands.Cog):
             "You'll get'em next time!"
         )
         await ctx.send(embed=embed)
-        await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
+        await self.info(ctx, update=True)
 
     @commands.hybrid_command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
