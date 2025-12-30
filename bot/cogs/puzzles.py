@@ -14,9 +14,10 @@ import pytz
 import asyncio
 import aiohttp
 
-from bot.utils import urls, config
+from bot.utils import urls, config, chunking
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, \
     RoundData, RoundJsonDb, HuntData, HuntJsonDb, MySQLRoundJsonDb
+from bot.utils.chunking import build_note_embeds
 
 logger = logging.getLogger(__name__)
 
@@ -983,7 +984,7 @@ class Puzzles(commands.Cog):
                             inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[0].edit(embed=embed)
+            return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -1057,7 +1058,7 @@ class Puzzles(commands.Cog):
             pass
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[0].edit(embed=embed)
+            return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -1094,7 +1095,7 @@ class Puzzles(commands.Cog):
                             inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[0].edit(embed=embed)
+            return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -1231,12 +1232,7 @@ class Puzzles(commands.Cog):
             pass
         if kwargs.get("update",False):
             channel_pins = await channel.pins(oldest_first=True)
-            if not channel_pins:
-                print("No pins found")
-                return
-            for pin in channel_pins:
-                print(pin.author)
-            return await channel_pins[0].edit(embed=embed)
+            return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -1380,19 +1376,35 @@ class Puzzles(commands.Cog):
             )
 
         if self.get_puzzle(ctx).notes:
-            embed = discord.Embed(description=f"{message}")
-            i = len(self.get_puzzle(ctx).notes)
-            for x in range(i):
-                embed.add_field(
-                    name=f"Note {x+1}",
-                    value=self.get_puzzle(ctx).notes[x],
-                    inline=False
-                )
+            # embed = discord.Embed(description=f"{message}")
+            # i = len(self.get_puzzle(ctx).notes)
+            # for x in range(i):
+            #     embed.add_field(
+            #         name=f"Note {x+1}",
+            #         value=self.get_puzzle(ctx).notes[x],
+            #         inline=False
+            #     )
+            puzzle = self.get_puzzle(ctx)
+
+            embeds = build_note_embeds(
+                message=message,
+                notes = puzzle.notes,
+                title="Puzzle Notes",
+            )
+
+            # Hybrid-friendly sending:
+            # If invoked as slash, defer to avoid "interaction failed" on slow builds.
+            if ctx.interaction:
+                await ctx.defer()
+
+            for e in embeds:
+                await ctx.send(embed=e)
+
         else:
             embed = discord.Embed(description="No notes left yet, use `!note my note here` to leave a note")
-        await ctx.send(embed=embed)
+            await ctx.send(embed=embed)
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(aliases=["delete_note"])
     async def erase_note(self, ctx, note_index: int):
         """*Remove a note by index*"""
 
@@ -1403,19 +1415,26 @@ class Puzzles(commands.Cog):
         if 1 <= note_index <= len(self.get_puzzle(ctx).notes):
             note = self.get_puzzle(ctx).notes[note_index-1]
             del self.get_puzzle(ctx).notes[note_index - 1]
-            description = f"Erased note {note_index}: `{note}`"
+            description = f"Erased note {note_index}"
         else:
             description = f"Unable to find note {note_index}"
 
         embed = discord.Embed(description=description)
-        i = len(self.get_puzzle(ctx).notes)
-        for x in range(i):
-            embed.add_field(
-                name=f"Note {x+1}",
-                value=self.get_puzzle(ctx).notes[x],
-                inline=False
-            )
-        await ctx.send(embed=embed)
+        puzzle = self.get_puzzle(ctx)
+
+        embeds = build_note_embeds(
+            message=description,
+            notes=puzzle.notes,
+            title="Puzzle Notes",
+        )
+
+        # Hybrid-friendly sending:
+        # If invoked as slash, defer to avoid "interaction failed" on slow builds.
+        if ctx.interaction:
+            await ctx.defer()
+
+        for e in embeds:
+            await ctx.send(embed=e)
 
     @commands.hybrid_command(description="Add a partial solution to the puzzle", aliases=["ps","PS"])
     async def partial(self, ctx, *, arg):
