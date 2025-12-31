@@ -26,6 +26,7 @@ class PuzzleData:
     metapuzzle: int = 0
     status: str = ""
     solved: bool = False
+    archived: bool = False
     solution: str = None
     priority: str = ""
     puzzle_type: str = ""

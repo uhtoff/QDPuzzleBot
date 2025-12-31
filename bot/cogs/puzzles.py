@@ -107,6 +107,7 @@ class Puzzles(commands.Cog):
         gsheet_cog = self.bot.get_cog("GoogleSheets")
         if hunt is not None:
             gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         self.environment[ctx.message.id] = {'channel_type': channel_type,
                                             'hunt': hunt,
                                             'hunt_round': hunt_round,
@@ -183,6 +184,13 @@ class Puzzles(commands.Cog):
 
     def set_gsheet_cog(self, ctx, gsheet_cog):
         self.environment[ctx.message.id]['gsheet_cog'] = gsheet_cog
+
+    def get_puzzle_sheet(self, ctx, puzzle: PuzzleData):
+        hunt = self.get_hunt(ctx)
+        if puzzle.archived:
+            return hunt.archive_google_sheet_id
+        else:
+            return hunt.google_sheet_id
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -275,6 +283,31 @@ class Puzzles(commands.Cog):
 
         return (category, text_channel, True)
 
+    @commands.hybrid_command()
+    @commands.has_any_role('Moderator', 'mod', 'admin')
+    async def set_to_archive(self, ctx):
+        """*(admin) Set hunt to use a second spreadsheet to hold solved puzzles: !set_to_archive*"""
+        if self.get_channel_type(ctx) != "Hunt":
+            await ctx.channel.send(":x: This command must be done from the main Hunt channel")
+            return
+
+        hunt = self.get_hunt(ctx)
+
+        if hunt.archive_google_sheet_id is string:
+            await ctx.channel.send(":x: This hunt is already set to use a second sheet for solved puzzles")
+            return
+
+        if self.get_gsheet_cog(ctx) is not None:
+            google_drive_id = await self.get_gsheet_cog(ctx).create_hunt_archive_spreadsheet(hunt.name)
+            hunt.archive_google_sheet_id = google_drive_id
+
+        HuntJsonDb.commit(hunt)
+
+        await self.info(ctx,update=True)
+        await ctx.channel.send(":white_check_mark: The hunt has been set to use a second sheet for solved puzzles")
+        return
+
+
     @commands.hybrid_command(aliases=["p","P"])
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p puzzle-name*"""
@@ -319,13 +352,13 @@ class Puzzles(commands.Cog):
         if tag:
             new_puzzle.tags.append(tag)
 
-        PuzzleJsonDb.commit(new_puzzle)
-
         if self.get_gsheet_cog(ctx) is not None:
             # update google sheet ID
             self.get_gsheet_cog(ctx).create_puzzle_spreadsheet(new_puzzle)
             if self.get_hunt_round(ctx):
                 self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
+        PuzzleJsonDb.commit(new_puzzle)
 
         return new_puzzle
 
@@ -949,11 +982,14 @@ class Puzzles(commands.Cog):
             " has info about the hunt itself and it is where you will create new round channels",
             inline=False,
         )
-        puzzle_links = (f"""The following are some useful bit of info:
+        puzzle_links = (f"""The following are some useful bits of info:
                         • Hunt Website: {hunt.url}
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
                         • Google Sheet: https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id}
                         """)
+        if hunt.archive_google_sheet_id:
+            puzzle_links += f"""• Solved Google Sheet Archive: https://docs.google.com/spreadsheets/d/{hunt.archive_google_sheet_id}
+            """
         if hunt.username:
             puzzle_links += f"""• Hunt Username: {hunt.username}
             """
@@ -1047,7 +1083,7 @@ class Puzzles(commands.Cog):
                                 value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
                                 inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
@@ -1158,7 +1194,7 @@ class Puzzles(commands.Cog):
                                 value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
                                 inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
@@ -1221,7 +1257,7 @@ class Puzzles(commands.Cog):
                                 value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
                                 inline=False)
             embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
             embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
@@ -1231,7 +1267,7 @@ class Puzzles(commands.Cog):
         except:
             pass
         if kwargs.get("update",False):
-            channel_pins = await channel.pins(oldest_first=True)
+            channel_pins = await channel.pins()
             return await channel_pins[-1].edit(embed=embed)
         else:
             return await channel.send(embed=embed)
@@ -1283,9 +1319,10 @@ class Puzzles(commands.Cog):
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
                 return await ctx.send(
                     f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
-            self.get_puzzle(ctx).name = puzzle_name
-            PuzzleJsonDb.commit(self.get_puzzle(ctx))
             await ctx.channel.edit(name=self.clean_name(puzzle_name))
+            self.get_puzzle(ctx).name = puzzle_name
+            self.get_puzzle(ctx).channel_name = self.clean_name(puzzle_name)
+            PuzzleJsonDb.commit(self.get_puzzle(ctx))
             if self.get_gsheet_cog(ctx) is not None:
                 # update google sheet ID
                 await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx))
@@ -1518,6 +1555,7 @@ class Puzzles(commands.Cog):
             "puzzle channel to the bottom and archive the Google Spreadsheet",
         )
         await ctx.send(embed=embed)
+        await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
         await self.info(ctx, update=True)
 
     @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved"])
@@ -1543,10 +1581,10 @@ class Puzzles(commands.Cog):
         puzzle.solved = False
         puzzle.solve_time = None
 
-        if self.get_puzzle(ctx).archive_time:
-            puzzle.archive_time = None
-            await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
-            await self.move_to_bottom(ctx)
+        # if self.get_puzzle(ctx).archive_time:
+        puzzle.archive_time = None
+        await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
+        await self.move_to_bottom(ctx)
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
@@ -1556,7 +1594,7 @@ class Puzzles(commands.Cog):
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(
             description=f"{emoji} Alright, I've unmarked {prev_solution} as the solution. "
-            "You'll get'em next time!"
+            "You'll get 'em next time!"
         )
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)
@@ -1859,7 +1897,7 @@ class Puzzles(commands.Cog):
                     # hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
                     gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
                     try:
-                        await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+                        await gsheet_cog.archive_puzzle_spreadsheet(puzzle, hunt.archive_google_sheet_id)
                     except:
                         message = f"Unable to update {puzzle.name} from {hunt.name} as solved on Google Sheet."
                         logger.info(message)

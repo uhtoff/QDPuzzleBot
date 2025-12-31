@@ -21,6 +21,7 @@ class HuntData:
     channel_id: int = 0
     guild_id: int = 0
     google_sheet_id: str = ""
+    archive_google_sheet_id: str = ""
     url: str = ""
     url_sep: str = "-"
     puzzle_prefix: str = "puzzle"
