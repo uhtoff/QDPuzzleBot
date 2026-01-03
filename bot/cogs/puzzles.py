@@ -279,7 +279,8 @@ class Puzzles(commands.Cog):
         HuntJsonDb.commit(new_hunt)
 
         # add hunt settings
-        await self.send_initial_hunt_channel_messages(ctx, text_channel, hunt=new_hunt)
+        initial_message = await self.send_initial_hunt_channel_messages(ctx, text_channel, hunt=new_hunt)
+        await initial_message.pin()
 
         return (category, text_channel, True)
 
