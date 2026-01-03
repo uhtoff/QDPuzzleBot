@@ -213,7 +213,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f":exclamation: Most bot commands should be sent to #{settings.discord_bot_channel}")
         return False
 
-    @commands.hybrid_command(aliases=["h","H"])
+    @commands.hybrid_command(aliases=["h"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def hunt(self, ctx, *, arg):
         """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
@@ -309,7 +309,7 @@ class Puzzles(commands.Cog):
         return
 
 
-    @commands.hybrid_command(aliases=["p","P"])
+    @commands.hybrid_command(aliases=["p"])
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p puzzle-name*"""
 
@@ -608,7 +608,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.hybrid_command(aliases=["r","R","mp","MP","metapuzzle", "roundnometa", "rnm","RNM"])
+    @commands.hybrid_command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
     async def round(self, ctx, *, arg):
         """*Create new puzzle round with: !r round-name*
         *Create new metapuzzle category with: !mp metapuzzle-name*
@@ -1474,7 +1474,7 @@ class Puzzles(commands.Cog):
         for e in embeds:
             await ctx.send(embed=e)
 
-    @commands.hybrid_command(description="Add a partial solution to the puzzle", aliases=["ps","PS"])
+    @commands.hybrid_command(description="Add a partial solution to the puzzle", aliases=["ps"])
     async def partial(self, ctx, *, arg):
         """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
 
@@ -1507,7 +1507,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
-    @commands.command(aliases=["s","S"])
+    @commands.command(aliases=["s"])
     async def solve(self, ctx, *args):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
@@ -1559,7 +1559,7 @@ class Puzzles(commands.Cog):
         await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
         await self.info(ctx, update=True)
 
-    @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved"])
+    @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     async def mark_as_complete(self, ctx):
         """*Mark a puzzle as completed with a tick*"""
         await self.solve(ctx, "✅")
