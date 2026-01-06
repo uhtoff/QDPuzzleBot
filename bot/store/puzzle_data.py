@@ -88,6 +88,9 @@ class PuzzleData:
         """
         return sorted(puzzles, key=lambda p: p.round_id)
 
+    def is_metapuzzle(self) -> bool:
+        return self.metapuzzle == 1
+
     def add_tag(self, tag):
         self.tags.append(tag)
         return

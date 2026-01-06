@@ -519,7 +519,7 @@ class GoogleSheets(commands.Cog):
             'requests': requests
         }
         self.batch_update(updates)
-        if self.get_archive_spreadsheet_id():
+        if puzzle_data.is_metapuzzle() is False and self.get_archive_spreadsheet_id():
             copied = self.sheets_service.sheets().copyTo(
                 spreadsheetId = self.get_spreadsheet_id(),
                 sheetId = puzzle_data.google_page_id,
