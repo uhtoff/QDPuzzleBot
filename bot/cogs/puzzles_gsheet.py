@@ -509,6 +509,17 @@ class GoogleSheets(commands.Cog):
             ).execute()
             return new_sheet_id
 
+
+    async def update_solution(self, puzzle_data: PuzzleData):
+        self.set_puzzle_data(puzzle_data)
+        requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
+                                     self.get_column(config.puzzle_cell_solution))
+                    ]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates, puzzle_data.archived)
+
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
         requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution)),

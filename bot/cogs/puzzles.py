@@ -56,7 +56,7 @@ class Puzzles(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.archived_solved_puzzles_loop.start()
+        # self.archived_solved_puzzles_loop.start()
         self.reminder_index=0
         self.guild = None
         self.guild_data = None
@@ -356,10 +356,12 @@ class Puzzles(commands.Cog):
         if self.get_gsheet_cog(ctx) is not None:
             # update google sheet ID
             self.get_gsheet_cog(ctx).create_puzzle_spreadsheet(new_puzzle)
-            if self.get_hunt_round(ctx):
-                self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
-
+            
         PuzzleJsonDb.commit(new_puzzle)
+
+        for tag in new_puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            self.update_metapuzzle(ctx, meta_round)
 
         return new_puzzle
 
@@ -1579,20 +1581,70 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(puzzle)
 
-        if self.get_hunt_round(ctx):
-            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            self.update_metapuzzle(ctx, meta_round)
+        #
+        # if self.get_hunt_round(ctx):
+        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
             value="If the solution was mistakenly entered, please message `!unsolve`. "
-            "Otherwise, in a few minutes, I will automatically move this "
-            "puzzle channel to the bottom and archive the Google Spreadsheet",
         )
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
+        puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
         await self.info(ctx, update=True)
+
+    @commands.command()
+    async def change_solution(self, ctx, *args):
+        """*Change a previously marked solution, if not solved then solve as usual: !change_solution SOLUTION*"""
+        if not self.get_puzzle(ctx):
+            await self.send_not_puzzle_channel(ctx)
+            return
+        elif self.get_puzzle(ctx).solved is False:
+            await self.solve(ctx, args)
+            return
+
+        solution = " ".join(args)
+        solution = solution.strip().upper()
+
+        # for arg in args:
+        #     solution += arg.strip().upper()
+        #     solution += " "
+
+        puzzle = self.get_puzzle(ctx)
+
+        if solution == "":
+            await ctx.send(":x: Nice try, but you need to give a solution!")
+            return
+
+        puzzle.solution = solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+
+        PuzzleJsonDb.commit(puzzle)
+
+        # if self.get_hunt_round(ctx):
+        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            self.update_metapuzzle(ctx, meta_round)
+
+        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        embed = discord.Embed(title="PUZZLE SOLUTION UPDATED!",
+                              description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
+        embed.add_field(
+            name="Follow-up",
+            value="If the solution was mistakenly entered, please message `!unsolve`. "
+        )
+        await ctx.send(embed=embed)
+        await self.get_gsheet_cog(ctx).update_solution(puzzle)
+        await self.info(ctx, update=True)
+
 
     @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     async def mark_as_complete(self, ctx):
@@ -1888,87 +1940,87 @@ class Puzzles(commands.Cog):
 
         await ctx.channel.send(f"```json\n{self.get_puzzle(ctx).to_json()}```")
 
-    async def archive_solved_puzzles(self, guild: discord.Guild) -> List[PuzzleData]:
-        """Archive puzzles for which sufficient time has elapsed since solve time
-
-        Move them to a solved-puzzles channel category, and rename spreadsheet
-        to start with the text [SOLVED]
-        """
-        guild_data = GuildSettingsDb.get(guild.id)
-        puzzles_to_archive = PuzzleJsonDb.get_solved_puzzles_to_archive(guild_data.id)
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-
-        puzzles_by_hunt = {}
-        for puzz in puzzles_to_archive:
-            hunt = HuntJsonDb.get_by_attr(id=puzz.hunt_id)
-            logger.info(f"{puzz.name} - archiving")
-            if not hunt in puzzles_by_hunt:
-                puzzles_by_hunt[hunt] = []
-            puzzles_by_hunt[hunt].append(puzz)
-        # if puzzles_by_hunt:
-        #     logger.info(puzzles_by_hunt)
-        for hunt, puzzles in puzzles_by_hunt.items():
-            if self.SOLVE_CATEGORY:
-                solved_category_name = self.get_solved_puzzle_category(hunt.name)
-                solved_category = discord.utils.get(guild.categories, name=solved_category_name)
-                if not solved_category:
-                    avail_categories = [c.name for c in guild.categories]
-                    raise ValueError(
-                        f"{solved_category_name} category does not exist; available categories: {avail_categories}"
-                )
-
-            for puzzle in puzzles:
-                channel = discord.utils.get(guild.channels, id=puzzle.channel_id)
-                if channel:
-                    if self.SOLVE_CATEGORY:
-                        await channel.edit(category=solved_category)
-                    else:
-                        await channel.move(end=True, category=channel.category)
-                        message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
-                        logger.info(message)
-                if gsheet_cog:
-                    """TODO Less efficient now
-                    Make this more resilient if the sheet has been deleted"""
-                    # hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
-                    # hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-                    gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-                    try:
-                        await gsheet_cog.archive_puzzle_spreadsheet(puzzle, hunt.archive_google_sheet_id)
-                    except:
-                        message = f"Unable to update {puzzle.name} from {hunt.name} as solved on Google Sheet."
-                        logger.info(message)
-
-                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
-                PuzzleJsonDb.commit(puzzle)
-        return puzzles_to_archive
-
-    async def archive_solved(self, ctx):
-        """*(admin) Archive solved puzzles. Done automatically*
-
-        Done automatically on task loop, so this is only useful for debugging
-        """
-        if not (await self.check_is_bot_channel(ctx)):
-            return
-        puzzles_to_archive = await self.archive_solved_puzzles(ctx.guild)
-        mentions = " ".join([p.channel_mention for p in puzzles_to_archive])
-        message = f"Archived {len(puzzles_to_archive)} solved puzzle channels: {mentions}"
-        logger.info(message)
-        await ctx.send(message)
-
-    @tasks.loop(seconds=300.0)
-    async def archived_solved_puzzles_loop(self):
-        """Ref: https://discordpy.readthedocs.io/en/latest/ext/tasks/"""
-        logger.info(f"Archived solved puzzles loop")
-        for guild in self.bot.guilds:
-            try:
-                await self.archive_solved_puzzles(guild)
-            except Exception:
-                logger.exception("Unable to archive solved puzzles for guild {guild.id} {guild.name}")
-
-    @archived_solved_puzzles_loop.before_loop
-    async def before_archiving(self):
-        await self.bot.wait_until_ready()
-        logger.info("Ready to start archiving solved puzzles")
+    # async def archive_solved_puzzles(self, guild: discord.Guild) -> List[PuzzleData]:
+    #     """Archive puzzles for which sufficient time has elapsed since solve time
+    #
+    #     Move them to a solved-puzzles channel category, and rename spreadsheet
+    #     to start with the text [SOLVED]
+    #     """
+    #     guild_data = GuildSettingsDb.get(guild.id)
+    #     puzzles_to_archive = PuzzleJsonDb.get_solved_puzzles_to_archive(guild_data.id)
+    #     gsheet_cog = self.bot.get_cog("GoogleSheets")
+    #
+    #     puzzles_by_hunt = {}
+    #     for puzz in puzzles_to_archive:
+    #         hunt = HuntJsonDb.get_by_attr(id=puzz.hunt_id)
+    #         logger.info(f"{puzz.name} - archiving")
+    #         if not hunt in puzzles_by_hunt:
+    #             puzzles_by_hunt[hunt] = []
+    #         puzzles_by_hunt[hunt].append(puzz)
+    #     # if puzzles_by_hunt:
+    #     #     logger.info(puzzles_by_hunt)
+    #     for hunt, puzzles in puzzles_by_hunt.items():
+    #         if self.SOLVE_CATEGORY:
+    #             solved_category_name = self.get_solved_puzzle_category(hunt.name)
+    #             solved_category = discord.utils.get(guild.categories, name=solved_category_name)
+    #             if not solved_category:
+    #                 avail_categories = [c.name for c in guild.categories]
+    #                 raise ValueError(
+    #                     f"{solved_category_name} category does not exist; available categories: {avail_categories}"
+    #             )
+    #
+    #         for puzzle in puzzles:
+    #             channel = discord.utils.get(guild.channels, id=puzzle.channel_id)
+    #             if channel:
+    #                 if self.SOLVE_CATEGORY:
+    #                     await channel.edit(category=solved_category)
+    #                 else:
+    #                     await channel.move(end=True, category=channel.category)
+    #                     message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
+    #                     logger.info(message)
+    #             if gsheet_cog:
+    #                 """TODO Less efficient now
+    #                 Make this more resilient if the sheet has been deleted"""
+    #                 # hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
+    #                 # hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+    #                 gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+    #                 try:
+    #                     await gsheet_cog.archive_puzzle_spreadsheet(puzzle, hunt.archive_google_sheet_id)
+    #                 except:
+    #                     message = f"Unable to update {puzzle.name} from {hunt.name} as solved on Google Sheet."
+    #                     logger.info(message)
+    #
+    #             puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+    #             PuzzleJsonDb.commit(puzzle)
+    #     return puzzles_to_archive
+    #
+    # async def archive_solved(self, ctx):
+    #     """*(admin) Archive solved puzzles. Done automatically*
+    #
+    #     Done automatically on task loop, so this is only useful for debugging
+    #     """
+    #     if not (await self.check_is_bot_channel(ctx)):
+    #         return
+    #     puzzles_to_archive = await self.archive_solved_puzzles(ctx.guild)
+    #     mentions = " ".join([p.channel_mention for p in puzzles_to_archive])
+    #     message = f"Archived {len(puzzles_to_archive)} solved puzzle channels: {mentions}"
+    #     logger.info(message)
+    #     await ctx.send(message)
+    #
+    # @tasks.loop(seconds=300.0)
+    # async def archived_solved_puzzles_loop(self):
+    #     """Ref: https://discordpy.readthedocs.io/en/latest/ext/tasks/"""
+    #     logger.info(f"Archived solved puzzles loop")
+    #     for guild in self.bot.guilds:
+    #         try:
+    #             await self.archive_solved_puzzles(guild)
+    #         except Exception:
+    #             logger.exception("Unable to archive solved puzzles for guild {guild.id} {guild.name}")
+    #
+    # @archived_solved_puzzles_loop.before_loop
+    # async def before_archiving(self):
+    #     await self.bot.wait_until_ready()
+    #     logger.info("Ready to start archiving solved puzzles")
 
     @tasks.loop(hours=3)
     async def reminder_loop(self, channel):
