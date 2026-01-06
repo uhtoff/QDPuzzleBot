@@ -556,7 +556,9 @@ class Puzzles(commands.Cog):
                 if puzzle:
                     if puzzle.tags:
                         old_tags.extend(puzzle.tags.copy())
-                    puzzle.tags.clear()
+                    # Remove puzzle from old rounds if a not a metapuzzle
+                    if puzzle.is_metapuzzle() is False:
+                        puzzle.tags.clear()
                     puzzle.tags.append(meta_round.id)
                     PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
@@ -572,6 +574,7 @@ class Puzzles(commands.Cog):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await ctx.send(":x: This does not appear to be a Puzzle channel")
+            return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
@@ -579,7 +582,7 @@ class Puzzles(commands.Cog):
             PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
             await ctx.send(
-                f":white_check_mark: This puzzle has been tagged to the group and metas updated if necessary.")
+                f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets updated.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -589,6 +592,7 @@ class Puzzles(commands.Cog):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await ctx.send(":x: This does not appear to be a Puzzle channel")
+            return
         puzzle = self.get_puzzle(ctx)
         old_tags = []
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -596,7 +600,9 @@ class Puzzles(commands.Cog):
             new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
             await ctx.channel.edit(category=new_category, position=2)
             old_tags.extend(puzzle.tags.copy())
-            puzzle.tags.clear()
+            # Don't remove old tags from metapuzzle to avoid it being orphaned
+            if puzzle.is_metapuzzle() is False:
+                puzzle.tags.clear()
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
             self.update_metapuzzle(ctx, meta_round)
@@ -604,7 +610,33 @@ class Puzzles(commands.Cog):
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
                 self.update_metapuzzle(ctx, old_meta_round)
             await ctx.send(
-                f":white_check_mark: This puzzle has been moved to the group and metas updated if necessary.")
+                f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets updated.")
+        else:
+            await ctx.send(":x: Please send a valid meta code")
+
+    @commands.hybrid_command(description="Remove the puzzle from a metapuzzle", aliases=['remove_from_round'])
+    async def remove_from_meta(self, ctx, meta_code):
+        """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            return
+        puzzle = self.get_puzzle(ctx)
+        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        if puzzle.id == meta_round.meta_id:
+            await ctx.send(":x: You can't remove a metapuzzle from it's own round!")
+            return
+        if meta_round:
+            # old_tags to ensure all attached metapuzzles updated
+            old_tags = []
+            old_tags.extend(puzzle.tags.copy())
+            puzzle.tags.remove(meta_round.id)
+            PuzzleJsonDb.commit(puzzle)
+            self.update_metapuzzle(ctx, meta_round)
+            for old_tag in old_tags:
+                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
+                self.update_metapuzzle(ctx, old_meta_round)
+            await ctx.send(
+                f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets updated.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -1046,6 +1078,7 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta and move it to this category.
         • `!add_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
+        • `!remove_from_meta {hunt_round.meta_code}` when used in another puzzle channel will remove it from this meta.
         • `!sync_meta` (admin_only) when used in this channel will assign all the puzzles in the category to the meta.
         • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
@@ -1119,6 +1152,7 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
         • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!remove_from_round {hunt_round.meta_code}` when used in another puzzle channel will remove it from this round.
         • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         """,
                         inline=False,
@@ -1157,6 +1191,7 @@ class Puzzles(commands.Cog):
         • `!info` will re-post this message.
         • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
         • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!remove_from_round {hunt_round.meta_code}` when used in another puzzle channel will remove it from this round.
         • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
