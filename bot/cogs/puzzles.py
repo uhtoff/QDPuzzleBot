@@ -356,7 +356,7 @@ class Puzzles(commands.Cog):
         if self.get_gsheet_cog(ctx) is not None:
             # update google sheet ID
             self.get_gsheet_cog(ctx).create_puzzle_spreadsheet(new_puzzle)
-            
+
         PuzzleJsonDb.commit(new_puzzle)
 
         for tag in new_puzzle.tags:
@@ -1511,8 +1511,8 @@ class Puzzles(commands.Cog):
         for e in embeds:
             await ctx.send(embed=e)
 
-    @commands.hybrid_command(description="Add a partial solution to the puzzle", aliases=["ps"])
-    async def partial(self, ctx, *, arg):
+    @commands.command(aliases=["ps"])
+    async def partial(self, ctx, *args):
         """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
 
         if not self.get_puzzle(ctx):
@@ -1522,7 +1522,10 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
-        solution = arg.strip().upper()
+        puzzle = self.get_puzzle(ctx)
+
+        solution = " ".join(args)
+        solution = solution.strip().upper()
         self.get_puzzle(ctx).status = "Partially Solved"
 
         if self.get_puzzle(ctx).solution:
@@ -1532,8 +1535,12 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
-        if self.get_hunt_round(ctx):
-            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        for tag in self.get_puzzle(ctx).tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            self.update_metapuzzle(ctx, meta_round)
+
+        # if self.get_hunt_round(ctx):
+        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="Partially SOLVED!", description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
@@ -1599,14 +1606,14 @@ class Puzzles(commands.Cog):
         puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
         await self.info(ctx, update=True)
 
-    @commands.command()
+    @commands.command(aliases=["update_solution"])
     async def change_solution(self, ctx, *args):
         """*Change a previously marked solution, if not solved then solve as usual: !change_solution SOLUTION*"""
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved is False:
-            await self.solve(ctx, args)
+        elif self.get_puzzle(ctx).solved == 0:
+            await self.solve(ctx, *args)
             return
 
         solution = " ".join(args)
@@ -1645,6 +1652,47 @@ class Puzzles(commands.Cog):
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
 
+    @commands.command()
+    async def add_solution(self, ctx, *args):
+        """*Add a solution to a previously solved puzzle, for instance if an additional answer is found, if not solved then add a partial solution: !add_solution SOLUTION*"""
+        if not self.get_puzzle(ctx):
+            await self.send_not_puzzle_channel(ctx)
+            return
+        elif self.get_puzzle(ctx).solved == 0:
+            await self.partial(ctx, *args)
+            return
+
+        solution = " ".join(args)
+        solution = solution.strip().upper()
+
+        # for arg in args:
+        #     solution += arg.strip().upper()
+        #     solution += " "
+
+        puzzle = self.get_puzzle(ctx)
+
+        if solution == "":
+            await ctx.send(":x: Nice try, but you need to give a solution!")
+            return
+
+        puzzle.solution += "/" + solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+
+        PuzzleJsonDb.commit(puzzle)
+
+        # if self.get_hunt_round(ctx):
+        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            self.update_metapuzzle(ctx, meta_round)
+
+        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
+                              description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
+        await ctx.send(embed=embed)
+        await self.get_gsheet_cog(ctx).update_solution(puzzle)
+        await self.info(ctx, update=True)
 
     @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     async def mark_as_complete(self, ctx):
