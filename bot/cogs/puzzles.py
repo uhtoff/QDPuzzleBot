@@ -38,7 +38,7 @@ class Puzzles(commands.Cog):
     STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission","solved", "backsolved"]
     PRIORITIES = ["low", "medium", "high", "very high"]
     REMINDERS = [
-            "Welcome to the α-betical Order and Uptown Local.  I hear we are the Quarantine δ-crypters this time, sounds tasty.",
+            "Welcome to Duck Soup - together we will be stronger as Quarantine Duckrypters - Souped Up!",
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
             "You could even consider having some sleep...",
             "PuzzleBot thinks you should have a drink and a break, you wouldn't want to disappoint PuzzleBot would you?",
@@ -294,7 +294,7 @@ class Puzzles(commands.Cog):
 
         hunt = self.get_hunt(ctx)
 
-        if hunt.archive_google_sheet_id is string:
+        if len(hunt.archive_google_sheet_id)>0:
             await ctx.channel.send(":x: This hunt is already set to use a second sheet for solved puzzles")
             return
 

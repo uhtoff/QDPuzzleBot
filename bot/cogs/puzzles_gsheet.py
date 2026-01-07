@@ -479,14 +479,6 @@ class GoogleSheets(commands.Cog):
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
         self.set_puzzle_data(puzzle_data)
-        requests = [self.update_cell("", self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution)),
-            self.update_cell("", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress)),
-            self.move_sheet_to_start(),
-            self.revert_tab_colour()]
-        updates = {
-            'requests': requests
-        }
-        self.batch_update(updates, True)
         if puzzle_data.archived:
             copied = self.sheets_service.sheets().copyTo(
                 spreadsheetId=self.get_archive_spreadsheet_id(),
@@ -507,7 +499,16 @@ class GoogleSheets(commands.Cog):
                     ]
                 },
             ).execute()
-            return new_sheet_id
+        requests = [self.update_cell("", self.get_row(config.puzzle_cell_solution),
+                                     self.get_column(config.puzzle_cell_solution)),
+                    self.update_cell("", self.get_row(config.puzzle_cell_progress),
+                                     self.get_column(config.puzzle_cell_progress)),
+                    self.move_sheet_to_start(),
+                    self.revert_tab_colour()]
+        updates = {
+            'requests': requests
+        }
+        self.batch_update(updates, puzzle_data.archived)
 
 
     async def update_solution(self, puzzle_data: PuzzleData):
