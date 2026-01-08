@@ -69,6 +69,7 @@ async def on_ready():
 
     for guild in bot.guilds:
         try:
+            # bot.tree.clear_commands(guild=discord.Object(id=guild.id))
             synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
             print(f"Synced {len(synced)} commands for guild '{guild.name}' ({guild.id})")
         except Exception as e:

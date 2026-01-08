@@ -171,11 +171,15 @@ class GoogleSheets(commands.Cog):
     def update_puzzle_info(self, update_tab_name = False):
         puzzle_name = self.get_puzzle_data().name
         new_sheet_id = self.get_page_id()
+        # requests = [
+        #     self.update_cell(puzzle_name, self.get_row(config.puzzle_cell_name), self.get_column(config.puzzle_cell_name), self.STRING_INPUT,
+        #         new_sheet_id),
+        #     self.update_cell(self.get_puzzle_data().url, self.get_row(config.puzzle_cell_link), self.get_column(config.puzzle_cell_link), self.STRING_INPUT,
+        #         new_sheet_id),
+        # ]
         requests = [
-            self.update_cell(puzzle_name, self.get_row(config.puzzle_cell_name), self.get_column(config.puzzle_cell_name), self.STRING_INPUT,
-                new_sheet_id),
-            self.update_cell(self.get_puzzle_data().url, self.get_row(config.puzzle_cell_link), self.get_column(config.puzzle_cell_link), self.STRING_INPUT,
-                new_sheet_id),
+            self.update_cell('=HYPERLINK("' + self.get_puzzle_data().url + '","' + puzzle_name + '")', self.get_row(config.puzzle_cell_name),
+                             self.get_column(config.puzzle_cell_name), self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
             unique_name = self.get_unique_tab_name(puzzle_name)
@@ -446,9 +450,9 @@ class GoogleSheets(commands.Cog):
         }
         self.batch_update(body, archive)
 
-    async def update_puzzle(self, puzzle_data):
+    async def update_puzzle(self, puzzle_data,update_name = False):
         self.set_puzzle_data(puzzle_data)
-        self.update_puzzle_info(True)
+        self.update_puzzle_info(update_name)
 
     async def delete_round_spreadsheet(self, round_data: RoundData ):
         self.delete_sheet(round_data.google_page_id, puzzle.archived)

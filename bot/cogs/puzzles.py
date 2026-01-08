@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class Puzzles(commands.Cog):
+    MAX_CHANNELS_PER_CATEGORY = 10
+    MAX_CHANNELS_PER_GUILD = 150
+    MAX_CATEGORIES = 20
     GENERAL_CHANNEL_NAME = "general"
     META_CHANNEL_NAME = "meta"
     META_REASON = "bot-meta"
@@ -213,7 +216,35 @@ class Puzzles(commands.Cog):
         await ctx.send(f":exclamation: Most bot commands should be sent to #{settings.discord_bot_channel}")
         return False
 
-    @commands.hybrid_command(aliases=["h"])
+    async def check_available_space(self, ctx, required_channels = 0, required_categories = 0):
+        space_available = True
+        guild = ctx.guild
+        channels = len(ctx.channel.category.channels)
+        categories = len(guild.categories)
+        total_channels = len(guild.channels)
+        remaining_channels = self.MAX_CHANNELS_PER_GUILD - total_channels
+        remaining_categories = self.MAX_CATEGORIES - categories
+        remaining_category_channels = self.MAX_CHANNELS_PER_CATEGORY-channels
+        if remaining_channels < required_channels or remaining_category_channels < required_channels or remaining_categories < required_categories:
+            space_available = False
+        bot_channel = discord.utils.get(ctx.guild.channels, name=self.get_guild_data(ctx).discord_bot_channel)
+        if space_available is False:
+            await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server, {channels} channels in {ctx.channel.category.name} and {total_channels} total channels.")
+        if remaining_channels <= 10:
+            await bot_channel.send(
+                f"@here There is only space for {remaining_channels} more channels on the server."
+            )
+        if remaining_categories <= 2 and required_categories > 0:
+            await bot_channel.send(
+                f"@here There is only space for {remaining_categories} more categories on the server."
+            )
+        if remaining_category_channels <= 2:
+            await bot_channel.send(
+                f"@here There is only space for {remaining_category_channels} more channels in the {ctx.channel.category.name} category."
+            )
+        return space_available
+
+    @commands.command(aliases=["h"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def hunt(self, ctx, *, arg):
         """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
@@ -237,6 +268,10 @@ class Puzzles(commands.Cog):
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None):
         guild = ctx.guild
+
+        if await self.check_available_space(ctx,5,2) is False:
+            return await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
+
         category_name = self.clean_name(hunt_name)
         overwrites = None
         role = None
@@ -289,13 +324,13 @@ class Puzzles(commands.Cog):
     async def set_to_archive(self, ctx):
         """*(admin) Set hunt to use a second spreadsheet to hold solved puzzles: !set_to_archive*"""
         if self.get_channel_type(ctx) != "Hunt":
-            await ctx.channel.send(":x: This command must be done from the main Hunt channel")
+            await ctx.send(":x: This command must be done from the main Hunt channel")
             return
 
         hunt = self.get_hunt(ctx)
 
         if len(hunt.archive_google_sheet_id)>0:
-            await ctx.channel.send(":x: This hunt is already set to use a second sheet for solved puzzles")
+            await ctx.send(":x: This hunt is already set to use a second sheet for solved puzzles")
             return
 
         if self.get_gsheet_cog(ctx) is not None:
@@ -305,11 +340,11 @@ class Puzzles(commands.Cog):
         HuntJsonDb.commit(hunt)
 
         await self.info(ctx,update=True)
-        await ctx.channel.send(":white_check_mark: The hunt has been set to use a second sheet for solved puzzles")
+        await ctx.send(":white_check_mark: The hunt has been set to use a second sheet for solved puzzles")
         return
 
 
-    @commands.hybrid_command(aliases=["p"])
+    @commands.command(aliases=["p"])
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p puzzle-name*"""
 
@@ -317,6 +352,10 @@ class Puzzles(commands.Cog):
         self.start = datetime.datetime.now()
         if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
             return await ctx.send(f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
+
+        if await self.check_available_space(ctx,1) is False:
+            return await ctx.send(":x: There is no free channel to create this puzzle, please inform the moderators.")
+
         # self.get_hunt_round(ctx).num_puzzles += 1
         # RoundJsonDb.commit(self.get_hunt_round(ctx))
         check_duplicate = datetime.datetime.now()
@@ -400,6 +439,7 @@ class Puzzles(commands.Cog):
         channel = ctx.channel
         position = self.get_first_channel(ctx, channel.category)
         await channel.edit(position=position)
+        await ctx.send(":white_check_mark: Channel moved to top of category")
 
     @commands.hybrid_command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -407,6 +447,7 @@ class Puzzles(commands.Cog):
         channel = ctx.channel
         position = self.get_solve_divider_position(ctx, channel.category)
         await channel.edit(position=position)
+        await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
     @commands.hybrid_command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -414,6 +455,7 @@ class Puzzles(commands.Cog):
         channel = ctx.channel
         position = self.get_solve_divider_position(ctx, channel.category)
         await channel.edit(position=position+1)
+        await ctx.send(":white_check_mark: Channel moved to bottom of solved")
 
     # @commands.hybrid_command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -456,9 +498,9 @@ class Puzzles(commands.Cog):
             value=group_info,
             inline=False,
         )
-        await ctx.channel.send(embed=embed)
+        await ctx.send(embed=embed)
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def add_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !add_tag tag_id*"""
@@ -467,7 +509,7 @@ class Puzzles(commands.Cog):
         puzzle.tags.append(new_tag)
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def remove_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !remove_tag tag_id*"""
@@ -571,7 +613,7 @@ class Puzzles(commands.Cog):
 
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
 
-    @commands.hybrid_command(aliases=['add_to_round'])
+    @commands.command(aliases=['add_to_round'])
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -589,7 +631,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: Please send a valid meta code")
 
 
-    @commands.hybrid_command(description="Assign the puzzle to a metapuzzle", aliases=['move_to_round'])
+    @commands.command(description="Assign the puzzle to a metapuzzle", aliases=['move_to_round'])
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -616,7 +658,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.hybrid_command(description="Remove the puzzle from a metapuzzle", aliases=['remove_from_round'])
+    @commands.command(description="Remove the puzzle from a metapuzzle", aliases=['remove_from_round'])
     async def remove_from_meta(self, ctx, meta_code):
         """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -642,7 +684,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.hybrid_command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
+    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
     async def round(self, ctx, *, arg):
         """*Create new puzzle round with: !r round-name*
         *Create new metapuzzle category with: !mp metapuzzle-name*
@@ -651,6 +693,9 @@ class Puzzles(commands.Cog):
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.channel.send(":x: This command must be done from the main Hunt channel")
             return
+
+        if await self.check_available_space(ctx,5,1) is False:
+            return await ctx.send(":x: There is not enough enough space on the server to create a new round, please inform the moderators.")
 
         command = ctx.invoked_with
         puzzle = True
@@ -776,7 +821,7 @@ class Puzzles(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*(admin) Show channel settings for debug*"""
-        await ctx.channel.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
+        await ctx.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
 
     @commands.hybrid_command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -784,11 +829,11 @@ class Puzzles(commands.Cog):
     async def show_puzzle_settings(self, ctx):
         """*(admin) Show channel puzzle settings for debug*"""
         if self.get_puzzle(ctx):
-            await ctx.channel.send(f"```json\n{self.get_puzzle(ctx).to_json(indent=2)}```")
+            await ctx.send(f"```json\n{self.get_puzzle(ctx).to_json(indent=2)}```")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def set_login(self, ctx, *, arg):
         """*Set username and password for hunt*
@@ -807,7 +852,7 @@ class Puzzles(commands.Cog):
 
         await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def set_start(self,ctx,timestamp:int):
         """*Set start time for hunt, only works with a UNIX timestamp*"""
@@ -840,7 +885,7 @@ class Puzzles(commands.Cog):
                 f":white_check_mark: I've marked {self.get_hunt(ctx).name} as not being run in parallel"
             )
 
-    @commands.hybrid_command(description="Update channel/hunt/guild settings", aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
+    @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
@@ -924,7 +969,7 @@ class Puzzles(commands.Cog):
                     }
             embed_title = f"Puzzles in Round {self.get_hunt_round(ctx).name}"
         else:
-            await ctx.channel.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
+            await ctx.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
             # hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
             # for hunt_puzzle in hunt_puzzles:
             #     if hunt_puzzle.round_id not in all_puzzles:
@@ -1346,10 +1391,10 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Status", value=puzzle_data.status or "?")
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
         embed.add_field(name="Priority", value=puzzle_data.priority or "?")
-        await channel.send(embed=embed)
+        await ctx.send(embed=embed)
         await self.info(ctx, update=True)
 
-    @commands.hybrid_command(aliases=["rename_meta"])
+    @commands.command(aliases=["rename_meta"])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
         """Rename a puzzle"""
@@ -1363,14 +1408,14 @@ class Puzzles(commands.Cog):
             PuzzleJsonDb.commit(self.get_puzzle(ctx))
             if self.get_gsheet_cog(ctx) is not None:
                 # update google sheet ID
-                await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx))
+                await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx), True)
                 if self.get_hunt_round(ctx):
                     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
-    @commands.hybrid_command()
+    @commands.command()
     async def link(self, ctx, *, url: str):
         """*Update link to puzzle*"""
         if self.get_puzzle(ctx):
@@ -1408,7 +1453,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
-    @commands.hybrid_command()
+    @commands.command()
     async def type(self, ctx, *, puzzle_type: str):
         """*Update puzzle type, e.g. "crossword"*"""
         if self.get_puzzle(ctx):
@@ -1419,7 +1464,13 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Update puzzle priority")
+    @app_commands.choices(priority=[
+        app_commands.Choice(name="Low", value="low"),
+        app_commands.Choice(name="Medium", value="medium"),
+        app_commands.Choice(name="High", value="high"),
+        app_commands.Choice(name="Very High", value="very high"),
+    ])
     async def priority(self, ctx, *, priority: str):
         """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
         if priority is not None and priority.lower() not in self.PRIORITIES:
@@ -1434,7 +1485,7 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
-    @commands.hybrid_command(aliases=["notes"])
+    @commands.command(aliases=["notes"])
     async def note(self, ctx, *, note: Optional[str]):
         """*Show or add a note about the puzzle*"""
         if self.get_puzzle(ctx) is None:
@@ -1479,7 +1530,7 @@ class Puzzles(commands.Cog):
             embed = discord.Embed(description="No notes left yet, use `!note my note here` to leave a note")
             await ctx.send(embed=embed)
 
-    @commands.hybrid_command(aliases=["delete_note"])
+    @commands.command(aliases=["delete_note"])
     async def erase_note(self, ctx, note_index: int):
         """*Remove a note by index*"""
 
@@ -1694,12 +1745,12 @@ class Puzzles(commands.Cog):
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
 
-    @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
+    @commands.command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     async def mark_as_complete(self, ctx):
         """*Mark a puzzle as completed with a tick*"""
         await self.solve(ctx, "✅")
 
-    @commands.hybrid_command(aliases=["u"])
+    @commands.command(aliases=["u"])
     async def unsolve(self, ctx):
         """*Mark an accidentally solved puzzle as not solved*"""
 
@@ -1735,7 +1786,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_round(self, ctx):
         """(admin) * Archives round to threads *"""
@@ -1771,7 +1822,7 @@ class Puzzles(commands.Cog):
                 await channel.delete(reason=self.DELETE_REASON)
         return True
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_channel(self, ctx, channel = None, archive_to = None):
         """(admin) * Archives channel to threads *"""
@@ -1837,7 +1888,7 @@ class Puzzles(commands.Cog):
         await channel.delete(reason=self.DELETE_REASON)
         return True
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def archive_solved_manually(self, ctx):
         """*(admin) Permanently archive solved puzzles*"""
@@ -1880,7 +1931,7 @@ class Puzzles(commands.Cog):
         await solved_category.delete(reason=self.DELETE_REASON)
         await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def delete_puzzle(self, ctx):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
@@ -1907,7 +1958,7 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.delete(puzzle.id)
         return True
 
-    @commands.hybrid_command(aliases=['delete_metapuzzle','delete_group'])
+    @commands.command(aliases=['delete_metapuzzle','delete_group'])
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
@@ -1943,7 +1994,7 @@ class Puzzles(commands.Cog):
         RoundJsonDb.delete(hunt_round.id)
         return True
 
-    @commands.hybrid_command()
+    @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def delete_hunt(self, ctx):
         """*(admin) Permanently delete a Hunt*"""
@@ -2074,7 +2125,7 @@ class Puzzles(commands.Cog):
     async def reminder_loop(self, channel):
         reminders = self.REMINDERS
         if self.reminder_index % 2 == 0:
-            await channel.send("@everyone You can get some help on how to use PuzzleBot by referring to [Edam's guide](https://docs.google.com/document/d/1hY-T2nMwHJLHiR-szsmG2F1ZWGIe88jyQpzKiXE1xLY/edit?usp=sharing) or with the `!help` command.  "
+            await channel.send("@everyone You can get some help on how to use PuzzleBot by referring to [Brillig's guide](https://docs.google.com/document/d/1hY-T2nMwHJLHiR-szsmG2F1ZWGIe88jyQpzKiXE1xLY/edit?usp=sharing) or with the `!help` command.  "
                                "The most useful commands are `!p <puzzle_name>` to make a new puzzle, "
                                "`!s <SOLUTION>` to solve one and "
                                "`!info` to get info on the puzzle including a link to the sheet.  Don't forget to go to https://quarantinedecrypters.com for our full hunt status.")
@@ -2091,6 +2142,7 @@ class Puzzles(commands.Cog):
         channel = self.get_hunt_channel(ctx)
         self.reminder_index = 0
         self.reminder_loop.start(channel)
+        await ctx.send(":white_check_mark: Reminder loop started.")
 
     @commands.hybrid_command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -2098,7 +2150,7 @@ class Puzzles(commands.Cog):
         """*(admin) Stop reminder loop*"""
         channel = self.get_hunt_channel(ctx)
         self.reminder_loop.cancel()
-        await channel.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
+        await ctx.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
 
     def get_hunt_channel(self, ctx):
         return self.bot.get_channel(self.get_hunt(ctx).channel_id)
