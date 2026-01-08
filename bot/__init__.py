@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import re
 from pathlib import Path
 import traceback
 
@@ -26,6 +27,22 @@ bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents
 bot.version = __version__
 bot.guild_data = {}
 
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    # Only care about messages starting with two or more !
+    if re.match(r"^!!+", message.content):
+        # Try to process commands normally
+        ctx = await bot.get_context(message)
+        if ctx.valid:                 # <-- command exists and can run
+            await bot.invoke(ctx)
+        else:
+            await message.reply("I know, I'm excited too, so many tasty puzzles.")
+        return
+
+    await bot.process_commands(message)
 
 async def preload_guild_data():
     guilds = await Guild.query.gino.all()

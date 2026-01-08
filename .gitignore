@@ -1,8 +1,8 @@
 nohup.out
-processnum
 dbtest.py
 discord.log
 config.json
+process.id
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
