@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class Puzzles(commands.Cog):
-    MAX_CHANNELS_PER_CATEGORY = 10
-    MAX_CHANNELS_PER_GUILD = 150
-    MAX_CATEGORIES = 20
+    MAX_CHANNELS_PER_CATEGORY = 50
+    MAX_CHANNELS_PER_GUILD = 500
+    MAX_CATEGORIES = 50
     GENERAL_CHANNEL_NAME = "general"
     META_CHANNEL_NAME = "meta"
     META_REASON = "bot-meta"
