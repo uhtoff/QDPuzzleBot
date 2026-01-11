@@ -455,7 +455,7 @@ class GoogleSheets(commands.Cog):
         self.update_puzzle_info(update_name)
 
     async def delete_round_spreadsheet(self, round_data: RoundData ):
-        self.delete_sheet(round_data.google_page_id, puzzle.archived)
+        self.delete_sheet(round_data.google_page_id)
 
     async def mark_deleted_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
         self.set_puzzle_data(puzzle_data)
@@ -468,7 +468,7 @@ class GoogleSheets(commands.Cog):
         updates = {
             'requests': requests
         }
-        self.batch_update(updates, puzzle.archived)
+        self.batch_update(updates, puzzle_data.archived)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         self.set_puzzle_data(puzzle_data)
@@ -479,7 +479,7 @@ class GoogleSheets(commands.Cog):
         #         'requests': requests
         #     }
         #     self.batch_update(updates)
-        self.delete_sheet(puzzle_data.google_page_id, puzzle.archived)
+        self.delete_sheet(puzzle_data.google_page_id, puzzle_data.archived)
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
         self.set_puzzle_data(puzzle_data)
@@ -613,9 +613,9 @@ class GoogleSheets(commands.Cog):
         self.set_puzzle_data(puzzle)
         # self.overview_page_id = hunt_round.google_page_id
         # overview_name = self.get_page_name_by_id(self.overview_page_id)
-        requests = [self.update_cell("Puzzle titles",5,0,self.STRING_INPUT,self.get_page_id()),
-                    self.update_cell("Puzzle solutions", 5, 1, self.STRING_INPUT,self.get_page_id()),]
-        row = 6
+        requests = [self.update_cell("Puzzle titles",4,0,self.STRING_INPUT,self.get_page_id()),
+                    self.update_cell("Puzzle solutions", 4, 1, self.STRING_INPUT,self.get_page_id()),]
+        row = 5
         for round_puzzle in round_puzzles:
             if round_puzzle.id == puzzle.id: # Skip self
                 continue
