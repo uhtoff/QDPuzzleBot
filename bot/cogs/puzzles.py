@@ -536,6 +536,7 @@ class Puzzles(commands.Cog):
         sheet.google_page_id = self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
         puzzle.additional_sheets.append(sheet)
         SheetsJsonDb.commit(sheet)
+        await ctx.send(f":white_check_mark: Added sheet {name} to puzzle")
 
     async def create_puzzle_channel(self, ctx, new_puzzle: PuzzleData, category = None, **kwargs):
         """Create new text channel for puzzle, and optionally a voice channel
