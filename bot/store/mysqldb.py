@@ -9,7 +9,7 @@ from typing import List
 import re
 
 import pytz
-from .puzzle_data import _PuzzleJsonDb, PuzzleData, MissingPuzzleError
+from .puzzle_data import _PuzzleJsonDb, PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .round_data import _RoundJsonDb, RoundData, MissingRoundError
 from .hunt_data import _HuntJsonDb, HuntData, MissingHuntError
 from .puzzle_settings import _GuildSettingsDb, GuildSettings
@@ -204,9 +204,25 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         cursor.execute(f"DELETE FROM tags WHERE round_id = %s", (round_id,))
         cursor.close()
 
+class MySQLAdditionalSheetsDb(_MySQLBaseDb):
+    TABLE_NAME = 'additional_sheets'
+
+    def get_by_puzzle(self, puzzle_id):
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(f"SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        return rows
+
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags']
+    SPECIAL_ATTR = ['tags', 'additional_sheets']
+
+    def construct_puzzle(self, row):
+        puzzle = PuzzleData.import_dict(row)
+        self.get_tags(puzzle)
+        self.get_additional_sheets(puzzle)
+        return puzzle
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
@@ -214,9 +230,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
         row = cursor.fetchone()
         if row:
-            puzzle = PuzzleData.import_dict(row)
-            self.get_tags(puzzle)
-            return puzzle
+            return self.construct_puzzle(row)
         else:
             raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
@@ -228,9 +242,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
             row = cursor.fetchone()
             if row:
-                puzzle = PuzzleData.import_dict(row)
-                self.get_tags(puzzle)
-                return puzzle
+                return self.construct_puzzle(row)
             else:
                 print(f"Unable to find puzzle for {keyword} - {value}")
                 return None
@@ -244,9 +256,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                        "WHERE hunts.guild_id = %s", (guild_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle = PuzzleData.import_dict(row)
-            self.get_tags(puzzle)
-            puzzle_datas.append(puzzle)
+            puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
@@ -258,9 +268,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                        "WHERE hunt_id = %s", (hunt_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle = PuzzleData.import_dict(row)
-            self.get_tags(puzzle)
-            puzzle_datas.append(puzzle)
+            puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
         return puzzle_datas
 
@@ -271,9 +279,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute("SELECT puzzles.* FROM puzzles LEFT JOIN tags ON puzzles.id = tags.puzzle_id WHERE tags.round_id = %s", (round_id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle = PuzzleData.import_dict(row)
-            self.get_tags(puzzle)
-            puzzle_datas.append(puzzle)
+            puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
@@ -313,6 +319,18 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         rows = cursor.fetchall()
         for row in rows:
             puzzle.tags.append(row['round_id'])
+        cursor.close()
+
+    def get_additional_sheets(self, puzzle):
+        cursor = self.mydb.cursor(dictionary=True)
+        select_stmt = f"SELECT * FROM additional_sheets WHERE puzzle_id = {puzzle.id}"
+        cursor.execute(select_stmt)
+        rows = cursor.fetchall()
+        for row in rows:
+            sheet = AdditionalSheetData()
+            for attr, value in sheet.__dict__.items():
+                setattr(sheet, attr, row.get(attr, None))
+            puzzle.additional_sheets.append(sheet)
         cursor.close()
 
     def commit(self, puzzle):

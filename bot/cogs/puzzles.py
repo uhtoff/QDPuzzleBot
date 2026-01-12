@@ -16,7 +16,7 @@ import aiohttp
 
 from bot.utils import urls, config, chunking
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, MySQLRoundJsonDb
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, MySQLRoundJsonDb, MySQLAdditionalSheetsDb, SheetsJsonDb, AdditionalSheetData
 from bot.utils.chunking import build_note_embeds
 
 logger = logging.getLogger(__name__)
@@ -519,6 +519,20 @@ class Puzzles(commands.Cog):
             puzzle.tags.remove(remove_tag)
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
+    @commands.command()
+    async def add_sheet(self, ctx, *args):
+        puzzle = self.get_puzzle(ctx)
+
+        name = " ".join(args)
+
+        sheet = AdditionalSheetData(
+            puzzle_id=puzzle.id,
+        )
+
+        sheet.google_page_id = self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
+        puzzle.additional_sheets.append(sheet)
+        SheetsJsonDb.commit(sheet)
+
     async def create_puzzle_channel(self, ctx, new_puzzle: PuzzleData, category = None, **kwargs):
         """Create new text channel for puzzle, and optionally a voice channel
 
@@ -829,7 +843,25 @@ class Puzzles(commands.Cog):
     async def show_puzzle_settings(self, ctx):
         """*(admin) Show channel puzzle settings for debug*"""
         if self.get_puzzle(ctx):
-            await ctx.send(f"```json\n{self.get_puzzle(ctx).to_json(indent=2)}```")
+            settings = []
+            for attr, value in self.get_puzzle(ctx).__dict__.items():
+                settings.append(f"{attr} = {value}")
+
+            embeds = build_note_embeds(
+                message="",
+                notes=settings,
+                title="Puzzle Settings",
+                note_embed=False,
+            )
+
+            # Hybrid-friendly sending:
+            # If invoked as slash, defer to avoid "interaction failed" on slow builds.
+            if ctx.interaction:
+                await ctx.defer()
+
+            for e in embeds:
+                await ctx.send(embed=e)
+
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
@@ -1656,6 +1688,8 @@ class Puzzles(commands.Cog):
         await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
         puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
         await self.info(ctx, update=True)
+        for sheet in puzzle.additional_sheets:
+            SheetsJsonDb.commit(sheet)
 
     @commands.command(aliases=["update_solution"])
     async def change_solution(self, ctx, *args):
@@ -1785,6 +1819,8 @@ class Puzzles(commands.Cog):
         )
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)
+        for sheet in puzzle.additional_sheets:
+            SheetsJsonDb.commit(sheet)
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')

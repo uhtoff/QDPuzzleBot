@@ -11,6 +11,16 @@ logger = logging.getLogger(__name__)
 class MissingPuzzleError(RuntimeError):
     pass
 
+@dataclass
+class AdditionalSheetData:
+    id: int = 0
+    google_page_id: str = ""
+    puzzle_id: int = 0
+    puzzle: bool = False
+    puzzle_name: str = ""
+    solution: str = ""
+    solved: bool = False
+
 @dataclass_json
 @dataclass
 class PuzzleData:
@@ -24,6 +34,7 @@ class PuzzleData:
     url: str = ""
     google_page_id: str = ""
     metapuzzle: int = 0
+    additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False
     archived: bool = False

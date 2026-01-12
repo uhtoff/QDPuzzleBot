@@ -146,6 +146,7 @@ def build_note_embeds(
     message: Optional[str],
     notes: List[str],
     title: Optional[str] = None,
+    note_embed: Optional[bool] = True
 ) -> List[discord.Embed]:
     """
     Builds 1 to N embeds containing notes, splitting long notes across multiple fields
@@ -178,7 +179,10 @@ def build_note_embeds(
         chunks = chunk_note_pretty(note, FIELD_VALUE_LIMIT)
 
         for ci, chunk in enumerate(chunks):
-            base_name = f"Note {note_number}"
+            if note_embed is True:
+                base_name = f"Note {note_number}"
+            else:
+                base_name = ""
             name = base_name if ci == 0 else f"{base_name} (cont. {ci})"
             name = name[:FIELD_NAME_LIMIT]
 
