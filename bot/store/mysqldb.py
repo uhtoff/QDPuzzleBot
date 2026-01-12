@@ -82,12 +82,10 @@ class _MySQLBaseDb:
     def check_duplicates(self, value, field = 'name'):
         """Ensures no duplicate name by default but can check any field if passed"""
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `{field}` = %s", (value,))
-        duplicates = cursor.rowcount
-        if duplicates > 0:
-            return True
-        else:
-            return False
+        cursor.execute(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `{field}` = %s LIMIT 1", (value,))
+        found = cursor.fetchone() is not None
+        cursor.close()
+        return found
 
     def generate_uid(self, field = 'id', chars = 6, input = None):
         code = ""
@@ -118,14 +116,12 @@ class _MySQLBaseDb:
 
         return code
 
-    def check_duplicates_in_hunt(self, name, hunt_data: HuntData):
+    def check_duplicates_in_hunt(self, name, hunt_data: HuntData) -> bool:
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"SELECT id FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s", (name, hunt_data.id,))
-        duplicates = cursor.rowcount
-        if duplicates > 0:
-            return True
-        else:
-            return False
+        cursor.execute(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s LIMIT 1", (name, hunt_data.id,))
+        found = cursor.fetchone() is not None
+        cursor.close()
+        return found
 
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
@@ -155,13 +151,11 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
             return 0
 
     def check_duplicate_meta_code(self, meta_code):
-        cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT id FROM rounds WHERE meta_code = %s LIMIT 0,1", (meta_code,))
-        row = cursor.fetchone()
-        if row:
-            return True
-        else:
-            return False
+        cursor = self.mydb.cursor()
+        cursor.execute("SELECT 1 FROM rounds WHERE meta_code = %s LIMIT 1", (meta_code,))
+        found = cursor.fetchone() is not None
+        cursor.close()
+        return found
 
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
@@ -302,15 +296,13 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                     puzzles_to_archive.append(puzzle)
         return puzzles_to_archive
 
-    def check_duplicates_in_hunt(self, name, hunt_id):
+    def check_duplicates_in_hunt(self, name, hunt_id) -> bool:
         cursor = self.mydb.cursor(dictionary = True)
-        cursor.execute("SELECT puzzles.id FROM puzzles "
-                       "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s", (name, discord_channel_slug(name), hunt_id))
-        duplicates = cursor.rowcount
-        if duplicates > 0:
-            return True
-        else:
-            return False
+        cursor.execute("SELECT 1 FROM puzzles "
+                       "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s LIMIT 1", (name, discord_channel_slug(name), hunt_id))
+        found = cursor.fetchone() is not None
+        cursor.close()
+        return found
 
     def get_tags(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
