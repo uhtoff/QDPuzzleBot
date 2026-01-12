@@ -17,10 +17,15 @@ if "LADDER_SPOT_DATA_DIR" in os.environ:
     # TODO: move to config.json??
     DATA_DIR = Path(os.environ["LADDER_SPOT_DATA_DIR"])
 
-class ReconnectingMySQL:
+class MySQLReconnector:
     def __init__(self, **cfg):
         self._cfg = cfg
-        self._conn = mysql.connector.connect(**cfg)
+        self._conn = None
+        self._connect()
+
+    def _connect(self):
+        self._conn = mysql.connector.connect(**self._cfg)
+        # keep your existing behaviour
         self._conn.autocommit = True
 
     def _ensure(self):
@@ -35,28 +40,42 @@ class ReconnectingMySQL:
             self._conn = mysql.connector.connect(**self._cfg)
             self._conn.autocommit = True
 
-    # Expose only what your code uses (cursor + maybe commit/close)
     def cursor(self, *args, **kwargs):
         self._ensure()
         return self._conn.cursor(*args, **kwargs)
 
+    def commit(self):
+        # even with autocommit=True, your code calls commit()
+        self._ensure()
+        return self._conn.commit()
+
+    def rollback(self):
+        self._ensure()
+        return self._conn.rollback()
+
     def close(self):
         try:
-            self._conn.close()
+            return self._conn.close()
         except Exception:
-            pass
+            return None
+
+    def __getattr__(self, name):
+        """
+        Forward everything else (e.g., .cmd_query, .database, etc.)
+        to the underlying mysql.connector connection.
+        """
+        return getattr(self._conn, name)
 
 if config.storage == 'fs':
     PuzzleJsonDb = FilePuzzleJsonDb(dir_path=DATA_DIR)
     GuildSettingsDb = FileGuildSettingsDb(dir_path=DATA_DIR)
 elif config.storage == 'mysql':
-    mydb = ReconnectingMySQL(
+    mydb = MySQLReconnector(
         host="localhost",
         user=config.mysql_username,
         password=config.mysql_password,
         database=config.database,
         charset="utf8mb4",
-        buffered=True
     )
     mydb.autocommit = True
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)

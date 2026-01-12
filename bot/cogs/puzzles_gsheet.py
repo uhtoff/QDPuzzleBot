@@ -87,26 +87,25 @@ class GoogleSheets(commands.Cog):
     def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
         if spreadsheet_id is None:
             existing = {
-                s["properties"]["title"]
+                s["properties"]["title"].casefold()
                 for s in self.sheet_list()["sheets"]
             }
         else:
             meta = self.sheets_service.get(
                 spreadsheetId=spreadsheet_id
             ).execute()
-
             existing = {
-                s["properties"]["title"]
-                for s in meta["sheets"]
+                s["properties"]["title"].casefold()
+                for s in self.sheet_list()["sheets"]
             }
 
-        if desired_name not in existing:
+        if desired_name.casefold() not in existing:
             return desired_name
 
         i = 2
         while True:
             candidate = f"{desired_name} ({i})"
-            if candidate not in existing:
+            if candidate.casefold() not in existing:
                 return candidate
             i += 1
 
