@@ -339,8 +339,8 @@ class Puzzles(commands.Cog):
 
         HuntJsonDb.commit(hunt)
 
-        await self.info(ctx,update=True)
         await ctx.send(":white_check_mark: The hunt has been set to use a second sheet for solved puzzles")
+        await self.info(ctx, update=True)
         return
 
 
