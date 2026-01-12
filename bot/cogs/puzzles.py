@@ -230,18 +230,22 @@ class Puzzles(commands.Cog):
         bot_channel = discord.utils.get(ctx.guild.channels, name=self.get_guild_data(ctx).discord_bot_channel)
         if space_available is False:
             await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server, {channels} channels in {ctx.channel.category.name} and {total_channels} total channels.")
-        if remaining_channels <= 10:
-            await bot_channel.send(
-                f"@here There is only space for {remaining_channels} more channels on the server."
-            )
-        if remaining_categories <= 2 and required_categories > 0:
-            await bot_channel.send(
-                f"@here There is only space for {remaining_categories} more categories on the server."
-            )
-        if remaining_category_channels <= 2:
-            await bot_channel.send(
-                f"@here There is only space for {remaining_category_channels} more channels in the {ctx.channel.category.name} category."
-            )
+        else:
+            remaining_channels -= required_channels
+            remaining_category_channels -= required_channels
+            remaining_categories -= required_categories
+            if remaining_channels <= 10:
+                await bot_channel.send(
+                    f"@here Server space is getting tight, remaining channel space is {remaining_channels}."
+                )
+            if remaining_categories <= 2 and required_categories > 0:
+                await bot_channel.send(
+                    f"@here Server space is getting tight, remaining category space is {remaining_categories}."
+                )
+            if remaining_category_channels <= 2:
+                await bot_channel.send(
+                    f"@here The {ctx.channel.category.name} category is getting full, remaining channel space is {remaining_category_channels}."
+                )
         return space_available
 
     @commands.command(aliases=["h"])
