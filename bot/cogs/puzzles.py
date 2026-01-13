@@ -502,7 +502,7 @@ class Puzzles(commands.Cog):
         channel = ctx.channel
         position = self.get_solve_divider_position(ctx, channel.category)
         await channel.edit(position=position+1)
-        await ctx.send(":white_check_mark: Channel moved to bottom of solved")
+        await ctx.send(":white_check_mark: Channel moved to solved")
 
     # @commands.hybrid_command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -1756,6 +1756,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
         puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+        await self.move_to_solved(ctx)
         await self.info(ctx, update=True)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
