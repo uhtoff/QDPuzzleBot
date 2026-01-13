@@ -11,9 +11,12 @@ from discord.ext import commands
 from bot import utils, database
 from bot.database.models import Guild
 
+from collections import defaultdict
+
 __version__ = "0.1.0"
 
 invite_link = "https://discordapp.com/api/oauth2/authorize?client_id={}&permissions=8&scope=bot%20applications.commands"
+
 
 
 async def get_prefix(_bot, message):

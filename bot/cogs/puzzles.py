@@ -13,6 +13,8 @@ from discord import Webhook, Message
 import pytz
 import asyncio
 import aiohttp
+from functools import wraps
+from collections import defaultdict
 
 from bot.utils import urls, config, chunking
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, \
@@ -21,6 +23,45 @@ from bot.utils.chunking import build_note_embeds
 
 logger = logging.getLogger(__name__)
 
+# One asyncio.Lock per puzzle id
+_PUZZLE_LOCKS = defaultdict(asyncio.Lock)
+
+def with_puzzle_mutex(*, wait: bool = True):
+    """
+    Decorator that serializes commands per puzzle.
+    If wait=False, it will error immediately if busy.
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, ctx: commands.Context, *args, **kwargs):
+            env = getattr(ctx, "env", None) or self.environment.get(ctx.message.id)
+            puzzle = (env or {}).get("puzzle")
+
+            # If not in a puzzle context, just run
+            if not puzzle:
+                return await func(self, ctx, *args, **kwargs)
+
+            lock = _PUZZLE_LOCKS[puzzle.id]
+
+            if wait:
+                if lock.locked():
+                    await ctx.send("⏳ Hold your horses!  Another command is running for this puzzle, I'll get to you in a second.")
+                async with lock:
+                    return await func(self, ctx, *args, **kwargs)
+
+            try:
+                await asyncio.wait_for(lock.acquire(), timeout=0.001)
+            except asyncio.TimeoutError:
+                await ctx.send("⏳ Woah there, I'm busy running another command on that puzzle. Patience is a virtue, try again later.")
+                return
+
+            try:
+                return await func(self, ctx, *args, **kwargs)
+            finally:
+                lock.release()
+
+        return wrapper
+    return decorator
 
 class Puzzles(commands.Cog):
     MAX_CHANNELS_PER_CATEGORY = 50
@@ -129,6 +170,7 @@ class Puzzles(commands.Cog):
             HuntJsonDb.commit(self.get_hunt(ctx))
         if self.get_guild_data(ctx):
             GuildSettingsDb.commit(self.get_guild_data(ctx))
+        self.environment.pop(ctx.message.id, None)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -197,8 +239,9 @@ class Puzzles(commands.Cog):
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
-        # if isinstance(error, commands.errors.CheckFailure):
-        #     await ctx.send('You do not have the correct role for this command.')
+        if isinstance(error, commands.CheckFailure) and str(error) == "PUZZLE_BUSY":
+            await ctx.send("⏳ That puzzle is busy running another command. Try again in a moment.")
+            return
         await ctx.send(f":exclamation: **{type(error).__name__}**" + "\n" + str(error))
 
     async def check_is_bot_channel(self, ctx) -> bool:
@@ -364,7 +407,7 @@ class Puzzles(commands.Cog):
         # RoundJsonDb.commit(self.get_hunt_round(ctx))
         check_duplicate = datetime.datetime.now()
         category = ctx.channel.category
-        new_puzzle = self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
+        new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
         puzzle_created = datetime.datetime.now()
         await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
         channel_sent = datetime.datetime.now()
@@ -373,7 +416,7 @@ class Puzzles(commands.Cog):
     def create_metapuzzle(self,ctx, puzzle_name, tag = None):
         return self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
 
-    def create_puzzle(self, ctx, puzzle_name, tag = None, **kwargs):
+    async def create_puzzle(self, ctx, puzzle_name, tag = None, **kwargs):
         new_puzzle = PuzzleData(
             name=puzzle_name,
             # round_id=self.get_hunt_round(ctx).id,
@@ -398,21 +441,21 @@ class Puzzles(commands.Cog):
 
         if self.get_gsheet_cog(ctx) is not None:
             # update google sheet ID
-            self.get_gsheet_cog(ctx).create_puzzle_spreadsheet(new_puzzle)
+            await self.get_gsheet_cog(ctx).create_puzzle_spreadsheet(new_puzzle)
 
         PuzzleJsonDb.commit(new_puzzle)
 
         for tag in new_puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
 
         return new_puzzle
 
-    def update_metapuzzle(self, ctx, hunt_round):
+    async def update_metapuzzle(self, ctx, hunt_round):
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
         if hunt_round.meta_id:
             metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-            self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
+            await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -515,6 +558,7 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @with_puzzle_mutex(wait=True)
     async def remove_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !remove_tag tag_id*"""
         remove_tag = int(arg)
@@ -524,8 +568,12 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
     @commands.command()
+    @with_puzzle_mutex(wait=True)
     async def add_sheet(self, ctx, *args):
         puzzle = self.get_puzzle(ctx)
+
+        if puzzle.solved:
+            return await ctx.send(f":x: You can't add additional sheets to solved puzzles!")
 
         name = " ".join(args)
 
@@ -533,7 +581,7 @@ class Puzzles(commands.Cog):
             puzzle_id=puzzle.id,
         )
 
-        sheet.google_page_id = self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
+        sheet.google_page_id = await self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
         puzzle.additional_sheets.append(sheet)
         SheetsJsonDb.commit(sheet)
         await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
@@ -604,6 +652,7 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(aliases=['sync_round'])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @with_puzzle_mutex(wait=True)
     async def sync_meta(self, ctx):
         """*(Admin only) Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
         puzzle = self.get_puzzle(ctx)
@@ -624,15 +673,16 @@ class Puzzles(commands.Cog):
                         puzzle.tags.clear()
                     puzzle.tags.append(meta_round.id)
                     PuzzleJsonDb.commit(puzzle)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
             unique_old_tags = list(dict.fromkeys(old_tags))
             for old_tag in unique_old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                self.update_metapuzzle(ctx, old_meta_round)
+                await self.update_metapuzzle(ctx, old_meta_round)
 
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
 
     @commands.command(aliases=['add_to_round'])
+    @with_puzzle_mutex(wait=True)
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -643,7 +693,7 @@ class Puzzles(commands.Cog):
         if meta_round:
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
             await ctx.send(
                 f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets updated.")
         else:
@@ -651,6 +701,7 @@ class Puzzles(commands.Cog):
 
 
     @commands.command(description="Assign the puzzle to a metapuzzle", aliases=['move_to_round'])
+    @with_puzzle_mutex(wait=True)
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -668,16 +719,17 @@ class Puzzles(commands.Cog):
                 puzzle.tags.clear()
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
             for old_tag in old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                self.update_metapuzzle(ctx, old_meta_round)
+                await self.update_metapuzzle(ctx, old_meta_round)
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets updated.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
     @commands.command(description="Remove the puzzle from a metapuzzle", aliases=['remove_from_round'])
+    @with_puzzle_mutex(wait=True)
     async def remove_from_meta(self, ctx, meta_code):
         """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -694,10 +746,10 @@ class Puzzles(commands.Cog):
             old_tags.extend(puzzle.tags.copy())
             puzzle.tags.remove(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
             for old_tag in old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                self.update_metapuzzle(ctx, old_meta_round)
+                await self.update_metapuzzle(ctx, old_meta_round)
             await ctx.send(
                 f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets updated.")
         else:
@@ -1175,6 +1227,7 @@ class Puzzles(commands.Cog):
         • `!s SOLUTION` will mark this puzzle as solved and archive this channel
         • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
         • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
+        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
         """,
                         inline=False,
                     )
@@ -1288,6 +1341,7 @@ class Puzzles(commands.Cog):
         • `!s SOLUTION` will mark this puzzle as solved and archive this channel
         • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
         • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
+        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
         """,
                         inline=False,
                     )
@@ -1349,6 +1403,7 @@ class Puzzles(commands.Cog):
                 • `!s SOLUTION` will mark this puzzle as solved and archive this channel
                 • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
                 • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
+                • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
                 """,
                         inline=False,
                     )
@@ -1433,6 +1488,7 @@ class Puzzles(commands.Cog):
 
     @commands.command(aliases=["rename_meta"])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
         """Rename a puzzle"""
         if self.get_puzzle(ctx):
@@ -1447,12 +1503,13 @@ class Puzzles(commands.Cog):
                 # update google sheet ID
                 await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx), True)
                 if self.get_hunt_round(ctx):
-                    self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                    await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
+    @with_puzzle_mutex(wait=True)
     async def link(self, ctx, *, url: str):
         """*Update link to puzzle*"""
         if self.get_puzzle(ctx):
@@ -1476,6 +1533,7 @@ class Puzzles(commands.Cog):
         app_commands.Choice(name="Solved", value="Solved"),
         app_commands.Choice(name="Backsolved", value="Backsolved"),
     ])
+    @with_puzzle_mutex(wait=True)
     async def status(self, ctx, *, status: str):
         """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
         if status is not None and status.lower() not in self.STATUSES:
@@ -1491,6 +1549,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
+    @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Update puzzle type, e.g. "crossword"*"""
         if self.get_puzzle(ctx):
@@ -1508,6 +1567,7 @@ class Puzzles(commands.Cog):
         app_commands.Choice(name="High", value="high"),
         app_commands.Choice(name="Very High", value="very high"),
     ])
+    @with_puzzle_mutex(wait=True)
     async def priority(self, ctx, *, priority: str):
         """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
         if priority is not None and priority.lower() not in self.PRIORITIES:
@@ -1523,6 +1583,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command(aliases=["notes"])
+    @with_puzzle_mutex(wait=True)
     async def note(self, ctx, *, note: Optional[str]):
         """*Show or add a note about the puzzle*"""
         if self.get_puzzle(ctx) is None:
@@ -1568,6 +1629,7 @@ class Puzzles(commands.Cog):
             await ctx.send(embed=embed)
 
     @commands.command(aliases=["delete_note"])
+    @with_puzzle_mutex(wait=True)
     async def erase_note(self, ctx, note_index: int):
         """*Remove a note by index*"""
 
@@ -1600,6 +1662,7 @@ class Puzzles(commands.Cog):
             await ctx.send(embed=e)
 
     @commands.command(aliases=["ps"])
+    @with_puzzle_mutex(wait=False)
     async def partial(self, ctx, *args):
         """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
 
@@ -1625,10 +1688,10 @@ class Puzzles(commands.Cog):
 
         for tag in self.get_puzzle(ctx).tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
 
         # if self.get_hunt_round(ctx):
-        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="Partially SOLVED!", description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
@@ -1640,6 +1703,7 @@ class Puzzles(commands.Cog):
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
     @commands.command(aliases=["s"])
+    @with_puzzle_mutex(wait=False)
     async def solve(self, ctx, *args):
         """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
 
@@ -1678,16 +1742,16 @@ class Puzzles(commands.Cog):
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
         #
         # if self.get_hunt_round(ctx):
-        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
-            value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`. "
+            value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
         )
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
@@ -1695,8 +1759,10 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+        await ctx.send(":white_check_mark: Sheets all tidied away.")
 
     @commands.command(aliases=["update_solution"])
+    @with_puzzle_mutex(wait=False)
     async def change_solution(self, ctx, *args):
         """*Change a previously marked solution, if not solved then solve as usual: !change_solution SOLUTION*"""
         if not self.get_puzzle(ctx):
@@ -1725,24 +1791,25 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
         # if self.get_hunt_round(ctx):
-        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLUTION UPDATED!",
                               description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
-            value="If the solution was mistakenly entered, please message `!unsolve`. "
+            value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`. "
         )
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
 
     @commands.command()
+    @with_puzzle_mutex(wait=False)
     async def add_solution(self, ctx, *args):
         """*Add a solution to a previously solved puzzle, for instance if an additional answer is found, if not solved then add a partial solution: !add_solution SOLUTION*"""
         if not self.get_puzzle(ctx):
@@ -1771,11 +1838,11 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
         # if self.get_hunt_round(ctx):
-        #     self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
-            self.update_metapuzzle(ctx, meta_round)
+            await self.update_metapuzzle(ctx, meta_round)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
@@ -1785,11 +1852,13 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
 
     @commands.command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
+    @with_puzzle_mutex(wait=False)
     async def mark_as_complete(self, ctx):
         """*Mark a puzzle as completed with a tick*"""
         await self.solve(ctx, "✅")
 
     @commands.command(aliases=["u"])
+    @with_puzzle_mutex(wait=False)
     async def unsolve(self, ctx):
         """*Mark an accidentally solved puzzle as not solved*"""
 
@@ -1809,23 +1878,27 @@ class Puzzles(commands.Cog):
 
         # if self.get_puzzle(ctx).archive_time:
         puzzle.archive_time = None
-        await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
-        await self.move_to_bottom(ctx)
+
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
-
-        if self.get_hunt_round(ctx):
-            self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(
             description=f"{emoji} Alright, I've unmarked {prev_solution} as the solution. "
-            "You'll get 'em next time!"
+            "You'll get 'em next time!  \nGive me a sec to restore the sheets."
         )
         await ctx.send(embed=embed)
+
+        await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
+        await self.move_to_bottom(ctx)
+
+        if self.get_hunt_round(ctx):
+            await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+
         await self.info(ctx, update=True)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+        await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin')
@@ -1974,6 +2047,7 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @with_puzzle_mutex(wait=False)
     async def delete_puzzle(self, ctx):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
         # Wrapper for delete command
@@ -1984,7 +2058,7 @@ class Puzzles(commands.Cog):
         try:
             await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
             if self.get_hunt_round(ctx):
-                self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
             await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
                    .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
             await ctx.channel.delete(reason=self.DELETE_REASON)
