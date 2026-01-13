@@ -413,8 +413,8 @@ class Puzzles(commands.Cog):
         channel_sent = datetime.datetime.now()
         # print(f"Check duplicate: {(check_duplicate-self.start).seconds}.{(check_duplicate-self.start).microseconds} s - Create puzzle = {(puzzle_created-check_duplicate).seconds}.{(puzzle_created-check_duplicate).microseconds} s - Send channel = {(channel_sent-puzzle_created).seconds}.{(channel_sent-puzzle_created).microseconds} s - Total = {(channel_sent-self.start).seconds} s")
 
-    def create_metapuzzle(self,ctx, puzzle_name, tag = None):
-        return self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
+    async def create_metapuzzle(self,ctx, puzzle_name, tag = None):
+        return await self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
 
     async def create_puzzle(self, ctx, puzzle_name, tag = None, **kwargs):
         new_puzzle = PuzzleData(
@@ -823,7 +823,7 @@ class Puzzles(commands.Cog):
         RoundJsonDb.commit(new_round)
 
         if puzzle:
-            round_puzzle = self.create_metapuzzle(ctx, puzzle_name, self.get_tag_from_category(new_category))
+            round_puzzle = await self.create_metapuzzle(ctx, puzzle_name, self.get_tag_from_category(new_category))
             text_channel, created = await self.create_puzzle_channel(ctx, round_puzzle, new_category, send_initial_message=False, position=0)
             new_round.meta_id = round_puzzle.id
         else:
@@ -1808,7 +1808,7 @@ class Puzzles(commands.Cog):
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
 
-    @commands.command()
+    @commands.command(aliases=["add_to_solution"])
     @with_puzzle_mutex(wait=False)
     async def add_solution(self, ctx, *args):
         """*Add a solution to a previously solved puzzle, for instance if an additional answer is found, if not solved then add a partial solution: !add_solution SOLUTION*"""
