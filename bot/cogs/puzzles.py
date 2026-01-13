@@ -2074,7 +2074,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command(aliases=['delete_metapuzzle','delete_group'])
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
         if self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
@@ -2251,7 +2251,7 @@ class Puzzles(commands.Cog):
         self.reminder_index += 1
 
     @commands.hybrid_command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def start_reminders(self, ctx):
         """*(admin) Start reminder loop*"""
         channel = self.get_hunt_channel(ctx)
@@ -2260,7 +2260,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Reminder loop started.")
 
     @commands.hybrid_command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def stop_reminders(self, ctx):
         """*(admin) Stop reminder loop*"""
         channel = self.get_hunt_channel(ctx)
