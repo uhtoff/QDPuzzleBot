@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from bot import utils, database
 from bot.database.models import Guild
+from bot.utils import config
 
 from collections import defaultdict
 
@@ -17,7 +18,10 @@ __version__ = "0.1.0"
 
 invite_link = "https://discordapp.com/api/oauth2/authorize?client_id={}&permissions=8&scope=bot%20applications.commands"
 
-
+TEST_GUILD_IDS = [
+    1227020288445779978,
+    1328015907737436301,
+]
 
 async def get_prefix(_bot, message):
     prefix = utils.config.prefix
@@ -70,29 +74,72 @@ async def on_ready():
     """
     )
 
-    for guild in bot.guilds:
-        try:
-            # bot.tree.clear_commands(guild=discord.Object(id=guild.id))
-            synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
-            print(f"Synced {len(synced)} commands for guild '{guild.name}' ({guild.id})")
-        except Exception as e:
-            print(f"Failed to sync commands for {guild.name} ({guild.id}): {e}")
+    # for guild in bot.guilds:
+    #     try:
+    #         guild_obj = discord.Object(id=guild.id)
+    #         #bot.tree.clear_commands(guild=guild_obj)
+    #         # bot.tree.copy_global_to(guild=guild_obj)
+    #         synced = await bot.tree.sync(guild=guild_obj)
+    #         print(f"Synced {len(synced)} commands for guild '{guild.name}' ({guild.id})")
+    #     except Exception as e:
+    #         print(f"Failed to sync commands for {guild.name} ({guild.id}): {e}")
+    #
+    # print("\nRegistered App Commands:")
+    # for app_command in bot.tree.get_commands():
+    #     print(f"- {app_command.name} (Type: {type(app_command)})")
 
-    print("\nRegistered App Commands:")
-    for app_command in bot.tree.get_commands():
-        print(f"- {app_command.name} (Type: {type(app_command)})")
-
-@bot.command(name="sync")
-async def sync_tree(ctx):
-    synced = await bot.tree.sync()
-    print(f"Synced {len(synced)} command(s).")
+# @bot.command(name="sync")
+# async def sync_tree(ctx):
+#     synced = await bot.tree.sync()
+#     print(f"Synced {len(synced)} command(s).")
 
 @bot.event
 async def setup_hook():
     await load_extensions(bot)
-    await bot.tree.sync()
+    if config.development:
+        # Only one sync call per guild.
+        for gid in TEST_GUILD_IDS:
+            guild = discord.Object(id=gid)
+            bot.tree.copy_global_to(guild=guild)
+            try:
+                synced = await bot.tree.sync(guild=guild)
+                print(f"[setup_hook] Synced {len(synced)} commands to guild {gid}")
+            except asyncio.CancelledError:
+                # Ctrl-C during rate limit sleep -> clean exit
+                print("[setup_hook] Sync cancelled (shutdown).")
+                raise
+            except Exception as e:
+                print(f"[setup_hook] Failed to sync guild {gid}: {e}")
 
-    print(f"Successfully synced {len(bot.tree.get_commands())} commands.")
+    else:
+        try:
+            synced = await bot.tree.sync()
+            print(f"[setup_hook] Globally synced {len(synced)} commands.")
+        except asyncio.CancelledError:
+            print("[setup_hook] Global sync cancelled (shutdown).")
+            raise
+
+@bot.command()
+@commands.is_owner()
+async def wipe_globals(ctx):
+    bot.tree.clear_commands(guild=None)
+    synced = await bot.tree.sync()
+    await ctx.send(f"Wiped global commands. Global now has {len(synced)}.")
+
+@bot.command()
+@commands.is_owner()
+async def nuke_all_appcmds(ctx):
+    # 1) Delete ALL global commands (on Discord)
+    bot.tree.clear_commands(guild=None)
+    synced = await bot.tree.sync()
+    await ctx.send(f"Nuked globals. Global now has {len(synced)} commands.")
+
+    # 2) Delete ALL guild commands (on Discord) for every guild the bot is in
+    for g in bot.guilds:
+        guild_obj = discord.Object(id=g.id)
+        bot.tree.clear_commands(guild=guild_obj)
+        synced_g = await bot.tree.sync(guild=guild_obj)
+        await ctx.send(f"Nuked guild cmds in {g.name}. Guild now has {len(synced_g)} commands.")
 
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup

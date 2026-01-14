@@ -6,7 +6,8 @@ default_config = {
     "prefix": "!",
     "database": "postgresql://localhost/postgres",
     "storage": "mysql",
-    "debug": False
+    "debug": False,
+    "development": False,
 }
 
 class Config:
@@ -35,6 +36,7 @@ class Config:
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))
+        self.development = self.config.get("development", default_config.get("development"))
 
     def store(self):
         data = {"prefix": self.prefix, "discord_bot_token": self.token, "database": self.database}

@@ -172,6 +172,39 @@ class Puzzles(commands.Cog):
             GuildSettingsDb.commit(self.get_guild_data(ctx))
         self.environment.pop(ctx.message.id, None)
 
+    async def meta_code_autocomplete(
+            self,
+            interaction: discord.Interaction,
+            current: str,
+    ) -> list[app_commands.Choice[str]]:
+        # Pull valid rounds/metas from DB
+        channel = interaction.channel
+        hunt_id = RoundJsonDb.get_by_attr(category_id = channel.category.id).hunt_id
+        rounds = RoundJsonDb.get_all(hunt_id)
+        rounds_sorted = sorted(
+            rounds,
+            key=lambda r: (
+                r.solve_time is not None,  # False (unsolved) first, True (solved) last
+                -(r.start_time.timestamp() if r.start_time else 0.0),  # newest first
+            )
+        )
+        current_lc = (current or "").lower()
+        choices: list[app_commands.Choice[str]] = []
+        for r in rounds_sorted:
+            # filter to only rounds that are metas if that’s what you want
+            # if not r.is_meta: continue
+            # Build a human label. Keep it short-ish.
+            label = f"{r.name} ({r.meta_code})"
+            # Allow searching by name OR meta_code OR id
+            haystack = f"{r.name} {r.meta_code} {r.id}".lower()
+            if current_lc in haystack:
+                choices.append(app_commands.Choice(name=label[:100], value=r.meta_code))
+
+            if len(choices) >= 25:  # Discord hard limit
+                break
+
+        return choices
+
     @commands.Cog.listener()
     async def on_ready(self):
         print(f"{type(self).__name__} Cog ready.")
@@ -233,6 +266,13 @@ class Puzzles(commands.Cog):
     def get_puzzle_sheet(self, ctx, puzzle: PuzzleData):
         hunt = self.get_hunt(ctx)
         if puzzle.archived:
+            return hunt.archive_google_sheet_id
+        else:
+            return hunt.google_sheet_id
+
+    def get_additional_sheet_spreadsheet(self, ctx, puzzle: PuzzleData):
+        hunt = self.get_hunt(ctx)
+        if puzzle.solved:
             return hunt.archive_google_sheet_id
         else:
             return hunt.google_sheet_id
@@ -366,7 +406,7 @@ class Puzzles(commands.Cog):
 
         return (category, text_channel, True)
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Set the hunt to use a second spreadsheet to hold solved puzzles (admin only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin')
     async def set_to_archive(self, ctx):
         """*(admin) Set hunt to use a second spreadsheet to hold solved puzzles: !set_to_archive*"""
@@ -480,7 +520,7 @@ class Puzzles(commands.Cog):
                 break
         return position
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Move the channel to the top of the unsolved section of the category (organisers only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def move_to_top(self, ctx):
         channel = ctx.channel
@@ -488,7 +528,7 @@ class Puzzles(commands.Cog):
         await channel.edit(position=position)
         await ctx.send(":white_check_mark: Channel moved to top of category")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Move the channel to the bottom of the unsolved section of the category (organisers only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def move_to_bottom(self, ctx):
         channel = ctx.channel
@@ -496,7 +536,7 @@ class Puzzles(commands.Cog):
         await channel.edit(position=position)
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def move_to_solved(self, ctx):
         channel = ctx.channel
@@ -518,7 +558,7 @@ class Puzzles(commands.Cog):
         else:
             return None
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def list_tags(self, ctx):
         """*(admin) For troubleshooting only: !list_tags*"""
@@ -579,12 +619,41 @@ class Puzzles(commands.Cog):
 
         sheet = AdditionalSheetData(
             puzzle_id=puzzle.id,
+            puzzle_name=name or f"Extra sheet for {puzzle.name}"
         )
 
         sheet.google_page_id = await self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
         puzzle.additional_sheets.append(sheet)
         SheetsJsonDb.commit(sheet)
-        await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
+        await self.info(ctx, update=True)
+        return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
+
+    @commands.command(aliases=['list_sheets'])
+    async def list_additional_sheets(self, ctx):
+        puzzle = self.get_puzzle(ctx)
+        if len(puzzle.additional_sheets) == 0:
+            return await ctx.send(':x: No additional sheets found!')
+
+        embed = discord.Embed()
+
+        embed.add_field(
+            name="Additional Sheet Links",
+            value=self.create_additional_sheet_list(ctx, puzzle),
+            inline=False,
+        )
+
+        return await ctx.send(embed=embed)
+
+    def create_additional_sheet_list(self, ctx, puzzle):
+        sheet_links = ""
+        count = 1
+        spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle)
+        for sheet in puzzle.additional_sheets:
+            spreadsheet_url = urls.spreadsheet_url(spreadsheet_id,
+                                                   sheet.google_page_id)
+            sheet_links += f"{count}: [{sheet.puzzle_name}]({spreadsheet_url})\n"
+            count+=1
+        return sheet_links
 
     async def create_puzzle_channel(self, ctx, new_puzzle: PuzzleData, category = None, **kwargs):
         """Create new text channel for puzzle, and optionally a voice channel
@@ -650,7 +719,7 @@ class Puzzles(commands.Cog):
 
         return text_channel, created
 
-    @commands.hybrid_command(aliases=['sync_round'])
+    @commands.hybrid_command(description="Sync all the puzzles in the category to the metapuzzle (organiser only)",aliases=['sync_round'])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     @with_puzzle_mutex(wait=True)
     async def sync_meta(self, ctx):
@@ -681,7 +750,12 @@ class Puzzles(commands.Cog):
 
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
 
-    @commands.command(aliases=['add_to_round'])
+    @commands.hybrid_command(
+        name="add_to_meta",
+        description="Add the puzzle to a metapuzzle",
+        aliases=["add_to_round"],
+    )
+    @app_commands.autocomplete(meta_code=meta_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
@@ -693,14 +767,18 @@ class Puzzles(commands.Cog):
         if meta_round:
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
-            await self.update_metapuzzle(ctx, meta_round)
             await ctx.send(
-                f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets updated.")
+                f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets are being updated.")
+            await self.update_metapuzzle(ctx, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-
-    @commands.command(description="Assign the puzzle to a metapuzzle", aliases=['move_to_round'])
+    @commands.hybrid_command(
+        name="move_to_meta",
+        description="Assign the puzzle to a metapuzzle",
+        aliases=["move_to_round"],
+    )
+    @app_commands.autocomplete(meta_code=meta_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
@@ -713,6 +791,8 @@ class Puzzles(commands.Cog):
         if meta_round:
             new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
             await ctx.channel.edit(category=new_category, position=2)
+            await ctx.send(
+                f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets are being updated.")
             old_tags.extend(puzzle.tags.copy())
             # Don't remove old tags from metapuzzle to avoid it being orphaned
             if puzzle.is_metapuzzle() is False:
@@ -723,12 +803,15 @@ class Puzzles(commands.Cog):
             for old_tag in old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
                 await self.update_metapuzzle(ctx, old_meta_round)
-            await ctx.send(
-                f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets updated.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
-    @commands.command(description="Remove the puzzle from a metapuzzle", aliases=['remove_from_round'])
+    @commands.hybrid_command(
+        name="remove_from_meta",
+        description="Remove the puzzle from a metapuzzle",
+        aliases=["remove_from_round"],
+    )
+    @app_commands.autocomplete(meta_code=meta_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def remove_from_meta(self, ctx, meta_code):
         """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
@@ -746,12 +829,12 @@ class Puzzles(commands.Cog):
             old_tags.extend(puzzle.tags.copy())
             puzzle.tags.remove(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
+            await ctx.send(
+                f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets are being updated.")
             await self.update_metapuzzle(ctx, meta_round)
             for old_tag in old_tags:
                 old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
                 await self.update_metapuzzle(ctx, old_meta_round)
-            await ctx.send(
-                f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets updated.")
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -783,7 +866,9 @@ class Puzzles(commands.Cog):
         # if self.get_channel_type(ctx) != "Hunt":
         #     await ctx.channel.send(":x: Rounds must be created in the master hunt channel")
         #     return
+
         self.start = datetime.datetime.now()
+
         if RoundJsonDb.check_duplicates_in_hunt(arg, self.get_hunt(ctx)):
             return await ctx.send(f":exclamation: **{group_type} {arg}** already exists in this hunt or will lead to a duplicate channel name, please use a different name.")
 
@@ -819,7 +904,7 @@ class Puzzles(commands.Cog):
         new_round.hunt_id = self.get_hunt(ctx).id
         new_round.category_id = new_category.id
         new_round.type = group_type
-
+        new_round.start_time = datetime.datetime.now()
         RoundJsonDb.commit(new_round)
 
         if puzzle:
@@ -887,14 +972,14 @@ class Puzzles(commands.Cog):
         else:
             GuildSettingsDb.commit(settings)
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Show channel settings (admin only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*(admin) Show channel settings for debug*"""
         await ctx.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Show puzzle settings (admin only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin')
     @commands.has_permissions(manage_channels=True)
     async def show_puzzle_settings(self, ctx):
@@ -1151,13 +1236,13 @@ class Puzzles(commands.Cog):
             " has info about the hunt itself and it is where you will create new round channels",
             inline=False,
         )
-        puzzle_links = (f"""The following are some useful bits of info:
-                        • Hunt Website: {hunt.url}
+        puzzle_links = (f"""The following are some useful links and information:
+                        • [Hunt Website]({hunt.url})
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
-                        • Google Sheet: https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id}
+                        • [Google Sheet](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
         if hunt.archive_google_sheet_id:
-            puzzle_links += f"""• Solved Google Sheet Archive: https://docs.google.com/spreadsheets/d/{hunt.archive_google_sheet_id}
+            puzzle_links += f"""• [Solved Google Sheet Archive](https://docs.google.com/spreadsheets/d/{hunt.archive_google_sheet_id})
             """
         if hunt.username:
             puzzle_links += f"""• Hunt Username: {hunt.username}
@@ -1165,8 +1250,12 @@ class Puzzles(commands.Cog):
         if hunt.password:
             puzzle_links += f"""• Hunt Password: {hunt.password}
             """
+        if hunt.uid:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
+        else:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
         embed.add_field(
-            name="Important Links",
+            name="Hunt Information",
             value=puzzle_links,
             inline=False,
         )
@@ -1181,12 +1270,6 @@ class Puzzles(commands.Cog):
         """,
                     inline=False,
                 )
-        if hunt.uid:
-            embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
-                            inline=False)
-        else:
-            embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
-                            inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
             return await channel_pins[-1].edit(embed=embed)
@@ -1232,7 +1315,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
         embed.add_field(
-            name="Puzzle metadata",
+            name="Puzzle commands",
             value="""
                 • `!link <url>` will update the link to the puzzle on the hunt website
                 • `!type <puzzle type>` will mark the type of the puzzle
@@ -1244,18 +1327,21 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-
+        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
+                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
+                                • [Google Sheet]({spreadsheet_url})
+                                """)
+        if hunt.uid:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
+        else:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        embed.add_field(
+            name="Puzzle Links",
+            value=puzzle_links,
+            inline=False,
+        )
         try:
-            if hunt.uid:
-                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
-                                inline=False)
-            else:
-                embed.add_field(name="Overview Website",
-                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
-                                inline=False)
-            embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-            embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
                 embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
@@ -1263,11 +1349,21 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
             pass
+        embed_list = [embed]
+        if len(puzzle.additional_sheets) > 0:
+            sheets_embed = discord.Embed()
+            sheets_embed.add_field(
+                name="Additional Sheet Links",
+                value=self.create_additional_sheet_list(ctx, puzzle),
+                inline=False,
+            )
+            embed_list.append(sheets_embed)
+
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embed=embed)
+            return await channel_pins[-1].edit(embeds=embed_list)
         else:
-            return await channel.send(embed=embed)
+            return await channel.send(embeds=embed_list)
 
     async def send_initial_metaless_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a metaless round channel"""
@@ -1346,7 +1442,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
         embed.add_field(
-            name="Puzzle metadata",
+            name="Puzzle commands",
             value="""
                 • `!link <url>` will update the link to the puzzle on the hunt website
                 • `!type <puzzle type>` will mark the type of the puzzle
@@ -1358,18 +1454,21 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-
+        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
+                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
+                                • [Google Sheet]({spreadsheet_url})
+                                """)
+        if hunt.uid:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
+        else:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        embed.add_field(
+            name="Puzzle Links",
+            value=puzzle_links,
+            inline=False,
+        )
         try:
-            if hunt.uid:
-                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
-                                inline=False)
-            else:
-                embed.add_field(name="Overview Website",
-                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
-                                inline=False)
-            embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-            embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
                 embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
@@ -1377,11 +1476,23 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
             pass
+
+        embed_list = [embed]
+
+        if len(puzzle.additional_sheets) > 0:
+            sheets_embed = discord.Embed()
+            sheets_embed.add_field(
+                name="Additional Sheet Links",
+                value=self.create_additional_sheet_list(ctx, puzzle),
+                inline=False,
+            )
+            embed_list.append(sheets_embed)
+
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embed=embed)
+            return await channel_pins[-1].edit(embeds=embed_list)
         else:
-            return await channel.send(embed=embed)
+            return await channel.send(embeds=embed_list)
 
     async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a puzzle channel"""
@@ -1408,7 +1519,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
         embed.add_field(
-            name="Puzzle metadata",
+            name="Puzzle commands",
             value="""
                 • `!link <url>` will update the link to the puzzle on the hunt website
                 • `!info` will re-post this message
@@ -1422,18 +1533,21 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-
+        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
+                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
+                                • [Google Sheet]({spreadsheet_url})
+                                """)
+        if hunt.uid:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
+        else:
+            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        embed.add_field(
+            name="Puzzle Links",
+            value=puzzle_links,
+            inline=False,
+        )
         try:
-            if hunt.uid:
-                embed.add_field(name="Overview Website", value=f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid}",
-                                inline=False)
-            else:
-                embed.add_field(name="Overview Website",
-                                value=f"{self.get_guild_data(ctx).website_url}?hunt_id={hunt.id}",
-                                inline=False)
-            embed.add_field(name="Puzzle URL", value=puzzle.url or "?", inline=False,)
-            spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle), puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-            embed.add_field(name="Google Drive", value=spreadsheet_url,inline=False,)
             embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
             if puzzle.solution:
                 embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
@@ -1441,11 +1555,22 @@ class Puzzles(commands.Cog):
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
         except:
             pass
+
+        embed_list = [embed]
+        if len(puzzle.additional_sheets) > 0:
+            sheets_embed = discord.Embed()
+            sheets_embed.add_field(
+                name="Additional Sheet Links",
+                value=self.create_additional_sheet_list(ctx, puzzle),
+                inline=False,
+            )
+            embed_list.append(sheets_embed)
+
         if kwargs.get("update",False):
             channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embed=embed)
+            return await channel_pins[-1].edit(embeds=embed_list)
         else:
-            return await channel.send(embed=embed)
+            return await channel.send(embeds=embed_list)
 
     async def send_not_puzzle_channel(self, ctx):
         # TODO: Fix this
@@ -1740,9 +1865,15 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(puzzle)
 
+        if self.get_hunt_round(ctx).meta_id == puzzle.id:
+            self.get_hunt_round(ctx).solve_time = datetime.datetime.now(tz=pytz.UTC)
+
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
             await self.update_metapuzzle(ctx, meta_round)
+            if meta_round.meta_id == puzzle.id:
+                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
+                RoundJsonDb.commit(meta_round)
         #
         # if self.get_hunt_round(ctx):
         #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
@@ -2244,14 +2375,14 @@ class Puzzles(commands.Cog):
             await channel.send("@everyone You can get some help on how to use PuzzleBot by referring to [Brillig's guide](https://docs.google.com/document/d/1hY-T2nMwHJLHiR-szsmG2F1ZWGIe88jyQpzKiXE1xLY/edit?usp=sharing) or with the `!help` command.  "
                                "The most useful commands are `!p <puzzle_name>` to make a new puzzle, "
                                "`!s <SOLUTION>` to solve one and "
-                               "`!info` to get info on the puzzle including a link to the sheet.  Don't forget to go to https://quarantinedecrypters.com for our full hunt status.")
+                               "`!info` to get info on the puzzle including a link to the sheet.  Don't forget to go to the overview website for our full hunt status.")
         if self.reminder_index == 0:
             await channel.send("@here " + reminders[0])
         else:
             await channel.send("@here " + random.choice(reminders))
         self.reminder_index += 1
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Start the reminder loop (organisers only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def start_reminders(self, ctx):
         """*(admin) Start reminder loop*"""
@@ -2260,7 +2391,7 @@ class Puzzles(commands.Cog):
         self.reminder_loop.start(channel)
         await ctx.send(":white_check_mark: Reminder loop started.")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(description="Stop the reminder loop (organisers only)",)
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def stop_reminders(self, ctx):
         """*(admin) Stop reminder loop*"""
