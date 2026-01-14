@@ -1894,7 +1894,7 @@ class Puzzles(commands.Cog):
             SheetsJsonDb.commit(sheet)
         await ctx.send(":white_check_mark: Sheets all tidied away.")
 
-    @commands.command(aliases=["update_solution"])
+    @commands.command(aliases=["update_solution","update_answer"])
     @with_puzzle_mutex(wait=False)
     async def change_solution(self, ctx, *args):
         """*Change a previously marked solution, if not solved then solve as usual: !change_solution SOLUTION*"""
