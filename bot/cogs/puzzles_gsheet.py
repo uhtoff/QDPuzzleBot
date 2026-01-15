@@ -54,12 +54,6 @@ class GoogleSheets(commands.Cog):
     async def read(self, ctx):
         print(get_sheet().get(spreadsheetId=self.get_spreadsheet_id()).execute())
 
-    def set_puzzle_data(self, puzzle_data):
-        self._puzzle_data = puzzle_data
-
-    def get_puzzle_data(self):
-        return self._puzzle_data
-
     def set_spreadsheet_id(self, spreadsheet_id):
         self.spreadsheet_id = spreadsheet_id
 
@@ -71,9 +65,6 @@ class GoogleSheets(commands.Cog):
 
     def get_archive_spreadsheet_id(self):
         return self.archive_spreadsheet_id
-
-    def get_page_id(self):
-        return self.get_puzzle_data().google_page_id
 
     async def batch_update(self, body, archive = False):
         spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
@@ -124,8 +115,8 @@ class GoogleSheets(commands.Cog):
             if (sheet['properties']['sheetId']) == int(id):
                 return sheet['properties']['title']
 
-    def get_puzzle_sheet_index(self):
-        name = self.get_puzzle_data().name
+    def get_puzzle_sheet_index(self, puzzle:PuzzleData):
+        name = puzzle.name
         for sheet in self.sheet_list()["sheets"]:
             if (sheet['properties']['title']) == name:
                 return sheet['properties']['index']
@@ -180,11 +171,11 @@ class GoogleSheets(commands.Cog):
             except KeyError:
                 pass
 
-    async def update_puzzle_info(self, update_tab_name = False, name = None, page_id = None):
+    async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None):
 
-        puzzle_name = name or self.get_puzzle_data().name
+        puzzle_name = name or puzzle.name
 
-        new_sheet_id = page_id or self.get_page_id()
+        new_sheet_id = page_id or puzzle.google_page_id
         # requests = [
         #     self.update_cell(puzzle_name, self.get_row(config.puzzle_cell_name), self.get_column(config.puzzle_cell_name), self.STRING_INPUT,
         #         new_sheet_id),
@@ -192,16 +183,16 @@ class GoogleSheets(commands.Cog):
         #         new_sheet_id),
         # ]
         requests = [
-            self.update_cell('=HYPERLINK("' + self.get_puzzle_data().url + '","' + puzzle_name + '")', self.get_row(config.puzzle_cell_name),
+            self.update_cell('=HYPERLINK("' + puzzle.url + '","' + puzzle_name + '")', self.get_row(config.puzzle_cell_name),
                              self.get_column(config.puzzle_cell_name), self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
             unique_name = self.get_unique_tab_name(puzzle_name)
-            requests.append(self.set_sheet_name(unique_name))
+            requests.append(self.set_sheet_name(unique_name, puzzle.google_page_id))
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, self.get_puzzle_data().archived)
+        await self.batch_update(updates, puzzle.archived)
 
     async def enter_solution(self):
         body={
@@ -260,9 +251,7 @@ class GoogleSheets(commands.Cog):
         return body
 
     def move_sheet_to_start(self, sheet_id = None):
-        sheets = self.sheet_list().get('sheets',[])
         new_index = self.INITIAL_OFFSET
-        sheet_id = sheet_id or self.get_puzzle_data().google_page_id
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -277,7 +266,6 @@ class GoogleSheets(commands.Cog):
 
     def move_sheet_to_end(self, sheet_id = None):
         sheets = self.sheet_list().get('sheets',[])
-        sheet_id = sheet_id or self.get_puzzle_data().google_page_id
         new_index = len(sheets) - 1
         body = {
                     'updateSheetProperties': {
@@ -291,8 +279,7 @@ class GoogleSheets(commands.Cog):
                 }
         return body
 
-    def revert_tab_colour(self, sheet_id = None):
-        sheet_id = sheet_id or self.get_puzzle_data().google_page_id
+    def revert_tab_colour(self, sheet_id):
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -305,8 +292,7 @@ class GoogleSheets(commands.Cog):
                 }
         return body
 
-    def change_tab_colour(self, colour, sheet_id = None):
-        sheet_id = sheet_id or self.get_puzzle_data().google_page_id
+    def change_tab_colour(self, colour, sheet_id):
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -360,55 +346,52 @@ class GoogleSheets(commands.Cog):
         # self.set_sheet_hidden(False)
         return new_sheet_id
 
-    async def add_new_puzzle_sheet(self, index):
-        puzzle = self.get_puzzle_data()
-        print (puzzle)
+    async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
         if puzzle.metapuzzle == 1:
-            self.get_puzzle_data().google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index, self.METAPUZZLE_SHEET)
+            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index, self.METAPUZZLE_SHEET)
         else:
-            self.get_puzzle_data().google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
+            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
 
-    async def add_new_overview_sheet(self, index):
-        overview_name = "OVERVIEW - " + self.get_puzzle_data().name
-        new_sheet_id = await self.add_new_sheet(self.get_unique_tab_name(overview_name), index, self.ROUND_SHEET)
-        return new_sheet_id
+    # async def add_new_overview_sheet(self, index):
+    #     overview_name = "OVERVIEW - " + self.get_puzzle_data().name
+    #     new_sheet_id = await self.add_new_sheet(self.get_unique_tab_name(overview_name), index, self.ROUND_SHEET)
+    #     return new_sheet_id
 
-    def get_overview_page_id(self):
-        return self.overview_page_id
+    # def get_overview_page_id(self):
+    #     return self.overview_page_id
 
-    def set_overview_page_id(self, overview_page_id):
-        self.overview_page_id = overview_page_id
+    # def set_overview_page_id(self, overview_page_id):
+    #     self.overview_page_id = overview_page_id
 
-    async def copy_puzzle_info(self, start):
-        body = {
-            'requests': [
-                {
-                    "copyPaste": {
-                        "source": {
-                            "sheetId": self.get_page_id_by_name(self.ROUND_SHEET),
-                            "startRowIndex": 4,
-                            "endRowIndex": 5,
-                            "startColumnIndex": 1,
-                            "endColumnIndex": 7
-                        },
-                        "destination": {
-                            "sheetId": self.overview_page_id,
-                            "startRowIndex": start,
-                            "endRowIndex": start + 1,
-                            "startColumnIndex": 1,
-                            "endColumnIndex": 7
-                        },
-                        "pasteType": "PASTE_NORMAL",
-                        "pasteOrientation": "NORMAL"
-                    }
-                }
+    # async def copy_puzzle_info(self, start):
+    #     body = {
+    #         'requests': [
+    #             {
+    #                 "copyPaste": {
+    #                     "source": {
+    #                         "sheetId": self.get_page_id_by_name(self.ROUND_SHEET),
+    #                         "startRowIndex": 4,
+    #                         "endRowIndex": 5,
+    #                         "startColumnIndex": 1,
+    #                         "endColumnIndex": 7
+    #                     },
+    #                     "destination": {
+    #                         "sheetId": self.overview_page_id,
+    #                         "startRowIndex": start,
+    #                         "endRowIndex": start + 1,
+    #                         "startColumnIndex": 1,
+    #                         "endColumnIndex": 7
+    #                     },
+    #                     "pasteType": "PASTE_NORMAL",
+    #                     "pasteOrientation": "NORMAL"
+    #                 }
+    #             }
+    #
+    #         ]
+    #     }
+    #     await self.batch_update(body)
 
-            ]
-        }
-        await self.batch_update(body)
-
-    def set_sheet_hidden(self, hidden=True):
-        sheet_id = self.get_page_id()
+    def set_sheet_hidden(self, sheet_id, hidden=True):
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -422,7 +405,6 @@ class GoogleSheets(commands.Cog):
         return body
 
     def set_sheet_name(self, name, sheet_id = None):
-        sheet_id = sheet_id or self.get_page_id()
         body = {
                     'updateSheetProperties': {
                         'properties': {
@@ -435,29 +417,27 @@ class GoogleSheets(commands.Cog):
                 }
         return body
 
-    def remove_puzzle_from_overview(self):
-        if self.get_puzzle_overview_row():
-            row_number = int(self.get_puzzle_overview_row())
-            if row_number:
-                body = {
-                            'deleteRange': {
-                                'range': {
-                                    'sheetId': self.get_overview_page_id(),
-                                    "startRowIndex": row_number,
-                                    "endRowIndex": row_number + 1,
-                                    "startColumnIndex": 1,
-                                    "endColumnIndex": 7
-                                },
-                                'shiftDimension': 'ROWS'
-                            }
-                        }
-                return body
-            else:
-                return False
+    # def remove_puzzle_from_overview(self):
+    #     if self.get_puzzle_overview_row():
+    #         row_number = int(self.get_puzzle_overview_row())
+    #         if row_number:
+    #             body = {
+    #                         'deleteRange': {
+    #                             'range': {
+    #                                 'sheetId': self.get_overview_page_id(),
+    #                                 "startRowIndex": row_number,
+    #                                 "endRowIndex": row_number + 1,
+    #                                 "startColumnIndex": 1,
+    #                                 "endColumnIndex": 7
+    #                             },
+    #                             'shiftDimension': 'ROWS'
+    #                         }
+    #                     }
+    #             return body
+    #         else:
+    #             return False
 
     async def delete_sheet(self, page_id = None, archive = False):
-        if page_id is None:
-            page_id = self.get_page_id()
         body = {
             'requests': [
                 {
@@ -470,27 +450,25 @@ class GoogleSheets(commands.Cog):
         await self.batch_update(body, archive)
 
     async def update_puzzle(self, puzzle_data,update_name = False):
-        self.set_puzzle_data(puzzle_data)
-        await self.update_puzzle_info(update_name)
+        await self.update_puzzle_info(puzzle_data, update_name)
 
     async def delete_round_spreadsheet(self, round_data: RoundData ):
         await self.delete_sheet(round_data.google_page_id)
 
-    async def mark_deleted_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
-        self.set_puzzle_data(puzzle_data)
-        self.set_overview_page_id(hunt_round.google_page_id)
-        new_sheet_name = "DELETED - " + puzzle_data.name
-        requests = [self.set_sheet_hidden(),
-                    self.set_sheet_name(new_sheet_name),
-                    self.move_sheet_to_end(),
-                    self.remove_puzzle_from_overview()]
-        updates = {
-            'requests': requests
-        }
-        await self.batch_update(updates, puzzle_data.archived)
+    # async def mark_deleted_puzzle_spreadsheet(self, puzzle_data: PuzzleData, hunt_round: RoundData):
+    #     self.set_puzzle_data(puzzle_data)
+    #     self.set_overview_page_id(hunt_round.google_page_id)
+    #     new_sheet_name = "DELETED - " + puzzle_data.name
+    #     requests = [self.set_sheet_hidden(puzzle_data.google_page_id),
+    #                 self.set_sheet_name(new_sheet_name,puzzle_data.google_page_id),
+    #                 self.move_sheet_to_end(puzzle_data.google_page_id),
+    #                 self.remove_puzzle_from_overview()]
+    #     updates = {
+    #         'requests': requests
+    #     }
+    #     await self.batch_update(updates, puzzle_data.archived)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        self.set_puzzle_data(puzzle_data)
         # self.set_overview_page_id(hunt_round.google_page_id)
         # requests = [self.remove_puzzle_from_overview()]
         # if requests[0]:
@@ -524,78 +502,88 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
-        self.set_puzzle_data(puzzle_data)
         if puzzle_data.archived:
             puzzle_data.archived = False
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(False, puzzle_data.google_page_id,
                                                                             puzzle_data.name)
+        requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
                 if self.get_archive_spreadsheet_id():
                     current_name = self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
                     sheet.google_page_id = await self.move_puzzle_spreadsheet(False, sheet.google_page_id, current_name)
-                requests = [self.update_cell("", self.get_row(config.puzzle_cell_solution),
+                requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.move_sheet_to_start(sheet.google_page_id),
-                            self.revert_tab_colour(sheet.google_page_id)]
-                updates = {
-                    'requests': requests
-                }
-                await self.batch_update(updates)
+                            self.revert_tab_colour(sheet.google_page_id)])
+        # updates = {
+        #     'requests': requests
+        # }
+        # await self.batch_update(updates)
 
-        requests = [self.update_cell("", self.get_row(config.puzzle_cell_solution),
-                                     self.get_column(config.puzzle_cell_solution)),
+        requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
+                                     self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id),
                     self.update_cell("", self.get_row(config.puzzle_cell_progress),
-                                     self.get_column(config.puzzle_cell_progress)),
-                    self.move_sheet_to_start(),
-                    self.revert_tab_colour()]
+                                     self.get_column(config.puzzle_cell_progress), self.STRING_INPUT, puzzle_data.google_page_id),
+                    self.move_sheet_to_start(puzzle_data.google_page_id),
+                    self.revert_tab_colour(puzzle_data.google_page_id)])
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, puzzle_data.archived)
+        await self.batch_update(updates)
 
 
     async def update_solution(self, puzzle_data: PuzzleData):
-        self.set_puzzle_data(puzzle_data)
         requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
-                                     self.get_column(config.puzzle_cell_solution))
+                                     self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id)
                     ]
         updates = {
             'requests': requests
         }
         await self.batch_update(updates, puzzle_data.archived)
-
-    async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        self.set_puzzle_data(puzzle_data)
-        requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution)),
-            self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress)),
-            self.move_sheet_to_end(),
-            self.change_tab_colour('green')]
-        updates = {
-            'requests': requests
-        }
-        await self.batch_update(updates)
+        sheet_requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
+                sheet_requests.append(self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
+                                             self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
+                                             sheet.google_page_id))
+        updates = {
+            'requests': sheet_requests
+        }
+        await self.batch_update(updates, puzzle_data.solved)
+
+    async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+        requests = []
+        requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id),
+            self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress), self.STRING_INPUT, puzzle_data.google_page_id),
+            self.move_sheet_to_end(puzzle_data.google_page_id),
+            self.change_tab_colour('green', puzzle_data.google_page_id)])
+        # updates = {
+        #     'requests': requests
+        # }
+        # await self.batch_update(updates)
+        for sheet in puzzle_data.additional_sheets:
+            if len(sheet.google_page_id) > 0:
+                requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.move_sheet_to_end(sheet.google_page_id),
-                            self.change_tab_colour('green', sheet.google_page_id)]
-                updates = {
-                    'requests': requests
-                }
-                await self.batch_update(updates)
-                if self.get_archive_spreadsheet_id():
-                    current_name = self.get_page_name_by_id(sheet.google_page_id)
-                    sheet.google_page_id = await self.move_puzzle_spreadsheet(True, sheet.google_page_id, current_name)
+                            self.change_tab_colour('green', sheet.google_page_id)])
+        updates = {
+            'requests': requests
+        }
+        await self.batch_update(updates)
+        for sheet in puzzle_data.additional_sheets:
+            if self.get_archive_spreadsheet_id():
+                current_name = self.get_page_name_by_id(sheet.google_page_id)
+                sheet.google_page_id = await self.move_puzzle_spreadsheet(True, sheet.google_page_id, current_name)
         if puzzle_data.is_metapuzzle() is False and self.get_archive_spreadsheet_id():
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(True, puzzle_data.google_page_id, puzzle_data.name)
             puzzle_data.archived = True
@@ -645,55 +633,49 @@ class GoogleSheets(commands.Cog):
 
     async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
-        self.set_puzzle_data(puzzle_data)
+        # self.set_puzzle_data(puzzle_data)
         # self.overview_page_id = hunt_round.google_page_id
         # puzzle_index = hunt.num_rounds + self.INITIAL_OFFSET
         puzzle_index = self.INITIAL_OFFSET
-        await self.add_new_puzzle_sheet(puzzle_index)
+        await self.add_new_puzzle_sheet(puzzle_data, puzzle_index)
         # self.copy_puzzle_info(hunt_round.num_puzzles + 3)
-        await self.update_puzzle_info()
+        await self.update_puzzle_info(puzzle_data)
         # self.update_puzzle_info(hunt_round.num_puzzles + 3)
 
     async def create_additional_spreadsheet(self, puzzle_data: PuzzleData, name = None, puzzle = False):
-        self.set_puzzle_data(puzzle_data)
-        index = self.get_puzzle_sheet_index()
+        index = self.get_puzzle_sheet_index(puzzle_data)
         if name:
             sheet_name = f"{name} ({puzzle_data.name})"
         else:
             sheet_name = f"Extra Sheet for {puzzle_data.name}"
         sheet_id = await self.add_new_sheet(sheet_name, index+1)
-        await self.update_puzzle_info(False,name,sheet_id)
+        await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
         return sheet_id
 
     async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        self.set_puzzle_data(puzzle)
         # self.overview_page_id = hunt_round.google_page_id
         # overview_name = self.get_page_name_by_id(self.overview_page_id)
-        requests = [self.update_cell("Puzzle titles",4,0,self.STRING_INPUT,self.get_page_id()),
-                    self.update_cell("Puzzle solutions", 4, 1, self.STRING_INPUT,self.get_page_id()),]
+        requests = [self.update_cell("Puzzle titles",4,0,self.STRING_INPUT,puzzle.google_page_id),
+                    self.update_cell("Puzzle solutions", 4, 1, self.STRING_INPUT,puzzle.google_page_id),]
         row = 5
         for round_puzzle in round_puzzles:
             if round_puzzle.id == puzzle.id: # Skip self
                 continue
-            requests.append(self.update_cell(round_puzzle.name, row, 0, self.STRING_INPUT, self.get_page_id()))
+            requests.append(self.update_cell(round_puzzle.name, row, 0, self.STRING_INPUT,puzzle.google_page_id))
             if round_puzzle.solution:
                 solution = round_puzzle.solution
             else:
                 solution = "Unsolved"
-            requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT, self.get_page_id()))
+            requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT,puzzle.google_page_id))
             row += 1
         for x in range(50):
-            requests.append(self.update_cell("", row, 0, self.STRING_INPUT, self.get_page_id()))
-            requests.append(self.update_cell("", row, 1, self.STRING_INPUT, self.get_page_id()))
+            requests.append(self.update_cell("", row, 0, self.STRING_INPUT,puzzle.google_page_id))
+            requests.append(self.update_cell("", row, 1, self.STRING_INPUT,puzzle.google_page_id))
             row += 1
         updates = {
             'requests': requests
         }
         await self.batch_update(updates, puzzle.archived)
-
-    def retrieve_overview_page_id(self, puzzle_data):
-        self.set_puzzle_data(puzzle_data)
-        return self.get_overview_page_id()
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!

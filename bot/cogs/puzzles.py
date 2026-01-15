@@ -433,6 +433,7 @@ class Puzzles(commands.Cog):
 
 
     @commands.command(aliases=["p"])
+    @with_puzzle_mutex(wait=True)
     async def puzzle(self, ctx, *, arg):
         """*Create new puzzle channels: !p puzzle-name*"""
 
