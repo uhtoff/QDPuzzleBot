@@ -509,7 +509,7 @@ class GoogleSheets(commands.Cog):
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                if self.get_archive_spreadsheet_id():
+                if self.get_archive_spreadsheet_id() and puzzle_data.solved:
                     current_name = self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
                     sheet.google_page_id = await self.move_puzzle_spreadsheet(False, sheet.google_page_id, current_name)
                 requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),

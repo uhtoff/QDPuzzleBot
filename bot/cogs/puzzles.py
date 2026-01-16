@@ -1999,7 +1999,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif not self.get_puzzle(ctx).solved and len(self.get_puzzle(ctx).solution) == 0:
+        elif not self.get_puzzle(ctx).solved and not self.get_puzzle(ctx).solution:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
 
@@ -2007,12 +2007,11 @@ class Puzzles(commands.Cog):
         prev_solution = puzzle.solution
         puzzle.status = "Unsolved"
         puzzle.solution = ""
-        puzzle.solved = False
+
         puzzle.solve_time = None
 
         # if self.get_puzzle(ctx).archive_time:
         puzzle.archive_time = None
-
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
@@ -2025,6 +2024,8 @@ class Puzzles(commands.Cog):
 
         await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
         await self.move_to_bottom(ctx)
+
+        puzzle.solved = False
 
         if self.get_hunt_round(ctx):
             await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
