@@ -1788,18 +1788,7 @@ class Puzzles(commands.Cog):
         for e in embeds:
             await ctx.send(embed=e)
 
-    @commands.command(aliases=["ps"])
-    @with_puzzle_mutex(wait=False)
-    async def partial(self, ctx, *args):
-        """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
-
-        if not self.get_puzzle(ctx):
-            await self.send_not_puzzle_channel(ctx)
-            return
-        elif self.get_puzzle(ctx).solved:
-            await ctx.send(":x: This puzzle appears to already be solved")
-            return
-
+    async def _partial_impl(self, ctx, *args):
         puzzle = self.get_puzzle(ctx)
 
         solution = " ".join(args)
@@ -1821,7 +1810,8 @@ class Puzzles(commands.Cog):
         #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="Partially SOLVED!", description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
+        embed = discord.Embed(title="Partially SOLVED!",
+                              description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
         embed.add_field(
             name="Follow-up",
             value="If you need to clear the partial solutions then use !unsolve and they will all be wiped. "
@@ -1829,10 +1819,10 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
 
-    @commands.command(aliases=["s"])
+    @commands.command(aliases=["ps"])
     @with_puzzle_mutex(wait=False)
-    async def solve(self, ctx, *args):
-        """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
+    async def partial(self, ctx, *args):
+        """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
 
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
@@ -1841,6 +1831,10 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
+        await self._partial_impl(ctx, *args)
+
+
+    async def _solve_impl(self, ctx, *args):
         solution = " ".join(args)
         solution = solution.strip().upper()
 
@@ -1850,7 +1844,7 @@ class Puzzles(commands.Cog):
 
         puzzle = self.get_puzzle(ctx)
 
-        if solution == "" and puzzle.solution in [None,""]:
+        if solution == "" and puzzle.solution in [None, ""]:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
 
@@ -1881,7 +1875,8 @@ class Puzzles(commands.Cog):
         #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="PUZZLE SOLVED!", description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
+        embed = discord.Embed(title="PUZZLE SOLVED!",
+                              description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
             value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
@@ -1895,6 +1890,20 @@ class Puzzles(commands.Cog):
             SheetsJsonDb.commit(sheet)
         await ctx.send(":white_check_mark: Sheets all tidied away.")
 
+    @commands.command(aliases=["s"])
+    @with_puzzle_mutex(wait=False)
+    async def solve(self, ctx, *args):
+        """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
+
+        if not self.get_puzzle(ctx):
+            await self.send_not_puzzle_channel(ctx)
+            return
+        elif self.get_puzzle(ctx).solved:
+            await ctx.send(":x: This puzzle appears to already be solved")
+            return
+        await self._solve_impl(ctx, *args)
+
+
     @commands.command(aliases=["update_solution","update_answer"])
     @with_puzzle_mutex(wait=False)
     async def change_solution(self, ctx, *args):
@@ -1903,7 +1912,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         elif self.get_puzzle(ctx).solved == 0:
-            await self.solve(ctx, *args)
+            await self._solve_impl(ctx, *args)
             return
 
         solution = " ".join(args)
@@ -1950,7 +1959,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         elif self.get_puzzle(ctx).solved == 0:
-            await self.partial(ctx, *args)
+            await self._partial_impl(ctx, *args)
             return
 
         solution = " ".join(args)
@@ -1989,7 +1998,7 @@ class Puzzles(commands.Cog):
     @with_puzzle_mutex(wait=False)
     async def mark_as_complete(self, ctx):
         """*Mark a puzzle as completed with a tick*"""
-        await self.solve(ctx, "✅")
+        await self._solve_impl(ctx, "✅")
 
     @commands.command(aliases=["u"])
     @with_puzzle_mutex(wait=False)
