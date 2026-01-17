@@ -462,6 +462,7 @@ class Puzzles(commands.Cog):
         new_puzzle = PuzzleData(
             name=puzzle_name,
             # round_id=self.get_hunt_round(ctx).id,
+            # round_id=self.get_hunt_round(ctx).id
             hunt_id=self.get_hunt(ctx).id,
             start_time=datetime.datetime.now(tz=pytz.UTC),
             status='Unstarted',
@@ -493,6 +494,7 @@ class Puzzles(commands.Cog):
 
         return new_puzzle
 
+    @commands.command()
     async def update_metameta(self, ctx, hunt_id):
         meta_meta_puzzle = PuzzleJsonDb.get_by_attr(metameta=1)
         if meta_meta_puzzle:
@@ -504,7 +506,6 @@ class Puzzles(commands.Cog):
         if hunt_round.meta_id:
             metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
             await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
-        await self.update_metameta(ctx, hunt_round.hunt_id)
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')

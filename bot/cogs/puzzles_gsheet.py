@@ -67,6 +67,7 @@ class GoogleSheets(commands.Cog):
         return self.archive_spreadsheet_id
 
     async def batch_update(self, body, archive = False):
+        print (f"{body}")
         spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
@@ -545,16 +546,16 @@ class GoogleSheets(commands.Cog):
             'requests': requests
         }
         await self.batch_update(updates, puzzle_data.archived)
-        sheet_requests = []
-        for sheet in puzzle_data.additional_sheets:
-            if len(sheet.google_page_id) > 0:
-                sheet_requests.append(self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
-                                             self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
-                                             sheet.google_page_id))
-        updates = {
-            'requests': sheet_requests
-        }
-        await self.batch_update(updates, puzzle_data.solved)
+        # sheet_requests = []
+        # for sheet in puzzle_data.additional_sheets:
+        #     if len(sheet.google_page_id) > 0:
+        #         sheet_requests.append(self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
+        #                                      self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
+        #                                      sheet.google_page_id))
+        # updates = {
+        #     'requests': sheet_requests
+        # }
+        # await self.batch_update(updates, puzzle_data.solved)
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         requests = []
