@@ -663,7 +663,10 @@ class GoogleSheets(commands.Cog):
                 continue
             requests.append(self.update_cell(round_puzzle.name, row, 0, self.STRING_INPUT,puzzle.google_page_id))
             if round_puzzle.solution:
-                solution = round_puzzle.solution
+                if round_puzzle.solution == "✅":
+                    continue
+                else:
+                    solution = round_puzzle.solution
             else:
                 solution = "Unsolved"
             requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT,puzzle.google_page_id))
