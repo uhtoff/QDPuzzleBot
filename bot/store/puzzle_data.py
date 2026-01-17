@@ -34,6 +34,7 @@ class PuzzleData:
     url: str = ""
     google_page_id: str = ""
     metapuzzle: int = 0
+    metameta: int = 0
     additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False

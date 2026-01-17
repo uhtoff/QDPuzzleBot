@@ -493,11 +493,18 @@ class Puzzles(commands.Cog):
 
         return new_puzzle
 
+    async def update_metameta(self, ctx, hunt_id):
+        meta_meta_puzzle = PuzzleJsonDb.get_by_attr(metameta=1)
+        if meta_meta_puzzle:
+            all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
+            await self.get_gsheet_cog(ctx).add_metapuzzle_data(meta_meta_puzzle, all_puzzles)
+
     async def update_metapuzzle(self, ctx, hunt_round):
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
         if hunt_round.meta_id:
             metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
             await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
+        await self.update_metameta(ctx, hunt_round.hunt_id)
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
@@ -2380,7 +2387,7 @@ class Puzzles(commands.Cog):
     #     await self.bot.wait_until_ready()
     #     logger.info("Ready to start archiving solved puzzles")
 
-    @tasks.loop(hours=3)
+    @tasks.loop(hours=2)
     async def reminder_loop(self, channel):
         reminders = self.REMINDERS
         if self.reminder_index % 2 == 0:
@@ -2388,10 +2395,7 @@ class Puzzles(commands.Cog):
                                "The most useful commands are `!p <puzzle_name>` to make a new puzzle, "
                                "`!s <SOLUTION>` to solve one and "
                                "`!info` to get info on the puzzle including a link to the sheet.  Don't forget to go to the overview website for our full hunt status.")
-        if self.reminder_index == 0:
-            await channel.send("@here " + reminders[0])
-        else:
-            await channel.send("@here " + random.choice(reminders))
+        await channel.send("@here " + random.choice(reminders))
         self.reminder_index += 1
 
     @commands.hybrid_command(description="Start the reminder loop (organisers only)",)
