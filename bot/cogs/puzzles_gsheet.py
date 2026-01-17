@@ -680,6 +680,41 @@ class GoogleSheets(commands.Cog):
         }
         await self.batch_update(updates, puzzle.archived)
 
+    async def add_metametapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
+        # self.overview_page_id = hunt_round.google_page_id
+        # overview_name = self.get_page_name_by_id(self.overview_page_id)
+        requests = [self.update_cell("Puzzle Round",4,0,self.STRING_INPUT,puzzle.google_page_id),
+                    self.update_cell("Puzzle Title", 4, 1, self.STRING_INPUT,puzzle.google_page_id),
+                    self.update_cell("Puzzle Solution", 4, 2, self.STRING_INPUT,puzzle.google_page_id),]
+        row = 5
+        for round_puzzle in round_puzzles:
+            if round_puzzle.id == puzzle.id: # Skip self
+                continue
+            if round_puzzle.tags[0] if round_puzzle.tags else None is not None:
+                round_name = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0]).name
+            else:
+                round_name = "No Round"
+            requests.append(self.update_cell(round_name, row, 0, self.STRING_INPUT, puzzle.google_page_id))
+            requests.append(self.update_cell(round_puzzle.name, row, 1, self.STRING_INPUT,puzzle.google_page_id))
+            if round_puzzle.solution:
+                if round_puzzle.solution == "✅":
+                    continue
+                else:
+                    solution = round_puzzle.solution
+            else:
+                solution = "Unsolved"
+            requests.append(self.update_cell(solution, row, 2, self.STRING_INPUT,puzzle.google_page_id))
+            row += 1
+        for x in range(50):
+            requests.append(self.update_cell("", row, 0, self.STRING_INPUT, puzzle.google_page_id))
+            requests.append(self.update_cell("", row, 1, self.STRING_INPUT,puzzle.google_page_id))
+            requests.append(self.update_cell("", row, 2, self.STRING_INPUT,puzzle.google_page_id))
+            row += 1
+        updates = {
+            'requests': requests
+        }
+        await self.batch_update(updates, puzzle.archived)
+
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!
     await bot.add_cog(GoogleSheets(bot))

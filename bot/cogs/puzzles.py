@@ -496,7 +496,7 @@ class Puzzles(commands.Cog):
 
     async def _update_metameta_impl(self, ctx, metameta, hunt_id):
         all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
-        await self.get_gsheet_cog(ctx).add_metapuzzle_data(metameta, all_puzzles)
+        await self.get_gsheet_cog(ctx).add_metametapuzzle_data(metameta, all_puzzles)
 
     @commands.command()
     async def update_metameta(self, ctx):
