@@ -690,8 +690,16 @@ class GoogleSheets(commands.Cog):
         for round_puzzle in round_puzzles:
             if round_puzzle.id == puzzle.id: # Skip self
                 continue
+            if round_puzzle.metapuzzle is True:
+                continue
+            if len(round_puzzle.tags) > 1:
+                continue
+
             if round_puzzle.tags[0] if round_puzzle.tags else None is not None:
-                round_name = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0]).name
+                round = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0])
+                if round.meta_code == "RETAWR":
+                    continue
+                round_name = round.name
             else:
                 round_name = "No Round"
             requests.append(self.update_cell(round_name, row, 0, self.STRING_INPUT, puzzle.google_page_id))
