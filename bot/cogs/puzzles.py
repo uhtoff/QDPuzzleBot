@@ -494,18 +494,26 @@ class Puzzles(commands.Cog):
 
         return new_puzzle
 
+    async def _update_metameta_impl(self, ctx, metameta, hunt_id):
+        all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
+        await self.get_gsheet_cog(ctx).add_metapuzzle_data(metameta, all_puzzles)
+
     @commands.command()
-    async def update_metameta(self, ctx, hunt_id):
+    async def update_metameta(self, ctx):
+        hunt_id = self.get_hunt(ctx).id
         meta_meta_puzzle = PuzzleJsonDb.get_by_attr(metameta=1)
         if meta_meta_puzzle:
-            all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
-            await self.get_gsheet_cog(ctx).add_metapuzzle_data(meta_meta_puzzle, all_puzzles)
+            await self._update_metameta_impl(ctx, meta_meta_puzzle, hunt_id)
+        await ctx.send(":white_check_mark: Meta meta updated")
 
     async def update_metapuzzle(self, ctx, hunt_round):
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
         if hunt_round.meta_id:
             metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-            await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
+            if metapuzzle.metameta:
+                await self._update_metameta_impl(ctx,metapuzzle,hunt_round.hunt_id)
+            else:
+                await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
 
     # @commands.command()
     # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')

@@ -67,7 +67,6 @@ class GoogleSheets(commands.Cog):
         return self.archive_spreadsheet_id
 
     async def batch_update(self, body, archive = False):
-        print (f"{body}")
         spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
