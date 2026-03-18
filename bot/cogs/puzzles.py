@@ -688,6 +688,9 @@ class Puzzles(commands.Cog):
         # round_channel = self.get_round_channel(ctx)
         # await round_channel.edit(position=0)
 
+        if new_puzzle.is_metapuzzle():
+            channel_name = "🧩 " + channel_name
+        
         text_channel, created_text = await self.get_or_create_channel(
             guild=self.get_guild(ctx), category=category, channel_name=channel_name,
             channel_type="text", reason=self.PUZZLE_REASON
