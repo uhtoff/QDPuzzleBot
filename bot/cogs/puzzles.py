@@ -690,7 +690,7 @@ class Puzzles(commands.Cog):
 
         if new_puzzle.is_metapuzzle():
             channel_name = "🧩 " + channel_name
-        
+
         text_channel, created_text = await self.get_or_create_channel(
             guild=self.get_guild(ctx), category=category, channel_name=channel_name,
             channel_type="text", reason=self.PUZZLE_REASON
@@ -877,9 +877,9 @@ class Puzzles(commands.Cog):
         round_puzzle = None
         puzzle_name = self.GENERAL_CHANNEL_NAME
 
-        if command in ["r","round","R"]:
+        if command.casefold() in {"r","round"}:
             group_type = "Round"
-        elif command in ["mp","metapuzzle","MP"]:
+        elif command.casefold() in {"mp","metapuzzle"}:
             group_type = "Metapuzzle"
         else:
             group_type = "Metaless Round"
