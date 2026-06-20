@@ -244,60 +244,32 @@ class GoogleSheets(commands.Cog):
                 }
         return body
 
-    def move_sheet_to_start(self, sheet_id = None):
-        new_index = self.INITIAL_OFFSET
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'index': new_index
-                        },
-                        'fields': 'index'
+    @staticmethod
+    def _sheet_props_request(sheet_id, key, value):
+        """Build an updateSheetProperties request that sets a single property."""
+        return {
+            'updateSheetProperties': {
+                'properties': {
+                    'sheetId': sheet_id,
+                    key: value
+                },
+                'fields': key
+            }
+        }
 
-                    }
-                }
-        return body
+    def move_sheet_to_start(self, sheet_id = None):
+        return self._sheet_props_request(sheet_id, 'index', self.INITIAL_OFFSET)
 
     def move_sheet_to_end(self, sheet_id = None):
         sheets = self.sheet_list().get('sheets',[])
         new_index = len(sheets) - 1
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'index': new_index
-                        },
-                        'fields': 'index'
-
-                    }
-                }
-        return body
+        return self._sheet_props_request(sheet_id, 'index', new_index)
 
     def revert_tab_colour(self, sheet_id):
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'tabColor': None
-                        },
-                        'fields': 'tabColor'
-
-                    }
-                }
-        return body
+        return self._sheet_props_request(sheet_id, 'tabColor', None)
 
     def change_tab_colour(self, colour, sheet_id):
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'tabColor': {colour: 1}
-                        },
-                        'fields': 'tabColor'
-
-                    }
-                }
-        return body
+        return self._sheet_props_request(sheet_id, 'tabColor', {colour: 1})
 
     async def add_new_sheet(self, name, index=INITIAL_OFFSET, sheet_type=PUZZLE_SHEET):
         sheet_id = self.get_page_id_by_name(sheet_type)
@@ -346,17 +318,7 @@ class GoogleSheets(commands.Cog):
 
 
     def set_sheet_name(self, name, sheet_id = None):
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'title': name
-                        },
-                        'fields': 'title'
-
-                    }
-                }
-        return body
+        return self._sheet_props_request(sheet_id, 'title', name)
 
 
     async def delete_sheet(self, page_id = None, archive = False):
