@@ -4,6 +4,7 @@ This is a separate cog so that Google Drive integration
 can be easily disabled; simply omit this file.
 """
 import asyncio
+import contextvars
 import datetime
 import logging
 import string
@@ -26,6 +27,12 @@ from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
 
+# Request-scoped target spreadsheets. Each Discord command runs in its own asyncio
+# Task, and ContextVars are isolated per Task, so concurrent commands from different
+# teams/hunts cannot overwrite each other's target spreadsheet.
+_current_spreadsheet_id = contextvars.ContextVar("current_spreadsheet_id", default=None)
+_current_archive_spreadsheet_id = contextvars.ContextVar("current_archive_spreadsheet_id", default=None)
+
 def escape_apostrophes(name):
     return name.replace("'", "''")
 
@@ -41,8 +48,6 @@ class GoogleSheets(commands.Cog):
     FIRST_METAPUZZLE_COLUMN = 2
     INITIAL_OFFSET = 7
     sheets_service = None
-    spreadsheet_id = None
-    archive_spreadsheet_id = None
 
     def __init__(self, bot):
         self.bot = bot
@@ -59,16 +64,16 @@ class GoogleSheets(commands.Cog):
         print(get_sheet().get(spreadsheetId=self.get_spreadsheet_id()).execute())
 
     def set_spreadsheet_id(self, spreadsheet_id):
-        self.spreadsheet_id = spreadsheet_id
+        _current_spreadsheet_id.set(spreadsheet_id)
 
     def set_archive_spreadsheet_id(self, archive_spreadsheet_id):
-        self.archive_spreadsheet_id = archive_spreadsheet_id
+        _current_archive_spreadsheet_id.set(archive_spreadsheet_id)
 
     def get_spreadsheet_id(self):
-        return self.spreadsheet_id
+        return _current_spreadsheet_id.get()
 
     def get_archive_spreadsheet_id(self):
-        return self.archive_spreadsheet_id
+        return _current_archive_spreadsheet_id.get()
 
     async def batch_update(self, body, archive = False):
         spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
