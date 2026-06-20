@@ -1230,10 +1230,7 @@ class Puzzles(commands.Cog):
         if hunt.password:
             puzzle_links += f"""• Hunt Password: {hunt.password}
             """
-        if hunt.uid:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
-        else:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
         embed.add_field(
             name="Hunt Information",
             value=puzzle_links,
@@ -1312,10 +1309,7 @@ class Puzzles(commands.Cog):
         puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
-        if hunt.uid:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
-        else:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
         embed.add_field(
             name="Puzzle Links",
             value=puzzle_links,
@@ -1439,10 +1433,7 @@ class Puzzles(commands.Cog):
         puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
-        if hunt.uid:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
-        else:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
         embed.add_field(
             name="Puzzle Links",
             value=puzzle_links,
@@ -1517,10 +1508,7 @@ class Puzzles(commands.Cog):
         puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
-        if hunt.uid:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.uid})"""
-        else:
-            puzzle_links += f"""• [Overview Website]({self.get_guild_data(ctx).website_url}?uid={hunt.id})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
         embed.add_field(
             name="Puzzle Links",
             value=puzzle_links,
@@ -1766,6 +1754,10 @@ class Puzzles(commands.Cog):
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
             await self.update_metapuzzle(ctx, meta_round)
+
+    def _overview_url(self, ctx, hunt):
+        """Overview website URL for a hunt (falls back to the numeric id)."""
+        return f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid or hunt.id}"
 
     async def _partial_impl(self, ctx, *args):
         puzzle = self.get_puzzle(ctx)
