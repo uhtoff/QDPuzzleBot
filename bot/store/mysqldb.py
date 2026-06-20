@@ -73,7 +73,6 @@ class _MySQLBaseDb:
         """Delete single puzzle from database by database id"""
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
-        deleted_rows = cursor.rowcount
         cursor.close()
         # if deleted_rows != 1:S
         #     raise MissingDataError(f"Unable to find puzzle {puzzle_id} for {round_id}")

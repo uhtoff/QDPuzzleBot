@@ -361,7 +361,7 @@ class Puzzles(commands.Cog):
         settings = self.get_guild_data(ctx)
 
         if self.SOLVE_CATEGORY:
-            solved_category = await guild.create_category(self.get_solved_puzzle_category(hunt_name), position=max(len(guild.categories) - 2,0))
+            await guild.create_category(self.get_solved_puzzle_category(hunt_name), position=max(len(guild.categories) - 2,0))
         else:
             await self.get_or_create_channel(
                 guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
@@ -848,9 +848,6 @@ class Puzzles(commands.Cog):
                 existing_category = discord.utils.get(guild.categories, name=new_category_name)
             if not existing_category:
                 print(f"Creating a new channel category for {group_type}: {new_category_name}")
-                role = None
-                if self.get_hunt(ctx).role_id:
-                    role = discord.utils.get(guild.roles, id=self.get_hunt(ctx).role_id)
                 position = ctx.channel.category.position + 1
                 new_category = await ctx.channel.category.clone(name=new_category_name)
                 await new_category.edit(position=position)
@@ -1655,13 +1652,11 @@ class Puzzles(commands.Cog):
             return
 
         if 1 <= note_index <= len(self.get_puzzle(ctx).notes):
-            note = self.get_puzzle(ctx).notes[note_index-1]
             del self.get_puzzle(ctx).notes[note_index - 1]
             description = f"Erased note {note_index}"
         else:
             description = f"Unable to find note {note_index}"
 
-        embed = discord.Embed(description=description)
         puzzle = self.get_puzzle(ctx)
 
         embeds = build_note_embeds(
@@ -1693,8 +1688,6 @@ class Puzzles(commands.Cog):
         return f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid or hunt.id}"
 
     async def _partial_impl(self, ctx, *args):
-        puzzle = self.get_puzzle(ctx)
-
         solution = self._normalize_solution(args)
         self.get_puzzle(ctx).status = "Partially Solved"
 
@@ -2114,9 +2107,7 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
-        if self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
-            round_channel = ctx.channel
-        else:
+        if self.get_channel_type(ctx) not in self.PUZZLE_GROUPS:
             await ctx.send(f":x: This command must be done from the main group channel")
             return
 
@@ -2201,7 +2192,6 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def stop_reminders(self, ctx):
         """*(admin) Stop reminder loop*"""
-        channel = self.get_hunt_channel(ctx)
         self.reminder_loop.cancel()
         await ctx.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
 
