@@ -2084,10 +2084,21 @@ class Puzzles(commands.Cog):
                         continue
                     files = []
                     for a in message.attachments:
-                        files.append(await a.to_file(use_cached=True))
+                        try:
+                            files.append(await a.to_file(use_cached=True))
+                        except discord.HTTPException as e:
+                            # some attachments/filetypes can't be re-downloaded - skip
+                            # the attachment but keep archiving the rest of the message.
+                            logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
                     avatar_url = getattr(author.avatar, 'url', None)
-                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
-                                                      embeds=message.embeds, thread=thread, wait=True, silent=True)
+                    try:
+                        moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
+                                                          embeds=message.embeds, thread=thread, wait=True, silent=True)
+                    except discord.HTTPException as e:
+                        # e.g. an attachment too large to re-upload, or content the API
+                        # rejects - skip this message rather than aborting the archive.
+                        logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
+                        continue
                     if message.reactions:
                         for reaction in message.reactions:
                             try:
