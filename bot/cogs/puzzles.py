@@ -1253,6 +1253,18 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
+    @staticmethod
+    def _add_puzzle_status_fields(embed, puzzle):
+        """Add Status/Solution/Type/Priority fields for a puzzle to an embed."""
+        try:
+            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            if puzzle.solution:
+                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
+            embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
+            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
+        except:
+            pass
+
     async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a meta channel"""
         hunt_round = kwargs.get('hunt_round', self.get_hunt_round(ctx))
@@ -1315,14 +1327,7 @@ class Puzzles(commands.Cog):
             value=puzzle_links,
             inline=False,
         )
-        try:
-            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
-            if puzzle.solution:
-                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
-            embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
-            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
-        except:
-            pass
+        self._add_puzzle_status_fields(embed, puzzle)
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
             sheets_embed = discord.Embed()
@@ -1434,14 +1439,7 @@ class Puzzles(commands.Cog):
             value=puzzle_links,
             inline=False,
         )
-        try:
-            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
-            if puzzle.solution:
-                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
-            embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
-            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
-        except:
-            pass
+        self._add_puzzle_status_fields(embed, puzzle)
 
         embed_list = [embed]
 
@@ -1509,14 +1507,7 @@ class Puzzles(commands.Cog):
             value=puzzle_links,
             inline=False,
         )
-        try:
-            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
-            if puzzle.solution:
-                embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
-            embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
-            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
-        except:
-            pass
+        self._add_puzzle_status_fields(embed, puzzle)
 
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
