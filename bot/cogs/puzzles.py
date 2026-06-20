@@ -129,12 +129,12 @@ class Puzzles(commands.Cog):
             puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             # Check if we've actually got the metapuzzle for a round and set the right channel type if so
             # Otherwise grab the group/round from the category
-            hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
-            if hunt_round:
-                channel_type = hunt_round.type
-            else:
-                hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
             if puzzle:
+                hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                if hunt_round:
+                    channel_type = hunt_round.type
+                else:
+                    hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
