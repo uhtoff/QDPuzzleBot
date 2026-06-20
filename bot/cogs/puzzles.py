@@ -2090,7 +2090,12 @@ class Puzzles(commands.Cog):
                                                       embeds=message.embeds, thread=thread, wait=True, silent=True)
                     if message.reactions:
                         for reaction in message.reactions:
-                            await moved_message.add_reaction(reaction)
+                            try:
+                                await moved_message.add_reaction(reaction.emoji)
+                            except discord.HTTPException as e:
+                                # e.g. a custom/external emoji the bot can't apply - skip it
+                                # rather than aborting the whole archive.
+                                logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
                     await asyncio.sleep(0.1)
         await channel.delete(reason=self.DELETE_REASON)
         return True
