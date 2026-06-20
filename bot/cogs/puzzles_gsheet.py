@@ -563,7 +563,7 @@ class GoogleSheets(commands.Cog):
             if len(round_puzzle.tags) > 1:
                 continue
 
-            if round_puzzle.tags[0] if round_puzzle.tags else None is not None:
+            if round_puzzle.tags:
                 round = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0])
                 if round.meta_code == "RETAWR" or round.meta_code == "LAOFNO":
                     continue
