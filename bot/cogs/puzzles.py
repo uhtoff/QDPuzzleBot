@@ -1253,6 +1253,19 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
+    def _add_puzzle_links_field(self, ctx, embed, puzzle, hunt):
+        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
+                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
+                                • [Google Sheet]({spreadsheet_url})
+                                """)
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
+        embed.add_field(
+            name="Puzzle Links",
+            value=puzzle_links,
+            inline=False,
+        )
+
     def _build_embed_list(self, ctx, embed, puzzle):
         """Wrap the main embed plus an optional additional-sheets embed in a list."""
         embed_list = [embed]
@@ -1329,17 +1342,7 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
-                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
-                                • [Google Sheet]({spreadsheet_url})
-                                """)
-        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
-        embed.add_field(
-            name="Puzzle Links",
-            value=puzzle_links,
-            inline=False,
-        )
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
         self._add_puzzle_status_fields(embed, puzzle)
         embed_list = self._build_embed_list(ctx, embed, puzzle)
 
@@ -1433,17 +1436,7 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
-                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
-                                • [Google Sheet]({spreadsheet_url})
-                                """)
-        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
-        embed.add_field(
-            name="Puzzle Links",
-            value=puzzle_links,
-            inline=False,
-        )
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
         self._add_puzzle_status_fields(embed, puzzle)
 
         embed_list = self._build_embed_list(ctx, embed, puzzle)
@@ -1492,17 +1485,7 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
-                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
-        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
-                                • [Google Sheet]({spreadsheet_url})
-                                """)
-        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
-        embed.add_field(
-            name="Puzzle Links",
-            value=puzzle_links,
-            inline=False,
-        )
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
         self._add_puzzle_status_fields(embed, puzzle)
 
         embed_list = self._build_embed_list(ctx, embed, puzzle)
