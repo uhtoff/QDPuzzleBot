@@ -306,8 +306,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_tags(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = f"SELECT tags.round_id FROM tags WHERE puzzle_id = {puzzle.id}"
-        cursor.execute(select_stmt)
+        select_stmt = "SELECT tags.round_id FROM tags WHERE puzzle_id = %s"
+        cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         for row in rows:
             puzzle.tags.append(row['round_id'])
@@ -315,8 +315,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_additional_sheets(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = f"SELECT * FROM additional_sheets WHERE puzzle_id = {puzzle.id}"
-        cursor.execute(select_stmt)
+        select_stmt = "SELECT * FROM additional_sheets WHERE puzzle_id = %s"
+        cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         for row in rows:
             sheet = AdditionalSheetData()
@@ -328,27 +328,25 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def commit(self, puzzle):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = f"SELECT round_id FROM tags WHERE puzzle_id = {puzzle.id}"
-        cursor.execute(select_stmt)
+        select_stmt = "SELECT round_id FROM tags WHERE puzzle_id = %s"
+        cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         database_tags = []
         for row in rows:
             database_tags.append(row['round_id'])
         tags_to_remove = set(database_tags) - set(puzzle.tags)
         if len(tags_to_remove) > 0:
-            delete_stmt = f"DELETE FROM tags WHERE round_id IN ("
-            delete_stmt += f"{','.join(map(str,tags_to_remove))}"
-            delete_stmt += f") AND puzzle_id = {puzzle.id}"
-            cursor.execute(delete_stmt)
+            placeholders = ",".join(["%s"] * len(tags_to_remove))
+            delete_stmt = f"DELETE FROM tags WHERE round_id IN ({placeholders}) AND puzzle_id = %s"
+            cursor.execute(delete_stmt, (*tags_to_remove, puzzle.id))
         tags_to_add = set(puzzle.tags) - set(database_tags)
         if len(tags_to_add) > 0:
-            insert_stmt = f"INSERT INTO tags (round_id, puzzle_id) VALUES "
+            insert_stmt = "INSERT INTO tags (round_id, puzzle_id) VALUES " + \
+                ",".join(["(%s, %s)"] * len(tags_to_add))
+            params = []
             for tag in tags_to_add:
-                insert_stmt += f"({tag}, {puzzle.id}),"
-            insert_stmt = insert_stmt.rstrip(", ")
-            cursor.execute(insert_stmt)
-        cursor.close()
-        cursor = self.mydb.cursor(dictionary=True)
+                params.extend((tag, puzzle.id))
+            cursor.execute(insert_stmt, params)
         cursor.close()
         self.mydb.commit()
 
