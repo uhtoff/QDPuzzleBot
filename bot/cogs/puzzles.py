@@ -1759,11 +1759,14 @@ class Puzzles(commands.Cog):
         for e in embeds:
             await ctx.send(embed=e)
 
+    @staticmethod
+    def _normalize_solution(args):
+        return " ".join(args).strip().upper()
+
     async def _partial_impl(self, ctx, *args):
         puzzle = self.get_puzzle(ctx)
 
-        solution = " ".join(args)
-        solution = solution.strip().upper()
+        solution = self._normalize_solution(args)
         self.get_puzzle(ctx).status = "Partially Solved"
 
         if self.get_puzzle(ctx).solution:
@@ -1804,8 +1807,7 @@ class Puzzles(commands.Cog):
 
 
     async def _solve_impl(self, ctx, *args):
-        solution = " ".join(args)
-        solution = solution.strip().upper()
+        solution = self._normalize_solution(args)
 
 
         puzzle = self.get_puzzle(ctx)
@@ -1817,10 +1819,8 @@ class Puzzles(commands.Cog):
         puzzle.status = "Solved"
 
         if puzzle.solution and solution is not None:
-            solution = solution.strip().upper()
             puzzle.solution += "/" + solution
         elif solution is not None:
-            solution = solution.strip().upper()
             puzzle.solution = solution
         puzzle.solved = True
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
@@ -1879,8 +1879,7 @@ class Puzzles(commands.Cog):
             await self._solve_impl(ctx, *args)
             return
 
-        solution = " ".join(args)
-        solution = solution.strip().upper()
+        solution = self._normalize_solution(args)
 
 
         puzzle = self.get_puzzle(ctx)
@@ -1921,8 +1920,7 @@ class Puzzles(commands.Cog):
             await self._partial_impl(ctx, *args)
             return
 
-        solution = " ".join(args)
-        solution = solution.strip().upper()
+        solution = self._normalize_solution(args)
 
 
         puzzle = self.get_puzzle(ctx)
