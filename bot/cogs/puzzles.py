@@ -1266,6 +1266,33 @@ class Puzzles(commands.Cog):
             inline=False,
         )
 
+    @staticmethod
+    def _add_metapuzzle_command_fields(embed):
+        """Add the shared Metapuzzle/Puzzle command-help fields to an embed."""
+        embed.add_field(
+                        name="Metapuzzle commands",
+                        value="""
+        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
+        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
+        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
+        """,
+                        inline=False,
+                    )
+        embed.add_field(
+            name="Puzzle commands",
+            value="""
+                • `!link <url>` will update the link to the puzzle on the hunt website
+                • `!type <puzzle type>` will mark the type of the puzzle
+                • `!priority <priority>` will mark the priority of the puzzle
+                • `!status <status>` will update the status of the puzzle
+                • `!note <note>` can be used to leave a note about ideas/progress
+                • `!notes` can be used to see the notes that have been left
+                • `!erase_note <note number>` can be used to erase the specified note
+                """,
+            inline=False,
+        )
+
     def _build_embed_list(self, ctx, embed, puzzle):
         """Wrap the main embed plus an optional additional-sheets embed in a list."""
         embed_list = [embed]
@@ -1319,29 +1346,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
 
-        embed.add_field(
-                        name="Metapuzzle commands",
-                        value="""
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
-        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
-        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
-        """,
-                        inline=False,
-                    )
-        embed.add_field(
-            name="Puzzle commands",
-            value="""
-                • `!link <url>` will update the link to the puzzle on the hunt website
-                • `!type <puzzle type>` will mark the type of the puzzle
-                • `!priority <priority>` will mark the priority of the puzzle
-                • `!status <status>` will update the status of the puzzle
-                • `!note <note>` can be used to leave a note about ideas/progress
-                • `!notes` can be used to see the notes that have been left
-                • `!erase_note <note number>` can be used to erase the specified note
-                """,
-            inline=False,
-        )
+        self._add_metapuzzle_command_fields(embed)
         self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
         self._add_puzzle_status_fields(embed, puzzle)
         embed_list = self._build_embed_list(ctx, embed, puzzle)
@@ -1413,29 +1418,7 @@ class Puzzles(commands.Cog):
                         inline=False,
                     )
 
-        embed.add_field(
-                        name="Metapuzzle commands",
-                        value="""
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
-        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
-        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
-        """,
-                        inline=False,
-                    )
-        embed.add_field(
-            name="Puzzle commands",
-            value="""
-                • `!link <url>` will update the link to the puzzle on the hunt website
-                • `!type <puzzle type>` will mark the type of the puzzle
-                • `!priority <priority>` will mark the priority of the puzzle
-                • `!status <status>` will update the status of the puzzle
-                • `!note <note>` can be used to leave a note about ideas/progress
-                • `!notes` can be used to see the notes that have been left
-                • `!erase_note <note number>` can be used to erase the specified note
-                """,
-            inline=False,
-        )
+        self._add_metapuzzle_command_fields(embed)
         self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
         self._add_puzzle_status_fields(embed, puzzle)
 
