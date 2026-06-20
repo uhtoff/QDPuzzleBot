@@ -1,7 +1,6 @@
 import datetime
 import logging
 import random
-import time
 from typing import Any, Optional
 
 import discord
@@ -2119,7 +2118,7 @@ class Puzzles(commands.Cog):
                     if message.reactions:
                         for reaction in message.reactions:
                             await moved_message.add_reaction(reaction)
-                    time.sleep(0.1)
+                    await asyncio.sleep(0.1)
         await channel.delete(reason=self.DELETE_REASON)
         return True
 
