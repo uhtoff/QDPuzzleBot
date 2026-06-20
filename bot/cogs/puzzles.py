@@ -973,7 +973,8 @@ class Puzzles(commands.Cog):
         meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
         if meta_round is not None:
             RoundJsonDb.delete(meta_round.id)
-        puzzle.tags.remove(meta_round.id)
+            if meta_round.id in puzzle.tags:
+                puzzle.tags.remove(meta_round.id)
         puzzle.metapuzzle = False
         PuzzleJsonDb.commit(puzzle)
         await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
