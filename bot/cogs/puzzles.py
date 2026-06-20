@@ -1596,6 +1596,17 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
+    async def _update_puzzle_field(self, ctx, field, value):
+        """Set a puzzle attribute and re-render the channel state, or warn if not a puzzle channel."""
+        puzzle = self.get_puzzle(ctx)
+        if puzzle:
+            setattr(puzzle, field, value)
+            await self.send_state(
+                ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if value else None
+            )
+        else:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
+
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def link(self, ctx, *, url: str):
@@ -1627,25 +1638,13 @@ class Puzzles(commands.Cog):
             await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
             return
 
-        if self.get_puzzle(ctx):
-            self.get_puzzle(ctx).status = status
-            await self.send_state(
-                ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if status else None
-            )
-        else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+        await self._update_puzzle_field(ctx, "status", status)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Update puzzle type, e.g. "crossword"*"""
-        if self.get_puzzle(ctx):
-            self.get_puzzle(ctx).puzzle_type = puzzle_type
-            await self.send_state(
-                ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if puzzle_type else None
-            )
-        else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+        await self._update_puzzle_field(ctx, "puzzle_type", puzzle_type)
 
     @commands.hybrid_command(description="Update puzzle priority")
     @app_commands.choices(priority=[
@@ -1661,13 +1660,7 @@ class Puzzles(commands.Cog):
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
 
-        if self.get_puzzle(ctx):
-            self.get_puzzle(ctx).priority = priority
-            await self.send_state(
-                ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if priority else None
-            )
-        else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+        await self._update_puzzle_field(ctx, "priority", priority)
 
     @commands.command(aliases=["notes"])
     @with_puzzle_mutex(wait=True)
