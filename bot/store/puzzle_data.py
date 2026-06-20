@@ -66,40 +66,12 @@ class PuzzleData:
         return puz
 
     @classmethod
-    def sort_by_round_start(cls, puzzles: list) -> list:
-        """Return list of PuzzleData objects sorted by start of round time
-
-        Groups puzzles in the same round together, and sorts puzzles within round
-        by start_time.
-        """
-        round_start_times = {}
-
-        for puzzle in puzzles:
-            if puzzle.start_time is None:
-                continue
-
-            start_time = puzzle.start_time.timestamp()  # epoch time
-            round_start_time = round_start_times.get(puzzle.round_name)
-            if round_start_time is None or start_time < round_start_time:
-                round_start_times[puzzle.round_name] = start_time
-
-        return sorted(puzzles, key=lambda p: (round_start_times.get(p.round_name, 0), p.start_time or 0))
-
-    @classmethod
     def sort_by_puzzle_start(cls, puzzles: list) -> list:
         """Return list of PuzzleData objects sorted by puzzle start time
 
         Sorts puzzles by start_time.
         """
         return sorted(puzzles, key=lambda p: p.start_time)
-
-    @classmethod
-    def sort_by_round_id(cls, puzzles: list) -> list:
-        """Return list of PuzzleData objects sorted by puzzle start time
-
-        Sorts puzzles by start_time.
-        """
-        return sorted(puzzles, key=lambda p: p.round_id)
 
     def is_metapuzzle(self) -> bool:
         return self.metapuzzle == 1

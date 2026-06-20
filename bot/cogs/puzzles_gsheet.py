@@ -23,16 +23,11 @@ logger = logging.getLogger(__name__)
 _current_spreadsheet_id = contextvars.ContextVar("current_spreadsheet_id", default=None)
 _current_archive_spreadsheet_id = contextvars.ContextVar("current_archive_spreadsheet_id", default=None)
 
-def escape_apostrophes(name):
-    return name.replace("'", "''")
-
-
 class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
     FORMULA_INPUT = "formulaValue"
     PUZZLE_SHEET = "Tab template"
     METAPUZZLE_SHEET = "Meta Tab template"
-    ROUND_SHEET = "OVERVIEW Template"
     FIRST_PUZZLE_ROW = 3
     FIRST_PUZZLE_COLUMN = 0
     FIRST_METAPUZZLE_COLUMN = 2
@@ -156,54 +151,11 @@ class GoogleSheets(commands.Cog):
                 return sheet['properties']['index']
         return self.INITIAL_OFFSET
 
-    def get_overview(self):
-        return get_sheet().values().get(spreadsheetId=self.get_spreadsheet_id(),
-                                        range="OVERVIEW!B9:B"
-                                        ).execute()
-
-    def get_overview_urls(self):
-        return get_sheet().values().get(spreadsheetId=self.get_spreadsheet_id(),
-                                        range="OVERVIEW!C9:C",
-                                        valueRenderOption='FORMULA'
-                                        ).execute()
-
     def get_row(self, ref):
         return int(ref[1]) - 1
 
     def get_column(self, ref):
         return ord(ref[0].lower()) - 97
-
-    def get_puzzle_overview_row(self):
-        body = {
-            'dataFilters': [
-                {
-                    "gridRange":
-                        {
-                            'sheetId': self.get_overview_page_id(),
-                            'startRowIndex': 4,
-                            'endRowIndex': 150,
-                            'startColumnIndex': 2,
-                            'endColumnIndex': 3
-                        }
-                }
-
-            ],
-            "includeGridData": True
-        }
-        response = get_sheet().getByDataFilter(
-            spreadsheetId=self.get_spreadsheet_id(),
-            body=body
-        ).execute()
-        row_number = 4
-        for row in response['sheets'][0]['data'][0]['rowData']:
-            try:
-                if str(row['values'][0]['userEnteredValue']['formulaValue']).find(
-                        str(self.get_puzzle_data().google_page_id)) > 0:
-                    return row_number
-                else:
-                    row_number = row_number + 1
-            except KeyError:
-                pass
 
     async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None):
 
@@ -264,35 +216,6 @@ class GoogleSheets(commands.Cog):
         }
 
         await self.batch_update(body, old_puzzle.archived)
-
-    async def enter_solution(self):
-        body={
-            'requests': [
-                {
-                    'updateCells': {
-                        'rows': [
-                            {
-                                'values':
-                                    {
-                                        'userEnteredValue': {
-                                            'stringValue': self.get_puzzle_data().solution
-                                        }
-                                    }
-                            }
-                        ],
-                        'fields': 'userEnteredValue',
-                        'range': {
-                            'sheetId': self.get_puzzle_data().google_page_id,
-                            'startRowIndex': self.get_row(config.puzzle_cell_solution),
-                            'endRowIndex': self.get_column(config.puzzle_cell_solution),
-                            'startColumnIndex': 1,
-                            'endColumnIndex': 2
-                        }
-                    }
-                }
-            ]
-        }
-        await self.batch_update(body)
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
@@ -422,19 +345,6 @@ class GoogleSheets(commands.Cog):
             puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
 
 
-    def set_sheet_hidden(self, sheet_id, hidden=True):
-        body = {
-                    'updateSheetProperties': {
-                        'properties': {
-                            'sheetId': sheet_id,
-                            'hidden': hidden
-                        },
-                        'fields': 'hidden'
-
-                    }
-                }
-        return body
-
     def set_sheet_name(self, name, sheet_id = None):
         body = {
                     'updateSheetProperties': {
@@ -463,10 +373,6 @@ class GoogleSheets(commands.Cog):
 
     async def update_puzzle(self, puzzle_data,update_name = False):
         await self.update_puzzle_info(puzzle_data, update_name)
-
-    async def delete_round_spreadsheet(self, round_data: RoundData ):
-        await self.delete_sheet(round_data.google_page_id)
-
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         await self.delete_sheet(puzzle_data.google_page_id, puzzle_data.archived)

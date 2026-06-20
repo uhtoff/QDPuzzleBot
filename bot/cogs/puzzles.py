@@ -64,8 +64,6 @@ class Puzzles(commands.Cog):
     MAX_CHANNELS_PER_GUILD = 500
     MAX_CATEGORIES = 50
     GENERAL_CHANNEL_NAME = "general"
-    META_CHANNEL_NAME = "meta"
-    META_REASON = "bot-meta"
     ROLE_REASON = "bot-role"
     PUZZLE_REASON = "bot-puzzle"
     DELETE_REASON = "bot-delete"
@@ -97,11 +95,6 @@ class Puzzles(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.reminder_index=0
-        self.guild = None
-        self.guild_data = None
-        self.channel_type = None
-        self.puzzle = None
-        self.gsheet_cog = None
         self.position_lock = asyncio.Lock()
         self.environment = {}
 
@@ -430,19 +423,15 @@ class Puzzles(commands.Cog):
         """*Create new puzzle channels: !p puzzle-name*"""
 
         puzzle_name = arg
-        self.start = datetime.datetime.now()
         if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
             return await ctx.send(f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
 
         if await self.check_available_space(ctx,1) is False:
             return await ctx.send(":x: There is no free channel to create this puzzle, please inform the moderators.")
 
-        check_duplicate = datetime.datetime.now()
         category = ctx.channel.category
         new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
-        puzzle_created = datetime.datetime.now()
         await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
-        channel_sent = datetime.datetime.now()
 
     async def create_metapuzzle(self,ctx, puzzle_name, tag = None):
         return await self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
@@ -2294,9 +2283,6 @@ class Puzzles(commands.Cog):
 
     def get_hunt_channel(self, ctx):
         return self.bot.get_channel(self.get_hunt(ctx).channel_id)
-
-    def get_round_channel(self, ctx):
-        return self.bot.get_channel(self.get_hunt_round(ctx).channel_id)
 
     def get_solved_channel(self, category):
         solved_channel = None
