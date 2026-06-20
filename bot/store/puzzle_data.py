@@ -3,6 +3,7 @@ from dataclasses_json import dataclass_json
 import datetime
 import logging
 import json
+import copy
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)

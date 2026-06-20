@@ -60,7 +60,7 @@ def sheet_list():
     return get_sheet().get(spreadsheetId=SPREADSHEET_ID).execute()
 
 
-def format_body(sheet_id, field, value):
+def update_sheet_property(sheet_id, field, value):
     body = {
         'requests': [
             {
@@ -148,12 +148,12 @@ def move_sheet_to_end(sheet_id):
     for sheet in sheet_list()["sheets"]:
         if(sheet['properties']['index']>new_index):
             new_index = sheet['properties']['index'] + 1
-    batch_update(format_body(sheet_id, 'index', new_index))
+    batch_update(update_sheet_property(sheet_id, 'index', new_index))
 
 
 def move_sheet_to_start(sheet_id):
     new_index = 2
-    batch_update(format_body(sheet_id, 'index', new_index))
+    batch_update(update_sheet_property(sheet_id, 'index', new_index))
 
 
 def get_overview():

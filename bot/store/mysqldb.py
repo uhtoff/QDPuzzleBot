@@ -168,11 +168,11 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
             raise MissingRoundError(f"Unable to find round {round_id}")
 
     def get_by_attr(self,**kwargs):
-        """Retrieve Round by attribute.  Only first sent attribute processed"""
+        """Retrieve Round by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
             cursor = self.mydb.cursor(dictionary = True)
-            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
+            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
             row = cursor.fetchone()
             if row:
                 return RoundData.import_dict(row)

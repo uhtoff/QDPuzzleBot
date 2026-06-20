@@ -1,12 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from dataclasses_json import dataclass_json
 import datetime
 import logging
 import json
-from typing import List, Optional
+from typing import List, Optional, TypeVar, Type
 
 logger = logging.getLogger(__name__)
-
 
 class MissingRoundError(RuntimeError):
     pass
@@ -25,41 +24,23 @@ class RoundData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
 
+    T = TypeVar("T", bound="RoundData")
+
     @classmethod
-    def import_dict(cls, round_data: dict):
-        r = RoundData()
-        for attr, value in r.__dict__.items():
-            if attr == "notes":
-                setattr(r, attr, json.loads(round_data.get(attr, None)))
-            elif attr.endswith("_time"):
+    def import_dict(cls: Type[T], round_data: dict):
+        values = {}
+        for field in fields(cls):
+            attr = field.name
+            if attr.endswith("_time"):
                 db_date = round_data.get(attr,None)
                 if db_date is not None:
-                    utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
-                    setattr(r,attr,utc_date)
+                    values[attr] = db_date.replace(tzinfo=datetime.timezone.utc)
+                else:
+                    values[attr] = None
             else:
-                setattr(r, attr, round_data.get(attr, None))
-
-        return r
-
-    @classmethod
-    def sort_by_round_start(cls, rounds: list) -> list:
-        """Return list of PuzzleData objects sorted by start of round time
-
-        Groups rounds in the same round together, and sorts rounds within round
-        by start_time.
-        """
-        round_start_times = {}
-
-        for round in rounds:
-            if round.start_time is None:
-                continue
-
-            start_time = round.start_time.timestamp()  # epoch time
-            round_start_time = round_start_times.get(round.round_name)
-            if round_start_time is None or start_time < round_start_time:
-                round_start_times[round.round_name] = start_time
-
-        return sorted(rounds, key=lambda p: (round_start_times.get(p.round_name, 0), p.start_time or 0))
+                values[attr] = round_data.get(attr, None)
+        # The double asterisk passes the dict as a series of keyword arguments
+        return cls(**values)
 
     @classmethod
     def sort_by_round_start(cls, rounds: list) -> list:

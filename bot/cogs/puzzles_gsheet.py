@@ -8,6 +8,7 @@ import datetime
 import logging
 import string
 import traceback
+import copy
 from typing import List, Optional
 
 import discord
@@ -35,6 +36,9 @@ class GoogleSheets(commands.Cog):
     PUZZLE_SHEET = "Tab template"
     METAPUZZLE_SHEET = "Meta Tab template"
     ROUND_SHEET = "OVERVIEW Template"
+    FIRST_PUZZLE_ROW = 3
+    FIRST_PUZZLE_COLUMN = 0
+    FIRST_METAPUZZLE_COLUMN = 2
     INITIAL_OFFSET = 7
     sheets_service = None
     spreadsheet_id = None
@@ -79,6 +83,41 @@ class GoogleSheets(commands.Cog):
     def sheet_list(self, spreadsheet_id = None):
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         return get_sheet().get(spreadsheetId=spreadsheet_id).execute()
+
+    def get_grid_size(self, old_puzzle) -> tuple:
+        spreadsheet_id = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
+        response = get_sheet().get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
+        ).execute()
+
+        for sheet in response.get("sheets",[]):
+            props = sheet.get("properties", {})
+            if props.get("sheetId") == int(old_puzzle.google_page_id):
+                return props.get("gridProperties", {}).get("rowCount", 0), props.get("gridProperties", {}).get("columnCount", 0)
+
+        return 0,0
+
+    async def update_grid_size(self, sheet_id, row_count, column_count):
+        body = {
+            "requests": [
+                {
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": sheet_id,
+                            "gridProperties": {
+                                "rowCount": row_count,
+                                "columnCount": column_count
+                            }
+                        },
+                        "fields": "gridProperties(rowCount,columnCount)"
+
+                    }
+                }
+            ]
+        }
+        await self.batch_update(body)
+        return body
 
     def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
         if spreadsheet_id is None:
@@ -193,6 +232,49 @@ class GoogleSheets(commands.Cog):
             'requests': requests
         }
         await self.batch_update(updates, puzzle.archived)
+
+    async def copy_puzzle(self, old_puzzle, new_puzzle):
+        old_grid_rows, old_grid_columns = self.get_grid_size(old_puzzle)
+        if new_puzzle.is_metapuzzle():
+            new_grid_columns = old_grid_columns + 2
+        else:
+            new_grid_columns = old_grid_columns
+        new_grid_rows = old_grid_rows
+        await self.update_grid_size(new_puzzle.google_page_id, new_grid_rows, new_grid_columns)
+        old_start_row = new_start_row = self.FIRST_PUZZLE_ROW
+        if new_puzzle.is_metapuzzle():
+            old_start_column = self.FIRST_PUZZLE_COLUMN
+            new_start_column = self.FIRST_METAPUZZLE_COLUMN
+        else:
+            old_start_column = self.FIRST_METAPUZZLE_COLUMN
+            new_start_column = self.FIRST_PUZZLE_COLUMN
+        body = {
+            'requests': [
+                {
+                    "copyPaste": {
+                        "source": {
+                            "sheetId": old_puzzle.google_page_id,
+                            "startRowIndex": old_start_row,
+                            "endRowIndex": old_grid_rows,
+                            "startColumnIndex": old_start_column,
+                            "endColumnIndex": old_grid_columns,
+                        },
+                        "destination": {
+                            "sheetId": new_puzzle.google_page_id,
+                            "startRowIndex": new_start_row,
+                            "endRowIndex": new_grid_rows,
+                            "startColumnIndex": new_start_column,
+                            "endColumnIndex": new_grid_columns,
+                        },
+                        "pasteType": "PASTE_NORMAL",
+                        "pasteOrientation": "NORMAL"
+                    }
+                }
+
+            ]
+        }
+
+        await self.batch_update(body, old_puzzle.archived)
 
     async def enter_solution(self):
         body={
@@ -651,6 +733,14 @@ class GoogleSheets(commands.Cog):
         sheet_id = await self.add_new_sheet(sheet_name, index+1)
         await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
         return sheet_id
+
+    async def convert_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+        """Converts puzzle sheet from a metapuzzle to a feeder and vice versa"""
+        old_puzzle = copy.copy(puzzle_data)
+        await self.add_new_puzzle_sheet(puzzle_data)
+        await self.copy_puzzle(old_puzzle, puzzle_data)
+        await self.delete_puzzle_spreadsheet(old_puzzle)
+        await self.update_puzzle_info(puzzle_data, True)
 
     async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
         # self.overview_page_id = hunt_round.google_page_id
