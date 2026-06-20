@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # One asyncio.Lock per puzzle id
 _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
 
+# Authorization role names used by the command @has_any_role decorators.
+ADMIN_ROLES = ('Moderator', 'mod', 'admin')
+ORGANISER_ROLES = ADMIN_ROLES + ('Organisers',)
+
 def with_puzzle_mutex(*, wait: bool = True):
     """
     Decorator that serializes commands per puzzle.
@@ -318,7 +322,7 @@ class Puzzles(commands.Cog):
         return space_available
 
     @commands.command(aliases=["h"])
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def hunt(self, ctx, *, arg):
         """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
 
@@ -390,7 +394,7 @@ class Puzzles(commands.Cog):
         return (category, text_channel, True)
 
     @commands.hybrid_command(description="Set the hunt to use a second spreadsheet to hold solved puzzles (admin only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def set_to_archive(self, ctx):
         """*(admin) Set hunt to use a second spreadsheet to hold solved puzzles: !set_to_archive*"""
         if self.get_channel_type(ctx) != "Hunt":
@@ -505,7 +509,7 @@ class Puzzles(commands.Cog):
         return position
 
     @commands.hybrid_command(description="Move the channel to the top of the unsolved section of the category (organisers only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_top(self, ctx):
         channel = ctx.channel
         position = self.get_first_channel(ctx, channel.category)
@@ -513,7 +517,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Channel moved to top of category")
 
     @commands.hybrid_command(description="Move the channel to the bottom of the unsolved section of the category (organisers only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_bottom(self, ctx):
         channel = ctx.channel
         position = self.get_solve_divider_position(ctx, channel.category)
@@ -521,7 +525,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
     @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_solved(self, ctx):
         channel = ctx.channel
         position = self.get_solve_divider_position(ctx, channel.category)
@@ -537,7 +541,7 @@ class Puzzles(commands.Cog):
             return None
 
     @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def list_tags(self, ctx):
         """*(admin) For troubleshooting only: !list_tags*"""
         puzzle = self.get_puzzle(ctx)
@@ -566,7 +570,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def add_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !add_tag tag_id*"""
         try:
@@ -579,7 +583,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def remove_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !remove_tag tag_id*"""
@@ -686,7 +690,7 @@ class Puzzles(commands.Cog):
         return text_channel, created_text
 
     @commands.hybrid_command(description="Sync all the puzzles in the category to the metapuzzle (organiser only)",aliases=['sync_round'])
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def sync_meta(self, ctx):
         """*(Admin only) Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
@@ -921,7 +925,7 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert puzzle to metapuzzle", )
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_meta(self, ctx):
         if ( puzzle := self.get_puzzle(ctx) ) is None:
@@ -946,7 +950,7 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert puzzle to feeder", )
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_feeder(self, ctx):
         if (puzzle := self.get_puzzle(ctx)) is None:
@@ -994,14 +998,14 @@ class Puzzles(commands.Cog):
             GuildSettingsDb.commit(settings)
 
     @commands.hybrid_command(description="Show channel settings (admin only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*(admin) Show channel settings for debug*"""
         await ctx.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
 
     @commands.hybrid_command(description="Show puzzle settings (admin only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def show_puzzle_settings(self, ctx):
         """*(admin) Show channel puzzle settings for debug*"""
@@ -1029,7 +1033,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def set_login(self, ctx, *, arg):
         """*Set username and password for hunt*
         Format username:password"""
@@ -1048,7 +1052,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def set_start(self,ctx,timestamp:int):
         """*Set start time for hunt, only works with a UNIX timestamp*"""
         if self.get_channel_type(ctx) == "Guild":
@@ -1061,7 +1065,7 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(aliases=["ph"])
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def parallel_hunt(self, ctx):
         """*Mark that hunts are being done in parallel - more than one team doing at the same time
         Acts as a toggle."""
@@ -1081,7 +1085,7 @@ class Puzzles(commands.Cog):
             )
 
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
         """*(admin) Update channel/hunt/guild settings: !update_settings key value - can tolerate spaces in value with inverted commas*"""
@@ -1590,7 +1594,7 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
 
     @commands.command(aliases=["rename_meta"])
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
         """Rename a puzzle"""
@@ -1994,7 +1998,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def archive_round(self, ctx):
         """(admin) * Archives round to threads *"""
         hunt_general_channel = self.get_hunt_channel(ctx)
@@ -2011,7 +2015,7 @@ class Puzzles(commands.Cog):
             return False
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def archive_category(self, ctx, archive_to = None, ignore_channels = [], delete_channels = []):
         """(admin) * Archives category to threads *"""
         # If archive_to not set then archive to the main hunt channel
@@ -2030,7 +2034,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def archive_channel(self, ctx, channel = None, archive_to = None):
         """(admin) * Archives channel to threads *"""
         if channel is None:
@@ -2112,7 +2116,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def archive_solved_manually(self, ctx):
         """*(admin) Permanently archive solved puzzles*"""
         guild = ctx.guild
@@ -2142,7 +2146,7 @@ class Puzzles(commands.Cog):
         await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=False)
     async def delete_puzzle(self, ctx):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
@@ -2170,7 +2174,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command(aliases=['delete_metapuzzle','delete_group'])
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
         if self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
@@ -2206,7 +2210,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def delete_hunt(self, ctx):
         """*(admin) Permanently delete a Hunt*"""
         if self.get_channel_type(ctx) == "Hunt":
@@ -2240,7 +2244,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role('Moderator', 'mod', 'admin')
+    @commands.has_any_role(*ADMIN_ROLES)
     async def debug_puzzle_channel(self, ctx):
         """*(admin) See puzzle metadata*"""
 
@@ -2263,7 +2267,7 @@ class Puzzles(commands.Cog):
         self.reminder_index += 1
 
     @commands.hybrid_command(description="Start the reminder loop (organisers only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def start_reminders(self, ctx):
         """*(admin) Start reminder loop*"""
         channel = self.get_hunt_channel(ctx)
@@ -2272,7 +2276,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Reminder loop started.")
 
     @commands.hybrid_command(description="Stop the reminder loop (organisers only)",)
-    @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
+    @commands.has_any_role(*ORGANISER_ROLES)
     async def stop_reminders(self, ctx):
         """*(admin) Stop reminder loop*"""
         channel = self.get_hunt_channel(ctx)
