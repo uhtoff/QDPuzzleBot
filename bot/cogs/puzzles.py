@@ -346,12 +346,9 @@ class Puzzles(commands.Cog):
             return await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
 
         category_name = self.clean_name(hunt_name)
-        overwrites = None
-        role = None
         google_drive_id = None
         if role_name:
-            role = await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
-            overwrites = self.get_overwrites(guild, role)
+            await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
 
         category = await guild.create_category(category_name, position=max(len(guild.categories) - 2,0))
         text_channel, created_text = await self.get_or_create_channel(
@@ -1205,15 +1202,6 @@ class Puzzles(commands.Cog):
 
         return (channel, created)
 
-
-    def get_overwrites(self, guild, role):
-        if not role:
-            return None
-        return {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            role: discord.PermissionOverwrite(read_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True)
-        }
 
     async def send_initial_hunt_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs):
         hunt = kwargs.get('hunt',self.get_hunt(ctx))
