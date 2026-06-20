@@ -674,24 +674,9 @@ class Puzzles(commands.Cog):
                 initial_message = await self.send_initial_puzzle_channel_messages(ctx, text_channel, puzzle=new_puzzle)
                 await initial_message.pin()
 
-        created_voice = False
-        if created_voice:
-            voice_channel, created_voice = await self.get_or_create_channel(
-                guild=self.get_guild(ctx), category=category, channel_name=channel_name, channel_type="voice", reason=self.PUZZLE_REASON
-            )
-            if created_voice:
-                new_puzzle.voice_channel_id = voice_channel.id
-        created = created_text or created_voice
-        if created:
-            if created_text and created_voice:
-                created_desc = "text and voice"  # I'm sure there's a more elegant way to do this
-            elif created_text:
-                created_desc = "text"
-            elif created_voice:
-                created_desc = "voice"
-
+        if created_text:
             await ctx.send(
-                f":white_check_mark: I've created new puzzle {created_desc} channels for {category.name}: {text_channel.mention}"
+                f":white_check_mark: I've created a new puzzle channel for {category.name}: {text_channel.mention}"
             )
             PuzzleJsonDb.commit(new_puzzle)
 
