@@ -1846,8 +1846,9 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(puzzle)
 
-        if self.get_hunt_round(ctx).meta_id == puzzle.id:
-            self.get_hunt_round(ctx).solve_time = datetime.datetime.now(tz=pytz.UTC)
+        hunt_round = self.get_hunt_round(ctx)
+        if hunt_round and hunt_round.meta_id == puzzle.id:
+            hunt_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
