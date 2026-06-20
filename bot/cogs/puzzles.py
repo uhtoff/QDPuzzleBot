@@ -683,7 +683,7 @@ class Puzzles(commands.Cog):
             )
             await self.delete_puzzle_data(ctx, new_puzzle)
 
-        return text_channel, created
+        return text_channel, created_text
 
     @commands.hybrid_command(description="Sync all the puzzles in the category to the metapuzzle (organiser only)",aliases=['sync_round'])
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
