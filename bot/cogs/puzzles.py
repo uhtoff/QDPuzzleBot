@@ -800,6 +800,9 @@ class Puzzles(commands.Cog):
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        if not meta_round:
+            await ctx.send(":x: Please send a valid meta code")
+            return
         if puzzle.id == meta_round.meta_id:
             await ctx.send(":x: You can't remove a metapuzzle from it's own round!")
             return
