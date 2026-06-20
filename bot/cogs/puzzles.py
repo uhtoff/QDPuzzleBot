@@ -1930,8 +1930,12 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
-    async def archive_category(self, ctx, archive_to = None, ignore_channels = [], delete_channels = []):
+    async def archive_category(self, ctx, archive_to = None, ignore_channels = None, delete_channels = None):
         """(admin) * Archives category to threads *"""
+        if ignore_channels is None:
+            ignore_channels = []
+        if delete_channels is None:
+            delete_channels = []
         # If archive_to not set then archive to the main hunt channel
         if archive_to is None:
             archive_to = self.get_hunt_channel(ctx)
