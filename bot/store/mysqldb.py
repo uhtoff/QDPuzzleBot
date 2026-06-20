@@ -380,11 +380,14 @@ class MySQLGuildSettingsDb():
 
     def get(self, guild_id: int) -> GuildSettings:
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))
-        row = cursor.fetchone()
+        try:
+            cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row:
             return GuildSettings.import_dict(row)
-        cursor.close()
+        return None
 
     def get_cached(self, guild_id: int) -> GuildSettings:
         if guild_id in self.cached_settings:
