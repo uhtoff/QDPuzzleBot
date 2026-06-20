@@ -2,23 +2,19 @@ import datetime
 import logging
 import random
 import time
-import string
-from encodings.aliases import aliases
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import discord
-from discord import app_commands, Interaction
+from discord import app_commands
 from discord.ext import tasks, commands
-from discord import Webhook, Message
 import pytz
 import asyncio
-import aiohttp
 from functools import wraps
 from collections import defaultdict
 
-from bot.utils import urls, config, chunking
-from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, MySQLRoundJsonDb, MySQLAdditionalSheetsDb, SheetsJsonDb, AdditionalSheetData
+from bot.utils import urls
+from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData
 from bot.utils.chunking import build_note_embeds
 
 logger = logging.getLogger(__name__)
@@ -100,7 +96,6 @@ class Puzzles(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # self.archived_solved_puzzles_loop.start()
         self.reminder_index=0
         self.guild = None
         self.guild_data = None
@@ -149,7 +144,6 @@ class Puzzles(commands.Cog):
             if puzzle:
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
-        # print (f"Group data type: {hunt_round}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
         if hunt is not None:
             gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
@@ -212,10 +206,6 @@ class Puzzles(commands.Cog):
     async def on_ready(self):
         print(f"{type(self).__name__} Cog ready.")
 
-    # @app_commands.command(name="slash")
-    # async def ping(self, ctx: commands.Context):
-    #     bot_latency = round(self.bot.latency * 1000)
-    #     await ctx.send(f"Pong! {bot_latency} ms.")
 
     def clean_name(self, name):
         """Cleanup name to be appropriate for discord channel"""
@@ -447,15 +437,12 @@ class Puzzles(commands.Cog):
         if await self.check_available_space(ctx,1) is False:
             return await ctx.send(":x: There is no free channel to create this puzzle, please inform the moderators.")
 
-        # self.get_hunt_round(ctx).num_puzzles += 1
-        # RoundJsonDb.commit(self.get_hunt_round(ctx))
         check_duplicate = datetime.datetime.now()
         category = ctx.channel.category
         new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
         puzzle_created = datetime.datetime.now()
         await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
         channel_sent = datetime.datetime.now()
-        # print(f"Check duplicate: {(check_duplicate-self.start).seconds}.{(check_duplicate-self.start).microseconds} s - Create puzzle = {(puzzle_created-check_duplicate).seconds}.{(puzzle_created-check_duplicate).microseconds} s - Send channel = {(channel_sent-puzzle_created).seconds}.{(channel_sent-puzzle_created).microseconds} s - Total = {(channel_sent-self.start).seconds} s")
 
     async def create_metapuzzle(self,ctx, puzzle_name, tag = None):
         return await self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
@@ -463,8 +450,6 @@ class Puzzles(commands.Cog):
     async def create_puzzle(self, ctx, puzzle_name, tag = None, **kwargs):
         new_puzzle = PuzzleData(
             name=puzzle_name,
-            # round_id=self.get_hunt_round(ctx).id,
-            # round_id=self.get_hunt_round(ctx).id
             hunt_id=self.get_hunt(ctx).id,
             start_time=datetime.datetime.now(tz=pytz.UTC),
             status='Unstarted',
@@ -517,13 +502,6 @@ class Puzzles(commands.Cog):
             else:
                 await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
 
-    # @commands.command()
-    # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
-    # async def list_positions(self, ctx):
-    #     """*(admin) Troubleshooting channel positions"""
-    #     category = ctx.channel.category
-    #     for channel in category.channels:
-    #         print(f"{channel.name} ({channel.position})")
 
     def get_first_channel(self, ctx, category):
         position = False
@@ -564,12 +542,6 @@ class Puzzles(commands.Cog):
         await channel.edit(position=position+1)
         await ctx.send(":white_check_mark: Channel moved to solved")
 
-    # @commands.hybrid_command()
-    # @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
-    # async def move_channel(self, ctx, position):
-    #     channel = ctx.channel
-    #     position = int(position)
-    #     await channel.edit(position=position)
 
     def get_tag_from_category(self, category):
         hunt_round = RoundJsonDb.get_by_attr(category_id=category.id)
@@ -681,14 +653,11 @@ class Puzzles(commands.Cog):
         Save puzzle metadata to data_dir, send initial messages to channel, and
         create corresponding Google Sheet if GoogleSheets cog is set up.
         """
-        # category = self.bot.get_channel(self.get_hunt_round(ctx).channel_id).category
         send_initial_message = kwargs.get("send_initial_message", True)
         position = kwargs.get("position", 1)
         if category is None:
             category = ctx.channel.category
         channel_name = self.clean_name(new_puzzle.name)
-        # round_channel = self.get_round_channel(ctx)
-        # await round_channel.edit(position=0)
 
         if new_puzzle.is_metapuzzle():
             channel_name = "🧩 " + channel_name
@@ -729,7 +698,6 @@ class Puzzles(commands.Cog):
                 created_desc = "voice"
 
             await ctx.send(
-                # f":white_check_mark: I've created new puzzle {created_desc} channels for {self.get_hunt_round(ctx).name}: {text_channel.mention}"
                 f":white_check_mark: I've created new puzzle {created_desc} channels for {category.name}: {text_channel.mention}"
             )
             PuzzleJsonDb.commit(new_puzzle)
@@ -1179,30 +1147,6 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
 
-    # @commands.command(aliases=['import'])
-    # @commands.has_any_role('Moderator', 'mod', 'admin')
-    # @commands.has_permissions(manage_channels=True)
-    # async def import_puzzles(self, ctx):
-    #     """(Admin) *Import puzzles from the file system to the database*"""
-    #     guild = ctx.guild
-    #     settings = GuildSettingsDb.get(guild.id)
-    #     if ctx.channel.name != self.GENERAL_CHANNEL_NAME:
-    #         # all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, self.get_puzzle_data_from_channel(ctx.channel).hunt_id)
-    #         all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
-    #     else:
-    #         # all_puzzles = PuzzleJsonDb.get_all(ctx.guild.id, settings.category_mapping[ctx.channel.category.id])
-    #         all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id, ctx.channel.category.id)
-    #     for puzzle in all_puzzles:
-    #         PuzzleJsonDb.commit(puzzle)
-    #
-    # @commands.command(aliases=['import_all'])
-    # @commands.has_any_role('Moderator', 'mod', 'admin')
-    # @commands.has_permissions(manage_channels=True)
-    # async def import_all_puzzles(self, ctx):
-    #     """(Admin) *Import all puzzles from the file system to the database*"""
-    #     all_puzzles = PuzzleJsonDb.get_all_fs(ctx.guild.id)
-    #     for puzzle in all_puzzles:
-    #         PuzzleJsonDb.commit(puzzle)
 
     @commands.hybrid_command(description="List puzzles",aliases=["list"])
     async def list_puzzles(self, ctx):
@@ -1218,16 +1162,6 @@ class Puzzles(commands.Cog):
             embed_title = f"Puzzles in Round {self.get_hunt_round(ctx).name}"
         else:
             await ctx.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
-            # hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
-            # for hunt_puzzle in hunt_puzzles:
-            #     if hunt_puzzle.round_id not in all_puzzles:
-            #         hunt_round = RoundJsonDb.get_by_attr(id=hunt_puzzle.round_id)
-            #         all_puzzles[hunt_round.id] = {
-            #             'name': hunt_round.name,
-            #             'puzzles': []
-            #         }
-            #     all_puzzles[hunt_puzzle.round_id]['puzzles'].append(hunt_puzzle)
-            # embed_title = f"Puzzles in Hunt {self.get_hunt(ctx).name}"
 
         embed = discord.Embed(title=embed_title, colour=discord.Colour.blurple())
 
@@ -1574,7 +1508,6 @@ class Puzzles(commands.Cog):
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
         embed = discord.Embed(
             description=f"""Welcome to the puzzle channel for {puzzle.name} in Test!"""
-            # description=f"""Welcome to the puzzle channel for {puzzle.name} in {self.get_hunt_round(ctx).name}!"""
         )
         embed.add_field(
             name="Overview",
@@ -1717,7 +1650,6 @@ class Puzzles(commands.Cog):
             if self.get_gsheet_cog(ctx) is not None:
                 # update google sheet ID
                 await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx))
-            # await self.update_puzzle_attr_by_command(ctx, "hunt_url", url, reply=False)
             await self.send_state(
                 ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if url else None
             )
@@ -1800,14 +1732,6 @@ class Puzzles(commands.Cog):
             )
 
         if self.get_puzzle(ctx).notes:
-            # embed = discord.Embed(description=f"{message}")
-            # i = len(self.get_puzzle(ctx).notes)
-            # for x in range(i):
-            #     embed.add_field(
-            #         name=f"Note {x+1}",
-            #         value=self.get_puzzle(ctx).notes[x],
-            #         inline=False
-            #     )
             puzzle = self.get_puzzle(ctx)
 
             embeds = build_note_embeds(
@@ -1879,8 +1803,6 @@ class Puzzles(commands.Cog):
             meta_round = RoundJsonDb.get_by_attr(id=tag)
             await self.update_metapuzzle(ctx, meta_round)
 
-        # if self.get_hunt_round(ctx):
-        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="Partially SOLVED!",
@@ -1911,9 +1833,6 @@ class Puzzles(commands.Cog):
         solution = " ".join(args)
         solution = solution.strip().upper()
 
-        # for arg in args:
-        #     solution += arg.strip().upper()
-        #     solution += " "
 
         puzzle = self.get_puzzle(ctx)
 
@@ -1943,9 +1862,6 @@ class Puzzles(commands.Cog):
             if meta_round.meta_id == puzzle.id:
                 meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
                 RoundJsonDb.commit(meta_round)
-        #
-        # if self.get_hunt_round(ctx):
-        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!",
@@ -1991,9 +1907,6 @@ class Puzzles(commands.Cog):
         solution = " ".join(args)
         solution = solution.strip().upper()
 
-        # for arg in args:
-        #     solution += arg.strip().upper()
-        #     solution += " "
 
         puzzle = self.get_puzzle(ctx)
 
@@ -2006,8 +1919,6 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(puzzle)
 
-        # if self.get_hunt_round(ctx):
-        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
@@ -2038,9 +1949,6 @@ class Puzzles(commands.Cog):
         solution = " ".join(args)
         solution = solution.strip().upper()
 
-        # for arg in args:
-        #     solution += arg.strip().upper()
-        #     solution += " "
 
         puzzle = self.get_puzzle(ctx)
 
@@ -2053,8 +1961,6 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(puzzle)
 
-        # if self.get_hunt_round(ctx):
-        #     await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
 
         for tag in puzzle.tags:
             meta_round = RoundJsonDb.get_by_attr(id=tag)
@@ -2092,7 +1998,6 @@ class Puzzles(commands.Cog):
 
         puzzle.solve_time = None
 
-        # if self.get_puzzle(ctx).archive_time:
         puzzle.archive_time = None
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
@@ -2241,23 +2146,10 @@ class Puzzles(commands.Cog):
         for channel in solved_category.channels:
             num_messages = len(await channel.history(limit=10).flatten())
             if num_messages > 7:
-                # print(hunt_category.name)
-                # print(category.name + "-" + channel.name)
                 last_position += 1
                 await channel.edit(category=hunt_category, name="solved-" + channel.name, position=last_position)
             else:
                 await channel.delete(reason=self.DELETE_REASON)
-        #create round object for Sheets Cog
-
-
-        # round = PuzzleData(category.name)
-        # round.round_name = category.name
-        # round.round_id = category.id
-        # round.google_sheet_id = hunt_settings.drive_sheet_id
-        # round.hunt_url = hunt_settings.hunt_url
-        # gsheet_cog = self.bot.get_cog("GoogleSheets")
-        # if gsheet_cog is not None:
-        #     await gsheet_cog.archive_round_spreadsheet(round)
         hunt_general_channel = self.get_hunt_channel(ctx)
         await solved_category.delete(reason=self.DELETE_REASON)
         await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
@@ -2371,87 +2263,6 @@ class Puzzles(commands.Cog):
 
         await ctx.channel.send(f"```json\n{self.get_puzzle(ctx).to_json()}```")
 
-    # async def archive_solved_puzzles(self, guild: discord.Guild) -> List[PuzzleData]:
-    #     """Archive puzzles for which sufficient time has elapsed since solve time
-    #
-    #     Move them to a solved-puzzles channel category, and rename spreadsheet
-    #     to start with the text [SOLVED]
-    #     """
-    #     guild_data = GuildSettingsDb.get(guild.id)
-    #     puzzles_to_archive = PuzzleJsonDb.get_solved_puzzles_to_archive(guild_data.id)
-    #     gsheet_cog = self.bot.get_cog("GoogleSheets")
-    #
-    #     puzzles_by_hunt = {}
-    #     for puzz in puzzles_to_archive:
-    #         hunt = HuntJsonDb.get_by_attr(id=puzz.hunt_id)
-    #         logger.info(f"{puzz.name} - archiving")
-    #         if not hunt in puzzles_by_hunt:
-    #             puzzles_by_hunt[hunt] = []
-    #         puzzles_by_hunt[hunt].append(puzz)
-    #     # if puzzles_by_hunt:
-    #     #     logger.info(puzzles_by_hunt)
-    #     for hunt, puzzles in puzzles_by_hunt.items():
-    #         if self.SOLVE_CATEGORY:
-    #             solved_category_name = self.get_solved_puzzle_category(hunt.name)
-    #             solved_category = discord.utils.get(guild.categories, name=solved_category_name)
-    #             if not solved_category:
-    #                 avail_categories = [c.name for c in guild.categories]
-    #                 raise ValueError(
-    #                     f"{solved_category_name} category does not exist; available categories: {avail_categories}"
-    #             )
-    #
-    #         for puzzle in puzzles:
-    #             channel = discord.utils.get(guild.channels, id=puzzle.channel_id)
-    #             if channel:
-    #                 if self.SOLVE_CATEGORY:
-    #                     await channel.edit(category=solved_category)
-    #                 else:
-    #                     await channel.move(end=True, category=channel.category)
-    #                     message = f"Puzzle channel {channel.name} moved to the end of category {channel.category.name}."
-    #                     logger.info(message)
-    #             if gsheet_cog:
-    #                 """TODO Less efficient now
-    #                 Make this more resilient if the sheet has been deleted"""
-    #                 # hunt_round = RoundJsonDb.get_by_attr(id=puzzle.round_id)
-    #                 # hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-    #                 gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-    #                 try:
-    #                     await gsheet_cog.archive_puzzle_spreadsheet(puzzle, hunt.archive_google_sheet_id)
-    #                 except:
-    #                     message = f"Unable to update {puzzle.name} from {hunt.name} as solved on Google Sheet."
-    #                     logger.info(message)
-    #
-    #             puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
-    #             PuzzleJsonDb.commit(puzzle)
-    #     return puzzles_to_archive
-    #
-    # async def archive_solved(self, ctx):
-    #     """*(admin) Archive solved puzzles. Done automatically*
-    #
-    #     Done automatically on task loop, so this is only useful for debugging
-    #     """
-    #     if not (await self.check_is_bot_channel(ctx)):
-    #         return
-    #     puzzles_to_archive = await self.archive_solved_puzzles(ctx.guild)
-    #     mentions = " ".join([p.channel_mention for p in puzzles_to_archive])
-    #     message = f"Archived {len(puzzles_to_archive)} solved puzzle channels: {mentions}"
-    #     logger.info(message)
-    #     await ctx.send(message)
-    #
-    # @tasks.loop(seconds=300.0)
-    # async def archived_solved_puzzles_loop(self):
-    #     """Ref: https://discordpy.readthedocs.io/en/latest/ext/tasks/"""
-    #     logger.info(f"Archived solved puzzles loop")
-    #     for guild in self.bot.guilds:
-    #         try:
-    #             await self.archive_solved_puzzles(guild)
-    #         except Exception:
-    #             logger.exception("Unable to archive solved puzzles for guild {guild.id} {guild.name}")
-    #
-    # @archived_solved_puzzles_loop.before_loop
-    # async def before_archiving(self):
-    #     await self.bot.wait_until_ready()
-    #     logger.info("Ready to start archiving solved puzzles")
 
     @tasks.loop(hours=2)
     async def reminder_loop(self, channel):
