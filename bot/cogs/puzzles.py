@@ -573,7 +573,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role('Moderator', 'mod', 'admin', 'Organisers')
     async def add_tag(self, ctx, *, arg):
         """*(admin) For troubleshooting only: !add_tag tag_id*"""
-        new_tag = arg
+        try:
+            new_tag = int(arg)
+        except ValueError:
+            await ctx.channel.send(":x: Tag id must be a number.")
+            return
         puzzle = self.get_puzzle(ctx)
         puzzle.tags.append(new_tag)
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
