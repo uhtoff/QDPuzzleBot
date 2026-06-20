@@ -8,8 +8,7 @@ import traceback
 import discord
 from discord.ext import commands
 
-from bot import utils, database
-from bot.database.models import Guild
+from bot import utils
 from bot.utils import config
 
 from collections import defaultdict
@@ -24,15 +23,11 @@ TEST_GUILD_IDS = [
 ]
 
 async def get_prefix(_bot, message):
-    prefix = utils.config.prefix
-    if not isinstance(message.channel, discord.DMChannel):
-        prefix = utils.get_guild_prefix(_bot, message.guild.id)
-    return commands.when_mentioned_or(prefix)(_bot, message)
+    return commands.when_mentioned_or(utils.config.prefix)(_bot, message)
 
 
 bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True)
 bot.version = __version__
-bot.guild_data = {}
 
 @bot.event
 async def on_message(message):
@@ -51,19 +46,9 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-async def preload_guild_data():
-    guilds = await Guild.query.gino.all()
-    d = dict()
-    for guild in guilds:
-        d[guild.id] = {"prefix": guild.prefix}
-    return d
-
-
 @bot.event
 async def on_ready():
     bot.invite = invite_link.format(bot.user.id)
-    # await database.setup()
-    # bot.guild_data = await preload_guild_data()
     guild_names = [g.name for g in bot.guilds]
     guild_ids = [g.id for g in bot.guilds]
 

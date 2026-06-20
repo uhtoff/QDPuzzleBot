@@ -7,7 +7,6 @@ from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
 from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, AdditionalSheetData
 from .round_data import RoundData, _RoundJsonDb, MissingRoundError
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
-from .fs import FilePuzzleJsonDb, FileGuildSettingsDb
 from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb
 
 from bot.utils import config
@@ -66,10 +65,7 @@ class MySQLReconnector:
         """
         return getattr(self._conn, name)
 
-if config.storage == 'fs':
-    PuzzleJsonDb = FilePuzzleJsonDb(dir_path=DATA_DIR)
-    GuildSettingsDb = FileGuildSettingsDb(dir_path=DATA_DIR)
-elif config.storage == 'mysql':
+if config.storage == 'mysql':
     mydb = MySQLReconnector(
         host="localhost",
         user=config.mysql_username,
