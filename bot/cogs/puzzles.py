@@ -180,8 +180,9 @@ class Puzzles(commands.Cog):
         current_lc = (current or "").lower()
         choices: list[app_commands.Choice[str]] = []
         for r in rounds_sorted:
-            # filter to only rounds that are metas
-            if len(r.meta_code) != 6:
+            # filter to only rounds that are metas (meta_code is a 6-char string;
+            # non-meta rounds keep the default int 0)
+            if not isinstance(r.meta_code, str) or len(r.meta_code) != 6:
                 continue
             # Build a human label. Keep it short-ish.
             label = f"{r.name} ({r.meta_code})"
