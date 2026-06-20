@@ -1,8 +1,7 @@
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from dataclasses_json import dataclass_json
 import datetime
 import logging
-import json
 from typing import List, Optional, TypeVar, Type
 
 logger = logging.getLogger(__name__)

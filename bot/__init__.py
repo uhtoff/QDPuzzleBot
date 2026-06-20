@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import re
 from pathlib import Path
 import traceback
@@ -10,8 +9,6 @@ from discord.ext import commands
 
 from bot import utils
 from bot.utils import config
-
-from collections import defaultdict
 
 __version__ = "0.1.0"
 

@@ -12,7 +12,7 @@ from typing import List
 from discord.ext import commands
 
 from bot.utils import config
-from bot.store import PuzzleData, RoundData, RoundJsonDb
+from bot.store import PuzzleData, RoundJsonDb
 from bot.utils.gsheets import get_sheet, get_drive
 
 logger = logging.getLogger(__name__)
