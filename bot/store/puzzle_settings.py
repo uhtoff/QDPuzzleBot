@@ -15,7 +15,7 @@ class HuntSettings:
     hunt_name: str = ""
     hunt_url: str = ""
     hunt_puzzle_prefix: str = "puzzles"
-    drive_sheet_id: str = ""  # Refer to gsheet_nexus.py
+    drive_sheet_id: str = ""
     role_id: int = 0
     username: str = ""
     password: str = ""

@@ -21,8 +21,6 @@ import pytz
 from bot.utils import urls, config
 from bot.store import MissingPuzzleError, PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, HuntSettings, RoundData, RoundJsonDb, HuntJsonDb, HuntData
 from bot.utils.gsheets import get_sheet, get_drive
-from bot.utils.appscript import create_project, add_javascript
-from bot.utils.gsheet_nexus import update_nexus
 from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
