@@ -465,9 +465,7 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(new_puzzle)
 
-        for tag in new_puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
+        await self._update_all_metas(ctx, new_puzzle)
 
         return new_puzzle
 
@@ -1763,6 +1761,12 @@ class Puzzles(commands.Cog):
     def _normalize_solution(args):
         return " ".join(args).strip().upper()
 
+    async def _update_all_metas(self, ctx, puzzle):
+        """Refresh every metapuzzle this puzzle is tagged to."""
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            await self.update_metapuzzle(ctx, meta_round)
+
     async def _partial_impl(self, ctx, *args):
         puzzle = self.get_puzzle(ctx)
 
@@ -1776,9 +1780,7 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
-        for tag in self.get_puzzle(ctx).tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
+        await self._update_all_metas(ctx, self.get_puzzle(ctx))
 
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
@@ -1894,9 +1896,7 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
 
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
+        await self._update_all_metas(ctx, puzzle)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLUTION UPDATED!",
@@ -1935,9 +1935,7 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
 
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
+        await self._update_all_metas(ctx, puzzle)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
