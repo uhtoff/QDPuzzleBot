@@ -1253,6 +1253,19 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
+    def _build_embed_list(self, ctx, embed, puzzle):
+        """Wrap the main embed plus an optional additional-sheets embed in a list."""
+        embed_list = [embed]
+        if len(puzzle.additional_sheets) > 0:
+            sheets_embed = discord.Embed()
+            sheets_embed.add_field(
+                name="Additional Sheet Links",
+                value=self.create_additional_sheet_list(ctx, puzzle),
+                inline=False,
+            )
+            embed_list.append(sheets_embed)
+        return embed_list
+
     @staticmethod
     def _add_puzzle_status_fields(embed, puzzle):
         """Add Status/Solution/Type/Priority fields for a puzzle to an embed."""
@@ -1328,15 +1341,7 @@ class Puzzles(commands.Cog):
             inline=False,
         )
         self._add_puzzle_status_fields(embed, puzzle)
-        embed_list = [embed]
-        if len(puzzle.additional_sheets) > 0:
-            sheets_embed = discord.Embed()
-            sheets_embed.add_field(
-                name="Additional Sheet Links",
-                value=self.create_additional_sheet_list(ctx, puzzle),
-                inline=False,
-            )
-            embed_list.append(sheets_embed)
+        embed_list = self._build_embed_list(ctx, embed, puzzle)
 
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
@@ -1441,16 +1446,7 @@ class Puzzles(commands.Cog):
         )
         self._add_puzzle_status_fields(embed, puzzle)
 
-        embed_list = [embed]
-
-        if len(puzzle.additional_sheets) > 0:
-            sheets_embed = discord.Embed()
-            sheets_embed.add_field(
-                name="Additional Sheet Links",
-                value=self.create_additional_sheet_list(ctx, puzzle),
-                inline=False,
-            )
-            embed_list.append(sheets_embed)
+        embed_list = self._build_embed_list(ctx, embed, puzzle)
 
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
@@ -1509,15 +1505,7 @@ class Puzzles(commands.Cog):
         )
         self._add_puzzle_status_fields(embed, puzzle)
 
-        embed_list = [embed]
-        if len(puzzle.additional_sheets) > 0:
-            sheets_embed = discord.Embed()
-            sheets_embed.add_field(
-                name="Additional Sheet Links",
-                value=self.create_additional_sheet_list(ctx, puzzle),
-                inline=False,
-            )
-            embed_list.append(sheets_embed)
+        embed_list = self._build_embed_list(ctx, embed, puzzle)
 
         if kwargs.get("update",False):
             channel_pins = await channel.pins()
