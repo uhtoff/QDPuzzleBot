@@ -100,6 +100,60 @@ class Puzzles(commands.Cog):
         self.reminder_index=0
         self.position_lock = asyncio.Lock()
         self.environment = {}
+        # channel.id -> latest desired name, for renames deferred past the bucket.
+        self._pending_renames = {}
+        # Strong refs to in-flight deferred-rename tasks so they aren't GC'd.
+        self._rename_tasks = set()
+
+    # Discord enforces a strict, per-channel rename bucket (historically ~2 renames
+    # per 10 minutes). discord.py normally waits out a 429, but that can block a
+    # command for up to ~10 minutes. With max_ratelimit_timeout set on the bot, an
+    # over-long wait raises discord.RateLimited instead; we catch it here and apply
+    # the rename in the background, coalescing rapid renames to the latest name.
+    async def safe_rename(self, channel, name, ctx=None):
+        try:
+            await channel.edit(name=name)
+            return True
+        except discord.RateLimited as exc:
+            already_pending = channel.id in self._pending_renames
+            self._pending_renames[channel.id] = name
+            if ctx is not None:
+                await ctx.send(
+                    f"⏳ Discord is rate-limiting renames on this channel; "
+                    f"I'll apply the new name in about {round(exc.retry_after)}s."
+                )
+            if not already_pending:
+                task = asyncio.create_task(self._deferred_rename(channel, exc.retry_after))
+                self._rename_tasks.add(task)
+                task.add_done_callback(self._rename_tasks.discard)
+            return False
+
+    async def _deferred_rename(self, channel, delay):
+        """Wait out the rename bucket, then apply the latest requested name,
+        coalescing any further renames queued while we were waiting."""
+        attempts = 0
+        while attempts < 6:
+            await asyncio.sleep(delay + 1)
+            name = self._pending_renames.get(channel.id)
+            if name is None:
+                return
+            attempts += 1
+            try:
+                await channel.edit(name=name)
+            except discord.RateLimited as exc:
+                delay = exc.retry_after
+                continue
+            except discord.HTTPException:
+                logger.exception("Deferred rename of channel %s failed", channel.id)
+                self._pending_renames.pop(channel.id, None)
+                return
+            # Applied. If a newer name was queued meanwhile, loop to apply it too.
+            if self._pending_renames.get(channel.id) == name:
+                self._pending_renames.pop(channel.id, None)
+                return
+            delay = 0
+        logger.warning("Gave up deferred rename of channel %s after repeated rate limits", channel.id)
+        self._pending_renames.pop(channel.id, None)
 
     async def cog_before_invoke(self, ctx):
         """For separating commands use ctx.message.id"""
@@ -937,7 +991,7 @@ class Puzzles(commands.Cog):
         puzzle.metapuzzle = 1
         PuzzleJsonDb.commit(puzzle)
         await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
-        await ctx.channel.edit(name="🧩 " + self.clean_name(puzzle.name))
+        await self.safe_rename(ctx.channel, "🧩 " + self.clean_name(puzzle.name), ctx)
         self.set_channel_type(ctx, "Metapuzzle")
         await self.info(ctx, update=True)
         await ctx.send(
@@ -963,7 +1017,7 @@ class Puzzles(commands.Cog):
         puzzle.metapuzzle = False
         PuzzleJsonDb.commit(puzzle)
         await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
-        await ctx.channel.edit(name=self.clean_name(puzzle.name))
+        await self.safe_rename(ctx.channel, self.clean_name(puzzle.name), ctx)
         self.set_channel_type(ctx, "Puzzle")
         await self.info(ctx, update=True)
         await ctx.send(
@@ -1524,7 +1578,7 @@ class Puzzles(commands.Cog):
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
                 return await ctx.send(
                     f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
-            await ctx.channel.edit(name=self.clean_name(puzzle_name))
+            await self.safe_rename(ctx.channel, self.clean_name(puzzle_name), ctx)
             self.get_puzzle(ctx).name = puzzle_name
             self.get_puzzle(ctx).channel_name = self.clean_name(puzzle_name)
             PuzzleJsonDb.commit(self.get_puzzle(ctx))
@@ -2055,7 +2109,10 @@ class Puzzles(commands.Cog):
             num_messages = len(await channel.history(limit=10).flatten())
             if num_messages > 7:
                 last_position += 1
-                await channel.edit(category=hunt_category, name="solved-" + channel.name, position=last_position)
+                # Category/position aren't rename-limited; apply them immediately,
+                # then defer the (strict-bucket) rename if necessary.
+                await channel.edit(category=hunt_category, position=last_position)
+                await self.safe_rename(channel, "solved-" + channel.name)
             else:
                 await channel.delete(reason=self.DELETE_REASON)
         hunt_general_channel = self.get_hunt_channel(ctx)
