@@ -16,5 +16,17 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        // Split rarely-changing vendor libs into their own chunks for caching
+        // and to clear the >500 kB single-bundle warning.
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          mantine: ["@mantine/core", "@mantine/hooks", "@mantine/notifications"],
+          query: ["@tanstack/react-query", "@tanstack/react-table"],
+          dnd: ["@dnd-kit/core"],
+        },
+      },
+    },
   },
 });

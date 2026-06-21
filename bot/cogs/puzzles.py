@@ -576,6 +576,72 @@ class Puzzles(commands.Cog):
             else:
                 await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
 
+    # --- ctx-free helpers used by the web dashboard (bot/web/actions.py) -----
+    # These mirror update_metapuzzle / move_to_meta / add_to_meta /
+    # remove_from_meta but resolve the sheets cog and spreadsheet id explicitly
+    # instead of from the per-command environment. Keep them in sync.
+
+    async def web_refresh_meta(self, hunt, hunt_round):
+        """ctx-free twin of update_metapuzzle: refresh a meta's sheet."""
+        if hunt is None or hunt_round is None or not hunt_round.meta_id:
+            return
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is None:
+            return
+        gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+        gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+        metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+        if metapuzzle is None:
+            return
+        # The sheet refresh is a side-effect of the retag; a transient Sheets
+        # error must not fail the web action (the DB/channel change is done).
+        try:
+            if metapuzzle.metameta:
+                all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_round.hunt_id)
+                await gsheet_cog.add_metametapuzzle_data(metapuzzle, all_puzzles)
+            else:
+                round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+                await gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
+        except Exception:
+            logger.exception("web_refresh_meta: sheet update failed for round %s", hunt_round.id)
+
+    async def web_move_to_meta(self, guild, puzzle, meta_round):
+        """ctx-free move_to_meta: retag to meta_round, move its channel, refresh sheets."""
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        old_tags = list(puzzle.tags)
+        if guild is not None and puzzle.channel_id:
+            channel = guild.get_channel(puzzle.channel_id)
+            new_category = discord.utils.get(guild.categories, id=meta_round.category_id)
+            if channel is not None and new_category is not None:
+                await channel.edit(category=new_category, position=2)
+        # Don't strip a metapuzzle's own tags (avoids orphaning it), as in the command.
+        if puzzle.is_metapuzzle() is False:
+            puzzle.tags.clear()
+        puzzle.tags.append(meta_round.id)
+        PuzzleJsonDb.commit(puzzle)
+        await self.web_refresh_meta(hunt, meta_round)
+        for old_tag in old_tags:
+            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=old_tag))
+
+    async def web_add_to_meta(self, puzzle, meta_round):
+        """ctx-free add_to_meta: tag the puzzle to an additional meta."""
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        if meta_round.id not in puzzle.tags:
+            puzzle.tags.append(meta_round.id)
+            PuzzleJsonDb.commit(puzzle)
+        await self.web_refresh_meta(hunt, meta_round)
+
+    async def web_remove_from_meta(self, puzzle, meta_round):
+        """ctx-free remove_from_meta: untag the puzzle from a meta."""
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        old_tags = list(puzzle.tags)
+        if meta_round.id in puzzle.tags:
+            puzzle.tags.remove(meta_round.id)
+            PuzzleJsonDb.commit(puzzle)
+        await self.web_refresh_meta(hunt, meta_round)
+        for old_tag in old_tags:
+            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=old_tag))
+
 
     def get_first_channel(self, ctx, category):
         position = False

@@ -5,7 +5,13 @@ import logging
 from quart import Blueprint, jsonify, session, websocket
 
 from . import data, events
-from .auth import current_user, hunt_visible, login_required, resolve_membership
+from .auth import (
+    current_user,
+    hunt_visible,
+    login_required,
+    resolve_membership,
+    user_can_manage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,8 @@ async def hunt_detail(uid):
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_snowflake)
     board = data.build_board(puzzles)
     solved = sum(1 for p in puzzles if p["solved"])
+    # Archived hunts are read-only even for organisers.
+    can_manage = (not hunt["archived"]) and await user_can_manage(current_user()["id"], guild_snowflake)
     return jsonify({
         "hunt": {
             "uid": hunt["uid"],
@@ -67,6 +75,7 @@ async def hunt_detail(uid):
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
             "archive_sheet_base_url": _sheet_base(hunt["archive_google_sheet_id"]),
+            "can_manage": can_manage,
         },
         "summary": {"total": len(puzzles), "solved": solved},
         "board": board,

@@ -17,6 +17,7 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
+import { DragBoard } from "../components/DragBoard";
 import { NotesDrawer } from "../components/NotesDrawer";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { Puzzle } from "../types";
@@ -25,7 +26,7 @@ export default function HuntBoard() {
   const { uid } = useParams();
   const { data, isLoading, error } = useHunt(uid);
   const live = useActivityFeed();
-  const [view, setView] = useState<"board" | "all">("board");
+  const [view, setView] = useState<"board" | "all" | "arrange">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
@@ -79,23 +80,26 @@ export default function HuntBoard() {
 
       <SegmentedControl
         value={view}
-        onChange={(v) => setView(v as "board" | "all")}
+        onChange={(v) => setView(v as "board" | "all" | "arrange")}
         data={[
           { label: "By meta", value: "board" },
           { label: "All puzzles", value: "all" },
+          ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
         ]}
-        w={260}
+        w={data.hunt.can_manage ? 360 : 260}
       />
 
-      {view === "board" ? (
+      {view === "board" && (
         <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.round_id))}>
           {data.board.map((g) => (
             <BoardGroup key={g.round_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
           ))}
         </Accordion>
-      ) : (
+      )}
+      {view === "all" && (
         <PuzzleTable detail={data} puzzles={allPuzzles} live={live} onOpenNotes={openNotes} />
       )}
+      {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
 
       <NotesDrawer puzzle={notesPuzzle} huntUid={uid!} onClose={() => setNotesPuzzleId(null)} />
     </Stack>

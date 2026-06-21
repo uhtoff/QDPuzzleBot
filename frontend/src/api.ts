@@ -84,3 +84,21 @@ export function useEraseNote(uid: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
+
+export type RetagMode = "move" | "add" | "remove";
+
+export function useRetagPuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      puzzleId,
+      metaCode,
+      mode,
+    }: {
+      puzzleId: number;
+      metaCode: string;
+      mode: RetagMode;
+    }) => apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/meta`, "POST", { meta_code: metaCode, mode }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}

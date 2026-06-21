@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
+# Mirror bot/cogs/puzzles.py role gating for write-actions.
+ADMIN_ROLES = ("Moderator", "mod", "admin")
+ORGANISER_ROLES = ADMIN_ROLES + ("Organisers",)
+
 DISCORD_API = "https://discord.com/api"
 AUTHORIZE_URL = f"{DISCORD_API}/oauth2/authorize"
 TOKEN_URL = f"{DISCORD_API}/oauth2/token"
@@ -151,6 +155,16 @@ async def resolve_role_names(user_id, guild_snowflake):
         except Exception:
             return None
     return {role.name for role in member.roles}
+
+
+async def user_can_manage(user_id, guild_snowflake, roles=ORGANISER_ROLES):
+    """True if the user holds an organiser/admin role in the guild."""
+    if not guild_snowflake:
+        return False
+    names = await resolve_role_names(user_id, guild_snowflake)
+    if not names:
+        return False
+    return any(r in names for r in roles)
 
 
 def hunt_visible(hunt, membership, roles_by_guild, guilds_map):

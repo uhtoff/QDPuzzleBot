@@ -75,6 +75,7 @@ export interface HuntDetail {
     guild_snowflake: string | null;
     sheet_base_url: string | null;
     archive_sheet_base_url: string | null;
+    can_manage: boolean;
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];

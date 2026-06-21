@@ -11,6 +11,7 @@ from quart import Blueprint, current_app, jsonify, request
 
 from . import data
 from .auth import (
+    ORGANISER_ROLES,
     current_user,
     hunt_visible,
     login_required,
@@ -21,10 +22,6 @@ from .auth import (
 logger = logging.getLogger(__name__)
 
 actions_bp = Blueprint("actions", __name__, url_prefix="/api")
-
-# Mirror bot/cogs/puzzles.py role gating (kept local to avoid importing the cog).
-ADMIN_ROLES = ("Moderator", "mod", "admin")
-ORGANISER_ROLES = ADMIN_ROLES + ("Organisers",)
 
 MAX_NOTE_LEN = 1000
 
@@ -106,3 +103,53 @@ async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
     if not any(r in names for r in roles):
         return jsonify({"error": "insufficient_role"}), 403
     return None
+
+
+# --- Retag puzzles between metas (organiser only) ---------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/meta", methods=["POST"])
+@login_required
+async def retag_puzzle(puzzle_id):
+    """Move/add/remove a puzzle to/from a metapuzzle, via the bot's own logic.
+
+    Body: {"meta_code": "ABC123", "mode": "move"|"add"|"remove"}. "move" also
+    relocates the Discord channel to the meta's category (mirrors !move_to_meta).
+    """
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    meta_code = (body.get("meta_code") or "").strip()
+    mode = body.get("mode") or "move"
+    if mode not in ("move", "add", "remove"):
+        return jsonify({"error": "bad_mode"}), 400
+
+    from bot.store import PuzzleJsonDb, RoundJsonDb
+
+    meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+    if meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]:
+        return jsonify({"error": "bad_meta_code"}), 400
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+    if mode == "remove" and puzzle.id == meta_round.meta_id:
+        return jsonify({"error": "cannot_remove_own_meta"}), 400
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+    if mode == "move":
+        await cog.web_move_to_meta(guild, puzzle, meta_round)
+    elif mode == "add":
+        await cog.web_add_to_meta(puzzle, meta_round)
+    else:
+        await cog.web_remove_from_meta(puzzle, meta_round)
+    return jsonify({"ok": True})
