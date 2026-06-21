@@ -99,18 +99,32 @@ class GoogleSheets(commands.Cog):
         return execute_sync(get_sheet().get(spreadsheetId=spreadsheet_id))
 
     def get_grid_size(self, old_puzzle) -> tuple:
-        spreadsheet_id = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
-        response = execute_sync(get_sheet().get(
-            spreadsheetId=spreadsheet_id,
-            fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
-        ))
+        target = int(old_puzzle.google_page_id)
+        # Look in the expected spreadsheet first, but fall back to the other one:
+        # if the archived flag is out of sync with where the sheet actually lives,
+        # querying only one would miss it and silently return (0, 0).
+        primary = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
+        secondary = self.get_spreadsheet_id() if old_puzzle.archived else self.get_archive_spreadsheet_id()
+        seen = []
+        for spreadsheet_id in (primary, secondary):
+            if not spreadsheet_id:
+                continue
+            response = execute_sync(get_sheet().get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
+            ))
+            for sheet in response.get("sheets", []):
+                props = sheet.get("properties", {})
+                seen.append(props.get("sheetId"))
+                if props.get("sheetId") == target:
+                    grid = props.get("gridProperties", {})
+                    return grid.get("rowCount", 0), grid.get("columnCount", 0)
 
-        for sheet in response.get("sheets",[]):
-            props = sheet.get("properties", {})
-            if props.get("sheetId") == int(old_puzzle.google_page_id):
-                return props.get("gridProperties", {}).get("rowCount", 0), props.get("gridProperties", {}).get("columnCount", 0)
-
-        return 0,0
+        logger.warning(
+            "get_grid_size: sheet %s not found (searched %s; saw ids %s)",
+            target, [s for s in (primary, secondary) if s], seen,
+        )
+        return 0, 0
 
     async def update_grid_size(self, sheet_id, row_count, column_count):
         body = {
@@ -200,6 +214,14 @@ class GoogleSheets(commands.Cog):
 
     async def copy_puzzle(self, old_puzzle, new_puzzle):
         old_grid_rows, old_grid_columns = self.get_grid_size(old_puzzle)
+        if not old_grid_rows or not old_grid_columns:
+            # get_grid_size couldn't locate the source sheet; resizing to 0 rows
+            # would be rejected by Sheets ("can't delete all the rows") and copying
+            # nothing would lose data, so abort rather than corrupt the sheet.
+            raise RuntimeError(
+                f"Couldn't read the source sheet (page id {old_puzzle.google_page_id}) "
+                "while converting the puzzle; aborting before resizing it to zero rows."
+            )
         if new_puzzle.is_metapuzzle():
             new_grid_columns = old_grid_columns + 2
         else:
@@ -506,9 +528,22 @@ class GoogleSheets(commands.Cog):
         """Converts puzzle sheet from a metapuzzle to a feeder and vice versa"""
         old_puzzle = copy.copy(puzzle_data)
         await self.add_new_puzzle_sheet(puzzle_data)
-        await self.copy_puzzle(old_puzzle, puzzle_data)
-        await self.delete_puzzle_spreadsheet(old_puzzle)
-        await self.update_puzzle_info(puzzle_data, True)
+        try:
+            await self.copy_puzzle(old_puzzle, puzzle_data)
+            await self.delete_puzzle_spreadsheet(old_puzzle)
+            await self.update_puzzle_info(puzzle_data, True)
+        except Exception:
+            # The convert isn't atomic: we've already created the replacement sheet.
+            # If a later step fails, delete that orphan and restore the original page
+            # id so a failed convert leaves the puzzle as it was rather than stranding
+            # a duplicate tab (the source of the "Extra"/"Extra (2)" broken state).
+            try:
+                await self.delete_sheet(puzzle_data.google_page_id)
+            except Exception:
+                logger.exception("Failed to clean up half-created sheet %s after a failed convert",
+                                 puzzle_data.google_page_id)
+            puzzle_data.google_page_id = old_puzzle.google_page_id
+            raise
 
     async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
         requests = [self.update_cell("Puzzle titles",4,0,self.STRING_INPUT,puzzle.google_page_id),

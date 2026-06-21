@@ -329,8 +329,11 @@ class Puzzles(commands.Cog):
         if isinstance(error, commands.CheckFailure) and str(error) == "PUZZLE_BUSY":
             await ctx.send("⏳ That puzzle is busy running another command. Try again in a moment.")
             return
-        # Unwrap the framework's CommandInvokeError to get the real exception.
-        original = getattr(error, "original", error)
+        # Unwrap nested framework wrappers (HybridCommandError -> app_commands
+        # CommandInvokeError -> ...) down to the real exception.
+        original = error
+        while getattr(original, "original", None) is not None:
+            original = original.original
         if isinstance(original, HttpError):
             status = getattr(original.resp, "status", None)
             if status == 429:
