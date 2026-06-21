@@ -10,5 +10,16 @@
   "database": "",
   "mysql_username": "",
   "mysql_password": "",
-  "debug": false
+  "debug": false,
+  "development": false,
+  "web": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8099,
+    "session_secret": "change-me-to-a-long-random-string",
+    "oauth_client_id": "",
+    "oauth_client_secret": "",
+    "oauth_redirect_uri": "https://example.com/api/auth/callback",
+    "frontend_url": "https://example.com"
+  }
 }

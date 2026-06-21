@@ -7,7 +7,7 @@ from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
 from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, AdditionalSheetData
 from .round_data import RoundData, _RoundJsonDb, MissingRoundError
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb
 
 from bot.utils import config
 
@@ -79,3 +79,4 @@ if config.storage == 'mysql':
     RoundJsonDb = MySQLRoundJsonDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
+    ChannelActivityDb = MySQLChannelActivityDb(mydb=mydb)

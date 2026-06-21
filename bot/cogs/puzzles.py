@@ -426,8 +426,15 @@ class Puzzles(commands.Cog):
 
         category_name = self.clean_name(hunt_name)
         google_drive_id = None
+        team_role = None
         if role_name:
-            await guild.create_role(name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON )
+            # Reuse an existing role with this name if present, so a hunt's team
+            # role id is captured even when the role was made by hand.
+            team_role = discord.utils.get(guild.roles, name=role_name)
+            if team_role is None:
+                team_role = await guild.create_role(
+                    name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON
+                )
 
         category = await guild.create_category(category_name, position=max(len(guild.categories) - 2,0))
         text_channel, created_text = await self.get_or_create_channel(
@@ -456,6 +463,10 @@ class Puzzles(commands.Cog):
             url=hunt_url,
             uid=uid,
         )
+
+        if team_role is not None:
+            # Captured so the dashboard can gate active-hunt visibility by team role.
+            new_hunt.role_id = team_role.id
 
         if google_drive_id:
             new_hunt.google_sheet_id=google_drive_id

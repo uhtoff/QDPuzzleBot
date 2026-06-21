@@ -1,0 +1,89 @@
+export interface User {
+  id: number;
+  username: string | null;
+  global_name: string | null;
+  avatar: string | null;
+}
+
+export interface HuntSummary {
+  uid: string;
+  name: string;
+  url: string;
+  archived: boolean;
+  guild_snowflake: number | null;
+  guild_name: string | null;
+  start_time: string | null;
+  solve_time: string | null;
+}
+
+export interface HuntList {
+  active: HuntSummary[];
+  archived: HuntSummary[];
+}
+
+export interface PuzzleRound {
+  id: number;
+  name: string;
+  meta_code: string | null;
+  is_meta_of: boolean;
+}
+
+export interface Activity {
+  at: string | null;
+  author: string | null;
+}
+
+export interface Puzzle {
+  id: number;
+  name: string;
+  url: string | null;
+  channel_id: string | null;
+  discord_url: string | null;
+  sheet_page: string | null;
+  is_meta: boolean;
+  is_metameta: boolean;
+  status: string | null;
+  solved: boolean;
+  archived: boolean;
+  solution: string | null;
+  priority: string | null;
+  puzzle_type: string | null;
+  notes: string[];
+  start_time: string | null;
+  solve_time: string | null;
+  last_activity: Activity | null;
+  rounds: PuzzleRound[];
+}
+
+export interface BoardGroup {
+  round_id: number;
+  name: string;
+  meta_code: string | null;
+  puzzles: Puzzle[];
+  meta_solution: string | null;
+  meta_solved: boolean;
+  num_feeders: number;
+  num_solved_feeders: number;
+}
+
+export interface HuntDetail {
+  hunt: {
+    uid: string;
+    name: string;
+    url: string;
+    archived: boolean;
+    guild_snowflake: string | null;
+    sheet_base_url: string | null;
+    archive_sheet_base_url: string | null;
+  };
+  summary: { total: number; solved: number };
+  board: BoardGroup[];
+}
+
+export interface ActivityEvent {
+  type: string;
+  channel_id?: string;
+  guild_id?: number;
+  at?: string;
+  author?: string;
+}

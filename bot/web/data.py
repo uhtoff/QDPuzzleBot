@@ -1,0 +1,259 @@
+"""Read-only database access for the dashboard.
+
+Uses a dedicated connection pool (separate from the bot's single shared
+connection) and runs every query in a worker thread via ``asyncio.to_thread`` so
+dashboard traffic never stalls the bot's event loop or races on its connection.
+All functions return plain JSON-friendly dicts.
+"""
+import asyncio
+import datetime
+import json
+import logging
+
+import mysql.connector
+from mysql.connector import pooling
+
+from bot.utils import config
+
+logger = logging.getLogger(__name__)
+
+_pool = None
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        _pool = pooling.MySQLConnectionPool(
+            pool_name="dashboard",
+            pool_size=3,
+            host="localhost",
+            user=config.mysql_username,
+            password=config.mysql_password,
+            database=config.database,
+            charset="utf8mb4",
+            autocommit=True,
+        )
+    return _pool
+
+
+def _run(sql, params=(), *, one=False):
+    conn = _get_pool().get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute(sql, params)
+            return cursor.fetchone() if one else cursor.fetchall()
+        finally:
+            cursor.close()
+    finally:
+        conn.close()  # returns the connection to the pool
+
+
+async def fetch_all(sql, params=()):
+    return await asyncio.to_thread(_run, sql, params, one=False)
+
+
+async def fetch_one(sql, params=()):
+    return await asyncio.to_thread(_run, sql, params, one=True)
+
+
+def _iso(value):
+    """Render a DB datetime (stored naive UTC) as an ISO-8601 UTC string."""
+    if isinstance(value, datetime.datetime):
+        return value.replace(tzinfo=datetime.timezone.utc).isoformat()
+    return None
+
+
+# --- Hunts / guilds ---------------------------------------------------------
+
+async def get_guilds_map():
+    """{guilds.id -> {guild_snowflake, guild_name, website_url}} keyed by row id."""
+    rows = await fetch_all("SELECT id, guild_id, guild_name, website_url FROM guilds")
+    return {
+        row["id"]: {
+            "guild_snowflake": row["guild_id"],
+            "guild_name": row["guild_name"],
+            "website_url": row["website_url"],
+        }
+        for row in rows
+    }
+
+
+async def get_all_hunts():
+    return await fetch_all(
+        "SELECT id, uid, name, url, guild_id, role_id, archived, "
+        "google_sheet_id, archive_google_sheet_id, start_time, solve_time "
+        "FROM hunts"
+    )
+
+
+async def get_hunt_by_uid(uid):
+    return await fetch_one(
+        "SELECT id, uid, name, url, guild_id, role_id, archived, "
+        "google_sheet_id, archive_google_sheet_id, start_time, solve_time "
+        "FROM hunts WHERE uid = %s",
+        (uid,),
+    )
+
+
+def hunt_to_json(hunt, guilds_map):
+    guild = guilds_map.get(hunt["guild_id"], {})
+    return {
+        "uid": hunt["uid"],
+        "name": hunt["name"],
+        "url": hunt["url"],
+        "archived": bool(hunt["archived"]),
+        "guild_snowflake": guild.get("guild_snowflake"),
+        "guild_name": guild.get("guild_name"),
+        "start_time": _iso(hunt.get("start_time")),
+        "solve_time": _iso(hunt.get("solve_time")),
+    }
+
+
+# --- Puzzles ----------------------------------------------------------------
+
+async def get_hunt_puzzles(hunt_id, guild_snowflake):
+    """Flat list of every puzzle in the hunt, each with its rounds and last activity.
+
+    A puzzle tagged into multiple rounds appears once with a ``rounds`` array.
+    """
+    rows = await fetch_all(
+        "SELECT puzzles.id, puzzles.name, puzzles.url, puzzles.channel_id, "
+        "puzzles.google_page_id, puzzles.metapuzzle, puzzles.metameta, "
+        "puzzles.status, puzzles.solved, puzzles.archived, puzzles.solution, "
+        "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
+        "puzzles.start_time, puzzles.solve_time, "
+        "rounds.id AS round_id, rounds.name AS round_name, "
+        "rounds.meta_id AS round_meta_id, rounds.meta_code AS round_meta_code, "
+        "act.last_human_message_at, act.last_author_name "
+        "FROM puzzles "
+        "LEFT JOIN tags ON puzzles.id = tags.puzzle_id "
+        "LEFT JOIN rounds ON tags.round_id = rounds.id "
+        "LEFT JOIN channel_activity act ON act.channel_id = puzzles.channel_id "
+        "WHERE puzzles.hunt_id = %s "
+        "ORDER BY puzzles.metapuzzle DESC, puzzles.solved ASC, puzzles.id ASC",
+        (hunt_id,),
+    )
+
+    puzzles = {}
+    for row in rows:
+        pid = row["id"]
+        puz = puzzles.get(pid)
+        if puz is None:
+            puz = {
+                "id": pid,
+                "name": row["name"],
+                "url": row["url"],
+                "channel_id": str(row["channel_id"]) if row["channel_id"] else None,
+                "discord_url": (
+                    f"https://discord.com/channels/{guild_snowflake}/{row['channel_id']}"
+                    if guild_snowflake and row["channel_id"] else None
+                ),
+                "sheet_page": row["google_page_id"],
+                "is_meta": bool(row["metapuzzle"]),
+                "is_metameta": bool(row["metameta"]),
+                "status": row["status"],
+                "solved": bool(row["solved"]),
+                "archived": bool(row["archived"]),
+                "solution": row["solution"],
+                "priority": row["priority"],
+                "puzzle_type": row["puzzle_type"],
+                "notes": _load_notes(row["notes"]),
+                "start_time": _iso(row.get("start_time")),
+                "solve_time": _iso(row.get("solve_time")),
+                "last_activity": (
+                    {
+                        "at": _iso(row["last_human_message_at"]),
+                        "author": row["last_author_name"],
+                    }
+                    if row["last_human_message_at"] else None
+                ),
+                "rounds": [],
+            }
+            puzzles[pid] = puz
+        if row["round_id"] is not None:
+            # A round whose meta_id is this puzzle is the round this puzzle "metas".
+            puz["rounds"].append(
+                {
+                    "id": row["round_id"],
+                    "name": row["round_name"],
+                    "meta_code": row["round_meta_code"],
+                    "is_meta_of": row["round_meta_id"] == pid,
+                }
+            )
+    return list(puzzles.values())
+
+
+def _load_notes(raw):
+    if not raw:
+        return []
+    try:
+        notes = json.loads(raw)
+        return notes if isinstance(notes, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def build_board(puzzles):
+    """Group a flat puzzle list into rounds (metas) for the dashboard board.
+
+    Returns a list of groups plus an "Unassigned" bucket. Each group reports its
+    meta solution and feeder solve counts. Puzzles in several rounds appear in each.
+    """
+    groups = {}
+    order = []
+
+    def ensure(round_id, name, meta_code):
+        if round_id not in groups:
+            groups[round_id] = {
+                "round_id": round_id,
+                "name": name,
+                "meta_code": meta_code,
+                "puzzles": [],
+                "meta_solution": None,
+                "meta_solved": False,
+                "num_feeders": 0,
+                "num_solved_feeders": 0,
+            }
+            order.append(round_id)
+        return groups[round_id]
+
+    for puz in puzzles:
+        if not puz["rounds"]:
+            grp = ensure(0, "Unassigned", None)
+            grp["puzzles"].append(puz)
+            grp["num_feeders"] += 1
+            if puz["solved"]:
+                grp["num_solved_feeders"] += 1
+            continue
+        for rnd in puz["rounds"]:
+            grp = ensure(rnd["id"], rnd["name"], rnd["meta_code"])
+            grp["puzzles"].append(puz)
+            if rnd["is_meta_of"]:
+                grp["meta_solved"] = puz["solved"]
+                grp["meta_solution"] = puz["solution"]
+            else:
+                grp["num_feeders"] += 1
+                if puz["solved"]:
+                    grp["num_solved_feeders"] += 1
+
+    return [groups[rid] for rid in order]
+
+
+# --- Activity ---------------------------------------------------------------
+
+async def get_guild_activity(guild_snowflake):
+    rows = await fetch_all(
+        "SELECT channel_id, last_human_message_at, last_author_name "
+        "FROM channel_activity WHERE guild_id = %s "
+        "ORDER BY last_human_message_at DESC",
+        (guild_snowflake,),
+    )
+    return [
+        {
+            "channel_id": str(row["channel_id"]),
+            "at": _iso(row["last_human_message_at"]),
+            "author": row["last_author_name"],
+        }
+        for row in rows
+    ]

@@ -19,3 +19,4 @@ oauth2client = "*"
 google-cloud-datastore = "*"
 gitpython = "*"
 mysql = {connector = "*"}
+quart = "*"

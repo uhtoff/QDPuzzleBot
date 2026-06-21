@@ -78,6 +78,12 @@ async def on_ready():
 @bot.event
 async def setup_hook():
     await load_extensions(bot)
+    # Start the optional embedded web dashboard (no-op unless web.enabled).
+    try:
+        from bot.web import start_web
+        bot.web_task = await start_web(bot)
+    except Exception:
+        traceback.print_exc()
     if config.development:
         # Only one sync call per guild.
         for gid in TEST_GUILD_IDS:

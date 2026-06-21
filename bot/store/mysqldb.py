@@ -366,6 +366,39 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute(f"DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
         cursor.close()
 
+class MySQLChannelActivityDb(_MySQLBaseDb):
+    TABLE_NAME = 'channel_activity'
+
+    def record(self, channel_id, guild_id, at, author_id, author_name):
+        """Upsert the most recent human (non-bot) message seen in a channel."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO channel_activity "
+                "(channel_id, guild_id, last_human_message_at, last_author_id, last_author_name) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE "
+                "guild_id=VALUES(guild_id), "
+                "last_human_message_at=VALUES(last_human_message_at), "
+                "last_author_id=VALUES(last_author_id), "
+                "last_author_name=VALUES(last_author_name)",
+                (channel_id, guild_id, at, author_id, author_name),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def get_for_guild(self, guild_id) -> dict:
+        """Return {channel_id: row} of latest activity for every channel in a guild."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return {row['channel_id']: row for row in rows}
+
+
 class MySQLGuildSettingsDb():
     def __init__(self, dir_path: Path, mydb):
         self.dir_path = dir_path

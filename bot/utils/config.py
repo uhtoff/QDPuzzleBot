@@ -33,6 +33,20 @@ class Config:
             self.mysql_username = self.config.get("mysql_username", None)
             self.mysql_password = self.config.get("mysql_password", None)
         self.puzzle_addons_path = self.config.get("puzzle_addons_path", None)
+        # Optional web dashboard config. When absent or disabled, the bot runs
+        # exactly as before and no web server is started.
+        web = self.config.get("web", {}) or {}
+        self.web_enabled = bool(web.get("enabled", False))
+        self.web_host = web.get("host", "127.0.0.1")
+        self.web_port = int(web.get("port", 8099))
+        self.web_session_secret = web.get("session_secret", "")
+        self.web_oauth_client_id = web.get("oauth_client_id", "")
+        self.web_oauth_client_secret = web.get("oauth_client_secret", "")
+        self.web_oauth_redirect_uri = web.get("oauth_redirect_uri", "")
+        # Where the SPA is served from; used to build post-login redirects.
+        self.web_frontend_url = web.get("frontend_url", "")
+        # Path to the built SPA (frontend/dist). Empty -> default alongside repo.
+        self.web_frontend_dist = web.get("frontend_dist", "")
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))

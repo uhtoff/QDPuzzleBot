@@ -26,6 +26,7 @@ class HuntData:
     url_sep: str = "-"
     puzzle_prefix: str = "puzzle"
     parallel_hunt: bool = False
+    archived: bool = False
     role_id: int = 0
     start_timestamp: int = 0
     username: str = ""
