@@ -133,7 +133,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             if row:
                 return HuntData.import_dict(row)
             else:
-                print(f"Unable to find hunt for {keyword} - {value}")
+                logger.info(f"Unable to find hunt for {keyword} - {value}")
                 return None
 
 class MySQLRoundJsonDb(_MySQLBaseDb):
@@ -175,7 +175,7 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
             if row:
                 return RoundData.import_dict(row)
             else:
-                print(f"Unable to find Round for {keyword} - {value}")
+                logger.info(f"Unable to find Round for {keyword} - {value}")
                 return None
 
     def get_all(self, hunt_id="*") -> List[RoundData]:
@@ -236,7 +236,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             if row:
                 return self.construct_puzzle(row)
             else:
-                print(f"Unable to find puzzle for {keyword} - {value}")
+                logger.info(f"Unable to find puzzle for {keyword} - {value}")
                 return None
 
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:

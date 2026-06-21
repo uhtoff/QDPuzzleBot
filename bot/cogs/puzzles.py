@@ -847,7 +847,7 @@ class Puzzles(commands.Cog):
                 new_category_name = new_category_name + " — " + self.clean_name(self.get_hunt(ctx).name)
                 existing_category = discord.utils.get(guild.categories, name=new_category_name)
             if not existing_category:
-                print(f"Creating a new channel category for {group_type}: {new_category_name}")
+                logger.info(f"Creating a new channel category for {group_type}: {new_category_name}")
                 position = ctx.channel.category.position + 1
                 new_category = await ctx.channel.category.clone(name=new_category_name)
                 await new_category.edit(position=position)
@@ -1191,7 +1191,6 @@ class Puzzles(commands.Cog):
         created = False
         if not channel:
             message = f"Creating a new channel: {channel_name} of type {channel_type} for category: {category}"
-            print(message)
             logger.info(message)
             create_method = (
                 guild.create_text_channel if channel_type is discord.ChannelType.text else guild.create_voice_channel
@@ -2046,7 +2045,7 @@ class Puzzles(commands.Cog):
         solved_category = discord.utils.get(guild.categories, name=solved_category_name)
         last_position = 0
         for hunt_channel in hunt_category.channels:
-            print(f"{hunt_channel.name} : {hunt_channel.position}")
+            logger.debug(f"{hunt_channel.name} : {hunt_channel.position}")
             if hunt_channel.position > last_position:
                 last_position = hunt_channel.position
 
