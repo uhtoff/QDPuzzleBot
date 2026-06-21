@@ -1312,8 +1312,8 @@ class Puzzles(commands.Cog):
                 embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
             embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
             embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to add puzzle status fields to embed")
 
     async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a meta channel"""
@@ -2080,7 +2080,8 @@ class Puzzles(commands.Cog):
             await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
                    .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
             await ctx.channel.delete(reason=self.DELETE_REASON)
-        except:
+        except Exception:
+            logger.exception("Puzzle deletion failed")
             await ctx.send(f":x: Channel deletion failed")
         self.set_puzzle(ctx, None)
 
@@ -2150,8 +2151,8 @@ class Puzzles(commands.Cog):
             try:
                 await self.delete_round_data(hunt_round)
                 await self._delete_round_category(ctx, hunt_round)
-            except:
-                pass
+            except Exception:
+                logger.exception("Failed to delete round %s during hunt deletion", hunt_round.id)
         await hunt_channel.delete(reason=self.DELETE_REASON)
         await hunt_channel.category.delete(reason=self.DELETE_REASON)
         HuntJsonDb.delete(self.get_hunt(ctx).id)
