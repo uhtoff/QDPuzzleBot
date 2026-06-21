@@ -612,7 +612,10 @@ class Puzzles(commands.Cog):
         if guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
             new_category = discord.utils.get(guild.categories, id=meta_round.category_id)
-            if channel is not None and new_category is not None:
+            # Skip the channel move (a PATCH /channels write) when it's already in
+            # the target category — avoids burning the channel-mutation rate-limit
+            # bucket on no-op drag-board drops.
+            if channel is not None and new_category is not None and channel.category_id != new_category.id:
                 await channel.edit(category=new_category, position=2)
         # Don't strip a metapuzzle's own tags (avoids orphaning it), as in the command.
         if puzzle.is_metapuzzle() is False:
@@ -748,9 +751,9 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(new_puzzle)
 
+        # No "🧩" name prefix for metas: the web dashboard's META label is the
+        # single source of truth, and a prefix-less name avoids ever renaming.
         channel_name = self.clean_name(new_puzzle.name)
-        if new_puzzle.is_metapuzzle():
-            channel_name = "🧩 " + channel_name
         text_channel, created = await self.get_or_create_channel(
             guild=guild, category=category, channel_name=channel_name,
             channel_type="text", reason=self.PUZZLE_REASON,
@@ -800,9 +803,10 @@ class Puzzles(commands.Cog):
         ref_category = discord.utils.get(guild.categories, id=hunt.category_id)
         if ref_category is None:
             raise RuntimeError("no_template_category")
-        new_category = await ref_category.clone(name=new_category_name)
+        new_category = None
         new_round = None
         try:
+            new_category = await ref_category.clone(name=new_category_name)
             await new_category.edit(position=ref_category.position + 1)
             if self.SOLVE_CATEGORY is False:
                 await self.get_or_create_channel(
@@ -823,14 +827,24 @@ class Puzzles(commands.Cog):
                 await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
             return new_round, puzzle
         except Exception:
-            # Roll back the DB round row so a partial (e.g. rate-limited) create
-            # doesn't leave a meta-less round. The Discord category is left for
-            # manual cleanup — deleting channels now would add rate-limit churn.
+            # Roll back so a partial (e.g. rate-limited) create leaves neither a
+            # meta-less round row NOR an orphan category. Without the category
+            # cleanup, each renamed retry clones another category and strands it,
+            # which is itself extra channel-create churn. Both deletes are
+            # best-effort: during an active rate-limit they may fail too, which is
+            # fine — still better than accumulating orphans on every retry.
             if new_round is not None and getattr(new_round, "id", 0):
                 try:
                     RoundJsonDb.delete(new_round.id)
                 except Exception:
                     logger.exception("web_create_round: rollback of round row failed")
+            if new_category is not None:
+                try:
+                    for ch in list(new_category.channels):
+                        await ch.delete(reason="web_create_round rollback")
+                    await new_category.delete(reason="web_create_round rollback")
+                except Exception:
+                    logger.exception("web_create_round: rollback of orphan category failed")
             raise
 
     def web_update_field(self, puzzle, field, value):
@@ -909,6 +923,14 @@ class Puzzles(commands.Cog):
             gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
             try:
                 await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
+            except HttpError as exc:
+                # Idempotent: "No sheet with id" means the tab is already gone
+                # (e.g. it was moved to the archive spreadsheet on solve), so the
+                # delete has effectively already happened — not an error.
+                if "No sheet with id" in str(exc):
+                    logger.info("Additional sheet %s tab already absent; treating delete as done.", sheet.id)
+                else:
+                    logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
             except Exception:
                 logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
         SheetsJsonDb.delete(sheet.id)
@@ -1113,10 +1135,8 @@ class Puzzles(commands.Cog):
         position = kwargs.get("position", 1)
         if category is None:
             category = ctx.channel.category
+        # No "🧩" name prefix for metas (dashboard META label supersedes it).
         channel_name = self.clean_name(new_puzzle.name)
-
-        if new_puzzle.is_metapuzzle():
-            channel_name = "🧩 " + channel_name
 
         text_channel, created_text = await self.get_or_create_channel(
             guild=self.get_guild(ctx), category=category, channel_name=channel_name,
@@ -1401,7 +1421,9 @@ class Puzzles(commands.Cog):
         puzzle.metapuzzle = 1
         PuzzleJsonDb.commit(puzzle)
         await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
-        await self.safe_rename(ctx.channel, "🧩 " + self.clean_name(puzzle.name), ctx)
+        # Channel rename intentionally omitted: the web dashboard's META label
+        # supersedes the "🧩" name prefix, and renames hit Discord's strict
+        # per-channel rename bucket (2/10min) — toggling convert burned it.
         self.set_channel_type(ctx, "Metapuzzle")
         await self.info(ctx, update=True)
         await ctx.send(
@@ -1427,7 +1449,8 @@ class Puzzles(commands.Cog):
         puzzle.metapuzzle = False
         PuzzleJsonDb.commit(puzzle)
         await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
-        await self.safe_rename(ctx.channel, self.clean_name(puzzle.name), ctx)
+        # Channel rename intentionally omitted (see convert_to_meta): the dashboard
+        # label supersedes the name prefix and renames hit the strict rename bucket.
         self.set_channel_type(ctx, "Puzzle")
         await self.info(ctx, update=True)
         await ctx.send(

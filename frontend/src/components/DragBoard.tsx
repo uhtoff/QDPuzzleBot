@@ -45,7 +45,7 @@ interface CardProps {
 function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
-    data: { puzzleId: puzzle.id },
+    data: { puzzleId: puzzle.id, sourceMetaCode: columnMetaCode },
   });
 
   // Metas this puzzle is not already in (candidates for "add").
@@ -190,8 +190,11 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   function onDragEnd(e: DragEndEvent) {
     setActive(null);
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
+    const sourceMetaCode = e.active.data.current?.sourceMetaCode as string | null | undefined;
     const metaCode = e.over?.data.current?.metaCode as string | null | undefined;
-    if (puzzleId && metaCode) runRetag(puzzleId, metaCode, "move");
+    // Skip a no-op drop back onto the puzzle's current meta — otherwise every
+    // drop fires a retag that moves the Discord channel (a PATCH /channels write).
+    if (puzzleId && metaCode && metaCode !== sourceMetaCode) runRetag(puzzleId, metaCode, "move");
   }
 
   return (

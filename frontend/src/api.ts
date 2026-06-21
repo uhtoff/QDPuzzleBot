@@ -31,8 +31,13 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
 function friendlyError(d: { error?: string; retry_after?: number; detail?: string }, status: number): string {
   switch (d.error) {
     case "discord_rate_limited": {
-      const mins = d.retry_after ? Math.ceil(d.retry_after / 60) : null;
-      return `Discord is rate-limiting channel creation${mins ? ` — try again in ~${mins} min` : ""}.`;
+      const secs = d.retry_after ?? 0;
+      if (secs >= 3600) {
+        const hrs = Math.round(secs / 3600);
+        return `Discord has temporarily blocked channel changes for this bot (~${hrs}h). This is a server-side cooldown that clears on its own — retrying won't help and can extend it.`;
+      }
+      const mins = secs ? Math.ceil(secs / 60) : null;
+      return `Discord is rate-limiting channel changes${mins ? ` — try again in ~${mins} min` : ""}.`;
     }
     case "duplicate_name":
       return "A puzzle with that name already exists.";

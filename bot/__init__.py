@@ -19,6 +19,43 @@ TEST_GUILD_IDS = [
     1328015907737436301,
 ]
 
+def _install_ratelimit_probe():
+    """Diagnostic: when a response leaves a rate-limit bucket exhausted with a long
+    reset (>60s), log its X-RateLimit-Scope/Bucket/Reset and URL. That is the very
+    response (usually a 200) that seeds the pre-emptive ``RateLimited`` raise caused
+    by ``max_ratelimit_timeout`` below — so it tells us, before the next request
+    fails, whether a long channel cooldown is per-guild (scope=shared, URL shows the
+    guild id) or account/global (scope=user / X-RateLimit-Global). Fires only on a
+    >60s reset, so it is silent in normal operation. Remove once the scope is known.
+    """
+    import discord.http as _dhttp
+    if getattr(_dhttp.Ratelimit.update, "_probe_installed", False):
+        return
+    _probe_log = logging.getLogger("bot.ratelimit_probe")
+    _orig_update = _dhttp.Ratelimit.update
+
+    def _update(self, response, *, use_clock=False):
+        _orig_update(self, response, use_clock=use_clock)
+        try:
+            if self.remaining == 0 and (self.reset_after or 0) > 60:
+                h = response.headers
+                _probe_log.warning(
+                    "RATELIMIT-PROBE exhausted: scope=%s global=%s bucket=%s limit=%s "
+                    "reset_after=%.0fs url=%s",
+                    h.get("X-RateLimit-Scope"), h.get("X-RateLimit-Global"),
+                    h.get("X-RateLimit-Bucket"), h.get("X-RateLimit-Limit"),
+                    self.reset_after, getattr(response, "url", "?"),
+                )
+        except Exception:
+            pass
+
+    _update._probe_installed = True
+    _dhttp.Ratelimit.update = _update
+
+
+_install_ratelimit_probe()
+
+
 async def get_prefix(_bot, message):
     return commands.when_mentioned_or(utils.config.prefix)(_bot, message)
 
