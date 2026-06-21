@@ -11,6 +11,12 @@ export function relativeTime(iso: string | null | undefined): string {
   return `${days}d ago`;
 }
 
+/** Length of an answer counting only letters and digits (no spaces or punctuation). */
+export function answerLength(solution: string | null): number {
+  if (!solution) return 0;
+  return (solution.match(/[\p{L}\p{N}]/gu) ?? []).length;
+}
+
 export function priorityColor(priority: string | null): string {
   switch ((priority || "").toLowerCase()) {
     case "high":

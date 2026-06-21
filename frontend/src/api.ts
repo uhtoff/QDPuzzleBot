@@ -50,6 +50,10 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "You don't have permission for that.";
     case "hunt_archived":
       return "This hunt is archived (read-only).";
+    case "solved_no_sheets":
+      return "You can't add sheets to a solved puzzle.";
+    case "sheet_not_found":
+      return "That sheet no longer exists — refresh and try again.";
     case "bad_meta_code":
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
@@ -116,6 +120,24 @@ export function useEraseNote(uid: string) {
   return useMutation({
     mutationFn: ({ puzzleId, index }: { puzzleId: number; index: number }) =>
       apiSend<{ notes: string[] }>(`/api/puzzles/${puzzleId}/notes/${index}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useAddSheet(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, name }: { puzzleId: number; name: string }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/sheets`, "POST", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useRemoveSheet(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, sheetId }: { puzzleId: number; sheetId: number }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/sheets/${sheetId}`, "DELETE"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }

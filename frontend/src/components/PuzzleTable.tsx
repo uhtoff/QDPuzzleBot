@@ -17,7 +17,7 @@ import type { LiveActivity } from "../hooks/useActivityFeed";
 import { useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
-import { priorityColor, relativeTime, statusColor } from "../util";
+import { answerLength, priorityColor, relativeTime, statusColor } from "../util";
 
 interface Props {
   detail: HuntDetail;
@@ -123,6 +123,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
               <Table.Th>Puzzle</Table.Th>
               <Table.Th>Round</Table.Th>
               <Table.Th>Solution</Table.Th>
+              <Table.Th w={50} ta="right">Len</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Priority</Table.Th>
               <Table.Th>Type</Table.Th>
@@ -154,6 +155,11 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                 <Table.Td>
                   <Text ff="monospace" size="sm">
                     {p.solution || ""}
+                  </Text>
+                </Table.Td>
+                <Table.Td ta="right">
+                  <Text size="sm" c="dimmed">
+                    {p.solution ? answerLength(p.solution) : ""}
                   </Text>
                 </Table.Td>
                 <Table.Td>

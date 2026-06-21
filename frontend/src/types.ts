@@ -33,6 +33,12 @@ export interface Activity {
   author: string | null;
 }
 
+export interface AdditionalSheet {
+  id: number;
+  name: string;
+  page_id: string | null;
+}
+
 export interface Puzzle {
   id: number;
   name: string;
@@ -53,6 +59,7 @@ export interface Puzzle {
   solve_time: string | null;
   last_activity: Activity | null;
   rounds: PuzzleRound[];
+  sheets: AdditionalSheet[];
 }
 
 export interface BoardGroup {

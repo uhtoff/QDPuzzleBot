@@ -124,7 +124,7 @@ async def erase_note(puzzle_id, index):
 @actions_bp.route("/puzzles/<int:puzzle_id>", methods=["PATCH"])
 @login_required
 async def update_puzzle(puzzle_id):
-    """Update status / priority / puzzle_type. Pure DB, no channel ops."""
+    """Update status / priority / puzzle_type and refresh the pinned info message."""
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
@@ -132,7 +132,7 @@ async def update_puzzle(puzzle_id):
         return jsonify({"error": "hunt_archived"}), 403
 
     body = await request.get_json(silent=True) or {}
-    from bot.store import PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
 
     puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
     if puzzle is None:
@@ -157,6 +157,82 @@ async def update_puzzle(puzzle_id):
 
     if changed:
         PuzzleJsonDb.commit(puzzle)
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is not None:
+            snowflake = ctx["guild_snowflake"]
+            guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+            hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+            await cog.web_refresh_info(guild, hunt_obj, puzzle)
+    return jsonify({"ok": True})
+
+
+# --- Additional sheets (any member of the hunt's guild, like !add_sheet) -----
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/sheets", methods=["POST"])
+@login_required
+async def add_sheet(puzzle_id):
+    """Create an additional working sheet (name optional), via the bot."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+    try:
+        sheet = await cog.web_add_sheet(guild, hunt_obj, puzzle, name)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    return jsonify({
+        "ok": True,
+        "sheet": {"id": sheet.id, "name": sheet.puzzle_name, "page_id": sheet.google_page_id},
+    })
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/sheets/<int:sheet_id>", methods=["DELETE"])
+@login_required
+async def remove_sheet(puzzle_id, sheet_id):
+    """Remove an additional sheet (deletes the Google tab and the DB row)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+    try:
+        await cog.web_remove_sheet(guild, hunt_obj, puzzle, sheet_id)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
     return jsonify({"ok": True})
 
 

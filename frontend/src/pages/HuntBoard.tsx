@@ -19,7 +19,7 @@ import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
-import { NotesDrawer } from "../components/NotesDrawer";
+import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { Puzzle } from "../types";
 
@@ -105,7 +105,7 @@ export default function HuntBoard() {
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
 
-      <NotesDrawer puzzle={notesPuzzle} huntUid={uid!} onClose={() => setNotesPuzzleId(null)} />
+      <PuzzleDrawer puzzle={notesPuzzle} detail={data} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
   );
 }

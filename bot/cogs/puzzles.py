@@ -647,8 +647,10 @@ class Puzzles(commands.Cog):
         self._web_ctx_seq = getattr(self, "_web_ctx_seq", 0) - 1
         return self._web_ctx_seq
 
-    async def _web_send_welcome(self, guild, hunt, hunt_round, puzzle, channel):
-        """Post and pin the same intro message the ! commands send, from a web create.
+    async def _web_render_info(self, guild, hunt, hunt_round, puzzle, channel, update):
+        """(Re)render the pinned intro/info message via the same send_initial_*
+        handlers the ! commands use. Returns the Message (or None on update if no
+        pin exists). Caller owns try/except.
 
         The send_initial_* methods read hunt/guild_data from self.environment keyed
         by ctx.message.id, so we build a synthetic ctx and populate that entry.
@@ -671,12 +673,40 @@ class Puzzles(commands.Cog):
                 if puzzle.is_metapuzzle()
                 else self.send_initial_puzzle_channel_messages
             )
-            message = await handler(fake_ctx, channel, hunt=hunt, hunt_round=hunt_round, puzzle=puzzle)
+            return await handler(fake_ctx, channel, update=update, hunt=hunt, hunt_round=hunt_round, puzzle=puzzle)
+        finally:
+            self.environment.pop(fake_id, None)
+
+    async def _web_send_welcome(self, guild, hunt, hunt_round, puzzle, channel):
+        """Post and pin the same intro message the ! commands send, from a web create."""
+        try:
+            message = await self._web_render_info(guild, hunt, hunt_round, puzzle, channel, update=False)
             await message.pin()
         except Exception:
             logger.exception("web create: failed to send/pin welcome message")
-        finally:
-            self.environment.pop(fake_id, None)
+
+    async def web_refresh_info(self, guild, hunt, puzzle):
+        """Best-effort refresh of a puzzle's pinned info message after a metadata
+        change (status/priority/type/solution/sheets), mirroring `!info update`.
+        Never raises — a Discord hiccup must not fail the underlying DB write."""
+        if guild is None or not puzzle.channel_id:
+            return
+        channel = guild.get_channel(puzzle.channel_id)
+        if channel is None:
+            return
+        # A metapuzzle's info embed names its round (meta_code/name); find the
+        # round this puzzle is the meta of. Feeder puzzles don't need a round.
+        hunt_round = None
+        if puzzle.is_metapuzzle():
+            for tag in puzzle.tags:
+                candidate = RoundJsonDb.get_by_attr(id=tag)
+                if candidate and candidate.meta_id == puzzle.id:
+                    hunt_round = candidate
+                    break
+        try:
+            await self._web_render_info(guild, hunt, hunt_round, puzzle, channel, update=True)
+        except Exception:
+            logger.exception("web_refresh_info: failed to refresh pinned info for puzzle %s", puzzle.id)
 
     async def web_create_puzzle(self, guild, hunt, round_data, puzzle_name, is_meta=False, send_welcome=True):
         """ctx-free puzzle creation for the dashboard.
@@ -868,7 +898,47 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+        await self.web_refresh_info(guild, hunt, puzzle)
 
+    async def _delete_additional_sheet(self, hunt, puzzle, sheet):
+        """Delete an additional sheet's Google tab (best-effort) and its DB row,
+        and drop it from the in-memory puzzle. Shared by web + Discord removal."""
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is not None:
+            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+            try:
+                await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
+            except Exception:
+                logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
+        SheetsJsonDb.delete(sheet.id)
+        puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
+
+    async def web_add_sheet(self, guild, hunt, puzzle, name):
+        """ctx-free !add_sheet: create an extra working sheet (name optional)."""
+        if puzzle.solved:
+            raise RuntimeError("solved_no_sheets")
+        sheet = AdditionalSheetData(
+            puzzle_id=puzzle.id,
+            puzzle_name=name or f"Extra sheet for {puzzle.name}",
+        )
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is not None:
+            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+            sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
+        puzzle.additional_sheets.append(sheet)
+        SheetsJsonDb.commit(sheet)
+        await self.web_refresh_info(guild, hunt, puzzle)
+        return sheet
+
+    async def web_remove_sheet(self, guild, hunt, puzzle, sheet_id):
+        """ctx-free sheet removal for the dashboard."""
+        sheet = next((s for s in puzzle.additional_sheets if s.id == sheet_id), None)
+        if sheet is None:
+            raise RuntimeError("sheet_not_found")
+        await self._delete_additional_sheet(hunt, puzzle, sheet)
+        await self.web_refresh_info(guild, hunt, puzzle)
 
     def get_first_channel(self, ctx, category):
         position = False
@@ -990,6 +1060,21 @@ class Puzzles(commands.Cog):
         SheetsJsonDb.commit(sheet)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
+
+    @commands.command(aliases=['delete_sheet'])
+    @with_puzzle_mutex(wait=True)
+    async def remove_sheet(self, ctx, number: int):
+        """*Remove an additional sheet by its number (see !list_sheets): !remove_sheet 2*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        if number < 1 or number > len(puzzle.additional_sheets):
+            return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
+        sheet = puzzle.additional_sheets[number - 1]
+        name = sheet.puzzle_name
+        await self._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
+        await self.info(ctx, update=True)
+        return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
     @commands.command(aliases=['list_sheets'])
     async def list_additional_sheets(self, ctx):

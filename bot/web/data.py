@@ -181,6 +181,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     if row["last_human_message_at"] else None
                 ),
                 "rounds": [],
+                "sheets": [],
             }
             puzzles[pid] = puz
         if row["round_id"] is not None:
@@ -193,6 +194,20 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     "is_meta_of": row["round_meta_id"] == pid,
                 }
             )
+
+    sheet_rows = await fetch_all(
+        "SELECT s.id, s.puzzle_id, s.puzzle_name, s.google_page_id "
+        "FROM additional_sheets s JOIN puzzles ON puzzles.id = s.puzzle_id "
+        "WHERE puzzles.hunt_id = %s",
+        (hunt_id,),
+    )
+    for s in sheet_rows:
+        puz = puzzles.get(s["puzzle_id"])
+        if puz is not None:
+            puz["sheets"].append(
+                {"id": s["id"], "name": s["puzzle_name"], "page_id": s["google_page_id"]}
+            )
+
     return list(puzzles.values())
 
 

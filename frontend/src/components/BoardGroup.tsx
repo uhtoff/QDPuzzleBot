@@ -1,8 +1,11 @@
-import { Accordion, ActionIcon, Badge, Group, Indicator, Table, Text } from "@mantine/core";
-import { IconNote } from "@tabler/icons-react";
+import { useState } from "react";
+import { Accordion, ActionIcon, Badge, Group, Indicator, Table, Text, Tooltip } from "@mantine/core";
+import { IconCircleCheck, IconNote } from "@tabler/icons-react";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
+import { useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { relativeTime, statusColor } from "../util";
 
 interface Props {
@@ -14,6 +17,9 @@ interface Props {
 
 export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const solvedAll = group.meta_solved || (group.num_feeders > 0 && group.num_solved_feeders === group.num_feeders);
+  const editable = !detail.hunt.archived;
+  const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
+  const updateMut = useUpdatePuzzle(detail.hunt.uid);
 
   function activityFor(p: Puzzle): string {
     const at = (p.channel_id && live[p.channel_id]?.at) || p.last_activity?.at || null;
@@ -66,10 +72,17 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                   </Text>
                 </Table.Td>
                 <Table.Td w={130}>
-                  {p.status && (
-                    <Badge variant="light" color={statusColor(p.status)}>
-                      {p.status}
-                    </Badge>
+                  {editable ? (
+                    <StatusCell
+                      value={p.status}
+                      onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
+                    />
+                  ) : (
+                    p.status && (
+                      <Badge variant="light" color={statusColor(p.status)}>
+                        {p.status}
+                      </Badge>
+                    )
                   )}
                 </Table.Td>
                 <Table.Td w={90}>
@@ -77,17 +90,28 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                     {activityFor(p)}
                   </Text>
                 </Table.Td>
-                <Table.Td w={44}>
-                  <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
-                    <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
-                      <IconNote size={15} />
-                    </ActionIcon>
-                  </Indicator>
+                <Table.Td w={76}>
+                  <Group gap={2} wrap="nowrap">
+                    {editable && !p.solved && (
+                      <Tooltip label="Mark solved">
+                        <ActionIcon variant="subtle" color="green" onClick={() => setSolvePuzzle(p)} aria-label="Solve">
+                          <IconCircleCheck size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                    <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
+                      <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Details">
+                        <IconNote size={15} />
+                      </ActionIcon>
+                    </Indicator>
+                  </Group>
                 </Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
+
+        <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
       </Accordion.Panel>
     </Accordion.Item>
   );
