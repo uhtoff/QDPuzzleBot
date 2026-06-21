@@ -35,6 +35,9 @@ def _install_ratelimit_probe():
     _orig_update = _dhttp.Ratelimit.update
 
     def _update(self, response, *, use_clock=False):
+        # Captures SCOPE on the response that seeds a long reset (the 200/headered
+        # response that leaves a bucket exhausted), since X-RateLimit-Scope only
+        # exists on a real response.
         _orig_update(self, response, use_clock=use_clock)
         try:
             if self.remaining == 0 and (self.reset_after or 0) > 60:
@@ -51,6 +54,31 @@ def _install_ratelimit_probe():
 
     _update._probe_installed = True
     _dhttp.Ratelimit.update = _update
+
+    # The common failure mode (bucket already known-exhausted) is a *pre-emptive*
+    # RateLimited raised before any request is sent — no response, so _update never
+    # runs and discord.py logs nothing. Wrap request() to capture the reset value
+    # and which guild (the URL embeds the guild id) on that and on header-less 429s.
+    _orig_request = _dhttp.HTTPClient.request
+
+    async def _request(self, route, **kwargs):
+        try:
+            return await _orig_request(self, route, **kwargs)
+        except discord.RateLimited as exc:
+            _probe_log.warning(
+                "RATELIMIT-PROBE pre-emptive: %s %s retry_after=%.0fs",
+                route.method, getattr(route, "url", route.path), exc.retry_after,
+            )
+            raise
+        except discord.HTTPException as exc:
+            if getattr(exc, "status", None) == 429:
+                _probe_log.warning(
+                    "RATELIMIT-PROBE 429: %s %s detail=%s",
+                    route.method, getattr(route, "url", route.path), exc,
+                )
+            raise
+
+    _dhttp.HTTPClient.request = _request
 
 
 _install_ratelimit_probe()
