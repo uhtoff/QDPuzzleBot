@@ -3,7 +3,6 @@
 This is a separate cog so that Google Drive integration
 can be easily disabled; simply omit this file.
 """
-import asyncio
 import contextvars
 import logging
 import copy
@@ -13,7 +12,7 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, RoundJsonDb
-from bot.utils.gsheets import get_sheet, get_drive
+from bot.utils.gsheets import get_sheet, get_drive, execute_sync, execute_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,7 @@ class GoogleSheets(commands.Cog):
 
     @commands.command()
     async def read(self, ctx):
-        print(get_sheet().get(spreadsheetId=self.get_spreadsheet_id()).execute())
+        print(await execute_with_retry(get_sheet().get(spreadsheetId=self.get_spreadsheet_id())))
 
     def set_spreadsheet_id(self, spreadsheet_id):
         _current_spreadsheet_id.set(spreadsheet_id)
@@ -67,19 +66,19 @@ class GoogleSheets(commands.Cog):
             body=body
         )
 
-        return await asyncio.to_thread(req.execute)
+        return await execute_with_retry(req)
 
 
     def sheet_list(self, spreadsheet_id = None):
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
-        return get_sheet().get(spreadsheetId=spreadsheet_id).execute()
+        return execute_sync(get_sheet().get(spreadsheetId=spreadsheet_id))
 
     def get_grid_size(self, old_puzzle) -> tuple:
         spreadsheet_id = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
-        response = get_sheet().get(
+        response = execute_sync(get_sheet().get(
             spreadsheetId=spreadsheet_id,
             fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
-        ).execute()
+        ))
 
         for sheet in response.get("sheets",[]):
             props = sheet.get("properties", {})
@@ -116,9 +115,9 @@ class GoogleSheets(commands.Cog):
                 for s in self.sheet_list()["sheets"]
             }
         else:
-            meta = get_sheet().get(
+            meta = execute_sync(get_sheet().get(
                 spreadsheetId=spreadsheet_id
-            ).execute()
+            ))
             existing = {
                 s["properties"]["title"].casefold()
                 for s in meta["sheets"]
@@ -347,7 +346,7 @@ class GoogleSheets(commands.Cog):
             sheetId=page,
             body={"destinationSpreadsheetId": spreadsheet_to}
         )
-        copied = await asyncio.to_thread(copy_req.execute)
+        copied = await execute_with_retry(copy_req)
         new_sheet_id = copied['sheetId']
         await self.delete_sheet(page, not to_archive)
         unique_title = self.get_unique_tab_name(tab_name, spreadsheet_to)
@@ -359,7 +358,7 @@ class GoogleSheets(commands.Cog):
                 ]
             },
         )
-        await asyncio.to_thread(bu_req.execute)
+        await execute_with_retry(bu_req)
         return new_sheet_id
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
@@ -442,9 +441,9 @@ class GoogleSheets(commands.Cog):
         body = {
             'name': hunt_name
         }
-        new_file = get_drive().files().copy(fileId=config.master_spreadsheet, body=body).execute()
+        new_file = await execute_with_retry(get_drive().files().copy(fileId=config.master_spreadsheet, body=body))
         new_file_id = new_file['id']
-        get_drive().permissions().create(fileId=new_file_id, body=permission).execute()
+        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission))
         return new_file_id
 
     async def create_hunt_archive_spreadsheet(self, hunt_name):
@@ -452,12 +451,12 @@ class GoogleSheets(commands.Cog):
             'type': 'anyone',
             'role': 'writer'
         }
-        new_file = get_drive().files().create(body={
+        new_file = await execute_with_retry(get_drive().files().create(body={
             "name": hunt_name + " Archive",
             "mimeType": "application/vnd.google-apps.spreadsheet",
-        }).execute()
+        }))
         new_file_id = new_file['id']
-        get_drive().permissions().create(fileId=new_file_id, body=permission).execute()
+        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission))
         self.set_archive_spreadsheet_id(new_file_id)
         return new_file_id
 
