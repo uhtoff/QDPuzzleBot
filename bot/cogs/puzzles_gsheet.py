@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # teams/hunts cannot overwrite each other's target spreadsheet.
 _current_spreadsheet_id = contextvars.ContextVar("current_spreadsheet_id", default=None)
 _current_archive_spreadsheet_id = contextvars.ContextVar("current_archive_spreadsheet_id", default=None)
+# Channel to notify if a Sheets call has to be retried, plus a one-shot flag so a
+# single command posts at most one "retrying" notice. Request-scoped, like above.
+_current_notify_channel = contextvars.ContextVar("current_notify_channel", default=None)
+_notified_flag = contextvars.ContextVar("notified_flag", default=None)
 
 class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
@@ -59,6 +63,27 @@ class GoogleSheets(commands.Cog):
     def get_archive_spreadsheet_id(self):
         return _current_archive_spreadsheet_id.get()
 
+    def set_notify_channel(self, channel):
+        """Register the channel to warn if Sheets calls for this command stall."""
+        _current_notify_channel.set(channel)
+        _notified_flag.set([False])
+
+    async def _notify_retry(self):
+        """on_retry hook for execute_with_retry: warn the user once per command
+        that a Google Sheets call is being retried (so the wait isn't silent)."""
+        channel = _current_notify_channel.get()
+        flag = _notified_flag.get()
+        if channel is None or flag is None or flag[0]:
+            return
+        flag[0] = True
+        try:
+            await channel.send(
+                "⏳ Google Sheets is busy (rate-limited); retrying your change — "
+                "this may take a few seconds."
+            )
+        except Exception:
+            logger.exception("Failed to send Sheets retry notice")
+
     async def batch_update(self, body, archive = False):
         spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
@@ -66,7 +91,7 @@ class GoogleSheets(commands.Cog):
             body=body
         )
 
-        return await execute_with_retry(req)
+        return await execute_with_retry(req, on_retry=self._notify_retry)
 
 
     def sheet_list(self, spreadsheet_id = None):
@@ -346,7 +371,7 @@ class GoogleSheets(commands.Cog):
             sheetId=page,
             body={"destinationSpreadsheetId": spreadsheet_to}
         )
-        copied = await execute_with_retry(copy_req)
+        copied = await execute_with_retry(copy_req, on_retry=self._notify_retry)
         new_sheet_id = copied['sheetId']
         await self.delete_sheet(page, not to_archive)
         unique_title = self.get_unique_tab_name(tab_name, spreadsheet_to)
@@ -358,7 +383,7 @@ class GoogleSheets(commands.Cog):
                 ]
             },
         )
-        await execute_with_retry(bu_req)
+        await execute_with_retry(bu_req, on_retry=self._notify_retry)
         return new_sheet_id
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
@@ -441,9 +466,9 @@ class GoogleSheets(commands.Cog):
         body = {
             'name': hunt_name
         }
-        new_file = await execute_with_retry(get_drive().files().copy(fileId=config.master_spreadsheet, body=body))
+        new_file = await execute_with_retry(get_drive().files().copy(fileId=config.master_spreadsheet, body=body), on_retry=self._notify_retry)
         new_file_id = new_file['id']
-        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission))
+        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission), on_retry=self._notify_retry)
         return new_file_id
 
     async def create_hunt_archive_spreadsheet(self, hunt_name):
@@ -454,9 +479,9 @@ class GoogleSheets(commands.Cog):
         new_file = await execute_with_retry(get_drive().files().create(body={
             "name": hunt_name + " Archive",
             "mimeType": "application/vnd.google-apps.spreadsheet",
-        }))
+        }), on_retry=self._notify_retry)
         new_file_id = new_file['id']
-        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission))
+        await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission), on_retry=self._notify_retry)
         self.set_archive_spreadsheet_id(new_file_id)
         return new_file_id
 

@@ -6,6 +6,7 @@ from typing import Any, Optional
 import discord
 from discord import app_commands
 from discord.ext import tasks, commands
+from googleapiclient.errors import HttpError
 import pytz
 import asyncio
 from functools import wraps
@@ -195,6 +196,8 @@ class Puzzles(commands.Cog):
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is not None:
+            gsheet_cog.set_notify_channel(ctx.channel)
         if hunt is not None:
             gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
             gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
@@ -325,6 +328,21 @@ class Puzzles(commands.Cog):
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure) and str(error) == "PUZZLE_BUSY":
             await ctx.send("⏳ That puzzle is busy running another command. Try again in a moment.")
+            return
+        # Unwrap the framework's CommandInvokeError to get the real exception.
+        original = getattr(error, "original", error)
+        if isinstance(original, HttpError):
+            status = getattr(original.resp, "status", None)
+            if status == 429:
+                await ctx.send("⚠️ Google Sheets is rate-limiting us right now, so your "
+                               "change may not have been saved. Please try again in a moment.")
+            else:
+                await ctx.send("⚠️ Google Sheets returned an error, so your change may not "
+                               "have been saved. Please try again shortly.")
+            logger.warning("Google Sheets error in command %s: %s", ctx.command, original)
+            return
+        if isinstance(original, discord.RateLimited):
+            await ctx.send("⏳ Discord is rate-limiting this action; please try again in a moment.")
             return
         await ctx.send(f":exclamation: **{type(error).__name__}**" + "\n" + str(error))
 
