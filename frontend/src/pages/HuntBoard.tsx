@@ -18,6 +18,7 @@ import { useHunt } from "../api";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
+import { CreateControls } from "../components/CreateControls";
 import { NotesDrawer } from "../components/NotesDrawer";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { Puzzle } from "../types";
@@ -78,16 +79,19 @@ export default function HuntBoard() {
         </Stack>
       </Group>
 
-      <SegmentedControl
-        value={view}
-        onChange={(v) => setView(v as "board" | "all" | "arrange")}
-        data={[
-          { label: "By meta", value: "board" },
-          { label: "All puzzles", value: "all" },
-          ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
-        ]}
-        w={data.hunt.can_manage ? 360 : 260}
-      />
+      <Group justify="space-between" align="center">
+        <SegmentedControl
+          value={view}
+          onChange={(v) => setView(v as "board" | "all" | "arrange")}
+          data={[
+            { label: "By meta", value: "board" },
+            { label: "All puzzles", value: "all" },
+            ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
+          ]}
+          w={data.hunt.can_manage ? 360 : 260}
+        />
+        {data.hunt.can_manage && <CreateControls detail={data} uid={uid!} />}
+      </Group>
 
       {view === "board" && (
         <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.round_id))}>

@@ -9,11 +9,14 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
-import { IconNote, IconSearch } from "@tabler/icons-react";
+import { IconCircleCheck, IconNote, IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
+import { useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { priorityColor, relativeTime, statusColor } from "../util";
 
 interface Props {
@@ -37,6 +40,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const [priorities, setPriorities] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [hideSolved, setHideSolved] = useState(false);
+  const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
+  const updateMut = useUpdatePuzzle(detail.hunt.uid);
+  const editable = !detail.hunt.archived;
 
   const statusOptions = useMemo(() => uniqueValues(puzzles, "status"), [puzzles]);
   const priorityOptions = useMemo(() => uniqueValues(puzzles, "priority"), [puzzles]);
@@ -121,7 +127,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
               <Table.Th>Priority</Table.Th>
               <Table.Th>Type</Table.Th>
               <Table.Th>Activity</Table.Th>
-              <Table.Th w={60}>Notes</Table.Th>
+              <Table.Th w={90}>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -151,7 +157,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  {p.status ? (
+                  {editable ? (
+                    <StatusCell
+                      value={p.status}
+                      onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
+                    />
+                  ) : p.status ? (
                     <Badge variant="light" color={statusColor(p.status)}>
                       {p.status}
                     </Badge>
@@ -160,7 +171,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   )}
                 </Table.Td>
                 <Table.Td>
-                  {p.priority ? (
+                  {editable ? (
+                    <PriorityCell
+                      value={p.priority}
+                      onChange={(priority) => updateMut.mutate({ puzzleId: p.id, patch: { priority } })}
+                    />
+                  ) : p.priority ? (
                     <Badge variant="dot" color={priorityColor(p.priority)}>
                       {p.priority}
                     </Badge>
@@ -169,7 +185,14 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   )}
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{p.puzzle_type || "—"}</Text>
+                  {editable ? (
+                    <TypeCell
+                      value={p.puzzle_type}
+                      onSave={(puzzle_type) => updateMut.mutate({ puzzleId: p.id, patch: { puzzle_type } })}
+                    />
+                  ) : (
+                    <Text size="sm">{p.puzzle_type || "—"}</Text>
+                  )}
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">
@@ -177,17 +200,28 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
-                    <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
-                      <IconNote size={16} />
-                    </ActionIcon>
-                  </Indicator>
+                  <Group gap={4} wrap="nowrap">
+                    {editable && !p.solved && (
+                      <Tooltip label="Mark solved">
+                        <ActionIcon variant="subtle" color="green" onClick={() => setSolvePuzzle(p)} aria-label="Solve">
+                          <IconCircleCheck size={17} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                    <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
+                      <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
+                        <IconNote size={16} />
+                      </ActionIcon>
+                    </Indicator>
+                  </Group>
                 </Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
+
+      <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
     </>
   );
 }

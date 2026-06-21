@@ -1,9 +1,13 @@
 # Puzzle Dashboard (Phase 1)
 
-A React/Mantine SPA over a Quart JSON API embedded in the bot process. Read-only
-in Phase 1: hunts grouped by meta, solutions, a filterable puzzle list, and live
-Discord activity. Phase 2 will add write-actions (create puzzle/meta, retag,
-notes) via a shared bot service layer.
+A React/Mantine SPA over a Quart JSON API embedded in the bot process.
+
+Phase 1 (read): hunts grouped by meta, solutions, a filterable puzzle list, and
+live Discord activity. Phase 2 (write, organiser-gated except notes): add/erase
+notes, retag puzzles between metas (drag board + add/remove menu), and create
+puzzles and metas. Write-actions run through ctx-free `web_*` methods on the
+Puzzles cog, so the website creates real Discord channels + Google sheets exactly
+like the matching `!` commands.
 
 ## Architecture
 

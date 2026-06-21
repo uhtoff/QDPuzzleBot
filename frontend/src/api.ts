@@ -18,10 +18,45 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
   });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error((detail as { error?: string }).error || `${res.status} ${res.statusText}`);
+    const detail = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      retry_after?: number;
+      detail?: string;
+    };
+    throw new Error(friendlyError(detail, res.status));
   }
   return res.json() as Promise<T>;
+}
+
+function friendlyError(d: { error?: string; retry_after?: number; detail?: string }, status: number): string {
+  switch (d.error) {
+    case "discord_rate_limited": {
+      const mins = d.retry_after ? Math.ceil(d.retry_after / 60) : null;
+      return `Discord is rate-limiting channel creation${mins ? ` — try again in ~${mins} min` : ""}.`;
+    }
+    case "duplicate_name":
+      return "A puzzle with that name already exists.";
+    case "round_exists":
+    case "category_exists":
+      return "A meta/category with that name already exists.";
+    case "puzzle_name_clash":
+      return "That name clashes with an existing puzzle.";
+    case "guild_full":
+    case "category_full":
+    case "no_category_space":
+      return "No channel/category space left on the Discord server.";
+    case "insufficient_role":
+    case "forbidden":
+      return "You don't have permission for that.";
+    case "hunt_archived":
+      return "This hunt is archived (read-only).";
+    case "bad_meta_code":
+      return "That meta no longer exists — refresh and try again.";
+    case "discord_error":
+      return `Discord error: ${d.detail ?? "please try again"}.`;
+    default:
+      return d.error || `${status}`;
+  }
 }
 
 export class AuthError extends Error {
@@ -81,6 +116,51 @@ export function useEraseNote(uid: string) {
   return useMutation({
     mutationFn: ({ puzzleId, index }: { puzzleId: number; index: number }) =>
       apiSend<{ notes: string[] }>(`/api/puzzles/${puzzleId}/notes/${index}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export interface PuzzlePatch {
+  status?: string;
+  priority?: string;
+  puzzle_type?: string;
+}
+
+export function useUpdatePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, patch }: { puzzleId: number; patch: PuzzlePatch }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}`, "PATCH", patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useSolvePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, solution }: { puzzleId: number; solution: string }) =>
+      apiSend<{ ok: boolean; solution: string }>(`/api/puzzles/${puzzleId}/solve`, "POST", { solution }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useCreatePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, metaCode }: { name: string; metaCode: string }) =>
+      apiSend<{ ok: boolean; puzzle_id: number }>(`/api/hunts/${uid}/puzzles`, "POST", {
+        name,
+        meta_code: metaCode,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useCreateMeta(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) =>
+      apiSend<{ ok: boolean; meta_code: string }>(`/api/hunts/${uid}/metas`, "POST", { name }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }

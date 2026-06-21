@@ -7,6 +7,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 """
 import logging
 
+import discord
 from quart import Blueprint, current_app, jsonify, request
 
 from . import data
@@ -25,9 +26,20 @@ actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
 
+# Mirror bot/cogs/puzzles.py STATUSES / PRIORITIES.
+PUZZLE_STATUSES = {"unstarted", "in progress", "stuck", "needs extraction", "needs submission", "solved", "backsolved"}
+PUZZLE_PRIORITIES = {"low", "medium", "high", "very high"}
+
 
 def _display_name(user):
     return user.get("global_name") or user.get("username") or "web user"
+
+
+def _discord_error_response(exc):
+    """Map a Discord HTTP/rate-limit error to a friendly JSON response."""
+    if isinstance(exc, discord.RateLimited):
+        return jsonify({"error": "discord_rate_limited", "retry_after": int(getattr(exc, "retry_after", 0))}), 429
+    return jsonify({"error": "discord_error", "detail": str(exc)}), 502
 
 
 async def _visible_hunt_for_puzzle(puzzle_id):
@@ -40,6 +52,20 @@ async def _visible_hunt_for_puzzle(puzzle_id):
     hunt = await data.get_hunt_for_puzzle(puzzle_id)
     if not hunt:
         return None, (jsonify({"error": "puzzle_not_found"}), 404)
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return None, (jsonify({"error": "forbidden"}), 403)
+    guild = guilds_map.get(hunt["guild_id"], {})
+    return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+
+
+async def _visible_hunt_by_uid(uid):
+    """Resolve a hunt by uid and confirm the user may see it (same shape as above)."""
+    user = current_user()
+    hunt = await data.get_hunt_by_uid(uid)
+    if not hunt:
+        return None, (jsonify({"error": "hunt_not_found"}), 404)
     membership, roles_by_guild = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
     if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
@@ -93,6 +119,82 @@ async def erase_note(puzzle_id, index):
     return jsonify({"notes": puzzle.notes})
 
 
+# --- Status / priority / type and solve (any member of the hunt's guild) ----
+
+@actions_bp.route("/puzzles/<int:puzzle_id>", methods=["PATCH"])
+@login_required
+async def update_puzzle(puzzle_id):
+    """Update status / priority / puzzle_type. Pure DB, no channel ops."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    from bot.store import PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+
+    changed = False
+    if "status" in body:
+        value = (body.get("status") or "").strip()
+        if value.lower() not in PUZZLE_STATUSES:
+            return jsonify({"error": "bad_status"}), 400
+        puzzle.status = value
+        changed = True
+    if "priority" in body:
+        value = (body.get("priority") or "").strip()
+        if value.lower() not in PUZZLE_PRIORITIES:
+            return jsonify({"error": "bad_priority"}), 400
+        puzzle.priority = value
+        changed = True
+    if "puzzle_type" in body:
+        puzzle.puzzle_type = (body.get("puzzle_type") or "").strip()
+        changed = True
+
+    if changed:
+        PuzzleJsonDb.commit(puzzle)
+    return jsonify({"ok": True})
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/solve", methods=["POST"])
+@login_required
+async def solve_puzzle(puzzle_id):
+    """Mark a puzzle solved via the bot (posts the SOLVED embed, archives the sheet)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    solution = (body.get("solution") or "").strip()
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+    if not solution and not puzzle.solution:
+        return jsonify({"error": "empty_solution"}), 400
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = bot.get_guild(int(snowflake)) if snowflake else None
+    try:
+        await cog.web_solve_puzzle(guild, hunt_obj, puzzle, solution)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    return jsonify({"ok": True, "solution": puzzle.solution})
+
+
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
@@ -118,6 +220,8 @@ async def retag_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -146,10 +250,93 @@ async def retag_puzzle(puzzle_id):
     snowflake = ctx["guild_snowflake"]
     guild = bot.get_guild(int(snowflake)) if snowflake else None
 
-    if mode == "move":
-        await cog.web_move_to_meta(guild, puzzle, meta_round)
-    elif mode == "add":
-        await cog.web_add_to_meta(puzzle, meta_round)
-    else:
-        await cog.web_remove_from_meta(puzzle, meta_round)
+    try:
+        if mode == "move":
+            await cog.web_move_to_meta(guild, puzzle, meta_round)
+        elif mode == "add":
+            await cog.web_add_to_meta(puzzle, meta_round)
+        else:
+            await cog.web_remove_from_meta(puzzle, meta_round)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
     return jsonify({"ok": True})
+
+
+# --- Create puzzles and metas (organiser only) ------------------------------
+
+async def _organiser_hunt(uid):
+    """Resolve a visible, non-archived hunt and require organiser. Returns (ctx, err)."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return None, err
+    if ctx["hunt"]["archived"]:
+        return None, (jsonify({"error": "hunt_archived"}), 403)
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return None, perm
+    return ctx, None
+
+
+@actions_bp.route("/hunts/<uid>/puzzles", methods=["POST"])
+@login_required
+async def create_puzzle(uid):
+    """Create a puzzle (channel + sheet) inside an existing meta, via the bot."""
+    ctx, err = await _organiser_hunt(uid)
+    if err:
+        return err
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    meta_code = (body.get("meta_code") or "").strip()
+    if not name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+    if meta_round is None or meta_round.hunt_id != hunt_obj.id:
+        return jsonify({"error": "bad_meta_code"}), 400
+    if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
+        return jsonify({"error": "duplicate_name"}), 409
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = bot.get_guild(int(ctx["guild_snowflake"]))
+    try:
+        puzzle = await cog.web_create_puzzle(guild, hunt_obj, meta_round, name)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
+
+
+@actions_bp.route("/hunts/<uid>/metas", methods=["POST"])
+@login_required
+async def create_meta(uid):
+    """Create a new metapuzzle (category + meta channel), via the bot (like !mp)."""
+    ctx, err = await _organiser_hunt(uid)
+    if err:
+        return err
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = bot.get_guild(int(ctx["guild_snowflake"]))
+    try:
+        new_round, puzzle = await cog.web_create_round(guild, hunt_obj, name)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})

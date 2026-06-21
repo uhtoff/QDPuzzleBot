@@ -36,9 +36,17 @@ def _register_spa(app):
         return
     dist_dir = str(dist_dir)
 
+    async def _send_index():
+        # index.html must always be revalidated so a rebuild (with new hashed
+        # asset names) is picked up immediately. The hashed assets themselves are
+        # safe to cache since their filenames change every build.
+        resp = await send_from_directory(dist_dir, "index.html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     @app.route("/")
     async def spa_index():
-        return await send_from_directory(dist_dir, "index.html")
+        return await _send_index()
 
     @app.route("/<path:path>")
     async def spa_catchall(path):
@@ -46,7 +54,7 @@ def _register_spa(app):
             abort(404)
         if os.path.isfile(os.path.join(dist_dir, path)):
             return await send_from_directory(dist_dir, path)
-        return await send_from_directory(dist_dir, "index.html")
+        return await _send_index()
 
 
 def create_app(bot):
