@@ -55,6 +55,7 @@ def create_app(bot):
 
     from .auth import auth_bp
     from .api import api_bp
+    from .actions import actions_bp
 
     app = Quart(__name__)
     app.secret_key = config.web_session_secret
@@ -69,6 +70,7 @@ def create_app(bot):
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(actions_bp)
     _register_spa(app)
     return app
 
@@ -88,8 +90,18 @@ async def start_web(bot):
         return None
 
     logger.info("Starting web dashboard on %s:%s", config.web_host, config.web_port)
+    # Provide our own shutdown_trigger so hypercorn does NOT install signal
+    # handlers. Otherwise it intercepts SIGTERM/SIGINT for a "graceful" web
+    # shutdown and the bot process stops responding to plain `kill` — the
+    # default (terminate on SIGTERM) is what we want. The event is kept on the
+    # bot only to prevent garbage collection.
+    bot._web_shutdown = asyncio.Event()
     task = asyncio.create_task(
-        app.run_task(host=config.web_host, port=config.web_port),
+        app.run_task(
+            host=config.web_host,
+            port=config.web_port,
+            shutdown_trigger=bot._web_shutdown.wait,
+        ),
         name="web-dashboard",
     )
     return task

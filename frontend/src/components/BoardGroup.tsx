@@ -1,4 +1,5 @@
-import { Accordion, Badge, Group, Table, Text } from "@mantine/core";
+import { Accordion, ActionIcon, Badge, Group, Indicator, Table, Text } from "@mantine/core";
+import { IconNote } from "@tabler/icons-react";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import { PuzzleLinks } from "./PuzzleLinks";
@@ -8,9 +9,10 @@ interface Props {
   group: BoardGroupType;
   detail: HuntDetail;
   live: Record<string, LiveActivity>;
+  onOpenNotes: (puzzle: Puzzle) => void;
 }
 
-export function BoardGroup({ group, detail, live }: Props) {
+export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const solvedAll = group.meta_solved || (group.num_feeders > 0 && group.num_solved_feeders === group.num_feeders);
 
   function activityFor(p: Puzzle): string {
@@ -74,6 +76,13 @@ export function BoardGroup({ group, detail, live }: Props) {
                   <Text size="xs" c="dimmed">
                     {activityFor(p)}
                   </Text>
+                </Table.Td>
+                <Table.Td w={44}>
+                  <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
+                    <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
+                      <IconNote size={15} />
+                    </ActionIcon>
+                  </Indicator>
                 </Table.Td>
               </Table.Tr>
             ))}

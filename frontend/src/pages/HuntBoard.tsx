@@ -17,13 +17,16 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
+import { NotesDrawer } from "../components/NotesDrawer";
 import { useActivityFeed } from "../hooks/useActivityFeed";
+import type { Puzzle } from "../types";
 
 export default function HuntBoard() {
   const { uid } = useParams();
   const { data, isLoading, error } = useHunt(uid);
   const live = useActivityFeed();
   const [view, setView] = useState<"board" | "all">("board");
+  const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
   const allPuzzles = useMemo(() => {
@@ -44,6 +47,8 @@ export default function HuntBoard() {
     return <Text c="red">Could not load this hunt (you may not have access).</Text>;
   }
 
+  const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
+  const openNotes = (p: Puzzle) => setNotesPuzzleId(p.id);
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
 
   return (
@@ -85,12 +90,14 @@ export default function HuntBoard() {
       {view === "board" ? (
         <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.round_id))}>
           {data.board.map((g) => (
-            <BoardGroup key={g.round_id} group={g} detail={data} live={live} />
+            <BoardGroup key={g.round_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
           ))}
         </Accordion>
       ) : (
-        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} />
+        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} onOpenNotes={openNotes} />
       )}
+
+      <NotesDrawer puzzle={notesPuzzle} huntUid={uid!} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
   );
 }

@@ -96,6 +96,18 @@ async def get_hunt_by_uid(uid):
     )
 
 
+async def get_hunt_for_puzzle(puzzle_id):
+    """The hunt row a puzzle belongs to, for write-action access checks."""
+    return await fetch_one(
+        "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
+        "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
+        "hunts.archive_google_sheet_id "
+        "FROM hunts JOIN puzzles ON puzzles.hunt_id = hunts.id "
+        "WHERE puzzles.id = %s",
+        (puzzle_id,),
+    )
+
+
 def hunt_to_json(hunt, guilds_map):
     guild = guilds_map.get(hunt["guild_id"], {})
     return {

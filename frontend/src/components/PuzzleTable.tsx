@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Checkbox,
   Group,
+  Indicator,
   MultiSelect,
   Table,
   Text,
   TextInput,
 } from "@mantine/core";
-import { IconSearch } from "@tabler/icons-react";
+import { IconNote, IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import { PuzzleLinks } from "./PuzzleLinks";
@@ -18,6 +20,7 @@ interface Props {
   detail: HuntDetail;
   puzzles: Puzzle[];
   live: Record<string, LiveActivity>;
+  onOpenNotes: (puzzle: Puzzle) => void;
 }
 
 function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_type") {
@@ -28,7 +31,7 @@ function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_ty
   return Array.from(set).sort();
 }
 
-export function PuzzleTable({ detail, puzzles, live }: Props) {
+export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const [search, setSearch] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [priorities, setPriorities] = useState<string[]>([]);
@@ -118,6 +121,7 @@ export function PuzzleTable({ detail, puzzles, live }: Props) {
               <Table.Th>Priority</Table.Th>
               <Table.Th>Type</Table.Th>
               <Table.Th>Activity</Table.Th>
+              <Table.Th w={60}>Notes</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -171,6 +175,13 @@ export function PuzzleTable({ detail, puzzles, live }: Props) {
                   <Text size="sm" c="dimmed">
                     {activityFor(p)}
                   </Text>
+                </Table.Td>
+                <Table.Td>
+                  <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
+                    <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
+                      <IconNote size={16} />
+                    </ActionIcon>
+                  </Indicator>
                 </Table.Td>
               </Table.Tr>
             ))}

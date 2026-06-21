@@ -138,6 +138,21 @@ async def resolve_membership(user_id):
     return membership, roles_by_guild
 
 
+async def resolve_role_names(user_id, guild_snowflake):
+    """Return the set of the user's role names in a guild, or None if not a member."""
+    bot = current_app.bot
+    guild = bot.get_guild(guild_snowflake)
+    if guild is None:
+        return None
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            return None
+    return {role.name for role in member.roles}
+
+
 def hunt_visible(hunt, membership, roles_by_guild, guilds_map):
     """Apply the visibility model to one hunt row. Returns True/False.
 

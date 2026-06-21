@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HuntDetail, HuntList, User } from "./types";
 
 /** Wrap fetch with credentials so the session cookie is always sent. */
@@ -6,6 +6,21 @@ async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
   if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json() as Promise<T>;
+}
+
+async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error((detail as { error?: string }).error || `${res.status} ${res.statusText}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -49,5 +64,23 @@ export function useHunt(uid: string | undefined) {
     queryFn: () => apiGet<HuntDetail>(`/api/hunts/${uid}`),
     enabled: !!uid,
     refetchInterval: 30_000,
+  });
+}
+
+export function useAddNote(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, note }: { puzzleId: number; note: string }) =>
+      apiSend<{ notes: string[] }>(`/api/puzzles/${puzzleId}/notes`, "POST", { note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useEraseNote(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, index }: { puzzleId: number; index: number }) =>
+      apiSend<{ notes: string[] }>(`/api/puzzles/${puzzleId}/notes/${index}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
