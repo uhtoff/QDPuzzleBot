@@ -128,25 +128,29 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         keyword, value = kwargs.popitem()
         if keyword:
             cursor = self.mydb.cursor(dictionary = True)
-            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
-            row = cursor.fetchone()
+            try:
+                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
             if row:
                 return HuntData.import_dict(row)
-            else:
-                logger.info(f"Unable to find hunt for {keyword} - {value}")
-                return None
+            logger.info(f"Unable to find hunt for {keyword} - {value}")
+            return None
 
 class MySQLRoundJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rounds'
     def get_lowest_code_in_hunt(self, hunt_id):
         """Retrieve lower code from database return 0 if none set"""
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT meta_code FROM rounds WHERE hunt_id = %s ORDER BY meta_code DESC LIMIT 0,1", (hunt_id,))
-        row = cursor.fetchone()
+        try:
+            cursor.execute("SELECT meta_code FROM rounds WHERE hunt_id = %s ORDER BY meta_code DESC LIMIT 0,1", (hunt_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row:
             return row['meta_code']
-        else:
-            return 0
+        return 0
 
     def check_duplicate_meta_code(self, meta_code):
         cursor = self.mydb.cursor()
@@ -158,25 +162,29 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
     def get(self, round_id) -> RoundData:
         """Retrieve single round from database"""
         cursor = self.mydb.cursor(dictionary = True)
-        cursor.execute("SELECT * FROM rounds WHERE channel_id = %s", (round_id,))
-        row = cursor.fetchone()
+        try:
+            cursor.execute("SELECT * FROM rounds WHERE channel_id = %s", (round_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row:
             return RoundData.import_dict(row)
-        else:
-            raise MissingRoundError(f"Unable to find round {round_id}")
+        raise MissingRoundError(f"Unable to find round {round_id}")
 
     def get_by_attr(self,**kwargs):
         """Retrieve Round by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
             cursor = self.mydb.cursor(dictionary = True)
-            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
-            row = cursor.fetchone()
+            try:
+                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
             if row:
                 return RoundData.import_dict(row)
-            else:
-                logger.info(f"Unable to find Round for {keyword} - {value}")
-                return None
+            logger.info(f"Unable to find Round for {keyword} - {value}")
+            return None
 
     def get_all(self, hunt_id="*") -> List[RoundData]:
         """Retrieve all rounds for hunt"""
@@ -219,25 +227,29 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
         cursor = self.mydb.cursor(dictionary = True)
-        cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
-        row = cursor.fetchone()
+        try:
+            cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row:
             return self.construct_puzzle(row)
-        else:
-            raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
+        raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
     def get_by_attr(self,**kwargs):
         """Retrieve puzzle by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
             cursor = self.mydb.cursor(dictionary = True)
-            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
-            row = cursor.fetchone()
+            try:
+                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
             if row:
                 return self.construct_puzzle(row)
-            else:
-                logger.info(f"Unable to find puzzle for {keyword} - {value}")
-                return None
+            logger.info(f"Unable to find puzzle for {keyword} - {value}")
+            return None
 
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
@@ -369,8 +381,11 @@ class MySQLGuildSettingsDb():
                     "UNION SELECT channel_id, 'Puzzle' as channel_type FROM puzzles "
                 ") channel_types WHERE channel_id=%s")
         data = (channel_id,)
-        cursor.execute(stmt, data)
-        row = cursor.fetchone()
+        try:
+            cursor.execute(stmt, data)
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         channel_type = None
         if row:
             channel_type = row['channel_type']
