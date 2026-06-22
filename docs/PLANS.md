@@ -82,15 +82,21 @@ terminology later. (Fix the `meta_code` int-holds-str bug, `round_data.py:20`, w
 in "rounds"**, the framing that's been limiting the design — not to tidy the schema. The word in the
 code you touch daily is what shapes the mental model, so the rename that matters is the **domain
 vocabulary you code against, not the physical table name.** Plan: the new `bot/core/` layer (**M3**,
-greenfield → cheap) introduces a `Group` domain object (`kind` field) and speaks group / tag /
+greenfield → cheap) introduces a `TagGroup` domain object (`kind` field) and speaks group / tag /
 membership; the new commands (clusters, capstones, aggregation) and the dashboard use that language.
 The `rounds` table + `round_id` SQL survive purely as a **storage detail behind the repository**
 (invisible to day-to-day reasoning), and `RoundData` / `!round` / `hunt_round` get retired
 **opportunistically** as the strangler-fig (M3) replaces each old path — so the "round" vocabulary
 leaves the code you work in without a big-bang rename. The ~360-edit storage-identifier rename is the
 part that *doesn't* shape thinking, so skipping it costs nothing cognitively; renaming the physical
-table later becomes a pure mechanical migration, decoupled from the conceptual win. (Name TBD —
-`Group` is overloaded near Discord roles/categories; `TagGroup` / `Collection` are alternatives.)
+table later becomes a pure mechanical migration, decoupled from the conceptual win.
+
+**Name: `TagGroup`** — a named, *typed* group of **puzzles**, identified by a tag (NOT "a group of
+tags"); membership is a row in the existing `tags` table carrying an `edge_type`, so a puzzle is
+*tagged into* a TagGroup. Entity `TagGroup` (was `rounds`) + `tags` membership edges
+(`tags.round_id` → conceptually `tags.group_id`). Reads naturally for every `kind` (meta / metameta /
+cluster / capstone / pool / ad-hoc). "Group" is fine informally; the type is `TagGroup`. (`Group`
+alone collides with Discord roles/categories; `TagGroup` + `tags`-as-membership is the cleaner split.)
 
 ### ✅ RESOLVED — model-first in *direction*, not scope (Discord stays the bang-command + auth surface)
 
@@ -124,6 +130,31 @@ service own `spreadsheet_id` selection. **Defer** (buys little for a hunt run a 
 few admins): promoting the dashboard to *primary*, de-ctx-ing the `environment[ctx.message.id]` spine
 + the fake-ctx hack (`puzzles.py:653-681`), a DB↔guild reconciler, and a DB role mirror. Keep Discord
 driving bang-command UX and **live** access control. → **M3 / M4.**
+
+### ✅ Reversibility — stop early, and the Discord bits are config, not commitment
+
+The guild may not want the full thread / decoupling story, and today's model works (imperfectly). The
+roadmap is deliberately structured so that's fine — the escape hatch is the *default*:
+
+- **The early milestones are pure bug-fixes/hardening to the model you already have**, no new concepts
+  forced on anyone: M0 (schema+migrations), M1 (tests), **M2 (the meta-sheet ✅ bug fix + bulk
+  writes)**, M4 (mutex), M5 (loud failures), M10 (destructive-command safety). **Stopping after
+  M5/M10 leaves a strictly better version of today's bot** — same mental model, fewer bugs. Tag a
+  release there.
+- **The divisive parts are last and opt-in.** Feeder-as-thread (M11) lives behind a per-hunt/round
+  **thread-vs-channel policy hook defaulting to *channel* (current behaviour)** — threads are a
+  runtime toggle, never a fork, and the data model is identical either way (a feeder's `channel_id`
+  holds a channel *or* a thread snowflake — same column). New `kind`s (cluster/capstone) are opt-in by
+  simply not creating them; the existing feeder→meta flow is untouched.
+- **This is exactly the "Discord is just the interface expression" intuition.** After the service
+  extraction (M3), Discord is an *adapter*, so "go back to channels" or "use threads only for clusters"
+  is a config/adapter tweak, not a re-architecture. M3 itself changes **no behaviour and no data** — it
+  only deletes the `web_*` duplication — and M1's equivalence tests prove current behaviour is
+  preserved through it. **M3 is the thing that *grants* the tweak-it-back property.**
+- **Additive, backward-compatible schema:** the M6 columns are nullable with `kind` defaulting to
+  current behaviour, so old code paths keep working and unused `kind`s sit harmless. You never
+  maintain two versions — the new capability is dormant until invoked, so "revert a feature" = "stop
+  using that `kind`", not a rollback.
 
 ### The channel-quota rule (drives the cluster + capstone designs)
 
