@@ -11,12 +11,9 @@ pydevd-pycharm = "~=243.22562.220"
 [packages]
 "discord.py" = "*"
 "mysql.connector" = "*"
-gino = "*"
 dataclasses-json = "*"
 pytz = "*"
 google-api-python-client = "*"
-oauth2client = "*"
-google-cloud-datastore = "*"
-gitpython = "*"
 mysql = {connector = "*"}
 quart = "*"
+aiohttp = "*"

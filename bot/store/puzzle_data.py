@@ -53,7 +53,17 @@ class PuzzleData:
         puz = PuzzleData()
         for attr, value in puz.__dict__.items():
             if attr == "notes":
-                setattr(puz, attr, json.loads(puzzle_data.get(attr, None)))
+                # A NULL/empty notes column would make json.loads crash the whole
+                # store read; fall back to the dataclass default ([]) instead.
+                raw_notes = puzzle_data.get(attr)
+                if raw_notes:
+                    try:
+                        setattr(puz, attr, json.loads(raw_notes))
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Could not parse notes for puzzle %s: %r",
+                            puzzle_data.get("id"), raw_notes,
+                        )
             elif attr.endswith("_time"):
                 db_date = puzzle_data.get(attr,None)
                 if db_date is not None:

@@ -3,9 +3,11 @@ This is a fork of a [bot originally by Ladder Dogs](https://github.com/azjps/lad
 
 Simple discord bot which manages puzzle channels for puzzle hunts via discord commands, used by a small-to-medium sized team.
 
-This was initially created from [`cookiecutter-discord.py-postgres`](https://github.com/makupi/cookiecutter-discord.py-postgres) and uses [`aiogoogle`](https://aiogoogle.readthedocs.io/en/latest/)/[`gspread_asyncio`](https://gspread-asyncio.readthedocs.io/en/latest/index.html) for (optional) Google Drive integration.
+This was initially created from [`cookiecutter-discord.py-postgres`](https://github.com/makupi/cookiecutter-discord.py-postgres). It is built on [discord.py](https://discordpy.readthedocs.io/) and uses [`google-api-python-client`](https://github.com/googleapis/google-api-python-client) for (optional) Google Sheets integration.
 
-To keep things very simple (and because I started this a week before Hunt starts), currently this is not using a postgres DB, and is just storing some simple puzzle metadata via JSON files and [`dataclasses_json`](https://pypi.org/project/dataclasses-json/). If this bot works well enough, might switch to postgres/gino/alembic for next time.
+**Storage:** puzzle/round/hunt metadata lives in a **MySQL** database (configured via `storage: "mysql"` and the `mysql_username` / `mysql_password` / `database` keys in `config.json`). The original JSON-file / Postgres storage described in earlier versions of this README is no longer used.
+
+**Dashboard (optional):** a React + [Mantine](https://mantine.dev/) single-page app (`frontend/`) talks to an embedded [Quart](https://quart.palletsprojects.com/) API (`bot/web/`) to provide a read/write web view of the board with Discord-OAuth login. It is off by default; enable it under the `web` key in `config.json`.
 
 # Usage
 
@@ -90,10 +92,28 @@ Create a [discord application, bot](https://realpython.com/how-to-make-a-discord
 {
   "discord_bot_token": "{{discord_bot_token}}",
   "prefix": "!",
-  "database": "postgresql://postgres:postgres@localhost:5432/postgres"
+  "storage": "mysql",
+  "mysql_username": "puzzlebot",
+  "mysql_password": "{{mysql_password}}",
+  "database": "puzzlebot"
 }
 ```
-(The database URI can be omitted as its currently not supported.)
+The bot connects to a local MySQL server using `mysql_username` / `mysql_password` and the
+`database` (schema) name. To also enable the optional web dashboard, add a `web` block:
+```json
+{
+  "web": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8099,
+    "session_secret": "{{a long random string}}",
+    "oauth_client_id": "{{discord_oauth_client_id}}",
+    "oauth_client_secret": "{{discord_oauth_client_secret}}",
+    "oauth_redirect_uri": "https://your-host/api/auth/callback",
+    "frontend_url": "https://your-host/"
+  }
+}
+```
 
 For the Google Drive integration (optional), create a [Google service account (for example see these instructions from `gspread`)](
 https://gspread.readthedocs.io/en/latest/oauth2.html#enable-api-access), and save the service account key JSON file as `google_secrets.json`.

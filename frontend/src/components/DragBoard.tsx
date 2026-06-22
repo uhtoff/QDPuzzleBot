@@ -51,6 +51,10 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
   // Metas this puzzle is not already in (candidates for "add").
   const inCodes = new Set(puzzle.rounds.map((r) => r.meta_code).filter(Boolean));
   const addable = metas.filter((m) => !inCodes.has(m.code));
+  // A feeder that belongs to more than one meta is at risk: a plain drag is a
+  // "move", which detaches it from all of its other metas. Flag it on the card.
+  const metaCount = puzzle.rounds.filter((r) => r.meta_code).length;
+  const multiMeta = !puzzle.is_meta && metaCount > 1;
   // Allow removing from the current column unless this puzzle IS that meta.
   const here = puzzle.rounds.find((r) => r.meta_code === columnMetaCode);
   const canRemove = columnMetaCode != null && here != null && !here.is_meta_of;
@@ -73,6 +77,16 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
       <Group gap={6} wrap="nowrap" justify="space-between">
         <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
           {puzzle.is_meta && <Badge size="xs" color="grape">META</Badge>}
+          {multiMeta && (
+            <Badge
+              size="xs"
+              color="orange"
+              variant="light"
+              title={`In ${metaCount} metas — dragging moves it and removes it from the others`}
+            >
+              {metaCount} metas
+            </Badge>
+          )}
           <Text size="sm" fw={puzzle.is_meta ? 600 : 400} lineClamp={1}>
             {puzzle.name}
           </Text>
@@ -194,7 +208,23 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     const metaCode = e.over?.data.current?.metaCode as string | null | undefined;
     // Skip a no-op drop back onto the puzzle's current meta — otherwise every
     // drop fires a retag that moves the Discord channel (a PATCH /channels write).
-    if (puzzleId && metaCode && metaCode !== sourceMetaCode) runRetag(puzzleId, metaCode, "move");
+    if (!puzzleId || !metaCode || metaCode === sourceMetaCode) return;
+    // A plain drag is a "move": the server clears all of this puzzle's meta tags
+    // and re-adds only the target, silently detaching it from any other metas.
+    // Warn first when that would actually lose memberships.
+    const p = byId.get(puzzleId);
+    if (p && !p.is_meta && p.rounds.filter((r) => r.meta_code).length > 1) {
+      const lost = p.rounds.filter((r) => r.meta_code && r.meta_code !== metaCode);
+      const names = lost.map((r) => r.name).join(", ");
+      const ok = window.confirm(
+        `"${p.name}" is also in: ${names}.\n\n` +
+          `Dragging onto a meta MOVES it — it will be removed from those other metas. ` +
+          `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead.\n\n` +
+          `Move it anyway?`,
+      );
+      if (!ok) return;
+    }
+    runRetag(puzzleId, metaCode, "move");
   }
 
   return (
