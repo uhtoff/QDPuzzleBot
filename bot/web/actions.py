@@ -21,6 +21,7 @@ from .auth import (
     resolve_role_names,
 )
 from bot.core.constants import STATUSES, PRIORITIES
+from bot.core.locks import puzzle_lock
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +93,13 @@ async def add_note(puzzle_id):
 
     from bot.store import PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
-    puzzle.notes.append(f"{text} - {_display_name(current_user())} (web)")
-    PuzzleJsonDb.commit(puzzle)
-    return jsonify({"notes": puzzle.notes})
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        puzzle.notes.append(f"{text} - {_display_name(current_user())} (web)")
+        PuzzleJsonDb.commit(puzzle)
+        return jsonify({"notes": puzzle.notes})
 
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/notes/<int:index>", methods=["DELETE"])
@@ -110,14 +112,15 @@ async def erase_note(puzzle_id, index):
 
     from bot.store import PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
-    if not (1 <= index <= len(puzzle.notes)):
-        return jsonify({"error": "bad_index", "notes": puzzle.notes}), 400
-    del puzzle.notes[index - 1]
-    PuzzleJsonDb.commit(puzzle)
-    return jsonify({"notes": puzzle.notes})
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not (1 <= index <= len(puzzle.notes)):
+            return jsonify({"error": "bad_index", "notes": puzzle.notes}), 400
+        del puzzle.notes[index - 1]
+        PuzzleJsonDb.commit(puzzle)
+        return jsonify({"notes": puzzle.notes})
 
 
 # --- Status / priority / type and solve (any member of the hunt's guild) ----
@@ -135,35 +138,36 @@ async def update_puzzle(puzzle_id):
     body = await request.get_json(silent=True) or {}
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
 
-    changed = False
-    if "status" in body:
-        value = (body.get("status") or "").strip()
-        if value.lower() not in PUZZLE_STATUSES:
-            return jsonify({"error": "bad_status"}), 400
-        puzzle.status = value
-        changed = True
-    if "priority" in body:
-        value = (body.get("priority") or "").strip()
-        if value.lower() not in PUZZLE_PRIORITIES:
-            return jsonify({"error": "bad_priority"}), 400
-        puzzle.priority = value
-        changed = True
-    if "puzzle_type" in body:
-        puzzle.puzzle_type = (body.get("puzzle_type") or "").strip()
-        changed = True
+        changed = False
+        if "status" in body:
+            value = (body.get("status") or "").strip()
+            if value.lower() not in PUZZLE_STATUSES:
+                return jsonify({"error": "bad_status"}), 400
+            puzzle.status = value
+            changed = True
+        if "priority" in body:
+            value = (body.get("priority") or "").strip()
+            if value.lower() not in PUZZLE_PRIORITIES:
+                return jsonify({"error": "bad_priority"}), 400
+            puzzle.priority = value
+            changed = True
+        if "puzzle_type" in body:
+            puzzle.puzzle_type = (body.get("puzzle_type") or "").strip()
+            changed = True
 
-    if changed:
-        PuzzleJsonDb.commit(puzzle)
-        cog = current_app.bot.get_cog("Puzzles")
-        if cog is not None:
-            snowflake = ctx["guild_snowflake"]
-            guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-            hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-            await cog.web_refresh_info(guild, hunt_obj, puzzle)
+        if changed:
+            PuzzleJsonDb.commit(puzzle)
+            cog = current_app.bot.get_cog("Puzzles")
+            if cog is not None:
+                snowflake = ctx["guild_snowflake"]
+                guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+                hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+                await cog.web_refresh_info(guild, hunt_obj, puzzle)
     return jsonify({"ok": True})
 
 
@@ -184,27 +188,28 @@ async def add_sheet(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
 
-    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    cog = current_app.bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    snowflake = ctx["guild_snowflake"]
-    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-    try:
-        sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
-        await cog.web_refresh_info(guild, hunt_obj, puzzle)
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    return jsonify({
-        "ok": True,
-        "sheet": {"id": sheet.id, "name": sheet.puzzle_name, "page_id": sheet.google_page_id},
-    })
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        try:
+            sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
+            await cog.web_refresh_info(guild, hunt_obj, puzzle)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        return jsonify({
+            "ok": True,
+            "sheet": {"id": sheet.id, "name": sheet.puzzle_name, "page_id": sheet.google_page_id},
+        })
 
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/sheets/<int:sheet_id>", methods=["DELETE"])
@@ -219,24 +224,25 @@ async def remove_sheet(puzzle_id, sheet_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
 
-    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    cog = current_app.bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    snowflake = ctx["guild_snowflake"]
-    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-    try:
-        await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
-        await cog.web_refresh_info(guild, hunt_obj, puzzle)
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 404
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    return jsonify({"ok": True})
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        try:
+            await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
+            await cog.web_refresh_info(guild, hunt_obj, puzzle)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        return jsonify({"ok": True})
 
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/solve", methods=["POST"])
@@ -254,29 +260,30 @@ async def solve_puzzle(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
-    if not solution and not puzzle.solution:
-        return jsonify({"error": "empty_solution"}), 400
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not solution and not puzzle.solution:
+            return jsonify({"error": "empty_solution"}), 400
 
-    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    bot = current_app.bot
-    cog = bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    snowflake = ctx["guild_snowflake"]
-    guild = bot.get_guild(int(snowflake)) if snowflake else None
-    try:
-        await cog.service.solve(guild, hunt_obj, puzzle, solution)
-    except HttpError:
-        # Best-effort: the solve is recorded; a Sheets archive hiccup must
-        # not fail the dashboard action (mirrors the old web path).
-        logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
-    return jsonify({"ok": True, "solution": puzzle.solution})
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+        try:
+            await cog.service.solve(guild, hunt_obj, puzzle, solution)
+        except HttpError:
+            # Best-effort: the solve is recorded; a Sheets archive hiccup must
+            # not fail the dashboard action (mirrors the old web path).
+            logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
+        return jsonify({"ok": True, "solution": puzzle.solution})
 
 
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
@@ -321,35 +328,36 @@ async def retag_puzzle(puzzle_id):
     meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
     if meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]:
         return jsonify({"error": "bad_meta_code"}), 400
-    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-    if puzzle is None:
-        return jsonify({"error": "puzzle_not_found"}), 404
-    if mode == "remove" and puzzle.id == meta_round.meta_id:
-        return jsonify({"error": "cannot_remove_own_meta"}), 400
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if mode == "remove" and puzzle.id == meta_round.meta_id:
+            return jsonify({"error": "cannot_remove_own_meta"}), 400
 
-    bot = current_app.bot
-    cog = bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    snowflake = ctx["guild_snowflake"]
-    guild = bot.get_guild(int(snowflake)) if snowflake else None
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
 
-    try:
-        if mode == "move":
-            await cog.service.move_to_meta(guild, puzzle, meta_round)
-        elif mode == "add":
-            await cog.service.add_to_meta(puzzle, meta_round)
-        elif mode == "remove":
-            await cog.service.remove_from_meta(puzzle, meta_round)
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    except HttpError:
-        # The tag mutation already committed; a Sheets refresh hiccup is
-        # best-effort and must not fail the retag (mirrors the old web path).
-        # Unexpected (non-Sheets) errors propagate to a 500 rather than being
-        # masked as success.
-        logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
-    return jsonify({"ok": True})
+        try:
+            if mode == "move":
+                await cog.service.move_to_meta(guild, puzzle, meta_round)
+            elif mode == "add":
+                await cog.service.add_to_meta(puzzle, meta_round)
+            elif mode == "remove":
+                await cog.service.remove_from_meta(puzzle, meta_round)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        except HttpError:
+            # The tag mutation already committed; a Sheets refresh hiccup is
+            # best-effort and must not fail the retag (mirrors the old web path).
+            # Unexpected (non-Sheets) errors propagate to a 500 rather than being
+            # masked as success.
+            logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
+        return jsonify({"ok": True})
 
 
 # --- Create puzzles and metas (organiser only) ------------------------------

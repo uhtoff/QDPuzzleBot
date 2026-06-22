@@ -10,7 +10,6 @@ from googleapiclient.errors import HttpError
 import pytz
 import asyncio
 from functools import wraps
-from collections import defaultdict
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
@@ -20,8 +19,9 @@ from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIE
 
 logger = logging.getLogger(__name__)
 
-# One asyncio.Lock per puzzle id
-_PUZZLE_LOCKS = defaultdict(asyncio.Lock)
+# Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
+# dashboard write serializes against the matching bang-command (see M4).
+from bot.core.locks import _PUZZLE_LOCKS
 
 
 def with_puzzle_mutex(*, wait: bool = True):
