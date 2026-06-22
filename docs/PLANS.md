@@ -466,7 +466,12 @@ replaces.)
 **M7 — Meta-meta + flexible aggregation (Features A + D).** *(deps: M6)* `parent_group_id` containment
 + `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group) — apply the
 pinned `feeds-meta`-vs-`subtree` rule + the runaround worked example in Part 1; thin command+UI;
-**aggregated-answers view + copy-to-clipboard** in the SPA.
+**aggregated-answers view + copy-to-clipboard** in the SPA. Also add **`UNIQUE (round_id, puzzle_id)`
+on `tags`** (migration after a defensive dedup, replacing the non-unique `tag_index`): membership is
+one edge per puzzle/group pair — matches the `commit()` set-difference model and the per-pair
+`edge_type` — so the `aggregates-into` writer is a clean `ON DUPLICATE KEY UPDATE` upsert. Doing it in
+M7 is information-safe because every existing `tags` row is still the default `feeds-meta` (no
+edge_type variation to lose in the dedup); land it before any non-default `edge_type` is written.
 
 **M8 — Minimeta clusters (Feature B).** *(deps: M5, M6)* Minipuzzles = `additional_sheets` tabs under
 one puzzle (activate the dead `solution`/`solved` columns); cluster-scoped roll-up; **fix the
