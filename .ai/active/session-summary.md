@@ -2,8 +2,9 @@
 
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
+Branch: feature/m5-rollups
 Started: 2026-06-22
-Status: in progress — M5 phase 3: surface stale sheets — toast + board badge @ a51a54b
+Status: ready for handoff — M5 fully implemented (phases 1–5), all tests green
 
 ## Goal
 
@@ -13,40 +14,36 @@ durable stale badge, inline propagation, `!rebuild` + web rebuild button, a
 per-round_id rollup mutex, and dev-metadata tab pointers with google_page_id as the
 trusted fallback.
 
-## Implementation phases
+## Phases (all DONE)
 
-1. ✅ **Migration + store + lock** — `migrations/002_rollups.sql`, `RollupData` +
-   `MySQLRollupJsonDb` + `RollupsJsonDb` export, `rollup_lock`/`_ROLLUP_LOCKS` in
-   `bot/core/locks.py`. Tests: `test_rollup_lock.py`, `test_rollup_data.py`.
-2. ⬜ **Rollup-aware refresh_meta + dev-metadata + failure isolation** —
-   `PuzzleService.refresh_meta` (lock, find-or-create rollup, persist last_ok/error,
-   re-raise; tab resolve via metadata→google_page_id fallback); fan-out callers
-   (solve/move/add/remove) catch-continue-collect + raise `SheetRefreshError` at end;
-   gsheet `ensure_tab_metadata`/`find_tab_by_metadata`.
-3. ⬜ **Edges** — `bot/web/actions.py` solve/retag return `sheet_warning`;
-   `bot/web/data.py` expose `rollup_stale`/`last_error`.
-4. ⬜ **`!rebuild` + `POST /api/rollups/<round_id>/rebuild`**.
-5. ⬜ **Frontend** — stale badge + toast + Rebuild button.
+1. ✅ `migrations/002_rollups.sql`, `RollupData` + `MySQLRollupJsonDb` +
+   `RollupsJsonDb`, `rollup_lock`/`_ROLLUP_LOCKS`. (`fbce849`)
+2. ✅ Rollup-aware `refresh_meta` (lock, find-or-create, persist, re-raise, best-effort
+   dev-metadata); fan-out failure isolation + `SheetRefreshError`; gsheet metadata
+   helpers. (`7cd2702`)
+3. ✅ Edges: web solve/retag return `sheet_warning`; bang `_solve_impl` catches
+   `SheetRefreshError`; board payload `rollup_stale`/`rollup_error`. (`a51a54b`)
+4. ✅ `!rebuild` (targeted/hunt-wide) + `POST /api/rollups/<round_id>/rebuild`. (`73a805f`)
+5. ✅ Frontend: stale badge + Rebuild button + warning toasts. (`44a9b15`)
 
-## Key decisions (from brainstorming)
+## Verification
 
-- Full M5 incl. inert source_mode/edge_type_filter columns.
-- Surface: persist badge + toast. DB mutation always commits; never roll back.
-- Inline propagation (no debounce). Read INSIDE the rollup lock (post-commit snapshot).
-- Rollup keyed per round_id (unique). Rebuild endpoint keyed on round_id.
-- Per-round_id lock lives INSIDE refresh_meta (single choke point); separate registry
-  from M4 per-puzzle locks; one lock held per task → no deadlock.
-- Auto-heal: next solve touching a stale group re-renders full snapshot → clears badge.
-- Orphan-cleanup-on-create-failure noted for M10 (PLANS.md), out of M5 scope.
+- `pipenv run python -m pytest tests/ -q` → **100 passed**.
+- Frontend `tsc --noEmit` + `vite build` → clean.
+- Store round-trip smoke-tested live; migration `002` applied + baselined on test DB.
+- Backend import smoke of all changed modules → OK.
 
-## Test / DB notes
+## Notes / out of scope
 
-- Run: `timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1`
-- Service tests MOCK the store (`patch bot.core.puzzle_service.PuzzleJsonDb` etc.) — no
-  DB needed there. The store round-trip was smoke-tested live.
-- Test DB `rollups` table created; migrations baselined (000/001/002 applied).
+- Dev-metadata is recorded as substrate only; M5 renders via `google_page_id` (never
+  trusts metadata alone). `source_mode`/`edge_type_filter` columns are inert (M6/M7).
+- `_update_all_metas` (partial/change_solution/add_solution) keeps its pre-existing
+  non-isolated behaviour — only solve/retag got failure isolation (M5 scope).
+- Orphan-cleanup-on-create-failure deferred to M10 (noted in PLANS.md on `main`).
+- The web rebuild endpoint + `!rebuild` lack endpoint-level tests (no Quart app
+  fixture in the suite); covered by the command unit test + service tests.
 
 ## Next step
 
-Phase 2: rewrite `PuzzleService.refresh_meta` to be rollup-aware + add gsheet metadata
-helpers + failure isolation in the fan-out callers. Extend `tests/test_refresh_meta.py`.
+Merge review: `/checkandmerge` (or review branch feature/m5-rollups → main). Then mark
+M5 done in docs/PLANS.md and archive `.ai/active/`.
