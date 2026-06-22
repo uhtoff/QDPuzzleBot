@@ -19,14 +19,13 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
+from bot.core.constants import STATUSES, PRIORITIES
 
 logger = logging.getLogger(__name__)
 
 actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
-
-from bot.core.constants import STATUSES, PRIORITIES
 
 PUZZLE_STATUSES = set(STATUSES)
 PUZZLE_PRIORITIES = set(PRIORITIES)

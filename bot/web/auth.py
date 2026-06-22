@@ -14,12 +14,11 @@ import aiohttp
 from quart import Blueprint, current_app, jsonify, redirect, request, session
 
 from bot.utils import config
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
-
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 
 DISCORD_API = "https://discord.com/api"
 AUTHORIZE_URL = f"{DISCORD_API}/oauth2/authorize"

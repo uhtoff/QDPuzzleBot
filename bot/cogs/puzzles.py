@@ -16,13 +16,13 @@ from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
     RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData
 from bot.utils.chunking import build_note_embeds
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 logger = logging.getLogger(__name__)
 
 # One asyncio.Lock per puzzle id
 _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
 
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 def with_puzzle_mutex(*, wait: bool = True):
     """
@@ -75,6 +75,7 @@ class Puzzles(commands.Cog):
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
+    # module-level constants (from bot.core.constants), re-exposed as class attributes
     STATUSES = STATUSES
     PRIORITIES = PRIORITIES
     REMINDERS = [
