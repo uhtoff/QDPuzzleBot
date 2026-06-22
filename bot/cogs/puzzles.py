@@ -821,7 +821,7 @@ class Puzzles(commands.Cog):
                     channel_type="text", reason=self.ROUND_REASON, position=500,
                 )
 
-            new_round = RoundData(name=name, hunt_id=hunt.id, category_id=new_category.id, type="Metapuzzle")
+            new_round = RoundData(name=name, hunt_id=hunt.id, category_id=new_category.id, type="Metapuzzle", kind="meta")
             RoundJsonDb.commit(new_round)
 
             puzzle = await self.web_create_puzzle(guild, hunt, new_round, name, is_meta=True, send_welcome=False)
@@ -1244,6 +1244,7 @@ class Puzzles(commands.Cog):
             hunt_id = self.get_hunt(ctx).id,
             category_id = new_category.id,
             type = group_type,
+            kind = "metaless" if group_type == "Metaless Round" else "meta",
         )
 
         RoundJsonDb.commit(new_round)
@@ -2295,9 +2296,16 @@ class Puzzles(commands.Cog):
 
         puzzle.solved = False
 
-        if self.get_hunt_round(ctx):
+        hunt_round = self.get_hunt_round(ctx)
+        if hunt_round:
+            # M6: mirror the solve hook — if this puzzle is the round's meta, the
+            # round is no longer solved.
+            if hunt_round.meta_id == puzzle.id:
+                hunt_round.solve_time = None
+                hunt_round.status = "active"
+                RoundJsonDb.commit(hunt_round)
             try:
-                await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                await self.update_metapuzzle(ctx, hunt_round)
             except SheetRefreshError as exc:
                 await self._warn_stale_sheets(ctx, exc)
 

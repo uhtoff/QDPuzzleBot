@@ -194,6 +194,7 @@ class PuzzleService:
                 failed.append(tag)
             if meta_round and meta_round.meta_id == puzzle.id:
                 meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
+                meta_round.status = "solved"   # M6: a round is solved when its meta is
                 RoundJsonDb.commit(meta_round)
 
         gsheet_cog = self._gsheet_cog(hunt)
