@@ -10,6 +10,7 @@ import re
 import pytz
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .round_data import RoundData, MissingRoundError
+from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
 
@@ -213,6 +214,36 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
         rows = cursor.fetchall()
         cursor.close()
         return rows
+
+
+class MySQLRollupJsonDb(_MySQLBaseDb):
+    TABLE_NAME = 'rollups'
+
+    def get_by_attr(self, **kwargs):
+        """Retrieve a Rollup by attribute (e.g. round_id=). Last attr wins."""
+        keyword, value = kwargs.popitem()
+        if keyword:
+            cursor = self.mydb.cursor(dictionary=True)
+            try:
+                cursor.execute(
+                    f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1",
+                    (value,),
+                )
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+            if row:
+                return RollupData.import_dict(row)
+            return None
+
+    def get_all_from_hunt(self, hunt_id) -> List[RollupData]:
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `hunt_id` = %s", (hunt_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [RollupData.import_dict(row) for row in rows]
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
