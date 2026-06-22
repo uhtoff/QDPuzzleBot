@@ -22,6 +22,7 @@ from .auth import (
 )
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.core.locks import puzzle_lock
+from bot.core.errors import SheetRefreshError
 
 logger = logging.getLogger(__name__)
 
@@ -274,16 +275,25 @@ async def solve_puzzle(puzzle_id):
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
+        warning = None
         try:
             await cog.service.solve(guild, hunt_obj, puzzle, solution)
+        except SheetRefreshError as exc:
+            # The solve is fully applied and the stale meta(s) are badged; surface
+            # a non-fatal toast so the user knows a sheet needs a Rebuild.
+            warning = str(exc)
         except HttpError:
             # Best-effort: the solve is recorded; a Sheets archive hiccup must
             # not fail the dashboard action (mirrors the old web path).
             logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
+            warning = "A sheet update failed; the solve is saved. Use Rebuild to retry."
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
-        return jsonify({"ok": True, "solution": puzzle.solution})
+        resp = {"ok": True, "solution": puzzle.solution}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
 
 
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
@@ -345,6 +355,7 @@ async def retag_puzzle(puzzle_id):
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
 
+        warning = None
         try:
             if mode == "move":
                 await cog.service.move_to_meta(guild, puzzle, meta_round)
@@ -354,13 +365,21 @@ async def retag_puzzle(puzzle_id):
                 await cog.service.remove_from_meta(puzzle, meta_round)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
+        except SheetRefreshError as exc:
+            # The tag mutation already committed and the stale meta(s) are badged;
+            # surface a non-fatal toast so the user can Rebuild.
+            warning = str(exc)
         except HttpError:
             # The tag mutation already committed; a Sheets refresh hiccup is
             # best-effort and must not fail the retag (mirrors the old web path).
             # Unexpected (non-Sheets) errors propagate to a 500 rather than being
             # masked as success.
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
-        return jsonify({"ok": True})
+            warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
+        resp = {"ok": True}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
 
 
 # --- Create puzzles and metas (organiser only) ------------------------------

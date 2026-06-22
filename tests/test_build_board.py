@@ -79,6 +79,30 @@ class TestBuildBoardBasic:
         assert grp["meta_solution"] == "ANSWER"
 
 
+class TestBuildBoardRollupBadge:
+    def test_no_rollup_map_is_not_stale(self):
+        rnd = make_round_ref(id=5, name="Round One")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
+        grp = build_board([puz])[0]
+        assert grp["rollup_stale"] is False
+        assert grp["rollup_error"] is None
+
+    def test_stale_rollup_flags_the_group(self):
+        rnd = make_round_ref(id=5, name="Round One")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
+        rollups = {5: {"stale": True, "error": "sheets down"}}
+        grp = build_board([puz], rollups)[0]
+        assert grp["rollup_stale"] is True
+        assert grp["rollup_error"] == "sheets down"
+
+    def test_healthy_rollup_not_stale(self):
+        rnd = make_round_ref(id=5, name="Round One")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
+        rollups = {5: {"stale": False, "error": None}}
+        grp = build_board([puz], rollups)[0]
+        assert grp["rollup_stale"] is False
+
+
 # ---------------------------------------------------------------------------
 # build_board — ordering
 # ---------------------------------------------------------------------------

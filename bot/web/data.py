@@ -221,17 +221,34 @@ def _load_notes(raw):
         return []
 
 
-def build_board(puzzles):
+async def get_rollups_by_round(hunt_id):
+    """Map each meta round in the hunt to its roll-up sheet's freshness, for the
+    dashboard "sheet stale" badge (M5). A round with no rollup row is treated as
+    not-stale (never refreshed yet, or no sheet)."""
+    rows = await fetch_all(
+        "SELECT round_id, last_ok, last_error FROM rollups WHERE hunt_id = %s",
+        (hunt_id,),
+    )
+    return {
+        row["round_id"]: {"stale": not row["last_ok"], "error": row["last_error"]}
+        for row in rows
+    }
+
+
+def build_board(puzzles, rollups_by_round=None):
     """Group a flat puzzle list into rounds (metas) for the dashboard board.
 
     Returns a list of groups plus an "Unassigned" bucket. Each group reports its
-    meta solution and feeder solve counts. Puzzles in several rounds appear in each.
+    meta solution and feeder solve counts, plus whether its roll-up sheet is stale
+    (from rollups_by_round). Puzzles in several rounds appear in each.
     """
+    rollups_by_round = rollups_by_round or {}
     groups = {}
     order = []
 
     def ensure(round_id, name, meta_code):
         if round_id not in groups:
+            ru = rollups_by_round.get(round_id, {})
             groups[round_id] = {
                 "round_id": round_id,
                 "name": name,
@@ -241,6 +258,8 @@ def build_board(puzzles):
                 "meta_solved": False,
                 "num_feeders": 0,
                 "num_solved_feeders": 0,
+                "rollup_stale": bool(ru.get("stale", False)),
+                "rollup_error": ru.get("error"),
             }
             order.append(round_id)
         return groups[round_id]

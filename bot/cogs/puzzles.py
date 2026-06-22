@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import _PUZZLE_LOCKS
+from bot.core.errors import SheetRefreshError
 
 
 def with_puzzle_mutex(*, wait: bool = True):
@@ -2061,7 +2062,14 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
 
-        applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution)
+        sheet_warning = None
+        try:
+            applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution)
+        except SheetRefreshError as exc:
+            # The solve is fully applied; one or more meta sheets are stale (and
+            # badged on the dashboard). Tell the channel rather than tracebacking.
+            applied = True
+            sheet_warning = str(exc)
         if not applied:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
@@ -2076,7 +2084,10 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.move_to_solved(ctx)
         await self.info(ctx, update=True)
-        await ctx.send(":white_check_mark: Sheets all tidied away.")
+        if sheet_warning:
+            await ctx.send(f":warning: {sheet_warning} (try `!rebuild`)")
+        else:
+            await ctx.send(":white_check_mark: Sheets all tidied away.")
 
     @commands.command(aliases=["s"])
     @with_puzzle_mutex(wait=False)
