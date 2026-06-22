@@ -545,72 +545,121 @@ class GoogleSheets(commands.Cog):
             puzzle_data.google_page_id = old_puzzle.google_page_id
             raise
 
+    # --- Generic roll-up engine (M2) -------------------------------------
+    # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.
+    # It writes a whole roll-up in two values() calls (clear + update) instead of
+    # ~750 single-cell updateCells ops, and snapshots values RAW so an answer like
+    # "=A1" is stored as text and never a live formula — archived puzzles move to a
+    # separate spreadsheet where any cross-tab formula would resolve to #REF.
+
+    @staticmethod
+    def _col_letter(index: int) -> str:
+        """0-based column index -> A1 column letters (0->A, 25->Z, 26->AA)."""
+        letters = ""
+        index += 1
+        while index:
+            index, rem = divmod(index - 1, 26)
+            letters = chr(65 + rem) + letters
+        return letters
+
+    @classmethod
+    def _a1_cell(cls, row: int, column: int) -> str:
+        """0-based (row, column) -> A1 cell reference (0,0 -> A1)."""
+        return f"{cls._col_letter(column)}{row + 1}"
+
+    @staticmethod
+    def _solution_text(puzzle: PuzzleData) -> str:
+        """Answer-cell text for a roll-up row. A puzzle marked complete with no
+        recorded answer carries the "✅" sentinel (see mark_as_complete); it is
+        shown as-is so the row stays aligned instead of being silently dropped —
+        the bug the old per-cell renderers had via a continue-before-row-increment."""
+        return puzzle.solution if puzzle.solution else "Unsolved"
+
+    def _target_spreadsheet_id(self, puzzle: PuzzleData):
+        """Live spreadsheet, or the archive one once the puzzle has been archived."""
+        return self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
+
+    async def _values_update(self, spreadsheet_id, a1_range, values):
+        req = get_sheet().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=a1_range,
+            valueInputOption="RAW",   # store literally; never interpret as a formula
+            body={"values": values},
+        )
+        return await execute_with_retry(req, on_retry=self._notify_retry)
+
+    async def _values_clear(self, spreadsheet_id, a1_range):
+        req = get_sheet().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=a1_range,
+            body={},
+        )
+        return await execute_with_retry(req, on_retry=self._notify_retry)
+
+    async def aggregate_to_tab(self, spreadsheet_id, tab_page_id, columns, rows,
+                               start_row=4, start_column=0):
+        """Write a `columns` header + `rows` data block to a tab as a snapshot.
+
+        spreadsheet_id  target spreadsheet (caller picks live vs archive)
+        tab_page_id     destination sheet's numeric page id
+        columns         header strings, one per column
+        rows            list of row-lists (cell strings), each len == len(columns)
+        start_row/col   0-based top-left of the header (default A5, matching the
+                        header row the old renderers used)
+
+        Clears the old block first (replacing the fixed 50-blank-row padding) so a
+        roll-up shorter than last time's leaves no stale trailing rows, then writes
+        the header + rows in a single values().update.
+        """
+        tab_name = self.get_page_name_by_id(tab_page_id, spreadsheet_id)
+        if tab_name is None:
+            raise RuntimeError(
+                f"aggregate_to_tab: no tab with page id {tab_page_id} "
+                f"in spreadsheet {spreadsheet_id}"
+            )
+        safe_name = tab_name.replace("'", "''")   # escape for the quoted A1 range
+        start_cell = self._a1_cell(start_row, start_column)
+        last_col = self._col_letter(start_column + len(columns) - 1)
+        # Open-ended range: clear everything from the header row down across the
+        # columns this roll-up owns (leaves the puzzle's own B1/B3/I1 + grid alone).
+        await self._values_clear(spreadsheet_id, f"'{safe_name}'!{start_cell}:{last_col}")
+        values = [list(columns)] + [list(r) for r in rows]
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!{start_cell}", values)
+
     async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        requests = [self.update_cell("Puzzle titles",4,0,self.STRING_INPUT,puzzle.google_page_id),
-                    self.update_cell("Puzzle solutions", 4, 1, self.STRING_INPUT,puzzle.google_page_id),]
-        row = 5
-        for round_puzzle in round_puzzles:
-            if round_puzzle.id == puzzle.id: # Skip self
-                continue
-            requests.append(self.update_cell(round_puzzle.name, row, 0, self.STRING_INPUT,puzzle.google_page_id))
-            if round_puzzle.solution:
-                if round_puzzle.solution == "✅":
-                    continue
-                else:
-                    solution = round_puzzle.solution
-            else:
-                solution = "Unsolved"
-            requests.append(self.update_cell(solution, row, 1, self.STRING_INPUT,puzzle.google_page_id))
-            row += 1
-        for x in range(50):
-            requests.append(self.update_cell("", row, 0, self.STRING_INPUT,puzzle.google_page_id))
-            requests.append(self.update_cell("", row, 1, self.STRING_INPUT,puzzle.google_page_id))
-            row += 1
-        updates = {
-            'requests': requests
-        }
-        await self.batch_update(updates, puzzle.archived)
+        rows = [
+            [round_puzzle.name, self._solution_text(round_puzzle)]
+            for round_puzzle in round_puzzles
+            if round_puzzle.id != puzzle.id   # skip the meta's own row
+        ]
+        await self.aggregate_to_tab(
+            self._target_spreadsheet_id(puzzle),
+            puzzle.google_page_id,
+            ["Puzzle titles", "Puzzle solutions"],
+            rows,
+        )
 
     async def add_metametapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        requests = [self.update_cell("Puzzle Round",4,0,self.STRING_INPUT,puzzle.google_page_id),
-                    self.update_cell("Puzzle Title", 4, 1, self.STRING_INPUT,puzzle.google_page_id),
-                    self.update_cell("Puzzle Solution", 4, 2, self.STRING_INPUT,puzzle.google_page_id),]
-        row = 5
+        rows = []
         for round_puzzle in round_puzzles:
-            if round_puzzle.id == puzzle.id: # Skip self
+            if round_puzzle.id == puzzle.id:      # skip self
                 continue
-            if round_puzzle.metapuzzle == 1:
+            if round_puzzle.metapuzzle == 1:      # metas roll up via their feeders, not here
                 continue
-            if len(round_puzzle.tags) > 1:
+            if len(round_puzzle.tags) > 1:        # ambiguous multi-round membership
                 continue
-
             if round_puzzle.tags:
                 round = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0])
-                if round.meta_code == "RETAWR" or round.meta_code == "LAOFNO":
-                    continue
                 round_name = round.name
             else:
                 round_name = "No Round"
-            requests.append(self.update_cell(round_name, row, 0, self.STRING_INPUT, puzzle.google_page_id))
-            requests.append(self.update_cell(round_puzzle.name, row, 1, self.STRING_INPUT,puzzle.google_page_id))
-            if round_puzzle.solution:
-                if round_puzzle.solution == "✅":
-                    continue
-                else:
-                    solution = round_puzzle.solution
-            else:
-                solution = "Unsolved"
-            requests.append(self.update_cell(solution, row, 2, self.STRING_INPUT,puzzle.google_page_id))
-            row += 1
-        for x in range(50):
-            requests.append(self.update_cell("", row, 0, self.STRING_INPUT, puzzle.google_page_id))
-            requests.append(self.update_cell("", row, 1, self.STRING_INPUT,puzzle.google_page_id))
-            requests.append(self.update_cell("", row, 2, self.STRING_INPUT,puzzle.google_page_id))
-            row += 1
-        updates = {
-            'requests': requests
-        }
-        await self.batch_update(updates, puzzle.archived)
+            rows.append([round_name, round_puzzle.name, self._solution_text(round_puzzle)])
+        await self.aggregate_to_tab(
+            self._target_spreadsheet_id(puzzle),
+            puzzle.google_page_id,
+            ["Puzzle Round", "Puzzle Title", "Puzzle Solution"],
+            rows,
+        )
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!
