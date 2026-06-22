@@ -2536,6 +2536,20 @@ class Puzzles(commands.Cog):
         RoundJsonDb.delete(hunt_round.id)
         return True
 
+    async def _safe_delete_channel(self, guild, channel_id):
+        """Delete a channel by id, tolerating an already-missing channel and a
+        mid-loop rate-limit. Returns True on delete, False if it was missing or
+        the delete could not complete (so callers can report what remains)."""
+        channel = discord.utils.get(guild.channels, id=channel_id)
+        if channel is None:
+            return False
+        try:
+            await channel.delete(reason=self.DELETE_REASON)
+            return True
+        except (discord.RateLimited, discord.HTTPException):
+            logger.exception("delete: could not delete channel %s", channel_id)
+            return False
+
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def delete_hunt(self, ctx):
