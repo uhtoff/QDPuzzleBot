@@ -166,7 +166,11 @@ export function useSolvePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ puzzleId, solution }: { puzzleId: number; solution: string }) =>
-      apiSend<{ ok: boolean; solution: string }>(`/api/puzzles/${puzzleId}/solve`, "POST", { solution }),
+      apiSend<{ ok: boolean; solution: string; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/solve`,
+        "POST",
+        { solution }
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
@@ -205,7 +209,20 @@ export function useRetagPuzzle(uid: string) {
       puzzleId: number;
       metaCode: string;
       mode: RetagMode;
-    }) => apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/meta`, "POST", { meta_code: metaCode, mode }),
+    }) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(`/api/puzzles/${puzzleId}/meta`, "POST", {
+        meta_code: metaCode,
+        mode,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useRebuildRollup(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (roundId: number) =>
+      apiSend<{ ok: boolean; error?: string }>(`/api/rollups/${roundId}/rebuild`, "POST"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }

@@ -110,8 +110,11 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; ui
     solve.mutate(
       { puzzleId: puzzle.id, solution: value },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           notifications.show({ message: `Marked “${puzzle.name}” solved`, color: "green" });
+          if (data.sheet_warning) {
+            notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
+          }
           setSolution("");
           onClose();
         },

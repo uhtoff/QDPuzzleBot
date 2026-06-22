@@ -22,6 +22,7 @@ from .auth import (
 )
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.core.locks import puzzle_lock
+from bot.core.errors import SheetRefreshError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,20 @@ async def _visible_hunt_by_uid(uid):
     hunt = await data.get_hunt_by_uid(uid)
     if not hunt:
         return None, (jsonify({"error": "hunt_not_found"}), 404)
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return None, (jsonify({"error": "forbidden"}), 403)
+    guild = guilds_map.get(hunt["guild_id"], {})
+    return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+
+
+async def _visible_hunt_for_round(round_id):
+    """Resolve a round's hunt and confirm the user may see it (same shape as above)."""
+    user = current_user()
+    hunt = await data.get_hunt_for_round(round_id)
+    if not hunt:
+        return None, (jsonify({"error": "round_not_found"}), 404)
     membership, roles_by_guild = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
     if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
@@ -274,16 +289,25 @@ async def solve_puzzle(puzzle_id):
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
+        warning = None
         try:
             await cog.service.solve(guild, hunt_obj, puzzle, solution)
+        except SheetRefreshError as exc:
+            # The solve is fully applied and the stale meta(s) are badged; surface
+            # a non-fatal toast so the user knows a sheet needs a Rebuild.
+            warning = str(exc)
         except HttpError:
             # Best-effort: the solve is recorded; a Sheets archive hiccup must
             # not fail the dashboard action (mirrors the old web path).
             logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
+            warning = "A sheet update failed; the solve is saved. Use Rebuild to retry."
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
-        return jsonify({"ok": True, "solution": puzzle.solution})
+        resp = {"ok": True, "solution": puzzle.solution}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
 
 
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
@@ -345,6 +369,7 @@ async def retag_puzzle(puzzle_id):
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
 
+        warning = None
         try:
             if mode == "move":
                 await cog.service.move_to_meta(guild, puzzle, meta_round)
@@ -354,13 +379,61 @@ async def retag_puzzle(puzzle_id):
                 await cog.service.remove_from_meta(puzzle, meta_round)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
+        except SheetRefreshError as exc:
+            # The tag mutation already committed and the stale meta(s) are badged;
+            # surface a non-fatal toast so the user can Rebuild.
+            warning = str(exc)
         except HttpError:
             # The tag mutation already committed; a Sheets refresh hiccup is
             # best-effort and must not fail the retag (mirrors the old web path).
             # Unexpected (non-Sheets) errors propagate to a 500 rather than being
             # masked as success.
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
-        return jsonify({"ok": True})
+            warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
+        resp = {"ok": True}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
+
+
+# --- Rebuild a meta roll-up sheet (organiser only) --------------------------
+
+@actions_bp.route("/rollups/<int:round_id>/rebuild", methods=["POST"])
+@login_required
+async def rebuild_rollup(round_id):
+    """Rebuild one meta round's roll-up sheet, clearing its stale badge on success.
+    Keyed on round_id (a rollup is per round); organiser-gated via the round's hunt.
+    Serialization is handled inside refresh_meta's per-round rollup lock."""
+    ctx, err = await _visible_hunt_for_round(round_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, RoundJsonDb
+
+    meta_round = RoundJsonDb.get_by_attr(id=round_id)
+    if meta_round is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    try:
+        await cog.service.refresh_meta(hunt_obj, meta_round)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    except Exception as exc:
+        # refresh_meta has already re-badged last_ok=0; report the failure so the
+        # SPA can toast and leave the badge in place for another retry.
+        logger.exception("rebuild: refresh failed for round %s", round_id)
+        return jsonify({"ok": False, "error": str(exc)})
+    return jsonify({"ok": True})
 
 
 # --- Create puzzles and metas (organiser only) ------------------------------

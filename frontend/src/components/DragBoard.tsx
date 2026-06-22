@@ -24,6 +24,7 @@ import {
   Text,
 } from "@mantine/core";
 import { IconDotsVertical } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import type { BoardGroup, HuntDetail, Puzzle } from "../types";
 import { useRetagPuzzle, type RetagMode } from "../api";
 import { statusColor } from "../util";
@@ -194,7 +195,16 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     .map((g) => ({ code: g.meta_code as string, name: g.name }));
 
   const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) =>
-    retag.mutate({ puzzleId, metaCode, mode });
+    retag.mutate(
+      { puzzleId, metaCode, mode },
+      {
+        onSuccess: (data) => {
+          if (data.sheet_warning) {
+            notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
+          }
+        },
+      }
+    );
 
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
