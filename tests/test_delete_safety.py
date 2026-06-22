@@ -107,3 +107,25 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
     warn = [c for c in hunt_channel.send.await_args_list
             if "Could not delete channels for" in str(c)]
     assert warn and "P1" in str(warn[0])
+
+
+@pytest.mark.asyncio
+async def test_delete_puzzle_aborts_when_not_confirmed(monkeypatch):
+    import bot.cogs.puzzles as puzzles_mod
+    cog = _cog()
+    puzzle = SimpleNamespace(id=1, name="P", channel_id=101)
+    chan = SimpleNamespace(delete=AsyncMock())
+    ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=chan, send=AsyncMock(),
+                          author=SimpleNamespace(id=42))
+    cog.environment[7] = {
+        "channel_type": "Puzzle", "hunt": SimpleNamespace(id=10, channel_id=900),
+        "hunt_round": None, "puzzle": puzzle, "guild": MagicMock(), "guild_data": None,
+        "channel": chan,
+    }
+    cog._confirm_destructive = AsyncMock(return_value=False)   # user cancels
+    cog.delete_puzzle_data = AsyncMock(return_value=True)
+
+    await cog.delete_puzzle.callback(cog, ctx)
+
+    cog.delete_puzzle_data.assert_not_awaited()   # nothing deleted
+    chan.delete.assert_not_awaited()

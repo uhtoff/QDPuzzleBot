@@ -2471,6 +2471,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
             return
 
+        if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
+            return
+
         try:
             await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
             if self.get_hunt_round(ctx):
@@ -2529,6 +2532,10 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: This command must be done from the main group channel")
             return
 
+        n = len(PuzzleJsonDb.get_all_from_round(self.get_hunt_round(ctx).id))
+        if not await self._confirm_destructive(ctx, f"Delete round **{self.get_hunt_round(ctx).name}** and its {n} puzzle(s), channels and sheets?"):
+            return
+
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
         hunt_round = self.get_hunt_round(ctx)
@@ -2548,6 +2555,22 @@ class Puzzles(commands.Cog):
     async def delete_round_data(self, hunt_round: RoundData):
         RoundJsonDb.delete(hunt_round.id)
         return True
+
+    async def _confirm_destructive(self, ctx, description):
+        """Send a Confirm/Cancel prompt and return True only if the invoker
+        confirms. Returns False on cancel or timeout."""
+        from bot.cogs.ui import ConfirmView
+        view = ConfirmView(ctx.author.id)
+        embed = discord.Embed(
+            title="⚠️ Confirm deletion",
+            description=description + "\n\n**Google sheets will be permanently deleted (not recoverable).**",
+            color=discord.Color.red(),
+        )
+        view.message = await ctx.send(embed=embed, view=view)
+        await view.wait()
+        if view.value is None:
+            await ctx.send(":hourglass: Confirmation timed out — nothing was deleted.")
+        return view.value is True
 
     async def _safe_delete_channel(self, guild, channel_id):
         """Delete a channel by id, tolerating an already-missing channel and a
@@ -2574,7 +2597,12 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(f":x: This command must be done from the main hunt channel")
             return
-        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
+        hunt = self.get_hunt(ctx)
+        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+        n = len(hunt_puzzles)
+        hunt_name = getattr(hunt, "name", str(hunt.id))
+        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt_name}**: {n} puzzle(s), all rounds, channels and sheets?"):
+            return
         failed = await self._delete_puzzles(ctx, hunt_puzzles)
         hunt_rounds = RoundJsonDb.get_all(self.get_hunt(ctx).id)
         for hunt_round in hunt_rounds:
