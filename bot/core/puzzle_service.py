@@ -100,11 +100,12 @@ class PuzzleService:
                     "refresh_meta: developer-metadata stamp failed for round %s "
                     "(non-fatal; google_page_id remains the pointer)", rollup.round_id)
 
-    async def _refresh_metas(self, hunt, rounds):
+    async def refresh_metas(self, hunt, rounds):
         """Refresh several meta rounds with FAILURE ISOLATION: every round is
         attempted (a failure on one must not skip the others), each failure is
         already badged by refresh_meta, and the failed round ids are returned for the
-        caller to surface. None rounds are skipped."""
+        caller to surface. None rounds are skipped. This is the shared isolation path
+        for solve / retag / the bang solution-edits / !rebuild."""
         failed = []
         for hunt_round in rounds:
             if hunt_round is None:
@@ -132,7 +133,7 @@ class PuzzleService:
         puzzle.tags.append(meta_round.id)
         PuzzleJsonDb.commit(puzzle)
         affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self._refresh_metas(hunt, affected)
+        failed = await self.refresh_metas(hunt, affected)
         if failed:
             raise SheetRefreshError(failed)
 
@@ -142,7 +143,7 @@ class PuzzleService:
         if meta_round.id not in puzzle.tags:
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
-        failed = await self._refresh_metas(hunt, [meta_round])
+        failed = await self.refresh_metas(hunt, [meta_round])
         if failed:
             raise SheetRefreshError(failed)
 
@@ -154,7 +155,7 @@ class PuzzleService:
             puzzle.tags.remove(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
         affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self._refresh_metas(hunt, affected)
+        failed = await self.refresh_metas(hunt, affected)
         if failed:
             raise SheetRefreshError(failed)
 

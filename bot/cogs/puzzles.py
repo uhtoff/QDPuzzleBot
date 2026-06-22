@@ -575,7 +575,10 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(new_puzzle)
 
-        await self._update_all_metas(ctx, new_puzzle)
+        try:
+            await self._update_all_metas(ctx, new_puzzle)
+        except SheetRefreshError as exc:
+            await self._warn_stale_sheets(ctx, exc)
 
         return new_puzzle
 
@@ -631,8 +634,13 @@ class Puzzles(commands.Cog):
         await ctx.send(msg)
 
     async def update_metapuzzle(self, ctx, hunt_round):
+        """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
+        Raises SheetRefreshError if it failed, so the bang edge surfaces it uniformly
+        with _warn_stale_sheets instead of aborting on a raw Sheets error."""
         hunt = self.get_hunt(ctx)
-        await self.service.refresh_meta(hunt, hunt_round)
+        failed = await self.service.refresh_metas(hunt, [hunt_round])
+        if failed:
+            raise SheetRefreshError(failed)
 
     async def web_refresh_meta(self, hunt, hunt_round):
         """Best-effort wrapper over PuzzleService.refresh_meta, retained as the
@@ -1100,11 +1108,11 @@ class Puzzles(commands.Cog):
                         puzzle.tags.clear()
                     puzzle.tags.append(meta_round.id)
                     PuzzleJsonDb.commit(puzzle)
-            await self.update_metapuzzle(ctx, meta_round)
             unique_old_tags = list(dict.fromkeys(old_tags))
-            for old_tag in unique_old_tags:
-                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                await self.update_metapuzzle(ctx, old_meta_round)
+            affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in unique_old_tags]
+            failed = await self.service.refresh_metas(self.get_hunt(ctx), affected)
+            if failed:
+                await self._warn_stale_sheets(ctx, SheetRefreshError(failed))
 
         await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
 
@@ -1903,7 +1911,10 @@ class Puzzles(commands.Cog):
                 # update google sheet ID
                 await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx), True)
                 if self.get_hunt_round(ctx):
-                    await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                    try:
+                        await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                    except SheetRefreshError as exc:
+                        await self._warn_stale_sheets(ctx, exc)
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
@@ -2048,10 +2059,20 @@ class Puzzles(commands.Cog):
         return " ".join(args).strip().upper()
 
     async def _update_all_metas(self, ctx, puzzle):
-        """Refresh every metapuzzle this puzzle is tagged to."""
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
+        """Refresh every metapuzzle this puzzle is tagged to, on the SAME isolation
+        path as solve/retag: each meta is attempted and badged independently via
+        service.refresh_metas, and a SheetRefreshError is raised if any failed so the
+        bang edge can warn (via _warn_stale_sheets) instead of aborting mid-loop."""
+        hunt = self.get_hunt(ctx)
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.service.refresh_metas(hunt, rounds)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def _warn_stale_sheets(self, ctx, exc):
+        """Uniform surfacing of a SheetRefreshError from a bang edge: the mutation is
+        saved and the affected meta sheet(s) are badged on the dashboard."""
+        await ctx.send(f":warning: {exc}")
 
     def _overview_url(self, ctx, hunt):
         """Overview website URL for a hunt (falls back to the numeric id)."""
@@ -2068,8 +2089,11 @@ class Puzzles(commands.Cog):
 
         PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
-        await self._update_all_metas(ctx, self.get_puzzle(ctx))
-
+        sheet_warning = None
+        try:
+            await self._update_all_metas(ctx, self.get_puzzle(ctx))
+        except SheetRefreshError as exc:
+            sheet_warning = exc
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="Partially SOLVED!",
@@ -2080,6 +2104,8 @@ class Puzzles(commands.Cog):
         )
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
 
     @commands.command(aliases=["ps"])
     @with_puzzle_mutex(wait=False)
@@ -2108,7 +2134,7 @@ class Puzzles(commands.Cog):
             # The solve is fully applied; one or more meta sheets are stale (and
             # badged on the dashboard). Tell the channel rather than tracebacking.
             applied = True
-            sheet_warning = str(exc)
+            sheet_warning = exc
         if not applied:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
@@ -2124,7 +2150,7 @@ class Puzzles(commands.Cog):
         await self.move_to_solved(ctx)
         await self.info(ctx, update=True)
         if sheet_warning:
-            await ctx.send(f":warning: {sheet_warning} (try `!rebuild`)")
+            await self._warn_stale_sheets(ctx, sheet_warning)
         else:
             await ctx.send(":white_check_mark: Sheets all tidied away.")
 
@@ -2168,7 +2194,11 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
 
-        await self._update_all_metas(ctx, puzzle)
+        sheet_warning = None
+        try:
+            await self._update_all_metas(ctx, puzzle)
+        except SheetRefreshError as exc:
+            sheet_warning = exc
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLUTION UPDATED!",
@@ -2180,6 +2210,8 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
 
     @commands.command(aliases=["add_to_solution"])
     @with_puzzle_mutex(wait=False)
@@ -2207,7 +2239,11 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.commit(puzzle)
 
 
-        await self._update_all_metas(ctx, puzzle)
+        sheet_warning = None
+        try:
+            await self._update_all_metas(ctx, puzzle)
+        except SheetRefreshError as exc:
+            sheet_warning = exc
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
@@ -2215,6 +2251,8 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
 
     @commands.command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     @with_puzzle_mutex(wait=False)
@@ -2258,7 +2296,10 @@ class Puzzles(commands.Cog):
         puzzle.solved = False
 
         if self.get_hunt_round(ctx):
-            await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+            try:
+                await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+            except SheetRefreshError as exc:
+                await self._warn_stale_sheets(ctx, exc)
 
         await self.info(ctx, update=True)
         for sheet in puzzle.additional_sheets:
@@ -2433,7 +2474,10 @@ class Puzzles(commands.Cog):
         try:
             await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
             if self.get_hunt_round(ctx):
-                await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                try:
+                    await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
+                except SheetRefreshError as exc:
+                    await self._warn_stale_sheets(ctx, exc)
             await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
                    .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
             await ctx.channel.delete(reason=self.DELETE_REASON)

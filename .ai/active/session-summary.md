@@ -4,7 +4,7 @@ Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Branch: feature/m5-rollups
 Started: 2026-06-22
-Status: ready for handoff — M5 fully implemented (phases 1–5), all tests green
+Status: ready for handoff — M5: refresh handoff — all phases done, suite green @ 99bcfb5
 
 ## Goal
 
@@ -37,8 +37,12 @@ trusted fallback.
 
 - Dev-metadata is recorded as substrate only; M5 renders via `google_page_id` (never
   trusts metadata alone). `source_mode`/`edge_type_filter` columns are inert (M6/M7).
-- `_update_all_metas` (partial/change_solution/add_solution) keeps its pre-existing
-  non-isolated behaviour — only solve/retag got failure isolation (M5 scope).
+- All bang meta-refresh paths now follow the SAME isolation path: `_update_all_metas`
+  and `update_metapuzzle` route through `service.refresh_metas` and raise
+  `SheetRefreshError`; every bang edge (solve, partial, change_solution, add_solution,
+  create_puzzle, sync_meta, rename, unsolve, delete) catches it and calls
+  `_warn_stale_sheets` instead of aborting. (`!update_metameta` is a separate legacy
+  manual command, not on the rollup path.)
 - Orphan-cleanup-on-create-failure deferred to M10 (noted in PLANS.md on `main`).
 - The web rebuild endpoint + `!rebuild` lack endpoint-level tests (no Quart app
   fixture in the suite); covered by the command unit test + service tests.
