@@ -159,6 +159,39 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    async def set_parent_group(self, child_round, parent_id):
+        """Nest `child_round` under group `parent_id` (the parent_group_id tree),
+        rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.
+
+        Guards group NESTING only. It has nothing to do with the tags/edge_type
+        answer-feeding graph, so mutual A<->B feeding (and meta-to-meta feeding) is
+        entirely unaffected — only a circular *containment* chain is forbidden.
+
+        Pass parent_id=None to clear nesting. Raises ValueError on a self-nest or a
+        cycle (the prospective parent is the child or one of its descendants)."""
+        if parent_id is None:
+            child_round.parent_group_id = None
+            RoundJsonDb.commit(child_round)
+            return
+        if parent_id == child_round.id:
+            raise ValueError("a group cannot be nested under itself")
+        # Walk up from the prospective parent; reaching the child means nesting would
+        # close a loop. A depth cap backstops a pre-existing broken chain.
+        node_id, depth = parent_id, 0
+        while node_id is not None:
+            if node_id == child_round.id:
+                raise ValueError(
+                    f"nesting round {child_round.id} under {parent_id} would create a cycle")
+            depth += 1
+            if depth > 64:
+                raise ValueError("parent_group chain too deep (possible pre-existing cycle)")
+            node = RoundJsonDb.get_by_attr(id=node_id)
+            if node is None:
+                break
+            node_id = node.parent_group_id
+        child_round.parent_group_id = parent_id
+        RoundJsonDb.commit(child_round)
+
     async def solve(self, guild, hunt, puzzle, solution):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
         stamp the round solve_time if this is the round's meta, archive the sheet,
