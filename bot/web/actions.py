@@ -195,7 +195,8 @@ async def add_sheet(puzzle_id):
     snowflake = ctx["guild_snowflake"]
     guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        sheet = await cog.web_add_sheet(guild, hunt_obj, puzzle, name)
+        sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -229,7 +230,8 @@ async def remove_sheet(puzzle_id, sheet_id):
     snowflake = ctx["guild_snowflake"]
     guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        await cog.web_remove_sheet(guild, hunt_obj, puzzle, sheet_id)
+        await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 404
     except (discord.RateLimited, discord.HTTPException) as exc:

@@ -11,8 +11,10 @@ import logging
 
 import discord
 import pytz
+from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb
+from bot.store.puzzle_data import AdditionalSheetData
 
 logger = logging.getLogger(__name__)
 
@@ -122,3 +124,48 @@ class PuzzleService:
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
         return True
+
+    async def _delete_additional_sheet(self, hunt, puzzle, sheet):
+        """Delete an additional sheet's Google tab (best-effort) and its DB row,
+        and drop it from the in-memory puzzle. Shared by the web + Discord removal
+        edges."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            try:
+                await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
+            except HttpError as exc:
+                # Idempotent: "No sheet with id" means the tab is already gone
+                # (e.g. moved to the archive spreadsheet on solve) — not an error.
+                if "No sheet with id" in str(exc):
+                    logger.info("Additional sheet %s tab already absent; treating delete as done.", sheet.id)
+                else:
+                    logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
+            except Exception:
+                logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
+        SheetsJsonDb.delete(sheet.id)
+        puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
+
+    async def add_sheet(self, hunt, puzzle, name):
+        """Create an extra working sheet (name optional). Raises
+        RuntimeError("solved_no_sheets") if the puzzle is solved. Returns the
+        AdditionalSheetData. Does NOT refresh the pinned info — the edge does."""
+        if puzzle.solved:
+            raise RuntimeError("solved_no_sheets")
+        sheet = AdditionalSheetData(
+            puzzle_id=puzzle.id,
+            puzzle_name=name or f"Extra sheet for {puzzle.name}",
+        )
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
+        puzzle.additional_sheets.append(sheet)
+        SheetsJsonDb.commit(sheet)
+        return sheet
+
+    async def remove_sheet(self, hunt, puzzle, sheet_id):
+        """Remove an additional sheet by id. Raises RuntimeError("sheet_not_found")
+        if absent. Does NOT refresh the pinned info — the edge does."""
+        sheet = next((s for s in puzzle.additional_sheets if s.id == sheet_id), None)
+        if sheet is None:
+            raise RuntimeError("sheet_not_found")
+        await self._delete_additional_sheet(hunt, puzzle, sheet)

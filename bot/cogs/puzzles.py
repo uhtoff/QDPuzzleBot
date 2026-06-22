@@ -837,54 +837,6 @@ class Puzzles(commands.Cog):
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
-    async def _delete_additional_sheet(self, hunt, puzzle, sheet):
-        """Delete an additional sheet's Google tab (best-effort) and its DB row,
-        and drop it from the in-memory puzzle. Shared by web + Discord removal."""
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            try:
-                await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
-            except HttpError as exc:
-                # Idempotent: "No sheet with id" means the tab is already gone
-                # (e.g. it was moved to the archive spreadsheet on solve), so the
-                # delete has effectively already happened — not an error.
-                if "No sheet with id" in str(exc):
-                    logger.info("Additional sheet %s tab already absent; treating delete as done.", sheet.id)
-                else:
-                    logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
-            except Exception:
-                logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
-        SheetsJsonDb.delete(sheet.id)
-        puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
-
-    async def web_add_sheet(self, guild, hunt, puzzle, name):
-        """ctx-free !add_sheet: create an extra working sheet (name optional)."""
-        if puzzle.solved:
-            raise RuntimeError("solved_no_sheets")
-        sheet = AdditionalSheetData(
-            puzzle_id=puzzle.id,
-            puzzle_name=name or f"Extra sheet for {puzzle.name}",
-        )
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
-        puzzle.additional_sheets.append(sheet)
-        SheetsJsonDb.commit(sheet)
-        await self.web_refresh_info(guild, hunt, puzzle)
-        return sheet
-
-    async def web_remove_sheet(self, guild, hunt, puzzle, sheet_id):
-        """ctx-free sheet removal for the dashboard."""
-        sheet = next((s for s in puzzle.additional_sheets if s.id == sheet_id), None)
-        if sheet is None:
-            raise RuntimeError("sheet_not_found")
-        await self._delete_additional_sheet(hunt, puzzle, sheet)
-        await self.web_refresh_info(guild, hunt, puzzle)
-
     def get_first_channel(self, ctx, category):
         position = False
         for channel in category.channels:
@@ -995,14 +947,7 @@ class Puzzles(commands.Cog):
 
         name = " ".join(args)
 
-        sheet = AdditionalSheetData(
-            puzzle_id=puzzle.id,
-            puzzle_name=name or f"Extra sheet for {puzzle.name}"
-        )
-
-        sheet.google_page_id = await self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
-        puzzle.additional_sheets.append(sheet)
-        SheetsJsonDb.commit(sheet)
+        sheet = await self.service.add_sheet(self.get_hunt(ctx), puzzle, name)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
 
@@ -1017,7 +962,7 @@ class Puzzles(commands.Cog):
             return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
         sheet = puzzle.additional_sheets[number - 1]
         name = sheet.puzzle_name
-        await self._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
+        await self.service._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
