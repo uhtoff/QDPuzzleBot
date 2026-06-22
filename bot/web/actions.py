@@ -328,13 +328,15 @@ async def retag_puzzle(puzzle_id):
 
     try:
         if mode == "move":
-            await cog.web_move_to_meta(guild, puzzle, meta_round)
+            await cog.service.move_to_meta(guild, puzzle, meta_round)
         elif mode == "add":
-            await cog.web_add_to_meta(puzzle, meta_round)
-        else:
-            await cog.web_remove_from_meta(puzzle, meta_round)
+            await cog.service.add_to_meta(puzzle, meta_round)
+        elif mode == "remove":
+            await cog.service.remove_from_meta(puzzle, meta_round)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except Exception:
+        logger.exception("retag: service call failed for puzzle %s", puzzle.id)
     return jsonify({"ok": True})
 
 

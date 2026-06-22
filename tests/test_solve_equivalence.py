@@ -178,12 +178,14 @@ class TestWebAddToMeta:
         hunt = _make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            # web_refresh_meta calls gsheet_cog via self.bot.get_cog — already None
-            await cog.web_add_to_meta(puzzle, round_data)
+            await cog.service.add_to_meta(puzzle, round_data)
 
     @pytest.mark.asyncio
     async def test_adds_round_to_tags(self, cog):
@@ -222,11 +224,14 @@ class TestWebRemoveFromMeta:
         hunt = _make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.web_remove_from_meta(puzzle, round_data)
+            await cog.service.remove_from_meta(puzzle, round_data)
 
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog):
@@ -271,11 +276,14 @@ class TestWebMoveToMeta:
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.side_effect = fake_round_get
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.web_move_to_meta(None, puzzle, new_round)  # guild=None
+            await cog.service.move_to_meta(None, puzzle, new_round)  # guild=None
 
     @pytest.mark.asyncio
     async def test_feeder_replaces_all_tags_with_new_round(self, cog):
