@@ -92,7 +92,8 @@ here are test bots), run it the normal way:
 
 Prerequisites are exactly the setup above — the worktree's **own** pipenv venv
 (`pipenv install --dev`), the frontend deps (`start.sh` runs `npm ci` if
-`frontend/node_modules` is absent), and a copied `config.json`. The first run is
+`frontend/node_modules` is absent), and the copied secrets (`config.json` +
+`google_secrets.json`). The first run is
 **noisy** (pipenv/npm bootstrap output, sometimes pip warnings) — that noise is
 non-fatal. Success looks like `discord.log` showing:
 
