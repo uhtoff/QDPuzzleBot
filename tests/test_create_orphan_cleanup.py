@@ -38,6 +38,9 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
     with patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb, \
          patch.object(cog, "get_or_create_channel",
                       AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom"))):
+        # Mirror the real store: commit assigns the auto-increment id, so by the
+        # time cleanup runs the puzzle has a real (non-zero) id.
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
         with pytest.raises(discord.HTTPException):
             await cog.web_create_puzzle(guild, _hunt(), round_data, "Newpuz")
 

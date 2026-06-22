@@ -803,7 +803,8 @@ class Puzzles(commands.Cog):
             except Exception:
                 logger.exception("orphan cleanup: failed to delete sheet for %s", puzzle)
         try:
-            PuzzleJsonDb.delete(puzzle.id)
+            if getattr(puzzle, "id", 0):
+                PuzzleJsonDb.delete(puzzle.id)
         except Exception:
             logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
