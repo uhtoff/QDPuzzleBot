@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-23
-Status: ready for handoff — M7 handoff: phased execution spec for flexible aggregation @ 0a2766a
+Status: ready for handoff — M7 handoff: add tags UNIQUE key (005) + upsert edge writer @ 0c2f282
 
 ## Goal
 
@@ -19,7 +19,8 @@ set producible three ways.
   `/home/russ/.claude/plans/can-we-plan-m7-sparkling-newell.md` is background only.
 - **All schema M7 needs already exists** (migrations `002`+`003`): `source_mode`,
   `edge_type_filter`, `parent_group_id`, `tags.edge_type`. M7 is mostly *code activating
-  dormant columns*. The ONLY new SQL is `004` — a data-only backfill of `source_mode`.
+  dormant columns*. New SQL is small: `004` (data-only `source_mode` backfill) and `005`
+  (dedup + `UNIQUE (round_id, puzzle_id)` on `tags`) — no new columns.
 - **Two confirmed scope decisions:** (1) the new SPA aggregated-answers *view* +
   copy-to-clipboard is **M7.5, out of scope here**; the setter controls ARE in scope. (2)
   `source_mode` **supersedes** the `metameta` flag — after the 004 backfill, `refresh_meta`
