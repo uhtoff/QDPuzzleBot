@@ -2546,6 +2546,8 @@ class Puzzles(commands.Cog):
         try:
             await channel.delete(reason=self.DELETE_REASON)
             return True
+        except discord.NotFound:
+            return False  # already gone between lookup and delete — benign, no log
         except (discord.RateLimited, discord.HTTPException):
             logger.exception("delete: could not delete channel %s", channel_id)
             return False

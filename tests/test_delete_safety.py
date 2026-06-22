@@ -35,7 +35,7 @@ async def test_safe_delete_existing_channel_calls_delete():
     guild = _guild_with_channel(5, channel)
     ok = await cog._safe_delete_channel(guild, 5)
     assert ok is True
-    channel.delete.assert_awaited_once()
+    channel.delete.assert_awaited_once_with(reason=cog.DELETE_REASON)
 
 
 @pytest.mark.asyncio
@@ -48,3 +48,19 @@ async def test_safe_delete_swallows_ratelimited():
     guild = _guild_with_channel(5, channel)
     ok = await cog._safe_delete_channel(guild, 5)
     assert ok is False  # reported as failure, did not raise
+
+
+@pytest.mark.asyncio
+async def test_safe_delete_notfound_is_silent(caplog):
+    """A channel deleted between lookup and delete (404) is benign — returns
+    False without an exception-level log."""
+    cog = _cog()
+    channel = SimpleNamespace(
+        id=5,
+        delete=AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "gone")),
+    )
+    guild = _guild_with_channel(5, channel)
+    with caplog.at_level("ERROR"):
+        ok = await cog._safe_delete_channel(guild, 5)
+    assert ok is False
+    assert caplog.records == []  # no error log for the benign race
