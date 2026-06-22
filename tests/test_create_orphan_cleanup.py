@@ -46,4 +46,4 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
 
     # The sheet that was created must be deleted, and the committed row removed.
     gsheet.delete_puzzle_spreadsheet.assert_awaited_once()
-    assert pdb.delete.called
+    pdb.delete.assert_called_once_with(1)
