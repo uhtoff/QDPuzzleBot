@@ -253,6 +253,48 @@ snapshot" (archival → `#REF`).
   (`web_refresh_meta` currently swallows sheet errors at `puzzles.py:605`, so the dashboard shows
   success while the sheet is stale).
 
+### `edge_type` semantics + worked example: the runaround
+
+Every membership is a `tags` row (**puzzle → TagGroup**); `edge_type` answers *"when this puzzle is
+solved, what happens to the group it's tagged into?"*
+
+| `edge_type` | On solve… | the group's "result" | counts toward meta progress? |
+|---|---|---|---|
+| `feeds-meta` | answer is an **ingredient** the group's meta consumes; shown on the meta's answer tab | a meta puzzle (old `meta_id`) | yes |
+| `part-of` | internal piece of a **cluster**; answer rolls into the cluster's **minimeta** tab | the minimeta | yes (within the cluster) |
+| `reveals` | **surfaces info** onto the group's **dossier / evidence board** — never solves anything | a capstone (stands alone) | no — "N of M revealed" |
+| `aggregates-into` | answer is **collected** into a roll-up sheet as a pure view | none (pool / ad-hoc) | no |
+
+Edges are always **puzzle → group** — *puzzles never attach to puzzles*. Meta-meta works because a
+child group's **result puzzle** is itself tagged into the parent group, and/or the child group nests
+via `parent_group_id`.
+
+**Two dials, not one** — this is the bit that's easy to conflate: `parent_group_id` = *what's in the
+branch*; the roll-up's `source_mode` = *how far down it reaches*. `source_mode=subtree` pulls the
+meta's answer **+ all its feeders'**; `edges` (filtered to `feeds-meta`) pulls **direct members only**
+(metas-only). They combine, and aren't exclusive — a meta can both be nested *and* carry a
+`feeds-meta` edge.
+
+**Worked example — the runaround / endgame** (the canonical "many answers in one sheet"):
+
+- *Runaround consumes each round's **meta** answer* → tag every round-meta's result puzzle
+  `feeds-meta` into the runaround group → one row per round-meta.
+- *Runaround consumes **every** answer in the hunt* → nest the rounds under the runaround group
+  (`parent_group_id`) and give its roll-up `source_mode=subtree` (or `hunt`) → it harvests every
+  solved puzzle automatically; you don't tag each one.
+- *Runaround consumes a **curated** pool* → tag just those puzzles `aggregates-into` the runaround
+  group.
+
+All three are the same `aggregate_to_tab` engine pointed at different membership — and case 2 *is* the
+original "pull a large number of titles+answers into one sheet, fresh as they come in" ask.
+
+**✅ Decision (pins the open `subtree`-vs-`edges` question):** make them mean *different* things, not
+two spellings of one. **`feeds-meta` edges = "these specific answers go up"; `parent_group_id` +
+`source_mode=subtree` = "this whole branch goes up."** A group's roll-up uses exactly **one**
+`source_mode`; never support two ways to express "metas-only." Default a meta-meta group to `edges`
+filtered to `feeds-meta`; switch it to `subtree` only when you want the full branch (e.g. an
+all-answers runaround). → applies at **M7**.
+
 ### Suggested build order (structural-feature view)
 
 > **Canonical sequence is Part 2's M0–M11** (it folds these phases into the full plan, with the
@@ -280,9 +322,11 @@ snapshot" (archival → `#REF`).
   (skip archiving cluster sub-tabs, or re-point the roll-up on move).
 - **Capability D is the thinnest-specified** — "explicit selection" needs a membership store; in the
   tag-group model this falls out naturally (an `ad-hoc` group), which is another point for that model.
-- **Meta-meta round-vs-puzzle ambiguity:** a sub-meta feeding a supermeta is a *puzzle→puzzle* edge,
-  which round-containment (`parent_round_id`) doesn't capture — pick the `edges`/membership path, not
-  `subtree`. (The tag-group model removes this ambiguity.)
+- **Meta-meta round-vs-puzzle ambiguity** *(RESOLVED — see "edge_type semantics + the runaround"
+  above)*: a sub-meta feeding a supermeta is a *puzzle→puzzle* relationship, expressed as the
+  sub-meta's result puzzle carrying a `feeds-meta` edge into the parent group. Pinned rule:
+  `feeds-meta` edges = "these specific answers up"; `parent_group_id`+`subtree` = "whole branch up";
+  one `source_mode` per roll-up.
 - **Deploy order is load-bearing:** the generic `commit()` writes every dataclass field, so adding
   new columns in code *before* the migration runs crashes existing `add_sheet`. Migration-before-code.
 - **Solve hook location:** `_solve_impl` does **not** call `_update_all_metas`; it inlines its meta
@@ -339,8 +383,9 @@ path off `ctx.channel.category`. ("Solved section" today is *only* Discord chann
 replaces.)
 
 **M7 — Meta-meta + flexible aggregation (Features A + D).** *(deps: M6)* `parent_group_id` containment
-+ `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group); thin
-command+UI; **aggregated-answers view + copy-to-clipboard** in the SPA.
++ `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group) — apply the
+pinned `feeds-meta`-vs-`subtree` rule + the runaround worked example in Part 1; thin command+UI;
+**aggregated-answers view + copy-to-clipboard** in the SPA.
 
 **M8 — Minimeta clusters (Feature B).** *(deps: M5, M6)* Minipuzzles = `additional_sheets` tabs under
 one puzzle (activate the dead `solution`/`solved` columns); cluster-scoped roll-up; **fix the
