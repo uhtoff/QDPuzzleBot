@@ -414,10 +414,23 @@ replacing both hand-rolled renderers (~750 per-cell ops → 1–2 requests); **f
 bug** (`puzzles_gsheet.py:558/598`) and drops the `RETAWR`/`LAOFNO` skip (`:589`); retires the 50-row
 blank. Native Tables optional, gated by a `tableId`-survival probe. Snapshot values, never formulas.
 
-**M3 — `bot/core/` service extraction (kills the `web_*` duplication).** *(deps: M1, M2)* Promote the
-ctx-free twins, strangle bang-commands onto them, delete each twin (start with retag + solve); service
-owns `spreadsheet_id`; centralise the duplicated `ADMIN_ROLES`/`STATUSES` constants. The seam
-everything hangs off.
+**M3 — `bot/core/` service extraction (kills the `web_*` duplication).** ✅ **DONE** (branch
+`feature/m3-service-extraction`) *(deps: M1, M2)* Promote the ctx-free twins, strangle bang-commands
+onto them, delete each twin; service owns `spreadsheet_id`; centralise the duplicated
+`ADMIN_ROLES`/`STATUSES` constants. The seam everything hangs off. **Delivered:** `bot/core/`
+(`constants.py` + `PuzzleService`); **solve, retag (move/add/remove + `refresh_meta`), and
+add/remove-sheet** unified in the service (core raises, edges keep presentation + error-tolerance);
+the divergent twins (`web_solve_puzzle`, `web_*_to_meta`, `web_*_sheet`) deleted; dead `web_update_field`
+removed; regression test added that the meta-sheet rebuild actually fires. **Deferred → M3.5 (see
+below):** `web_create_puzzle`/`web_create_round` and `web_refresh_info` are Discord-presentation-heavy
+(channel/category creation, pinned-message render) and stay as ctx-free cog edge-helpers for now —
+relocating them cleanly needs the Discord channel-management helpers (`get_or_create_channel`,
+`clean_name`, divider/welcome logic) extracted first.
+
+**M3.5 — Discord channel-adapter extraction** *(new; off critical path; deps: M3)* Extract the Discord
+channel/category-management helpers into core, then relocate `create_puzzle`/`create_round` and the
+pinned-info render onto `PuzzleService` (finishing the "all operations live in `bot/core/`" goal). Its
+own milestone because it also touches the bang create paths (`_round_impl`, `create_puzzle_channel`).
 
 **M4 — Per-puzzle mutex on the web/service path.** *(deps: M3)* Web actions take no `_PUZZLE_LOCKS`
 today → dashboard solve/retag races bang-commands and loses updates. Thread the lock (keyed on
