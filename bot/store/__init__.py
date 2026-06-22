@@ -79,4 +79,16 @@ if config.storage == 'mysql':
     RoundJsonDb = MySQLRoundJsonDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
-    ChannelActivityDb = MySQLChannelActivityDb(mydb=mydb)
+    # The activity writer fires on *every* human message and is drained on a
+    # background worker via asyncio.to_thread (see bot/cogs/activity.py). A
+    # mysql.connector connection is not safe to share across threads, so give the
+    # activity DB its own dedicated connection rather than reusing the shared one.
+    activity_db = MySQLReconnector(
+        host="localhost",
+        user=config.mysql_username,
+        password=config.mysql_password,
+        database=config.database,
+        charset="utf8mb4",
+    )
+    activity_db.autocommit = True
+    ChannelActivityDb = MySQLChannelActivityDb(mydb=activity_db)

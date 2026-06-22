@@ -326,8 +326,27 @@ class Puzzles(commands.Cog):
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
+        # Unknown command: stay silent rather than dumping an error at the user
+        # (people mistype, and other cogs may own the command).
+        if isinstance(error, commands.CommandNotFound):
+            return
         if isinstance(error, commands.CheckFailure) and str(error) == "PUZZLE_BUSY":
             await ctx.send("⏳ That puzzle is busy running another command. Try again in a moment.")
+            return
+        # Missing role / permission: 30+ commands are role-gated; show a friendly
+        # line instead of a raw MissingAnyRole traceback.
+        if isinstance(error, (commands.MissingAnyRole, commands.MissingRole,
+                              commands.MissingPermissions, commands.NotOwner)):
+            await ctx.send(":no_entry_sign: Sorry, you don't have the role needed to run that command.")
+            return
+        # Bad / missing arguments: tell the user how the command is meant to be called.
+        if isinstance(error, commands.UserInputError):
+            usage = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}".strip()
+            await ctx.send(f":grey_question: Sorry, I couldn't understand that. Usage: `{usage}`")
+            return
+        # Any other check failure (e.g. wrong channel): keep it short, no traceback.
+        if isinstance(error, commands.CheckFailure):
+            await ctx.send(":no_entry_sign: You can't run that command here.")
             return
         # Unwrap nested framework wrappers (HybridCommandError -> app_commands
         # CommandInvokeError -> ...) down to the real exception.
@@ -347,7 +366,10 @@ class Puzzles(commands.Cog):
         if isinstance(original, discord.RateLimited):
             await ctx.send("⏳ Discord is rate-limiting this action; please try again in a moment.")
             return
-        await ctx.send(f":exclamation: **{type(error).__name__}**" + "\n" + str(error))
+        # Genuinely unexpected: log the full traceback server-side, show the user a
+        # short apology rather than a raw exception dump.
+        logger.exception("Unhandled error in command %s", ctx.command, exc_info=original)
+        await ctx.send(":exclamation: Something went wrong running that command. The error has been logged.")
 
     async def check_is_bot_channel(self, ctx) -> bool:
         """Check if command was sent to bot channel configured in settings"""

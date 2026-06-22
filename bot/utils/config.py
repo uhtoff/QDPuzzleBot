@@ -4,7 +4,8 @@ import os
 default_config = {
     "discord_bot_token": "",
     "prefix": "!",
-    "database": "postgresql://localhost/postgres",
+    # MySQL database name (the bot is all-MySQL; see mysql_username/mysql_password).
+    "database": "",
     "storage": "mysql",
     "debug": False,
     "development": False,

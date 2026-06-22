@@ -1,6 +1,7 @@
 """Dashboard read API and live-activity WebSocket."""
 import asyncio
 import logging
+import time
 
 from quart import Blueprint, jsonify, session, websocket
 
@@ -16,6 +17,10 @@ from .auth import (
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+# How often the live-activity WebSocket re-checks that the connected user still
+# belongs to a guild (so a kick/role-change ends the stream within this window).
+_WS_AUTH_REFRESH_SECONDS = 60
 
 
 def _sheet_base(sheet_id):
@@ -101,11 +106,28 @@ async def ws_activity():
         return
     membership, _ = await resolve_membership(user["id"])
     queue = events.subscribe()
+    # Membership is resolved once at connect, so without this a user who is kicked
+    # (or whose roles change) keeps receiving events until they disconnect.
+    # Periodically re-resolve and drop the connection if they no longer belong to
+    # any guild.
+    last_refresh = time.monotonic()
     try:
         await websocket.send_json({"type": "ready"})
         while True:
-            event = await queue.get()
-            if event.get("guild_id") in membership:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=_WS_AUTH_REFRESH_SECONDS)
+            except asyncio.TimeoutError:
+                event = None
+
+            now = time.monotonic()
+            if event is None or (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
+                membership, _ = await resolve_membership(user["id"])
+                last_refresh = now
+                if not membership:
+                    await websocket.close(1008)  # no longer a member of any guild
+                    return
+
+            if event is not None and event.get("guild_id") in membership:
                 await websocket.send_json(event)
     except asyncio.CancelledError:
         raise

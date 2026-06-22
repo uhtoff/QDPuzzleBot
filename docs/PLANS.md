@@ -478,7 +478,7 @@ timeline; parallelizing the leaves only helps once you're past M6.
 
 | When | In parallel |
 |---|---|
-| **Day one** (need nothing, not even M0) | Most quick wins: `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors |
+| **Day one** (need nothing, not even M0) | ✅ **DELIVERED** (`feature/quick-wins` @ `6da1752`): `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors, WebSocket auth refresh |
 | After **M0** | **M1 (tests) ∥ M2 (`aggregate_to_tab`)** |
 | After **M3** | **M4 (mutex) ∥ M10 (destructive safety)** + audit-log quick win |
 | After **M6** | **M7 ∥ M8 ∥ M11** (then M9 trails M8) + optimistic-updates quick win |
@@ -492,17 +492,29 @@ into "parallel-and-clean."
 
 ### Quick wins — shippable in parallel, no hard dependency
 
-- **SPA `ErrorBoundary`** — any render throw blanks the app (`App.tsx`).
-- **Friendly permission/argument errors** — `on_command_error:328-350` still dumps raw
-  `MissingAnyRole`/`BadArgument`.
-- **Defensive notes parsing** — `json.loads(None)` crashes store reads (`puzzle_data.py:56`).
-- **Prune dead deps / fix manifest / rewrite README** (README also covered by M0).
-- **Move per-message DB writes off the loop** — higher impact, no hard dep (`activity.py:31`).
-- **Mark multi-meta puzzles on the drag board** — a plain drop still detaches other metas via
-  `tags.clear()`.
-- **Audit log for web actions** — best after M3 (wraps the service).
-- **Optimistic updates on retag/solve** — best after M4/M5 (loud-failure path first).
-- **Refresh auth on the activity WebSocket** — kicked user keeps streaming (`api.py:102`).
+> **✅ 7 of these 9 are DELIVERED on branch `feature/quick-wins` (commit `6da1752`, off `main`)** —
+> verified by `py_compile` + the existing `pytest` suite + `tsc --noEmit` (not yet exercised against a
+> live DB/Discord). The 2 unmarked items stay deferred behind their noted milestones.
+
+- ✅ **DONE — SPA `ErrorBoundary`** — render throws no longer blank the app; recoverable fallback.
+  *(new `frontend/src/components/ErrorBoundary.tsx`, wraps `<App/>` in `main.tsx`.)*
+- ✅ **DONE — Friendly permission/argument errors** — `on_command_error` handles `MissingAnyRole`/
+  `MissingRole`/`UserInputError`/`CheckFailure` cleanly, ignores `CommandNotFound`, and logs
+  unexpected errors server-side instead of dumping a raw traceback.
+- ✅ **DONE — Defensive notes parsing** — `json.loads(None)` on a NULL/empty notes column no longer
+  crashes the store read (`puzzle_data.import_dict`).
+- ✅ **DONE — Prune dead deps / fix manifest / rewrite README** — dropped `gino`/`oauth2client`/
+  `google-cloud-datastore`/`gitpython`, added the actually-imported `aiohttp`; fixed the misleading
+  postgres `database` default in `config.py`; refreshed the stale README (MySQL + dashboard).
+- ✅ **DONE — Move per-message DB writes off the loop** — activity cog enqueues records and a single
+  background worker drains them via `asyncio.to_thread` on a **dedicated** DB connection, so a slow/
+  reconnecting MySQL no longer stalls the event loop (`activity.py`, `store/__init__.py`).
+- ✅ **DONE — Mark multi-meta puzzles on the drag board** — multi-meta feeders are badged and a
+  confirm warns before a "move" drop detaches them from their other metas (`DragBoard.tsx`).
+- ✅ **DONE — Refresh auth on the activity WebSocket** — membership re-resolved every 60s; a kicked/
+  role-changed user is dropped (`api.py`).
+- ⏳ **Deferred — Audit log for web actions** — best after M3 (wraps the service).
+- ⏳ **Deferred — Optimistic updates on retag/solve** — best after M4/M5 (loud-failure path first).
 
 ---
 
@@ -516,9 +528,9 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 
 | Item | Why | Effort | Where |
 |---|---|---|---|
-| Friendly permission/argument errors | 30+ role-gated cmds dump raw `MissingAnyRole`/`BadArgument` tracebacks to players | S | `on_command_error` `puzzles.py:328-350` |
+| ✅ **DONE** Friendly permission/argument errors | 30+ role-gated cmds dump raw `MissingAnyRole`/`BadArgument` tracebacks to players | S | `on_command_error` `puzzles.py` *(delivered `feature/quick-wins`)* |
 | Web write-actions take the per-puzzle mutex | `!` cmds hold `_PUZZLE_LOCKS`; web `web_*` twins take **no lock** → dashboard solve racing `!s` loses updates | S | `web_*` in `puzzles.py:584-963`, `bot/web/actions.py` |
-| Top-level `ErrorBoundary` in the SPA | any render throw blanks the whole app | S | `frontend/src/App.tsx` |
+| ✅ **DONE** Top-level `ErrorBoundary` in the SPA | any render throw blanks the whole app | S | `frontend/src/components/ErrorBoundary.tsx` + `main.tsx` *(delivered `feature/quick-wins`)* |
 | Real pytest suite + CI | one 22-line test exists; start with pure units: `build_board`, `hunt_visible`, SQL builder, `web_* vs !` equivalence | L | `tests/`, new `conftest.py`/`pytest.ini` |
 
 ### Correctness & reliability
@@ -527,7 +539,7 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 |---|---|---|---|
 | Confirm/undo on destructive commands | `delete_hunt`/`delete_round` wipe channels + Google sheets irreversibly behind only a role gate | M | `puzzles.py:2558/2602/2629` |
 | `_delete_puzzles` None-guard | crashes on an already-missing channel, aborting a hunt-delete halfway | S | `puzzles.py:2588` |
-| Move per-message DB writes off the loop | activity writer fires sync on **every** message on the single shared MySQL conn; slow/reconnecting DB stalls the whole bot | M (high impact) | `bot/cogs/activity.py:31`, `bot/store/__init__.py:69` |
+| ✅ **DONE** Move per-message DB writes off the loop | activity writer fires sync on **every** message on the single shared MySQL conn; slow/reconnecting DB stalls the whole bot | M (high impact) | `bot/cogs/activity.py`, `bot/store/__init__.py` *(queue + worker + dedicated conn; delivered `feature/quick-wins`)* |
 | Surface sheet-refresh failures | dashboard shows success while sheet is stale | M | `web_refresh_meta` `puzzles.py:605` |
 | Pace/guard bulk channel delete loops | a `delete_hunt` mid-loop `RateLimited` (max_ratelimit_timeout=60) leaves a half-deleted hunt | S | `_delete_puzzles`/`_delete_round_category` |
 
@@ -538,19 +550,19 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 | Base schema + migration runner | **no `CREATE TABLE` for core tables in the repo**; lone migration is gitignored — a clone can't stand up a DB. (= Structural Phase 0.) | M (high impact) | `scripts/sql/`, README |
 | Kill the `web_*` duplication (= M3) | 11 hand-synced ctx-free twins with "keep in sync" comments — **already diverged** (`web_solve_puzzle` posts a different embed and *swallows* sheet errors where `_solve_impl` raises). Extract a ctx-free `bot/core/` service layer | L (high impact) | `puzzles.py:584-963` vs the `_impl` methods |
 | Centralise shared constants | `ADMIN_ROLES`/`STATUSES` defined in both cog and `web/auth.py`/`web/actions.py` — a security gate that can drift | S | `puzzles.py:26-27,80-81` vs `web/*` |
-| Prune dead deps / fix manifest | `gino`,`oauth2client`,`google-cloud-datastore`,`gitpython` unused; `aiohttp` imported but absent from Pipfile; postgres default in `config.py` | S | `Pipfile`, `bot/utils/config.py` |
-| Rewrite stale README | still describes JSON-file/Postgres storage; bot is all-MySQL | S | `README.md` |
-| Defensive `import_dict`/notes parsing | `json.loads(None)` on a NULL notes column crashes store-layer reads (dashboard already guards) | S | `puzzle_data.py:55-56` |
+| ✅ **DONE** Prune dead deps / fix manifest | `gino`,`oauth2client`,`google-cloud-datastore`,`gitpython` unused; `aiohttp` imported but absent from Pipfile; postgres default in `config.py` | S | `Pipfile`, `bot/utils/config.py` *(delivered `feature/quick-wins`)* |
+| ✅ **DONE** Rewrite stale README | still describes JSON-file/Postgres storage; bot is all-MySQL | S | `README.md` *(delivered `feature/quick-wins`)* |
+| ✅ **DONE** Defensive `import_dict`/notes parsing | `json.loads(None)` on a NULL notes column crashes store-layer reads (dashboard already guards) | S | `puzzle_data.py` *(delivered `feature/quick-wins`)* |
 
 ### Dashboard / UX
 
 | Item | Why | Effort | Where |
 |---|---|---|---|
 | Aggregated answers view + copy-to-clipboard | directly serves the meta-meta goal; mostly pure frontend (`build_board` already groups feeders) | S | new SPA tab; `bot/web/data.py:224` |
-| Mark multi-meta puzzles on the drag board | a plain drag calls `tags.clear()` and silently detaches the puzzle from its *other* metas, no warning | S | `DragBoard.tsx:197`, `web_move_to_meta` `puzzles.py:622` |
+| ✅ **DONE** Mark multi-meta puzzles on the drag board | a plain drag calls `tags.clear()` and silently detaches the puzzle from its *other* metas, no warning | S | `DragBoard.tsx` (badge + confirm), `web_move_to_meta` `puzzles.py` *(delivered `feature/quick-wins`)* |
 | Optimistic updates on retag/solve | retag blanks the whole board with a loading overlay for the full rate-limited Discord write | M | `frontend/src/api.ts`, `DragBoard.tsx:202` |
 | Audit log for web actions | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
-| Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py:102` |
+| ✅ **DONE** Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py` *(re-resolves every 60s; delivered `feature/quick-wins`)* |
 
 ### Security hardening (lower priority — internal, role-gated site)
 
