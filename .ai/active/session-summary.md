@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-22
-Status: in progress — Phase 1 (rollups table + store + lock) committed
+Status: in progress — M5 phase 1: rollups table + store + per-round mutex @ fbce849
 
 ## Goal
 

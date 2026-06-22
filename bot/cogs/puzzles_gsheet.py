@@ -579,6 +579,63 @@ class GoogleSheets(commands.Cog):
         """Live spreadsheet, or the archive one once the puzzle has been archived."""
         return self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
 
+    # --- Developer metadata: stable tab pointers (M5 substrate, M7 load-bearing) ---
+    # A tab's numeric sheetId is reassigned when a sheet is moved to the archive
+    # spreadsheet (see move_puzzle_spreadsheet), so a roll-up that keyed only on the
+    # sheetId would dangle. Developer metadata is a searchable id that travels with
+    # the tab. M5 records it as substrate but still renders via the meta puzzle's
+    # google_page_id (the trusted pointer); M7 will resolve the target tab off it.
+
+    async def ensure_tab_metadata(self, spreadsheet_id, page_id, key):
+        """Idempotently attach searchable developer metadata `key` to the tab
+        `page_id` in `spreadsheet_id`; return its metadataId. If `key` already
+        exists in the spreadsheet, return the existing id instead of duplicating."""
+        existing = await self._search_tab_metadata(spreadsheet_id, key)
+        if existing is not None:
+            return existing
+        body = {"requests": [{"createDeveloperMetadata": {"developerMetadata": {
+            "metadataKey": key,
+            "location": {"sheetId": int(page_id)},
+            "visibility": "DOCUMENT",
+        }}}]}
+        req = get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        resp = await execute_with_retry(req, on_retry=self._notify_retry)
+        return (resp["replies"][0]["createDeveloperMetadata"]
+                ["developerMetadata"]["metadataId"])
+
+    async def _search_tab_metadata(self, spreadsheet_id, key):
+        """Return the metadataId of developer metadata `key` in `spreadsheet_id`, or
+        None if absent."""
+        req = get_sheet().developerMetadata().search(
+            spreadsheetId=spreadsheet_id,
+            body={"dataFilters": [{"developerMetadataLookup": {"metadataKey": key}}]},
+        )
+        resp = await execute_with_retry(req, on_retry=self._notify_retry)
+        matched = (resp or {}).get("matchedDeveloperMetadata", [])
+        if matched:
+            return matched[0]["developerMetadata"]["metadataId"]
+        return None
+
+    async def find_tab_by_metadata(self, spreadsheet_id, metadata_id):
+        """Resolve the tab page id carrying developer metadata `metadata_id`, or None
+        if absent (e.g. it didn't survive a copyTo/duplicate). Callers MUST fall back
+        to a known page id — never trust this as the sole pointer."""
+        req = get_sheet().developerMetadata().get(
+            spreadsheetId=spreadsheet_id, metadataId=int(metadata_id))
+        resp = await execute_with_retry(req, on_retry=self._notify_retry)
+        return (resp or {}).get("location", {}).get("sheetId")
+
+    async def stamp_rollup_metadata(self, puzzle: PuzzleData, key):
+        """Best-effort: ensure developer metadata `key` is on this puzzle's tab,
+        resolving the live-vs-archive spreadsheet. Returns (tab_page_id, metadata_id),
+        or (None, None) if the puzzle has no sheet yet."""
+        page_id = puzzle.google_page_id
+        if page_id in (None, ""):
+            return None, None
+        spreadsheet_id = self._target_spreadsheet_id(puzzle)
+        metadata_id = await self.ensure_tab_metadata(spreadsheet_id, int(page_id), key)
+        return int(page_id), metadata_id
+
     async def _values_update(self, spreadsheet_id, a1_range, values):
         req = get_sheet().values().update(
             spreadsheetId=spreadsheet_id,
