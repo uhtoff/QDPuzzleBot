@@ -295,6 +295,45 @@ two spellings of one. **`feeds-meta` edges = "these specific answers go up"; `pa
 filtered to `feeds-meta`; switch it to `subtree` only when you want the full branch (e.g. an
 all-answers runaround). → applies at **M7**.
 
+### Worked example: capstone evidence board (PB10 "Detectives")
+
+A capstone whose reveals are **structured, routable clues** (not free-text narrative) — the case that
+decides opaque-payload vs a structured clue store.
+
+Structure: a suspect **roster** (seeded thin, e.g. DOB); some feeders, on solve, yield a fact
+`(suspect, attribute, value)` — e.g. `(Suspect X, favourite cookie, "11D")`, where the value is often a
+pointer into another puzzle. You don't initially know which **detective puzzle** a fact belongs to, so
+facts are held against the suspect and *routed* to a detective once known.
+
+Model — an **evidence/clue store**, one row per fact:
+
+| field | when filled | how |
+|---|---|---|
+| `source_puzzle` | **always, auto** | the `reveals` edge's source (the puzzle you logged it from) — provenance you can't lose |
+| `suspect` | intake | subject of the fact |
+| `attribute` / `value` | intake | "favourite cookie" / "11D" |
+| `assigned_detective` | later | the routing; nullable until known |
+
+The **suspects sheet** and the **per-detective boards** are two `aggregate_to_tab` roll-ups of the
+*same* rows, grouped by `suspect` vs by `assigned_detective` — so you **tag/route, never copy**, and a
+fact shows in both views with its source intact.
+
+Fixes the two real pains: provenance is a required auto-stamped column (no more "where did this come
+from?"), and completeness becomes three queries instead of a gut feeling — (1) solved clue-bearing
+puzzles with **no clue logged**, (2) clues **not yet routed**, (3) empty suspect/detective slots.
+
+**Two independent channels, same puzzles** (the easy orthogonal bit): whether the detective puzzles
+feed a meta is the standard model (the round is a TagGroup, `kind=meta` or metaless `!rnm`). The
+**answer channel** (`feeds-meta` → meta) and the **evidence channel** (`reveals`/clues → boards)
+coexist via different `edge_type`s — one detective puzzle can feed the round meta with its *answer*,
+be the routing target for *clues*, and on solve *reveal* a clue, all at once. Three edges, no conflict
+— the payoff of typed edges.
+
+**✅ Decision (pins the payload question):** free-text / narrative reveals (MITMH MonArch) → opaque
+`reveal_payload` JSON + a board; **structured, routable, provenance-critical reveals (PB10 Detectives)
+→ a typed clue store** (`source_puzzle`, `suspect`, `attribute`, `value`, `assigned_detective`). Same
+`reveals` edge for provenance; the difference is blob vs typed columns. → applies at **M9**.
+
 ### Suggested build order (structural-feature view)
 
 > **Canonical sequence is Part 2's M0–M11** (it folds these phases into the full plan, with the
@@ -393,7 +432,11 @@ cluster-archive stale-pointer risk** (`archive_puzzle_spreadsheet:452-481` reass
 solve). 1 channel + (N+1) tabs.
 
 **M9 — Capstones / progressive reveal (Feature C).** *(deps: M5, M6, M8)* `reveals` edge → dossier tab;
-capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11).
+capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11). For
+**structured/routable reveals** (the PB10 "Detectives" worked example in Part 1) add the typed clue
+store (`source_puzzle` auto-stamped, `suspect`, `attribute`, `value`, `assigned_detective`) with
+suspects/detective roll-up views + the three completeness queries; free-text reveals stay opaque
+`reveal_payload`. Answer-channel (`feeds-meta`→meta) and evidence-channel (`reveals`→boards) coexist.
 
 **M10 — Destructive-command safety + bulk-delete pacing** *(off critical path; needs M3)*. Confirm/undo
 on `delete_hunt`/`delete_round`/`_delete_puzzles` via `discord.ui` buttons; None-guard
