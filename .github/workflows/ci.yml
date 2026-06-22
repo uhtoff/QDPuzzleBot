@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpass
+          MYSQL_DATABASE: puzzlebot_test
+          MYSQL_USER: puzzlebot
+          MYSQL_PASSWORD: testpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ptestpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Pipenv and dependencies
+        run: |
+          pip install pipenv
+          pipenv install --dev --system
+
+      - name: Write test config
+        run: |
+          cat > config.json <<'EOF'
+          {
+            "storage": "mysql",
+            "mysql_username": "puzzlebot",
+            "mysql_password": "testpass",
+            "database": "puzzlebot_test"
+          }
+          EOF
+
+      - name: Apply migrations
+        run: |
+          if [ -d migrations ] && ls migrations/*.sql 1>/dev/null 2>&1; then
+            for f in $(ls migrations/*.sql | sort); do
+              echo "Applying $f"
+              mysql -h 127.0.0.1 -u puzzlebot -ptestpass puzzlebot_test < "$f"
+            done
+          else
+            echo "No migrations found — skipping (M0 not yet merged)"
+          fi
+
+      - name: Run tests
+        run: pytest -v
