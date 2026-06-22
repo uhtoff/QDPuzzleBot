@@ -58,7 +58,8 @@ producible three ways. `source_mode` becomes the single runtime switch — the
 ## In scope (this handoff)
 
 1. `migrations/004_source_mode_backfill.sql` — set `source_mode='subtree'` on rollups
-   whose meta puzzle is `metameta=1`.
+   whose meta puzzle is `metameta=1`; and `migrations/005_tags_unique_key.sql` — dedup then
+   add `UNIQUE KEY tag_uq (round_id, puzzle_id)` so membership is one-edge-per-pair.
 2. `PuzzleService._collect_rollup_puzzles` + `refresh_meta` refactor to branch on
    `rollup.source_mode` (not `metapuzzle.metameta`), preserving today's output at defaults.
 3. `parent_group_id` subtree walk: `collect_subtree_rounds` / `collect_subtree_puzzles`.
@@ -121,9 +122,12 @@ producible three ways. `source_mode` becomes the single runtime switch — the
 - **Confirm every column/attribute/payload key exists before use.** Specifically:
   `RollupData.source_mode` / `.edge_type_filter` exist (`rollup_data.py:29-30`);
   `RoundData.parent_group_id` / `.kind` exist (`round_data.py:23-25`); `tags.edge_type`
-  exists (migration `003`). The `tags` table has only a **non-unique** `KEY(round_id,
-  puzzle_id)` (`000_base_schema.sql:115`) — there is **NO unique constraint**, so
-  `ON DUPLICATE KEY UPDATE` is INVALID; the writer must SELECT-then-INSERT/UPDATE.
+  exists (migration `003`). The `tags` table STARTS with only a **non-unique**
+  `KEY(round_id, puzzle_id)` (`000_base_schema.sql:115`); **Phase 2 migration `005` replaces
+  it with `UNIQUE KEY tag_uq (round_id, puzzle_id)`**, after which the edge writer uses
+  `INSERT ... ON DUPLICATE KEY UPDATE edge_type=VALUES(edge_type)`. The edge-writer test
+  (`test_tag_edges.py`) targets that upsert — confirm `005` is applied
+  (`migrate.py status`) before relying on it.
 - **When a decision goes through a shared handler, OPEN it.** `refresh_meta` is the shared
   render seam; pin that `_collect_rollup_puzzles` returns the puzzle list the EXISTING
   `add_metapuzzle_data(metapuzzle, feeders)` / `add_metametapuzzle_data(metapuzzle,
@@ -286,8 +290,9 @@ it. Then:
   its edge_type.
 - `test_tag_puzzle_with_edge_inserts_then_updates`: call `tag_puzzle_with_edge(pid, rid,
   'aggregates-into')` (insert), then again with `'feeds-meta'` (update-in-place); assert a
-  single tags row whose edge_type is the latest value (SELECT-then-write idempotency — NO
-  `ON DUPLICATE KEY`, the table has no unique key).
+  single tags row whose edge_type is the latest value. This relies on the `005` UNIQUE key +
+  `ON DUPLICATE KEY UPDATE` upsert — the test setup must run migrations (or assert `005`
+  applied) so the unique constraint exists.
 
 > If you cannot reach `puzzlebot_test`, write `blocker.md` and STOP — do not mock the DB
 > for these store tests.
@@ -307,26 +312,46 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 
 ---
 
-## Phase 2 — Migration 004 + edge_type on read + edge writer (Sonnet 4.6)
+## Phase 2 — Migrations 004 + 005 + edge_type on read + edge writer (Sonnet 4.6)
 
 1. Write `migrations/004_source_mode_backfill.sql`: data-only `UPDATE` setting
    `source_mode='subtree'` on `rollups` rows whose `round_id` joins to a `rounds` whose
-   `meta_id` joins to a `puzzles` with `metameta=1`. No `ALTER TABLE`. Apply it:
-   `pipenv run python migrate.py migrate` (then `migrate.py status`). Commit the SQL.
-2. `bot/store/puzzle_data.py`: add `tag_edges: Dict[int, str] = field(default_factory=dict)`
+   `meta_id` joins to a `puzzles` with `metameta=1`. No `ALTER TABLE`.
+2. Write `migrations/005_tags_unique_key.sql`: enforce one membership per `(round_id,
+   puzzle_id)` so the edge writer can upsert and the `tag_edges` map (one edge_type per
+   pair) is DB-backed. **Dedup first, then swap the non-unique key for a unique one** — safe
+   to dedup NOW because every existing tags row is still the default `edge_type='feeds-meta'`
+   (nothing has written `aggregates-into` yet), so no meaningful edge_type variation can be
+   lost:
+   ```sql
+   DELETE t1 FROM tags t1 JOIN tags t2
+     ON t1.round_id = t2.round_id AND t1.puzzle_id = t2.puzzle_id AND t1.id > t2.id;
+   ALTER TABLE tags DROP KEY tag_index, ADD UNIQUE KEY tag_uq (round_id, puzzle_id);
+   ```
+   (`tag_index` was already `(round_id, puzzle_id)` non-unique; `tag_uq` fully replaces it.)
+   Apply both: `pipenv run python migrate.py migrate` then `migrate.py status` (shows `004`
+   and `005`). Commit the two SQL files.
+3. `bot/store/puzzle_data.py`: add `tag_edges: Dict[int, str] = field(default_factory=dict)`
    to `PuzzleData` (import `field`, `Dict`). Additive; defaults keep all construction sites
    working.
-3. `bot/store/mysqldb.py` `get_tags` (336-343): `SELECT tags.round_id, tags.edge_type`;
+4. `bot/store/mysqldb.py` `get_tags` (336-343): `SELECT tags.round_id, tags.edge_type`;
    keep appending `round_id` to `puzzle.tags` AND set `puzzle.tag_edges[round_id] =
    row['edge_type']`.
-4. `bot/store/mysqldb.py`: add `tag_puzzle_with_edge(self, puzzle_id, round_id, edge_type)`
-   to `MySQLPuzzleJsonDb` — SELECT for an existing `(round_id, puzzle_id)` row; if present
-   `UPDATE tags SET edge_type=%s WHERE ...`, else `INSERT INTO tags (round_id, puzzle_id,
-   edge_type) VALUES (...)`. `self.mydb.commit()`. (No `ON DUPLICATE KEY` — no unique key.)
-   Export via `bot/store/__init__.py` if commands call it through `PuzzleJsonDb`.
-- **Acceptance:** `tests/test_tag_edges.py` passes;
-  `pipenv run python migrate.py status` shows `004` applied; full suite green.
-- Commit: `M7 phase 2: edge_type live on read + tag_puzzle_with_edge + 004 backfill`.
+5. `bot/store/mysqldb.py`: add `tag_puzzle_with_edge(self, puzzle_id, round_id, edge_type)`
+   to `MySQLPuzzleJsonDb` — a single idempotent upsert relying on the `005` unique key:
+   ```sql
+   INSERT INTO tags (round_id, puzzle_id, edge_type) VALUES (%s, %s, %s)
+     ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)
+   ```
+   then `self.mydb.commit()`. Export via `bot/store/__init__.py` if commands call it through
+   `PuzzleJsonDb`. (Note: the generic `commit()` tag set-difference at `mysqldb.py:366-378`
+   stays untouched — it still inserts `(round_id, puzzle_id)` pairs that default to
+   `feeds-meta`, which the unique key tolerates since it only ever inserts genuinely-missing
+   pairs.)
+- **Acceptance:** `tests/test_tag_edges.py` passes (insert-then-update collapses to one row
+  via the upsert); `pipenv run python migrate.py status` shows `004` and `005` applied; full
+  suite green.
+- Commit: `M7 phase 2: edge_type live + tag upsert + 004 backfill + 005 unique key`.
 
 ## Phase 3 — Subtree walk (Sonnet 4.6)
 
@@ -401,7 +426,7 @@ existing retag/rebuild commands), each calling the service then surfacing
 ## Verification (whole task)
 
 - Full suite green every phase boundary: `timeout 180 pipenv run python -m pytest tests/ -q`.
-- `migrate.py status` shows `004` applied.
+- `migrate.py status` shows `004` and `005` applied.
 - Frontend typechecks: `cd frontend && npx tsc --noEmit`.
 - **Runaround acceptance (the done-definition):** the unit assertions in
   `test_rollup_source_mode.py` prove a roll-up produces the expected answer set in all
@@ -414,7 +439,11 @@ existing retag/rebuild commands), each calling the service then surfacing
 
 1. **`PuzzleData.tags` typing** — biggest regression risk. Keep `List[int]`; add the
    parallel `tag_edges` map only. Never retype `tags`.
-2. **`tags` has no UNIQUE key** — the edge writer is SELECT-then-write, not upsert.
+2. **`tags` uniqueness** — `005` adds `UNIQUE KEY (round_id, puzzle_id)` after a dedup. The
+   dedup is information-safe ONLY while all rows are the default `feeds-meta` (true now);
+   if you somehow run it after `aggregates-into` rows exist it could drop a real edge —
+   `005` must land before any edge writer runs. If the `ALTER` fails on a duplicate the
+   dedup `DELETE` missed, write `blocker.md` (don't loosen the key).
 3. **Metameta compat** — `add_metametapuzzle_data` stays intact (its existing tests mock
    it); after 004 + Phase 4 metameta rounds render via the `subtree` branch, which must
    reproduce the hunt's solved-answer view. If a real metameta round's branch isn't fully
