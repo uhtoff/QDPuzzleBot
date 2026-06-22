@@ -47,3 +47,38 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
     # The sheet that was created must be deleted, and the committed row removed.
     gsheet.delete_puzzle_spreadsheet.assert_awaited_once()
     pdb.delete.assert_called_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
+    cog, gsheet = _cog_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    ref_cat = MagicMock(id=1, position=0)
+    guild.categories = [ref_cat]
+    new_cat = MagicMock(id=2, channels=[])
+    ref_cat.clone = AsyncMock(return_value=new_cat)
+    new_cat.edit = AsyncMock()
+    new_cat.delete = AsyncMock()
+
+    hunt = _hunt()
+    hunt.category_id = 1
+    hunt.parallel_hunt = False
+    hunt.name = "H"
+
+    created_puzzle = MagicMock(id=77, channel_id=None)
+
+    cleanup_mock = AsyncMock()
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb, \
+         patch("bot.cogs.puzzles.RoundJsonDb") as rdb, \
+         patch.object(cog, "web_create_puzzle", AsyncMock(return_value=created_puzzle)), \
+         patch.object(cog, "_cleanup_orphan_puzzle", cleanup_mock), \
+         patch.object(cog, "get_or_create_channel", AsyncMock()):
+        rdb.check_duplicates_in_hunt.return_value = False
+        pdb.check_duplicates_in_hunt.return_value = False
+        rdb.generate_uid.side_effect = RuntimeError("late failure")  # fails AFTER web_create_puzzle
+        with pytest.raises(RuntimeError):
+            await cog.web_create_round(guild, hunt, "New Round")
+
+    cleanup_mock.assert_awaited_once()
+    assert cleanup_mock.await_args.args[1] is created_puzzle

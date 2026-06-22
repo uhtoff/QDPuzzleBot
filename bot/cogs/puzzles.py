@@ -836,6 +836,7 @@ class Puzzles(commands.Cog):
             raise RuntimeError("no_template_category")
         new_category = None
         new_round = None
+        puzzle = None
         try:
             new_category = await ref_category.clone(name=new_category_name)
             await new_category.edit(position=ref_category.position + 1)
@@ -869,6 +870,8 @@ class Puzzles(commands.Cog):
                     RoundJsonDb.delete(new_round.id)
                 except Exception:
                     logger.exception("web_create_round: rollback of round row failed")
+            if puzzle is not None:
+                await self._cleanup_orphan_puzzle(hunt, puzzle)
             if new_category is not None:
                 try:
                     for ch in list(new_category.channels):
