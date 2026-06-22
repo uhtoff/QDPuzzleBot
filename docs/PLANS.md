@@ -464,6 +464,32 @@ category_id)*. Round of N feeders → 1 channel-create + N thread-creates. Make 
 `activity.py` thread-aware; add `create_puzzle_thread` + a thread branch to `get_or_create_channel`;
 reuse `safe_rename` unchanged; archive on solve via `thread.edit(archived=True)`.
 
+### Parallelization / wavefront
+
+The dependency DAG is **front-loaded (quick wins) and back-loaded (the M7/M8/M11 fan-out)** with a
+mostly-serial middle. Deps: M1,M2←M0; M3←M1,M2; M4←M3; M5←M3,M4; M6←M0,M5; M7←M6; M8←M5,M6; M9←M5,M6,M8;
+M10←M3; M11←M6.
+
+**Serial backbone (can't be parallelized away):** `M0 → (M1 ∥ M2) → M3 → M4 → M5 → M6` — ~6 stages,
+each genuinely consuming the prior, with one fork (M1 ∥ M2). Staffing *this* is what shortens the
+timeline; parallelizing the leaves only helps once you're past M6.
+
+**What can run concurrently, by wave:**
+
+| When | In parallel |
+|---|---|
+| **Day one** (need nothing, not even M0) | Most quick wins: `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors |
+| After **M0** | **M1 (tests) ∥ M2 (`aggregate_to_tab`)** |
+| After **M3** | **M4 (mutex) ∥ M10 (destructive safety)** + audit-log quick win |
+| After **M6** | **M7 ∥ M8 ∥ M11** (then M9 trails M8) + optimistic-updates quick win |
+
+**Practical caveat — DAG-independent ≠ conflict-free.** `bot/cogs/puzzles.py` (2,700 lines) is a
+contention magnet (M3 rewrites it; M10 + M7/M8/M9/M11 all add to it). So: the *truly* safe concurrent
+work is the frontend / store / Pipfile / `activity.py` quick wins (they barely touch the cog); and
+**land M3 cleanly before the fan-out** — once logic lives in `bot/core/`, M7/M8/M9/M11 add there
+instead of knife-fighting in the god-cog, turning the post-M6 fan-out from "parallel-but-merge-painful"
+into "parallel-and-clean."
+
 ### Quick wins — shippable in parallel, no hard dependency
 
 - **SPA `ErrorBoundary`** — any render throw blanks the app (`App.tsx`).
