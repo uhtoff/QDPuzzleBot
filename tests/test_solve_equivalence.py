@@ -166,7 +166,7 @@ class TestWebSolvePuzzleState:
 
 
 # ---------------------------------------------------------------------------
-# web_add_to_meta — tag mutation
+# add_to_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 
 class TestWebAddToMeta:
@@ -212,7 +212,7 @@ class TestWebAddToMeta:
 
 
 # ---------------------------------------------------------------------------
-# web_remove_from_meta — tag mutation
+# remove_from_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 
 class TestWebRemoveFromMeta:
@@ -259,7 +259,7 @@ class TestWebRemoveFromMeta:
 
 
 # ---------------------------------------------------------------------------
-# web_move_to_meta — tag replacement (non-metapuzzle)
+# move_to_meta (service) — tag replacement (non-metapuzzle)
 # ---------------------------------------------------------------------------
 
 class TestWebMoveToMeta:

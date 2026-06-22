@@ -8,6 +8,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 import logging
 
 import discord
+from googleapiclient.errors import HttpError
 from quart import Blueprint, current_app, jsonify, request
 
 from . import data
@@ -335,8 +336,12 @@ async def retag_puzzle(puzzle_id):
             await cog.service.remove_from_meta(puzzle, meta_round)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    except Exception:
-        logger.exception("retag: service call failed for puzzle %s", puzzle.id)
+    except HttpError:
+        # The tag mutation already committed; a Sheets refresh hiccup is
+        # best-effort and must not fail the retag (mirrors the old web path).
+        # Unexpected (non-Sheets) errors propagate to a 500 rather than being
+        # masked as success.
+        logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
     return jsonify({"ok": True})
 
 

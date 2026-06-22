@@ -6,7 +6,6 @@ the service does DB + Google Sheets + intrinsic Discord mutations and RAISES on
 failure. Presentation (embeds, confirmations) and error-tolerance policy stay at
 the edges.
 """
-import datetime
 import logging
 
 import discord

@@ -1194,7 +1194,6 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a Puzzle channel")
             return
         puzzle = self.get_puzzle(ctx)
-        old_tags = []
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
             await ctx.send(
