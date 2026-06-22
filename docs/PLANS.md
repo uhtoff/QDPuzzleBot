@@ -78,6 +78,20 @@ channel *position*), `rounds.parent_group_id` (nullable; the group-in-group / pa
 graph), conservative risk (no rename, no parallel structure), door left open to full tag-group
 terminology later. (Fix the `meta_code` int-holds-str bug, `round_data.py:20`, while there.) → **M6.**
 
+**Clarified intent (the real point):** the reason to relabel is *cognitive* — to **stop us reasoning
+in "rounds"**, the framing that's been limiting the design — not to tidy the schema. The word in the
+code you touch daily is what shapes the mental model, so the rename that matters is the **domain
+vocabulary you code against, not the physical table name.** Plan: the new `bot/core/` layer (**M3**,
+greenfield → cheap) introduces a `Group` domain object (`kind` field) and speaks group / tag /
+membership; the new commands (clusters, capstones, aggregation) and the dashboard use that language.
+The `rounds` table + `round_id` SQL survive purely as a **storage detail behind the repository**
+(invisible to day-to-day reasoning), and `RoundData` / `!round` / `hunt_round` get retired
+**opportunistically** as the strangler-fig (M3) replaces each old path — so the "round" vocabulary
+leaves the code you work in without a big-bang rename. The ~360-edit storage-identifier rename is the
+part that *doesn't* shape thinking, so skipping it costs nothing cognitively; renaming the physical
+table later becomes a pure mechanical migration, decoupled from the conceptual win. (Name TBD —
+`Group` is overloaded near Discord roles/categories; `TagGroup` / `Collection` are alternatives.)
+
 ### ✅ RESOLVED — model-first in *direction*, not scope (Discord stays the bang-command + auth surface)
 
 Observation: the design has been **held back by what works on Discord**. Today **Discord *is* the
