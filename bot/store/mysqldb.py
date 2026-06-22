@@ -160,18 +160,6 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
         cursor.close()
         return found
 
-    def get(self, round_id) -> RoundData:
-        """Retrieve single round from database"""
-        cursor = self.mydb.cursor(dictionary = True)
-        try:
-            cursor.execute("SELECT * FROM rounds WHERE channel_id = %s", (round_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
-        if row:
-            return RoundData.import_dict(row)
-        raise MissingRoundError(f"Unable to find round {round_id}")
-
     def get_by_attr(self,**kwargs):
         """Retrieve Round by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()

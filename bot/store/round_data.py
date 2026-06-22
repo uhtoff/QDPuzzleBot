@@ -15,10 +15,14 @@ class RoundData:
     name: str = ""
     id: int = 0
     hunt_id: int = 0
-    category_id: int = 0  # round = category channel
+    category_id: int = 0  # round = category channel (nullable in DB for channel-less groups; M7)
     meta_id: int = 0
-    meta_code: int = 0
+    meta_code: str = "0"  # 6-char handle (the DB column is CHAR(6)); was mis-typed int
     type: str = ""
+    # M6 typed-group columns (additive; backfilled + kept-updated, read by nothing yet).
+    kind: str = ""               # meta / metameta / metaless (+ cluster/capstone/... later)
+    status: str = "active"       # active / solved / archived (a round is solved when its meta is)
+    parent_group_id: Optional[int] = None  # group-in-group NESTING (dormant; cycle-guarded setter)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
@@ -53,8 +57,6 @@ class _RoundJsonDb:
     def commit(self, round_data):
         pass
     def delete(self, round_data):
-        pass
-    def get(self, guild_id, round_id, hunt_id) -> RoundData:
         pass
     def get_all(self, guild_id, hunt_id="*") -> List[RoundData]:
         pass
