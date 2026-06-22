@@ -36,19 +36,27 @@ cd .claude/worktrees/<name>
 pipenv install --dev
 ```
 
-## 3. Copy `config.json` into the worktree
+## 3. Copy the gitignored secrets into the worktree
 
-`config.json` is **gitignored**, so it does not come across with the worktree. But
-`bot/store/__init__.py` opens a MySQL connection **at import time** when
-`config.storage == 'mysql'`, so without it every test fails to even collect
-(`1045 Access denied for user ''@'localhost'`). Copy the working config from the repo
-root:
+Two **gitignored** credential files do not come across with a worktree, and each
+fails *silently in a different way* if missing:
+
+- **`config.json`** — `bot/store/__init__.py` opens MySQL **at import time**, so
+  without it even `pytest` collection fails (`1045 Access denied for user ''@'localhost'`).
+- **`google_secrets.json`** — the Google service-account key. Without it the
+  `GoogleSheets` cog **fails to load** at startup (`FileNotFoundError: google_secrets.json`),
+  so `bot.get_cog("GoogleSheets")` is `None` and every meta-sheet rebuild silently
+  no-ops — retag/solve still mutate the DB + Discord, so it *looks* fine but sheets
+  never update.
+
+Copy both from the repo root:
 
 ```bash
-cp /home/russ/projects/puzzbot/config.json .claude/worktrees/<name>/config.json
+cp /home/russ/projects/puzzbot/config.json         .claude/worktrees/<name>/config.json
+cp /home/russ/projects/puzzbot/google_secrets.json .claude/worktrees/<name>/google_secrets.json
 ```
 
-It points at the local test DB (`puzzlebot_test`). The copy stays gitignored.
+`config.json` points at the local test DB (`puzzlebot_test`). Both copies stay gitignored.
 
 ## 4. Run tests with `pipenv run python -m pytest`
 
@@ -69,6 +77,7 @@ git worktree add .claude/worktrees/<name> -b feature/<name> main
 cd .claude/worktrees/<name>
 pipenv install --dev
 cp /home/russ/projects/puzzbot/config.json ./config.json
+cp /home/russ/projects/puzzbot/google_secrets.json ./google_secrets.json
 timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1   # expect all green
 ```
 
