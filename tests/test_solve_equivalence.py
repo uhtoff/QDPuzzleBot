@@ -49,7 +49,7 @@ def _no_guild():
 
 
 # ---------------------------------------------------------------------------
-# web_solve_puzzle — DB state mutations
+# PuzzleService.solve — DB state mutations
 # ---------------------------------------------------------------------------
 
 class TestWebSolvePuzzleState:

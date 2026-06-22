@@ -595,8 +595,9 @@ class Puzzles(commands.Cog):
         await self.service.refresh_meta(hunt, hunt_round)
 
     async def web_refresh_meta(self, hunt, hunt_round):
-        """Best-effort wrapper over PuzzleService.refresh_meta, retained until
-        web_solve_puzzle is migrated. Swallows Sheets errors."""
+        """Best-effort wrapper over PuzzleService.refresh_meta, retained as the
+        swallowing wrapper still used by web_create_puzzle (deferred to M3.5).
+        Swallows Sheets errors."""
         try:
             await self.service.refresh_meta(hunt, hunt_round)
         except Exception:
