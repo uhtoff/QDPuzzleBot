@@ -4,6 +4,32 @@ Isolated worktrees are handy for big changes (e.g. the M-milestone refactors). T
 project has a few non-obvious gotchas — follow these steps or the worktree will look
 broken (wrong base commit, missing deps, DB errors at import, tests "not found").
 
+## Preferred: reuse the persistent `working-1` worktree
+
+Spinning up a fresh worktree per feature is a lot of setup (its own pipenv venv,
+copied secrets, npm install). Instead there is **one long-lived worktree** at
+`.claude/worktrees/working-1` with all of that already in place
+(venv + `config.json` + `google_secrets.json` + `frontend/node_modules`). For a new
+piece of work, just reuse it — **no setup needed**:
+
+```bash
+cd .claude/worktrees/working-1
+git fetch && git switch -c feature/<name> main   # fresh branch off the latest main
+# ...work, commit, merge to main (see docs handoff)...
+# next feature: git switch -c feature/<next> main   (venv/secrets/node_modules persist)
+```
+
+Keep `working-1` parked on a throwaway `working-1` branch (or the current feature
+branch) between tasks; after merging a feature to `main`, advance it with
+`git -C .claude/worktrees/working-1 switch -C working-1 main`.
+
+Only follow the from-scratch steps below if you need a **second** worktree for
+genuinely parallel work. Note: renaming/moving a worktree changes the pipenv venv
+name (it's keyed on the directory), forcing a one-time `pipenv install --dev` — the
+copied secrets and `node_modules` move with the directory.
+
+## Creating a new worktree from scratch (only for parallel work)
+
 ## 1. Branch from **local `main`**, not `origin`
 
 `origin/main` is typically **far behind** local `main` (the local branch carries many
