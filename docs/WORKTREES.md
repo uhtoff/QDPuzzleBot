@@ -72,6 +72,31 @@ cp /home/russ/projects/puzzbot/config.json ./config.json
 timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1   # expect all green
 ```
 
+## Verifying the bot actually runs from a worktree
+
+Tests prove logic; to confirm the **live bot** works from a worktree (all the bots
+here are test bots), run it the normal way:
+
+```bash
+./start.sh            # builds the SPA, then `pipenv run python run.py`
+```
+
+Prerequisites are exactly the setup above — the worktree's **own** pipenv venv
+(`pipenv install --dev`), the frontend deps (`start.sh` runs `npm ci` if
+`frontend/node_modules` is absent), and a copied `config.json`. The first run is
+**noisy** (pipenv/npm bootstrap output, sometimes pip warnings) — that noise is
+non-fatal. Success looks like `discord.log` showing:
+
+```
+discord.client: logging in using static token
+bot.web: Starting web dashboard on 0.0.0.0:8099
+discord.gateway: Shard ID 0 has connected to Gateway
+```
+
+`start.sh` guards against double-starts (it won't launch a second instance fighting
+over the Discord token / port 8099); use `./start.sh --restart` to replace a running
+one. Stop it with Ctrl-C (foreground) or by killing the `python run.py` PID.
+
 ## Tearing down
 
 ```bash
