@@ -58,5 +58,13 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 
 ## Worktrees
 
-See **`docs/WORKTREES.md`** — this project has non-obvious setup (branch from local
-`main`, per-worktree pipenv venv, copy `config.json`).
+**Convention: reuse the one persistent worktree at `.claude/worktrees/working-1`** rather
+than creating a new one per feature — it already has its pipenv venv, `config.json`,
+`google_secrets.json`, and `frontend/node_modules`, so there's no setup. Start a feature
+with `cd .claude/worktrees/working-1 && git switch -c feature/<name> main`; after merging
+to `main`, resync with `git -C .claude/worktrees/working-1 switch -C working-1 main`.
+
+Only create a fresh worktree for genuinely parallel work. Full setup gotchas and the
+from-scratch steps are in **`docs/WORKTREES.md`** (branch from local `main` not stale
+`origin`; per-worktree pipenv venv; copy the gitignored `config.json` + `google_secrets.json`;
+run tests with `pipenv run python -m pytest`).
