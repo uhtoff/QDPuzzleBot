@@ -395,21 +395,21 @@ with an opaque note. → applies at **M9**.
 ## PART 2 — Sequenced roadmap (M0–M11)
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
-dependency-ordered sequence. **Critical path:** M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9.
+dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → **M3 (next)** → M4 → M5 → M6 → M7 → M8 → M9.
 M10/M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
 detail behind each item.
 
-**M0 — Foundation: checked-in base schema + migration runner.** *(deps: none)* Tracked `CREATE TABLE`
+**M0 — Foundation: checked-in base schema + migration runner.** ✅ **DONE** (`7453661`) *(deps: none)* Tracked `CREATE TABLE`
 DDL for all core tables (none in repo today; the lone `001_dashboard.sql` is gitignored), a
 `schema_migrations` runner applying `NNN_*.sql` in order, README DB bring-up. **Rule: migration →
 deploy → code**, because `commit()` writes every dataclass field by name (`mysqldb.py:39-49`) and
 crashes on a missing column.
 
-**M1 — Test seam before any extraction.** *(deps: M0)* `pytest.ini`/`conftest.py` + CI; pure tests for
+**M1 — Test seam before any extraction.** ✅ **DONE** (`917e173`) *(deps: M0)* `pytest.ini`/`conftest.py` + CI; pure tests for
 `build_board` and `hunt_visible`; **bang-vs-core equivalence tests** so M3 can delete twins safely.
 (Only one 22-line test exists today.)
 
-**M2 — Generic `aggregate_to_tab()`.** *(deps: M0)* One ctx-free bulk writer (`values().update`+`clear`)
+**M2 — Generic `aggregate_to_tab()`.** ✅ **DONE** (`063132c`) *(deps: M0)* One ctx-free bulk writer (`values().update`+`clear`)
 replacing both hand-rolled renderers (~750 per-cell ops → 1–2 requests); **fixes the live ✅ row-shift
 bug** (`puzzles_gsheet.py:558/598`) and drops the `RETAWR`/`LAOFNO` skip (`:589`); retires the 50-row
 blank. Native Tables optional, gated by a `tableId`-survival probe. Snapshot values, never formulas.
@@ -479,7 +479,7 @@ timeline; parallelizing the leaves only helps once you're past M6.
 | When | In parallel |
 |---|---|
 | **Day one** (need nothing, not even M0) | ✅ **DELIVERED** (`feature/quick-wins` @ `6da1752`): `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors, WebSocket auth refresh |
-| After **M0** | **M1 (tests) ∥ M2 (`aggregate_to_tab`)** |
+| After **M0** | ✅ **DELIVERED** — **M1 (tests, `917e173`) ∥ M2 (`aggregate_to_tab`, `063132c`)** |
 | After **M3** | **M4 (mutex) ∥ M10 (destructive safety)** + audit-log quick win |
 | After **M6** | **M7 ∥ M8 ∥ M11** (then M9 trails M8) + optimistic-updates quick win |
 
@@ -531,7 +531,7 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 | ✅ **DONE** Friendly permission/argument errors | 30+ role-gated cmds dump raw `MissingAnyRole`/`BadArgument` tracebacks to players | S | `on_command_error` `puzzles.py` *(delivered `feature/quick-wins`)* |
 | Web write-actions take the per-puzzle mutex | `!` cmds hold `_PUZZLE_LOCKS`; web `web_*` twins take **no lock** → dashboard solve racing `!s` loses updates | S | `web_*` in `puzzles.py:584-963`, `bot/web/actions.py` |
 | ✅ **DONE** Top-level `ErrorBoundary` in the SPA | any render throw blanks the whole app | S | `frontend/src/components/ErrorBoundary.tsx` + `main.tsx` *(delivered `feature/quick-wins`)* |
-| Real pytest suite + CI | one 22-line test exists; start with pure units: `build_board`, `hunt_visible`, SQL builder, `web_* vs !` equivalence | L | `tests/`, new `conftest.py`/`pytest.ini` |
+| ✅ **DONE** Real pytest suite + CI | one 22-line test exists; start with pure units: `build_board`, `hunt_visible`, SQL builder, `web_* vs !` equivalence | L | `tests/`, new `conftest.py`/`pytest.ini` *(delivered M1 `917e173`)* |
 
 ### Correctness & reliability
 
@@ -547,7 +547,7 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 
 | Item | Why | Effort | Where |
 |---|---|---|---|
-| Base schema + migration runner | **no `CREATE TABLE` for core tables in the repo**; lone migration is gitignored — a clone can't stand up a DB. (= Structural Phase 0.) | M (high impact) | `scripts/sql/`, README |
+| ✅ **DONE** Base schema + migration runner | **no `CREATE TABLE` for core tables in the repo**; lone migration is gitignored — a clone can't stand up a DB. (= Structural Phase 0.) | M (high impact) | `migrate.py`, `migrations/`, README *(delivered M0 `7453661`)* |
 | Kill the `web_*` duplication (= M3) | 11 hand-synced ctx-free twins with "keep in sync" comments — **already diverged** (`web_solve_puzzle` posts a different embed and *swallows* sheet errors where `_solve_impl` raises). Extract a ctx-free `bot/core/` service layer | L (high impact) | `puzzles.py:584-963` vs the `_impl` methods |
 | Centralise shared constants | `ADMIN_ROLES`/`STATUSES` defined in both cog and `web/auth.py`/`web/actions.py` — a security gate that can drift | S | `puzzles.py:26-27,80-81` vs `web/*` |
 | ✅ **DONE** Prune dead deps / fix manifest | `gino`,`oauth2client`,`google-cloud-datastore`,`gitpython` unused; `aiohttp` imported but absent from Pipfile; postgres default in `config.py` | S | `Pipfile`, `bot/utils/config.py` *(delivered `feature/quick-wins`)* |
