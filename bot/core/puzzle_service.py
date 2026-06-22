@@ -6,11 +6,13 @@ the service does DB + Google Sheets + intrinsic Discord mutations and RAISES on
 failure. Presentation (embeds, confirmations) and error-tolerance policy stay at
 the edges.
 """
+import datetime
 import logging
 
 import discord
+import pytz
 
-from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb
+from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb
 
 logger = logging.getLogger(__name__)
 
@@ -83,3 +85,40 @@ class PuzzleService:
         await self.refresh_meta(hunt, meta_round)
         for old_tag in old_tags:
             await self.refresh_meta(hunt, RoundJsonDb.get_by_attr(id=old_tag))
+
+    async def solve(self, guild, hunt, puzzle, solution):
+        """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
+        stamp the round solve_time if this is the round's meta, archive the sheet,
+        and persist. RAISES on Sheets failure; edges decide tolerance and
+        presentation (channel reposition + embed live at the edges).
+
+        Returns True if the solve was applied, False if rejected (empty solution
+        with no existing solution — matches _solve_impl's guard)."""
+        if solution == "" and puzzle.solution in [None, ""]:
+            return False
+
+        puzzle.status = "Solved"
+        if puzzle.solution and solution:
+            puzzle.solution += "/" + solution
+        elif solution:
+            puzzle.solution = solution
+        puzzle.solved = True
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        PuzzleJsonDb.commit(puzzle)
+
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            await self.refresh_meta(hunt, meta_round)
+            if meta_round and meta_round.meta_id == puzzle.id:
+                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
+                RoundJsonDb.commit(meta_round)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+
+        PuzzleJsonDb.commit(puzzle)
+        for sheet in puzzle.additional_sheets:
+            SheetsJsonDb.commit(sheet)
+        return True

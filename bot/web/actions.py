@@ -266,9 +266,14 @@ async def solve_puzzle(puzzle_id):
     snowflake = ctx["guild_snowflake"]
     guild = bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        await cog.web_solve_puzzle(guild, hunt_obj, puzzle, solution)
+        await cog.service.solve(guild, hunt_obj, puzzle, solution)
+    except HttpError:
+        # Best-effort: the solve is recorded; a Sheets archive hiccup must
+        # not fail the dashboard action (mirrors the old web path).
+        logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
     return jsonify({"ok": True, "solution": puzzle.solution})
 
 

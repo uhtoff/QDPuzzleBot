@@ -810,30 +810,10 @@ class Puzzles(commands.Cog):
         setattr(puzzle, field, value)
         PuzzleJsonDb.commit(puzzle)
 
-    async def web_solve_puzzle(self, guild, hunt, puzzle, solution):
-        """ctx-free !solve: set the solution, refresh metas, post the SOLVED embed,
-        archive the sheet, and reposition the channel to the solved section.
-
-        Mirrors _solve_impl. The channel reposition is a *move* (lenient bucket),
-        never a delete. Discord/Sheets side-effects are best-effort so a hiccup
-        doesn't lose the recorded solve.
-        """
-        puzzle.status = "Solved"
-        if puzzle.solution and solution:
-            puzzle.solution += "/" + solution
-        elif solution:
-            puzzle.solution = solution
-        puzzle.solved = True
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-        PuzzleJsonDb.commit(puzzle)
-
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.web_refresh_meta(hunt, meta_round)
-            if meta_round and meta_round.meta_id == puzzle.id:
-                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                RoundJsonDb.commit(meta_round)
-
+    async def web_post_solved_embed(self, guild, hunt, puzzle):
+        """Best-effort dashboard-side presentation after service.solve: post the
+        SOLVED embed in the puzzle channel, reposition it to the solved section,
+        and refresh the pinned info. Never raises."""
         channel = guild.get_channel(puzzle.channel_id) if (guild and puzzle.channel_id) else None
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
@@ -846,18 +826,7 @@ class Puzzles(commands.Cog):
             try:
                 await channel.send(embed=embed)
             except Exception:
-                logger.exception("web_solve_puzzle: failed to post solved message")
-
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            try:
-                await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
-                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
-            except Exception:
-                logger.exception("web_solve_puzzle: failed to archive sheet")
-
+                logger.exception("web_post_solved_embed: failed to post solved message")
         if channel is not None and channel.category is not None:
             try:
                 divider = self.get_solve_divider_position(None, channel.category)
@@ -865,11 +834,7 @@ class Puzzles(commands.Cog):
                     async with self.position_lock:
                         await channel.edit(position=divider + 1)
             except Exception:
-                logger.exception("web_solve_puzzle: failed to reposition channel")
-
-        PuzzleJsonDb.commit(puzzle)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
+                logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
@@ -2150,35 +2115,13 @@ class Puzzles(commands.Cog):
 
     async def _solve_impl(self, ctx, *args):
         solution = self._normalize_solution(args)
-
-
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
 
-        if solution == "" and puzzle.solution in [None, ""]:
+        applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution)
+        if not applied:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
-
-        puzzle.status = "Solved"
-
-        if puzzle.solution and solution is not None:
-            puzzle.solution += "/" + solution
-        elif solution is not None:
-            puzzle.solution = solution
-        puzzle.solved = True
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        PuzzleJsonDb.commit(puzzle)
-
-        hunt_round = self.get_hunt_round(ctx)
-        if hunt_round and hunt_round.meta_id == puzzle.id:
-            hunt_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
-            if meta_round.meta_id == puzzle.id:
-                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                RoundJsonDb.commit(meta_round)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!",
@@ -2188,12 +2131,8 @@ class Puzzles(commands.Cog):
             value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
         )
         await ctx.send(embed=embed)
-        await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
-        puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
         await self.move_to_solved(ctx)
         await self.info(ctx, update=True)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
         await ctx.send(":white_check_mark: Sheets all tidied away.")
 
     @commands.command(aliases=["s"])
