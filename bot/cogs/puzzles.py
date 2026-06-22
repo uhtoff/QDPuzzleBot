@@ -761,29 +761,51 @@ class Puzzles(commands.Cog):
 
         # No "🧩" name prefix for metas: the web dashboard's META label is the
         # single source of truth, and a prefix-less name avoids ever renaming.
-        channel_name = self.clean_name(new_puzzle.name)
-        text_channel, created = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=channel_name,
-            channel_type="text", reason=self.PUZZLE_REASON,
-        )
-        if created:
-            if category is not None:
-                divider = self.get_solve_divider_position(None, category)
-                if divider is not False:
-                    async with self.position_lock:
-                        await text_channel.edit(position=divider)
-            new_puzzle.channel_mention = text_channel.mention
-            new_puzzle.channel_id = text_channel.id
-            new_puzzle.channel_name = text_channel.name
-            PuzzleJsonDb.commit(new_puzzle)
-            # Metapuzzle messages need the round's meta_code, which isn't set until
-            # after web_create_round finishes; that path sends the welcome itself.
-            if send_welcome:
-                await self._web_send_welcome(guild, hunt, round_data, new_puzzle, text_channel)
+        try:
+            channel_name = self.clean_name(new_puzzle.name)
+            text_channel, created = await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name,
+                channel_type="text", reason=self.PUZZLE_REASON,
+            )
+            if created:
+                if category is not None:
+                    divider = self.get_solve_divider_position(None, category)
+                    if divider is not False:
+                        async with self.position_lock:
+                            await text_channel.edit(position=divider)
+                new_puzzle.channel_mention = text_channel.mention
+                new_puzzle.channel_id = text_channel.id
+                new_puzzle.channel_name = text_channel.name
+                PuzzleJsonDb.commit(new_puzzle)
+                # Metapuzzle messages need the round's meta_code, which isn't set until
+                # after web_create_round finishes; that path sends the welcome itself.
+                if send_welcome:
+                    await self._web_send_welcome(guild, hunt, round_data, new_puzzle, text_channel)
+        except Exception:
+            # Channel create (or post-create work) failed after the sheet + DB row were
+            # committed — clean up both so we don't strand an orphan (row + Google tab).
+            await self._cleanup_orphan_puzzle(hunt, new_puzzle)
+            raise
 
         for tag in new_puzzle.tags:
             await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=tag))
         return new_puzzle
+
+    async def _cleanup_orphan_puzzle(self, hunt, puzzle):
+        """Best-effort removal of a puzzle's Google sheet + DB row after a failed
+        create. Never raises (we are already handling a create failure)."""
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is not None:
+            try:
+                gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+                gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+                await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+            except Exception:
+                logger.exception("orphan cleanup: failed to delete sheet for %s", puzzle)
+        try:
+            PuzzleJsonDb.delete(puzzle.id)
+        except Exception:
+            logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
     async def web_create_round(self, guild, hunt, name):
         """ctx-free metapuzzle/round creation for the dashboard (like !mp).
