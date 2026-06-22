@@ -475,7 +475,13 @@ completeness queries. Answer-channel (`feeds-meta`→meta) and evidence-channel 
 
 **M10 — Destructive-command safety + bulk-delete pacing** *(off critical path; needs M3)*. Confirm/undo
 on `delete_hunt`/`delete_round`/`_delete_puzzles` via `discord.ui` buttons; None-guard
-`_delete_puzzles:2588`; pace bulk-delete loops against mid-loop `RateLimited`.
+`_delete_puzzles:2588`; pace bulk-delete loops against mid-loop `RateLimited`. **Also: orphan cleanup
+on create failure.** Today create safety is ordering-only (sheet-create-then-DB-commit-then-channel),
+so a puzzle **channel** create that fails *after* the sheet+DB row commit leaves an orphan (DB row +
+Google tab, no channel) with no cleanup; `web_create_round`'s rollback deletes the round row + category
+but can still strand the nested meta puzzle's DB row/sheet. No reconciler exists (the DB↔guild reconciler
+was deferred at M3/M4). Add targeted orphan cleanup on the puzzle channel-create failure path and complete
+the `web_create_round` rollback to also drop the meta puzzle row + sheet.
 
 **M11 — Feeder-as-thread (the channel-quota lever)** *(off critical path; needs M6's nullable
 category_id)*. Round of N feeders → 1 channel-create + N thread-creates. Make `cog_before_invoke` +
