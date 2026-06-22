@@ -1,0 +1,399 @@
+# QDPuzzleBot — Plans & Roadmap
+
+> Living planning doc. Produced 2026-06-21/22 from a two-pass multi-agent review of the
+> codebase (subsystem map → meta-meta design → minimeta-cluster + capstone design), with
+> every claim adversarially re-checked against the actual code. File:line refs are accurate
+> as of branch `feature/dashboard-spa` and may drift as code changes — re-verify before acting.
+
+---
+
+## 0. Orientation (what this bot is, in model terms)
+
+- Discord puzzle-hunt manager: Python / discord.py + MySQL + Google Sheets, plus a new
+  React/Mantine SPA over an embedded Quart API (`bot/web/`, `frontend/`).
+- **Core data model today:** `hunts → rounds → puzzles`, where the *feeder→meta* link is the
+  many-to-many `tags(puzzle_id, round_id)` join table. A "meta" is **not** a puzzle attribute —
+  it is a **round** (`rounds.meta_id` points at the puzzle that *is* that round's meta;
+  `rounds.meta_code` is a 6-char handle). A puzzle is a meta when `puzzles.metapuzzle == 1`.
+- **Key limitation:** hierarchy is hardcoded to **exactly two levels** (feeder → meta). There is
+  **no parent edge anywhere** (no `parent_round_id`, no puzzle→puzzle link table). The
+  `puzzles.metameta` column exists but is **read in 4 places and never written by any code** —
+  true meta-meta only exists via manual DB edit. The meta-meta sheet renderer still hardcodes
+  two round codes from a past hunt (`RETAWR`/`LAOFNO`, `bot/cogs/puzzles_gsheet.py:589`).
+
+---
+
+## PART 1 — Structural features (the four asks) → one engine
+
+The maintainer wants four things. They are **not four features** — they are four shapes of one
+engine: a typed relationship graph + one generic roll-up writer.
+
+| Ask | Same engine, expressed as |
+|---|---|
+| **A. Flexible meta-meta + pull many titles/answers into one sheet** | a `feeds-meta` edge to a higher meta + a roll-up over the subtree |
+| **B. Minipuzzle / minimeta cluster with linked sheets** | minipuzzles as `additional_sheets` tabs under one puzzle + a roll-up scoped to that cluster |
+| **C. Capstone / progressive reveal** | a **different** edge type — `reveals` — feeding a "dossier" tab; the capstone is **never auto-solved** |
+| **D. Flexible answer aggregation (selection / round / subtree)** | the same writer with a `source_mode` of `round` / `subtree` / `explicit` |
+
+### ✅ RESOLVED — "round" vs "collections of tags" → typed groups on the existing tables (M6)
+
+The multi-agent design proposed keeping the `round` concept and bolting on `rounds.parent_round_id`
+(round→round containment) + a `puzzle_edges` table (typed puzzle/round edges).
+
+**The maintainer's alternative (preferred direction, under investigation):** drop "round" from the
+internal model entirely and treat **everything as collections of tags (groups)**. A group is just a
+named tag with a **type/status** (round, meta, metameta, cluster, capstone, pool, ad-hoc-selection).
+Membership is the existing many-to-many `tags` table — which *already* makes "round" a tag in
+disguise. This subsumes the agent proposal:
+
+- `parent_round_id` → "a group can be a **member of another group**" (group-in-group membership).
+- `puzzle_edges` typed edges → membership rows carry an **`edge_type`** (`feeds-meta` / `part-of` /
+  `reveals` / `aggregates-into`).
+- `round_kind` / `metapuzzle` / `metameta` flags → a single **`kind`/`status`** on the group.
+
+Why this is likely better: it is one uniform abstraction instead of three (round + parent edge +
+typed-edge table); any puzzle can be in any number of groups; groups nest to arbitrary depth; and
+behavior is driven by the group's *type*, not a rigid "round". All four features above become "a
+group of a given kind, aggregated by `aggregate_to_tab`".
+
+Caveats to resolve (this is what the feasibility pass checks):
+1. A round is also a **physical Discord category** (a real channel-cost grouping). "Group" needs two
+   facets: the logical tag-group **and** an *optional* Discord category. Not every group gets a
+   category (clusters / pools / ad-hoc selections don't) — which is consistent with the channel-quota
+   rule below.
+2. Footprint of the rename: `round` / `hunt_round` is wired through commands (`!r`/`!round`/`!rnm`),
+   `build_board`, `types.ts`, `meta_id`, the `tags` table, etc. Decide **rename-in-code vs
+   keep-table-name-`rounds`-treat-as-groups** (additive, gradual) — likely the latter to de-risk.
+3. `meta_code` is typed `int` but holds a 6-char `str` (`round_data.py:20`) — latent bug either way.
+
+**→ RESOLVED (verified): keep the table named `rounds`, treat rows as typed groups; rename only at
+the UX edges.** `round_id` is the load-bearing membership key in raw SQL across
+`mysqldb.py:204/279-288/317-360` — a full rename is ~360 edits across 19 files for *zero* feature
+payoff. Instead add columns **additively**: `rounds.kind` (backfilled from `rounds.type` + the puzzle
+flags), `rounds.status` (gives the solved-section a DB home it lacks today — currently only Discord
+channel *position*), `rounds.parent_group_id` (nullable; the group-in-group / parent edge),
+`rounds.category_id` made nullable (enables channel-less groups), and `tags.edge_type` (default
+`feeds-meta`). This one additive shape **is simultaneously** the conservative
+`parent_round_id`+`puzzle_edges` proposal **and** the bold tag-group model — bold reasoning (one
+graph), conservative risk (no rename, no parallel structure), door left open to full tag-group
+terminology later. (Fix the `meta_code` int-holds-str bug, `round_data.py:20`, while there.) → **M6.**
+
+### ✅ RESOLVED — model-first in *direction*, not scope (Discord stays the bang-command + auth surface)
+
+Observation: the design has been **held back by what works on Discord**. Today **Discord *is* the
+model** — a puzzle = a text channel, a round = a category, a meta = a channel; identity and some
+state live in channel/category IDs and an in-memory `environment[ctx.message.id]` dict; business
+logic is welded to a discord.py `ctx` (precisely why the dashboard needed 11 hand-synced `web_*`
+twins). So the channel-create quota, rename buckets, the two-level limit, and "one channel per
+puzzle" aren't only constraints — they have been *shaping the schema itself*.
+
+Proposed direction (the tag-group reframe, one level up): **make the bot's own model (DB tag-graph +
+Sheets + dashboard) the source of truth, and treat Discord as ONE projection of it.** Then:
+- Rich structure (deep nesting, clusters, capstones, arbitrary tag groups) lives in the DB,
+  unconstrained by Discord limits; **Discord surfaces are created selectively/lazily** only where a
+  human discussion space is actually wanted (the channel-quota tiering becomes a natural consequence).
+- The **dashboard becomes a first-class (potentially primary) surface**, not a read-mostly mirror.
+- Sheets, Discord, and the SPA are interchangeable **adapters over one service layer** — the *same*
+  refactor as "kill the `web_*` duplication" (Part 2), so these align rather than compete.
+
+This **subsumes the tag-group decision**: "round" stops being a Discord category and becomes a logical
+tag-group that *may* have a Discord projection. It also resolves capability D (ad-hoc selection = a
+group) and the meta-meta round-vs-puzzle ambiguity (it's all membership in one graph).
+
+**→ RESOLVED (verified): go model-first in *direction* but not *scope*.** The cheap half is already
+free — `bot/web/data.py` imports no `discord` and `build_board` rebuilds the whole board (incl.
+Discord URLs) from SQL alone, and the dashboard already addresses entities by **primary key**
+(`actions.py:254`), so "channel-as-addressing" is only the *bang-command* scheme, not a real blocker.
+**Do now:** extract a ctx-free service layer (`bot/core/`) and delete the 11 diverged `web_*` twins
+one at a time (the win both stances share), thread the per-puzzle mutex through it, and let the
+service own `spreadsheet_id` selection. **Defer** (buys little for a hunt run a few times a year by a
+few admins): promoting the dashboard to *primary*, de-ctx-ing the `environment[ctx.message.id]` spine
++ the fake-ctx hack (`puzzles.py:653-681`), a DB↔guild reconciler, and a DB role mirror. Keep Discord
+driving bang-command UX and **live** access control. → **M3 / M4.**
+
+### The channel-quota rule (drives the cluster + capstone designs)
+
+Channel **creation** hits a real account/guild quota (measured ~81628s/82317s ≈ ~24h) that surfaces
+as a hard error via `max_ratelimit_timeout=60` (see `memory/bot-channel-rate-limits`). Therefore
+**fine-grained sub-puzzles must never get their own Discord channel.** Cheapest sufficient tier wins:
+
+| Tier | Use for | Cost |
+|---|---|---|
+| **Discord channel** | rounds/zones (category), top-level puzzles, metas, capstones | rate-limited ⚠️ |
+| **Google sheet tab** | every minipuzzle, every aggregate/dossier tab, ad-hoc aggregation targets | zero Discord (`create_additional_spreadsheet`) |
+| **Tracker row** | pure relationships / placeholders / pool nodes | none |
+| **Discord thread** | **feeder puzzles** under a round channel, per-reveal clue posts, per-mini chatter | not the create bucket (~10–55/min) |
+
+Net: an **N-minipuzzle cluster = 1 channel + (N+1) tabs = one channel-create**; a reveal-zone
+capstone = 1 channel + 1 dossier tab + N thread posts = one channel-create; and a **round of N
+feeders-as-threads = 1 channel + N thread-creates = one channel-create** (vs N+1 today). Feeder-as-
+thread is the biggest single win against the quota — see the capabilities section below.
+
+**The `additional_sheets` primitive you already have IS the "linked sheets" substrate** — it even
+has dead `solution`/`solved` columns (`bot/store/puzzle_data.py:21-22`) ready to activate per
+minipuzzle.
+
+### 🆕 New platform capabilities the original code never had (SPIKED — verified vs pinned deps)
+
+**Bottom line: nothing is dependency-gated.** discord.py is pinned **2.7.1** (`Pipfile.lock`) — full
+thread / forum / `discord.ui` API present on disk. google-api-python-client is pinned **2.197.0** —
+its bundled static `sheets.v4.json` discovery doc already wires `addTable`/`updateTable` **and**
+`createDeveloperMetadata` into `batchUpdate`, and `build()` uses static discovery (`gsheets.py:37`),
+so it's offline-safe. **Zero dep bumps required; adoption cost is design/code effort only.** The bot
+uses almost none of this today (0 `discord.ui` imports; threads in exactly one place at
+`puzzles.py:2467`; Sheets writes only via ~750 per-cell `update_cell`).
+
+**① Discord threads — the single biggest lever (adopt in structural work).** Threads are NOT in the
+~24h channel-create bucket (real-world ~10–55/min). **Feeder-as-thread turns a round of N feeders
+from N+1 channel-creates into 1 channel-create + N thread-creates** — the biggest possible relief of
+the quota that's been shaping the schema, and it decouples puzzle==channel (a feeder's `channel_id`
+just holds a thread snowflake — no schema change). Confirmed reuse:
+- `safe_rename`/`_deferred_rename` (`puzzles.py:114-157`) work **unchanged** for `Thread.edit(name=)`
+  (threads share the same ~2-renames/10-min bucket — don't build separate rename infra).
+- Archive feeders on solve via `thread.edit(archived=True)` (cheaper than message-replay archive; also
+  respects the **per-guild 1000 active-thread cap** — archived threads are unlimited, history kept).
+- **Hard prerequisite (adopt now):** make `cog_before_invoke` (`puzzles.py:159-210`) and
+  `activity.py:31` thread-aware. A feeder-thread's id in `puzzles.channel_id` already resolves via
+  `get_channel_type`'s UNION (`mysqldb.py:408-425`); the gaps are non-feeder chatter/reveal threads
+  (use `message.channel.parent_id`) and activity attribution.
+- New: a `create_puzzle_thread` sibling to `create_puzzle_channel` (`puzzles.py:1128`);
+  `get_or_create_channel` (`:1667`) raises on non-text/voice (`:1675`) so it needs a thread branch +
+  a per-node thread-vs-channel policy hook (the channel-quota tiering decision point).
+
+**② Bulk `values()` writes — the real Sheets win (adopt now), not Tables.** The load-bearing
+aggregation primitive is `spreadsheets.values().update` + `values().clear`, reachable today via the
+existing `batch_update` path. Collapses the ~750 per-cell `update_cell` calls
+(`add_metapuzzle_data:548`, `add_metametapuzzle_data:574`) into 1–2 requests — the actual enabler for
+"dozens of answers in one sheet". (The ✅ row-shift fix and removing the `RETAWR`/`LAOFNO` skip are
+orthogonal — still required in the row-building step; Tables don't fix them.)
+
+**③ Native Sheets Tables — optional polish, roll-up tabs only (adopt in structural work).** Use as
+the *output container* for `aggregate_to_tab` roll-up/dossier tabs: `addTable` once (keyed by stored
+`tableId`), `updateTable` to resize — retiring the fixed-50-row blanking and shrinking the rollups
+record from `last_rows/last_cols` to a `table_id`. **Keep per-puzzle tabs and the B1/I1/B3 +
+`=HYPERLINK` template table-free.** ⚠️ Tables' interaction with `copyTo`/`duplicateSheet` (archival,
+`move_puzzle_spreadsheet:388`) is **undocumented** — probe before relying on `tableId` survival.
+
+**④ `createDeveloperMetadata` — fixes the stale-pointer risk (adopt with rollups, Phase 2).** Attach
+searchable metadata to aggregate/cluster tabs so the rollups record keys on a stable id that survives
+the sheet-ID reassignment in `archive_puzzle_spreadsheet` (`:452-481`) — a cleaner fix for the
+stale-`tab_page_id` risk than re-pointing on move.
+
+**⑤ Buttons + Modals (`discord.ui`) — high value, net-new code (adopt in structural work).** Makes
+two roadmap items trivial: **confirm/undo on destructive commands** (`delete_hunt:2629`,
+`delete_round:2602`, `_delete_puzzles:2584`) and **in-Discord status/priority pickers** (replace the
+free-text validation at `:2063`/`:2085`). Couple to the ctx-free service-layer extraction. Caveat:
+adds interaction-token/timeout/persistence handling the bot has never done.
+
+**Deferred / rejected:** Forum-channel-per-round (stronger than threads-as-feeders via `applied_tags`
+status/meta tags, but high coupling — pair with the Discord-as-projection refactor, not standalone);
+Components V2 panels (the SPA is the rich surface; also mutually exclusive with embeds on a message);
+protected ranges / filter views (nice-to-have to lock bot-written nexus rows); application emoji +
+scheduled events (out of scope). **Reject** cross-tab/structured Table *formulas* — reaffirms "always
+snapshot" (archival → `#REF`).
+
+### The shared engine
+
+- One generic **`aggregate_to_tab(spreadsheet_id, tab_page_id, columns_spec, rows)`** replacing the
+  two copy-pasted renderers (`add_metapuzzle_data` `:548`, `add_metametapuzzle_data` `:574` in
+  `puzzles_gsheet.py`), writing via the bulk `values().update` + `values().clear` API (1–2 requests
+  vs ~750 single-cell ops — the real blocker for "dozens of answers in one sheet"), routed through
+  the existing `execute_with_retry` backoff. **Snapshot values, never `=Tab!I1` formulas** (archived
+  puzzles move to a separate archive spreadsheet → cross-tab formulas go `#REF`).
+- A **`rollups`** record per aggregation target (owner, hunt, `tab_page_id`, `source_mode`,
+  `edge_type_filter`, `last_ok`, `updated_at`). Extent is the native Table's own range (store a
+  `table_id`, not `last_rows/cols`); key the tab pointer on a `createDeveloperMetadata` id so it
+  survives the sheet-ID reassignment on archive.
+- **Debounced propagation on solve**, plus a manual `!rebuild`, plus **surfaced failures**
+  (`web_refresh_meta` currently swallows sheet errors at `puzzles.py:605`, so the dashboard shows
+  success while the sheet is stale).
+
+### Suggested build order (structural-feature view)
+
+> **Canonical sequence is Part 2's M0–M11** (it folds these phases into the full plan, with the
+> service-extraction + test seam interleaved). This is just the structural-feature slice for context:
+> phase 0→**M0**, 1→**M2**, 2→**M5**, 3→**M7**, 4→**M8**, 5→**M9**.
+
+0. **Migration framework + checked-in base schema.** ← do first. There is currently **no
+   `CREATE TABLE` for core tables in the repo at all**, and the one migration file
+   (`scripts/sql/001_dashboard.sql`) is gitignored. Everything below needs it.
+1. **Generic `aggregate_to_tab()`** replacing both hand-rolled renderers. Fixes a **live bug** today:
+   the `✅` checkmark causes a `continue`-before-`row+=1` row-shift that silently misaligns
+   titles/answers (`puzzles_gsheet.py:557-558`, and the sibling in `add_metametapuzzle_data`), and
+   kills the hardcoded `RETAWR`/`LAOFNO` skips.
+2. **`rollups` + debounced on-solve propagation + surfaced failures.**
+3. **Meta-meta + flexible aggregation (A + D)** — data + thin command/UI on top of 1–2.
+4. **Minimeta clusters (B)** — cheapest standalone feature; rides on `additional_sheets`.
+5. **Capstones (C)** — richest; needs the edge/group-membership table, so last.
+
+### Verified risks (do not skip)
+
+- **Solving a cluster archives its own sub-tabs.** `archive_puzzle_spreadsheet`
+  (`puzzles_gsheet.py:452-481`) moves every `additional_sheet` to the *archive* spreadsheet on solve,
+  reassigning sheet IDs → the cluster's roll-up `tab_page_id` pointer goes stale; a later
+  `!rebuild_cluster` writes to a missing tab. **Currently in no phase's plan** — needs an explicit fix
+  (skip archiving cluster sub-tabs, or re-point the roll-up on move).
+- **Capability D is the thinnest-specified** — "explicit selection" needs a membership store; in the
+  tag-group model this falls out naturally (an `ad-hoc` group), which is another point for that model.
+- **Meta-meta round-vs-puzzle ambiguity:** a sub-meta feeding a supermeta is a *puzzle→puzzle* edge,
+  which round-containment (`parent_round_id`) doesn't capture — pick the `edges`/membership path, not
+  `subtree`. (The tag-group model removes this ambiguity.)
+- **Deploy order is load-bearing:** the generic `commit()` writes every dataclass field, so adding
+  new columns in code *before* the migration runs crashes existing `add_sheet`. Migration-before-code.
+- **Solve hook location:** `_solve_impl` does **not** call `_update_all_metas`; it inlines its meta
+  loop at `puzzles.py:2240-2245`. Any reveal/meta-meta hook goes there.
+- **Out of scope by design:** MITMH-2026-style Research-Points unlock economy + milestone rewards are
+  orthogonal unlock-gating, not relationship-graph concerns. (PB10 "Detectives" specifics are
+  paywalled; the capstone design leans on the well-documented MITMH 2026 MonArch/capstone pattern.)
+
+---
+
+## PART 2 — Sequenced roadmap (M0–M11)
+
+Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
+dependency-ordered sequence. **Critical path:** M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9.
+M10/M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
+detail behind each item.
+
+**M0 — Foundation: checked-in base schema + migration runner.** *(deps: none)* Tracked `CREATE TABLE`
+DDL for all core tables (none in repo today; the lone `001_dashboard.sql` is gitignored), a
+`schema_migrations` runner applying `NNN_*.sql` in order, README DB bring-up. **Rule: migration →
+deploy → code**, because `commit()` writes every dataclass field by name (`mysqldb.py:39-49`) and
+crashes on a missing column.
+
+**M1 — Test seam before any extraction.** *(deps: M0)* `pytest.ini`/`conftest.py` + CI; pure tests for
+`build_board` and `hunt_visible`; **bang-vs-core equivalence tests** so M3 can delete twins safely.
+(Only one 22-line test exists today.)
+
+**M2 — Generic `aggregate_to_tab()`.** *(deps: M0)* One ctx-free bulk writer (`values().update`+`clear`)
+replacing both hand-rolled renderers (~750 per-cell ops → 1–2 requests); **fixes the live ✅ row-shift
+bug** (`puzzles_gsheet.py:558/598`) and drops the `RETAWR`/`LAOFNO` skip (`:589`); retires the 50-row
+blank. Native Tables optional, gated by a `tableId`-survival probe. Snapshot values, never formulas.
+
+**M3 — `bot/core/` service extraction (kills the `web_*` duplication).** *(deps: M1, M2)* Promote the
+ctx-free twins, strangle bang-commands onto them, delete each twin (start with retag + solve); service
+owns `spreadsheet_id`; centralise the duplicated `ADMIN_ROLES`/`STATUSES` constants. The seam
+everything hangs off.
+
+**M4 — Per-puzzle mutex on the web/service path.** *(deps: M3)* Web actions take no `_PUZZLE_LOCKS`
+today → dashboard solve/retag races bang-commands and loses updates. Thread the lock (keyed on
+`puzzle.id`) through the service.
+
+**M5 — `rollups` + debounced on-solve propagation + surfaced failures.** *(deps: M3, M4)* Auto-refresh
+aggregation targets and **fail loudly** (today `web_refresh_meta` swallows errors at `:605-606`). Hook
+the real solve site (`_solve_impl:2240-2245`, not `_update_all_metas`); key the tab pointer on a
+`createDeveloperMetadata` id (survives archive sheet-ID reassignment); add `!rebuild`.
+
+**M6 — Additive typed-group columns on `rounds`+`tags`** (resolves the OPEN decision). *(deps: M0, M5)*
+`kind`, `status`, nullable `parent_group_id`, nullable `category_id`, `tags.edge_type`; fix `meta_code`
+typing; delete the dead `RoundJsonDb.get` (queries `WHERE channel_id` though `RoundData` has none);
+cycle-guard the membership writer.
+
+**M7 — Meta-meta + flexible aggregation (Features A + D).** *(deps: M6)* `parent_group_id` containment
++ `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group); thin
+command+UI; **aggregated-answers view + copy-to-clipboard** in the SPA.
+
+**M8 — Minimeta clusters (Feature B).** *(deps: M5, M6)* Minipuzzles = `additional_sheets` tabs under
+one puzzle (activate the dead `solution`/`solved` columns); cluster-scoped roll-up; **fix the
+cluster-archive stale-pointer risk** (`archive_puzzle_spreadsheet:452-481` reassigns sheet IDs on
+solve). 1 channel + (N+1) tabs.
+
+**M9 — Capstones / progressive reveal (Feature C).** *(deps: M5, M6, M8)* `reveals` edge → dossier tab;
+capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11).
+
+**M10 — Destructive-command safety + bulk-delete pacing** *(off critical path; needs M3)*. Confirm/undo
+on `delete_hunt`/`delete_round`/`_delete_puzzles` via `discord.ui` buttons; None-guard
+`_delete_puzzles:2588`; pace bulk-delete loops against mid-loop `RateLimited`.
+
+**M11 — Feeder-as-thread (the channel-quota lever)** *(off critical path; needs M6's nullable
+category_id)*. Round of N feeders → 1 channel-create + N thread-creates. Make `cog_before_invoke` +
+`activity.py` thread-aware; add `create_puzzle_thread` + a thread branch to `get_or_create_channel`;
+reuse `safe_rename` unchanged; archive on solve via `thread.edit(archived=True)`.
+
+### Quick wins — shippable in parallel, no hard dependency
+
+- **SPA `ErrorBoundary`** — any render throw blanks the app (`App.tsx`).
+- **Friendly permission/argument errors** — `on_command_error:328-350` still dumps raw
+  `MissingAnyRole`/`BadArgument`.
+- **Defensive notes parsing** — `json.loads(None)` crashes store reads (`puzzle_data.py:56`).
+- **Prune dead deps / fix manifest / rewrite README** (README also covered by M0).
+- **Move per-message DB writes off the loop** — higher impact, no hard dep (`activity.py:31`).
+- **Mark multi-meta puzzles on the drag board** — a plain drop still detaches other metas via
+  `tags.clear()`.
+- **Audit log for web actions** — best after M3 (wraps the service).
+- **Optimistic updates on retag/solve** — best after M4/M5 (loud-failure path first).
+- **Refresh auth on the activity WebSocket** — kicked user keeps streaming (`api.py:102`).
+
+---
+
+## PART 3 — Improvement catalogue (file:line detail behind the milestones)
+
+58 candidates were generated; these survived adversarial verification. Already-implemented items
+(Sheets retry/backoff, deferred renames, cursor closing, narrowed excepts, slash-command prod sync,
+read-path pool offload, FK cascades) were filtered out — **do not redo them.**
+
+### Ship now — cheap, high-confidence
+
+| Item | Why | Effort | Where |
+|---|---|---|---|
+| Friendly permission/argument errors | 30+ role-gated cmds dump raw `MissingAnyRole`/`BadArgument` tracebacks to players | S | `on_command_error` `puzzles.py:328-350` |
+| Web write-actions take the per-puzzle mutex | `!` cmds hold `_PUZZLE_LOCKS`; web `web_*` twins take **no lock** → dashboard solve racing `!s` loses updates | S | `web_*` in `puzzles.py:584-963`, `bot/web/actions.py` |
+| Top-level `ErrorBoundary` in the SPA | any render throw blanks the whole app | S | `frontend/src/App.tsx` |
+| Real pytest suite + CI | one 22-line test exists; start with pure units: `build_board`, `hunt_visible`, SQL builder, `web_* vs !` equivalence | L | `tests/`, new `conftest.py`/`pytest.ini` |
+
+### Correctness & reliability
+
+| Item | Why | Effort | Where |
+|---|---|---|---|
+| Confirm/undo on destructive commands | `delete_hunt`/`delete_round` wipe channels + Google sheets irreversibly behind only a role gate | M | `puzzles.py:2558/2602/2629` |
+| `_delete_puzzles` None-guard | crashes on an already-missing channel, aborting a hunt-delete halfway | S | `puzzles.py:2588` |
+| Move per-message DB writes off the loop | activity writer fires sync on **every** message on the single shared MySQL conn; slow/reconnecting DB stalls the whole bot | M (high impact) | `bot/cogs/activity.py:31`, `bot/store/__init__.py:69` |
+| Surface sheet-refresh failures | dashboard shows success while sheet is stale | M | `web_refresh_meta` `puzzles.py:605` |
+| Pace/guard bulk channel delete loops | a `delete_hunt` mid-loop `RateLimited` (max_ratelimit_timeout=60) leaves a half-deleted hunt | S | `_delete_puzzles`/`_delete_round_category` |
+
+### Foundation & maintainability
+
+| Item | Why | Effort | Where |
+|---|---|---|---|
+| Base schema + migration runner | **no `CREATE TABLE` for core tables in the repo**; lone migration is gitignored — a clone can't stand up a DB. (= Structural Phase 0.) | M (high impact) | `scripts/sql/`, README |
+| Kill the `web_*` duplication (= M3) | 11 hand-synced ctx-free twins with "keep in sync" comments — **already diverged** (`web_solve_puzzle` posts a different embed and *swallows* sheet errors where `_solve_impl` raises). Extract a ctx-free `bot/core/` service layer | L (high impact) | `puzzles.py:584-963` vs the `_impl` methods |
+| Centralise shared constants | `ADMIN_ROLES`/`STATUSES` defined in both cog and `web/auth.py`/`web/actions.py` — a security gate that can drift | S | `puzzles.py:26-27,80-81` vs `web/*` |
+| Prune dead deps / fix manifest | `gino`,`oauth2client`,`google-cloud-datastore`,`gitpython` unused; `aiohttp` imported but absent from Pipfile; postgres default in `config.py` | S | `Pipfile`, `bot/utils/config.py` |
+| Rewrite stale README | still describes JSON-file/Postgres storage; bot is all-MySQL | S | `README.md` |
+| Defensive `import_dict`/notes parsing | `json.loads(None)` on a NULL notes column crashes store-layer reads (dashboard already guards) | S | `puzzle_data.py:55-56` |
+
+### Dashboard / UX
+
+| Item | Why | Effort | Where |
+|---|---|---|---|
+| Aggregated answers view + copy-to-clipboard | directly serves the meta-meta goal; mostly pure frontend (`build_board` already groups feeders) | S | new SPA tab; `bot/web/data.py:224` |
+| Mark multi-meta puzzles on the drag board | a plain drag calls `tags.clear()` and silently detaches the puzzle from its *other* metas, no warning | S | `DragBoard.tsx:197`, `web_move_to_meta` `puzzles.py:622` |
+| Optimistic updates on retag/solve | retag blanks the whole board with a loading overlay for the full rate-limited Discord write | M | `frontend/src/api.ts`, `DragBoard.tsx:202` |
+| Audit log for web actions | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
+| Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py:102` |
+
+### Security hardening (lower priority — internal, role-gated site)
+
+- Sanitize raw `str(exc)` in error responses (`actions.py:42`); reject the placeholder/short
+  `session_secret` at startup. (3 of 4 sub-items already done.)
+- No CSRF token (SameSite=Lax + non-GET + `@login_required` is the current defense).
+
+---
+
+## Appendix — provenance
+
+Four background multi-agent workflows (71 + 12 + 4 + 7 agents) produced and verified this:
+- `puzzlebot-improvements` — subsystem map, meta-meta deep-dive, 3-way design panel + judge, 58
+  candidate improvements each adversarially verified vs the code.
+- `puzzlebot-clusters-capstones` — web research (MITMH 2026, Puzzle Boat 10, hunt-tracker patterns),
+  unified typed-edge model, minimeta-cluster + capstone designs, integration plan, verification.
+- `puzzlebot-capability-spike` — threads / GSheets Tables / other postdating features, verified
+  against the pinned deps (discord.py 2.7.1, google-api-python-client 2.197.0). **Zero dep bumps.**
+- `puzzlebot-architecture-roadmap` — Discord-coupling footprint, model-first vs conservative + judge,
+  the M0–M11 sequence.
+
+Resolved: round-vs-tag-group (→ typed groups on existing tables, M6); model-first scope (direction
+not scope, M3/M4); capability gating (zero dep bumps); snapshot-vs-formula (always snapshot).
+Still live: explicit-selection membership (folded into M6/M7 as an ad-hoc group); cycle-guard design
+(M6); native-Table `copyTo`/`duplicateSheet` survival (probe in M2); cluster-archive stale-pointer
+(folded into M8).
