@@ -329,10 +329,26 @@ coexist via different `edge_type`s — one detective puzzle can feed the round m
 be the routing target for *clues*, and on solve *reveal* a clue, all at once. Three edges, no conflict
 — the payoff of typed edges.
 
-**✅ Decision (pins the payload question):** free-text / narrative reveals (MITMH MonArch) → opaque
-`reveal_payload` JSON + a board; **structured, routable, provenance-critical reveals (PB10 Detectives)
-→ a typed clue store** (`source_puzzle`, `suspect`, `attribute`, `value`, `assigned_detective`). Same
-`reveals` edge for provenance; the difference is blob vs typed columns. → applies at **M9**.
+**Structure is discovered, not declared.** Real intake is progressive, so the evidence store is just
+the **tag-graph again, applied to _evidence_ instead of puzzles** — one mechanism at three stages of
+knowledge:
+1. **Freeform** — a "this is sus" board: each item is a note + auto `source_puzzle`, no subject/target.
+2. **Emergent labels** — apply ad-hoc tags as hunches form (`red` / `blue` / "vigenère key?"); a label
+   is a TagGroup of evidence, overlapping allowed (an item can carry several).
+3. **Bind a label to a target** — bind `red → Traitor puzzle`; because `red` is a TagGroup, it routes
+   every red item at once *and stays live* (tag a new item `red` later → it flows automatically).
+
+Invariant at every stage: `source_puzzle` auto-stamped (provenance), tag/route never copy (re-labeling
+must be cheap — early hypotheses are wrong a lot), and the gap views generalize ("unlabeled evidence",
+"labels not yet bound", "solved puzzles with no evidence captured").
+
+**✅ Decision (refined):** the **base** is a flexible **evidence tag-graph** — items + ad-hoc labels
+(TagGroups) + later-bound targets, `reveals` edge carrying provenance throughout. The PB10 "typed clue
+store" (`suspect` / `attribute` / `value` / `assigned_detective` columns) is **one specialization** —
+an optional **template laid over the graph when the axes are known up front**, *not* a separate schema.
+Known axes (Detectives) → pre-seed labels + a structured column; unknown (start-of-hunt "this is sus")
+→ stay freeform and let labels emerge. Free-text narrative reveals (MonArch) are just the freeform end
+with an opaque note. → applies at **M9**.
 
 ### Suggested build order (structural-feature view)
 
@@ -432,11 +448,12 @@ cluster-archive stale-pointer risk** (`archive_puzzle_spreadsheet:452-481` reass
 solve). 1 channel + (N+1) tabs.
 
 **M9 — Capstones / progressive reveal (Feature C).** *(deps: M5, M6, M8)* `reveals` edge → dossier tab;
-capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11). For
-**structured/routable reveals** (the PB10 "Detectives" worked example in Part 1) add the typed clue
-store (`source_puzzle` auto-stamped, `suspect`, `attribute`, `value`, `assigned_detective`) with
-suspects/detective roll-up views + the three completeness queries; free-text reveals stay opaque
-`reveal_payload`. Answer-channel (`feeds-meta`→meta) and evidence-channel (`reveals`→boards) coexist.
+capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11). Evidence is
+its own **tag-graph** (items + ad-hoc labels + later-bound targets; `source_puzzle` auto-stamped) that
+supports progressive structure — freeform "this is sus" → emergent labels → bound labels; the PB10
+"Detectives" typed clue store (`suspect`/`attribute`/`assigned_detective`) is an *optional template*
+over it when axes are known. Provide the suspects/label + target roll-up views and the three
+completeness queries. Answer-channel (`feeds-meta`→meta) and evidence-channel (`reveals`→boards) coexist.
 
 **M10 — Destructive-command safety + bulk-delete pacing** *(off critical path; needs M3)*. Confirm/undo
 on `delete_hunt`/`delete_round`/`_delete_puzzles` via `discord.ui` buttons; None-guard
