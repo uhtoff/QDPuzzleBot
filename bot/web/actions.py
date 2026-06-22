@@ -77,6 +77,20 @@ async def _visible_hunt_by_uid(uid):
     return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
 
 
+async def _visible_hunt_for_round(round_id):
+    """Resolve a round's hunt and confirm the user may see it (same shape as above)."""
+    user = current_user()
+    hunt = await data.get_hunt_for_round(round_id)
+    if not hunt:
+        return None, (jsonify({"error": "round_not_found"}), 404)
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return None, (jsonify({"error": "forbidden"}), 403)
+    guild = guilds_map.get(hunt["guild_id"], {})
+    return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+
+
 # --- Notes (any member of the hunt's guild) ---------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/notes", methods=["POST"])
@@ -380,6 +394,46 @@ async def retag_puzzle(puzzle_id):
         if warning:
             resp["sheet_warning"] = warning
         return jsonify(resp)
+
+
+# --- Rebuild a meta roll-up sheet (organiser only) --------------------------
+
+@actions_bp.route("/rollups/<int:round_id>/rebuild", methods=["POST"])
+@login_required
+async def rebuild_rollup(round_id):
+    """Rebuild one meta round's roll-up sheet, clearing its stale badge on success.
+    Keyed on round_id (a rollup is per round); organiser-gated via the round's hunt.
+    Serialization is handled inside refresh_meta's per-round rollup lock."""
+    ctx, err = await _visible_hunt_for_round(round_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, RoundJsonDb
+
+    meta_round = RoundJsonDb.get_by_attr(id=round_id)
+    if meta_round is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    try:
+        await cog.service.refresh_meta(hunt_obj, meta_round)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    except Exception as exc:
+        # refresh_meta has already re-badged last_ok=0; report the failure so the
+        # SPA can toast and leave the badge in place for another retry.
+        logger.exception("rebuild: refresh failed for round %s", round_id)
+        return jsonify({"ok": False, "error": str(exc)})
+    return jsonify({"ok": True})
 
 
 # --- Create puzzles and metas (organiser only) ------------------------------

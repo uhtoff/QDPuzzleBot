@@ -591,6 +591,45 @@ class Puzzles(commands.Cog):
             await self._update_metameta_impl(ctx, meta_meta_puzzle, hunt_id)
         await ctx.send(":white_check_mark: Meta meta updated")
 
+    @commands.hybrid_command(description="Rebuild meta roll-up sheets (organiser only)")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def rebuild(self, ctx):
+        """*(Organiser) Rebuild meta roll-up sheets. In a round/meta channel rebuilds
+        just that round's meta; elsewhere rebuilds every meta in the hunt: !rebuild*"""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        # Targeted: if this channel's category is a meta round, rebuild only that one.
+        target = None
+        category = getattr(ctx.channel, "category", None)
+        if category is not None:
+            candidate = RoundJsonDb.get_by_attr(category_id=category.id)
+            if candidate is not None and candidate.meta_id:
+                target = candidate
+        rounds = [target] if target is not None else [
+            r for r in RoundJsonDb.get_all(hunt.id) if r.meta_id
+        ]
+        if not rounds:
+            await ctx.send(":information_source: No meta sheets to rebuild in this hunt.")
+            return
+
+        ok = 0
+        failed = []
+        for meta_round in rounds:
+            try:
+                await self.service.refresh_meta(hunt, meta_round)
+                ok += 1
+            except Exception:
+                logger.exception("!rebuild: refresh failed for round %s", meta_round.id)
+                failed.append(meta_round.meta_code or meta_round.name or str(meta_round.id))
+
+        msg = f":white_check_mark: Rebuilt {ok} meta sheet{'s' if ok != 1 else ''}."
+        if failed:
+            msg += (f"\n:warning: {len(failed)} still failing (left stale): "
+                    + ", ".join(str(f) for f in failed))
+        await ctx.send(msg)
+
     async def update_metapuzzle(self, ctx, hunt_round):
         hunt = self.get_hunt(ctx)
         await self.service.refresh_meta(hunt, hunt_round)
