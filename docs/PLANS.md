@@ -395,7 +395,7 @@ with an opaque note. → applies at **M9**.
 ## PART 2 — Sequenced roadmap (M0–M11)
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
-dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → **M3 (next)** → M4 → M5 → M6 → M7 → M8 → M9.
+dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → **M6 (next)** → M7 → M8 → M9.
 M10/M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
 detail behind each item.
 
@@ -441,10 +441,18 @@ in the lock. Locking lives at the **edges** — `PuzzleService` stays lock-free 
 non-reentrant (an edge holding the lock calls the service without deadlock). Create endpoints are not
 locked (no existing puzzle to race; single-channel create position-churn is already handled in Discord).
 
-**M5 — `rollups` + debounced on-solve propagation + surfaced failures.** *(deps: M3, M4)* Auto-refresh
-aggregation targets and **fail loudly** (today `web_refresh_meta` swallows errors at `:605-606`). Hook
-the real solve site (`_solve_impl:2240-2245`, not `_update_all_metas`); key the tab pointer on a
-`createDeveloperMetadata` id (survives archive sheet-ID reassignment); add `!rebuild`.
+**M5 — `rollups` + on-solve propagation + surfaced failures.** ✅ **DONE** (`ca8c0c3`) *(deps: M3, M4)*
+First-class `rollups` record per meta round (migration `002`, `round_id`-keyed) tracking
+`last_ok`/`last_error`; refresh now **fails loudly** — a dashboard "sheet stale" badge + warning toast
+and a Discord `:warning:` instead of the swallowed `web_refresh_meta` error. Propagation is **inline**
+(the planned debounce was dropped as premature at this scale) and serialized by a per-`round_id` rollup
+mutex (`bot/core/locks.py`, separate registry from M4). **Failure isolation** across *every* meta-refresh
+path (solve, retag, the bang solution edits, `sync_meta`, rename/unsolve/delete) via `SheetRefreshError`
++ `service.refresh_metas`. `!rebuild` (targeted/hunt-wide) + `POST /api/rollups/<round_id>/rebuild` clear
+stale sheets. `createDeveloperMetadata` tab pointers are recorded as **M7 substrate**, with the meta
+puzzle's `google_page_id` as the trusted render pointer (never dev-metadata alone). `source_mode`/
+`edge_type_filter` columns land inert (M6/M7). Spec:
+`docs/superpowers/specs/2026-06-22-m5-rollups-design.md`.
 
 **M6 — Additive typed-group columns on `rounds`+`tags`** (resolves the OPEN decision). *(deps: M0, M5)*
 `kind`, `status`, nullable `parent_group_id`, nullable `category_id`, `tags.edge_type`; fix `meta_code`
