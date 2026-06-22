@@ -328,6 +328,9 @@ async def retag_puzzle(puzzle_id):
     meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
     if meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]:
         return jsonify({"error": "bad_meta_code"}), 400
+    # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
+    # !move_to_meta decorator — a concurrent write to the meta puzzle itself is not
+    # serialized against this retag, which is consistent with current behaviour.
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
