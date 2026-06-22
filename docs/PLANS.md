@@ -432,9 +432,14 @@ channel/category-management helpers into core, then relocate `create_puzzle`/`cr
 pinned-info render onto `PuzzleService` (finishing the "all operations live in `bot/core/`" goal). Its
 own milestone because it also touches the bang create paths (`_round_impl`, `create_puzzle_channel`).
 
-**M4 — Per-puzzle mutex on the web/service path.** *(deps: M3)* Web actions take no `_PUZZLE_LOCKS`
-today → dashboard solve/retag races bang-commands and loses updates. Thread the lock (keyed on
-`puzzle.id`) through the service.
+**M4 — Per-puzzle mutex on the web/service path.** ✅ **DONE** (`4df63e8`) *(deps: M3)* Web actions took
+no `_PUZZLE_LOCKS` → dashboard solve/retag could race bang-commands and lose updates. **Delivered:** a
+shared per-puzzle async mutex in `bot/core/locks.py` (`puzzle_lock(puzzle_id)` + one `_PUZZLE_LOCKS`
+registry used by **both** the `with_puzzle_mutex` bang decorator and the web edge); every
+puzzle-mutating web handler (notes, status/priority PATCH, sheets, solve, retag) wraps its fetch+mutate
+in the lock. Locking lives at the **edges** — `PuzzleService` stays lock-free because `asyncio.Lock` is
+non-reentrant (an edge holding the lock calls the service without deadlock). Create endpoints are not
+locked (no existing puzzle to race; single-channel create position-churn is already handled in Discord).
 
 **M5 — `rollups` + debounced on-solve propagation + surfaced failures.** *(deps: M3, M4)* Auto-refresh
 aggregation targets and **fail loudly** (today `web_refresh_meta` swallows errors at `:605-606`). Hook
