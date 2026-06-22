@@ -16,15 +16,13 @@ from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
     RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData
 from bot.utils.chunking import build_note_embeds
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 logger = logging.getLogger(__name__)
 
 # One asyncio.Lock per puzzle id
 _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
 
-# Authorization role names used by the command @has_any_role decorators.
-ADMIN_ROLES = ('Moderator', 'mod', 'admin')
-ORGANISER_ROLES = ADMIN_ROLES + ('Organisers',)
 
 def with_puzzle_mutex(*, wait: bool = True):
     """
@@ -77,8 +75,9 @@ class Puzzles(commands.Cog):
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
-    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission","solved", "backsolved"]
-    PRIORITIES = ["low", "medium", "high", "very high"]
+    # module-level constants (from bot.core.constants), re-exposed as class attributes
+    STATUSES = STATUSES
+    PRIORITIES = PRIORITIES
     REMINDERS = [
             "Welcome to Duck Soup - together we will be stronger as Quarantine Duckrypters - Souped Up!",
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
@@ -98,6 +97,8 @@ class Puzzles(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        from bot.core.puzzle_service import PuzzleService
+        self.service = PuzzleService(self.bot)
         self.reminder_index=0
         self.position_lock = asyncio.Lock()
         self.environment = {}
@@ -590,82 +591,18 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Meta meta updated")
 
     async def update_metapuzzle(self, ctx, hunt_round):
-        round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        if hunt_round.meta_id:
-            metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-            if metapuzzle.metameta:
-                await self._update_metameta_impl(ctx,metapuzzle,hunt_round.hunt_id)
-            else:
-                await self.get_gsheet_cog(ctx).add_metapuzzle_data(metapuzzle, round_puzzles)
-
-    # --- ctx-free helpers used by the web dashboard (bot/web/actions.py) -----
-    # These mirror update_metapuzzle / move_to_meta / add_to_meta /
-    # remove_from_meta but resolve the sheets cog and spreadsheet id explicitly
-    # instead of from the per-command environment. Keep them in sync.
+        hunt = self.get_hunt(ctx)
+        await self.service.refresh_meta(hunt, hunt_round)
 
     async def web_refresh_meta(self, hunt, hunt_round):
-        """ctx-free twin of update_metapuzzle: refresh a meta's sheet."""
-        if hunt is None or hunt_round is None or not hunt_round.meta_id:
-            return
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is None:
-            return
-        gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-        gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-        metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-        if metapuzzle is None:
-            return
-        # The sheet refresh is a side-effect of the retag; a transient Sheets
-        # error must not fail the web action (the DB/channel change is done).
+        """Best-effort wrapper over PuzzleService.refresh_meta, retained as the
+        swallowing wrapper still used by web_create_puzzle (deferred to M3.5).
+        Swallows Sheets errors."""
         try:
-            if metapuzzle.metameta:
-                all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_round.hunt_id)
-                await gsheet_cog.add_metametapuzzle_data(metapuzzle, all_puzzles)
-            else:
-                round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-                await gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
+            await self.service.refresh_meta(hunt, hunt_round)
         except Exception:
-            logger.exception("web_refresh_meta: sheet update failed for round %s", hunt_round.id)
-
-    async def web_move_to_meta(self, guild, puzzle, meta_round):
-        """ctx-free move_to_meta: retag to meta_round, move its channel, refresh sheets."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if guild is not None and puzzle.channel_id:
-            channel = guild.get_channel(puzzle.channel_id)
-            new_category = discord.utils.get(guild.categories, id=meta_round.category_id)
-            # Skip the channel move (a PATCH /channels write) when it's already in
-            # the target category — avoids burning the channel-mutation rate-limit
-            # bucket on no-op drag-board drops.
-            if channel is not None and new_category is not None and channel.category_id != new_category.id:
-                await channel.edit(category=new_category, position=2)
-        # Don't strip a metapuzzle's own tags (avoids orphaning it), as in the command.
-        if puzzle.is_metapuzzle() is False:
-            puzzle.tags.clear()
-        puzzle.tags.append(meta_round.id)
-        PuzzleJsonDb.commit(puzzle)
-        await self.web_refresh_meta(hunt, meta_round)
-        for old_tag in old_tags:
-            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=old_tag))
-
-    async def web_add_to_meta(self, puzzle, meta_round):
-        """ctx-free add_to_meta: tag the puzzle to an additional meta."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        if meta_round.id not in puzzle.tags:
-            puzzle.tags.append(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
-        await self.web_refresh_meta(hunt, meta_round)
-
-    async def web_remove_from_meta(self, puzzle, meta_round):
-        """ctx-free remove_from_meta: untag the puzzle from a meta."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if meta_round.id in puzzle.tags:
-            puzzle.tags.remove(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
-        await self.web_refresh_meta(hunt, meta_round)
-        for old_tag in old_tags:
-            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=old_tag))
+            logger.exception("web_refresh_meta: sheet update failed for round %s",
+                             getattr(hunt_round, "id", None))
 
     def _next_web_ctx_id(self):
         """Unique negative id for a synthetic web context (never collides with a Discord snowflake)."""
@@ -869,35 +806,10 @@ class Puzzles(commands.Cog):
                     logger.exception("web_create_round: rollback of orphan category failed")
             raise
 
-    def web_update_field(self, puzzle, field, value):
-        """Set a puzzle metadata field (status/priority/type) and commit. Pure DB."""
-        setattr(puzzle, field, value)
-        PuzzleJsonDb.commit(puzzle)
-
-    async def web_solve_puzzle(self, guild, hunt, puzzle, solution):
-        """ctx-free !solve: set the solution, refresh metas, post the SOLVED embed,
-        archive the sheet, and reposition the channel to the solved section.
-
-        Mirrors _solve_impl. The channel reposition is a *move* (lenient bucket),
-        never a delete. Discord/Sheets side-effects are best-effort so a hiccup
-        doesn't lose the recorded solve.
-        """
-        puzzle.status = "Solved"
-        if puzzle.solution and solution:
-            puzzle.solution += "/" + solution
-        elif solution:
-            puzzle.solution = solution
-        puzzle.solved = True
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-        PuzzleJsonDb.commit(puzzle)
-
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.web_refresh_meta(hunt, meta_round)
-            if meta_round and meta_round.meta_id == puzzle.id:
-                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                RoundJsonDb.commit(meta_round)
-
+    async def web_post_solved_embed(self, guild, hunt, puzzle):
+        """Best-effort dashboard-side presentation after service.solve: post the
+        SOLVED embed in the puzzle channel, reposition it to the solved section,
+        and refresh the pinned info. Never raises."""
         channel = guild.get_channel(puzzle.channel_id) if (guild and puzzle.channel_id) else None
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
@@ -910,18 +822,7 @@ class Puzzles(commands.Cog):
             try:
                 await channel.send(embed=embed)
             except Exception:
-                logger.exception("web_solve_puzzle: failed to post solved message")
-
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            try:
-                await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
-                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
-            except Exception:
-                logger.exception("web_solve_puzzle: failed to archive sheet")
-
+                logger.exception("web_post_solved_embed: failed to post solved message")
         if channel is not None and channel.category is not None:
             try:
                 divider = self.get_solve_divider_position(None, channel.category)
@@ -929,59 +830,7 @@ class Puzzles(commands.Cog):
                     async with self.position_lock:
                         await channel.edit(position=divider + 1)
             except Exception:
-                logger.exception("web_solve_puzzle: failed to reposition channel")
-
-        PuzzleJsonDb.commit(puzzle)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
-        await self.web_refresh_info(guild, hunt, puzzle)
-
-    async def _delete_additional_sheet(self, hunt, puzzle, sheet):
-        """Delete an additional sheet's Google tab (best-effort) and its DB row,
-        and drop it from the in-memory puzzle. Shared by web + Discord removal."""
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            try:
-                await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
-            except HttpError as exc:
-                # Idempotent: "No sheet with id" means the tab is already gone
-                # (e.g. it was moved to the archive spreadsheet on solve), so the
-                # delete has effectively already happened — not an error.
-                if "No sheet with id" in str(exc):
-                    logger.info("Additional sheet %s tab already absent; treating delete as done.", sheet.id)
-                else:
-                    logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
-            except Exception:
-                logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
-        SheetsJsonDb.delete(sheet.id)
-        puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
-
-    async def web_add_sheet(self, guild, hunt, puzzle, name):
-        """ctx-free !add_sheet: create an extra working sheet (name optional)."""
-        if puzzle.solved:
-            raise RuntimeError("solved_no_sheets")
-        sheet = AdditionalSheetData(
-            puzzle_id=puzzle.id,
-            puzzle_name=name or f"Extra sheet for {puzzle.name}",
-        )
-        gsheet_cog = self.bot.get_cog("GoogleSheets")
-        if gsheet_cog is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
-            sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
-        puzzle.additional_sheets.append(sheet)
-        SheetsJsonDb.commit(sheet)
-        await self.web_refresh_info(guild, hunt, puzzle)
-        return sheet
-
-    async def web_remove_sheet(self, guild, hunt, puzzle, sheet_id):
-        """ctx-free sheet removal for the dashboard."""
-        sheet = next((s for s in puzzle.additional_sheets if s.id == sheet_id), None)
-        if sheet is None:
-            raise RuntimeError("sheet_not_found")
-        await self._delete_additional_sheet(hunt, puzzle, sheet)
+                logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
     def get_first_channel(self, ctx, category):
@@ -1094,14 +943,7 @@ class Puzzles(commands.Cog):
 
         name = " ".join(args)
 
-        sheet = AdditionalSheetData(
-            puzzle_id=puzzle.id,
-            puzzle_name=name or f"Extra sheet for {puzzle.name}"
-        )
-
-        sheet.google_page_id = await self.get_gsheet_cog(ctx).create_additional_spreadsheet(puzzle, name)
-        puzzle.additional_sheets.append(sheet)
-        SheetsJsonDb.commit(sheet)
+        sheet = await self.service.add_sheet(self.get_hunt(ctx), puzzle, name)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
 
@@ -1116,7 +958,9 @@ class Puzzles(commands.Cog):
             return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
         sheet = puzzle.additional_sheets[number - 1]
         name = sheet.puzzle_name
-        await self._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
+        # Call the helper directly: the sheet is already resolved by index here, so
+        # service.remove_sheet() (which re-looks-up by id) would just re-scan the list.
+        await self.service._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
@@ -1239,11 +1083,9 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
-            puzzle.tags.append(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
+            await self.service.add_to_meta(puzzle, meta_round)
             await ctx.send(
                 f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets are being updated.")
-            await self.update_metapuzzle(ctx, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -1260,23 +1102,11 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a Puzzle channel")
             return
         puzzle = self.get_puzzle(ctx)
-        old_tags = []
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
-            new_category = discord.utils.get(self.get_guild(ctx).categories, id=meta_round.category_id)
-            await ctx.channel.edit(category=new_category, position=2)
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets are being updated.")
-            old_tags.extend(puzzle.tags.copy())
-            # Don't remove old tags from metapuzzle to avoid it being orphaned
-            if puzzle.is_metapuzzle() is False:
-                puzzle.tags.clear()
-            puzzle.tags.append(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
-            await self.update_metapuzzle(ctx, meta_round)
-            for old_tag in old_tags:
-                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                await self.update_metapuzzle(ctx, old_meta_round)
+            await self.service.move_to_meta(self.get_guild(ctx), puzzle, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -1301,17 +1131,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: You can't remove a metapuzzle from it's own round!")
             return
         if meta_round:
-            # old_tags to ensure all attached metapuzzles updated
-            old_tags = []
-            old_tags.extend(puzzle.tags.copy())
-            puzzle.tags.remove(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
             await ctx.send(
                 f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets are being updated.")
-            await self.update_metapuzzle(ctx, meta_round)
-            for old_tag in old_tags:
-                old_meta_round = RoundJsonDb.get_by_attr(id=old_tag)
-                await self.update_metapuzzle(ctx, old_meta_round)
+            await self.service.remove_from_meta(puzzle, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -2236,35 +2058,13 @@ class Puzzles(commands.Cog):
 
     async def _solve_impl(self, ctx, *args):
         solution = self._normalize_solution(args)
-
-
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
 
-        if solution == "" and puzzle.solution in [None, ""]:
+        applied = await self.service.solve(self.get_guild(ctx), hunt, puzzle, solution)
+        if not applied:
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
-
-        puzzle.status = "Solved"
-
-        if puzzle.solution and solution is not None:
-            puzzle.solution += "/" + solution
-        elif solution is not None:
-            puzzle.solution = solution
-        puzzle.solved = True
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        PuzzleJsonDb.commit(puzzle)
-
-        hunt_round = self.get_hunt_round(ctx)
-        if hunt_round and hunt_round.meta_id == puzzle.id:
-            hunt_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            await self.update_metapuzzle(ctx, meta_round)
-            if meta_round.meta_id == puzzle.id:
-                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                RoundJsonDb.commit(meta_round)
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(title="PUZZLE SOLVED!",
@@ -2274,12 +2074,8 @@ class Puzzles(commands.Cog):
             value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
         )
         await ctx.send(embed=embed)
-        await self.get_gsheet_cog(ctx).archive_puzzle_spreadsheet(puzzle)
-        puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
         await self.move_to_solved(ctx)
         await self.info(ctx, update=True)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
         await ctx.send(":white_check_mark: Sheets all tidied away.")
 
     @commands.command(aliases=["s"])

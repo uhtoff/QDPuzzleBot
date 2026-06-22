@@ -8,6 +8,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 import logging
 
 import discord
+from googleapiclient.errors import HttpError
 from quart import Blueprint, current_app, jsonify, request
 
 from . import data
@@ -19,6 +20,7 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
+from bot.core.constants import STATUSES, PRIORITIES
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +28,8 @@ actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
 
-# Mirror bot/cogs/puzzles.py STATUSES / PRIORITIES.
-PUZZLE_STATUSES = {"unstarted", "in progress", "stuck", "needs extraction", "needs submission", "solved", "backsolved"}
-PUZZLE_PRIORITIES = {"low", "medium", "high", "very high"}
+PUZZLE_STATUSES = set(STATUSES)
+PUZZLE_PRIORITIES = set(PRIORITIES)
 
 
 def _display_name(user):
@@ -194,7 +195,8 @@ async def add_sheet(puzzle_id):
     snowflake = ctx["guild_snowflake"]
     guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        sheet = await cog.web_add_sheet(guild, hunt_obj, puzzle, name)
+        sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -228,7 +230,8 @@ async def remove_sheet(puzzle_id, sheet_id):
     snowflake = ctx["guild_snowflake"]
     guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        await cog.web_remove_sheet(guild, hunt_obj, puzzle, sheet_id)
+        await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 404
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -265,9 +268,14 @@ async def solve_puzzle(puzzle_id):
     snowflake = ctx["guild_snowflake"]
     guild = bot.get_guild(int(snowflake)) if snowflake else None
     try:
-        await cog.web_solve_puzzle(guild, hunt_obj, puzzle, solution)
+        await cog.service.solve(guild, hunt_obj, puzzle, solution)
+    except HttpError:
+        # Best-effort: the solve is recorded; a Sheets archive hiccup must
+        # not fail the dashboard action (mirrors the old web path).
+        logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
     return jsonify({"ok": True, "solution": puzzle.solution})
 
 
@@ -328,13 +336,19 @@ async def retag_puzzle(puzzle_id):
 
     try:
         if mode == "move":
-            await cog.web_move_to_meta(guild, puzzle, meta_round)
+            await cog.service.move_to_meta(guild, puzzle, meta_round)
         elif mode == "add":
-            await cog.web_add_to_meta(puzzle, meta_round)
-        else:
-            await cog.web_remove_from_meta(puzzle, meta_round)
+            await cog.service.add_to_meta(puzzle, meta_round)
+        elif mode == "remove":
+            await cog.service.remove_from_meta(puzzle, meta_round)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except HttpError:
+        # The tag mutation already committed; a Sheets refresh hiccup is
+        # best-effort and must not fail the retag (mirrors the old web path).
+        # Unexpected (non-Sheets) errors propagate to a 500 rather than being
+        # masked as success.
+        logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
     return jsonify({"ok": True})
 
 

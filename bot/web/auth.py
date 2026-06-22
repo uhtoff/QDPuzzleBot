@@ -14,14 +14,11 @@ import aiohttp
 from quart import Blueprint, current_app, jsonify, redirect, request, session
 
 from bot.utils import config
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
-
-# Mirror bot/cogs/puzzles.py role gating for write-actions.
-ADMIN_ROLES = ("Moderator", "mod", "admin")
-ORGANISER_ROLES = ADMIN_ROLES + ("Organisers",)
 
 DISCORD_API = "https://discord.com/api"
 AUTHORIZE_URL = f"{DISCORD_API}/oauth2/authorize"

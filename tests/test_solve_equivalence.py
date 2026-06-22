@@ -49,7 +49,7 @@ def _no_guild():
 
 
 # ---------------------------------------------------------------------------
-# web_solve_puzzle — DB state mutations
+# PuzzleService.solve — DB state mutations
 # ---------------------------------------------------------------------------
 
 class TestWebSolvePuzzleState:
@@ -73,14 +73,18 @@ class TestWebSolvePuzzleState:
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
-             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb:
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
             mock_rdb.get_by_attr.side_effect = fake_round_get
             mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
             mock_hdb.get_by_attr.return_value = hunt
             mock_gsdb.get.return_value = None
 
-            await cog.web_solve_puzzle(_no_guild(), hunt, puzzle, solution)
+            await cog.service.solve(_no_guild(), hunt, puzzle, solution)
 
         return commits
 
@@ -109,16 +113,13 @@ class TestWebSolvePuzzleState:
         assert puz.solution == "FIRST/SECOND"
 
     @pytest.mark.asyncio
-    async def test_empty_solution_clears_when_none_existing(self, cog, hunt):
-        # DIVERGENCE from _solve_impl:
-        #   _solve_impl guards "if solution == '' and puzzle.solution in [None,'']"
-        #   and returns early.  web_solve_puzzle has no such guard — it proceeds.
-        # This test documents the web path behaviour; M3 service layer should
-        # adopt the stricter guard from _solve_impl.
-        puz = make_puzzle(solution=None)
+    async def test_empty_solution_no_existing_is_rejected(self, cog, hunt):
+        # Canonical M3 behaviour: empty solution with no existing solution is a
+        # no-op (adopts _solve_impl's guard); the puzzle is NOT marked solved.
+        puz = make_puzzle(solution=None, solved=False)
         await self._run_solve(cog, hunt, puz, "")
-        # web path: solution stays None (falsy "" → elif branch skipped)
         assert puz.solution is None
+        assert puz.solved is False
 
     @pytest.mark.asyncio
     async def test_solve_time_set(self, cog, hunt):
@@ -166,7 +167,7 @@ class TestWebSolvePuzzleState:
 
 
 # ---------------------------------------------------------------------------
-# web_add_to_meta — tag mutation
+# add_to_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 
 class TestWebAddToMeta:
@@ -178,12 +179,14 @@ class TestWebAddToMeta:
         hunt = _make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            # web_refresh_meta calls gsheet_cog via self.bot.get_cog — already None
-            await cog.web_add_to_meta(puzzle, round_data)
+            await cog.service.add_to_meta(puzzle, round_data)
 
     @pytest.mark.asyncio
     async def test_adds_round_to_tags(self, cog):
@@ -210,7 +213,7 @@ class TestWebAddToMeta:
 
 
 # ---------------------------------------------------------------------------
-# web_remove_from_meta — tag mutation
+# remove_from_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 
 class TestWebRemoveFromMeta:
@@ -222,11 +225,14 @@ class TestWebRemoveFromMeta:
         hunt = _make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.web_remove_from_meta(puzzle, round_data)
+            await cog.service.remove_from_meta(puzzle, round_data)
 
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog):
@@ -254,7 +260,7 @@ class TestWebRemoveFromMeta:
 
 
 # ---------------------------------------------------------------------------
-# web_move_to_meta — tag replacement (non-metapuzzle)
+# move_to_meta (service) — tag replacement (non-metapuzzle)
 # ---------------------------------------------------------------------------
 
 class TestWebMoveToMeta:
@@ -271,11 +277,14 @@ class TestWebMoveToMeta:
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
-             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb:
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.side_effect = fake_round_get
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.web_move_to_meta(None, puzzle, new_round)  # guild=None
+            await cog.service.move_to_meta(None, puzzle, new_round)  # guild=None
 
     @pytest.mark.asyncio
     async def test_feeder_replaces_all_tags_with_new_round(self, cog):
