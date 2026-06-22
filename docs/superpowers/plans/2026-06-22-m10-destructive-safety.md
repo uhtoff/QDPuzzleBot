@@ -21,11 +21,13 @@
 
 - **Create** `bot/cogs/ui.py` — `ConfirmView` (reusable confirm/cancel View). One responsibility: a yes/no gate.
 - **Modify** `bot/cogs/puzzles.py`:
-  - add `_safe_delete_channel` + `_confirm_destructive` helpers
-  - `delete_puzzle` (2214), `delete_round` (2241), `delete_hunt` (2277): confirm gate + hardened loops
+  - add `_safe_delete_channel`, `_confirm_destructive`, `_cleanup_orphan_puzzle`, `_create_puzzle_with_cleanup` helpers
+  - `_delete_puzzles` (2496) shared loop: None-guard + pacing + report; `delete_round` (2514), `delete_hunt` (2555), `delete_puzzle` (2467): confirm gate
   - `web_create_puzzle` (721): orphan cleanup
   - `web_create_round` (787, `except` 836-855): extend rollback
-  - bang `_puzzle` create site (`create_puzzle_channel` call at 454): orphan cleanup
+  - `puzzle` / `!p` command (533, create at 544-545): orphan cleanup
+
+> **NOTE:** line numbers for the delete functions were corrected after discovering the worktree initially branched from a stale `origin/main`; they now reflect the real M5-refactored code on local `main` (which already provides the shared `_delete_puzzles`/`_delete_round_category` helpers and a non-bare `except` in `delete_puzzle`).
 - **Create** `tests/test_confirm_view.py`, `tests/test_delete_safety.py`, `tests/test_create_orphan_cleanup.py`.
 
 Dependency order: Task 1 (ConfirmView) and Task 2 (safe-delete helper) are independent primitives; Task 3 uses Task 2; Task 4 uses Task 1; Tasks 5–7 (orphan cleanup) are independent of all the above.
@@ -280,13 +282,15 @@ git commit -m "M10: add _safe_delete_channel (None-guard + rate-limit tolerant)"
 
 ---
 
-## Task 3: Harden `delete_round` / `delete_hunt` / `delete_puzzle` loops
+## Task 3: Harden the shared `_delete_puzzles` loop + report remainder
 
 **Files:**
-- Modify: `bot/cogs/puzzles.py` — `delete_round` (2241-2269), `delete_hunt` (2277-2303), `delete_puzzle` (2214-2230)
+- Modify: `bot/cogs/puzzles.py` — `_delete_puzzles` (2496-2501), `delete_round` (2514-2533), `delete_hunt` (2555-2577)
 - Test: `tests/test_delete_safety.py` (append)
 
-Rewire the bulk loops to use `_safe_delete_channel`, collect failures, and report them instead of crashing. Replace `delete_puzzle`'s bare `except`.
+> **IMPORTANT — the code differs from the earlier roadmap line refs.** The M5 refactor already extracted a shared **`_delete_puzzles(ctx, puzzles)`** helper (2496) used by BOTH `delete_round` and `delete_hunt`, plus `_delete_round_category` (2503). So the None-guard + rate-limit tolerance + remainder report go in **one place** (`_delete_puzzles`), not two inline loops. Also: `delete_puzzle`'s handler is **already** `except Exception: logger.exception(...)` (2484-2486), NOT a bare `except` — leave it alone; that spec item is already satisfied.
+
+Rewire `_delete_puzzles` to use `_safe_delete_channel` and return the names of puzzles whose channel could not be deleted; have `delete_round`/`delete_hunt` report that remainder.
 
 - [ ] **Step 1: Append the failing test**
 
@@ -299,8 +303,8 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
 
     cog = _cog()
     # Two puzzles; channel for the first is missing, second present.
-    p1 = SimpleNamespace(id=1, channel_id=101)
-    p2 = SimpleNamespace(id=2, channel_id=102)
+    p1 = SimpleNamespace(id=1, name="P1", channel_id=101)
+    p2 = SimpleNamespace(id=2, name="P2", channel_id=102)
     present = SimpleNamespace(id=102, delete=AsyncMock())
 
     guild = MagicMock()
@@ -340,48 +344,54 @@ Expected: FAIL — either an `AttributeError` on the missing channel (pre-fix cr
 
 - [ ] **Step 3: Rewire the loops**
 
-In `delete_round`, replace lines 2253-2255:
+Replace the body of `_delete_puzzles` (2496-2501) so it None-guards via `_safe_delete_channel` and returns the failures:
 
 ```python
-        round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+    async def _delete_puzzles(self, ctx, puzzles):
+        """Delete each puzzle's data and its Discord channel. Returns the names
+        of puzzles whose channel could not be deleted (already gone or
+        rate-limited), so callers can report what remains."""
         failed = []
-        for round_puzzle in round_puzzles:
-            await self.delete_puzzle_data(ctx, round_puzzle)
-            if not await self._safe_delete_channel(self.get_guild(ctx), round_puzzle.channel_id):
-                failed.append(round_puzzle.name)
+        for puzzle in puzzles:
+            await self.delete_puzzle_data(ctx, puzzle)
+            if not await self._safe_delete_channel(self.get_guild(ctx), puzzle.channel_id):
+                failed.append(puzzle.name)
+        return failed
 ```
 
-In `delete_hunt`, replace the puzzle loop (2285-2288):
+In `delete_round`, capture the return value (line 2524 changes from `await self._delete_puzzles(...)` to assignment):
 
 ```python
-        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
-        failed = []
-        for hunt_puzzle in hunt_puzzles:
-            await self.delete_puzzle_data(ctx, hunt_puzzle)
-            if not await self._safe_delete_channel(self.get_guild(ctx), hunt_puzzle.channel_id):
-                failed.append(hunt_puzzle.name)
+        failed = await self._delete_puzzles(ctx, round_puzzles)
 ```
 
-After each command's existing success message, append a remainder report when `failed` is non-empty, e.g. in `delete_round` after line 2267 and in `delete_hunt` before `HuntJsonDb.delete`:
+then after the existing success `hunt_general_channel.send(... successfully deleted ...)` (2530-2531) add:
 
 ```python
         if failed:
             await hunt_general_channel.send(
-                ":warning: Could not delete channels for: "
-                + ", ".join(failed)
+                ":warning: Could not delete channels for: " + ", ".join(failed)
                 + ". They may already be gone or were rate-limited — re-run to finish."
             )
 ```
 
-(For `delete_hunt`, send to `hunt_channel` before it is itself deleted, or log if the hunt channel is already going away.)
-
-In `delete_puzzle`, replace the bare `except:` (2228) with:
+In `delete_hunt`, capture the return value (line 2563):
 
 ```python
-        except (discord.RateLimited, discord.HTTPException):
-            logger.exception("delete_puzzle: channel delete failed for %s", self.get_puzzle(ctx))
-            await ctx.send(":warning: The puzzle data/sheet was removed but the channel could not be deleted (it may already be gone or was rate-limited).")
+        failed = await self._delete_puzzles(ctx, hunt_puzzles)
 ```
+
+then report **before** the hunt channel is deleted — immediately before `await hunt_channel.delete(reason=self.DELETE_REASON)` (2571):
+
+```python
+        if failed:
+            await hunt_channel.send(
+                ":warning: Could not delete channels for: " + ", ".join(failed)
+                + ". They may already be gone or were rate-limited — re-run to finish."
+            )
+```
+
+`delete_puzzle`'s exception handler is already `except Exception: logger.exception(...)` (not bare) — **no change needed there.**
 
 - [ ] **Step 4: Run the targeted test, then the file**
 
@@ -458,18 +468,18 @@ Add the helper (near `_safe_delete_channel`):
 
 Gate each command immediately after its channel-type validation:
 
-- `delete_puzzle` — after the `!= "Puzzle"` check (after line 2219):
+- `delete_puzzle` — after the `!= "Puzzle"` check returns (after line 2472), before the `try:` at 2474:
   ```python
           if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
               return
   ```
-- `delete_round` — after the `PUZZLE_GROUPS` check (after line 2247), before computing `round_puzzles`:
+- `delete_round` — after the `not in self.PUZZLE_GROUPS` check returns (after line 2518), before `hunt_general_channel = ...` (2520):
   ```python
           n = len(PuzzleJsonDb.get_all_from_round(self.get_hunt_round(ctx).id))
           if not await self._confirm_destructive(ctx, f"Delete round **{self.get_hunt_round(ctx).name}** and its {n} puzzle(s), channels and sheets?"):
               return
   ```
-- `delete_hunt` — after the `== "Hunt"` check (after line 2283):
+- `delete_hunt` — after the `== "Hunt"` / else-return block (after line 2561), before `hunt_puzzles = ...` (2562):
   ```python
           n = len(PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id))
           if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{self.get_hunt(ctx).name}**: {n} puzzle(s), all rounds, channels and sheets?"):
@@ -704,13 +714,13 @@ git commit -m "M10: web_create_round rollback also removes the orphan meta puzzl
 
 ---
 
-## Task 7: Orphan cleanup on the bang `_puzzle` create path
+## Task 7: Orphan cleanup on the bang `!p` create path
 
 **Files:**
-- Modify: `bot/cogs/puzzles.py` — bang `_puzzle` command, `create_puzzle_channel` call at 454
+- Modify: `bot/cogs/puzzles.py` — the `puzzle` command (`@commands.command(aliases=["p"])`, def at 533), whose body creates at lines 544-545
 - Test: `tests/test_create_orphan_cleanup.py` (append)
 
-`create_puzzle` (461) commits sheet + row, then the command calls `create_puzzle_channel` at 454. A channel failure strands the row + sheet.
+`create_puzzle` (550) commits sheet + row, then the `puzzle` command calls `create_puzzle_channel` at 545. A channel failure strands the row + sheet. (Note: the command is named `puzzle`, not `_puzzle`.)
 
 - [ ] **Step 1: Append the failing test**
 
@@ -746,7 +756,12 @@ async def test_bang_create_puzzle_cleans_up_on_channel_failure(monkeypatch):
     cog._cleanup_orphan_puzzle.assert_awaited_once()
 ```
 
-> Note for the executor: the bang command is a `commands.Command`; the create+channel logic at 452-454 is extracted into `_create_puzzle_with_cleanup` (Step 3) so it is testable and reused by the command body.
+> Note for the executor: the bang command is a `commands.Command` named `puzzle`; the create+channel logic at lines 544-545 is extracted into `_create_puzzle_with_cleanup` (Step 3) so it is testable and reused by the command body. The `puzzle` command body around 543-545 is:
+> ```python
+>         category = ctx.channel.category
+>         new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
+>         await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
+> ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -770,11 +785,13 @@ Add:
         return new_puzzle
 ```
 
-Replace lines 452-454 in the bang `_puzzle` command body with:
+Replace lines 543-545 (the `category = ...` / `create_puzzle` / `create_puzzle_channel` trio) in the `puzzle` command body with:
 
 ```python
         await self._create_puzzle_with_cleanup(ctx, puzzle_name)
 ```
+
+(`_create_puzzle_with_cleanup` re-derives the category from `ctx.channel.category` itself, so the local `category` assignment moves into the helper.)
 
 - [ ] **Step 4: Run the file, then the FULL suite**
 
