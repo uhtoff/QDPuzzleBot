@@ -287,7 +287,11 @@ the real solve site (`_solve_impl:2240-2245`, not `_update_all_metas`); key the 
 **M6 — Additive typed-group columns on `rounds`+`tags`** (resolves the OPEN decision). *(deps: M0, M5)*
 `kind`, `status`, nullable `parent_group_id`, nullable `category_id`, `tags.edge_type`; fix `meta_code`
 typing; delete the dead `RoundJsonDb.get` (queries `WHERE channel_id` though `RoundData` has none);
-cycle-guard the membership writer.
+cycle-guard the membership writer. ⚠️ Land `category_id` nullable but **don't exercise channel-less
+groups yet** — ~12 `get_by_attr(category_id)` lookups assume a category exists; wait for a resolution
+path off `ctx.channel.category`. ("Solved section" today is *only* Discord channel position —
+`get_solve_divider_position` `:972-978` + the `———solved———` divider channel — which is what `status`
+replaces.)
 
 **M7 — Meta-meta + flexible aggregation (Features A + D).** *(deps: M6)* `parent_group_id` containment
 + `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group); thin
