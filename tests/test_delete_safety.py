@@ -85,7 +85,7 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
                                    category=SimpleNamespace(delete=AsyncMock()))
     ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=hunt_channel)
     cog.environment[7] = {
-        "channel_type": "Hunt", "hunt": SimpleNamespace(id=10),
+        "channel_type": "Hunt", "hunt": SimpleNamespace(id=10, name="TestHunt"),
         "hunt_round": None, "puzzle": None, "guild": guild, "guild_data": None,
         "channel": hunt_channel,
     }

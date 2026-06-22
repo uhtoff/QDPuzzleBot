@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import _PUZZLE_LOCKS
 from bot.core.errors import SheetRefreshError
+from bot.cogs.ui import ConfirmView
 
 
 def with_puzzle_mutex(*, wait: bool = True):
@@ -2532,8 +2533,9 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: This command must be done from the main group channel")
             return
 
-        n = len(PuzzleJsonDb.get_all_from_round(self.get_hunt_round(ctx).id))
-        if not await self._confirm_destructive(ctx, f"Delete round **{self.get_hunt_round(ctx).name}** and its {n} puzzle(s), channels and sheets?"):
+        hunt_round = self.get_hunt_round(ctx)
+        n = len(PuzzleJsonDb.get_all_from_round(hunt_round.id))
+        if not await self._confirm_destructive(ctx, f"Delete round **{hunt_round.name}** and its {n} puzzle(s), channels and sheets?"):
             return
 
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
@@ -2559,7 +2561,6 @@ class Puzzles(commands.Cog):
     async def _confirm_destructive(self, ctx, description):
         """Send a Confirm/Cancel prompt and return True only if the invoker
         confirms. Returns False on cancel or timeout."""
-        from bot.cogs.ui import ConfirmView
         view = ConfirmView(ctx.author.id)
         embed = discord.Embed(
             title="⚠️ Confirm deletion",
@@ -2600,8 +2601,7 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
         n = len(hunt_puzzles)
-        hunt_name = getattr(hunt, "name", str(hunt.id))
-        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt_name}**: {n} puzzle(s), all rounds, channels and sheets?"):
+        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
             return
         failed = await self._delete_puzzles(ctx, hunt_puzzles)
         hunt_rounds = RoundJsonDb.get_all(self.get_hunt(ctx).id)
