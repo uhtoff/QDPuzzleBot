@@ -71,6 +71,8 @@ export interface BoardGroup {
   meta_solved: boolean;
   num_feeders: number;
   num_solved_feeders: number;
+  rollup_stale: boolean;
+  rollup_error: string | null;
 }
 
 export interface HuntDetail {

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Accordion, ActionIcon, Badge, Group, Indicator, Table, Text, Tooltip } from "@mantine/core";
-import { IconCircleCheck, IconNote } from "@tabler/icons-react";
+import { Accordion, ActionIcon, Badge, Box, Group, Indicator, Table, Text, Tooltip } from "@mantine/core";
+import { IconAlertTriangle, IconCircleCheck, IconNote, IconRefresh } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
-import { useUpdatePuzzle } from "../api";
+import { useRebuildRollup, useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { relativeTime, statusColor } from "../util";
@@ -20,6 +21,19 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const editable = !detail.hunt.archived;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
+  const rebuildMut = useRebuildRollup(detail.hunt.uid);
+
+  function rebuild() {
+    rebuildMut.mutate(group.round_id, {
+      onSuccess: (data) =>
+        notifications.show(
+          data.ok
+            ? { message: `Rebuilt “${group.name}” sheet`, color: "green" }
+            : { message: data.error || "Rebuild failed", color: "red" }
+        ),
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
 
   function activityFor(p: Puzzle): string {
     const at = (p.channel_id && live[p.channel_id]?.at) || p.last_activity?.at || null;
@@ -28,26 +42,53 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
 
   return (
     <Accordion.Item value={String(group.round_id)}>
-      <Accordion.Control
-        styles={solvedAll ? { control: { backgroundColor: "var(--mantine-color-green-light)" } } : undefined}
-      >
-        <Group gap="sm">
-          <Text fw={600}>{group.name}</Text>
-          {group.meta_code && (
-            <Badge variant="light" color="grape" size="sm">
-              {group.meta_code}
-            </Badge>
-          )}
-          {group.meta_solved && group.meta_solution && (
-            <Badge color="green" variant="filled" size="sm">
-              {group.meta_solution}
-            </Badge>
-          )}
-          <Text c="dimmed" size="sm">
-            {group.num_solved_feeders}/{group.num_feeders} solved
-          </Text>
-        </Group>
-      </Accordion.Control>
+      <Box style={{ display: "flex", alignItems: "center" }}>
+        <Accordion.Control
+          style={{ flex: 1 }}
+          styles={solvedAll ? { control: { backgroundColor: "var(--mantine-color-green-light)" } } : undefined}
+        >
+          <Group gap="sm">
+            <Text fw={600}>{group.name}</Text>
+            {group.meta_code && (
+              <Badge variant="light" color="grape" size="sm">
+                {group.meta_code}
+              </Badge>
+            )}
+            {group.meta_solved && group.meta_solution && (
+              <Badge color="green" variant="filled" size="sm">
+                {group.meta_solution}
+              </Badge>
+            )}
+            {group.rollup_stale && (
+              <Tooltip label={group.rollup_error || "This meta's sheet is out of date"} multiline maw={320}>
+                <Badge color="red" variant="light" size="sm" leftSection={<IconAlertTriangle size={12} />}>
+                  sheet stale
+                </Badge>
+              </Tooltip>
+            )}
+            <Text c="dimmed" size="sm">
+              {group.num_solved_feeders}/{group.num_feeders} solved
+            </Text>
+          </Group>
+        </Accordion.Control>
+        {group.rollup_stale && editable && detail.hunt.can_manage && (
+          <Tooltip label="Rebuild this meta sheet">
+            <ActionIcon
+              variant="subtle"
+              color="red"
+              mr="sm"
+              loading={rebuildMut.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                rebuild();
+              }}
+              aria-label="Rebuild meta sheet"
+            >
+              <IconRefresh size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </Box>
       <Accordion.Panel>
         <Table>
           <Table.Tbody>
