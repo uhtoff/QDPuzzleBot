@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-# Mirror bot/cogs/puzzles.py role gating for write-actions.
-ADMIN_ROLES = ("Moderator", "mod", "admin")
-ORGANISER_ROLES = ADMIN_ROLES + ("Organisers",)
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 
 DISCORD_API = "https://discord.com/api"
 AUTHORIZE_URL = f"{DISCORD_API}/oauth2/authorize"

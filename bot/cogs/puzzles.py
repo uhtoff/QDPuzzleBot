@@ -22,9 +22,7 @@ logger = logging.getLogger(__name__)
 # One asyncio.Lock per puzzle id
 _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
 
-# Authorization role names used by the command @has_any_role decorators.
-ADMIN_ROLES = ('Moderator', 'mod', 'admin')
-ORGANISER_ROLES = ADMIN_ROLES + ('Organisers',)
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 def with_puzzle_mutex(*, wait: bool = True):
     """
@@ -77,8 +75,8 @@ class Puzzles(commands.Cog):
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
     PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
-    STATUSES = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission","solved", "backsolved"]
-    PRIORITIES = ["low", "medium", "high", "very high"]
+    STATUSES = STATUSES
+    PRIORITIES = PRIORITIES
     REMINDERS = [
             "Welcome to Duck Soup - together we will be stronger as Quarantine Duckrypters - Souped Up!",
             "Don't forget that Mystery Hunt is a marathon, not a sprint.  Stand up, walk around, eat some fruit, grab a drink.  "
@@ -98,6 +96,8 @@ class Puzzles(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        from bot.core.puzzle_service import PuzzleService
+        self.service = PuzzleService(self.bot)
         self.reminder_index=0
         self.position_lock = asyncio.Lock()
         self.environment = {}

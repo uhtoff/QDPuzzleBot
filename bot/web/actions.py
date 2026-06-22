@@ -26,9 +26,10 @@ actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
 
-# Mirror bot/cogs/puzzles.py STATUSES / PRIORITIES.
-PUZZLE_STATUSES = {"unstarted", "in progress", "stuck", "needs extraction", "needs submission", "solved", "backsolved"}
-PUZZLE_PRIORITIES = {"low", "medium", "high", "very high"}
+from bot.core.constants import STATUSES, PRIORITIES
+
+PUZZLE_STATUSES = set(STATUSES)
+PUZZLE_PRIORITIES = set(PRIORITIES)
 
 
 def _display_name(user):
