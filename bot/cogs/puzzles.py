@@ -2504,6 +2504,14 @@ class Puzzles(commands.Cog):
                 failed.append(puzzle.name)
         return failed
 
+    async def _warn_failed_channels(self, channel, failed):
+        """Notify `channel` about puzzles whose channels could not be deleted."""
+        if failed:
+            await channel.send(
+                ":warning: Could not delete channels for: " + ", ".join(failed)
+                + ". They may already be gone or were rate-limited — re-run to finish."
+            )
+
     async def _delete_round_category(self, ctx, hunt_round):
         """Delete a round's category and its solved-divider channel (if present)."""
         category = discord.utils.get(self.get_guild(ctx).categories, id=hunt_round.category_id)
@@ -2533,11 +2541,7 @@ class Puzzles(commands.Cog):
 
         await hunt_general_channel.send(f":white_check_mark: Round {self.get_hunt_round(ctx).name} successfully deleted.  "
                                         f"All puzzle sheets have been deleted.")
-        if failed:
-            await hunt_general_channel.send(
-                ":warning: Could not delete channels for: " + ", ".join(failed)
-                + ". They may already be gone or were rate-limited — re-run to finish."
-            )
+        await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
 
@@ -2579,11 +2583,7 @@ class Puzzles(commands.Cog):
                 await self._delete_round_category(ctx, hunt_round)
             except Exception:
                 logger.exception("Failed to delete round %s during hunt deletion", hunt_round.id)
-        if failed:
-            await hunt_channel.send(
-                ":warning: Could not delete channels for: " + ", ".join(failed)
-                + ". They may already be gone or were rate-limited — re-run to finish."
-            )
+        await self._warn_failed_channels(hunt_channel, failed)
         await hunt_channel.delete(reason=self.DELETE_REASON)
         await hunt_channel.category.delete(reason=self.DELETE_REASON)
         HuntJsonDb.delete(self.get_hunt(ctx).id)

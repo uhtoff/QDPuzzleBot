@@ -103,3 +103,7 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
 
     present.delete.assert_awaited_once()        # the present channel was deleted
     hunt_channel.delete.assert_awaited()        # reached the end (did not abort)
+    # the remainder (P1, whose channel was missing) is reported to the user
+    warn = [c for c in hunt_channel.send.await_args_list
+            if "Could not delete channels for" in str(c)]
+    assert warn and "P1" in str(warn[0])
