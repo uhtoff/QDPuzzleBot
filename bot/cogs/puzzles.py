@@ -805,11 +805,6 @@ class Puzzles(commands.Cog):
                     logger.exception("web_create_round: rollback of orphan category failed")
             raise
 
-    def web_update_field(self, puzzle, field, value):
-        """Set a puzzle metadata field (status/priority/type) and commit. Pure DB."""
-        setattr(puzzle, field, value)
-        PuzzleJsonDb.commit(puzzle)
-
     async def web_post_solved_embed(self, guild, hunt, puzzle):
         """Best-effort dashboard-side presentation after service.solve: post the
         SOLVED embed in the puzzle channel, reposition it to the solved section,
