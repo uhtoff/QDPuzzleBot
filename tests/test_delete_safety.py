@@ -64,3 +64,42 @@ async def test_safe_delete_notfound_is_silent(caplog):
         ok = await cog._safe_delete_channel(guild, 5)
     assert ok is False
     assert caplog.records == []  # no error log for the benign race
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
+    """delete_hunt must not abort when one puzzle channel is already gone."""
+    import bot.cogs.puzzles as puzzles_mod
+
+    cog = _cog()
+    # Two puzzles; channel for the first is missing, second present.
+    p1 = SimpleNamespace(id=1, name="P1", channel_id=101)
+    p2 = SimpleNamespace(id=2, name="P2", channel_id=102)
+    present = SimpleNamespace(id=102, delete=AsyncMock())
+
+    guild = MagicMock()
+    guild.channels = [present]      # 101 missing, 102 present
+    guild.categories = []
+
+    hunt_channel = SimpleNamespace(delete=AsyncMock(), send=AsyncMock(),
+                                   category=SimpleNamespace(delete=AsyncMock()))
+    ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=hunt_channel)
+    cog.environment[7] = {
+        "channel_type": "Hunt", "hunt": SimpleNamespace(id=10),
+        "hunt_round": None, "puzzle": None, "guild": guild, "guild_data": None,
+        "channel": hunt_channel,
+    }
+
+    monkeypatch.setattr(puzzles_mod, "PuzzleJsonDb", MagicMock(
+        get_all_from_hunt=MagicMock(return_value=[p1, p2]), delete=MagicMock()))
+    monkeypatch.setattr(puzzles_mod, "RoundJsonDb", MagicMock(
+        get_all=MagicMock(return_value=[])))
+    monkeypatch.setattr(puzzles_mod, "HuntJsonDb", MagicMock(delete=MagicMock()))
+    cog._confirm_destructive = AsyncMock(return_value=True)  # gate added in Task 4; harmless now
+    cog.delete_puzzle_data = AsyncMock(return_value=True)
+
+    # Should complete without raising despite channel 101 missing.
+    await cog.delete_hunt.callback(cog, ctx)
+
+    present.delete.assert_awaited_once()        # the present channel was deleted
+    hunt_channel.delete.assert_awaited()        # reached the end (did not abort)

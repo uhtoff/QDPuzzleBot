@@ -2494,11 +2494,15 @@ class Puzzles(commands.Cog):
         return True
 
     async def _delete_puzzles(self, ctx, puzzles):
-        """Delete each puzzle's data and its Discord channel."""
+        """Delete each puzzle's data and its Discord channel. Returns the names
+        of puzzles whose channel could not be deleted (already gone or
+        rate-limited), so callers can report what remains."""
+        failed = []
         for puzzle in puzzles:
             await self.delete_puzzle_data(ctx, puzzle)
-            channel = discord.utils.get(self.get_guild(ctx).channels, id=puzzle.channel_id)
-            await channel.delete(reason=self.DELETE_REASON)
+            if not await self._safe_delete_channel(self.get_guild(ctx), puzzle.channel_id):
+                failed.append(puzzle.name)
+        return failed
 
     async def _delete_round_category(self, ctx, hunt_round):
         """Delete a round's category and its solved-divider channel (if present)."""
@@ -2521,7 +2525,7 @@ class Puzzles(commands.Cog):
 
         hunt_round = self.get_hunt_round(ctx)
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        await self._delete_puzzles(ctx, round_puzzles)
+        failed = await self._delete_puzzles(ctx, round_puzzles)
 
         await self.delete_round_data(hunt_round)
 
@@ -2529,6 +2533,11 @@ class Puzzles(commands.Cog):
 
         await hunt_general_channel.send(f":white_check_mark: Round {self.get_hunt_round(ctx).name} successfully deleted.  "
                                         f"All puzzle sheets have been deleted.")
+        if failed:
+            await hunt_general_channel.send(
+                ":warning: Could not delete channels for: " + ", ".join(failed)
+                + ". They may already be gone or were rate-limited — re-run to finish."
+            )
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
 
@@ -2562,7 +2571,7 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: This command must be done from the main hunt channel")
             return
         hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
-        await self._delete_puzzles(ctx, hunt_puzzles)
+        failed = await self._delete_puzzles(ctx, hunt_puzzles)
         hunt_rounds = RoundJsonDb.get_all(self.get_hunt(ctx).id)
         for hunt_round in hunt_rounds:
             try:
@@ -2570,6 +2579,11 @@ class Puzzles(commands.Cog):
                 await self._delete_round_category(ctx, hunt_round)
             except Exception:
                 logger.exception("Failed to delete round %s during hunt deletion", hunt_round.id)
+        if failed:
+            await hunt_channel.send(
+                ":warning: Could not delete channels for: " + ", ".join(failed)
+                + ". They may already be gone or were rate-limited — re-run to finish."
+            )
         await hunt_channel.delete(reason=self.DELETE_REASON)
         await hunt_channel.category.delete(reason=self.DELETE_REASON)
         HuntJsonDb.delete(self.get_hunt(ctx).id)
