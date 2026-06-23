@@ -95,24 +95,25 @@ def _install_ratelimit_probe():
             resp = await _orig_session_request(self, method, str_or_url, **kwargs)
             try:
                 h = resp.headers
-                remaining = h.get("X-RateLimit-Remaining")
-                reset_after = h.get("X-RateLimit-Reset-After")
-                # The response that seeds a long pre-emptive cooldown is often a
-                # *success* (200/201) that simply leaves the bucket exhausted with a
-                # huge reset — not a 429. Log on either so we capture the scope header.
-                long_reset = False
-                try:
-                    long_reset = remaining == "0" and float(reset_after) > 60
-                except (TypeError, ValueError):
-                    long_reset = False
-                if resp.status == 429 or long_reset:
+                url_str = str(str_or_url)
+                # Don't guess header names. The response that seeds the long
+                # pre-emptive cooldown is a *successful* channel create whose exact
+                # rate-limit header shape we don't know (it may use Reset-After,
+                # Reset, or Retry-After). So dump the whole rate-limit header set on
+                # any 429 AND on any channel-create response, then read the scope off
+                # the real line.
+                is_channel_create = (
+                    str(method).upper() == "POST"
+                    and url_str.rstrip("/").endswith("/channels")
+                )
+                if resp.status == 429 or is_channel_create:
+                    rl = {
+                        k: v for k, v in h.items()
+                        if k.lower().startswith("x-ratelimit") or k.lower() == "retry-after"
+                    }
                     _probe_log.warning(
-                        "RATELIMIT-PROBE headers: status=%s %s %s scope=%s global=%s "
-                        "bucket=%s limit=%s remaining=%s reset-after=%s retry-after=%s via=%s",
-                        resp.status, method, str_or_url,
-                        h.get("X-RateLimit-Scope"), h.get("X-RateLimit-Global"),
-                        h.get("X-RateLimit-Bucket"), h.get("X-RateLimit-Limit"),
-                        remaining, reset_after, h.get("Retry-After"), h.get("Via"),
+                        "RATELIMIT-PROBE headers: status=%s %s %s ratelimit=%s via=%s",
+                        resp.status, method, url_str, rl, h.get("Via"),
                     )
             except Exception:
                 pass
