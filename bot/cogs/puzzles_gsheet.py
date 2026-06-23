@@ -96,7 +96,17 @@ class GoogleSheets(commands.Cog):
 
     def sheet_list(self, spreadsheet_id = None):
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
-        return execute_sync(get_sheet().get(spreadsheetId=spreadsheet_id))
+        response = execute_sync(get_sheet().get(spreadsheetId=spreadsheet_id))
+        if "sheets" not in response:
+            # A valid spreadsheet always reports at least one sheet, so a response
+            # without the key means the read returned bad/empty data (a transient
+            # Google glitch), not an empty spreadsheet. Fail loudly here instead of
+            # letting callers raise an opaque KeyError deep in a comprehension — or,
+            # worse, treat it as "no tabs" and create a duplicate tab.
+            raise RuntimeError(
+                f"Sheets get for {spreadsheet_id} returned no 'sheets' field: {response!r}"
+            )
+        return response
 
     def get_grid_size(self, old_puzzle) -> tuple:
         target = int(old_puzzle.google_page_id)
