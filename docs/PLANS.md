@@ -396,7 +396,7 @@ with an opaque note. → applies at **M9**.
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
 dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → ~~M6~~ → ~~M7~~ → **M8 (next)** → M9.
-~~M10~~ (✅ done, `9951408`) / M3.5 / M11 hang off the M3 seam / M6 group-model and land opportunistically.
+~~M10~~ (✅ done, `9951408`) / ~~M3.5~~ (✅ done) / M11 hang off the M3 seam / M6 group-model and land opportunistically.
 ~~M7.5~~ (✅ aggregated-answers read view + copy-to-clipboard, done `5cc71b3`). Part 3 holds the file:line
 detail behind each item.
 
@@ -540,7 +540,7 @@ timeline; parallelizing the leaves only helps once you're past M6.
 | **Day one** (need nothing, not even M0) | ✅ **DELIVERED** (`feature/quick-wins` @ `6da1752`): `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors, WebSocket auth refresh |
 | After **M0** | ✅ **DELIVERED** — **M1 (tests, `917e173`) ∥ M2 (`aggregate_to_tab`, `063132c`)** |
 | After **M3** | ✅ **DELIVERED** — **M4 (mutex, `4df63e8`) ∥ M10 (destructive safety, `9951408`)** + audit-log quick win (`f2d97e3`) |
-| After **M6** | ✅ **M7 DELIVERED** (`28e8abd` + M7.5 `5cc71b3`) with optimistic-updates quick win (`7502454`). **Still open: M8 ∥ M11 ∥ M3.5** (then M9 trails M8) |
+| After **M6** | ✅ **M7 DELIVERED** (`28e8abd` + M7.5 `5cc71b3`) with optimistic-updates quick win (`7502454`). **Still open: M8 ∥ M11** (M3.5 ✅ done; then M9 trails M8) |
 
 **Practical caveat — DAG-independent ≠ conflict-free.** `bot/cogs/puzzles.py` (2,700 lines) is a
 contention magnet (M3 rewrites it; M10 + M7/M8/M9/M11 all add to it). So: the *truly* safe concurrent
