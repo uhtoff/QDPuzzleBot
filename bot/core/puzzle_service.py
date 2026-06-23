@@ -192,6 +192,52 @@ class PuzzleService:
         child_round.parent_group_id = parent_id
         RoundJsonDb.commit(child_round)
 
+    async def collect_subtree_rounds(self, root_round):
+        """BFS from root_round gathering descendants linked by parent_group_id.
+
+        Returns a list of round objects (including root_round itself). A depth cap
+        of 64 backstops pre-existing broken chains or cycles."""
+        all_rounds = RoundJsonDb.get_all(hunt_id=root_round.hunt_id)
+        # Build a child map: parent_group_id -> [child rounds]
+        children_of = {}
+        for r in all_rounds:
+            pid = r.parent_group_id
+            if pid is not None:
+                children_of.setdefault(pid, []).append(r)
+
+        visited = {root_round.id}
+        result = [root_round]
+        queue = [root_round]
+        depth = 0
+        while queue and depth <= 64:
+            next_queue = []
+            for rnd in queue:
+                for child in children_of.get(rnd.id, []):
+                    if child.id not in visited:
+                        visited.add(child.id)
+                        result.append(child)
+                        next_queue.append(child)
+            queue = next_queue
+            depth += 1
+        return result
+
+    async def collect_subtree_puzzles(self, root_round):
+        """Collect all solved puzzles across the subtree rooted at `root_round`.
+
+        Union of get_all_from_round for each descendant round, deduped by puzzle id,
+        keeping only solved puzzles."""
+        rounds = await self.collect_subtree_rounds(root_round)
+        seen_ids = set()
+        puzzles = []
+        for rnd in rounds:
+            if rnd.id == root_round.id:
+                continue  # skip the meta round itself
+            for p in PuzzleJsonDb.get_all_from_round(rnd.id):
+                if p.id not in seen_ids and p.solved:
+                    seen_ids.add(p.id)
+                    puzzles.append(p)
+        return puzzles
+
     async def solve(self, guild, hunt, puzzle, solution):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
         stamp the round solve_time if this is the round's meta, archive the sheet,
