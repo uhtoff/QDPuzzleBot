@@ -403,6 +403,20 @@ class PuzzleService:
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)
 
+    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution):
+        """Solve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
+        minis = self.get_minis(minimeta_id)
+        if number < 1 or number > len(minis):
+            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
+        return await self.solve(guild, hunt, minis[number - 1], solution)
+
+    async def unsolve_mini_by_number(self, guild, hunt, minimeta_id, number):
+        """Unsolve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
+        minis = self.get_minis(minimeta_id)
+        if number < 1 or number > len(minis):
+            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
+        await self.unsolve(guild, hunt, minis[number - 1])
+
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
 

@@ -335,3 +335,70 @@ class TestUnsolveService:
         asyncio.run(svc.unsolve(guild, hunt, mini))
 
         guild.get_channel_or_thread.assert_called_once_with(9001)
+
+
+class TestSolveMiniByNumber:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_resolves_by_number_and_delegates(self, RoundDb, PuzzleDb):
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+        from unittest.mock import AsyncMock
+
+        mini1 = make_puzzle(id=10, parent_puzzle_id=3, tags=[])
+        mini2 = make_puzzle(id=11, parent_puzzle_id=3, tags=[])
+        PuzzleDb.get_children.return_value = [mini1, mini2]
+        RoundDb.get_by_attr.return_value = None
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+        svc.solve = AsyncMock(return_value=True)
+
+        asyncio.run(
+            svc.solve_mini_by_number(None, _make_hunt(), 3, 2, "ANSWER")
+        )
+
+        svc.solve.assert_called_once()
+        called_puzzle = svc.solve.call_args[0][2]
+        assert called_puzzle.id == 11  # 1-indexed: number 2 → index 1
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    def test_raises_on_bad_number(self, PuzzleDb):
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+
+        PuzzleDb.get_children.return_value = [make_puzzle(id=10, parent_puzzle_id=3)]
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+
+        with pytest.raises(ValueError, match="No mini #5"):
+            asyncio.run(
+                svc.solve_mini_by_number(None, _make_hunt(), 3, 5, "X")
+            )
+
+
+class TestUnsolveMiniByNumber:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_resolves_and_delegates(self, RoundDb, PuzzleDb):
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+        from unittest.mock import AsyncMock
+
+        mini = make_puzzle(id=10, parent_puzzle_id=3, solved=True, solution="ANS", tags=[])
+        PuzzleDb.get_children.return_value = [mini]
+        RoundDb.get_by_attr.return_value = None
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+        svc.unsolve = AsyncMock()
+
+        asyncio.run(
+            svc.unsolve_mini_by_number(None, _make_hunt(), 3, 1)
+        )
+
+        svc.unsolve.assert_called_once()
+        assert svc.unsolve.call_args[0][2].id == 10
