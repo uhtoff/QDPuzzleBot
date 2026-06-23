@@ -80,6 +80,38 @@ def _install_ratelimit_probe():
 
     _dhttp.HTTPClient.request = _request
 
+    # Definitive scope capture (TEMPORARY — remove once the channel-create cooldown
+    # scope is known). discord.py never calls Ratelimit.update() on a 429, and the
+    # RateLimited exception carries only retry_after — so the *only* place the
+    # X-RateLimit-Scope / X-RateLimit-Global headers exist is the raw aiohttp
+    # response. Wrap ClientSession._request to log the rate-limit headers on ANY 429,
+    # which tells us whether the cooldown is per-guild (scope=shared) or account-wide
+    # (scope=user / X-RateLimit-Global=true). Does not consume the body.
+    import aiohttp as _aiohttp
+    if not getattr(_aiohttp.ClientSession._request, "_probe_installed", False):
+        _orig_session_request = _aiohttp.ClientSession._request
+
+        async def _session_request(self, method, str_or_url, **kwargs):
+            resp = await _orig_session_request(self, method, str_or_url, **kwargs)
+            try:
+                if resp.status == 429:
+                    h = resp.headers
+                    _probe_log.warning(
+                        "RATELIMIT-PROBE 429-headers: %s %s scope=%s global=%s "
+                        "bucket=%s limit=%s remaining=%s reset-after=%s retry-after=%s via=%s",
+                        method, str_or_url,
+                        h.get("X-RateLimit-Scope"), h.get("X-RateLimit-Global"),
+                        h.get("X-RateLimit-Bucket"), h.get("X-RateLimit-Limit"),
+                        h.get("X-RateLimit-Remaining"), h.get("X-RateLimit-Reset-After"),
+                        h.get("Retry-After"), h.get("Via"),
+                    )
+            except Exception:
+                pass
+            return resp
+
+        _session_request._probe_installed = True
+        _aiohttp.ClientSession._request = _session_request
+
 
 _install_ratelimit_probe()
 
