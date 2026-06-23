@@ -335,11 +335,12 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_tags(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = "SELECT tags.round_id FROM tags WHERE puzzle_id = %s"
+        select_stmt = "SELECT tags.round_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         for row in rows:
             puzzle.tags.append(row['round_id'])
+            puzzle.tag_edges[row['round_id']] = row['edge_type'] or "feeds-meta"
         cursor.close()
 
     def get_additional_sheets(self, puzzle):
@@ -353,6 +354,20 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 setattr(sheet, attr, row.get(attr, None))
             puzzle.additional_sheets.append(sheet)
         cursor.close()
+
+    def tag_puzzle_with_edge(self, puzzle_id, round_id, edge_type):
+        """M7: idempotent upsert of a membership edge with typed edge_type.
+        Relies on migration 005's UNIQUE KEY (round_id, puzzle_id)."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO tags (round_id, puzzle_id, edge_type) VALUES (%s, %s, %s)"
+                " ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
+                (round_id, puzzle_id, edge_type),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
 
     def commit(self, puzzle):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
