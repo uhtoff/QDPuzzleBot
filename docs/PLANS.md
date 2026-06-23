@@ -396,7 +396,7 @@ with an opaque note. → applies at **M9**.
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
 dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → **M6 (next)** → M7 → M8 → M9.
-M10/M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
+~~M10~~ (✅ done, `9951408`) / M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
 detail behind each item.
 
 **M0 — Foundation: checked-in base schema + migration runner.** ✅ **DONE** (`7453661`) *(deps: none)* Tracked `CREATE TABLE`
@@ -481,7 +481,18 @@ supports progressive structure — freeform "this is sus" → emergent labels �
 over it when axes are known. Provide the suspects/label + target roll-up views and the three
 completeness queries. Answer-channel (`feeds-meta`→meta) and evidence-channel (`reveals`→boards) coexist.
 
-**M10 — Destructive-command safety + bulk-delete pacing** *(off critical path; needs M3)*. Confirm/undo
+**M10 — Destructive-command safety + bulk-delete pacing.** ✅ **DONE** (`9951408`) *(off critical path;
+needs M3)*. Delivered: **confirm-before** (not undo — a deleted sheet/channel isn't recoverable) on
+`delete_puzzle`/`delete_round`/`delete_hunt` via a reusable `discord.ui` `ConfirmView` (`bot/cogs/ui.py`)
++ `_confirm_destructive`; the shared `_delete_puzzles` loop is None-guarded + rate-limit/NotFound-tolerant
+via `_safe_delete_channel` and surfaces the un-deleted remainder via `_warn_failed_channels` (a half-delete
+is resumable, not a crash); orphan cleanup via a shared `_cleanup_orphan_puzzle(hunt, puzzle)` reused by
+`web_create_puzzle`, the `web_create_round` rollback (now also drops the nested meta puzzle), and the bang
+`!p` path (`_create_puzzle_with_cleanup`). Spec/plan:
+`docs/superpowers/specs/2026-06-22-m10-destructive-safety-design.md`. The original scope below is kept for
+reference.
+
+**Original M10 scope** *(needs M3)*. Confirm/undo
 on `delete_hunt`/`delete_round`/`_delete_puzzles` via `discord.ui` buttons; None-guard
 `_delete_puzzles:2588`; pace bulk-delete loops against mid-loop `RateLimited`. **Also: orphan cleanup
 on create failure.** Today create safety is ordering-only (sheet-create-then-DB-commit-then-channel),
