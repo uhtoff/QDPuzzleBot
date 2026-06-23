@@ -14,10 +14,15 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb
-from bot.store.puzzle_data import AdditionalSheetData
+from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
+from bot.store.round_data import RoundData
 from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
+from bot.core.discord_channels import (
+    clean_name, get_or_create_channel, solve_divider_position,
+    MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -362,3 +367,184 @@ class PuzzleService:
         if sheet is None:
             raise RuntimeError("sheet_not_found")
         await self._delete_additional_sheet(hunt, puzzle, sheet)
+
+    # -------------------------------------------------------------------------
+    # Create helpers (M3.5) — canonical paths used by bang + web edges
+    # -------------------------------------------------------------------------
+
+    async def _cleanup_orphan_puzzle(self, hunt, puzzle):
+        """Best-effort removal of a puzzle's Google sheet + DB row after a failed
+        create. Never raises (we are already handling a create failure)."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            try:
+                await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+            except Exception:
+                logger.exception("orphan cleanup: failed to delete sheet for %s", puzzle)
+        try:
+            if getattr(puzzle, "id", 0):
+                PuzzleJsonDb.delete(puzzle.id)
+        except Exception:
+            logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
+
+    async def create_puzzle(self, guild, hunt, round_data, name, is_meta=False, notifier=None):
+        """Create a new puzzle: DB row + Google sheet + Discord channel.
+
+        Mirrors the old cog path but calls *discord_channels* module functions
+        directly (no cog delegation) and fires notification via the injected
+        notifier.  Raises the underlying exception on failure so edges can
+        decide tolerance.
+        """
+        category = discord.utils.get(guild.categories, id=round_data.category_id) if round_data else None
+
+        # Space checks before we create any Google sheet (avoids orphan sheets).
+        if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
+            raise RuntimeError("guild_full")
+        if category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
+            raise RuntimeError("category_full")
+
+        new_puzzle = PuzzleData(
+            name=name,
+            hunt_id=hunt.id,
+            start_time=datetime.datetime.now(tz=pytz.UTC),
+            status='Unstarted',
+            priority='Normal',
+        )
+        if is_meta:
+            new_puzzle.metapuzzle = 1
+        if hunt.url:
+            prefix = hunt.puzzle_prefix or 'puzzle'
+            hunt_url_base = hunt.url.rstrip("/")
+            p_name = clean_name(name).replace("-", hunt.url_sep)
+            new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
+        if round_data is not None:
+            new_puzzle.tags.append(round_data.id)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.create_puzzle_spreadsheet(new_puzzle)
+
+        PuzzleJsonDb.commit(new_puzzle)
+
+        try:
+            channel_name = clean_name(new_puzzle.name)
+            text_channel, created = await get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name,
+                channel_type="text",
+            )
+            if created:
+                if category is not None:
+                    divider = solve_divider_position(category)
+                    if divider is not False:
+                        await text_channel.edit(position=divider)
+                new_puzzle.channel_mention = text_channel.mention
+                new_puzzle.channel_id = text_channel.id
+                new_puzzle.channel_name = text_channel.name
+                PuzzleJsonDb.commit(new_puzzle)
+                # Notify (welcome) after channel + DB are committed.
+                if notifier is not None:
+                    await notifier.welcome(
+                        guild, hunt,
+                        hunt_round=round_data,
+                        puzzle=new_puzzle,
+                        channel=text_channel,
+                    )
+        except Exception:
+            # Channel create (or post-create work) failed after the sheet + DB row
+            # were committed — clean up both so we don't strand an orphan.
+            await self._cleanup_orphan_puzzle(hunt, new_puzzle)
+            raise
+
+        # Refresh metas for every tag that was assigned.
+        for tag in new_puzzle.tags:
+            try:
+                meta_round = RoundJsonDb.get_by_attr(id=tag)
+                if meta_round is not None:
+                    await self.refresh_meta(hunt, meta_round)
+            except Exception:
+                logger.exception("create_puzzle: sheet update failed for round %s", tag)
+
+        return new_puzzle
+
+    async def create_round(self, guild, hunt, name, notifier=None,
+                           meta_puzzle_name=None, round_type="Metapuzzle", round_kind="meta"):
+        """Create a new metapuzzle/round: category clone + round row + optional meta puzzle.
+
+        Returns (RoundData, PuzzleData) when ``meta_puzzle_name`` is not False,
+        else (RoundData, None).  Raises RuntimeError("<code>") on recoverable
+        problems; raises the underlying exception otherwise.
+        ``meta_puzzle_name``: name for the meta puzzle. Defaults to round ``name``.
+        Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
+        ``round_type`` / ``round_kind`` let callers specify round classification.
+        """
+        mp_name = meta_puzzle_name if isinstance(meta_puzzle_name, str) else name
+        create_meta = meta_puzzle_name is not False
+        if RoundJsonDb.check_duplicates_in_hunt(name, hunt):
+            raise RuntimeError("round_exists")
+        if create_meta and PuzzleJsonDb.check_duplicates_in_hunt(mp_name, hunt.id):
+            raise RuntimeError("puzzle_name_clash")
+        if len(guild.categories) >= MAX_CATEGORIES:
+            raise RuntimeError("no_category_space")
+
+        new_category_name = clean_name(name)
+        existing_category = discord.utils.get(guild.categories, name=new_category_name)
+        if existing_category or hunt.parallel_hunt:
+            new_category_name = new_category_name + " — " + clean_name(hunt.name)
+            existing_category = discord.utils.get(guild.categories, name=new_category_name)
+        if existing_category:
+            raise RuntimeError("category_exists")
+
+        ref_category = discord.utils.get(guild.categories, id=hunt.category_id)
+        if ref_category is None:
+            raise RuntimeError("no_template_category")
+
+        new_category = None
+        new_round = None
+        puzzle = None
+        try:
+            new_category = await ref_category.clone(name=new_category_name)
+            await new_category.edit(position=ref_category.position + 1)
+            from bot.core.discord_channels import SOLVE_DIVIDER, SOLVE_CATEGORY
+            if SOLVE_CATEGORY is False:
+                await get_or_create_channel(
+                    guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
+                    channel_type="text", position=500,
+                )
+
+            new_round = RoundData(
+                name=name, hunt_id=hunt.id,
+                category_id=new_category.id,
+                type=round_type, kind=round_kind,
+            )
+            RoundJsonDb.commit(new_round)
+
+            # Create the meta puzzle for this round (skip for Metaless variants).
+            if create_meta:
+                puzzle = await self.create_puzzle(
+                    guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,
+                )
+                new_round.meta_id = puzzle.id
+
+            new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, name)
+            RoundJsonDb.commit(new_round)
+
+            return new_round, puzzle
+        except Exception:
+            # Roll back so partial create leaves neither a meta-less round row
+            # nor an orphan category.
+            if new_round is not None and getattr(new_round, "id", 0):
+                try:
+                    RoundJsonDb.delete(new_round.id)
+                except Exception:
+                    logger.exception("create_round: rollback of round row failed")
+            if puzzle is not None:
+                await self._cleanup_orphan_puzzle(hunt, puzzle)
+            if new_category is not None:
+                try:
+                    for ch in list(new_category.channels):
+                        await ch.delete(reason="create_round rollback")
+                    await new_category.delete(reason="create_round rollback")
+                except Exception:
+                    logger.exception("create_round: rollback of orphan category failed")
+            raise
+

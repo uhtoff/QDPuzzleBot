@@ -428,10 +428,19 @@ below):** `web_create_puzzle`/`web_create_round` and `web_refresh_info` are Disc
 relocating them cleanly needs the Discord channel-management helpers (`get_or_create_channel`,
 `clean_name`, divider/welcome logic) extracted first.
 
-**M3.5 — Discord channel-adapter extraction** *(new; off critical path; deps: M3)* Extract the Discord
-channel/category-management helpers into core, then relocate `create_puzzle`/`create_round` and the
-pinned-info render onto `PuzzleService` (finishing the "all operations live in `bot/core/`" goal). Its
-own milestone because it also touches the bang create paths (`_round_impl`, `create_puzzle_channel`).
+**M3.5 — Discord channel-adapter extraction.** ✅ **DONE** (branch `feature/m3.5-channel-adapter`)
+*(off critical path; deps: M3)* Extract the Discord channel/category-management helpers into core, then
+relocate `create_puzzle`/`create_round` and the pinned-info render onto `PuzzleService` (finishing the
+"all operations live in `bot/core/`" goal). **Delivered:** ctx-free `bot/core/discord_channels.py`
+(`clean_name`, `get_or_create_channel`, divider/position helpers, channel/category limits); injected
+`bot/core/notifier.py` (`Notifier` ABC + `NullNotifier`/`DiscordNotifier`/`CompositeNotifier` fan-out
+seam) so per-channel welcome/pinned-info/solve notifications fire regardless of caller;
+`PuzzleService.create_puzzle`/`create_round` with relocated orphan-cleanup/rollback; both the bang
+create paths (`!p`/`!r`/`!mp`/`!rnm`, via `_round_impl`) and the web dashboard strangled onto the
+service with the divergent twins (`create_puzzle_channel`, cog-level `create_puzzle`/`create_metapuzzle`/
+`_cleanup_orphan_puzzle`) deleted; bang≡web create equivalence test added. **Note:** `CompositeNotifier`
+is the build-only seam for the deferred Phase B bang-command board-push (no `board_changed`/`WebNotifier`
+emit here — `bot/core/*` stays free of `bot/web/*` imports).
 
 **M4 — Per-puzzle mutex on the web/service path.** ✅ **DONE** (`4df63e8`) *(deps: M3)* Web actions took
 no `_PUZZLE_LOCKS` → dashboard solve/retag could race bang-commands and lose updates. **Delivered:** a
