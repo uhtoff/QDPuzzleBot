@@ -275,7 +275,10 @@ async def get_rollups_by_round(hunt_id):
     dashboard "sheet stale" badge (M5). A round with no rollup row is treated as
     not-stale (never refreshed yet, or no sheet). Includes source_mode (M7)."""
     rows = await fetch_all(
-        "SELECT round_id, last_ok, last_error, source_mode FROM rollups WHERE hunt_id = %s",
+        # round_id IS NOT NULL excludes M8 puzzle-keyed (minimeta) roll-ups, which are
+        # not round badges and would otherwise add a stray None key to this map.
+        "SELECT round_id, last_ok, last_error, source_mode FROM rollups "
+        "WHERE hunt_id = %s AND round_id IS NOT NULL",
         (hunt_id,),
     )
     return {

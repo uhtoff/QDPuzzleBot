@@ -294,36 +294,48 @@ class Puzzles(commands.Cog):
         self.environment[ctx.message.id]['channel_type'] = channel_type
 
     def get_hunt(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['hunt'] or None
 
     def set_hunt(self, ctx, hunt):
         self.environment[ctx.message.id]['hunt'] = hunt
 
     def get_hunt_round(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['hunt_round'] or None
 
     def set_hunt_round(self, ctx, hunt_round):
         self.environment[ctx.message.id]['hunt_round'] = hunt_round
 
     def get_puzzle(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['puzzle'] or None
 
     def set_puzzle(self, ctx, puzzle):
         self.environment[ctx.message.id]['puzzle'] = puzzle
 
     def get_guild(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['guild'] or None
 
     def set_guild(self, ctx, guild):
         self.environment[ctx.message.id]['guild'] = guild
 
     def get_guild_data(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['guild_data'] or None
 
     def set_guild_data(self, ctx, guild_data):
         self.environment[ctx.message.id]['guild_data'] = guild_data
 
     def get_gsheet_cog(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['gsheet_cog'] or None
 
     def set_gsheet_cog(self, ctx, gsheet_cog):
@@ -705,22 +717,19 @@ class Puzzles(commands.Cog):
         """ctx-free metapuzzle/round creation for the dashboard (like !mp).
 
         Delegates to PuzzleService.create_round (canonical implementation).
-        After the service returns, sends the welcome message so meta_code is
-        populated in the embed. Raises RuntimeError("<code>") on a recoverable
-        problem.
+        Suppresses the service's early welcome (notifier=None) because meta_code
+        is not yet populated when create_puzzle fires it; instead sends the
+        welcome once afterwards so meta_code is present in the embed. Raises
+        RuntimeError("<code>") on a recoverable problem.
         """
-        from bot.core.notifier import DiscordNotifier
-        notifier = DiscordNotifier(self.bot)
         new_round, puzzle = await self.service.create_round(
-            guild, hunt, name, notifier=notifier,
+            guild, hunt, name, notifier=None,
         )
         # Send the meta welcome now that meta_code/meta_id are populated.
-        channel = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
+        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
         if channel is not None:
-            try:
-                await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
-            except Exception:
-                logger.exception("web_create_round: failed to send welcome")
+            await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
+        return new_round, puzzle
 
     async def web_post_solved_embed(self, guild, hunt, puzzle):
         """Best-effort dashboard-side presentation after service.solve: post the
@@ -912,6 +921,7 @@ class Puzzles(commands.Cog):
             )
         except RuntimeError as exc:
             return await ctx.send(f":x: Could not create mini-puzzle: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Created mini-puzzle **{mini.name}**. Thread: <#{mini.channel_id}>")
 
     @commands.command()
@@ -924,14 +934,21 @@ class Puzzles(commands.Cog):
         if not minis:
             return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
         embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
+        embed.description = self.create_mini_list(puzzle, minis)
+        await ctx.send(embed=embed)
+
+    def create_mini_list(self, puzzle: PuzzleData, minis=None):
+        """Render the numbered mini-puzzle list (solved/unsolved). Shared by
+        !list_minis and the pinned-info embed so both stay in sync."""
+        if minis is None:
+            minis = self.service.get_minis(puzzle.id)
         lines = []
         for i, mini in enumerate(minis, 1):
             if mini.solved:
                 lines.append(f"{i}. ✅ **{mini.name}** — {mini.solution}")
             else:
                 lines.append(f"{i}. ⬜ **{mini.name}** — unsolved")
-        embed.description = "\n".join(lines)
-        await ctx.send(embed=embed)
+        return "\n".join(lines)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -949,6 +966,7 @@ class Puzzles(commands.Cog):
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Solved mini #{number}: **{solution}**")
 
     @commands.command()
@@ -964,6 +982,7 @@ class Puzzles(commands.Cog):
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
     @commands.command(name="clue")
@@ -1676,6 +1695,15 @@ class Puzzles(commands.Cog):
                 inline=False,
             )
             embed_list.append(sheets_embed)
+        minis = self.service.get_minis(puzzle.id)
+        if minis:
+            minis_embed = discord.Embed()
+            minis_embed.add_field(
+                name="Mini-puzzles",
+                value=self.create_mini_list(puzzle, minis),
+                inline=False,
+            )
+            embed_list.append(minis_embed)
         return embed_list
 
     @staticmethod

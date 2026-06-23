@@ -103,10 +103,15 @@ class DiscordNotifier(Notifier):
         if cog is None:
             return
 
+        from bot.store import GuildSettingsDb
         kwargs = {
             "hunt": hunt,
             "hunt_round": hunt_round,
             "puzzle": puzzle,
+            # ctx is None on this path, so the welcome handlers can't fall back to
+            # the environment for guild settings (needed by _overview_url). Supply
+            # it explicitly.
+            "guild_data": GuildSettingsDb.get(guild.id),
         }
         try:
             handler = (

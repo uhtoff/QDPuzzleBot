@@ -6,8 +6,10 @@ edge_type_filter — inert at their defaults until M6/M7), and the success/failu
 of the last refresh (last_ok / last_error / updated_at) which the dashboard
 surfaces as a "sheet stale" badge.
 
-Identity is per round_id (one rollup per meta round); see
-docs/superpowers/specs/2026-06-22-m5-rollups-design.md.
+Identity is per round_id (one rollup per meta round) OR, since M8, per
+target_puzzle_id (one rollup per minimeta whose mini-puzzles render onto its own
+sheet — the puzzle-keyed path). Exactly one of round_id / target_puzzle_id is set.
+See docs/superpowers/specs/2026-06-22-m5-rollups-design.md.
 """
 from dataclasses import dataclass, fields
 from dataclasses_json import dataclass_json
@@ -23,7 +25,8 @@ logger = logging.getLogger(__name__)
 class RollupData:
     id: int = 0
     hunt_id: int = 0
-    round_id: int = 0
+    round_id: Optional[int] = None        # NULL for puzzle-keyed (minimeta) roll-ups
+    target_puzzle_id: Optional[int] = None  # M8: minimeta target (round_id is NULL)
     tab_page_id: Optional[int] = None
     metadata_id: Optional[int] = None
     source_mode: str = "round"            # inert until M7 (round/subtree/explicit)

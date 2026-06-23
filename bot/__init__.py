@@ -80,6 +80,48 @@ def _install_ratelimit_probe():
 
     _dhttp.HTTPClient.request = _request
 
+    # Definitive scope capture (TEMPORARY — remove once the channel-create cooldown
+    # scope is known). discord.py never calls Ratelimit.update() on a 429, and the
+    # RateLimited exception carries only retry_after — so the *only* place the
+    # X-RateLimit-Scope / X-RateLimit-Global headers exist is the raw aiohttp
+    # response. Wrap ClientSession._request to log the rate-limit headers on ANY 429,
+    # which tells us whether the cooldown is per-guild (scope=shared) or account-wide
+    # (scope=user / X-RateLimit-Global=true). Does not consume the body.
+    import aiohttp as _aiohttp
+    if not getattr(_aiohttp.ClientSession._request, "_probe_installed", False):
+        _orig_session_request = _aiohttp.ClientSession._request
+
+        async def _session_request(self, method, str_or_url, **kwargs):
+            resp = await _orig_session_request(self, method, str_or_url, **kwargs)
+            try:
+                h = resp.headers
+                url_str = str(str_or_url)
+                # Don't guess header names. The response that seeds the long
+                # pre-emptive cooldown is a *successful* channel create whose exact
+                # rate-limit header shape we don't know (it may use Reset-After,
+                # Reset, or Retry-After). So dump the whole rate-limit header set on
+                # any 429 AND on any channel-create response, then read the scope off
+                # the real line.
+                is_channel_create = (
+                    str(method).upper() == "POST"
+                    and url_str.rstrip("/").endswith("/channels")
+                )
+                if resp.status == 429 or is_channel_create:
+                    rl = {
+                        k: v for k, v in h.items()
+                        if k.lower().startswith("x-ratelimit") or k.lower() == "retry-after"
+                    }
+                    _probe_log.warning(
+                        "RATELIMIT-PROBE headers: status=%s %s %s ratelimit=%s via=%s",
+                        resp.status, method, url_str, rl, h.get("Via"),
+                    )
+            except Exception:
+                pass
+            return resp
+
+        _session_request._probe_installed = True
+        _aiohttp.ClientSession._request = _session_request
+
 
 _install_ratelimit_probe()
 
@@ -88,7 +130,7 @@ async def get_prefix(_bot, message):
     return commands.when_mentioned_or(utils.config.prefix)(_bot, message)
 
 
-bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True, max_ratelimit_timeout=60)
+bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True)
 bot.version = __version__
 
 @bot.event
@@ -206,6 +248,16 @@ def setup_logger(log_level=logging.INFO):
 def extensions():
     files = Path("bot", "cogs").rglob("*.py")
     for file in files:
+        # Only load modules that are actual cog extensions (define a module-level
+        # setup()). Helper modules under cogs/ — e.g. ui.py, reusable discord.ui
+        # components imported directly by cogs — have no setup() and would
+        # otherwise raise NoEntryPointError on every startup.
+        try:
+            source = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not re.search(r"^\s*(async\s+)?def\s+setup\b", source, re.MULTILINE):
+            continue
         yield file.as_posix()[:-3].replace("/", ".")
 
 
