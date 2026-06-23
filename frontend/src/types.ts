@@ -98,3 +98,13 @@ export interface ActivityEvent {
   at?: string;
   author?: string;
 }
+
+export interface RollupAnswer {
+  name: string;
+  solution: string | null;
+}
+
+export interface RollupAnswers {
+  mode: string;
+  answers: RollupAnswer[];
+}

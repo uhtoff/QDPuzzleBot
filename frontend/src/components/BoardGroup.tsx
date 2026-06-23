@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
   ActionIcon,
@@ -15,6 +16,7 @@ import {
 import {
   IconAlertTriangle,
   IconCircleCheck,
+  IconCopy,
   IconNote,
   IconRefresh,
   IconTree,
@@ -22,7 +24,14 @@ import {
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
-import { useRebuildRollup, useSetSourceMode, useSetNesting, useUpdatePuzzle, type SourceMode } from "../api";
+import {
+  useRebuildRollup,
+  useRollupAnswers,
+  useSetNesting,
+  useSetSourceMode,
+  useUpdatePuzzle,
+  type SourceMode,
+} from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { relativeTime, statusColor } from "../util";
@@ -41,6 +50,11 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const [nestModalOpen, setNestModalOpen] = useState(false);
   const [nestParentId, setNestParentId] = useState<string|null>(null);
+  // Aggregated answers reveal
+  const [answersOpened, { open: openAnswers, close }] = useDisclosure(false);
+  const clipboard = useClipboard();
+  const isMeta = !!group.meta_code;
+  const answersQuery = useRollupAnswers(group.round_id, answersOpened && isMeta);
   // Collect other meta rounds for the nesting dropdown
   const allMetaRounds = detail.board.filter((g) => g.round_id !== 0 && g.round_id !== group.round_id);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
@@ -78,8 +92,8 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
       onSuccess: () => {
         notifications.show({
           message: parentId
-            ? `“${group.name}” nested under “${allMetaRounds.find(g => g.round_id === parentId)?.name || parentId}”`
-            : `“${group.name}” nesting cleared`,
+            ? `"${group.name}" nested under "${allMetaRounds.find(g => g.round_id === parentId)?.name || parentId}"`
+            : `"${group.name}" nesting cleared`,
           color: "green",
         });
         setNestModalOpen(false);
@@ -87,6 +101,19 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
       },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });
+  }
+
+  function copyAnswers() {
+    if (!answersQuery.data) return;
+    const rows = answersQuery.data.answers
+      .filter((a) => a.solution && a.solution.trim().length > 0)
+      .map((a) => `${a.name}\t${a.solution}`);
+    if (rows.length === 0) {
+      notifications.show({ message: "No solved answers to copy", color: "yellow" });
+      return;
+    }
+    clipboard.copy(rows.join("\n"));
+    notifications.show({ message: `Copied ${rows.length} answers`, color: "green" });
   }
 
   function activityFor(p: Puzzle): string {
@@ -172,6 +199,23 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               aria-label="Nest this meta"
             >
               <IconTree size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {/* M7.5 aggregated answers toggle (only for meta rounds) */}
+        {isMeta && (
+          <Tooltip label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}>
+            <ActionIcon
+              variant="subtle"
+              color="blue"
+              mr="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                answersOpened ? close() : openAnswers();
+              }}
+              aria-label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
+            >
+              <IconCopy size={16} />
             </ActionIcon>
           </Tooltip>
         )}
@@ -266,6 +310,45 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             </ActionIcon>
           </Group>
         </Modal>
+
+        {/* M7.5 aggregated answers panel (only for meta rounds) */}
+        {isMeta && answersOpened && (
+          <Box mt="sm" p="sm" style={{ backgroundColor: "var(--mantine-color-gray-light)", borderRadius: "md" }}>
+            <Group justify="space-between" mb="xs">
+              <Text size="sm" fw={600}>
+                Aggregated answers
+                {answersQuery.data && (
+                  <Text component="span" c="dimmed" fw={400} ml="xs">
+                    mode: {answersQuery.data.mode} · {answersQuery.data.answers.length} answers
+                  </Text>
+                )}
+              </Text>
+              <Tooltip label="Copy to clipboard">
+                <ActionIcon
+                  variant="light"
+                  color="blue"
+                  onClick={copyAnswers}
+                  disabled={!answersQuery.data}
+                  aria-label="Copy answers"
+                >
+                  {clipboard.copied ? <IconCircleCheck size={14} /> : <IconCopy size={14} />}
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+            {answersQuery.data && (
+              <Table>
+                <Table.Tbody>
+                  {answersQuery.data.answers.map((a) => (
+                    <Table.Tr key={a.name}>
+                      <Table.Td><Text size="xs" fw={500}>{a.name}</Text></Table.Td>
+                      <Table.Td><Text ff="monospace" size="xs">{a.solution || ""}</Text></Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            )}
+          </Box>
+        )}
       </Accordion.Panel>
     </Accordion.Item>
   );
