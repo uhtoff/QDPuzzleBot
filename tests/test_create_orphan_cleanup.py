@@ -81,3 +81,30 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
             await cog.web_create_round(guild, hunt, "New Round")
 
     cleanup_mock.assert_awaited_once_with(hunt, created_puzzle)
+
+
+@pytest.mark.asyncio
+async def test_bang_create_puzzle_cleans_up_on_channel_failure(monkeypatch):
+    import bot.cogs.puzzles as puzzles_mod
+    cog, gsheet = _cog_with_sheets()
+    new_puzzle = MagicMock(id=88, tags=[])
+
+    cog._cleanup_orphan_puzzle = AsyncMock()
+    monkeypatch.setattr(cog, "create_puzzle", AsyncMock(return_value=new_puzzle))
+    monkeypatch.setattr(cog, "create_puzzle_channel",
+                        AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom")))
+
+    hunt = _hunt()
+    cat = MagicMock()
+    chan = MagicMock(category=cat)
+    ctx = MagicMock()
+    ctx.channel = chan
+    ctx.message.id = 7
+    cog.environment[7] = {"channel_type": "Puzzle", "hunt": hunt, "hunt_round": None,
+                          "puzzle": None, "guild": MagicMock(), "guild_data": None, "channel": chan}
+    monkeypatch.setattr(cog, "get_tag_from_category", MagicMock(return_value=None))
+
+    with pytest.raises(discord.HTTPException):
+        await cog._create_puzzle_with_cleanup(ctx, "Newpuz")
+
+    cog._cleanup_orphan_puzzle.assert_awaited_once()

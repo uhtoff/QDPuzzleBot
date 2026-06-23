@@ -541,9 +541,18 @@ class Puzzles(commands.Cog):
         if await self.check_available_space(ctx,1) is False:
             return await ctx.send(":x: There is no free channel to create this puzzle, please inform the moderators.")
 
-        category = ctx.channel.category
-        new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
-        await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
+        await self._create_puzzle_with_cleanup(ctx, puzzle_name)
+
+    async def _create_puzzle_with_cleanup(self, ctx, puzzle_name):
+        """create_puzzle (sheet+row) then its channel, removing the orphan
+        sheet+row if the channel create fails."""
+        new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(ctx.channel.category))
+        try:
+            await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
+        except Exception:
+            await self._cleanup_orphan_puzzle(self.get_hunt(ctx), new_puzzle)
+            raise
+        return new_puzzle
 
     async def create_metapuzzle(self,ctx, puzzle_name, tag = None):
         return await self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
