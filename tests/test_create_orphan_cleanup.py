@@ -54,6 +54,32 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
 
 
 @pytest.mark.asyncio
+async def test_web_create_round_returns_round_and_puzzle_and_defers_welcome():
+    """Success path: web_create_round must return (round, puzzle) for the caller to
+    unpack, suppress the service's early welcome (notifier=None, since meta_code is
+    not yet set inside create_puzzle), and send a single welcome afterwards."""
+    cog, gsheet = _cog_with_sheets()
+    hunt = _hunt()
+    new_round = make_round(id=5, meta_code="ABC123")
+    puzzle = MagicMock(id=77, channel_id=333)
+    guild = MagicMock()
+    channel = MagicMock()
+    guild.get_channel.return_value = channel
+
+    with patch.object(cog.service, "create_round",
+                      AsyncMock(return_value=(new_round, puzzle))) as create_round, \
+         patch.object(cog, "_web_send_welcome", AsyncMock()) as send_welcome:
+        result = await cog.web_create_round(guild, hunt, "New Round")
+
+    # Caller unpacks `new_round, puzzle = await cog.web_create_round(...)`.
+    assert result == (new_round, puzzle)
+    # Early welcome suppressed so the embed isn't sent before meta_code is populated.
+    assert create_round.await_args.kwargs["notifier"] is None
+    # Exactly one welcome, sent afterwards with meta_code available.
+    send_welcome.assert_awaited_once_with(guild, hunt, new_round, puzzle, channel)
+
+
+@pytest.mark.asyncio
 async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
     """web_create_round → service.create_round; late failure triggers full rollback."""
     cog, gsheet = _cog_with_sheets()
