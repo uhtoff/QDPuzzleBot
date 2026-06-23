@@ -345,6 +345,24 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return found
 
+    def get_unclassified(self, hunt_id) -> List[PuzzleData]:
+        """Return non-meta puzzles that feed no meta (for the Unclassified Puzzles tab)."""
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT p.* FROM puzzles p"
+            " WHERE p.hunt_id = %s"
+            "   AND p.metapuzzle = 0"
+            "   AND NOT EXISTS ("
+            "       SELECT 1 FROM tags t"
+            "       JOIN rounds r ON t.round_id = r.id"
+            "       WHERE t.puzzle_id = p.id AND r.meta_id > 0"
+            "   )",
+            (hunt_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        return [self.construct_puzzle(r) for r in rows]
+
     def get_tags(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
         select_stmt = "SELECT tags.round_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
