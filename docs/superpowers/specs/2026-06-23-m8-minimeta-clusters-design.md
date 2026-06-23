@@ -141,10 +141,16 @@ Clicking the chevron reveals a sub-list of minis:
 - Solve input + button (same flow as the existing puzzle solve action)
 - Unsolve button when solved
 
+An **Add Mini** button at the bottom of the panel creates a new mini-puzzle (name input →
+calls the same `PuzzleService.create_mini` path as `!add_mini`), creating the thread and
+Google tab.
+
 ### API changes
 
 - `GET /api/hunt/<uid>` puzzle payload for minimeta-type puzzles includes a `mini_puzzles`
   array: `[{id, name, solved, solution}, …]` (joined on `parent_puzzle_id`)
+- `POST /api/puzzles/<id>/minis` — create a new mini under this minimeta; calls
+  `PuzzleService.create_mini`; returns the new mini's id, name, thread id
 - `POST /api/puzzles/<id>/solve` — new endpoint (or extend existing solve endpoint)
   reachable from the dashboard mini panel; calls `PuzzleService.solve`
 - `POST /api/puzzles/<id>/unsolve` — same pattern
@@ -165,7 +171,7 @@ Clicking the chevron reveals a sub-list of minis:
 ### Out of scope
 
 - `!delete_mini` (use existing `!remove_sheet` or a follow-on)
-- Dashboard creation of minis (bang command only for now)
+- Dashboard creation of minis ✓ (in scope — Add Mini button in the expand panel)
 - M11 feeder-as-thread (separate milestone; thread-awareness fix here is shared groundwork)
 - Any change to capstone / reveal logic (M9)
 
