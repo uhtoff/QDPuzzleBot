@@ -92,11 +92,12 @@ pipenv run ruff check --fix    # apply safe auto-fixes
 
 ## Worktrees
 
-**Convention: reuse the one persistent worktree at `.claude/worktrees/working-1`** rather
-than creating a new one per feature — it already has its pipenv venv, `config.json`,
-`google_secrets.json`, and `frontend/node_modules`, so there's no setup. Start a feature
-with `cd .claude/worktrees/working-1 && git switch -c feature/<name> main`; after merging
-to `main`, resync with `git -C .claude/worktrees/working-1 switch -C working-1 main`.
+**Convention: reuse a persistent worktree** (`.claude/worktrees/working-1`,
+`.claude/worktrees/working-2`, etc.) rather than creating a new one per feature — each
+already has its pipenv venv, `config.json`, `google_secrets.json`, and
+`frontend/node_modules`, so there's no setup. Work directly on the worktree's own branch
+(`working-1`, `working-2`, …); after merging to `main`, resync with
+`git merge --ff-only main` from inside the worktree.
 
 Only create a fresh worktree for genuinely parallel work. Full setup gotchas and the
 from-scratch steps are in **`docs/WORKTREES.md`** (branch from local `main` not stale
