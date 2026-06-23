@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Tooltip } from "@mantine/core";
+import { ActionIcon, Group, Indicator, Tooltip } from "@mantine/core";
 import { IconBrandDiscord, IconExternalLink, IconFileSpreadsheet } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 
@@ -16,9 +16,16 @@ export function PuzzleLinks({ puzzle, sheetBase, archiveSheetBase }: Props) {
     <Group gap={4} wrap="nowrap">
       {sheetUrl && (
         <Tooltip label="Spreadsheet">
-          <ActionIcon component="a" href={sheetUrl} target="_blank" variant="subtle" color="green">
-            <IconFileSpreadsheet size={16} />
-          </ActionIcon>
+          <Indicator
+            label={puzzle.sheets.length}
+            size={16}
+            disabled={puzzle.sheets.length === 0}
+            color="green"
+          >
+            <ActionIcon component="a" href={sheetUrl} target="_blank" variant="subtle" color="green">
+              <IconFileSpreadsheet size={16} />
+            </ActionIcon>
+          </Indicator>
         </Tooltip>
       )}
       {puzzle.discord_url && (
