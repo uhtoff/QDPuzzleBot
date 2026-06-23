@@ -150,3 +150,6 @@ cardboard*.json
 
 # git worktrees (see docs/WORKTREES.md)
 .claude/worktrees/
+
+# Pi agent scratch/continue state
+.pi/
