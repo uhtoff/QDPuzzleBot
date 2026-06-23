@@ -676,6 +676,13 @@ class GoogleSheets(commands.Cog):
         )
         return await execute_with_retry(req, on_retry=self._notify_retry)
 
+    async def _values_get(self, spreadsheet_id, a1_range):
+        req = get_sheet().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=a1_range,
+        )
+        return await execute_with_retry(req, on_retry=self._notify_retry)
+
     async def aggregate_to_tab(self, spreadsheet_id, tab_page_id, columns, rows,
                                start_row=4, start_column=0):
         """Write a `columns` header + `rows` data block to a tab as a snapshot.
@@ -740,6 +747,177 @@ class GoogleSheets(commands.Cog):
             ["Puzzle Round", "Puzzle Title", "Puzzle Solution"],
             rows,
         )
+
+    async def ensure_unclassified_table(self, spreadsheet_id, page_id, show_round=False):
+        """Create an Unclassified Puzzles native Table. Idempotent.
+
+        Returns the table id (existing or newly created).
+        Columns: id (hidden), Puzzle, Answer, Length, Round (hidden unless show_round).
+        """
+        resp = await execute_with_retry(
+            get_sheet().get(spreadsheetId=spreadsheet_id, ranges=[f"Sheet{page_id}"]),
+            on_retry=self._notify_retry,
+        )
+        sheets = resp.get("sheets", [])
+        if len(sheets) == 0:
+            raise RuntimeError(f"ensure_unclassified_table: no sheet found for page_id {page_id}")
+
+        table = (sheets[0].get("tableRange")) or None
+        if table is not None:
+            return int(table.split("!")[0].split("Sheet")[-1]) if "!" in table else None
+
+        # Create native Table with headers; row 0 = header, data starts at row 1.
+        hide_id = True
+        hide_round = not show_round
+
+        body = {
+            "requests": [{
+                "addTable": {
+                    "table": {
+                        "range": {
+                            "sheetId": page_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 5,
+                        },
+                        "format": {
+                            "headerRowCount": 1,
+                            "columnProperties": [
+                                {"hiddenByUser": hide_id, "userDefinedVisible": not hide_id},
+                                {},
+                                {},
+                                {},
+                                {"hiddenByUser": hide_round, "userDefinedVisible": not hide_round},
+                            ],
+                        },
+                    }
+                }
+            }]
+        }
+
+        req = get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        result = await execute_with_retry(req, on_retry=self._notify_retry)
+        return result["replies"][0]["addTable"]["table"]["tableId"]
+
+    async def read_unclassified_keys(self, spreadsheet_id, page_id):
+        """Read puzzle ids from column A of the Unclassified tab (skip header)."""
+        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        if tab_name is None:
+            return []
+        safe_name = tab_name.replace("'", "''")
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A2:A")
+        values = resp.get("values", []) or []
+        keys = []
+        for cell in values:
+            try:
+                keys.append(int(cell[0]))
+            except (ValueError, IndexError):
+                continue
+        return keys
+
+    async def apply_unclassified_changes(self, spreadsheet_id, page_id, table_id,
+                                        appends, updates, prunes):
+        """Apply incremental reconcile to the Unclassified Puzzles Table.
+
+        Only writes bot-managed columns (A-E); never touches user Notes.
+        Appends new rows, updates answer/length for existing ids, deletes pruned rows.
+        """
+        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        if tab_name is None:
+            return
+        safe_name = tab_name.replace("'", "''")
+
+        requests = []
+
+        # Updates: find rows by id (column A), write answer+length for matched ids.
+        if updates:
+            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+            vals = (val_resp.get("values", []) or [])
+            for i, cell_val in enumerate(vals):
+                if not cell_val:
+                    continue
+                try:
+                    rid = int(cell_val[0])
+                except (ValueError, IndexError):
+                    continue
+                match_row = None
+                for row in updates:
+                    if row[0] == rid:
+                        match_row = row
+                        break
+                if match_row is None:
+                    continue
+                # Write updated name, answer, length at current row (1-indexed = i+1)
+                requests.append({"updateCells": {
+                    "range": {
+                        "sheetId": page_id,
+                        "startRowIndex": i - 1,  # header is row 0
+                        "endRowIndex": i,
+                        "startColumnIndex": 1,
+                        "endColumnIndex": 4,
+                    },
+                    "fields": "USER_ENTERED_VALUE",
+                    "rows": [{"values": [
+                        {"userEnteredValue": {"stringValue": match_row[1]}},
+                        {"userEnteredValue": {"stringValue": match_row[2]}},
+                        {"userEnteredValue": {"numberValue": match_row[3]}},
+                    ]}],
+                }})
+
+        # Prunes: delete whole rows by id (bottom-first to avoid index shift).
+        if prunes:
+            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+            vals = (val_resp.get("values", []) or [])
+            prune_rows = []
+            for i, cell_val in enumerate(vals):
+                if not cell_val:
+                    continue
+                try:
+                    rid = int(cell_val[0])
+                except (ValueError, IndexError):
+                    continue
+                if rid in prunes:
+                    prune_rows.append(i)  # 1-indexed sheet row
+            for r in sorted(prune_rows, reverse=True):
+                requests.append({"deleteDimensionRange": {
+                    "range": {
+                        "sheetId": page_id,
+                        "dimension": "ROWS",
+                        "startIndex": r - 1,  # header is row 0, data rows start at 1
+                        "endIndex": r,
+                    }
+                }})
+
+        # Appends: write below existing data using values update.
+        if appends:
+            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+            vals = (val_resp.get("values", []) or [])
+            append_row_start = len(vals)
+            # Convert int lengths to strings for RAW input
+            grid_rows = []
+            for r in appends:
+                grid_rows.append([str(r[0]), r[1], r[2], str(r[3]) if isinstance(r[3], int) else r[3]])
+            requests.append({"updateCells": {
+                "range": {
+                    "sheetId": page_id,
+                    "startRowIndex": append_row_start,
+                    "endRowIndex": append_row_start + len(grid_rows),
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 5,
+                },
+                "fields": "USER_ENTERED_VALUE",
+                "rows": [{"values": [
+                    {"userEnteredValue": {"stringValue": c}} for c in row
+                ] for row in grid_rows}],
+            }})
+
+        if requests:
+            req = get_sheet().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={"requests": requests},
+            )
+            await execute_with_retry(req, on_retry=self._notify_retry)
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!
