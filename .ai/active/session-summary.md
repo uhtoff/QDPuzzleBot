@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-23
-Status: ready for handoff — M7 handoff: add tags UNIQUE key (005) + upsert edge writer @ 0c2f282
+Status: in progress — Phase 1 complete (failing tests written) @ 5066816 (Phase 1 commit pending)
 
 ## Goal
 
@@ -67,8 +67,13 @@ set producible three ways.
 
 1. Branch `feature/m7-flexible-aggregation` already exists (off local `main`); these handoff
    files are committed on it. Check it out and start there.
-2. Execute `.ai/active/current-spec.md` Phase 1 (Opus): write the four failing test files,
-   confirm they fail for the right reason, commit. Then Phases 2-6 (Sonnet) in order.
+2. ~~Execute Phase 1 (Opus): write the four failing test files, confirm they fail for the
+   right reason, commit.~~ **DONE** — `tests/test_rollup_source_mode.py`,
+   `test_metameta_backfill_bridge.py`, `test_subtree_walk.py`, `test_tag_edges.py`. Full
+   suite: 7 failed (all new, right reason: missing seam), 117 passed. The live-DB test
+   uses the `from bot.store import mydb` convention (test_round_data.py is pure, despite the
+   spec's note); inserts FK-valid round/puzzle/tag rows and tears them down in `finally`.
+3. Next: Phases 2-6 (Sonnet) in order, starting with migrations 004 + 005.
 
 ## If you get stuck
 
