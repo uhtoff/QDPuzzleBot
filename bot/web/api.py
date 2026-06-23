@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 
-from quart import Blueprint, jsonify, session, websocket
+from quart import Blueprint, current_app, jsonify, session, websocket
 
 from . import data, events
 from .auth import (
@@ -96,6 +96,46 @@ async def hunt_puzzles(uid):
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_or_status.get("guild_snowflake"))
     return jsonify({"puzzles": puzzles})
+
+
+@api_bp.route("/rollups/<int:round_id>/answers")
+@login_required
+async def rollup_answers(round_id):
+    """Read-only aggregated answers for a meta round.
+
+    Returns {mode, answers: [{name, solution}, ...]}. No writes — the endpoint
+    never creates a rollup row or triggers a sheet refresh."""
+    user = current_user()
+    hunt = await data.get_hunt_for_round(round_id)
+    if not hunt:
+        return jsonify({"error": "round_not_found"}), 404
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return jsonify({"error": "forbidden"}), 403
+
+    from bot.store import RoundJsonDb, RollupsJsonDb
+    from bot.store.rollup_data import RollupData
+
+    meta_round = RoundJsonDb.get_by_attr(id=round_id)
+    if meta_round is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    rollup = RollupsJsonDb.get_by_attr(round_id=round_id)
+    if rollup is None:
+        # In-memory default — never persist.
+        rollup = RollupData(round_id=round_id)
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles") if bot else None
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    members = await cog.service.select_rollup_members(meta_round, rollup)
+    return jsonify({
+        "mode": rollup.source_mode or "round",
+        "answers": [{"name": p.name, "solution": p.solution} for p in members],
+    })
 
 
 @api_bp.websocket("/ws/activity")

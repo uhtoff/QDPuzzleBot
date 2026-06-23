@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { HuntDetail, HuntList, User } from "./types";
+import type { HuntDetail, HuntList, RollupAnswers, User } from "./types";
 
 /** Wrap fetch with credentials so the session cookie is always sent. */
 async function apiGet<T>(path: string): Promise<T> {
@@ -269,5 +269,13 @@ export function useSetNesting(uid: string) {
         parent_round_id: parentId,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useRollupAnswers(roundId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["rollup-answers", roundId],
+    queryFn: () => apiGet<RollupAnswers>(`/api/rollups/${roundId}/answers`),
+    enabled,
   });
 }
