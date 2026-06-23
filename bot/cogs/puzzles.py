@@ -717,22 +717,19 @@ class Puzzles(commands.Cog):
         """ctx-free metapuzzle/round creation for the dashboard (like !mp).
 
         Delegates to PuzzleService.create_round (canonical implementation).
-        After the service returns, sends the welcome message so meta_code is
-        populated in the embed. Raises RuntimeError("<code>") on a recoverable
-        problem.
+        Suppresses the service's early welcome (notifier=None) because meta_code
+        is not yet populated when create_puzzle fires it; instead sends the
+        welcome once afterwards so meta_code is present in the embed. Raises
+        RuntimeError("<code>") on a recoverable problem.
         """
-        from bot.core.notifier import DiscordNotifier
-        notifier = DiscordNotifier(self.bot)
         new_round, puzzle = await self.service.create_round(
-            guild, hunt, name, notifier=notifier,
+            guild, hunt, name, notifier=None,
         )
         # Send the meta welcome now that meta_code/meta_id are populated.
-        channel = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
+        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
         if channel is not None:
-            try:
-                await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
-            except Exception:
-                logger.exception("web_create_round: failed to send welcome")
+            await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
+        return new_round, puzzle
 
     async def web_post_solved_embed(self, guild, hunt, puzzle):
         """Best-effort dashboard-side presentation after service.solve: post the
