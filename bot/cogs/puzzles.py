@@ -175,38 +175,53 @@ class Puzzles(commands.Cog):
         gsheet_cog = None
         guild = ctx.guild
         guild_data = GuildSettingsDb.get(ctx.guild.id)
-        channel_type = GuildSettingsDb.get_channel_type(ctx.channel.id)
-        if channel_type is None:
-            channel_type = GuildSettingsDb.get_channel_type(ctx.channel.category.id)
-        if channel_type is None:
-            channel_type = "Guild"
-        if channel_type == 'Hunt':
-            hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-        if channel_type == 'Group':
-            hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
-            if hunt_round:
-                channel_type = hunt_round.type
-                hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-                if hunt_round.meta_id:
-                    puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-        if channel_type == 'Puzzle':
-            puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-            # Check if we've actually got the metapuzzle for a round and set the right channel type if so
-            # Otherwise grab the group/round from the category
+
+        if isinstance(ctx.channel, discord.Thread):
+            # Mini-puzzle thread: resolve directly by thread snowflake, no category needed.
+            puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id)
             if puzzle:
-                hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                channel_type = 'Puzzle'
+                hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                for tag_id in puzzle.tags:
+                    r = RoundJsonDb.get_by_attr(id=tag_id)
+                    if r:
+                        hunt_round = r
+                        break
+            else:
+                channel_type = 'Guild'
+        else:
+            channel_type = GuildSettingsDb.get_channel_type(ctx.channel.id)
+            if channel_type is None:
+                channel_type = GuildSettingsDb.get_channel_type(ctx.channel.category.id)
+            if channel_type is None:
+                channel_type = "Guild"
+            if channel_type == 'Hunt':
+                hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
+            if channel_type == 'Group':
+                hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
                 if hunt_round:
                     channel_type = hunt_round.type
-                else:
-                    hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
-                hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                    hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+                    if hunt_round.meta_id:
+                        puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+            if channel_type == 'Puzzle':
+                puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
+                # Check if we've actually got the metapuzzle for a round and set the right channel type if so
+                # Otherwise grab the group/round from the category
+                if puzzle:
+                    hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                    if hunt_round:
+                        channel_type = hunt_round.type
+                    else:
+                        hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
+                    hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
         if gsheet_cog is not None:
             gsheet_cog.set_notify_channel(ctx.channel)
-        if hunt is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+            if hunt is not None:
+                gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+                gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         self.environment[ctx.message.id] = {'channel_type': channel_type,
                                             'hunt': hunt,
                                             'hunt_round': hunt_round,

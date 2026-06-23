@@ -44,3 +44,69 @@ class TestPuzzleDataParentField:
         }
         p = PuzzleData.import_dict(row)
         assert p.parent_puzzle_id == 3
+
+
+class TestCogBeforeInvokeThread:
+    """cog_before_invoke must route thread messages to the mini-puzzle row."""
+
+    def _make_thread_ctx(self, channel_id):
+        import discord
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = channel_id
+        ctx = MagicMock()
+        ctx.channel = thread
+        ctx.guild.id = 1
+        ctx.message.id = 999
+        return ctx
+
+    @patch("bot.cogs.puzzles.GuildSettingsDb")
+    @patch("bot.cogs.puzzles.PuzzleJsonDb")
+    @patch("bot.cogs.puzzles.HuntJsonDb")
+    @patch("bot.cogs.puzzles.RoundJsonDb")
+    def test_thread_routes_to_mini_puzzle(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
+        from bot.cogs.puzzles import Puzzles
+        import asyncio, discord
+
+        mini = make_puzzle(id=5, hunt_id=10, channel_id=777, parent_puzzle_id=3, tags=[1])
+        hunt = _make_hunt(id=10)
+        round_ = make_round(id=1)
+
+        GuildDb.get.return_value = MagicMock()
+        GuildDb.get_channel_type.return_value = None  # thread not in GuildSettings
+        PuzzleDb.get_by_attr.return_value = mini
+        HuntDb.get_by_attr.return_value = hunt
+        RoundDb.get_by_attr.return_value = round_
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        cog = Puzzles(bot)
+
+        ctx = self._make_thread_ctx(777)
+
+        asyncio.run(cog.cog_before_invoke(ctx))
+
+        env = cog.environment[999]
+        assert env["channel_type"] == "Puzzle"
+        assert env["puzzle"] is mini
+        assert env["hunt"] is hunt
+
+    @patch("bot.cogs.puzzles.GuildSettingsDb")
+    @patch("bot.cogs.puzzles.PuzzleJsonDb")
+    @patch("bot.cogs.puzzles.HuntJsonDb")
+    @patch("bot.cogs.puzzles.RoundJsonDb")
+    def test_unknown_thread_becomes_guild(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
+        from bot.cogs.puzzles import Puzzles
+        import asyncio, discord
+
+        GuildDb.get.return_value = MagicMock()
+        GuildDb.get_channel_type.return_value = None
+        PuzzleDb.get_by_attr.return_value = None  # no mini found
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        cog = Puzzles(bot)
+
+        ctx = self._make_thread_ctx(888)
+        asyncio.run(cog.cog_before_invoke(ctx))
+
+        assert cog.environment[999]["channel_type"] == "Guild"
