@@ -5,9 +5,16 @@ Method arg shapes pinned against the relocated callers:
   refresh_info <- web_refresh_info(guild, hunt, puzzle)                        (:708)
   puzzle_solved<- web_post_solved_embed(guild, hunt, puzzle)                   (:893)
 """
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from bot.core.notifier import Notifier, NullNotifier, DiscordNotifier   # <-- new → right reason
+from bot.core.notifier import (   # <-- new → right reason
+    Notifier,
+    NullNotifier,
+    DiscordNotifier,
+    CompositeNotifier,
+)
 
 
 @pytest.mark.asyncio
@@ -25,3 +32,37 @@ def test_null_notifier_implements_interface():
 
 def test_discord_notifier_implements_interface():
     assert issubclass(DiscordNotifier, Notifier)
+
+
+def test_composite_notifier_implements_interface():
+    assert issubclass(CompositeNotifier, Notifier)
+
+
+@pytest.mark.asyncio
+async def test_composite_notifier_fans_out_each_method_to_all_sinks():
+    # The Phase B sink seam: every interface call must reach every child notifier.
+    # (Phase B registers events.publish as one such sink without reshaping this interface.)
+    def _sink():
+        s = MagicMock()
+        s.welcome = AsyncMock()
+        s.refresh_info = AsyncMock()
+        s.puzzle_solved = AsyncMock()
+        return s
+
+    a, b = _sink(), _sink()
+    comp = CompositeNotifier([a, b])
+
+    await comp.welcome(guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None)
+    await comp.refresh_info(guild=None, hunt=None, puzzle=None)
+    await comp.puzzle_solved(guild=None, hunt=None, puzzle=None)
+
+    for s in (a, b):
+        s.welcome.assert_awaited_once()
+        s.refresh_info.assert_awaited_once()
+        s.puzzle_solved.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_composite_notifier_with_no_sinks_is_a_noop():
+    comp = CompositeNotifier([])
+    assert await comp.refresh_info(guild=None, hunt=None, puzzle=None) is None

@@ -57,10 +57,24 @@ divergent twins.
 - New tests + updates to `tests/test_create_orphan_cleanup.py` patch targets.
 - `docs/PLANS.md` — mark M3.5 done.
 
+## Cross-branch contract: Phase B board-push (read before shaping the Notifier)
+
+A separate, NOT-yet-merged branch `feature/dashboard-live-csrf` (worktree working-2) added
+live dashboard board-push on the **web** mutation path (`bot/web/actions.py` → `events.publish`,
+event shape `{"type":"board","uid":<hunt uid>,"guild_id":<int snowflake>}`). Its archived
+`phase-b-deferred.md` defers **bang-command** board-push and blocks it on M3.5's `Notifier`.
+
+Decision (2026-06-23): M3.5 builds the **composition seam** (`CompositeNotifier`) so Phase B
+can register `events.publish` as an additional sink WITHOUT reshaping the core interface —
+but M3.5 does NOT add a `board_changed` method, a `WebNotifier`, or any service-mutation emit.
+Phase B (later, on/after merge of both branches) adds the board event method + the web sink.
+Keep `bot/core/*` free of any `bot/web/*` import.
+
 ## Out of scope (do NOT do)
 
-- No `WebNotifier`/dashboard-push implementation (designed-for only; build `DiscordNotifier`
-  + `NullNotifier` only).
+- Build `DiscordNotifier` + `NullNotifier` + `CompositeNotifier` (a fan-out shell that
+  forwards each interface method to a list of child notifiers). Do NOT build `WebNotifier`
+  or any board-push emit — that is Phase B (see "Cross-branch contract" below).
 - No schema/migration change (none needed).
 - No second `position_lock` — keep the single shared instance.
 - Do not touch M5/M6/M7 rollup paths, unrelated cog commands, or the SPA frontend.
@@ -157,9 +171,10 @@ def test_solve_divider_position_returns_false_when_absent():
 ### File: `tests/test_notifier.py` (Notifier contract)
 
 ```python
-"""M3.5: Notifier interface + NullNotifier no-op contract."""
+"""M3.5: Notifier interface + NullNotifier no-op contract + CompositeNotifier fan-out."""
 import pytest
-from bot.core.notifier import Notifier, NullNotifier, DiscordNotifier   # <-- new → right reason
+from bot.core.notifier import Notifier, NullNotifier, DiscordNotifier, CompositeNotifier   # <-- new → right reason
+# CompositeNotifier: fans each method out to a list of child notifiers (Phase B sink seam).
 
 
 @pytest.mark.asyncio
@@ -290,7 +305,9 @@ Commit: `M3.5 Phase 2: extract ctx-free discord_channels adapter`.
    Update the `send_initial_*` handlers to pass them. Grep every caller and update.
 2. Create `bot/core/notifier.py`: `Notifier` ABC (`welcome`, `refresh_info`, `puzzle_solved`),
    `NullNotifier` (no-ops), `DiscordNotifier(bot)` whose methods call the now-ctx-free render
-   (move the `send_initial_*` invocation logic here, or call into the cog's ctx-free methods).
+   (move the `send_initial_*` invocation logic here, or call into the cog's ctx-free methods),
+   and `CompositeNotifier(notifiers)` — each interface method awaits the same method on every
+   child notifier in order. This is the Phase B sink seam; build the shell only (no board emit).
 3. Re-express `web_refresh_info` to delegate to `DiscordNotifier.refresh_info`; delete the
    `_web_render_info` synthetic-ctx hack and its `_next_web_ctx_id`/environment usage.
 4. Acceptance: `tests/test_notifier.py` passes; full gate green.

@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-23
-Status: in progress — Phase 1 (failing tests) complete; next: Phase 2 (extract discord_channels, Sonnet)
+Status: in progress — Phase 1 tests + CompositeNotifier seam decision; paused before Phase 2 per user (see "Phase B contract" in current-spec.md)
 
 ## Goal
 
