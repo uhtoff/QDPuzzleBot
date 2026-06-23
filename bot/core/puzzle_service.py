@@ -73,33 +73,40 @@ class PuzzleService:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
 
-    async def _render_rollup(self, gsheet_cog, hunt_round, rollup, metapuzzle):
-        """Select feeder membership by rollup.source_mode and delegate to the
-        existing renderer (add_metapuzzle_data or add_metametapuzzle_data).
+    async def select_rollup_members(self, hunt_round, rollup) -> list:
+        """Select feeder membership by rollup.source_mode, returning the ordered
+        list[PuzzleData] with NO Google-Sheet side-effects.
 
-        Replaces the old metameta-flag branch: source_mode is now the single
-        runtime switch. Falsy/missing source_mode defaults to 'round'."""
+        Falsy/missing source_mode defaults to 'round'. Shared by _render_rollup so
+        the sheet writer and any read path agree on membership."""
         mode = rollup.source_mode or "round"
         feeders = PuzzleJsonDb.get_all_from_round(hunt_round.id)
 
         if mode == "subtree":
-            branch = await self.collect_subtree_puzzles(hunt_round)
-            await gsheet_cog.add_metametapuzzle_data(metapuzzle, branch)
+            return await self.collect_subtree_puzzles(hunt_round)
         elif mode == "explicit":
-            pool = [
+            return [
                 p for p in feeders
                 if p.tag_edges.get(hunt_round.id) == "aggregates-into"
             ]
-            await gsheet_cog.add_metapuzzle_data(metapuzzle, pool)
         else:
-            # 'round' (default): today's path — all round members, optionally
-            # filtered by edge_type_filter.
+            # 'round' (default): all round members, optionally filtered by edge_type_filter.
             filt = rollup.edge_type_filter or "feeds-meta"
-            feeders = [
+            return [
                 p for p in feeders
                 if p.tag_edges.get(hunt_round.id, "feeds-meta") == filt
             ]
-            await gsheet_cog.add_metapuzzle_data(metapuzzle, feeders)
+
+    async def _render_rollup(self, gsheet_cog, hunt_round, rollup, metapuzzle):
+        """Select feeder membership via select_rollup_members and delegate to the
+        existing renderer (add_metapuzzle_data or add_metametapuzzle_data)."""
+        members = await self.select_rollup_members(hunt_round, rollup)
+        mode = rollup.source_mode or "round"
+
+        if mode == "subtree":
+            await gsheet_cog.add_metametapuzzle_data(metapuzzle, members)
+        else:
+            await gsheet_cog.add_metapuzzle_data(metapuzzle, members)
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
