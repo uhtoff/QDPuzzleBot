@@ -2,6 +2,7 @@
 import asyncio
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
+import discord
 import pytest
 
 from tests.conftest import make_puzzle, make_round
@@ -188,3 +189,83 @@ class TestBuildEmbedListMinis:
         embeds = cog._build_embed_list(None, discord.Embed(title="x"), parent, MagicMock())
 
         assert len(embeds) == 1  # just the main embed
+
+
+class TestCreateMiniListLinks:
+    """create_mini_list rows should link to both the mini's thread and its sheet."""
+
+    def _cog(self):
+        cog = Puzzles.__new__(Puzzles)
+        cog.service = MagicMock()
+        return cog
+
+    def test_links_thread_and_sheet_when_hunt_given(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, name="Mini A", channel_id=9001)
+        mini.google_page_id = "777"
+        hunt = MagicMock()
+        hunt.google_sheet_id = "SHEETID"
+
+        text = self._cog().create_mini_list(parent, [mini], hunt)
+
+        # Thread jump-link (channel mention) and a hyperlinked sheet tab.
+        assert "<#9001>" in text
+        assert "gid=777" in text
+        assert "[sheet]" in text
+
+    def test_no_sheet_link_without_hunt(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, name="Mini A", channel_id=9001)
+        mini.google_page_id = "777"
+
+        text = self._cog().create_mini_list(parent, [mini])
+
+        assert "<#9001>" in text  # thread link needs no hunt
+        assert "[sheet]" not in text  # sheet link omitted when hunt absent
+
+
+class TestMoveToSolvedThread:
+    """move_to_solved must not crash on a thread (Thread.edit has no position=);
+    a mini-puzzle thread is archived instead of repositioned."""
+
+    @pytest.mark.asyncio
+    async def test_thread_archived_not_repositioned(self):
+        cog = Puzzles.__new__(Puzzles)
+        ctx = MagicMock()
+        ctx.channel = MagicMock(spec=discord.Thread)
+        ctx.channel.edit = AsyncMock()
+        ctx.send = AsyncMock()
+
+        await Puzzles.move_to_solved.callback(cog, ctx)
+
+        ctx.channel.edit.assert_awaited_once_with(archived=True)
+        # The crashing call passed position=...; it must never be used on a thread.
+        assert "position" not in ctx.channel.edit.call_args.kwargs
+
+
+class TestWebPostSolvedEmbedThread:
+    """Dashboard solve of a mini must post the SOLVED embed in its thread
+    (resolved via get_channel_or_thread) and never try to reposition it."""
+
+    @pytest.mark.asyncio
+    async def test_posts_embed_to_thread_and_skips_reposition(self):
+        puzzle = make_puzzle(id=2, name="Mini A", channel_id=9001, solved=True, solution="ANS")
+        thread = MagicMock(spec=discord.Thread)
+        thread.send = AsyncMock()
+        thread.edit = AsyncMock()
+        guild = MagicMock()
+        guild.get_channel_or_thread = MagicMock(return_value=thread)
+
+        cog = Puzzles.__new__(Puzzles)
+        cog.web_refresh_info = AsyncMock()
+
+        with patch("bot.cogs.puzzles.GuildSettingsDb") as gsdb:
+            gsdb.get.return_value = MagicMock(discord_bot_emoji="")
+            await cog.web_post_solved_embed(guild, MagicMock(), puzzle)
+
+        # Thread resolved via get_channel_or_thread, embed posted into it.
+        guild.get_channel_or_thread.assert_called_once_with(9001)
+        thread.send.assert_awaited_once()
+        # Never repositions a thread (Thread.edit has no position=).
+        for call in thread.edit.await_args_list:
+            assert "position" not in call.kwargs

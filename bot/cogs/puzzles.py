@@ -735,7 +735,10 @@ class Puzzles(commands.Cog):
         """Best-effort dashboard-side presentation after service.solve: post the
         SOLVED embed in the puzzle channel, reposition it to the solved section,
         and refresh the pinned info. Never raises."""
-        channel = guild.get_channel(puzzle.channel_id) if (guild and puzzle.channel_id) else None
+        # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
+        # is a thread snowflake, also resolves — otherwise the SOLVED embed is silently
+        # skipped for minis.
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
             emoji = guild_data.discord_bot_emoji if guild_data else ""
@@ -748,7 +751,11 @@ class Puzzles(commands.Cog):
                 await channel.send(embed=embed)
             except Exception:
                 logger.exception("web_post_solved_embed: failed to post solved message")
-        if channel is not None and channel.category is not None:
+        if isinstance(channel, discord.Thread):
+            # A mini-puzzle thread can't be repositioned, and the solve service has
+            # already archived it on solve — nothing to do here beyond the embed above.
+            pass
+        elif channel is not None and channel.category is not None:
             try:
                 divider = self.get_solve_divider_position(None, channel.category)
                 if divider is not False:
@@ -768,6 +775,10 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_top(self, ctx):
         channel = ctx.channel
+        if isinstance(channel, discord.Thread):
+            # Threads live inside a channel and can't be repositioned within a category.
+            await ctx.send(":information_source: This is a thread, which can't be repositioned.")
+            return
         position = self.get_first_channel(ctx, channel.category)
         await channel.edit(position=position)
         await ctx.send(":white_check_mark: Channel moved to top of category")
@@ -776,6 +787,9 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_bottom(self, ctx):
         channel = ctx.channel
+        if isinstance(channel, discord.Thread):
+            await ctx.send(":information_source: This is a thread, which can't be repositioned.")
+            return
         position = self.get_solve_divider_position(ctx, channel.category)
         await channel.edit(position=position)
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
@@ -784,6 +798,15 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_solved(self, ctx):
         channel = ctx.channel
+        if isinstance(channel, discord.Thread):
+            # A mini-puzzle thread can't be repositioned into the solved section;
+            # archiving is its "moved to solved" equivalent. (On the !s path the
+            # solve service has already archived it; this also covers a standalone
+            # !move_to_solved.) Confirm first, then archive, so the confirmation
+            # message doesn't re-open the thread we just archived.
+            await ctx.send(":white_check_mark: Mini-puzzle thread archived")
+            await channel.edit(archived=True)
+            return
         position = self.get_solve_divider_position(ctx, channel.category)
         await channel.edit(position=position+1)
         await ctx.send(":white_check_mark: Channel moved to solved")
@@ -934,20 +957,31 @@ class Puzzles(commands.Cog):
         if not minis:
             return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
         embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
-        embed.description = self.create_mini_list(puzzle, minis)
+        embed.description = self.create_mini_list(puzzle, minis, self.get_hunt(ctx))
         await ctx.send(embed=embed)
 
-    def create_mini_list(self, puzzle: PuzzleData, minis=None):
+    def create_mini_list(self, puzzle: PuzzleData, minis=None, hunt: HuntData = None):
         """Render the numbered mini-puzzle list (solved/unsolved). Shared by
-        !list_minis and the pinned-info embed so both stay in sync."""
+        !list_minis and the pinned-info embed so both stay in sync. Each row
+        links to the mini's thread (a channel mention jumps to it) and, when
+        *hunt* is supplied, its Google sheet tab."""
         if minis is None:
             minis = self.service.get_minis(puzzle.id)
         lines = []
         for i, mini in enumerate(minis, 1):
+            links = []
+            if mini.channel_id:
+                links.append(f"<#{mini.channel_id}>")
+            if hunt is not None and hunt.google_sheet_id and mini.google_page_id:
+                sheet_url = urls.spreadsheet_url(
+                    self.get_puzzle_sheet(None, mini, hunt), mini.google_page_id
+                )
+                links.append(f"[sheet]({sheet_url})")
+            suffix = f" ({' · '.join(links)})" if links else ""
             if mini.solved:
-                lines.append(f"{i}. ✅ **{mini.name}** — {mini.solution}")
+                lines.append(f"{i}. ✅ **{mini.name}**{suffix} — {mini.solution}")
             else:
-                lines.append(f"{i}. ⬜ **{mini.name}** — unsolved")
+                lines.append(f"{i}. ⬜ **{mini.name}**{suffix} — unsolved")
         return "\n".join(lines)
 
     @commands.command()
@@ -1700,7 +1734,7 @@ class Puzzles(commands.Cog):
             minis_embed = discord.Embed()
             minis_embed.add_field(
                 name="Mini-puzzles",
-                value=self.create_mini_list(puzzle, minis),
+                value=self.create_mini_list(puzzle, minis, hunt),
                 inline=False,
             )
             embed_list.append(minis_embed)
