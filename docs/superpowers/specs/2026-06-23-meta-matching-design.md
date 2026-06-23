@@ -36,15 +36,18 @@ an input**.
 - Service method `refresh_unclassified(hunt)` + store query for the pool.
 - Triggers: puzzle create (hunt-level), solve, retag/assign, manual `!rebuild`-style command —
   fire-and-forget, mirroring `refresh_evidence`.
+- **Web-create of unclassified (hunt-level) puzzles** — a dashboard path to create a puzzle with no
+  round, so the worktable can be fed from the dashboard, not only via bang. (Aligns with the project
+  principle that **every bang command should have a web-dashboard equivalent**.)
 
 ## Out of scope (flagged, not built here)
 
 - **Reading the sheet back.** The bot never parses the user's arrangement; assignment is via the
   existing retag (`PuzzleService.move/add_to_meta`, dashboard drag / `!move_to_meta`).
 - **Capstones** (making capstone puzzles, dossier, never-auto-solve) — separate M9b spec.
-- **Web-create of unclassified (hunt-level) puzzles.** Today only bang can create a puzzle with no
-  round; the dashboard can only create within a round. Surfacing that in the web is a related but
-  separate enhancement. **Flagged** because it limits how the dashboard can feed this worktable.
+  **Carry forward (decided):** *making a meta into a capstone orphans its feeders* — a capstone is
+  not a "real meta" for classification, so its feeders feed no meta and flow back into this
+  worktable for re-classification. The capstone spec must honour this.
 - Auto-suggesting a meta from title/answer. (Sheet is a thinking space only.)
 
 ## The tab
@@ -71,7 +74,9 @@ Bot owns a fixed **left block**; everything to the right is the user's and is ne
 | `Notes` | seeded by bot, then user-owned | Header written once on creation; the bot never writes its cells. First of the user's columns. |
 | … | user | User adds more columns to the right (theories, "meta guess", colour tags). Bot stays out. |
 
-`Length` strips spaces only (hyphens/punctuation counted) unless changed at review.
+`Length` strips spaces only (hyphens/punctuation counted) — **decided**. Solved/unsolved is shown by
+a blank `Answer`, no extra marker column — **decided**. `Round` is hidden by default and turned on
+via a **command flag** on the refresh/rebuild command — **decided**.
 
 ### Reconcile (append / update / prune — never overwrite)
 
@@ -133,8 +138,9 @@ rows. The only unpreservable case is the user deleting a row's `id` cell — gua
 | `bot/store/mysqldb.py` | `get_unclassified(hunt_id)` query |
 | `bot/core/puzzle_service.py` | `refresh_unclassified`; fire it from create/solve/retag |
 | `bot/cogs/puzzles_gsheet.py` | `add_table`/`update_table` + row append/update/delete; read keys |
-| `bot/cogs/puzzles.py` | `!rebuild`-style trigger (+ wire create/solve/retag bang paths) |
-| `bot/web/actions.py` | fire `refresh_unclassified` from web create/solve/retag edges |
+| `bot/cogs/puzzles.py` | `!rebuild`-style trigger with a `Round` column flag (+ wire create/solve/retag bang paths) |
+| `bot/web/actions.py` | fire `refresh_unclassified` from web create/solve/retag edges; **new web endpoint to create a hunt-level (unclassified) puzzle** |
+| `frontend/src/…` | dashboard control to create an unclassified puzzle |
 
 ## Acceptance criteria
 
@@ -147,16 +153,20 @@ rows. The only unpreservable case is the user deleting a row's `id` cell — gua
 - User columns to the right of `Notes` (and `Notes` itself) are never overwritten by a refresh.
 - The bot never reads the user's arrangement back; classification only happens via the retag paths.
 
-## Open items for review
+## Decisions (resolved)
 
-1. **Native Table column-add UX** — confirm during build that the user can add their own columns to
-   a native table cleanly (vs the table absorbing/blocking them). Fallback: a plain managed range
-   with a styled header row. ("Let's try it as a table" — validate.)
-2. **`Length`** — strip spaces only (current default) vs letters-only (strip all non-letters)?
-3. **Solved/unsolved marker** — rely on blank `Answer` (current default), or add an explicit `✓`
-   column / row colour?
-4. **Web-create of unclassified (hunt-level) puzzles** — fold a small dashboard "create unclassified
-   puzzle" path into this work, or leave bang-only for now?
-5. **Capstone interaction** — confirm "capstone ≠ meta for classification" in the capstone spec, so
-   converting a meta to a capstone floods its feeders into this worktable (the user's noted case).
-6. **`Round` column toggle** — command flag vs per-tab/per-hunt setting.
+- `Length` = letters excluding spaces only (hyphens/punctuation counted).
+- Solved/unsolved shown by a blank `Answer` — no marker column.
+- `Round` column hidden by default, enabled via a **command flag**.
+- **Web parity:** web-create of unclassified (hunt-level) puzzles is **in scope** (project
+  principle: every bang command has a dashboard equivalent).
+- **Capstone carry-forward:** making a meta a capstone **orphans its feeders** — the capstone spec
+  must treat a capstone as not-a-meta for classification.
+
+## Open items (validate during build)
+
+1. **Native Table column-add UX** — confirm a user can add their own columns to a native table
+   cleanly (vs the table absorbing/blocking them). Fallback: a plain managed range with a styled
+   header row. ("Let's try it as a table" — validate, don't assume.)
+2. **Migration number** — `010_*` is the next free slot today; re-check for collision with the
+   parallel `!reconcile` work before merging (memory `migration-number-collisions`).
