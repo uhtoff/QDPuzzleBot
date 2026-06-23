@@ -252,7 +252,6 @@ async def add_sheet(puzzle_id):
         try:
             sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
             await _audit("add_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -290,7 +289,6 @@ async def remove_sheet(puzzle_id, sheet_id):
         try:
             await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
             await _audit("remove_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 404
@@ -344,7 +342,6 @@ async def solve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
             resp["sheet_warning"] = warning
@@ -432,7 +429,6 @@ async def retag_puzzle(puzzle_id):
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
         await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=meta_code)
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         resp = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
@@ -619,7 +615,6 @@ async def create_puzzle(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
-    _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 
@@ -650,5 +645,4 @@ async def create_meta(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.meta_code)
-    _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})

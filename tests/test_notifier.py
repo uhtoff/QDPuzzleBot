@@ -1,9 +1,10 @@
-"""M3.5: Notifier interface + NullNotifier no-op contract.
+"""M3.5 + Phase B: Notifier interface, NullNotifier no-op contract, CompositeNotifier seam.
 
 Method arg shapes pinned against the relocated callers:
   welcome      <- _web_send_welcome(guild, hunt, hunt_round, puzzle, channel)  (:700)
   refresh_info <- web_refresh_info(guild, hunt, puzzle)                        (:708)
   puzzle_solved<- web_post_solved_embed(guild, hunt, puzzle)                   (:893)
+  board_changed<- PuzzleService mutations (Phase B)
 """
 from unittest.mock import AsyncMock, MagicMock
 
@@ -66,3 +67,41 @@ async def test_composite_notifier_fans_out_each_method_to_all_sinks():
 async def test_composite_notifier_with_no_sinks_is_a_noop():
     comp = CompositeNotifier([])
     assert await comp.refresh_info(guild=None, hunt=None, puzzle=None) is None
+
+
+# ---- Phase B: board_changed ----
+
+@pytest.mark.asyncio
+async def test_null_notifier_board_changed_is_noop():
+    n = NullNotifier()
+    assert await n.board_changed(hunt=None) is None
+
+
+@pytest.mark.asyncio
+async def test_composite_notifier_fans_out_board_changed():
+    def _sink():
+        s = MagicMock()
+        s.board_changed = AsyncMock()
+        return s
+
+    a, b = _sink(), _sink()
+    comp = CompositeNotifier([a, b])
+    hunt = MagicMock()
+
+    await comp.board_changed(hunt)
+
+    a.board_changed.assert_awaited_once_with(hunt)
+    b.board_changed.assert_awaited_once_with(hunt)
+
+
+@pytest.mark.asyncio
+async def test_composite_notifier_add_sink_registers_for_future_calls():
+    sink = MagicMock()
+    sink.board_changed = AsyncMock()
+    comp = CompositeNotifier([])
+    hunt = MagicMock()
+
+    comp.add_sink(sink)
+    await comp.board_changed(hunt)
+
+    sink.board_changed.assert_awaited_once_with(hunt)

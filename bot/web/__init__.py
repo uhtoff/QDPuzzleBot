@@ -103,6 +103,12 @@ def create_app(bot):
     app.register_blueprint(actions_bp)
     _register_spa(app)
 
+    # Phase B: register WebNotifier as a board-push sink on the service's composite.
+    from bot.web.notifier import WebNotifier
+    cog = bot.get_cog("Puzzles")
+    if cog is not None:
+        cog.service.notifier.add_sink(WebNotifier())
+
     @app.after_request
     async def _set_csrf_cookie(resp):
         if not request.cookies.get("csrf_token"):

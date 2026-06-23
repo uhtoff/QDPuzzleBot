@@ -28,8 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class PuzzleService:
-    def __init__(self, bot):
+    def __init__(self, bot, notifier=None):
         self.bot = bot
+        if notifier is None:
+            from bot.core.notifier import NullNotifier
+            notifier = NullNotifier()
+        self.notifier = notifier
 
     def _gsheet_cog(self, hunt):
         """Resolve the GoogleSheets cog and point it at this hunt's spreadsheets.
@@ -169,6 +173,7 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
         failed = await self.refresh_metas(hunt, affected)
+        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
@@ -179,6 +184,7 @@ class PuzzleService:
             puzzle.tags.append(meta_round.id)
             PuzzleJsonDb.commit(puzzle)
         failed = await self.refresh_metas(hunt, [meta_round])
+        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
@@ -191,6 +197,7 @@ class PuzzleService:
             PuzzleJsonDb.commit(puzzle)
         affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
         failed = await self.refresh_metas(hunt, affected)
+        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
@@ -319,6 +326,7 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
         return True
@@ -358,6 +366,7 @@ class PuzzleService:
             sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
         puzzle.additional_sheets.append(sheet)
         SheetsJsonDb.commit(sheet)
+        await self.notifier.board_changed(hunt)
         return sheet
 
     async def remove_sheet(self, hunt, puzzle, sheet_id):
@@ -367,6 +376,7 @@ class PuzzleService:
         if sheet is None:
             raise RuntimeError("sheet_not_found")
         await self._delete_additional_sheet(hunt, puzzle, sheet)
+        await self.notifier.board_changed(hunt)
 
     # -------------------------------------------------------------------------
     # Create helpers (M3.5) — canonical paths used by bang + web edges
@@ -464,6 +474,7 @@ class PuzzleService:
             except Exception:
                 logger.exception("create_puzzle: sheet update failed for round %s", tag)
 
+        await self.notifier.board_changed(hunt)
         return new_puzzle
 
     async def create_round(self, guild, hunt, name, notifier=None,
@@ -528,6 +539,7 @@ class PuzzleService:
             new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, name)
             RoundJsonDb.commit(new_round)
 
+            await self.notifier.board_changed(hunt)
             return new_round, puzzle
         except Exception:
             # Roll back so partial create leaves neither a meta-less round row

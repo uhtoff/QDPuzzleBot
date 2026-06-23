@@ -53,6 +53,10 @@ class Notifier(abc.ABC):
     ) -> None:
         """Post the SOLVED embed after a solve."""
 
+    @abc.abstractmethod
+    async def board_changed(self, hunt) -> None:
+        """Notify that the board state has changed for this hunt (Phase B)."""
+
 
 # ------------------------------------------------------------------ null
 class NullNotifier(Notifier):
@@ -67,6 +71,9 @@ class NullNotifier(Notifier):
     async def puzzle_solved(self, guild=None, hunt=None, puzzle=None) -> None:
         return None
 
+    async def board_changed(self, hunt=None) -> None:
+        return None
+
 
 # ------------------------------------------------------------------ discord
 class DiscordNotifier(Notifier):
@@ -77,6 +84,9 @@ class DiscordNotifier(Notifier):
 
     def _cog(self):
         return self.bot.get_cog("Puzzles")
+
+    async def board_changed(self, hunt=None) -> None:
+        return None
 
     async def welcome(
         self,
@@ -175,10 +185,17 @@ class DiscordNotifier(Notifier):
 
 # ------------------------------------------------------------------ composite
 class CompositeNotifier(Notifier):
-    """Fans each method call out to a list of child notifiers in order."""
+    """Fans each method call out to a list of child notifiers in order.
+
+    Phase B: add_sink() lets startup code register extra sinks (e.g. WebNotifier)
+    after the composite is constructed, without reshaping the core interface.
+    """
 
     def __init__(self, notifiers: List[Notifier]):
         self._notifiers = list(notifiers)
+
+    def add_sink(self, notifier: Notifier) -> None:
+        self._notifiers.append(notifier)
 
     async def welcome(
         self,
@@ -208,6 +225,10 @@ class CompositeNotifier(Notifier):
     ) -> None:
         for n in self._notifiers:
             await n.puzzle_solved(guild, hunt, puzzle)
+
+    async def board_changed(self, hunt=None) -> None:
+        for n in self._notifiers:
+            await n.board_changed(hunt)
 
 
 # ------------------------------------------------------------------ helpers

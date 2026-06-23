@@ -103,7 +103,8 @@ class Puzzles(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         from bot.core.puzzle_service import PuzzleService
-        self.service = PuzzleService(self.bot)
+        from bot.core.notifier import CompositeNotifier, DiscordNotifier
+        self.service = PuzzleService(self.bot, notifier=CompositeNotifier([DiscordNotifier(self.bot)]))
         self.reminder_index=0
         self.position_lock = asyncio.Lock()
         self.environment = {}
