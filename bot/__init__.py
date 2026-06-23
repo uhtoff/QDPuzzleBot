@@ -130,7 +130,7 @@ async def get_prefix(_bot, message):
     return commands.when_mentioned_or(utils.config.prefix)(_bot, message)
 
 
-bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True, max_ratelimit_timeout=60)
+bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True)
 bot.version = __version__
 
 @bot.event
