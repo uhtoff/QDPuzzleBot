@@ -10,7 +10,6 @@ import datetime
 import json
 import logging
 
-import mysql.connector
 from mysql.connector import pooling
 
 from bot.utils import config

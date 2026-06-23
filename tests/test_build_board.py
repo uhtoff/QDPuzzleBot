@@ -1,5 +1,4 @@
 """Tests for build_board and _load_notes in bot/web/data.py."""
-import pytest
 
 from bot.web.data import build_board, _load_notes
 from tests.conftest import make_puzzle_row, make_round_ref

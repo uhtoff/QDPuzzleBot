@@ -1,0 +1,14 @@
+# Ruff config — initial adoption scoped to the pyflakes ("F") rule set only.
+# This is the high-signal correctness class (undefined names, unused imports/vars,
+# malformed f-strings). The broader style rules (E/W/UP/…) are intentionally NOT
+# enabled yet to keep the first adoption diff reviewable; widen later if desired.
+target-version = "py313"
+
+[lint]
+select = ["F"]
+
+[lint.per-file-ignores]
+# __init__.py modules deliberately re-export names for the package's public API;
+# those imports look "unused" locally but are the intended surface (e.g.
+# bot/store/__init__.py re-exports PuzzleJsonDb/RoundJsonDb/…).
+"**/__init__.py" = ["F401"]

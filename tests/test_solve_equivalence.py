@@ -10,10 +10,8 @@ RoundData that a service layer must replicate.
 Known divergences from _solve_impl (annotated below) are documented so they
 are visible, not silently inherited into the service layer.
 """
-import asyncio
 import datetime
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

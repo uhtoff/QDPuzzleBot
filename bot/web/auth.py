@@ -14,7 +14,7 @@ import aiohttp
 from quart import Blueprint, current_app, jsonify, redirect, request, session
 
 from bot.utils import config
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
 
 logger = logging.getLogger(__name__)
 

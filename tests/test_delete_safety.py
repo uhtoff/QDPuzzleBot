@@ -111,7 +111,6 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_delete_puzzle_aborts_when_not_confirmed(monkeypatch):
-    import bot.cogs.puzzles as puzzles_mod
     cog = _cog()
     puzzle = SimpleNamespace(id=1, name="P", channel_id=101)
     chan = SimpleNamespace(delete=AsyncMock())

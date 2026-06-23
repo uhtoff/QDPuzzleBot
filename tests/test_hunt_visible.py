@@ -8,7 +8,6 @@ Rules:
   - active hunt with role_id == 0: visible to any member (legacy)
   - active hunt with role_id != 0: visible only if user holds that role
 """
-import pytest
 
 from bot.web.auth import hunt_visible
 

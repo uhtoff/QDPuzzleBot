@@ -13,7 +13,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData, RollupsJsonDb, RollupData
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, RollupsJsonDb, RollupData
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -830,11 +830,11 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
 
         if puzzle.solved:
-            return await ctx.send(f":x: You can't add additional sheets to solved puzzles!")
+            return await ctx.send(":x: You can't add additional sheets to solved puzzles!")
 
         name = " ".join(args)
 
-        sheet = await self.service.add_sheet(self.get_hunt(ctx), puzzle, name)
+        await self.service.add_sheet(self.get_hunt(ctx), puzzle, name)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
 
@@ -911,7 +911,7 @@ class Puzzles(commands.Cog):
             if failed:
                 await self._warn_stale_sheets(ctx, SheetRefreshError(failed))
 
-        await ctx.send(f":white_check_mark: All the puzzles in this category have been tagged to the group")
+        await ctx.send(":white_check_mark: All the puzzles in this category have been tagged to the group")
 
     @commands.hybrid_command(
         name="add_to_meta",
@@ -1068,7 +1068,7 @@ class Puzzles(commands.Cog):
             return
         try:
             await self.service.refresh_metas(hunt, list(RoundJsonDb.get_by_attr(id=rid) for rid in puzzle.tags))
-            await ctx.send(f":white_check_mark: Tagged as aggregates-into. Sheets updated.")
+            await ctx.send(":white_check_mark: Tagged as aggregates-into. Sheets updated.")
         except SheetRefreshError as exc:
             await ctx.send(
                 f":warning: Edge set but some sheets are stale ({exc}). Use !rebuild to retry.")
@@ -1236,7 +1236,7 @@ class Puzzles(commands.Cog):
         self.set_channel_type(ctx, "Puzzle")
         await self.info(ctx, update=True)
         await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a feeder, other puzzles can no longer be tagged to it."
+            ":white_check_mark: I've converted this puzzle into a feeder, other puzzles can no longer be tagged to it."
         )
 
     def get_settings(self, ctx):
@@ -1486,7 +1486,7 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
                     name="Useful commands",
-                    value=f"""The following are some useful commands:
+                    value="""The following are some useful commands:
         • `!r <round name>` : Create a new round with a metapuzzle channel
         • `!mp <metapuzzle name>` : Create a new metapuzzle
         • `!rnm <round name>` : Create a round without a metapuzzle channel
@@ -2341,7 +2341,7 @@ class Puzzles(commands.Cog):
                 await channel.delete(reason=self.DELETE_REASON)
         hunt_general_channel = self.get_hunt_channel(ctx)
         await solved_category.delete(reason=self.DELETE_REASON)
-        await hunt_general_channel.send(f":white_check_mark: Solved puzzles successfully archived.")
+        await hunt_general_channel.send(":white_check_mark: Solved puzzles successfully archived.")
 
     @commands.command()
     @commands.has_any_role(*ORGANISER_ROLES)
@@ -2368,7 +2368,7 @@ class Puzzles(commands.Cog):
             await ctx.channel.delete(reason=self.DELETE_REASON)
         except Exception:
             logger.exception("Puzzle deletion failed")
-            await ctx.send(f":x: Channel deletion failed")
+            await ctx.send(":x: Channel deletion failed")
         self.set_puzzle(ctx, None)
 
     async def delete_puzzle_data(self, ctx, puzzle: PuzzleData, delete_sheet=True):
@@ -2411,7 +2411,7 @@ class Puzzles(commands.Cog):
     async def delete_round(self, ctx):
         """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
         if self.get_channel_type(ctx) not in self.PUZZLE_GROUPS:
-            await ctx.send(f":x: This command must be done from the main group channel")
+            await ctx.send(":x: This command must be done from the main group channel")
             return
 
         hunt_round = self.get_hunt_round(ctx)
@@ -2477,7 +2477,7 @@ class Puzzles(commands.Cog):
         if self.get_channel_type(ctx) == "Hunt":
             hunt_channel = ctx.channel
         else:
-            await ctx.send(f":x: This command must be done from the main hunt channel")
+            await ctx.send(":x: This command must be done from the main hunt channel")
             return
         hunt = self.get_hunt(ctx)
         hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)

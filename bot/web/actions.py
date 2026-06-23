@@ -471,7 +471,7 @@ async def rebuild_rollup(round_id):
         await cog.service.refresh_meta(hunt_obj, meta_round)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    except Exception as exc:
+    except Exception:
         # refresh_meta has already re-badged last_ok=0; report the failure so the
         # SPA can toast and leave the badge in place for another retry.
         logger.exception("rebuild: refresh failed for round %s", round_id)
@@ -499,7 +499,7 @@ async def set_source_mode(round_id):
     mode = (body.get("source_mode") or "").strip()
     allowed = ("round", "subtree", "explicit")
     if mode not in allowed:
-        return jsonify({"error": f"bad_source_mode", "allowed": allowed}), 400
+        return jsonify({"error": "bad_source_mode", "allowed": allowed}), 400
 
     from bot.store import HuntJsonDb, RoundJsonDb, RollupsJsonDb
     from bot.store.rollup_data import RollupData

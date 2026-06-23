@@ -150,7 +150,7 @@ def cmd_migrate(conn):
     for path in pending:
         print(f"Applying {path.name} ...")
         apply_migration(conn, path)
-        print(f"  done.")
+        print("  done.")
     print(f"Applied {len(pending)} migration(s).")
 
 

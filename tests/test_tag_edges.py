@@ -10,7 +10,6 @@ The upsert test relies on migration 005's UNIQUE KEY (round_id, puzzle_id); if
 005 is not yet applied the writer simply does not exist (Phase 1) — the test then
 fails on the missing seam, which is the right reason.
 """
-import pytest
 
 from bot.store import PuzzleJsonDb, mydb
 from bot.store.puzzle_data import PuzzleData

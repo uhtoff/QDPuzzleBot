@@ -8,6 +8,7 @@ ipython = "*"
 pytest = "*"
 pytest-asyncio = "*"
 pydevd-pycharm = "~=243.22562.220"
+ruff = "*"
 
 [packages]
 "discord.py" = "*"

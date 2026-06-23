@@ -1,7 +1,6 @@
 """Phase 1 (board push): event builder + best-effort notifier over events.publish."""
 from unittest.mock import patch
 
-import pytest
 
 
 def test_board_event_shape_and_int_guild():

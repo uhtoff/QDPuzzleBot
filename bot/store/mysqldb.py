@@ -9,7 +9,7 @@ import re
 
 import pytz
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
-from .round_data import RoundData, MissingRoundError
+from .round_data import RoundData
 from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
@@ -190,7 +190,7 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
     def delete(self, round_id):
         super(MySQLRoundJsonDb, self).delete(round_id)
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"DELETE FROM tags WHERE round_id = %s", (round_id,))
+        cursor.execute("DELETE FROM tags WHERE round_id = %s", (round_id,))
         cursor.close()
 
 class MySQLAdditionalSheetsDb(_MySQLBaseDb):
@@ -198,7 +198,7 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
 
     def get_by_puzzle(self, puzzle_id):
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
+        cursor.execute("SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
         rows = cursor.fetchall()
         cursor.close()
         return rows
@@ -397,7 +397,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def delete(self, puzzle_id):
         super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
+        cursor.execute("DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
         cursor.close()
 
 class MySQLChannelActivityDb(_MySQLBaseDb):

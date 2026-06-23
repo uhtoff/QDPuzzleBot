@@ -65,7 +65,7 @@ class Utility(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name=f"Server Configuration",
+            name="Server Configuration",
             value=f"```\n"
             f"Prefix: {utils.config.prefix}\n"
             f"```",

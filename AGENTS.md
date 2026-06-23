@@ -40,6 +40,23 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 - `bot/store/__init__.py` opens MySQL **at import**, so tests need a reachable DB; a
   gitignored `config.json` (local `puzzlebot_test`) provides creds.
 
+## Linting
+
+```bash
+pipenv run ruff check          # report
+pipenv run ruff check --fix    # apply safe auto-fixes
+```
+
+- Config in `ruff.toml`, scoped to the pyflakes (`F`) rule set only — the high-signal
+  correctness class (undefined names, unused imports/vars, malformed f-strings). Broader
+  style rules (`E`/`W`/`UP`/…) are intentionally **not** enabled yet; widen later if wanted.
+- **Do not blind-`--fix` `F401` (unused import) on `bot/` modules.** Several production
+  modules import names that look unused locally but are load-bearing: package re-exports
+  (`bot/web/auth.py` re-exports `ADMIN_ROLES`) and test patch-targets
+  (`patch("bot.core.puzzle_service.GuildSettingsDb")`). Those lines carry `# noqa: F401`
+  with a reason; `__init__.py` re-exports are ignored wholesale via `per-file-ignores`.
+  Review F401 fixes on production code before applying.
+
 ## Database & migrations
 
 - **Rule: migration → deploy → code.** The generic `commit()` writes every dataclass
