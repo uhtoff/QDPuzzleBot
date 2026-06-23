@@ -15,6 +15,7 @@ import {
 import { Link, useParams } from "react-router-dom";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useHunt } from "../api";
+import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
@@ -26,7 +27,8 @@ import type { Puzzle } from "../types";
 export default function HuntBoard() {
   const { uid } = useParams();
   const { data, isLoading, error } = useHunt(uid);
-  const live = useActivityFeed();
+  const qc = useQueryClient();
+  const live = useActivityFeed((u) => { if (u === uid) qc.invalidateQueries({ queryKey: ["hunt", uid] }); });
   const [view, setView] = useState<"board" | "all" | "arrange">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
 

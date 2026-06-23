@@ -10,9 +10,11 @@ export interface LiveActivity {
  * Subscribe to the live activity WebSocket and keep a map of
  * channel_id -> most recent activity. Auto-reconnects on drop.
  */
-export function useActivityFeed(): Record<string, LiveActivity> {
+export function useActivityFeed(onBoard?: (uid: string) => void): Record<string, LiveActivity> {
   const [live, setLive] = useState<Record<string, LiveActivity>>({});
   const wsRef = useRef<WebSocket | null>(null);
+  const cb = useRef(onBoard);
+  cb.current = onBoard;
 
   useEffect(() => {
     let closed = false;
@@ -31,6 +33,9 @@ export function useActivityFeed(): Record<string, LiveActivity> {
               ...prev,
               [event.channel_id!]: { at: event.at!, author: event.author ?? null },
             }));
+          }
+          if (event.type === "board" && event.uid) {
+            cb.current?.(event.uid);
           }
         } catch {
           /* ignore malformed frames */
