@@ -17,7 +17,7 @@ data model and tooling.
 
 ## In scope
 
-- `evidence_items` DB table (new migration `008_evidence.sql`)
+- `evidence_items` DB table (new migration `009_evidence.sql`)
 - `!clue "text"` bang command — freeform clue, source puzzle auto-stamped
 - `!clues ITEM1 ITEM2 "MULTI WORD"` bang command — batch add, shell-style tokenising via `shlex.split`
 - Hunt-wide Evidence sheet tab (auto-created on first `!clue` per hunt, rendered by `aggregate_to_tab`)
@@ -228,7 +228,7 @@ async def refresh_evidence(self, hunt)
 
 | File | Change |
 |---|---|
-| `migrations/008_evidence.sql` | New table + `hunts.evidence_sheet_page_id` column |
+| `migrations/009_evidence.sql` | New table + `hunts.evidence_sheet_page_id` column |
 | `bot/store/evidence_data.py` | `EvidenceData` dataclass + `_EvidenceJsonDb` |
 | `bot/store/__init__.py` | Wire `EvidenceJsonDb` |
 | `bot/store/mysqldb.py` | `MySQLEvidenceDb` implementation |

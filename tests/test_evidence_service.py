@@ -1,8 +1,6 @@
 """Tests for M9 evidence board — service layer and data model."""
-import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
 from tests.conftest import make_puzzle
 

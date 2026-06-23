@@ -1,7 +1,6 @@
 """Tests for M9 evidence board — !clue and !clues bang commands."""
-import asyncio
 import shlex
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tests.conftest import make_puzzle
