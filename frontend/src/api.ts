@@ -209,6 +209,32 @@ export function useSolvePuzzle(uid: string) {
   });
 }
 
+export function useUnsolvePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId }: { puzzleId: number }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/unsolve`, "POST"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+    },
+  });
+}
+
+export function useCreateMini(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, name }: { puzzleId: number; name: string }) =>
+      apiSend<{ ok: boolean; mini_id: number; name: string; channel_id: string }>(
+        `/api/puzzles/${puzzleId}/minis`,
+        "POST",
+        { name }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+    },
+  });
+}
+
 export function useCreatePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({

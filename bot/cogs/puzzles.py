@@ -176,38 +176,53 @@ class Puzzles(commands.Cog):
         gsheet_cog = None
         guild = ctx.guild
         guild_data = GuildSettingsDb.get(ctx.guild.id)
-        channel_type = GuildSettingsDb.get_channel_type(ctx.channel.id)
-        if channel_type is None:
-            channel_type = GuildSettingsDb.get_channel_type(ctx.channel.category.id)
-        if channel_type is None:
-            channel_type = "Guild"
-        if channel_type == 'Hunt':
-            hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-        if channel_type == 'Group':
-            hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
-            if hunt_round:
-                channel_type = hunt_round.type
-                hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-                if hunt_round.meta_id:
-                    puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
-        if channel_type == 'Puzzle':
-            puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
-            # Check if we've actually got the metapuzzle for a round and set the right channel type if so
-            # Otherwise grab the group/round from the category
+
+        if isinstance(ctx.channel, discord.Thread):
+            # Mini-puzzle thread: resolve directly by thread snowflake, no category needed.
+            puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id)
             if puzzle:
-                hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                channel_type = 'Puzzle'
+                hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                for tag_id in puzzle.tags:
+                    r = RoundJsonDb.get_by_attr(id=tag_id)
+                    if r:
+                        hunt_round = r
+                        break
+            else:
+                channel_type = 'Guild'
+        else:
+            channel_type = GuildSettingsDb.get_channel_type(ctx.channel.id)
+            if channel_type is None:
+                channel_type = GuildSettingsDb.get_channel_type(ctx.channel.category.id)
+            if channel_type is None:
+                channel_type = "Guild"
+            if channel_type == 'Hunt':
+                hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
+            if channel_type == 'Group':
+                hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
                 if hunt_round:
                     channel_type = hunt_round.type
-                else:
-                    hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
-                hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                    hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
+                    if hunt_round.meta_id:
+                        puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+            if channel_type == 'Puzzle':
+                puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
+                # Check if we've actually got the metapuzzle for a round and set the right channel type if so
+                # Otherwise grab the group/round from the category
+                if puzzle:
+                    hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                    if hunt_round:
+                        channel_type = hunt_round.type
+                    else:
+                        hunt_round = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
+                    hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
         if gsheet_cog is not None:
             gsheet_cog.set_notify_channel(ctx.channel)
-        if hunt is not None:
-            gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-            gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+            if hunt is not None:
+                gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+                gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         self.environment[ctx.message.id] = {'channel_type': channel_type,
                                             'hunt': hunt,
                                             'hunt_round': hunt_round,
@@ -871,6 +886,85 @@ class Puzzles(commands.Cog):
         )
 
         return await ctx.send(embed=embed)
+
+    @commands.command()
+    async def make_minimeta(self, ctx):
+        """*Convert this puzzle into a minimeta cluster: !make_minimeta*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        self.service.make_minimeta(puzzle)
+        await ctx.send(f":white_check_mark: **{puzzle.name}** is now a minimeta cluster. Use `!add_mini` to add mini-puzzles.")
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def add_mini(self, ctx, *args):
+        """*Add a mini-puzzle (thread + sheet) to this minimeta: !add_mini Name*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        name = " ".join(args).strip()
+        if not name:
+            return await ctx.send(":x: Provide a name: `!add_mini Puzzle Name`")
+        try:
+            mini = await self.service.create_mini(
+                ctx.guild, self.get_hunt(ctx), puzzle, name
+            )
+        except RuntimeError as exc:
+            return await ctx.send(f":x: Could not create mini-puzzle: {exc}")
+        await ctx.send(f":white_check_mark: Created mini-puzzle **{mini.name}**. Thread: <#{mini.channel_id}>")
+
+    @commands.command()
+    async def list_minis(self, ctx):
+        """*List mini-puzzles for this minimeta: !list_minis*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        minis = self.service.get_minis(puzzle.id)
+        if not minis:
+            return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
+        embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
+        lines = []
+        for i, mini in enumerate(minis, 1):
+            if mini.solved:
+                lines.append(f"{i}. ✅ **{mini.name}** — {mini.solution}")
+            else:
+                lines.append(f"{i}. ⬜ **{mini.name}** — unsolved")
+        embed.description = "\n".join(lines)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def solve_mini(self, ctx, number: int, *args):
+        """*Solve mini-puzzle #N from the minimeta channel: !solve_mini 2 ANSWER*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        solution = " ".join(args).strip()
+        if not solution:
+            return await ctx.send(":x: Provide a solution: `!solve_mini 2 ANSWER`")
+        try:
+            await self.service.solve_mini_by_number(
+                ctx.guild, self.get_hunt(ctx), puzzle.id, number, solution
+            )
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
+        await ctx.send(f":white_check_mark: Solved mini #{number}: **{solution}**")
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def unsolve_mini(self, ctx, number: int):
+        """*Unsolve mini-puzzle #N from the minimeta channel: !unsolve_mini 2*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        try:
+            await self.service.unsolve_mini_by_number(
+                ctx.guild, self.get_hunt(ctx), puzzle.id, number
+            )
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
+        await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
     def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
         sheet_links = ""

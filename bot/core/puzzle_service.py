@@ -303,6 +303,15 @@ class PuzzleService:
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
 
+        # M8: archive the mini-puzzle thread on solve.
+        if puzzle.parent_puzzle_id is not None and guild is not None:
+            thread = guild.get_channel_or_thread(puzzle.channel_id)
+            if thread is not None:
+                try:
+                    await thread.edit(archived=True)
+                except Exception:
+                    logger.exception("Failed to archive mini-puzzle thread %s on solve", puzzle.channel_id)
+
         # Failure isolation: attempt every meta this puzzle feeds, badge any that
         # fail, and keep going (one stale sheet must not skip the others, the round
         # solve_time stamp, or the archive below).
@@ -331,6 +340,48 @@ class PuzzleService:
             raise SheetRefreshError(failed)
         return True
 
+    async def unsolve(self, guild, hunt, puzzle):
+        """Clear a puzzle's solve state and restore its sheet.
+
+        For mini-puzzles (parent_puzzle_id set), also unarchives the thread.
+        """
+        puzzle.status = "Unsolved"
+        puzzle.solution = ""
+        puzzle.solved = False
+        puzzle.solve_time = None
+        puzzle.archive_time = None
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.restore_puzzle_spreadsheet(puzzle)
+
+        # Refresh metas so the unsolved answer disappears from the meta sheet.
+        for tag in puzzle.tags:
+            try:
+                meta_round = RoundJsonDb.get_by_attr(id=tag)
+                if meta_round is not None:
+                    await self.refresh_meta(hunt, meta_round)
+            except Exception:
+                logger.exception("unsolve: meta refresh failed for round %s", tag)
+
+        # M8: unarchive the mini-puzzle thread.
+        if puzzle.parent_puzzle_id is not None and guild is not None:
+            thread = guild.get_channel_or_thread(puzzle.channel_id)
+            if thread is not None:
+                try:
+                    await thread.edit(archived=False)
+                except Exception:
+                    logger.exception("Failed to unarchive mini-puzzle thread %s", puzzle.channel_id)
+
+        # Mirror round-solve undo if this puzzle was a round meta.
+        for tag in puzzle.tags:
+            round_ = RoundJsonDb.get_by_attr(id=tag)
+            if round_ and round_.meta_id == puzzle.id:
+                round_.solve_time = None
+                round_.status = "active"
+                RoundJsonDb.commit(round_)
+
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,
         and drop it from the in-memory puzzle. Shared by the web + Discord removal
@@ -350,6 +401,69 @@ class PuzzleService:
                 logger.exception("Failed to delete Google tab for additional sheet %s", sheet.id)
         SheetsJsonDb.delete(sheet.id)
         puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
+
+    def make_minimeta(self, puzzle):
+        """Mark a puzzle as a minimeta cluster parent. Idempotent."""
+        puzzle.puzzle_type = "Minimeta"
+        PuzzleJsonDb.commit(puzzle)
+
+    def get_minis(self, minimeta_id):
+        """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
+        return PuzzleJsonDb.get_children(minimeta_id)
+
+    async def solve_mini_by_number(self, guild, hunt, minimeta_id, number, solution):
+        """Solve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
+        minis = self.get_minis(minimeta_id)
+        if number < 1 or number > len(minis):
+            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
+        return await self.solve(guild, hunt, minis[number - 1], solution)
+
+    async def unsolve_mini_by_number(self, guild, hunt, minimeta_id, number):
+        """Unsolve the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id."""
+        minis = self.get_minis(minimeta_id)
+        if number < 1 or number > len(minis):
+            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
+        await self.unsolve(guild, hunt, minis[number - 1])
+
+    async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
+        """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
+
+        Tags the mini into the minimeta's round (first tag) so refresh_meta
+        rolls up its answer to the minimeta sheet on solve.
+        Auto-sets the minimeta's puzzle_type to 'Minimeta' if not already set.
+        """
+        self.make_minimeta(minimeta)
+
+        mini = PuzzleData(
+            name=name,
+            hunt_id=hunt.id,
+            start_time=datetime.datetime.now(tz=pytz.UTC),
+            status='Unstarted',
+            priority='Normal',
+            puzzle_type='Mini',
+            parent_puzzle_id=minimeta.id,
+        )
+
+        # Tag into the minimeta's first round so refresh_meta fires on solve.
+        if minimeta.tags:
+            mini.tags.append(minimeta.tags[0])
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.create_puzzle_spreadsheet(mini)
+
+        PuzzleJsonDb.commit(mini)
+
+        channel = guild.get_channel(minimeta.channel_id)
+        thread = await channel.create_thread(
+            name=clean_name(name),
+            type=discord.ChannelType.public_thread,
+        )
+        mini.channel_id = thread.id
+        mini.channel_name = thread.name
+        PuzzleJsonDb.commit(mini)
+
+        return mini
 
     async def add_sheet(self, hunt, puzzle, name):
         """Create an extra working sheet (name optional). Raises

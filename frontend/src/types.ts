@@ -39,6 +39,14 @@ export interface AdditionalSheet {
   page_id: string | null;
 }
 
+export interface MiniPuzzle {
+  id: number;
+  name: string;
+  solved: boolean;
+  solution: string | null;
+  channel_id: string | null;
+}
+
 export interface Puzzle {
   id: number;
   name: string;
@@ -60,6 +68,7 @@ export interface Puzzle {
   last_activity: Activity | null;
   rounds: PuzzleRound[];
   sheets: AdditionalSheet[];
+  mini_puzzles: MiniPuzzle[];
 }
 
 export interface BoardGroup {
