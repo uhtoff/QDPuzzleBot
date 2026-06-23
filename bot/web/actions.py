@@ -739,7 +739,7 @@ async def unsolve_puzzle(puzzle_id):
 @actions_bp.route("/evidence/<int:item_id>", methods=["PATCH"])
 @login_required
 async def update_evidence(item_id):
-    from bot.store import EvidenceJsonDb, HuntJsonDb
+    from bot.store import EvidenceJsonDb
     body = await request.get_json()
     target_puzzle_id = body.get("target_puzzle_id")
     item = EvidenceJsonDb.set_target(item_id, target_puzzle_id)
