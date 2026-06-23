@@ -5,7 +5,7 @@ Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Branch: feature/m3.5-channel-adapter (off local main; spec committed at 22ddc7f)
 Target model per phase: Phase 1 (tests) = Opus · Phase 2–6 (implementation) = Sonnet
 Started: 2026-06-23
-Status: ready for handoff — Phase 1 (tests)
+Status: in progress — Phase 1 (tests) committed; next Phase 2
 
 Design doc (authoritative background): `docs/superpowers/specs/2026-06-23-m3.5-channel-adapter-design.md`
 
