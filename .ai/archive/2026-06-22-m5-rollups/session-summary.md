@@ -4,7 +4,7 @@ Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Branch: feature/m5-rollups
 Started: 2026-06-22
-Status: ready for handoff — M5: refresh handoff — all phases done, suite green @ 99bcfb5
+Status: ready for handoff — Merge M5: rollups + on-solve propagation + surfaced failures into main @ ca8c0c3
 
 ## Goal
 
