@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
@@ -33,6 +33,7 @@ import {
   type SourceMode,
 } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { relativeTime, statusColor } from "../util";
 
@@ -48,6 +49,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
+  const [expandedMinis, setExpandedMinis] = useState<Set<number>>(new Set());
   const [nestModalOpen, setNestModalOpen] = useState(false);
   const [nestParentId, setNestParentId] = useState<string|null>(null);
   // Aggregated answers reveal
@@ -114,6 +116,14 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
     }
     clipboard.copy(rows.join("\n"));
     notifications.show({ message: `Copied ${rows.length} answers`, color: "green" });
+  }
+
+  function toggleMinis(id: number) {
+    setExpandedMinis((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   function activityFor(p: Puzzle): string {
@@ -224,7 +234,8 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         <Table>
           <Table.Tbody>
             {group.puzzles.map((p) => (
-              <Table.Tr key={`${group.round_id}-${p.id}`} bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
+              <Fragment key={`${group.round_id}-${p.id}`}>
+              <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                 <Table.Td w={110}>
                   <PuzzleLinks
                     puzzle={p}
@@ -276,9 +287,31 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         <IconNote size={15} />
                       </ActionIcon>
                     </Indicator>
+                    {p.puzzle_type === "Minimeta" && (
+                      <Tooltip label={`${p.mini_puzzles.filter((m) => m.solved).length}/${p.mini_puzzles.length} minis solved`}>
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          onClick={() => toggleMinis(p.id)}
+                          aria-label="Toggle minis"
+                        >
+                          <Badge color="violet" variant="light">
+                            {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
+                          </Badge>
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
                   </Group>
                 </Table.Td>
               </Table.Tr>
+              {p.puzzle_type === "Minimeta" && expandedMinis.has(p.id) && (
+                <Table.Tr>
+                  <Table.Td colSpan={99} p={0}>
+                    <MiniPuzzlePanel parentId={p.id} minis={p.mini_puzzles} uid={detail.hunt.uid} />
+                  </Table.Td>
+                </Table.Tr>
+              )}
+              </Fragment>
             ))}
           </Table.Tbody>
         </Table>
