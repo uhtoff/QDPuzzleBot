@@ -306,6 +306,17 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
+    def get_children(self, parent_puzzle_id: int):
+        """Return all mini-puzzles whose parent_puzzle_id matches."""
+        cursor = self.mydb.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT * FROM puzzles WHERE parent_puzzle_id = %s ORDER BY id ASC",
+            (parent_puzzle_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        return [self.construct_puzzle(r) for r in rows]
+
     def get_solved_puzzles_to_archive(self, guild_id, now=None, include_meta=False, minutes=1) -> List[PuzzleData]:
         """Returns list of all solved but unarchived puzzles"""
         all_puzzles = self.get_all(guild_id)

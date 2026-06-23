@@ -15,6 +15,8 @@ def make_puzzle(
     tags=None,
     status="",
     channel_id=111,
+    parent_puzzle_id=None,
+    puzzle_type="",
 ):
     p = PuzzleData()
     p.id = id
@@ -27,6 +29,8 @@ def make_puzzle(
     p.metameta = metameta
     p.tags = tags if tags is not None else []
     p.status = status
+    p.parent_puzzle_id = parent_puzzle_id
+    p.puzzle_type = puzzle_type
     return p
 
 
