@@ -342,6 +342,29 @@ def build_board(puzzles, rollups_by_round=None):
 
 # --- Activity ---------------------------------------------------------------
 
+def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
+    """Return evidence items for a hunt with resolved puzzle names."""
+    from bot.store import EvidenceJsonDb, PuzzleJsonDb
+    items = EvidenceJsonDb.get_all(hunt_id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
+    puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
+    names = {}
+    for pid in puzzle_ids:
+        p = PuzzleJsonDb.get_by_attr(id=pid)
+        names[pid] = p.name if p else f"Puzzle {pid}"
+    return [
+        {
+            "id": i.id,
+            "source_puzzle_id": i.source_puzzle_id,
+            "source_puzzle_name": names.get(i.source_puzzle_id, ""),
+            "target_puzzle_id": i.target_puzzle_id,
+            "target_puzzle_name": names.get(i.target_puzzle_id, "") if i.target_puzzle_id else None,
+            "note": i.note,
+            "created_at": i.created_at.isoformat() if i.created_at else None,
+        }
+        for i in items
+    ]
+
+
 async def get_guild_activity(guild_snowflake):
     rows = await fetch_all(
         "SELECT channel_id, last_human_message_at, last_author_name "

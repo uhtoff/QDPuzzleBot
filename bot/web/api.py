@@ -138,6 +138,48 @@ async def rollup_answers(round_id):
     })
 
 
+@api_bp.route("/evidence")
+@login_required
+async def list_evidence():
+    from quart import request
+    hunt_uid = request.args.get("hunt_uid")
+    source_puzzle_id = request.args.get("source_puzzle_id", type=int)
+    target_puzzle_id = request.args.get("target_puzzle_id")
+    if target_puzzle_id and target_puzzle_id != "unassigned":
+        try:
+            target_puzzle_id = int(target_puzzle_id)
+        except ValueError:
+            target_puzzle_id = None
+    if not hunt_uid:
+        return jsonify({"error": "hunt_uid required"}), 400
+    hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
+    if hunt is None:
+        return jsonify({"error": "hunt not found"}), guild_or_status
+    items = data.get_evidence(hunt["id"], source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
+    return jsonify(items)
+
+
+@api_bp.route("/evidence", methods=["POST"])
+@login_required
+async def add_evidence():
+    from quart import request
+    from bot.store import EvidenceJsonDb, PuzzleJsonDb
+    body = await request.get_json()
+    hunt_uid = body.get("hunt_uid")
+    source_puzzle_id = body.get("source_puzzle_id")
+    notes = body.get("notes", [])
+    if not hunt_uid or not source_puzzle_id or not notes:
+        return jsonify({"error": "hunt_uid, source_puzzle_id, and notes required"}), 400
+    hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
+    if hunt is None:
+        return jsonify({"error": "hunt not found"}), guild_or_status
+    puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+    if puzzle is None or puzzle.hunt_id != hunt["id"]:
+        return jsonify({"error": "puzzle not found in hunt"}), 404
+    items = [EvidenceJsonDb.log(hunt["id"], source_puzzle_id, n) for n in notes if n.strip()]
+    return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""

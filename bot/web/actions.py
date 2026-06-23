@@ -732,4 +732,17 @@ async def unsolve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+
         return jsonify({"ok": True})
+
+
+@actions_bp.route("/evidence/<int:item_id>", methods=["PATCH"])
+@login_required
+async def update_evidence(item_id):
+    from bot.store import EvidenceJsonDb, HuntJsonDb
+    body = await request.get_json()
+    target_puzzle_id = body.get("target_puzzle_id")
+    item = EvidenceJsonDb.set_target(item_id, target_puzzle_id)
+    if item is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id})
