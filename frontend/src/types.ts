@@ -73,6 +73,7 @@ export interface BoardGroup {
   num_solved_feeders: number;
   rollup_stale: boolean;
   rollup_error: string | null;
+  source_mode: string;  // "round" | "subtree" | "explicit" (M7)
 }
 
 export interface HuntDetail {

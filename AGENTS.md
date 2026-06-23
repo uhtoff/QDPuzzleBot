@@ -23,6 +23,10 @@ the many-to-many `tags(puzzle_id, round_id)` table.
   deferred renames, FK cascades, etc.).
 - For substantial tasks, durable handoff state lives under `.ai/active/` (see global
   instructions); treat `.ai/active/current-spec.md` as authoritative when present.
+- **Source plans / brainstorm outputs live outside the repo** under
+  `~/.claude/plans/*.md` (e.g. the M7 source plan
+  `can-we-plan-m7-sparkling-newell.md`). They are *background only* — the in-repo
+  `docs/PLANS.md` and `.ai/active/` files win when they conflict.
 
 ## Running tests
 
@@ -55,6 +59,19 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
   them, don't redefine.
 - `bot/cogs/puzzles.py` is a ~2,700-line god-cog and a contention magnet; keep edits
   focused and prefer moving logic into `bot/core/`.
+
+## Deployment & infrastructure
+
+- **`docs/dashboard.md` is the authoritative deploy/infra reference** for the SPA +
+  embedded Quart API (deploy steps, OAuth setup, nginx reverse-proxy config, serving
+  model, local dev). Read it before touching deployment.
+- **Test-site topology:** nginx on the edge box `souwester` terminates TLS for the
+  internal-only hostname `puzzweb.home.meldon.net` and reverse-proxies to the bot box
+  `redhat.home.meldon.net`, which runs the bot + embedded Quart on `:8099` (one
+  upstream, no CORS — Quart serves both `/api/*` and the built SPA). DB is
+  `puzzlebot_test`.
+- Quart starts from `setup_hook` only when `web.enabled` is true in `config.json`
+  (gitignored; see `config.json.dist` for the `web` block).
 
 ## Worktrees
 

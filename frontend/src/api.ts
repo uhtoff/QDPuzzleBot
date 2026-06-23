@@ -247,3 +247,27 @@ export function useRebuildRollup(uid: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
+
+export type SourceMode = "round" | "subtree" | "explicit";
+
+export function useSetSourceMode(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roundId, mode }: { roundId: number; mode: SourceMode }) =>
+      apiSend<{ ok: boolean; source_mode: string }>(`/api/rollups/${roundId}`, "PATCH", {
+        source_mode: mode,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useSetNesting(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roundId, parentId }: { roundId: number; parentId: number | null }) =>
+      apiSend<{ ok: boolean }>(`/api/rounds/${roundId}/nest`, "POST", {
+        parent_round_id: parentId,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}

@@ -1,10 +1,28 @@
 import { useState } from "react";
-import { Accordion, ActionIcon, Badge, Box, Group, Indicator, Table, Text, Tooltip } from "@mantine/core";
-import { IconAlertTriangle, IconCircleCheck, IconNote, IconRefresh } from "@tabler/icons-react";
+import {
+  Accordion,
+  ActionIcon,
+  Badge,
+  Box,
+  Group,
+  Indicator,
+  Modal,
+  Select,
+  Table,
+  Text,
+  Tooltip,
+} from "@mantine/core";
+import {
+  IconAlertTriangle,
+  IconCircleCheck,
+  IconNote,
+  IconRefresh,
+  IconTree,
+} from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
-import { useRebuildRollup, useUpdatePuzzle } from "../api";
+import { useRebuildRollup, useSetSourceMode, useSetNesting, useUpdatePuzzle, type SourceMode } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { relativeTime, statusColor } from "../util";
@@ -19,18 +37,54 @@ interface Props {
 export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const solvedAll = group.meta_solved || (group.num_feeders > 0 && group.num_solved_feeders === group.num_feeders);
   const editable = !detail.hunt.archived;
+  const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
+  const [nestModalOpen, setNestModalOpen] = useState(false);
+  const [nestParentId, setNestParentId] = useState<string|null>(null);
+  // Collect other meta rounds for the nesting dropdown
+  const allMetaRounds = detail.board.filter((g) => g.round_id !== 0 && g.round_id !== group.round_id);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
+  const sourceModeMut = useSetSourceMode(detail.hunt.uid);
+  const nestingMut = useSetNesting(detail.hunt.uid);
 
   function rebuild() {
     rebuildMut.mutate(group.round_id, {
       onSuccess: (data) =>
         notifications.show(
           data.ok
-            ? { message: `Rebuilt “${group.name}” sheet`, color: "green" }
+            ? { message: `Rebuilt "${group.name}" sheet`, color: "green" }
             : { message: data.error || "Rebuild failed", color: "red" }
         ),
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function setSourceMode(mode: string) {
+    sourceModeMut.mutate({ roundId: group.round_id, mode: mode as SourceMode }, {
+      onSuccess: (data) =>
+        notifications.show(
+          data.ok
+            ? { message: `"${group.name}" → ${mode}`, color: "green" }
+            : { message: "Failed to update source_mode", color: "red" }
+        ),
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function applyNesting() {
+    const parentId = nestParentId ? Number(nestParentId) : null;
+    nestingMut.mutate({ roundId: group.round_id, parentId }, {
+      onSuccess: () => {
+        notifications.show({
+          message: parentId
+            ? `“${group.name}” nested under “${allMetaRounds.find(g => g.round_id === parentId)?.name || parentId}”`
+            : `“${group.name}” nesting cleared`,
+          color: "green",
+        });
+        setNestModalOpen(false);
+        setNestParentId(null);
+      },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });
   }
@@ -85,6 +139,39 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               aria-label="Rebuild meta sheet"
             >
               <IconRefresh size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {/* M7 source_mode selector */}
+        {group.round_id !== 0 && editable && isOrganiser && (
+          <Select
+            data={[
+              { value: "round", label: "round" },
+              { value: "subtree", label: "subtree" },
+              { value: "explicit", label: "explicit" },
+            ]}
+            value={group.source_mode ?? "round"}
+            onChange={(v) => setSourceMode(v ?? "round")}
+            mr="sm"
+            size="xs"
+            comboboxProps={{ withinPortal: false }}
+            style={{ minWidth: 80 }}
+          />
+        )}
+        {/* M7 nesting button (only for meta rounds) */}
+        {group.round_id !== 0 && isOrganiser && editable && allMetaRounds.length > 0 && (
+          <Tooltip label="Nest under another meta">
+            <ActionIcon
+              variant="subtle"
+              color="grape"
+              mr="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNestModalOpen(true);
+              }}
+              aria-label="Nest this meta"
+            >
+              <IconTree size={16} />
             </ActionIcon>
           </Tooltip>
         )}
@@ -153,6 +240,32 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         </Table>
 
         <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
+
+        {/* Nesting modal */}
+        <Modal
+          opened={nestModalOpen}
+          onClose={() => { setNestModalOpen(false); setNestParentId(null); }}
+          title={`Nest "${group.name}" under…`}
+        >
+          <Select
+            data={allMetaRounds.map((g) => ({
+              value: String(g.round_id),
+              label: `${g.name} (${g.meta_code ?? '—'})`,
+            }))}
+            placeholder="Pick parent round (or leave blank to clear)"
+            value={nestParentId}
+            onChange={setNestParentId}
+            mr="md"
+          />
+          <Group mt="md" justify="right">
+            <ActionIcon variant="subtle" color="red" onClick={() => { setNestParentId(null); applyNesting(); }}>
+              Clear
+            </ActionIcon>
+            <ActionIcon variant="light" color="green" onClick={applyNesting} disabled={!nestParentId}>
+              Apply
+            </ActionIcon>
+          </Group>
+        </Modal>
       </Accordion.Panel>
     </Accordion.Item>
   );

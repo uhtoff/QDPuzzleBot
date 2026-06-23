@@ -57,12 +57,7 @@ class PuzzleService:
                 return
             rollup = self._find_or_create_rollup(hunt_round)
             try:
-                if metapuzzle.metameta:
-                    all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_round.hunt_id)
-                    await gsheet_cog.add_metametapuzzle_data(metapuzzle, all_puzzles)
-                else:
-                    round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-                    await gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
+                await self._render_rollup(gsheet_cog, hunt_round, rollup, metapuzzle)
                 await self._record_rollup_tab(gsheet_cog, rollup, metapuzzle)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:
@@ -77,6 +72,34 @@ class PuzzleService:
         if rollup is None:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
+
+    async def _render_rollup(self, gsheet_cog, hunt_round, rollup, metapuzzle):
+        """Select feeder membership by rollup.source_mode and delegate to the
+        existing renderer (add_metapuzzle_data or add_metametapuzzle_data).
+
+        Replaces the old metameta-flag branch: source_mode is now the single
+        runtime switch. Falsy/missing source_mode defaults to 'round'."""
+        mode = rollup.source_mode or "round"
+        feeders = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+
+        if mode == "subtree":
+            branch = await self.collect_subtree_puzzles(hunt_round)
+            await gsheet_cog.add_metametapuzzle_data(metapuzzle, branch)
+        elif mode == "explicit":
+            pool = [
+                p for p in feeders
+                if p.tag_edges.get(hunt_round.id) == "aggregates-into"
+            ]
+            await gsheet_cog.add_metapuzzle_data(metapuzzle, pool)
+        else:
+            # 'round' (default): today's path — all round members, optionally
+            # filtered by edge_type_filter.
+            filt = rollup.edge_type_filter or "feeds-meta"
+            feeders = [
+                p for p in feeders
+                if p.tag_edges.get(hunt_round.id, "feeds-meta") == filt
+            ]
+            await gsheet_cog.add_metapuzzle_data(metapuzzle, feeders)
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
@@ -191,6 +214,52 @@ class PuzzleService:
             node_id = node.parent_group_id
         child_round.parent_group_id = parent_id
         RoundJsonDb.commit(child_round)
+
+    async def collect_subtree_rounds(self, root_round):
+        """BFS from root_round gathering descendants linked by parent_group_id.
+
+        Returns a list of round objects (including root_round itself). A depth cap
+        of 64 backstops pre-existing broken chains or cycles."""
+        all_rounds = RoundJsonDb.get_all(hunt_id=root_round.hunt_id)
+        # Build a child map: parent_group_id -> [child rounds]
+        children_of = {}
+        for r in all_rounds:
+            pid = r.parent_group_id
+            if pid is not None:
+                children_of.setdefault(pid, []).append(r)
+
+        visited = {root_round.id}
+        result = [root_round]
+        queue = [root_round]
+        depth = 0
+        while queue and depth <= 64:
+            next_queue = []
+            for rnd in queue:
+                for child in children_of.get(rnd.id, []):
+                    if child.id not in visited:
+                        visited.add(child.id)
+                        result.append(child)
+                        next_queue.append(child)
+            queue = next_queue
+            depth += 1
+        return result
+
+    async def collect_subtree_puzzles(self, root_round):
+        """Collect all solved puzzles across the subtree rooted at `root_round`.
+
+        Union of get_all_from_round for each descendant round, deduped by puzzle id,
+        keeping only solved puzzles."""
+        rounds = await self.collect_subtree_rounds(root_round)
+        seen_ids = set()
+        puzzles = []
+        for rnd in rounds:
+            if rnd.id == root_round.id:
+                continue  # skip the meta round itself
+            for p in PuzzleJsonDb.get_all_from_round(rnd.id):
+                if p.id not in seen_ids and p.solved:
+                    seen_ids.add(p.id)
+                    puzzles.append(p)
+        return puzzles
 
     async def solve(self, guild, hunt, puzzle, solution):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,

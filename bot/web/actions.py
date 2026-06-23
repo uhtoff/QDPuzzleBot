@@ -458,6 +458,95 @@ async def rebuild_rollup(round_id):
     return jsonify({"ok": True})
 
 
+# --- Rollup source_mode setter (organiser only) -----------------------------
+
+@actions_bp.route("/rollups/<int:round_id>", methods=["PATCH"])
+@login_required
+async def set_source_mode(round_id):
+    """Set the aggregation source_mode for a meta round, then rebuild its sheet.
+    Body: {"source_mode": "round" | "subtree" | "explicit"}. Organiser-gated."""
+    ctx, err = await _visible_hunt_for_round(round_id)
+    if err:
+        return err
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    mode = (body.get("source_mode") or "").strip()
+    allowed = ("round", "subtree", "explicit")
+    if mode not in allowed:
+        return jsonify({"error": f"bad_source_mode", "allowed": allowed}), 400
+
+    from bot.store import HuntJsonDb, RoundJsonDb, RollupsJsonDb
+    from bot.store.rollup_data import RollupData
+
+    meta_round = RoundJsonDb.get_by_attr(id=round_id)
+    if meta_round is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
+    if rollup is None:
+        rollup = RollupData(hunt_id=meta_round.hunt_id, round_id=meta_round.id)
+    rollup.source_mode = mode
+    RollupsJsonDb.commit(rollup)
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    try:
+        await cog.service.refresh_meta(hunt_obj, meta_round)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    except Exception as exc:
+        logger.exception("set_source_mode: refresh failed for round %s", round_id)
+        return jsonify({"ok": False, "error": str(exc)})
+    return jsonify({"ok": True, "source_mode": mode})
+
+
+# --- Nesting setter (organiser only) ----------------------------------------
+
+@actions_bp.route("/rounds/<int:round_id>/nest", methods=["POST"])
+@login_required
+async def set_nesting(round_id):
+    """Nest a round under another, or clear nesting.
+    Body: {"parent_round_id": <id>|null}. Null clears the nesting."""
+    ctx, err = await _visible_hunt_for_round(round_id)
+    if err:
+        return err
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    parent_id = body.get("parent_round_id")  # None/null clears — int nests
+
+    from bot.store import RoundJsonDb
+
+    child = RoundJsonDb.get_by_attr(id=round_id)
+    if child is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    # Validate parent exists (and belongs to same hunt) if nesting, not clearing
+    if parent_id is not None:
+        parent = RoundJsonDb.get_by_attr(id=parent_id)
+        if parent is None or parent.hunt_id != child.hunt_id:
+            return jsonify({"error": "bad_parent_round"}), 400
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    try:
+        await cog.service.set_parent_group(child, parent_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True})
+
+
 # --- Create puzzles and metas (organiser only) ------------------------------
 
 async def _organiser_hunt(uid):
