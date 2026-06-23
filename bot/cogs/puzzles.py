@@ -313,15 +313,22 @@ class Puzzles(commands.Cog):
     def set_gsheet_cog(self, ctx, gsheet_cog):
         self.environment[ctx.message.id]['gsheet_cog'] = gsheet_cog
 
-    def get_puzzle_sheet(self, ctx, puzzle: PuzzleData):
-        hunt = self.get_hunt(ctx)
+    def get_puzzle_sheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
+        """Return the active or archive spreadsheet id for a puzzle.
+
+        When *hunt* is not provided (bang path), falls back to environment lookup.
+        """
+        if hunt is None:
+            hunt = self.get_hunt(ctx)
         if puzzle.archived:
             return hunt.archive_google_sheet_id
         else:
             return hunt.google_sheet_id
 
-    def get_additional_sheet_spreadsheet(self, ctx, puzzle: PuzzleData):
-        hunt = self.get_hunt(ctx)
+    def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
+        """Return the spreadsheet id for additional sheets (archive when solved)."""
+        if hunt is None:
+            hunt = self.get_hunt(ctx)
         if puzzle.solved:
             return hunt.archive_google_sheet_id
         else:
@@ -662,46 +669,13 @@ class Puzzles(commands.Cog):
             logger.exception("web_refresh_meta: sheet update failed for round %s",
                              getattr(hunt_round, "id", None))
 
-    def _next_web_ctx_id(self):
-        """Unique negative id for a synthetic web context (never collides with a Discord snowflake)."""
-        self._web_ctx_seq = getattr(self, "_web_ctx_seq", 0) - 1
-        return self._web_ctx_seq
-
-    async def _web_render_info(self, guild, hunt, hunt_round, puzzle, channel, update):
-        """(Re)render the pinned intro/info message via the same send_initial_*
-        handlers the ! commands use. Returns the Message (or None on update if no
-        pin exists). Caller owns try/except.
-
-        The send_initial_* methods read hunt/guild_data from self.environment keyed
-        by ctx.message.id, so we build a synthetic ctx and populate that entry.
-        """
-        from types import SimpleNamespace
-        fake_id = self._next_web_ctx_id()
-        self.environment[fake_id] = {
-            "hunt": hunt,
-            "guild_data": GuildSettingsDb.get(guild.id),
-            "gsheet_cog": self.bot.get_cog("GoogleSheets"),
-            "guild": guild,
-            "puzzle": puzzle,
-            "hunt_round": hunt_round,
-            "channel_type": None,
-        }
-        fake_ctx = SimpleNamespace(message=SimpleNamespace(id=fake_id), guild=guild, channel=channel)
-        try:
-            handler = (
-                self.send_initial_metapuzzle_channel_messages
-                if puzzle.is_metapuzzle()
-                else self.send_initial_puzzle_channel_messages
-            )
-            return await handler(fake_ctx, channel, update=update, hunt=hunt, hunt_round=hunt_round, puzzle=puzzle)
-        finally:
-            self.environment.pop(fake_id, None)
 
     async def _web_send_welcome(self, guild, hunt, hunt_round, puzzle, channel):
-        """Post and pin the same intro message the ! commands send, from a web create."""
+        """Post and pin the welcome message via DiscordNotifier."""
+        from bot.core.notifier import DiscordNotifier
+        notifier = DiscordNotifier(self.bot)
         try:
-            message = await self._web_render_info(guild, hunt, hunt_round, puzzle, channel, update=False)
-            await message.pin()
+            await notifier.welcome(guild, hunt, hunt_round, puzzle, channel)
         except Exception:
             logger.exception("web create: failed to send/pin welcome message")
 
@@ -709,22 +683,10 @@ class Puzzles(commands.Cog):
         """Best-effort refresh of a puzzle's pinned info message after a metadata
         change (status/priority/type/solution/sheets), mirroring `!info update`.
         Never raises — a Discord hiccup must not fail the underlying DB write."""
-        if guild is None or not puzzle.channel_id:
-            return
-        channel = guild.get_channel(puzzle.channel_id)
-        if channel is None:
-            return
-        # A metapuzzle's info embed names its round (meta_code/name); find the
-        # round this puzzle is the meta of. Feeder puzzles don't need a round.
-        hunt_round = None
-        if puzzle.is_metapuzzle():
-            for tag in puzzle.tags:
-                candidate = RoundJsonDb.get_by_attr(id=tag)
-                if candidate and candidate.meta_id == puzzle.id:
-                    hunt_round = candidate
-                    break
+        from bot.core.notifier import DiscordNotifier
+        notifier = DiscordNotifier(self.bot)
         try:
-            await self._web_render_info(guild, hunt, hunt_round, puzzle, channel, update=True)
+            await notifier.refresh_info(guild, hunt, puzzle)
         except Exception:
             logger.exception("web_refresh_info: failed to refresh pinned info for puzzle %s", puzzle.id)
 
@@ -1055,10 +1017,10 @@ class Puzzles(commands.Cog):
 
         return await ctx.send(embed=embed)
 
-    def create_additional_sheet_list(self, ctx, puzzle):
+    def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
         sheet_links = ""
         count = 1
-        spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle)
+        spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle, hunt)
         for sheet in puzzle.additional_sheets:
             spreadsheet_url = urls.spreadsheet_url(spreadsheet_id,
                                                    sheet.google_page_id)
@@ -1709,7 +1671,7 @@ class Puzzles(commands.Cog):
         if hunt.password:
             puzzle_links += f"""• Hunt Password: {hunt.password}
             """
-        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, kwargs.get('guild_data'))})"""
         embed.add_field(
             name="Hunt Information",
             value=puzzle_links,
@@ -1732,13 +1694,13 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
-    def _add_puzzle_links_field(self, ctx, embed, puzzle, hunt):
-        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle),
-                                               puzzle.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+    def _add_puzzle_links_field(self, ctx, embed, puzzle, hunt, guild_data=None):
+        spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle, hunt),
+                                               puzzle.google_page_id) if hunt.google_sheet_id else "?"
         puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
-        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt)})"""
+        puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""
         embed.add_field(
             name="Puzzle Links",
             value=puzzle_links,
@@ -1772,14 +1734,14 @@ class Puzzles(commands.Cog):
             inline=False,
         )
 
-    def _build_embed_list(self, ctx, embed, puzzle):
+    def _build_embed_list(self, ctx=None, embed: discord.Embed = None, puzzle: PuzzleData = None, hunt: HuntData = None):
         """Wrap the main embed plus an optional additional-sheets embed in a list."""
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
             sheets_embed = discord.Embed()
             sheets_embed.add_field(
                 name="Additional Sheet Links",
-                value=self.create_additional_sheet_list(ctx, puzzle),
+                value=self.create_additional_sheet_list(ctx, puzzle, hunt),
                 inline=False,
             )
             embed_list.append(sheets_embed)
@@ -1826,9 +1788,9 @@ class Puzzles(commands.Cog):
                     )
 
         self._add_metapuzzle_command_fields(embed)
-        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
         self._add_puzzle_status_fields(embed, puzzle)
-        embed_list = self._build_embed_list(ctx, embed, puzzle)
+        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
 
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
@@ -1861,7 +1823,7 @@ class Puzzles(commands.Cog):
         """,
                         inline=False,
                     )
-        embed.add_field(name="Overview Website", value=self._overview_url(ctx, hunt),
+        embed.add_field(name="Overview Website", value=self._overview_url(ctx, hunt, kwargs.get('guild_data')),
                         inline=False)
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
@@ -1898,10 +1860,10 @@ class Puzzles(commands.Cog):
                     )
 
         self._add_metapuzzle_command_fields(embed)
-        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
         self._add_puzzle_status_fields(embed, puzzle)
 
-        embed_list = self._build_embed_list(ctx, embed, puzzle)
+        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
 
         if kwargs.get("update", False):
             channel_pins = await channel.pins()
@@ -1947,10 +1909,10 @@ class Puzzles(commands.Cog):
                 """,
             inline=False,
         )
-        self._add_puzzle_links_field(ctx, embed, puzzle, hunt)
+        self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
         self._add_puzzle_status_fields(embed, puzzle)
 
-        embed_list = self._build_embed_list(ctx, embed, puzzle)
+        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
 
         if kwargs.get("update",False):
             channel_pins = await channel.pins()
@@ -2178,9 +2140,11 @@ class Puzzles(commands.Cog):
         saved and the affected meta sheet(s) are badged on the dashboard."""
         await ctx.send(f":warning: {exc}")
 
-    def _overview_url(self, ctx, hunt):
+    def _overview_url(self, ctx=None, hunt: HuntData = None, guild_data: GuildSettingsDb = None):
         """Overview website URL for a hunt (falls back to the numeric id)."""
-        return f"{self.get_guild_data(ctx).website_url}?uid={hunt.uid or hunt.id}"
+        if guild_data is None:
+            guild_data = self.get_guild_data(ctx)
+        return f"{guild_data.website_url}?uid={hunt.uid or hunt.id}"
 
     async def _partial_impl(self, ctx, *args):
         solution = self._normalize_solution(args)
