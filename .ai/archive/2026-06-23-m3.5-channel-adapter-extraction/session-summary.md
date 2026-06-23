@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-23
-Status: ready for handoff — M3.5 Phase 6: mark milestone done in PLANS.md (all 6 phases shipped)
+Status: ready for handoff — M3.5 Phase 6: mark milestone done in PLANS.md @ d648714
 
 ## Goal
 
