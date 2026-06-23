@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-23
-Status: ready for handoff — Phase 1 (tests)
+Status: ready for handoff — M9: remove leftover unused HuntJsonDb import in evidence PATCH route @ 1a425e9
 
 ## Goal
 
