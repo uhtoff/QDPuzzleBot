@@ -46,28 +46,190 @@ class PuzzleService:
             cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         return cog
 
-    # --- !reconcile (phase 1 stubs; bodies land in phases 2-5) ---
+    # --- !reconcile ---
 
     def _home_category(self, guild, puzzle):
-        raise NotImplementedError("reconcile: phase 2+")
+        """Discord category the puzzle's single channel belongs in = tags[0]'s round.
+        Returns (category_or_None, home_round_or_None)."""
+        if not puzzle.tags:
+            return None, None
+        home_round = RoundJsonDb.get_by_attr(id=puzzle.tags[0])
+        if home_round is None or not home_round.category_id:
+            return None, home_round
+        category = discord.utils.get(guild.categories, id=home_round.category_id)
+        return category, home_round
 
     async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply):
-        raise NotImplementedError("reconcile: phase 2+")
+        """Make the puzzle's Discord channel match the DB. Returns the list of
+        actions taken/needed. Resolution order: keep+fix existing > relink named >
+        create. Welcome is reposted ONLY when a brand-new channel is created."""
+        actions = []
+        category, home_round = self._home_category(guild, puzzle)
+        want_name = clean_name(puzzle.name)
+
+        # 1. Stored id resolves to a live channel: fix category/name drift only.
+        live = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
+        if live is not None:
+            if category is not None and getattr(live, "category", None) is not category:
+                actions.append(ReconcileAction("channel_move", puzzle.name,
+                                               f"-> category {category.id}"))
+                if apply:
+                    await live.edit(category=category)
+            if live.name != want_name:
+                actions.append(ReconcileAction("channel_rename", puzzle.name,
+                                               f"{live.name} -> {want_name}"))
+                if apply:
+                    await live.edit(name=want_name)
+            return actions
+
+        # 2. A channel with the right name already exists somewhere: relink + move.
+        existing = discord.utils.get(guild.channels, name=want_name)
+        if existing is not None:
+            actions.append(ReconcileAction("channel_relink", puzzle.name,
+                                           f"-> #{existing.id}"))
+            if apply:
+                if category is not None and getattr(existing, "category", None) is not category:
+                    await existing.edit(category=category)
+                puzzle.channel_id = existing.id
+                puzzle.channel_name = existing.name
+                puzzle.channel_mention = existing.mention
+                PuzzleJsonDb.commit(puzzle)
+            return actions
+
+        # 3. Nothing found: create + welcome.
+        actions.append(ReconcileAction("channel_create", puzzle.name, "no channel found"))
+        if apply:
+            text_channel, created = await get_or_create_channel(
+                guild=guild, category=category, channel_name=want_name, channel_type="text",
+            )
+            if created and category is not None:
+                divider = solve_divider_position(category)
+                if divider is not False:
+                    await text_channel.edit(position=divider)
+            puzzle.channel_id = text_channel.id
+            puzzle.channel_name = text_channel.name
+            puzzle.channel_mention = text_channel.mention
+            PuzzleJsonDb.commit(puzzle)
+            if created and self.notifier is not None:
+                await self.notifier.welcome(
+                    guild, hunt, hunt_round=home_round, puzzle=puzzle, channel=text_channel,
+                )
+        return actions
 
     async def _reconcile_tabs(self, hunt, puzzle, *, apply):
-        raise NotImplementedError("reconcile: phase 2+")
+        """Ensure the puzzle's Sheets tab(s) exist. Recreate a missing tab and write
+        the fresh sheetId back to the DB. No-op without a GoogleSheets cog."""
+        actions = []
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return actions
+        spreadsheet = (gsheet_cog.get_archive_spreadsheet_id() if puzzle.archived
+                       else gsheet_cog.get_spreadsheet_id())
+
+        def _tab_present(page_id):
+            if not page_id:
+                return False
+            return gsheet_cog.get_page_name_by_id(page_id, spreadsheet) is not None
+
+        if not _tab_present(puzzle.google_page_id):
+            actions.append(ReconcileAction("tab_create", puzzle.name, "main tab missing"))
+            if apply:
+                await gsheet_cog.add_new_puzzle_sheet(puzzle, gsheet_cog.INITIAL_OFFSET)
+                await gsheet_cog.update_puzzle_info(puzzle)
+                PuzzleJsonDb.commit(puzzle)
+        return actions
 
     async def reconcile(self, guild, hunt, *, apply):
-        raise NotImplementedError("reconcile: phase 2+")
+        """Make Discord + Sheets match the DB for an entire hunt. Returns a
+        ReconcileReport. Never deletes — orphans are only collected. Each puzzle is
+        isolated: one failure is recorded and the run continues."""
+        report = ReconcileReport()
+        puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+
+        for puzzle in puzzles:
+            try:
+                for action in await self._reconcile_channel(guild, hunt, puzzle, report, apply=apply):
+                    report.actions.append(action)
+                for action in await self._reconcile_tabs(hunt, puzzle, apply=apply):
+                    report.actions.append(action)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("reconcile: failed for puzzle %s", puzzle.name)
+                report.add_failure(puzzle.name, error)
+
+        rounds = RoundJsonDb.get_all(hunt.id)
+        for hunt_round in rounds:
+            if hunt_round.category_id and discord.utils.get(
+                    guild.categories, id=hunt_round.category_id) is None:
+                report.add("round_category_broken",
+                           getattr(hunt_round, "meta_code", None) or str(hunt_round.id),
+                           f"category {hunt_round.category_id} missing")
+
+        self._collect_orphan_channels(guild, rounds, puzzles, report)
+        self._collect_orphan_tabs(hunt, puzzles, report)
+        return report
 
     def _collect_orphan_channels(self, guild, rounds, puzzles, report):
-        raise NotImplementedError("reconcile: phase 2+")
+        valid_ids = {p.channel_id for p in puzzles if p.channel_id}
+        category_ids = {r.category_id for r in rounds if r.category_id}
+        for category in guild.categories:
+            if category.id not in category_ids:
+                continue
+            for channel in getattr(category, "channels", []):
+                if getattr(channel, "type", "text") != "text":
+                    continue
+                if channel.id in valid_ids:
+                    continue
+                if "———" in getattr(channel, "name", ""):
+                    continue
+                report.add_orphan_channel(channel.id, channel.name)
 
     def _collect_orphan_tabs(self, hunt, puzzles, report):
-        raise NotImplementedError("reconcile: phase 2+")
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return
+        spreadsheet = gsheet_cog.get_spreadsheet_id()
+        valid = {str(p.google_page_id) for p in puzzles if p.google_page_id and not p.archived}
+        try:
+            sheets = gsheet_cog.sheet_list(spreadsheet)["sheets"]
+        except Exception:  # noqa: BLE001
+            logger.exception("reconcile: could not list tabs for orphan scan")
+            return
+        for sheet in sheets:
+            props = sheet.get("properties", {})
+            if props.get("hidden"):
+                continue
+            sheet_id = props.get("sheetId")
+            if str(sheet_id) in valid:
+                continue
+            report.add_orphan_tab(sheet_id, props.get("title", str(sheet_id)))
 
     async def delete_orphans(self, guild, hunt, report):
-        raise NotImplementedError("reconcile: phase 2+")
+        """Delete the orphan channels/tabs recorded in `report`. Tolerant of
+        already-missing items. Returns (deleted_count, failure_count)."""
+        deleted = 0
+        failures = 0
+        for channel_id, name in report.orphan_channels:
+            channel = guild.get_channel(channel_id)
+            if channel is None:
+                continue
+            try:
+                await channel.delete(reason="reconcile: orphan channel (no DB puzzle)")
+                deleted += 1
+            except Exception:  # noqa: BLE001
+                logger.exception("reconcile: failed to delete orphan channel %s", channel_id)
+                failures += 1
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            spreadsheet = gsheet_cog.get_spreadsheet_id()
+            for sheet_id, title in report.orphan_tabs:
+                try:
+                    await gsheet_cog.delete_sheet_tab(sheet_id, spreadsheet)
+                    deleted += 1
+                except Exception:  # noqa: BLE001
+                    logger.exception("reconcile: failed to delete orphan tab %s", sheet_id)
+                    failures += 1
+        return deleted, failures
 
     async def refresh_meta(self, hunt, hunt_round):
         """Rebuild a meta (or meta-meta) roll-up sheet, tracking the outcome on the
