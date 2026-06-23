@@ -395,10 +395,10 @@ with an opaque note. → applies at **M9**.
 ## PART 2 — Sequenced roadmap (M0–M11)
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
-dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → ~~M6~~ → ~~M7~~ → **M8 (next)** → M9.
-~~M10~~ (✅ done, `9951408`) / ~~M3.5~~ (✅ done) / M11 hang off the M3 seam / M6 group-model and land opportunistically.
+dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → ~~M6~~ → ~~M7~~ → ~~M8~~ → ~~M9 (evidence board only)~~ → **M9b (next — capstones/reveal)**.
+~~M10~~ (✅ done, `9951408`) / ~~M3.5~~ (✅ done) / M11 (deferred — feeder-as-thread) hang off the M3 seam / M6 group-model and land opportunistically.
 ~~M7.5~~ (✅ aggregated-answers read view + copy-to-clipboard, done `5cc71b3`). Part 3 holds the file:line
-detail behind each item.
+detail behind each item. **Open follow-ups (small):** M9 EvidencePanel UI gaps (Note/Target filters, bulk-assign, batch-paste).
 
 **M0 — Foundation: checked-in base schema + migration runner.** ✅ **DONE** (`7453661`) *(deps: none)* Tracked `CREATE TABLE`
 DDL for all core tables (none in repo today; the lone `001_dashboard.sql` is gitignored), a
@@ -484,18 +484,32 @@ one edge per puzzle/group pair — matches the `commit()` set-difference model a
 M7 is information-safe because every existing `tags` row is still the default `feeds-meta` (no
 edge_type variation to lose in the dedup); land it before any non-default `edge_type` is written.
 
-**M8 — Minimeta clusters (Feature B).** *(deps: M5, M6)* Minipuzzles = `additional_sheets` tabs under
-one puzzle (activate the dead `solution`/`solved` columns); cluster-scoped roll-up; **fix the
-cluster-archive stale-pointer risk** (`archive_puzzle_spreadsheet:452-481` reassigns sheet IDs on
-solve). 1 channel + (N+1) tabs.
+**M8 — Minimeta clusters (Feature B).** ✅ **DONE** (mini feature `8ff6549`/`601dd72`/`d08f727`; defect
+fixes `feature/m8-minimeta-fixes`; mini-thread solve/move/list polish `8422d2e`) *(deps: M5, M6)*
+Minipuzzles = threads under the minimeta + their own `additional_sheets`-style tab (dead
+`solution`/`solved` columns activated); puzzle-keyed cluster roll-up onto the minimeta's own sheet.
+**Cluster-archive stale-pointer risk is moot** — the roll-up render path resolves its target tab live
+every refresh (`puzzles_gsheet.py:601-603`/`715-717`), `rollup.tab_page_id` is M7 substrate only, so a
+solved minimeta's roll-up can't dangle (no skip-archive guard needed). 1 channel + (N+1) tabs.
+**Open follow-up (small):** the web dashboard mini create/solve/unsolve now refresh the parent
+minimeta's pinned list (fixed) — earlier they only updated the sheet, not the Discord pin.
 
-**M9 — Capstones / progressive reveal (Feature C).** *(deps: M5, M6, M8)* `reveals` edge → dossier tab;
-capstone is **never auto-solved** (guard the M5 hook); optional reveal threads (needs M11). Evidence is
-its own **tag-graph** (items + ad-hoc labels + later-bound targets; `source_puzzle` auto-stamped) that
-supports progressive structure — freeform "this is sus" → emergent labels → bound labels; the PB10
-"Detectives" typed clue store (`suspect`/`attribute`/`assigned_detective`) is an *optional template*
-over it when axes are known. Provide the suspects/label + target roll-up views and the three
-completeness queries. Answer-channel (`feeds-meta`→meta) and evidence-channel (`reveals`→boards) coexist.
+**M9 — Evidence board (Feature C, base).** ✅ **DONE** (M9 series → `0ad872c`) *(deps: M5, M6)* Hunt-wide
+evidence board: `!clue`/`!clues` log freeform clues against any puzzle (auto-stamped `source_puzzle`),
+accumulating in `evidence_items` (migration `009`), a Google "Evidence" tab (rendered via
+`aggregate_to_tab`), and a web `EvidencePanel`; **manual** target-puzzle routing via the web PATCH.
+Web POST/PATCH now also re-render the sheet (fixed). **Spec:**
+`docs/superpowers/specs/2026-06-23-m9-evidence-board-design.md`. **NOTE — the M9 spec deferred the
+capstone half to M9b (below); it is NOT in `0ad872c`.**
+
+**M9b — Capstones / progressive reveal (Feature C, full).** **NOT STARTED** *(deps: M9)* The capstone
+scope the original M9 promised but didn't ship: `reveals` edge → dossier tab; **capstone is never
+auto-solved** (guard the M5 solve hook in `puzzle_service.solve`); "meta matching" — route clues to a
+target *and* match against the hunt's metas/answers (today routing is a plain manual dropdown of all
+puzzles, no matching); grouped-by-target/suspect roll-up **views** (only the flat evidence tab exists);
+the PB10 "Detectives" typed clue store (`suspect`/`attribute`/`assigned_detective`) as an *optional
+template*; the three completeness queries. Answer-channel (`feeds-meta`→meta) and evidence-channel
+(`reveals`→boards) coexist. **Needs a design pass before build.**
 
 **M10 — Destructive-command safety + bulk-delete pacing.** ✅ **DONE** (`9951408`) *(off critical path;
 needs M3)*. Delivered: **confirm-before** (not undo — a deleted sheet/channel isn't recoverable) on
@@ -540,7 +554,7 @@ timeline; parallelizing the leaves only helps once you're past M6.
 | **Day one** (need nothing, not even M0) | ✅ **DELIVERED** (`feature/quick-wins` @ `6da1752`): `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors, WebSocket auth refresh |
 | After **M0** | ✅ **DELIVERED** — **M1 (tests, `917e173`) ∥ M2 (`aggregate_to_tab`, `063132c`)** |
 | After **M3** | ✅ **DELIVERED** — **M4 (mutex, `4df63e8`) ∥ M10 (destructive safety, `9951408`)** + audit-log quick win (`f2d97e3`) |
-| After **M6** | ✅ **M7 DELIVERED** (`28e8abd` + M7.5 `5cc71b3`) with optimistic-updates quick win (`7502454`). **Still open: M8 ∥ M11** (M3.5 ✅ done; then M9 trails M8) |
+| After **M6** | ✅ **M7 DELIVERED** (`28e8abd` + M7.5 `5cc71b3`) with optimistic-updates quick win (`7502454`); ✅ **M8 DELIVERED** (minimeta clusters); ✅ **M9 evidence board DELIVERED** (`0ad872c`). **Still open: M9b (capstones/reveal — needs design); M11 (feeder-as-thread, deferred)** |
 
 **Practical caveat — DAG-independent ≠ conflict-free.** `bot/cogs/puzzles.py` (2,700 lines) is a
 contention magnet (M3 rewrites it; M10 + M7/M8/M9/M11 all add to it). So: the *truly* safe concurrent
