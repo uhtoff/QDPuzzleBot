@@ -85,7 +85,6 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
 
 @pytest.mark.asyncio
 async def test_bang_create_puzzle_cleans_up_on_channel_failure(monkeypatch):
-    import bot.cogs.puzzles as puzzles_mod
     cog, gsheet = _cog_with_sheets()
     new_puzzle = MagicMock(id=88, tags=[])
 
