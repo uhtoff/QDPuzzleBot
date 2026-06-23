@@ -95,6 +95,7 @@ export interface ActivityEvent {
   type: string;
   channel_id?: string;
   guild_id?: number;
+  uid?: string;
   at?: string;
   author?: string;
 }

@@ -8,11 +8,26 @@ does nothing and the bot behaves exactly as before.
 import asyncio
 import logging
 import os
+import secrets
 from pathlib import Path
 
 from bot.utils import config
 
 logger = logging.getLogger(__name__)
+
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _csrf_required(method):
+    """True for state-changing HTTP methods (request.method is always upper-case)."""
+    return method in _CSRF_METHODS
+
+
+def _csrf_ok(header_token, cookie_token):
+    """Double-submit check: both present and equal (constant-time)."""
+    if not header_token or not cookie_token:
+        return False
+    return secrets.compare_digest(header_token, cookie_token)
 
 
 def _valid_session_secret(secret):
@@ -66,7 +81,7 @@ def _register_spa(app):
 
 def create_app(bot):
     """Build the Quart app. Imported lazily so the bot does not hard-depend on Quart."""
-    from quart import Quart
+    from quart import Quart, jsonify, request
 
     from .auth import auth_bp
     from .api import api_bp
@@ -87,6 +102,25 @@ def create_app(bot):
     app.register_blueprint(api_bp)
     app.register_blueprint(actions_bp)
     _register_spa(app)
+
+    @app.after_request
+    async def _set_csrf_cookie(resp):
+        if not request.cookies.get("csrf_token"):
+            resp.set_cookie(
+                "csrf_token",
+                secrets.token_urlsafe(32),
+                samesite="Lax",
+                secure=config.web_oauth_redirect_uri.startswith("https://"),
+                httponly=False,
+            )
+        return resp
+
+    @app.before_request
+    async def _csrf_guard():
+        if request.path.startswith("/api/") and _csrf_required(request.method):
+            if not _csrf_ok(request.headers.get("X-CSRF-Token"), request.cookies.get("csrf_token")):
+                return jsonify({"error": "csrf"}), 403
+
     return app
 
 

@@ -11,7 +11,7 @@ import discord
 from googleapiclient.errors import HttpError
 from quart import Blueprint, current_app, jsonify, request
 
-from . import data
+from . import data, events
 from bot.web import data as web_data
 from .auth import (
     ORGANISER_ROLES,
@@ -57,6 +57,21 @@ async def _audit(action, *, puzzle_id=None, hunt_uid=None, detail=None):
         )
     except Exception:
         logger.exception("web audit log write failed")
+
+
+def _board_event(uid, guild_snowflake):
+    """Lightweight board-invalidation event; guild_id must be the int snowflake to pass the
+    ws_activity membership filter (api.py:171). None snowflake → None (event harmlessly dropped)."""
+    return {"type": "board", "uid": uid,
+            "guild_id": int(guild_snowflake) if guild_snowflake else None}
+
+
+def _notify_board(uid, guild_snowflake):
+    """Best-effort board push — never raises."""
+    try:
+        events.publish(_board_event(uid, guild_snowflake))
+    except Exception:
+        logger.exception("board push failed")
 
 
 async def _visible_hunt_for_puzzle(puzzle_id):
@@ -129,6 +144,7 @@ async def add_note(puzzle_id):
         puzzle.notes.append(f"{text} - {_display_name(current_user())} (web)")
         PuzzleJsonDb.commit(puzzle)
         await _audit("note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})
 
 
@@ -151,6 +167,7 @@ async def erase_note(puzzle_id, index):
         del puzzle.notes[index - 1]
         PuzzleJsonDb.commit(puzzle)
         await _audit("erase_note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})
 
 
@@ -194,6 +211,7 @@ async def update_puzzle(puzzle_id):
         if changed:
             PuzzleJsonDb.commit(puzzle)
             await _audit("update_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
             cog = current_app.bot.get_cog("Puzzles")
             if cog is not None:
                 snowflake = ctx["guild_snowflake"]
@@ -234,6 +252,7 @@ async def add_sheet(puzzle_id):
         try:
             sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
             await _audit("add_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -271,6 +290,7 @@ async def remove_sheet(puzzle_id, sheet_id):
         try:
             await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
             await _audit("remove_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 404
@@ -324,6 +344,7 @@ async def solve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
             resp["sheet_warning"] = warning
@@ -411,6 +432,7 @@ async def retag_puzzle(puzzle_id):
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
         await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=meta_code)
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         resp = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
@@ -455,6 +477,7 @@ async def rebuild_rollup(round_id):
         logger.exception("rebuild: refresh failed for round %s", round_id)
         return jsonify({"ok": False, "error": "internal_error"})
     await _audit("rebuild_rollup", hunt_uid=ctx["hunt"]["uid"], detail=str(round_id))
+    _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True})
 
 
@@ -596,6 +619,7 @@ async def create_puzzle(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
+    _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 
@@ -626,4 +650,5 @@ async def create_meta(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.meta_code)
+    _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})

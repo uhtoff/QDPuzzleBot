@@ -395,8 +395,9 @@ with an opaque note. → applies at **M9**.
 ## PART 2 — Sequenced roadmap (M0–M11)
 
 Integrates the structural features (A–D), the architecture verdict, and the broader fixes into one
-dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → **M6 (next)** → M7 → M8 → M9.
-~~M10~~ (✅ done, `9951408`) / M11 hang off the M3 seam / M6 group-model and land opportunistically. Part 3 holds the file:line
+dependency-ordered sequence. **Critical path:** ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → ~~M5~~ → ~~M6~~ → ~~M7~~ → **M8 (next)** → M9.
+~~M10~~ (✅ done, `9951408`) / M3.5 / M11 hang off the M3 seam / M6 group-model and land opportunistically.
+~~M7.5~~ (✅ aggregated-answers read view + copy-to-clipboard, done `5cc71b3`). Part 3 holds the file:line
 detail behind each item.
 
 **M0 — Foundation: checked-in base schema + migration runner.** ✅ **DONE** (`7453661`) *(deps: none)* Tracked `CREATE TABLE`
@@ -454,7 +455,7 @@ puzzle's `google_page_id` as the trusted render pointer (never dev-metadata alon
 `edge_type_filter` columns land inert (M6/M7). Spec:
 `docs/superpowers/specs/2026-06-22-m5-rollups-design.md`.
 
-**M6 — Additive typed-group columns on `rounds`+`tags`** (resolves the OPEN decision). *(deps: M0, M5)*
+**M6 — Additive typed-group columns on `rounds`+`tags`** (resolves the OPEN decision). ✅ **DONE** *(deps: M0, M5)*
 `kind`, `status`, nullable `parent_group_id`, nullable `category_id`, `tags.edge_type`; fix `meta_code`
 typing; delete the dead `RoundJsonDb.get` (queries `WHERE channel_id` though `RoundData` has none);
 cycle-guard the membership writer. ⚠️ Land `category_id` nullable but **don't exercise channel-less
@@ -463,7 +464,8 @@ path off `ctx.channel.category`. ("Solved section" today is *only* Discord chann
 `get_solve_divider_position` `:972-978` + the `———solved———` divider channel — which is what `status`
 replaces.)
 
-**M7 — Meta-meta + flexible aggregation (Features A + D).** *(deps: M6)* `parent_group_id` containment
+**M7 — Meta-meta + flexible aggregation (Features A + D).** ✅ **DONE** (`28e8abd`; aggregated-answers
+read view + copy-to-clipboard follow-on **M7.5** `5cc71b3`) *(deps: M6)* `parent_group_id` containment
 + `edge_type` edges; `source_mode` (round/subtree/explicit; explicit = an ad-hoc group) — apply the
 pinned `feeds-meta`-vs-`subtree` rule + the runaround worked example in Part 1; thin command+UI;
 **aggregated-answers view + copy-to-clipboard** in the SPA. Also add **`UNIQUE (round_id, puzzle_id)`
@@ -528,8 +530,8 @@ timeline; parallelizing the leaves only helps once you're past M6.
 |---|---|
 | **Day one** (need nothing, not even M0) | ✅ **DELIVERED** (`feature/quick-wins` @ `6da1752`): `ErrorBoundary`, defensive notes parsing, prune-deps+README, per-message DB offload, multi-meta drag marker, friendly perm/arg errors, WebSocket auth refresh |
 | After **M0** | ✅ **DELIVERED** — **M1 (tests, `917e173`) ∥ M2 (`aggregate_to_tab`, `063132c`)** |
-| After **M3** | **M4 (mutex) ∥ M10 (destructive safety)** + audit-log quick win |
-| After **M6** | **M7 ∥ M8 ∥ M11** (then M9 trails M8) + optimistic-updates quick win |
+| After **M3** | ✅ **DELIVERED** — **M4 (mutex, `4df63e8`) ∥ M10 (destructive safety, `9951408`)** + audit-log quick win (`f2d97e3`) |
+| After **M6** | ✅ **M7 DELIVERED** (`28e8abd` + M7.5 `5cc71b3`) with optimistic-updates quick win (`7502454`). **Still open: M8 ∥ M11 ∥ M3.5** (then M9 trails M8) |
 
 **Practical caveat — DAG-independent ≠ conflict-free.** `bot/cogs/puzzles.py` (2,700 lines) is a
 contention magnet (M3 rewrites it; M10 + M7/M8/M9/M11 all add to it). So: the *truly* safe concurrent
@@ -561,8 +563,8 @@ into "parallel-and-clean."
   confirm warns before a "move" drop detaches them from their other metas (`DragBoard.tsx`).
 - ✅ **DONE — Refresh auth on the activity WebSocket** — membership re-resolved every 60s; a kicked/
   role-changed user is dropped (`api.py`).
-- ⏳ **Deferred — Audit log for web actions** — best after M3 (wraps the service).
-- ⏳ **Deferred — Optimistic updates on retag/solve** — best after M4/M5 (loud-failure path first).
+- ✅ **DONE — Audit log for web actions** (`f2d97e3`) — `web_audit_log` table + `_audit` on every dashboard mutation.
+- ✅ **DONE — Optimistic updates on retag/solve** (`7502454`) — optimistic solve + per-card retag pending (no board blanking).
 
 ---
 
@@ -606,19 +608,20 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 
 | Item | Why | Effort | Where |
 |---|---|---|---|
-| Aggregated answers view + copy-to-clipboard | directly serves the meta-meta goal; mostly pure frontend (`build_board` already groups feeders) | S | new SPA tab; `bot/web/data.py:224` |
+| ✅ **DONE** Aggregated answers view + copy-to-clipboard (`5cc71b3`, M7.5) | directly serves the meta-meta goal; mostly pure frontend (`build_board` already groups feeders) | S | new SPA tab; `bot/web/data.py:224` |
 | ✅ **DONE** Mark multi-meta puzzles on the drag board | a plain drag calls `tags.clear()` and silently detaches the puzzle from its *other* metas, no warning | S | `DragBoard.tsx` (badge + confirm), `web_move_to_meta` `puzzles.py` *(delivered `feature/quick-wins`)* |
-| Optimistic updates on retag/solve | retag blanks the whole board with a loading overlay for the full rate-limited Discord write | M | `frontend/src/api.ts`, `DragBoard.tsx:202` |
-| Live board push on bot-side changes | the SPA only polls the board every 30s (`useHunt` `refetchInterval: 30_000`); a solve/retag/create done **on the bot** (or by another admin) isn't reflected until the next poll. The activity WebSocket carries only per-channel activity timestamps, not board state. Broadcast a lightweight board-invalidation event over the existing `/api/ws/activity` socket on each mutation so the SPA refetches the hunt immediately. Pairs with M5's debounced propagation + the optimistic-updates win | M | `bot/web/api.py` (ws broadcast), `bot/core/PuzzleService` (emit on mutate, post-M3), `frontend/src/hooks/useActivityFeed.ts` + `api.ts` (invalidate `["hunt", uid]`) |
-| Sheet-count badge on the sheets icon | the sheets icon doesn't show how many additional sheets a puzzle has; wrap it in a Mantine `<Indicator label={…} disabled={count===0}>` exactly like the notes icon already does (`PuzzleTable.tsx:217`, `p.notes.length`) for at-a-glance visibility without opening the puzzle. Pure frontend — `puzzle.additional_sheets` is already in the board payload | S | `frontend/src/components/PuzzleTable.tsx` (sheets icon, mirror the notes `Indicator`); data already via `bot/web/data.py` |
-| Audit log for web actions | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
+| ✅ **DONE** Optimistic updates on retag/solve (`7502454`) | retag blanks the whole board with a loading overlay for the full rate-limited Discord write | M | `frontend/src/api.ts`, `DragBoard.tsx:202` |
+| ✅ **DONE** Live board push on web mutations (`897bcfb`; Phase B bang-command coverage deferred to post-M3.5) | the SPA only polls the board every 30s (`useHunt` `refetchInterval: 30_000`); a solve/retag/create done **on the bot** (or by another admin) isn't reflected until the next poll. Phase A: board-invalidation event emitted on every web mutation → SPA refetches immediately. Phase B (deferred): emit from `PuzzleService` for bang-command coverage — coordinate with M3.5 | M | `bot/web/events.py` + `actions.py` (emit), `frontend/src/hooks/useActivityFeed.ts` + `api.ts` (invalidate `["hunt", uid]`) |
+| ✅ **DONE** Sheet-count badge on the sheets icon (`7e0ee59`) | the sheets icon doesn't show how many additional sheets a puzzle has; wrap it in a Mantine `<Indicator label={…} disabled={count===0}>` exactly like the notes icon already does (`PuzzleTable.tsx:217`, `p.notes.length`) for at-a-glance visibility without opening the puzzle. Pure frontend — `puzzle.additional_sheets` is already in the board payload | S | `frontend/src/components/PuzzleLinks.tsx` (sheets icon, mirror the notes `Indicator`); data already via `bot/web/data.py` |
+| ✅ **DONE** Audit log for web actions (`f2d97e3`) | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
 | ✅ **DONE** Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py` *(re-resolves every 60s; delivered `feature/quick-wins`)* |
 
 ### Security hardening (lower priority — internal, role-gated site)
 
-- Sanitize raw `str(exc)` in error responses (`actions.py:42`); reject the placeholder/short
-  `session_secret` at startup. (3 of 4 sub-items already done.)
-- No CSRF token (SameSite=Lax + non-GET + `@login_required` is the current defense).
+- ✅ **DONE** (`d45a74e`) Sanitize raw `str(exc)` in error responses (`actions.py`); reject the
+  placeholder/short `session_secret` at startup.
+- ✅ **DONE** (`897bcfb`) CSRF double-submit cookie — non-HttpOnly `csrf_token` cookie echoed as
+  `X-CSRF-Token` header; `before_request` guard on all mutating `/api/` requests.
 
 ---
 
