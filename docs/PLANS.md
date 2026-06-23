@@ -611,7 +611,7 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 | ✅ **DONE** Aggregated answers view + copy-to-clipboard (`5cc71b3`, M7.5) | directly serves the meta-meta goal; mostly pure frontend (`build_board` already groups feeders) | S | new SPA tab; `bot/web/data.py:224` |
 | ✅ **DONE** Mark multi-meta puzzles on the drag board | a plain drag calls `tags.clear()` and silently detaches the puzzle from its *other* metas, no warning | S | `DragBoard.tsx` (badge + confirm), `web_move_to_meta` `puzzles.py` *(delivered `feature/quick-wins`)* |
 | ✅ **DONE** Optimistic updates on retag/solve (`7502454`) | retag blanks the whole board with a loading overlay for the full rate-limited Discord write | M | `frontend/src/api.ts`, `DragBoard.tsx:202` |
-| ⏳ **PLANNED** (`feature/dashboard-live-csrf`) Live board push on bot-side changes | the SPA only polls the board every 30s (`useHunt` `refetchInterval: 30_000`); a solve/retag/create done **on the bot** (or by another admin) isn't reflected until the next poll. The activity WebSocket carries only per-channel activity timestamps, not board state. Broadcast a lightweight board-invalidation event over the existing `/api/ws/activity` socket on each mutation so the SPA refetches the hunt immediately. Phase A (now): emit from the web mutation endpoints (conflict-free). Phase B (deferred): emit from `PuzzleService` for bang-command coverage — coordinate with M3.5 | M | `bot/web/events.py` + `actions.py` (emit), `frontend/src/hooks/useActivityFeed.ts` + `api.ts` (invalidate `["hunt", uid]`) |
+| ✅ **DONE** Live board push on web mutations (`897bcfb`; Phase B bang-command coverage deferred to post-M3.5) | the SPA only polls the board every 30s (`useHunt` `refetchInterval: 30_000`); a solve/retag/create done **on the bot** (or by another admin) isn't reflected until the next poll. Phase A: board-invalidation event emitted on every web mutation → SPA refetches immediately. Phase B (deferred): emit from `PuzzleService` for bang-command coverage — coordinate with M3.5 | M | `bot/web/events.py` + `actions.py` (emit), `frontend/src/hooks/useActivityFeed.ts` + `api.ts` (invalidate `["hunt", uid]`) |
 | ✅ **DONE** Sheet-count badge on the sheets icon (`7e0ee59`) | the sheets icon doesn't show how many additional sheets a puzzle has; wrap it in a Mantine `<Indicator label={…} disabled={count===0}>` exactly like the notes icon already does (`PuzzleTable.tsx:217`, `p.notes.length`) for at-a-glance visibility without opening the puzzle. Pure frontend — `puzzle.additional_sheets` is already in the board payload | S | `frontend/src/components/PuzzleLinks.tsx` (sheets icon, mirror the notes `Indicator`); data already via `bot/web/data.py` |
 | ✅ **DONE** Audit log for web actions (`f2d97e3`) | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
 | ✅ **DONE** Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py` *(re-resolves every 60s; delivered `feature/quick-wins`)* |
@@ -620,8 +620,8 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 
 - ✅ **DONE** (`d45a74e`) Sanitize raw `str(exc)` in error responses (`actions.py`); reject the
   placeholder/short `session_secret` at startup.
-- ⏳ **PLANNED** (`feature/dashboard-live-csrf`) No CSRF token (SameSite=Lax + non-GET +
-  `@login_required` is the current defense).
+- ✅ **DONE** (`897bcfb`) CSRF double-submit cookie — non-HttpOnly `csrf_token` cookie echoed as
+  `X-CSRF-Token` header; `before_request` guard on all mutating `/api/` requests.
 
 ---
 
