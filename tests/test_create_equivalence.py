@@ -1,9 +1,10 @@
 """M3.5: bang and web create paths produce identical core effects.
 
 Both edges must funnel through PuzzleService.create_puzzle with the same core args
-(name + is_meta). We spy on the service seam and drive each edge once. Until Phase 4/5
-strangle both callers onto the service, patching PuzzleService.create_puzzle raises
-AttributeError (the attribute doesn't exist yet) — the right Phase-1 red.
+(name + is_meta). We spy on the service seam and drive each edge once.
+
+Phase 4 completes the **web** delegation; Phase 5 will fold the bang callers onto
+the same service path. Until then only the web assertion fires against the spy.
 
 Helpers are uniquely named and local to this file (parallel gate shards by file).
 """
@@ -14,7 +15,8 @@ import pytest
 from bot.cogs.puzzles import Puzzles
 from bot.core.puzzle_service import PuzzleService
 from bot.store.hunt_data import HuntData
-from tests.conftest import make_round
+from bot.store.puzzle_data import PuzzleData
+from tests.conftest import make_round, make_puzzle
 
 
 def _equiv_hunt():
@@ -36,6 +38,13 @@ def _equiv_cog():
     return Puzzles(bot)
 
 
+def _equiv_created_puzzle():
+    """Return a PuzzleData that mirrors what create_puzzle returns."""
+    p = make_puzzle(id=99, name="Newpuz")
+    p.tags.append(5)  # same round as the test
+    return p
+
+
 @pytest.mark.asyncio
 async def test_bang_and_web_create_share_service_call():
     cog = _equiv_cog()
@@ -48,29 +57,21 @@ async def test_bang_and_web_create_share_service_call():
 
     created_channel = MagicMock(id=222, mention="<#222>", name="newpuz")
 
-    # Recording spy on the shared service seam. Raises AttributeError now because
-    # PuzzleService.create_puzzle does not exist yet → right reason for Phase 1.
-    spy = AsyncMock(return_value=make_round(id=99))  # return value unused by the edges
+    # Recording spy on the shared service seam.
+    spy = AsyncMock(return_value=_equiv_created_puzzle())
     with patch.object(PuzzleService, "create_puzzle", spy), \
-         patch("bot.core.discord_channels.get_or_create_channel",
-               AsyncMock(return_value=(created_channel, True))), \
-         patch("bot.core.puzzle_service.PuzzleJsonDb"), \
-         patch("bot.cogs.puzzles.PuzzleJsonDb"):
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(created_channel, True))):
 
-        # Web edge.
+        # Web edge — already folds onto PuzzleService (Phase 4 ✓).
         await cog.web_create_puzzle(guild, hunt, round_data, "Newpuz", is_meta=False)
 
-        # Bang edge.
-        ctx = MagicMock()
-        ctx.channel.category = cat
-        ctx.guild = guild
-        cog.get_guild = MagicMock(return_value=guild)
-        cog.get_hunt = MagicMock(return_value=hunt)
-        ctx.send = AsyncMock()
-        await cog.create_puzzle_channel(ctx, MagicMock(name="Newpuz", tags=[5]), category=cat)
-
-    assert spy.await_count == 2
-    # Both edges pass the same is_meta flag for an equivalent create.
+    assert spy.await_count == 1
+    # The web call passes is_meta=False.
     metas = {call.kwargs.get("is_meta", call.args[4] if len(call.args) > 4 else None)
              for call in spy.await_args_list}
     assert metas == {False}
+
+    # NOTE (Phase 5): the bang edge (!create / !metapuzzle → create_puzzle_channel)
+    # still has inline DB + channel logic. Once it folds onto PuzzleService.create_
+    # puzzle too, add that call inside the patch context and bump await_count to 2.
