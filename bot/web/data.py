@@ -236,13 +236,17 @@ def _load_notes(raw):
 async def get_rollups_by_round(hunt_id):
     """Map each meta round in the hunt to its roll-up sheet's freshness, for the
     dashboard "sheet stale" badge (M5). A round with no rollup row is treated as
-    not-stale (never refreshed yet, or no sheet)."""
+    not-stale (never refreshed yet, or no sheet). Includes source_mode (M7)."""
     rows = await fetch_all(
-        "SELECT round_id, last_ok, last_error FROM rollups WHERE hunt_id = %s",
+        "SELECT round_id, last_ok, last_error, source_mode FROM rollups WHERE hunt_id = %s",
         (hunt_id,),
     )
     return {
-        row["round_id"]: {"stale": not row["last_ok"], "error": row["last_error"]}
+        row["round_id"]: {
+            "stale": not row["last_ok"],
+            "error": row["last_error"],
+            "source_mode": row.get("source_mode") or "round",
+        }
         for row in rows
     }
 
@@ -272,6 +276,7 @@ def build_board(puzzles, rollups_by_round=None):
                 "num_solved_feeders": 0,
                 "rollup_stale": bool(ru.get("stale", False)),
                 "rollup_error": ru.get("error"),
+                "source_mode": ru.get("source_mode") or "round",
             }
             order.append(round_id)
         return groups[round_id]
