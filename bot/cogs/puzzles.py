@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import _PUZZLE_LOCKS
 from bot.core.errors import SheetRefreshError
+from bot.cogs.ui import ConfirmView
 
 
 def with_puzzle_mutex(*, wait: bool = True):
@@ -540,9 +541,18 @@ class Puzzles(commands.Cog):
         if await self.check_available_space(ctx,1) is False:
             return await ctx.send(":x: There is no free channel to create this puzzle, please inform the moderators.")
 
-        category = ctx.channel.category
-        new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(category))
-        await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
+        await self._create_puzzle_with_cleanup(ctx, puzzle_name)
+
+    async def _create_puzzle_with_cleanup(self, ctx, puzzle_name):
+        """create_puzzle (sheet+row) then its channel, removing the orphan
+        sheet+row if the channel create fails."""
+        new_puzzle = await self.create_puzzle(ctx, puzzle_name, self.get_tag_from_category(ctx.channel.category))
+        try:
+            await self.create_puzzle_channel(ctx, new_puzzle, position='bottom')
+        except Exception:
+            await self._cleanup_orphan_puzzle(self.get_hunt(ctx), new_puzzle)
+            raise
+        return new_puzzle
 
     async def create_metapuzzle(self,ctx, puzzle_name, tag = None):
         return await self.create_puzzle(ctx, puzzle_name, tag, metapuzzle = 1)
@@ -760,29 +770,52 @@ class Puzzles(commands.Cog):
 
         # No "🧩" name prefix for metas: the web dashboard's META label is the
         # single source of truth, and a prefix-less name avoids ever renaming.
-        channel_name = self.clean_name(new_puzzle.name)
-        text_channel, created = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=channel_name,
-            channel_type="text", reason=self.PUZZLE_REASON,
-        )
-        if created:
-            if category is not None:
-                divider = self.get_solve_divider_position(None, category)
-                if divider is not False:
-                    async with self.position_lock:
-                        await text_channel.edit(position=divider)
-            new_puzzle.channel_mention = text_channel.mention
-            new_puzzle.channel_id = text_channel.id
-            new_puzzle.channel_name = text_channel.name
-            PuzzleJsonDb.commit(new_puzzle)
-            # Metapuzzle messages need the round's meta_code, which isn't set until
-            # after web_create_round finishes; that path sends the welcome itself.
-            if send_welcome:
-                await self._web_send_welcome(guild, hunt, round_data, new_puzzle, text_channel)
+        try:
+            channel_name = self.clean_name(new_puzzle.name)
+            text_channel, created = await self.get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name,
+                channel_type="text", reason=self.PUZZLE_REASON,
+            )
+            if created:
+                if category is not None:
+                    divider = self.get_solve_divider_position(None, category)
+                    if divider is not False:
+                        async with self.position_lock:
+                            await text_channel.edit(position=divider)
+                new_puzzle.channel_mention = text_channel.mention
+                new_puzzle.channel_id = text_channel.id
+                new_puzzle.channel_name = text_channel.name
+                PuzzleJsonDb.commit(new_puzzle)
+                # Metapuzzle messages need the round's meta_code, which isn't set until
+                # after web_create_round finishes; that path sends the welcome itself.
+                if send_welcome:
+                    await self._web_send_welcome(guild, hunt, round_data, new_puzzle, text_channel)
+        except Exception:
+            # Channel create (or post-create work) failed after the sheet + DB row were
+            # committed — clean up both so we don't strand an orphan (row + Google tab).
+            await self._cleanup_orphan_puzzle(hunt, new_puzzle)
+            raise
 
         for tag in new_puzzle.tags:
             await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=tag))
         return new_puzzle
+
+    async def _cleanup_orphan_puzzle(self, hunt, puzzle):
+        """Best-effort removal of a puzzle's Google sheet + DB row after a failed
+        create. Never raises (we are already handling a create failure)."""
+        gsheet_cog = self.bot.get_cog("GoogleSheets")
+        if gsheet_cog is not None:
+            try:
+                gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
+                gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+                await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+            except Exception:
+                logger.exception("orphan cleanup: failed to delete sheet for %s", puzzle)
+        try:
+            if getattr(puzzle, "id", 0):
+                PuzzleJsonDb.delete(puzzle.id)
+        except Exception:
+            logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
     async def web_create_round(self, guild, hunt, name):
         """ctx-free metapuzzle/round creation for the dashboard (like !mp).
@@ -812,6 +845,7 @@ class Puzzles(commands.Cog):
             raise RuntimeError("no_template_category")
         new_category = None
         new_round = None
+        puzzle = None
         try:
             new_category = await ref_category.clone(name=new_category_name)
             await new_category.edit(position=ref_category.position + 1)
@@ -845,6 +879,8 @@ class Puzzles(commands.Cog):
                     RoundJsonDb.delete(new_round.id)
                 except Exception:
                     logger.exception("web_create_round: rollback of round row failed")
+            if puzzle is not None:
+                await self._cleanup_orphan_puzzle(hunt, puzzle)
             if new_category is not None:
                 try:
                     for ch in list(new_category.channels):
@@ -2479,6 +2515,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a puzzle channel")
             return
 
+        if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
+            return
+
         try:
             await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
             if self.get_hunt_round(ctx):
@@ -2502,11 +2541,23 @@ class Puzzles(commands.Cog):
         return True
 
     async def _delete_puzzles(self, ctx, puzzles):
-        """Delete each puzzle's data and its Discord channel."""
+        """Delete each puzzle's data and its Discord channel. Returns the names
+        of puzzles whose channel could not be deleted (already gone or
+        rate-limited), so callers can report what remains."""
+        failed = []
         for puzzle in puzzles:
             await self.delete_puzzle_data(ctx, puzzle)
-            channel = discord.utils.get(self.get_guild(ctx).channels, id=puzzle.channel_id)
-            await channel.delete(reason=self.DELETE_REASON)
+            if not await self._safe_delete_channel(self.get_guild(ctx), puzzle.channel_id):
+                failed.append(puzzle.name)
+        return failed
+
+    async def _warn_failed_channels(self, channel, failed):
+        """Notify `channel` about puzzles whose channels could not be deleted."""
+        if failed:
+            await channel.send(
+                ":warning: Could not delete channels for: " + ", ".join(failed)
+                + ". They may already be gone or were rate-limited — re-run to finish."
+            )
 
     async def _delete_round_category(self, ctx, hunt_round):
         """Delete a round's category and its solved-divider channel (if present)."""
@@ -2525,11 +2576,16 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: This command must be done from the main group channel")
             return
 
+        hunt_round = self.get_hunt_round(ctx)
+        n = len(PuzzleJsonDb.get_all_from_round(hunt_round.id))
+        if not await self._confirm_destructive(ctx, f"Delete round **{hunt_round.name}** and its {n} puzzle(s), channels and sheets?"):
+            return
+
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
         hunt_round = self.get_hunt_round(ctx)
         round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        await self._delete_puzzles(ctx, round_puzzles)
+        failed = await self._delete_puzzles(ctx, round_puzzles)
 
         await self.delete_round_data(hunt_round)
 
@@ -2537,12 +2593,44 @@ class Puzzles(commands.Cog):
 
         await hunt_general_channel.send(f":white_check_mark: Round {self.get_hunt_round(ctx).name} successfully deleted.  "
                                         f"All puzzle sheets have been deleted.")
+        await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
 
     async def delete_round_data(self, hunt_round: RoundData):
         RoundJsonDb.delete(hunt_round.id)
         return True
+
+    async def _confirm_destructive(self, ctx, description):
+        """Send a Confirm/Cancel prompt and return True only if the invoker
+        confirms. Returns False on cancel or timeout."""
+        view = ConfirmView(ctx.author.id)
+        embed = discord.Embed(
+            title="⚠️ Confirm deletion",
+            description=description + "\n\n**Google sheets will be permanently deleted (not recoverable).**",
+            color=discord.Color.red(),
+        )
+        view.message = await ctx.send(embed=embed, view=view)
+        await view.wait()
+        if view.value is None:
+            await ctx.send(":hourglass: Confirmation timed out — nothing was deleted.")
+        return view.value is True
+
+    async def _safe_delete_channel(self, guild, channel_id):
+        """Delete a channel by id, tolerating an already-missing channel and a
+        mid-loop rate-limit. Returns True on delete, False if it was missing or
+        the delete could not complete (so callers can report what remains)."""
+        channel = discord.utils.get(guild.channels, id=channel_id)
+        if channel is None:
+            return False
+        try:
+            await channel.delete(reason=self.DELETE_REASON)
+            return True
+        except discord.NotFound:
+            return False  # already gone between lookup and delete — benign, no log
+        except (discord.RateLimited, discord.HTTPException):
+            logger.exception("delete: could not delete channel %s", channel_id)
+            return False
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
@@ -2553,8 +2641,12 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(f":x: This command must be done from the main hunt channel")
             return
-        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(self.get_hunt(ctx).id)
-        await self._delete_puzzles(ctx, hunt_puzzles)
+        hunt = self.get_hunt(ctx)
+        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+        n = len(hunt_puzzles)
+        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
+            return
+        failed = await self._delete_puzzles(ctx, hunt_puzzles)
         hunt_rounds = RoundJsonDb.get_all(self.get_hunt(ctx).id)
         for hunt_round in hunt_rounds:
             try:
@@ -2562,6 +2654,7 @@ class Puzzles(commands.Cog):
                 await self._delete_round_category(ctx, hunt_round)
             except Exception:
                 logger.exception("Failed to delete round %s during hunt deletion", hunt_round.id)
+        await self._warn_failed_channels(hunt_channel, failed)
         await hunt_channel.delete(reason=self.DELETE_REASON)
         await hunt_channel.category.delete(reason=self.DELETE_REASON)
         HuntJsonDb.delete(self.get_hunt(ctx).id)
