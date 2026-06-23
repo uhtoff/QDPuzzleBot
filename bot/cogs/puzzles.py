@@ -294,36 +294,48 @@ class Puzzles(commands.Cog):
         self.environment[ctx.message.id]['channel_type'] = channel_type
 
     def get_hunt(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['hunt'] or None
 
     def set_hunt(self, ctx, hunt):
         self.environment[ctx.message.id]['hunt'] = hunt
 
     def get_hunt_round(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['hunt_round'] or None
 
     def set_hunt_round(self, ctx, hunt_round):
         self.environment[ctx.message.id]['hunt_round'] = hunt_round
 
     def get_puzzle(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['puzzle'] or None
 
     def set_puzzle(self, ctx, puzzle):
         self.environment[ctx.message.id]['puzzle'] = puzzle
 
     def get_guild(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['guild'] or None
 
     def set_guild(self, ctx, guild):
         self.environment[ctx.message.id]['guild'] = guild
 
     def get_guild_data(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['guild_data'] or None
 
     def set_guild_data(self, ctx, guild_data):
         self.environment[ctx.message.id]['guild_data'] = guild_data
 
     def get_gsheet_cog(self, ctx):
+        if ctx is None:
+            return None
         return self.environment[ctx.message.id]['gsheet_cog'] or None
 
     def set_gsheet_cog(self, ctx, gsheet_cog):
