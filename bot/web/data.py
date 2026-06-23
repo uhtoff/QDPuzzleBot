@@ -49,12 +49,31 @@ def _run(sql, params=(), *, one=False):
         conn.close()  # returns the connection to the pool
 
 
+def _run_write(sql, params=()):
+    """Run a writing statement on a pooled connection and commit."""
+    conn = _get_pool().get_connection()
+    try:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(sql, params)
+        finally:
+            cursor.close()
+        conn.commit()
+    finally:
+        conn.close()
+
+
 async def fetch_all(sql, params=()):
     return await asyncio.to_thread(_run, sql, params, one=False)
 
 
 async def fetch_one(sql, params=()):
     return await asyncio.to_thread(_run, sql, params, one=True)
+
+
+async def execute(sql, params=()):
+    """Run a writing statement on the dedicated web connection and commit."""
+    return await asyncio.to_thread(_run_write, sql, params)
 
 
 def _iso(value):
