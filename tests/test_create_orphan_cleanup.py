@@ -80,5 +80,4 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
         with pytest.raises(RuntimeError):
             await cog.web_create_round(guild, hunt, "New Round")
 
-    cleanup_mock.assert_awaited_once()
-    assert cleanup_mock.await_args.args[1] is created_puzzle
+    cleanup_mock.assert_awaited_once_with(hunt, created_puzzle)
