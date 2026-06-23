@@ -171,7 +171,28 @@ export function useSolvePuzzle(uid: string) {
         "POST",
         { solution }
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+    onMutate: async ({ puzzleId, solution }) => {
+      await qc.cancelQueries({ queryKey: ["hunt", uid] });
+      const previous = qc.getQueryData(["hunt", uid]) as
+        | { board?: { round_id: number; puzzles: Array<{ id: number; solved?: boolean; solution?: string | null; status?: string } & Record<string, unknown>> }[] }
+        | undefined;
+      if (previous?.board) {
+        qc.setQueryData(["hunt", uid], {
+          ...previous,
+          board: previous.board.map((g) => ({
+            ...g,
+            puzzles: g.puzzles.map(
+              (p) => p.id === puzzleId ? { ...p, solved: true, solution, status: "Solved" } : p
+            ),
+          })),
+        });
+      }
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["hunt", uid], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
 

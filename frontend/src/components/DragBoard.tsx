@@ -16,7 +16,7 @@ import {
   Box,
   Card,
   Group,
-  LoadingOverlay,
+  Loader,
   Menu,
   Paper,
   ScrollArea,
@@ -41,11 +41,13 @@ interface CardProps {
   columnName: string;
   metas: MetaOption[];
   onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
+  isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
+    disabled: isPending,
     data: { puzzleId: puzzle.id, sourceMetaCode: columnMetaCode },
   });
 
@@ -68,7 +70,7 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
       radius="sm"
       style={{
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-        opacity: isDragging ? 0.4 : 1,
+        opacity: isDragging ? 0.4 : isPending ? 0.5 : 1,
         cursor: "grab",
         backgroundColor: puzzle.solved ? "var(--mantine-color-green-light)" : undefined,
       }}
@@ -138,6 +140,12 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
           </Badge>
         )
       )}
+      {isPending && (
+        <Group gap={4} mt={4}>
+          <Loader size="xs" color="blue" />
+          <Text size="xs" c="dimmed">Retagging...</Text>
+        </Group>
+      )}
     </Card>
   );
 }
@@ -186,6 +194,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const retag = useRetagPuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
+  const retagPuzzleId = retag.isPending ? (retag.variables as { puzzleId?: number } | undefined)?.puzzleId ?? null : null;
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -238,8 +247,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   }
 
   return (
-    <Box pos="relative">
-      <LoadingOverlay visible={retag.isPending} zIndex={5} />
+    <Box>
       <Text size="sm" c="dimmed" mb="xs">
         Drag a puzzle onto a meta to reassign it (moves its Discord channel too). Use the ⋮ menu on a card to
         add it to an additional meta or remove it from one.
@@ -258,6 +266,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
+                    isPending={retagPuzzleId === p.id}
                   />
                 ))}
               </Column>
