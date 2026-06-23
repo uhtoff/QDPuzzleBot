@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/m8-fixes
 Started: 2026-06-23
-Status: in progress — Phase 1 (welcome message) DONE & committed; next is Phase 2 (list_minis in pin). Branch feature/m8-minimeta-fixes.
+Status: in progress — Phases 1 (welcome msg) + 2 (list_minis in pin) DONE & committed; next is Phase 3 (puzzle-keyed rollup onto minimeta sheet). Branch feature/m8-minimeta-fixes.
 
 ## Goal
 
@@ -40,7 +40,10 @@ minis rolling up onto the minimeta sheet, dashboard). See current-spec.md.
 
 1. ~~Phase 1: welcome message in `create_mini`~~ DONE (test
    `test_posts_welcome_message_with_sheet_link`; 236 suite green).
-2. Phase 2: list_minis into pinned info + refresh on add/solve/unsolve.
+2. ~~Phase 2: list_minis into pinned info + refresh on add/solve/unsolve~~ DONE
+   (create_mini_list helper + Mini-puzzles embed in _build_embed_list + info(update=True)
+   on add_mini/solve_mini/unsolve_mini; 241 suite green). NOTE: web/dashboard mini
+   actions don't yet refresh the parent minimeta pin — bang flow only (follow-up).
 3. Phase 3: migration 008 + puzzle-keyed rollup + solve/unsolve trigger.
 4. Phase 4: npm run build + verify dashboard; hand deploy to user.
 

@@ -924,6 +924,7 @@ class Puzzles(commands.Cog):
             )
         except RuntimeError as exc:
             return await ctx.send(f":x: Could not create mini-puzzle: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Created mini-puzzle **{mini.name}**. Thread: <#{mini.channel_id}>")
 
     @commands.command()
@@ -936,14 +937,21 @@ class Puzzles(commands.Cog):
         if not minis:
             return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
         embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
+        embed.description = self.create_mini_list(puzzle, minis)
+        await ctx.send(embed=embed)
+
+    def create_mini_list(self, puzzle: PuzzleData, minis=None):
+        """Render the numbered mini-puzzle list (solved/unsolved). Shared by
+        !list_minis and the pinned-info embed so both stay in sync."""
+        if minis is None:
+            minis = self.service.get_minis(puzzle.id)
         lines = []
         for i, mini in enumerate(minis, 1):
             if mini.solved:
                 lines.append(f"{i}. ✅ **{mini.name}** — {mini.solution}")
             else:
                 lines.append(f"{i}. ⬜ **{mini.name}** — unsolved")
-        embed.description = "\n".join(lines)
-        await ctx.send(embed=embed)
+        return "\n".join(lines)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -961,6 +969,7 @@ class Puzzles(commands.Cog):
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Solved mini #{number}: **{solution}**")
 
     @commands.command()
@@ -976,6 +985,7 @@ class Puzzles(commands.Cog):
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
     def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
@@ -1659,6 +1669,15 @@ class Puzzles(commands.Cog):
                 inline=False,
             )
             embed_list.append(sheets_embed)
+        minis = self.service.get_minis(puzzle.id)
+        if minis:
+            minis_embed = discord.Embed()
+            minis_embed.add_field(
+                name="Mini-puzzles",
+                value=self.create_mini_list(puzzle, minis),
+                inline=False,
+            )
+            embed_list.append(minis_embed)
         return embed_list
 
     @staticmethod
