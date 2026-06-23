@@ -296,6 +296,15 @@ class PuzzleService:
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
 
+        # M8: archive the mini-puzzle thread on solve.
+        if puzzle.parent_puzzle_id is not None and guild is not None:
+            thread = guild.get_channel_or_thread(puzzle.channel_id)
+            if thread is not None:
+                try:
+                    await thread.edit(archived=True)
+                except Exception:
+                    logger.exception("Failed to archive mini-puzzle thread %s on solve", puzzle.channel_id)
+
         # Failure isolation: attempt every meta this puzzle feeds, badge any that
         # fail, and keep going (one stale sheet must not skip the others, the round
         # solve_time stamp, or the archive below).
@@ -322,6 +331,48 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
         return True
+
+    async def unsolve(self, guild, hunt, puzzle):
+        """Clear a puzzle's solve state and restore its sheet.
+
+        For mini-puzzles (parent_puzzle_id set), also unarchives the thread.
+        """
+        puzzle.status = "Unsolved"
+        puzzle.solution = ""
+        puzzle.solved = False
+        puzzle.solve_time = None
+        puzzle.archive_time = None
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.restore_puzzle_spreadsheet(puzzle)
+
+        # Refresh metas so the unsolved answer disappears from the meta sheet.
+        for tag in puzzle.tags:
+            try:
+                meta_round = RoundJsonDb.get_by_attr(id=tag)
+                if meta_round is not None:
+                    await self.refresh_meta(hunt, meta_round)
+            except Exception:
+                logger.exception("unsolve: meta refresh failed for round %s", tag)
+
+        # M8: unarchive the mini-puzzle thread.
+        if puzzle.parent_puzzle_id is not None and guild is not None:
+            thread = guild.get_channel_or_thread(puzzle.channel_id)
+            if thread is not None:
+                try:
+                    await thread.edit(archived=False)
+                except Exception:
+                    logger.exception("Failed to unarchive mini-puzzle thread %s", puzzle.channel_id)
+
+        # Mirror round-solve undo if this puzzle was a round meta.
+        for tag in puzzle.tags:
+            round_ = RoundJsonDb.get_by_attr(id=tag)
+            if round_ and round_.meta_id == puzzle.id:
+                round_.solve_time = None
+                round_.status = "active"
+                RoundJsonDb.commit(round_)
 
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,

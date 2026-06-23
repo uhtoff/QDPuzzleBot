@@ -231,3 +231,107 @@ class TestCreateMini:
         )
 
         assert minimeta.puzzle_type == "Minimeta"
+
+
+class TestSolveArchivesThread:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_mini_solve_archives_thread(self, RoundDb, PuzzleDb):
+        """Solving a mini-puzzle archives its Discord thread."""
+        import asyncio, discord
+        from bot.core.puzzle_service import PuzzleService
+
+        mini = make_puzzle(id=5, hunt_id=10, channel_id=9001, tags=[], parent_puzzle_id=3)
+        hunt = _make_hunt()
+        RoundDb.get_by_attr.return_value = None
+
+        thread = MagicMock(spec=discord.Thread)
+        async def fake_edit(**kw):
+            return None
+        thread.edit = fake_edit
+        guild = MagicMock()
+        guild.get_channel_or_thread.return_value = thread
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+
+        asyncio.run(svc.solve(guild, hunt, mini, "ANSWER"))
+
+        guild.get_channel_or_thread.assert_called_once_with(9001)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_regular_puzzle_solve_no_thread_archive(self, RoundDb, PuzzleDb):
+        """Solving a regular puzzle does not attempt thread archive."""
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+
+        puzzle = make_puzzle(id=1, hunt_id=10, tags=[])
+        hunt = _make_hunt()
+        RoundDb.get_by_attr.return_value = None
+
+        guild = MagicMock()
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+
+        asyncio.run(svc.solve(guild, hunt, puzzle, "ANSWER"))
+
+        guild.get_channel_or_thread.assert_not_called()
+
+
+class TestUnsolveService:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_unsolve_clears_fields(self, RoundDb, PuzzleDb):
+        """unsolve resets solved/solution/solve_time/archive_time."""
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+
+        puzzle = make_puzzle(id=1, hunt_id=10, solved=True, solution="ANS", tags=[])
+        puzzle.solve_time = "sometime"
+        puzzle.archive_time = "sometime"
+        hunt = _make_hunt()
+        RoundDb.get_by_attr.return_value = None
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+
+        asyncio.run(svc.unsolve(None, hunt, puzzle))
+
+        assert puzzle.solved is False
+        assert puzzle.solution == ""
+        assert puzzle.solve_time is None
+        assert puzzle.archive_time is None
+        assert puzzle.status == "Unsolved"
+        PuzzleDb.commit.assert_called()
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_mini_unsolve_unarchives_thread(self, RoundDb, PuzzleDb):
+        """unsolve on a mini-puzzle unarchives its thread."""
+        import asyncio, discord
+        from bot.core.puzzle_service import PuzzleService
+
+        mini = make_puzzle(id=5, solved=True, solution="X", tags=[], parent_puzzle_id=3, channel_id=9001)
+        mini.solve_time = "t"
+        mini.archive_time = "t"
+        hunt = _make_hunt()
+        RoundDb.get_by_attr.return_value = None
+
+        thread = MagicMock(spec=discord.Thread)
+        async def fake_edit(**kw):
+            return None
+        thread.edit = fake_edit
+        guild = MagicMock()
+        guild.get_channel_or_thread.return_value = thread
+
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+
+        asyncio.run(svc.unsolve(guild, hunt, mini))
+
+        guild.get_channel_or_thread.assert_called_once_with(9001)
