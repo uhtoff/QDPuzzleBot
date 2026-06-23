@@ -966,6 +966,35 @@ class Puzzles(commands.Cog):
             return await ctx.send(f":x: {exc}")
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
+    @commands.command(name="clue")
+    async def clue(self, ctx, *, note: str):
+        """*Log a freeform clue from this puzzle channel: !clue "some info"*"""
+        puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
+        if not note.strip():
+            await ctx.send(":warning: No clue text provided.")
+            return
+        self.service.log_clues(hunt, puzzle, [note.strip()])
+        asyncio.create_task(self.service.refresh_evidence(hunt))
+        await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
+
+    @commands.command(name="clues")
+    async def clues(self, ctx, *, items: str):
+        """*Batch-log clues: !clues APPLE BANANA "CHERRY BOMB" DURIAN*"""
+        import shlex
+        puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
+        if not items.strip():
+            await ctx.send(":warning: No items provided.")
+            return
+        notes = shlex.split(items)
+        if not notes:
+            await ctx.send(":warning: No items provided.")
+            return
+        self.service.log_clues(hunt, puzzle, notes)
+        asyncio.create_task(self.service.refresh_evidence(hunt))
+        await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
+
     def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
         sheet_links = ""
         count = 1
