@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HuntDetail, HuntList, RollupAnswers, User } from "./types";
 
+function csrfToken(): string {
+  return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
+}
+
 /** Wrap fetch with credentials so the session cookie is always sent. */
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
@@ -13,7 +17,10 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
   const res = await fetch(path, {
     method,
     credentials: "include",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      "X-CSRF-Token": csrfToken(),
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) throw new AuthError();
@@ -30,6 +37,8 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
 
 function friendlyError(d: { error?: string; retry_after?: number; detail?: string }, status: number): string {
   switch (d.error) {
+    case "csrf":
+      return "Your session expired — please refresh the page.";
     case "discord_rate_limited": {
       const secs = d.retry_after ?? 0;
       if (secs >= 3600) {
@@ -80,7 +89,11 @@ export function loginUrl() {
 }
 
 export async function logout() {
-  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-CSRF-Token": csrfToken() },
+  });
 }
 
 export function useMe() {
