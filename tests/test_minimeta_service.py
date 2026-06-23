@@ -110,3 +110,43 @@ class TestCogBeforeInvokeThread:
         asyncio.run(cog.cog_before_invoke(ctx))
 
         assert cog.environment[999]["channel_type"] == "Guild"
+
+
+class TestMakeMinimeta:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    def test_sets_puzzle_type(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=1)
+        assert puzzle.puzzle_type == ""
+        svc.make_minimeta(puzzle)
+        assert puzzle.puzzle_type == "Minimeta"
+        PuzzleDb.commit.assert_called_once_with(puzzle)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    def test_idempotent(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        svc.make_minimeta(puzzle)
+        assert puzzle.puzzle_type == "Minimeta"
+        PuzzleDb.commit.assert_called_once()
+
+
+class TestGetMinis:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    def test_returns_children(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        children = [make_puzzle(id=2), make_puzzle(id=3)]
+        PuzzleDb.get_children.return_value = children
+        result = svc.get_minis(1)
+        PuzzleDb.get_children.assert_called_once_with(1)
+        assert result == children
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    def test_empty(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        PuzzleDb.get_children.return_value = []
+        assert svc.get_minis(1) == []

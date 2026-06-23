@@ -343,6 +343,15 @@ class PuzzleService:
         SheetsJsonDb.delete(sheet.id)
         puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
 
+    def make_minimeta(self, puzzle):
+        """Mark a puzzle as a minimeta cluster parent. Idempotent."""
+        puzzle.puzzle_type = "Minimeta"
+        PuzzleJsonDb.commit(puzzle)
+
+    def get_minis(self, minimeta_id):
+        """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
+        return PuzzleJsonDb.get_children(minimeta_id)
+
     async def add_sheet(self, hunt, puzzle, name):
         """Create an extra working sheet (name optional). Raises
         RuntimeError("solved_no_sheets") if the puzzle is solved. Returns the
