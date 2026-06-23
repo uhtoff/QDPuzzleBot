@@ -352,6 +352,46 @@ class PuzzleService:
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)
 
+    async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
+        """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
+
+        Tags the mini into the minimeta's round (first tag) so refresh_meta
+        rolls up its answer to the minimeta sheet on solve.
+        Auto-sets the minimeta's puzzle_type to 'Minimeta' if not already set.
+        """
+        self.make_minimeta(minimeta)
+
+        mini = PuzzleData(
+            name=name,
+            hunt_id=hunt.id,
+            start_time=datetime.datetime.now(tz=pytz.UTC),
+            status='Unstarted',
+            priority='Normal',
+            puzzle_type='Mini',
+            parent_puzzle_id=minimeta.id,
+        )
+
+        # Tag into the minimeta's first round so refresh_meta fires on solve.
+        if minimeta.tags:
+            mini.tags.append(minimeta.tags[0])
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.create_puzzle_spreadsheet(mini)
+
+        PuzzleJsonDb.commit(mini)
+
+        channel = guild.get_channel(minimeta.channel_id)
+        thread = await channel.create_thread(
+            name=clean_name(name),
+            type=discord.ChannelType.public_thread,
+        )
+        mini.channel_id = thread.id
+        mini.channel_name = thread.name
+        PuzzleJsonDb.commit(mini)
+
+        return mini
+
     async def add_sheet(self, hunt, puzzle, name):
         """Create an extra working sheet (name optional). Raises
         RuntimeError("solved_no_sheets") if the puzzle is solved. Returns the

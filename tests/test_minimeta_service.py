@@ -150,3 +150,84 @@ class TestGetMinis:
         svc = PuzzleService(MagicMock())
         PuzzleDb.get_children.return_value = []
         assert svc.get_minis(1) == []
+
+
+class TestCreateMini:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_creates_puzzle_row_with_parent(self, RoundDb, PuzzleDb):
+        """create_mini sets parent_puzzle_id, puzzle_type=Mini, tags into minimeta's round."""
+        import asyncio, discord
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=3, hunt_id=10, channel_id=555, tags=[1])
+        hunt = _make_hunt(id=10)
+        round_ = make_round(id=1)
+        RoundDb.get_by_attr.return_value = round_
+
+        # Discord stubs
+        guild = MagicMock()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 9001
+        thread.name = "tiny-puzzle"
+        channel = MagicMock(spec=discord.TextChannel)
+
+        async def fake_create_thread(**kwargs):
+            return thread
+        channel.create_thread = fake_create_thread
+        guild.get_channel.return_value = channel
+
+        # Sheet stub
+        gsheet = MagicMock()
+        async def fake_create_sheet(p):
+            return None
+        gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+
+        svc = PuzzleService(bot)
+        mini = asyncio.run(
+            svc.create_mini(guild, hunt, minimeta, "Tiny Puzzle")
+        )
+
+        assert mini.parent_puzzle_id == 3
+        assert mini.puzzle_type == "Mini"
+        assert mini.channel_id == 9001
+        assert 1 in mini.tags
+        PuzzleDb.commit.assert_called()
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_auto_makes_parent_minimeta(self, RoundDb, PuzzleDb):
+        """create_mini auto-sets puzzle_type=Minimeta on parent if not already set."""
+        import asyncio, discord
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=3, hunt_id=10, channel_id=555, tags=[1], puzzle_type="")
+        hunt = _make_hunt()
+        RoundDb.get_by_attr.return_value = make_round(id=1)
+
+        guild = MagicMock()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 9002
+        thread.name = "another-mini"
+        channel = MagicMock(spec=discord.TextChannel)
+
+        async def fake_create_thread(**kwargs):
+            return thread
+        channel.create_thread = fake_create_thread
+        guild.get_channel.return_value = channel
+
+        gsheet = MagicMock()
+        async def fake_create_sheet(p):
+            return None
+        gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+
+        svc = PuzzleService(bot)
+        asyncio.run(
+            svc.create_mini(guild, hunt, minimeta, "Another Mini")
+        )
+
+        assert minimeta.puzzle_type == "Minimeta"
