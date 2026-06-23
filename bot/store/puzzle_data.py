@@ -3,7 +3,7 @@ from dataclasses_json import dataclass_json
 import datetime
 import logging
 import json
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class PuzzleData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
     tags: List[int] = field(default_factory=list)
+    tag_edges: Dict[int, str] = field(default_factory=dict)  # M7: round_id -> edge_type
 
     @classmethod
     def import_dict(cls, puzzle_data: dict):

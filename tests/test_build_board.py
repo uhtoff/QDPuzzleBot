@@ -102,6 +102,20 @@ class TestBuildBoardRollupBadge:
         grp = build_board([puz], rollups)[0]
         assert grp["rollup_stale"] is False
 
+    def test_source_mode_propagated_from_rollup(self):
+        rnd = make_round_ref(id=5, name="Round One")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
+        rollups = {5: {"stale": False, "error": None, "source_mode": "subtree"}}
+        grp = build_board([puz], rollups)[0]
+        assert grp["source_mode"] == "subtree"
+
+    def test_source_mode_defaults_to_round_when_missing(self):
+        rnd = make_round_ref(id=5, name="Round One")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
+        # no rollup map at all
+        grp = build_board([puz])[0]
+        assert grp["source_mode"] == "round"
+
 
 # ---------------------------------------------------------------------------
 # build_board — ordering

@@ -79,15 +79,23 @@ class TestRefreshMetaFires:
 
     @pytest.mark.asyncio
     async def test_calls_add_metametapuzzle_data_for_metameta(self):
+        # After M7 the metameta flag is replaced by source_mode='subtree'.
+        # The backfill (004) set source_mode='subtree' on rollups for
+        # metameta puzzles, so this path still calls add_metametapuzzle_data.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, meta_id=1)
         metameta = make_puzzle(id=1, metapuzzle=1, metameta=1)
-        all_puzzles = [make_puzzle(id=2), make_puzzle(id=3)]
-        with _patched() as (pdb, _h, _r, _ru):
+        child = make_round(id=6)
+        child.parent_group_id = 5
+        branch_solved = [make_puzzle(id=2, solved=True), make_puzzle(id=3, solved=True)]
+        existing = RollupData(id=9, hunt_id=10, round_id=5, source_mode="subtree")
+        with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
-            pdb.get_all_from_hunt.return_value = all_puzzles
+            rdb.get_all.return_value = [meta_round, child]
+            # The subtree walk queries each child round for puzzles.
+            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: branch_solved}[rid]
             await svc.refresh_meta(_hunt(), meta_round)
-        gsheet.add_metametapuzzle_data.assert_awaited_once_with(metameta, all_puzzles)
+        gsheet.add_metametapuzzle_data.assert_awaited_once_with(metameta, branch_solved)
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
