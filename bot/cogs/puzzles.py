@@ -17,6 +17,9 @@ from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
+# Alias for the ctx-free channel adapter (M3.5).
+import bot.core.discord_channels as _channels
+
 logger = logging.getLogger(__name__)
 
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
@@ -265,11 +268,8 @@ class Puzzles(commands.Cog):
 
 
     def clean_name(self, name):
-        """Cleanup name to be appropriate for discord channel"""
-        name = name.strip()
-        if (name[0] == name[-1]) and name.startswith(("'", '"')):
-            name = name[1:-1]
-        return "-".join(name.lower().split())
+        """Cleanup name to be appropriate for discord channel."""
+        return _channels.clean_name(name)
 
     def get_channel_type(self, ctx):
         return self.environment[ctx.message.id]['channel_type'] or None
@@ -918,19 +918,10 @@ class Puzzles(commands.Cog):
         await self.web_refresh_info(guild, hunt, puzzle)
 
     def get_first_channel(self, ctx, category):
-        position = False
-        for channel in category.channels:
-            if position is False or channel.position < position:
-                position = channel.position
-        return position
+        return _channels.first_channel_position(category)
 
     def get_solve_divider_position(self, ctx, category):
-        position = False
-        for channel in category.channels:
-            if channel.name == self.SOLVE_DIVIDER:
-                position = channel.position
-                break
-        return position
+        return _channels.solve_divider_position(category)
 
     @commands.hybrid_command(description="Move the channel to the top of the unsolved section of the category (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
@@ -1689,25 +1680,8 @@ class Puzzles(commands.Cog):
     async def get_or_create_channel(
         self, guild, category: discord.CategoryChannel, channel_name: str, channel_type, **kwargs
     ):
-        """Retrieve given channel by name/category or create one"""
-        if channel_type == "text":
-            channel_type = discord.ChannelType.text
-        elif channel_type == "voice":
-            channel_type = discord.ChannelType.voice
-        if not (channel_type is discord.ChannelType.text or channel_type is discord.ChannelType.voice):
-            raise ValueError(f"Unrecognized channel_type: {channel_type}")
-        channel = discord.utils.get(guild.channels, category=category, type=channel_type, name=channel_name)
-        created = False
-        if not channel:
-            message = f"Creating a new channel: {channel_name} of type {channel_type} for category: {category}"
-            logger.info(message)
-            create_method = (
-                guild.create_text_channel if channel_type is discord.ChannelType.text else guild.create_voice_channel
-            )
-            channel = await create_method(channel_name, category=category, **kwargs)
-            created = True
-
-        return (channel, created)
+        """Retrieve given channel by name/category or create one."""
+        return await _channels.get_or_create_channel(guild, category, channel_name, channel_type, **kwargs)
 
 
     async def send_initial_hunt_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs):
