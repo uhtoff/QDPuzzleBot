@@ -654,6 +654,10 @@ class Puzzles(commands.Cog):
                     + ", ".join(str(f) for f in failed))
         await ctx.send(msg)
 
+    @staticmethod
+    def _format_reconcile_report(report, *, applied):
+        raise NotImplementedError("reconcile: phase 6")
+
     async def update_metapuzzle(self, ctx, hunt_round):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
         Raises SheetRefreshError if it failed, so the bang edge surfaces it uniformly

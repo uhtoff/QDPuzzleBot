@@ -24,6 +24,7 @@ from bot.core.discord_channels import (
     clean_name, get_or_create_channel, solve_divider_position,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
 )
+from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,29 @@ class PuzzleService:
             cog.set_spreadsheet_id(hunt.google_sheet_id)
             cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         return cog
+
+    # --- !reconcile (phase 1 stubs; bodies land in phases 2-5) ---
+
+    def _home_category(self, guild, puzzle):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    async def _reconcile_tabs(self, hunt, puzzle, *, apply):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    async def reconcile(self, guild, hunt, *, apply):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    def _collect_orphan_channels(self, guild, rounds, puzzles, report):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    def _collect_orphan_tabs(self, hunt, puzzles, report):
+        raise NotImplementedError("reconcile: phase 2+")
+
+    async def delete_orphans(self, guild, hunt, report):
+        raise NotImplementedError("reconcile: phase 2+")
 
     async def refresh_meta(self, hunt, hunt_round):
         """Rebuild a meta (or meta-meta) roll-up sheet, tracking the outcome on the
