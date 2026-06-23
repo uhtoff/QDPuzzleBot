@@ -57,12 +57,7 @@ class PuzzleService:
                 return
             rollup = self._find_or_create_rollup(hunt_round)
             try:
-                if metapuzzle.metameta:
-                    all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_round.hunt_id)
-                    await gsheet_cog.add_metametapuzzle_data(metapuzzle, all_puzzles)
-                else:
-                    round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-                    await gsheet_cog.add_metapuzzle_data(metapuzzle, round_puzzles)
+                await self._render_rollup(gsheet_cog, hunt_round, rollup, metapuzzle)
                 await self._record_rollup_tab(gsheet_cog, rollup, metapuzzle)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:
@@ -77,6 +72,34 @@ class PuzzleService:
         if rollup is None:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
+
+    async def _render_rollup(self, gsheet_cog, hunt_round, rollup, metapuzzle):
+        """Select feeder membership by rollup.source_mode and delegate to the
+        existing renderer (add_metapuzzle_data or add_metametapuzzle_data).
+
+        Replaces the old metameta-flag branch: source_mode is now the single
+        runtime switch. Falsy/missing source_mode defaults to 'round'."""
+        mode = rollup.source_mode or "round"
+        feeders = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+
+        if mode == "subtree":
+            branch = await self.collect_subtree_puzzles(hunt_round)
+            await gsheet_cog.add_metametapuzzle_data(metapuzzle, branch)
+        elif mode == "explicit":
+            pool = [
+                p for p in feeders
+                if p.tag_edges.get(hunt_round.id) == "aggregates-into"
+            ]
+            await gsheet_cog.add_metapuzzle_data(metapuzzle, pool)
+        else:
+            # 'round' (default): today's path — all round members, optionally
+            # filtered by edge_type_filter.
+            filt = rollup.edge_type_filter or "feeds-meta"
+            feeders = [
+                p for p in feeders
+                if p.tag_edges.get(hunt_round.id, "feeds-meta") == filt
+            ]
+            await gsheet_cog.add_metapuzzle_data(metapuzzle, feeders)
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
