@@ -92,27 +92,8 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
     cleanup_mock.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_bang_create_puzzle_cleans_up_on_channel_failure(monkeypatch):
-    cog, gsheet = _cog_with_sheets()
-    new_puzzle = MagicMock(id=88, tags=[])
-
-    cog._cleanup_orphan_puzzle = AsyncMock()
-    monkeypatch.setattr(cog, "create_puzzle", AsyncMock(return_value=new_puzzle))
-    monkeypatch.setattr(cog, "create_puzzle_channel",
-                        AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom")))
-
-    hunt = _hunt()
-    cat = MagicMock()
-    chan = MagicMock(category=cat)
-    ctx = MagicMock()
-    ctx.channel = chan
-    ctx.message.id = 7
-    cog.environment[7] = {"channel_type": "Puzzle", "hunt": hunt, "hunt_round": None,
-                          "puzzle": None, "guild": MagicMock(), "guild_data": None, "channel": chan}
-    monkeypatch.setattr(cog, "get_tag_from_category", MagicMock(return_value=None))
-
-    with pytest.raises(discord.HTTPException):
-        await cog._create_puzzle_with_cleanup(ctx, "Newpuz")
-
-    cog._cleanup_orphan_puzzle.assert_awaited_once()
+# NOTE: the former test_bang_create_puzzle_cleans_up_on_channel_failure was removed in
+# Phase 5. The bang create path was strangled onto PuzzleService.create_puzzle (deleting
+# the cog-level create_puzzle / create_puzzle_channel / _create_puzzle_with_cleanup twins),
+# so the orphan-cleanup-on-channel-failure contract now lives at the service and is covered
+# by tests/test_create_service.py::test_create_puzzle_orphan_cleanup_on_channel_failure.

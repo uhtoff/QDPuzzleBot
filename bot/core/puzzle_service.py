@@ -466,15 +466,22 @@ class PuzzleService:
 
         return new_puzzle
 
-    async def create_round(self, guild, hunt, name, notifier=None):
-        """Create a new metapuzzle/round: category clone + round row + meta puzzle.
+    async def create_round(self, guild, hunt, name, notifier=None,
+                           meta_puzzle_name=None, round_type="Metapuzzle", round_kind="meta"):
+        """Create a new metapuzzle/round: category clone + round row + optional meta puzzle.
 
-        Returns (RoundData, PuzzleData).  Raises RuntimeError("<code>") on
-        recoverable problems; raises the underlying exception otherwise.
+        Returns (RoundData, PuzzleData) when ``meta_puzzle_name`` is not False,
+        else (RoundData, None).  Raises RuntimeError("<code>") on recoverable
+        problems; raises the underlying exception otherwise.
+        ``meta_puzzle_name``: name for the meta puzzle. Defaults to round ``name``.
+        Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
+        ``round_type`` / ``round_kind`` let callers specify round classification.
         """
+        mp_name = meta_puzzle_name if isinstance(meta_puzzle_name, str) else name
+        create_meta = meta_puzzle_name is not False
         if RoundJsonDb.check_duplicates_in_hunt(name, hunt):
             raise RuntimeError("round_exists")
-        if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt.id):
+        if create_meta and PuzzleJsonDb.check_duplicates_in_hunt(mp_name, hunt.id):
             raise RuntimeError("puzzle_name_clash")
         if len(guild.categories) >= MAX_CATEGORIES:
             raise RuntimeError("no_category_space")
@@ -507,16 +514,18 @@ class PuzzleService:
             new_round = RoundData(
                 name=name, hunt_id=hunt.id,
                 category_id=new_category.id,
-                type="Metapuzzle", kind="meta",
+                type=round_type, kind=round_kind,
             )
             RoundJsonDb.commit(new_round)
 
-            # Create the meta puzzle for this round.
-            puzzle = await self.create_puzzle(
-                guild, hunt, new_round, name, is_meta=True, notifier=notifier,
-            )
+            # Create the meta puzzle for this round (skip for Metaless variants).
+            if create_meta:
+                puzzle = await self.create_puzzle(
+                    guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,
+                )
+                new_round.meta_id = puzzle.id
+
             new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, name)
-            new_round.meta_id = puzzle.id
             RoundJsonDb.commit(new_round)
 
             return new_round, puzzle

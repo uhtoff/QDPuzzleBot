@@ -57,21 +57,36 @@ async def test_bang_and_web_create_share_service_call():
 
     created_channel = MagicMock(id=222, mention="<#222>", name="newpuz")
 
-    # Recording spy on the shared service seam.
+    # Recording spy on the shared service seam, reused across both edges.
     spy = AsyncMock(return_value=_equiv_created_puzzle())
+
     with patch.object(PuzzleService, "create_puzzle", spy), \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(created_channel, True))):
 
-        # Web edge — already folds onto PuzzleService (Phase 4 ✓).
+        # Web edge — folds onto PuzzleService (Phase 4 ✓).
         await cog.web_create_puzzle(guild, hunt, round_data, "Newpuz", is_meta=False)
 
-    assert spy.await_count == 1
-    # The web call passes is_meta=False.
+        # Bang edge — Phase 5 folds !p onto the SAME service path. The bang command
+        # is a discord.py Command; drive its mutex-wrapped callback directly. The
+        # cog-level dup check + space check stay at the edge, so stub them out.
+        cog.environment[7] = {
+            "channel_type": "Group", "hunt": hunt, "hunt_round": round_data,
+            "puzzle": None, "guild": guild, "guild_data": None, "gsheet_cog": None,
+        }
+        bang_ctx = MagicMock()
+        bang_ctx.env = None                 # force the mutex to read cog.environment
+        bang_ctx.guild = guild
+        bang_ctx.message.id = 7
+        bang_ctx.send = AsyncMock()
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as cog_pdb, \
+             patch.object(cog, "check_available_space", AsyncMock(return_value=True)):
+            cog_pdb.check_duplicates_in_hunt.return_value = False
+            await cog.puzzle.callback(cog, bang_ctx, arg="Newpuz")
+
+    # Both edges funnelled through the one service seam.
+    assert spy.await_count == 2
+    # Both calls pass is_meta=False (positional index 4 or keyword).
     metas = {call.kwargs.get("is_meta", call.args[4] if len(call.args) > 4 else None)
              for call in spy.await_args_list}
     assert metas == {False}
-
-    # NOTE (Phase 5): the bang edge (!create / !metapuzzle → create_puzzle_channel)
-    # still has inline DB + channel logic. Once it folds onto PuzzleService.create_
-    # puzzle too, add that call inside the patch context and bump await_count to 2.
