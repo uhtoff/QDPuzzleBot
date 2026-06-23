@@ -172,7 +172,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
         "LEFT JOIN tags ON puzzles.id = tags.puzzle_id "
         "LEFT JOIN rounds ON tags.round_id = rounds.id "
         "LEFT JOIN channel_activity act ON act.channel_id = puzzles.channel_id "
-        "WHERE puzzles.hunt_id = %s "
+        "WHERE puzzles.hunt_id = %s AND puzzles.parent_puzzle_id IS NULL "
         "ORDER BY puzzles.metapuzzle DESC, puzzles.solved ASC, puzzles.id ASC",
         (hunt_id,),
     )
@@ -210,6 +210,8 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     }
                     if row["last_human_message_at"] else None
                 ),
+                "parent_puzzle_id": row.get("parent_puzzle_id"),
+                "mini_puzzles": [],
                 "rounds": [],
                 "sheets": [],
             }
@@ -237,6 +239,23 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
             puz["sheets"].append(
                 {"id": s["id"], "name": s["puzzle_name"], "page_id": s["google_page_id"]}
             )
+
+    mini_rows = await fetch_all(
+        "SELECT id, name, solved, solution, channel_id, parent_puzzle_id "
+        "FROM puzzles WHERE hunt_id = %s AND parent_puzzle_id IS NOT NULL "
+        "ORDER BY id ASC",
+        (hunt_id,),
+    )
+    for m in mini_rows:
+        parent = puzzles.get(m["parent_puzzle_id"])
+        if parent is not None:
+            parent["mini_puzzles"].append({
+                "id": m["id"],
+                "name": m["name"],
+                "solved": bool(m["solved"]),
+                "solution": m["solution"],
+                "channel_id": str(m["channel_id"]) if m["channel_id"] else None,
+            })
 
     return list(puzzles.values())
 

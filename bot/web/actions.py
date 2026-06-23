@@ -652,3 +652,90 @@ async def create_meta(uid):
     await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.meta_code)
     _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})
+
+
+# --- Minimeta mini-puzzle creation (organiser only) --------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/minis", methods=["POST"])
+@login_required
+async def create_mini(puzzle_id):
+    """Create a mini-puzzle (Discord thread) under a minimeta puzzle."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        minimeta = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if minimeta is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+        try:
+            mini = await cog.service.create_mini(guild, hunt_obj, minimeta, name)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        await _audit("create_mini", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        return jsonify({
+            "ok": True,
+            "mini_id": mini.id,
+            "name": mini.name,
+            "channel_id": str(mini.channel_id) if mini.channel_id else None,
+        })
+
+
+# --- Unsolve a puzzle (any member of the hunt's guild) -----------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/unsolve", methods=["POST"])
+@login_required
+async def unsolve_puzzle(puzzle_id):
+    """Mark a solved puzzle unsolved via the bot."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not puzzle.solved and not puzzle.solution:
+            return jsonify({"error": "not_solved"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+        try:
+            await cog.service.unsolve(guild, hunt_obj, puzzle)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        return jsonify({"ok": True})
