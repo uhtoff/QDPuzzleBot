@@ -5,6 +5,7 @@ read pool's worker threads), so they share the bot's connection and stay
 serialized with the bot's own command DB calls. Channel/sheet side-effects reuse
 the bot's cog logic so a web action behaves exactly like the matching ! command.
 """
+import asyncio
 import logging
 
 import discord
@@ -72,6 +73,19 @@ def _notify_board(uid, guild_snowflake):
         events.publish(_board_event(uid, guild_snowflake))
     except Exception:
         logger.exception("board push failed")
+
+
+async def _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle):
+    """If *puzzle* is a mini-puzzle, refresh its PARENT minimeta's pinned mini-list
+    (the mini's solved/unsolved state shows there). Mirrors the bang !solve_mini/
+    !unsolve_mini path, which calls info(update=True) on the minimeta channel.
+    No-op for non-minis; web_refresh_info is itself best-effort."""
+    if cog is None or not getattr(puzzle, "parent_puzzle_id", None):
+        return
+    from bot.store import PuzzleJsonDb
+    parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+    if parent is not None:
+        await cog.web_refresh_info(guild, hunt_obj, parent)
 
 
 async def _visible_hunt_for_puzzle(puzzle_id):
@@ -341,6 +355,7 @@ async def solve_puzzle(puzzle_id):
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
+        await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
@@ -690,6 +705,9 @@ async def create_mini(puzzle_id):
             return _discord_error_response(exc)
         await _audit("create_mini", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        # The new mini shows in the PARENT minimeta's pinned mini-list; refresh that
+        # pin from the web edge too (the bang !add_mini path calls info(update=True)).
+        await cog.web_refresh_info(guild, hunt_obj, minimeta)
         return jsonify({
             "ok": True,
             "mini_id": mini.id,
@@ -732,6 +750,7 @@ async def unsolve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
 
         return jsonify({"ok": True})
 
@@ -739,10 +758,16 @@ async def unsolve_puzzle(puzzle_id):
 @actions_bp.route("/evidence/<int:item_id>", methods=["PATCH"])
 @login_required
 async def update_evidence(item_id):
-    from bot.store import EvidenceJsonDb
+    from bot.store import EvidenceJsonDb, HuntJsonDb
     body = await request.get_json()
     target_puzzle_id = body.get("target_puzzle_id")
     item = EvidenceJsonDb.set_target(item_id, target_puzzle_id)
     if item is None:
         return jsonify({"error": "not found"}), 404
+    # Re-render the Evidence sheet so the new Target column value shows (mirrors the
+    # bang refresh). Best-effort: the routing is already persisted.
+    cog = current_app.bot.get_cog("Puzzles")
+    hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
+    if cog is not None and hunt_obj is not None:
+        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id})

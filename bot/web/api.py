@@ -163,7 +163,7 @@ async def list_evidence():
 @login_required
 async def add_evidence():
     from quart import request
-    from bot.store import EvidenceJsonDb, PuzzleJsonDb
+    from bot.store import EvidenceJsonDb, HuntJsonDb, PuzzleJsonDb
     body = await request.get_json()
     hunt_uid = body.get("hunt_uid")
     source_puzzle_id = body.get("source_puzzle_id")
@@ -177,6 +177,13 @@ async def add_evidence():
     if puzzle is None or puzzle.hunt_id != hunt["id"]:
         return jsonify({"error": "puzzle not found in hunt"}), 404
     items = [EvidenceJsonDb.log(hunt["id"], source_puzzle_id, n) for n in notes if n.strip()]
+    # Re-render the Evidence sheet tab (mirrors the bang !clue/!clues fire-and-forget
+    # refresh). Best-effort: the clues are already persisted in the DB.
+    if items:
+        cog = current_app.bot.get_cog("Puzzles")
+        hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
+        if cog is not None and hunt_obj is not None:
+            asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 
