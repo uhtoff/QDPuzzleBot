@@ -11,8 +11,10 @@
 -- Down: drop target_puzzle_id + its FK/unique, and restore round_id NOT NULL (only
 -- valid while no puzzle-keyed rows exist).
 
+-- target_puzzle_id is int(11) to match puzzles.id exactly (a FK requires identical
+-- column types — bigint here fails with errno 150 "incorrectly formed").
 ALTER TABLE `rollups`
-  ADD COLUMN `target_puzzle_id` bigint DEFAULT NULL AFTER `round_id`,
+  ADD COLUMN `target_puzzle_id` int(11) DEFAULT NULL AFTER `round_id`,
   MODIFY COLUMN `round_id` int(11) NULL,
   ADD UNIQUE KEY `uq_rollups_target_puzzle` (`target_puzzle_id`),
   ADD CONSTRAINT `RollupTargetPuzzleID` FOREIGN KEY (`target_puzzle_id`)
