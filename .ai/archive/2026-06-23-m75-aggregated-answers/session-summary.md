@@ -4,7 +4,7 @@ Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Branch: `feature/m7.5-aggregated-answers` (off `main` @ 28e8abd — M7 + M10 merged)
 Started: 2026-06-23
-Status: in progress — Phase 1 (tests) DONE; next is Phase 2 (backend)
+Status: completed — M7.5 phases 1–3 done @ b352ce6
 
 ## Goal
 
