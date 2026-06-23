@@ -238,6 +238,16 @@ def setup_logger(log_level=logging.INFO):
 def extensions():
     files = Path("bot", "cogs").rglob("*.py")
     for file in files:
+        # Only load modules that are actual cog extensions (define a module-level
+        # setup()). Helper modules under cogs/ — e.g. ui.py, reusable discord.ui
+        # components imported directly by cogs — have no setup() and would
+        # otherwise raise NoEntryPointError on every startup.
+        try:
+            source = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not re.search(r"^\s*(async\s+)?def\s+setup\b", source, re.MULTILINE):
+            continue
         yield file.as_posix()[:-3].replace("/", ".")
 
 
