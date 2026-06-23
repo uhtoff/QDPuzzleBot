@@ -94,16 +94,25 @@ def _install_ratelimit_probe():
         async def _session_request(self, method, str_or_url, **kwargs):
             resp = await _orig_session_request(self, method, str_or_url, **kwargs)
             try:
-                if resp.status == 429:
-                    h = resp.headers
+                h = resp.headers
+                remaining = h.get("X-RateLimit-Remaining")
+                reset_after = h.get("X-RateLimit-Reset-After")
+                # The response that seeds a long pre-emptive cooldown is often a
+                # *success* (200/201) that simply leaves the bucket exhausted with a
+                # huge reset — not a 429. Log on either so we capture the scope header.
+                long_reset = False
+                try:
+                    long_reset = remaining == "0" and float(reset_after) > 60
+                except (TypeError, ValueError):
+                    long_reset = False
+                if resp.status == 429 or long_reset:
                     _probe_log.warning(
-                        "RATELIMIT-PROBE 429-headers: %s %s scope=%s global=%s "
+                        "RATELIMIT-PROBE headers: status=%s %s %s scope=%s global=%s "
                         "bucket=%s limit=%s remaining=%s reset-after=%s retry-after=%s via=%s",
-                        method, str_or_url,
+                        resp.status, method, str_or_url,
                         h.get("X-RateLimit-Scope"), h.get("X-RateLimit-Global"),
                         h.get("X-RateLimit-Bucket"), h.get("X-RateLimit-Limit"),
-                        h.get("X-RateLimit-Remaining"), h.get("X-RateLimit-Reset-After"),
-                        h.get("Retry-After"), h.get("Via"),
+                        remaining, reset_after, h.get("Retry-After"), h.get("Via"),
                     )
             except Exception:
                 pass
