@@ -235,7 +235,7 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets']
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges']
 
     def construct_puzzle(self, row):
         puzzle = PuzzleData.import_dict(row)
