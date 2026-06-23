@@ -156,7 +156,8 @@ class TestCreateMini:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.RoundJsonDb")
     def test_creates_puzzle_row_with_parent(self, RoundDb, PuzzleDb):
-        """create_mini sets parent_puzzle_id, puzzle_type=Mini, tags into minimeta's round."""
+        """create_mini sets parent_puzzle_id + puzzle_type=Mini and leaves the mini
+        UNTAGGED (it rolls up onto the minimeta via the puzzle-keyed path, not a round)."""
         import asyncio, discord
         from bot.core.puzzle_service import PuzzleService
 
@@ -193,7 +194,7 @@ class TestCreateMini:
         assert mini.parent_puzzle_id == 3
         assert mini.puzzle_type == "Mini"
         assert mini.channel_id == 9001
-        assert 1 in mini.tags
+        assert mini.tags == []   # minis are children, not round feeders
         PuzzleDb.commit.assert_called()
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")

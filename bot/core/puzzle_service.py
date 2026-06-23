@@ -83,6 +83,41 @@ class PuzzleService:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
 
+    async def refresh_minimeta(self, hunt, minimeta):
+        """Roll a minimeta's mini-puzzles (its parent_puzzle_id children) up onto the
+        minimeta's OWN sheet, tracking the outcome on a puzzle-keyed `rollups` record.
+
+        This is the puzzle-keyed counterpart to refresh_meta: the rollup engine is
+        otherwise round-keyed, but a minimeta is a puzzle, so membership is its children
+        (not round feeders) and the write target is the minimeta's own tab. Serialized
+        on a key namespace disjoint from the round locks. Renders ALL minis (answers
+        fill in as they solve) and mirrors refresh_meta's badge bookkeeping + re-raise.
+        """
+        if hunt is None or minimeta is None:
+            return
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return
+
+        async with rollup_lock(("minimeta", minimeta.id)):
+            members = self.get_minis(minimeta.id)
+            rollup = self._find_or_create_rollup_for_puzzle(hunt, minimeta)
+            try:
+                await gsheet_cog.add_metapuzzle_data(minimeta, members)
+                await self._record_rollup_tab(gsheet_cog, rollup, minimeta)
+                self._mark_rollup(rollup, ok=True)
+            except Exception as exc:
+                self._mark_rollup(rollup, ok=False, error=str(exc))
+                raise
+
+    def _find_or_create_rollup_for_puzzle(self, hunt, minimeta):
+        """The rollup row for a minimeta's puzzle-keyed roll-up (find-or-create).
+        round_id stays NULL; identity is target_puzzle_id."""
+        rollup = RollupsJsonDb.get_by_attr(target_puzzle_id=minimeta.id)
+        if rollup is None:
+            rollup = RollupData(hunt_id=hunt.id, target_puzzle_id=minimeta.id)
+        return rollup
+
     async def select_rollup_members(self, hunt_round, rollup) -> list:
         """Select feeder membership by rollup.source_mode, returning the ordered
         list[PuzzleData] with NO Google-Sheet side-effects.
@@ -131,14 +166,16 @@ class PuzzleService:
         API failure NEVER fails the refresh — M5 renders via google_page_id."""
         page_id = metapuzzle.google_page_id
         rollup.tab_page_id = int(page_id) if page_id not in (None, "") else None
+        # A rollup is keyed by EITHER a round (meta rounds) or a target puzzle (minimetas).
+        ident = rollup.round_id if rollup.round_id else f"puzzle:{rollup.target_puzzle_id}"
         if rollup.metadata_id is None and rollup.tab_page_id is not None:
             try:
                 _, rollup.metadata_id = await gsheet_cog.stamp_rollup_metadata(
-                    metapuzzle, f"rollup:{rollup.round_id}")
+                    metapuzzle, f"rollup:{ident}")
             except Exception:
                 logger.exception(
-                    "refresh_meta: developer-metadata stamp failed for round %s "
-                    "(non-fatal; google_page_id remains the pointer)", rollup.round_id)
+                    "refresh_meta: developer-metadata stamp failed for %s "
+                    "(non-fatal; google_page_id remains the pointer)", ident)
 
     async def refresh_metas(self, hunt, rounds):
         """Refresh several meta rounds with FAILURE ISOLATION: every round is
@@ -328,6 +365,18 @@ class PuzzleService:
                 meta_round.status = "solved"   # M6: a round is solved when its meta is
                 RoundJsonDb.commit(meta_round)
 
+        # M8: a solved mini rolls up onto its parent minimeta's own sheet (puzzle-keyed).
+        # Best-effort: the badge records staleness; a failure here must not block archive
+        # or fail the solve (minis don't gate the round-meta SheetRefreshError toast).
+        if puzzle.parent_puzzle_id is not None:
+            parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+            if parent is not None:
+                try:
+                    await self.refresh_minimeta(hunt, parent)
+                except Exception:
+                    logger.exception("solve: minimeta rollup refresh failed for parent %s",
+                                     puzzle.parent_puzzle_id)
+
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
@@ -365,6 +414,16 @@ class PuzzleService:
                     await self.refresh_meta(hunt, meta_round)
             except Exception:
                 logger.exception("unsolve: meta refresh failed for round %s", tag)
+
+        # M8: re-render the parent minimeta's sheet so the unsolved mini's answer clears.
+        if puzzle.parent_puzzle_id is not None:
+            parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+            if parent is not None:
+                try:
+                    await self.refresh_minimeta(hunt, parent)
+                except Exception:
+                    logger.exception("unsolve: minimeta rollup refresh failed for parent %s",
+                                     puzzle.parent_puzzle_id)
 
         # M8: unarchive the mini-puzzle thread.
         if puzzle.parent_puzzle_id is not None and guild is not None:
@@ -429,9 +488,10 @@ class PuzzleService:
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
 
-        Tags the mini into the minimeta's round (first tag) so refresh_meta
-        rolls up its answer to the minimeta sheet on solve.
-        Auto-sets the minimeta's puzzle_type to 'Minimeta' if not already set.
+        The mini is a child (parent_puzzle_id) of the minimeta — NOT a round feeder, so
+        it is deliberately left untagged: it rolls up onto the minimeta's own sheet via
+        the puzzle-keyed refresh_minimeta path (solve/unsolve/create), never onto the
+        minimeta's round meta. Auto-sets puzzle_type='Minimeta' on the parent.
         """
         self.make_minimeta(minimeta)
 
@@ -444,10 +504,6 @@ class PuzzleService:
             puzzle_type='Mini',
             parent_puzzle_id=minimeta.id,
         )
-
-        # Tag into the minimeta's first round so refresh_meta fires on solve.
-        if minimeta.tags:
-            mini.tags.append(minimeta.tags[0])
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -474,6 +530,13 @@ class PuzzleService:
             )
         except Exception:
             logger.exception("create_mini: failed to post welcome message for mini %s", mini.id)
+
+        # Render the (now larger) mini list onto the minimeta's own sheet. Best-effort:
+        # a Sheets hiccup must not fail the create — the badge records the staleness.
+        try:
+            await self.refresh_minimeta(hunt, minimeta)
+        except Exception:
+            logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
 
         return mini
 

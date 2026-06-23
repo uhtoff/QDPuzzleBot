@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/m8-fixes
 Started: 2026-06-23
-Status: in progress — Phases 1 (welcome msg) + 2 (list_minis in pin) DONE & committed; next is Phase 3 (puzzle-keyed rollup onto minimeta sheet). Branch feature/m8-minimeta-fixes.
+Status: in progress — Phases 1+2+3 DONE & committed (welcome msg, list_minis in pin, puzzle-keyed rollup onto minimeta sheet). Next: Phase 4 (frontend SPA rebuild — deploy step). Branch feature/m8-minimeta-fixes.
 
 ## Goal
 
@@ -44,8 +44,16 @@ minis rolling up onto the minimeta sheet, dashboard). See current-spec.md.
    (create_mini_list helper + Mini-puzzles embed in _build_embed_list + info(update=True)
    on add_mini/solve_mini/unsolve_mini; 241 suite green). NOTE: web/dashboard mini
    actions don't yet refresh the parent minimeta pin — bang flow only (follow-up).
-3. Phase 3: migration 008 + puzzle-keyed rollup + solve/unsolve trigger.
-4. Phase 4: npm run build + verify dashboard; hand deploy to user.
+3. ~~Phase 3: migration 008 + puzzle-keyed rollup + solve/unsolve trigger~~ DONE.
+   - migration 008 adds rollups.target_puzzle_id (round_id now nullable); RollupData
+     gains target_puzzle_id. refresh_minimeta(hunt, minimeta) renders children via
+     add_metapuzzle_data(minimeta, minis) onto the minimeta's own tab, badged on a
+     puzzle-keyed rollups row. Triggered from create_mini + solve + unsolve (mini ⇒
+     parent_puzzle_id). create_mini no longer round-tags the mini (no leak onto the
+     round meta). web get_rollups_by_round excludes round_id IS NULL. 248 suite green.
+   - DB NOTE: migration 008 must be applied to puzzlebot_test / prod before deploy.
+4. Phase 4: `cd frontend && npm install && npm run build` (produces frontend/dist);
+   verify dashboard shows minis; deploy to redhat:8099 is the user's step.
 
 ## Open questions
 
