@@ -42,7 +42,7 @@ def _discord_error_response(exc):
     """Map a Discord HTTP/rate-limit error to a friendly JSON response."""
     if isinstance(exc, discord.RateLimited):
         return jsonify({"error": "discord_rate_limited", "retry_after": int(getattr(exc, "retry_after", 0))}), 429
-    return jsonify({"error": "discord_error", "detail": str(exc)}), 502
+    return jsonify({"error": "discord_error"}), 502
 
 
 async def _visible_hunt_for_puzzle(puzzle_id):
@@ -432,7 +432,7 @@ async def rebuild_rollup(round_id):
         # refresh_meta has already re-badged last_ok=0; report the failure so the
         # SPA can toast and leave the badge in place for another retry.
         logger.exception("rebuild: refresh failed for round %s", round_id)
-        return jsonify({"ok": False, "error": str(exc)})
+        return jsonify({"ok": False, "error": "internal_error"})
     return jsonify({"ok": True})
 
 

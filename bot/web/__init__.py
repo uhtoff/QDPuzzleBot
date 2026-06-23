@@ -15,6 +15,13 @@ from bot.utils import config
 logger = logging.getLogger(__name__)
 
 
+def _valid_session_secret(secret):
+    """A usable Quart session secret: present, >= 32 chars, not a known placeholder."""
+    if not secret or len(secret) < 32:
+        return False
+    return secret.lower() not in {"changeme", "insecure", "secret", "password"}
+
+
 def _dist_dir():
     """Resolve the built SPA directory (config override or default frontend/dist)."""
     if config.web_frontend_dist:
@@ -88,8 +95,10 @@ async def start_web(bot):
     if not config.web_enabled:
         logger.info("Web dashboard disabled (web.enabled is false); not starting.")
         return None
-    if not config.web_session_secret:
-        logger.error("Web dashboard enabled but web.session_secret is empty; refusing to start.")
+    if not _valid_session_secret(config.web_session_secret):
+        logger.error(
+            "Web dashboard enabled but web.session_secret is weak or missing; refusing to start."
+        )
         return None
     try:
         app = create_app(bot)

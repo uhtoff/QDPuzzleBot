@@ -62,7 +62,7 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
     case "bad_meta_code":
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
-      return `Discord error: ${d.detail ?? "please try again"}.`;
+      return `Discord error — please try again.`;
     default:
       return d.error || `${status}`;
   }
