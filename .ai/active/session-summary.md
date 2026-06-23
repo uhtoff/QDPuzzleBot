@@ -3,7 +3,10 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/m8-fixes
 Started: 2026-06-23
-Status: in progress — Phases 1+2+3 DONE & committed (welcome msg, list_minis in pin, puzzle-keyed rollup onto minimeta sheet). Next: Phase 4 (frontend SPA rebuild — deploy step). Branch feature/m8-minimeta-fixes.
+Status: ready for handoff — Phases 1-4 DONE (welcome msg, list_minis in pin, puzzle-keyed
+rollup onto minimeta sheet, dashboard SPA rebuild verified). Branch feature/m8-minimeta-fixes
+@ e2b40d4. REMAINING (user/deploy): apply migration 008 to the DB, rebuild+deploy frontend,
+merge branch to main + deploy bot.
 
 ## Goal
 
@@ -52,8 +55,20 @@ minis rolling up onto the minimeta sheet, dashboard). See current-spec.md.
      parent_puzzle_id). create_mini no longer round-tags the mini (no leak onto the
      round meta). web get_rollups_by_round excludes round_id IS NULL. 248 suite green.
    - DB NOTE: migration 008 must be applied to puzzlebot_test / prod before deploy.
-4. Phase 4: `cd frontend && npm install && npm run build` (produces frontend/dist);
-   verify dashboard shows minis; deploy to redhat:8099 is the user's step.
+4. ~~Phase 4: SPA rebuild~~ DONE/verified — `npm install && npm run build` succeeds
+   (tsc clean); built dist/assets/*.js contains "Add Mini" / "mini_puzzles" / "/minis".
+   MiniPuzzlePanel is wired into PuzzleTable. frontend/dist is gitignored (deploy-time
+   artifact). DEPLOY STEP (user): rebuild on the host + ship dist to redhat:8099.
+
+## Deploy checklist (handoff to user)
+
+- [ ] Apply `migrations/008_rollup_puzzle_target.sql` to the DB (test: puzzlebot_test;
+      prod). REQUIRED before the new bot code runs (commit writes target_puzzle_id).
+- [ ] Rebuild frontend on the deploy host: `cd frontend && npm install && npm run build`.
+- [ ] Merge `feature/m8-minimeta-fixes` → main and deploy the bot.
+- [ ] Smoke test: !add_mini (welcome msg + sheet link in thread; pin shows mini list);
+      !solve_mini (pin updates; answer appears on the minimeta's own sheet); dashboard
+      shows the mini panel under the minimeta.
 
 ## Open questions
 
