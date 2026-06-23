@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/m8-fixes
 Started: 2026-06-23
-Status: in progress — investigation complete, plan written; no code changes yet (branch feature/m8-minimeta-fixes @ dc4805e)
+Status: in progress — Phase 1 (welcome message) DONE & committed; next is Phase 2 (list_minis in pin). Branch feature/m8-minimeta-fixes.
 
 ## Goal
 
@@ -38,7 +38,8 @@ minis rolling up onto the minimeta sheet, dashboard). See current-spec.md.
 
 ## Next steps
 
-1. Phase 1: welcome message in `create_mini` (TDD via test_minimeta_service.py).
+1. ~~Phase 1: welcome message in `create_mini`~~ DONE (test
+   `test_posts_welcome_message_with_sheet_link`; 236 suite green).
 2. Phase 2: list_minis into pinned info + refresh on add/solve/unsolve.
 3. Phase 3: migration 008 + puzzle-keyed rollup + solve/unsolve trigger.
 4. Phase 4: npm run build + verify dashboard; hand deploy to user.

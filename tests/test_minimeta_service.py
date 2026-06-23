@@ -198,6 +198,49 @@ class TestCreateMini:
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.RoundJsonDb")
+    def test_posts_welcome_message_with_sheet_link(self, RoundDb, PuzzleDb):
+        """create_mini posts a welcome message in the thread naming the minimeta
+        and linking to the mini's Google sheet tab."""
+        import asyncio, discord
+        from unittest.mock import AsyncMock
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=3, name="Big Meta", hunt_id=10, channel_id=555, tags=[1])
+        hunt = _make_hunt(id=10)  # google_sheet_id == "SHEET1"
+        RoundDb.get_by_attr.return_value = make_round(id=1)
+
+        guild = MagicMock()
+        thread = MagicMock(spec=discord.Thread)
+        thread.id = 9003
+        thread.name = "tiny-puzzle"
+        thread.send = AsyncMock()
+        channel = MagicMock(spec=discord.TextChannel)
+
+        async def fake_create_thread(**kwargs):
+            return thread
+        channel.create_thread = fake_create_thread
+        guild.get_channel.return_value = channel
+
+        gsheet = MagicMock()
+        async def fake_create_sheet(p):
+            p.google_page_id = "PAGE7"
+            return None
+        gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+
+        svc = PuzzleService(bot)
+        asyncio.run(svc.create_mini(guild, hunt, minimeta, "Tiny Puzzle"))
+
+        thread.send.assert_awaited_once()
+        msg = thread.send.call_args[0][0]
+        assert "Tiny Puzzle" in msg      # mini name
+        assert "Big Meta" in msg          # minimeta name
+        assert "SHEET1" in msg            # spreadsheet id in the link
+        assert "PAGE7" in msg             # mini's tab/page id in the link
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RoundJsonDb")
     def test_auto_makes_parent_minimeta(self, RoundDb, PuzzleDb):
         """create_mini auto-sets puzzle_type=Minimeta on parent if not already set."""
         import asyncio, discord

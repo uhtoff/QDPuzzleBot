@@ -19,6 +19,7 @@ from bot.store.rollup_data import RollupData
 from bot.store.round_data import RoundData
 from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
+from bot.utils import urls
 from bot.core.discord_channels import (
     clean_name, get_or_create_channel, solve_divider_position,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
@@ -462,6 +463,17 @@ class PuzzleService:
         mini.channel_id = thread.id
         mini.channel_name = thread.name
         PuzzleJsonDb.commit(mini)
+
+        # Best-effort welcome message in the new thread: name the parent minimeta and
+        # link to the mini's Google sheet tab. A Discord hiccup must not fail the create.
+        try:
+            sheet_url = urls.spreadsheet_url(hunt.google_sheet_id, mini.google_page_id)
+            await thread.send(
+                f"This thread is for mini puzzle **{mini.name}** from mini meta "
+                f"**{minimeta.name}**.\n{sheet_url}"
+            )
+        except Exception:
+            logger.exception("create_mini: failed to post welcome message for mini %s", mini.id)
 
         return mini
 
