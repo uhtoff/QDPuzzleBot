@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-06-23
-Status: ready for handoff — Phase 1 (tests)
+Status: ready for review — Phase 6 @ c8319d7
 
 ## Goal
 
@@ -12,9 +12,14 @@ match the database (source of truth), healing partially-applied create/edit oper
 
 ## Current status
 
-Spec + plan written and committed on `main` (already in this worktree). No implementation started.
-Execute `.ai/active/current-spec.md` phase by phase. The full verbatim code lives in
-`docs/superpowers/plans/2026-06-23-reconcile.md` — copy from it.
+All 6 phases complete. 37 tests pass (18 reconcile + 19 regression). Commits on branch `working-2`:
+- f50b4b3 — phase 1: failing tests + report model + stubs
+- c2c2d1d — phase 2: channel relink/move/create logic
+- c63ae07 — phase 5: orphan deletion + `delete_sheet_tab` helper (gsheet cog)
+- c8319d7 — phase 6: `!reconcile` command + report formatter
+
+Note: phases 3 & 4 (`_reconcile_tabs`, `reconcile`, orphan collectors) were bundled into the
+phase 2 commit since they're all in `bot/core/puzzle_service.py`.
 
 ## Context the files don't make obvious
 
@@ -28,32 +33,16 @@ Execute `.ai/active/current-spec.md` phase by phase. The full verbatim code live
   rounds. This is the single most important behavioural rule.
 - **Channel resolution order:** relink-and-move beats recreate. Welcome/info is reposted ONLY when a
   brand-new channel is actually created — never when an existing channel is found and moved.
-- **`PuzzleService` is ctx-free and testable** (`bot.get_cog` returns the GoogleSheets cog, or
-  `None` in tests). All tests stub the Discord + Sheets seams with `unittest.mock`; no live services.
-- **Model split:** Phase 1 (test design) on Opus; Phases 2–6 (mechanical implementation) on Sonnet.
+- **`delete_sheet_tab` added to gsheet cog:** the existing `delete_sheet` had a different signature
+  (takes `page_id` + `archive` bool). Added `delete_sheet_tab(sheet_id, spreadsheet_id=None)` as a
+  thin wrapper using `batchUpdate` directly, matching the plan's spec.
 
 ## What NOT to touch
 
-- No category recreation, no meta roll-up rebuild, no additional-sheet recreation (all out of scope
-  — see spec).
+- No category recreation, no meta roll-up rebuild, no additional-sheet recreation (all out of scope).
 - Do not refactor existing functions or touch files outside the spec's Relevant files list.
-- Do not modify `conftest.py` or sibling test files; keep all test helpers local to
-  `tests/test_reconcile.py`.
-
-## If you get stuck
-
-Diagnose with `superpowers:systematic-debugging` first. Two-strikes rule: if one acceptance command
-fails twice without a clear, understood fix, write `.ai/active/blocker.md` (command, output,
-diagnosis) and STOP — do not invent harness machinery or loop until green.
+- Do not modify `conftest.py` or sibling test files.
 
 ## Next steps
 
-1. Phase 1 — write all failing tests + report model + stubs (Opus). Confirm behavioural tests fail
-   with `NotImplementedError` and the file collects cleanly.
-2. Phases 2–6 — implement per spec (Sonnet), each phase green before the next.
-3. Final verification run, then bump Status and hand back for review.
-
-## Open questions
-
-None blocking. Two heuristics to validate during Phase 4 (orphan-channel `———` marker; orphan-tab
-`hidden` property) — the spec tells you how to check and to write `blocker.md` if genuinely unclear.
+Ready for review and merge to main.
