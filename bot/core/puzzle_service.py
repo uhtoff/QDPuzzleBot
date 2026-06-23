@@ -13,7 +13,7 @@ import discord
 import pytz
 from googleapiclient.errors import HttpError
 
-from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.round_data import RoundData
@@ -673,4 +673,36 @@ class PuzzleService:
                 except Exception:
                     logger.exception("create_round: rollback of orphan category failed")
             raise
+
+    def log_clues(self, hunt, puzzle, notes: list) -> list:
+        """Insert one evidence_item per note. Returns list of EvidenceData."""
+        return [EvidenceJsonDb.log(hunt.id, puzzle.id, note) for note in notes]
+
+    async def refresh_evidence(self, hunt):
+        """Render the Evidence sheet tab. Creates the tab lazily on first call."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return
+        if hunt.evidence_sheet_page_id is None:
+            page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, "Evidence")
+            hunt.evidence_sheet_page_id = page_id
+            HuntJsonDb.commit(hunt)
+        items = EvidenceJsonDb.get_all(hunt.id)
+        puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
+        names = {pid: ((PuzzleJsonDb.get_by_attr(id=pid) or None) and PuzzleJsonDb.get_by_attr(id=pid).name) or f"Puzzle {pid}" for pid in puzzle_ids}
+        rows = [
+            [
+                names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}"),
+                i.note,
+                names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
+                str(i.created_at)[:16] if i.created_at else "",
+            ]
+            for i in items
+        ]
+        await gsheet_cog.aggregate_to_tab(
+            hunt.google_sheet_id,
+            hunt.evidence_sheet_page_id,
+            ["Source Puzzle", "Note", "Target Puzzle", "Logged At"],
+            rows,
+        )
 

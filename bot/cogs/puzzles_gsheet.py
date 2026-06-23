@@ -363,6 +363,19 @@ class GoogleSheets(commands.Cog):
             puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
 
 
+    async def create_blank_tab(self, spreadsheet_id: str, name: str) -> int:
+        """Add a plain blank tab to a spreadsheet. Returns the new sheet's page id."""
+        body = {
+            "requests": [{
+                "addSheet": {
+                    "properties": {"title": name}
+                }
+            }]
+        }
+        req = get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        result = await execute_with_retry(req, on_retry=self._notify_retry)
+        return result["replies"][0]["addSheet"]["properties"]["sheetId"]
+
     def set_sheet_name(self, name, sheet_id = None):
         return self._sheet_props_request(sheet_id, 'title', name)
 
