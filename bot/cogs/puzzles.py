@@ -886,6 +886,85 @@ class Puzzles(commands.Cog):
 
         return await ctx.send(embed=embed)
 
+    @commands.command()
+    async def make_minimeta(self, ctx):
+        """*Convert this puzzle into a minimeta cluster: !make_minimeta*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        self.service.make_minimeta(puzzle)
+        await ctx.send(f":white_check_mark: **{puzzle.name}** is now a minimeta cluster. Use `!add_mini` to add mini-puzzles.")
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def add_mini(self, ctx, *args):
+        """*Add a mini-puzzle (thread + sheet) to this minimeta: !add_mini Name*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        name = " ".join(args).strip()
+        if not name:
+            return await ctx.send(":x: Provide a name: `!add_mini Puzzle Name`")
+        try:
+            mini = await self.service.create_mini(
+                ctx.guild, self.get_hunt(ctx), puzzle, name
+            )
+        except RuntimeError as exc:
+            return await ctx.send(f":x: Could not create mini-puzzle: {exc}")
+        await ctx.send(f":white_check_mark: Created mini-puzzle **{mini.name}**. Thread: <#{mini.channel_id}>")
+
+    @commands.command()
+    async def list_minis(self, ctx):
+        """*List mini-puzzles for this minimeta: !list_minis*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        minis = self.service.get_minis(puzzle.id)
+        if not minis:
+            return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
+        embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
+        lines = []
+        for i, mini in enumerate(minis, 1):
+            if mini.solved:
+                lines.append(f"{i}. ✅ **{mini.name}** — {mini.solution}")
+            else:
+                lines.append(f"{i}. ⬜ **{mini.name}** — unsolved")
+        embed.description = "\n".join(lines)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def solve_mini(self, ctx, number: int, *args):
+        """*Solve mini-puzzle #N from the minimeta channel: !solve_mini 2 ANSWER*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        solution = " ".join(args).strip()
+        if not solution:
+            return await ctx.send(":x: Provide a solution: `!solve_mini 2 ANSWER`")
+        try:
+            await self.service.solve_mini_by_number(
+                ctx.guild, self.get_hunt(ctx), puzzle.id, number, solution
+            )
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
+        await ctx.send(f":white_check_mark: Solved mini #{number}: **{solution}**")
+
+    @commands.command()
+    @with_puzzle_mutex(wait=True)
+    async def unsolve_mini(self, ctx, number: int):
+        """*Unsolve mini-puzzle #N from the minimeta channel: !unsolve_mini 2*"""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        try:
+            await self.service.unsolve_mini_by_number(
+                ctx.guild, self.get_hunt(ctx), puzzle.id, number
+            )
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
+        await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
+
     def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
         sheet_links = ""
         count = 1
