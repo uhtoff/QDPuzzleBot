@@ -13,7 +13,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, AdditionalSheetData, RollupsJsonDb, RollupData
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -1184,6 +1184,99 @@ class Puzzles(commands.Cog):
             await self.service.remove_from_meta(puzzle, meta_round)
         else:
             await ctx.send(":x: Please send a valid meta code")
+
+    @commands.hybrid_command(
+        name="nest",
+        description="Nest one round under another, or clear nesting (organiser only)",
+    )
+    @app_commands.autocomplete(child_code=meta_code_autocomplete)
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def nest(self, ctx, child_code: str, parent_code: Optional[str] = None):
+        """*Nest a round under another or clear nesting: !nest <child_code> <parent_code|none>*"""
+        child_round = RoundJsonDb.get_by_attr(meta_code=child_code)
+        if not child_round:
+            await ctx.send(":x: Invalid child meta code")
+            return
+        parent_id = None
+        if parent_code is not None and parent_code.lower() != "none":
+            parent_round = RoundJsonDb.get_by_attr(meta_code=parent_code)
+            if not parent_round:
+                await ctx.send(":x: Invalid parent meta code")
+                return
+            parent_id = parent_round.id
+        try:
+            await self.service.set_parent_group(child_round, parent_id)
+            label = "cleared" if parent_id is None else f"nested under {parent_round.name}"
+            await ctx.send(f":white_check_mark: {child_round.name} nesting {label}.")
+        except ValueError as exc:
+            await ctx.send(f":x: {exc}")
+
+    @commands.hybrid_command(
+        name="source_mode",
+        description="Set a rollup source mode (organiser only)",
+    )
+    @app_commands.autocomplete(code=meta_code_autocomplete)
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def source_mode(self, ctx, code: str, mode: str):
+        """*Set rollup source mode: !source_mode <meta_code> <round|subtree|explicit>*"""
+        if mode not in ("round", "subtree", "explicit"):
+            await ctx.send(":x: source_mode must be one of: round, subtree, explicit")
+            return
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        meta_round = RoundJsonDb.get_by_attr(meta_code=code)
+        if not meta_round or not meta_round.meta_id:
+            await ctx.send(":x: Invalid meta code — must reference a meta round.")
+            return
+        rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
+        if rollup is None:
+            rollup = RollupData(hunt_id=hunt.id, round_id=meta_round.id)
+        rollup.source_mode = mode
+        RollupsJsonDb.commit(rollup)
+        try:
+            await self.service.refresh_meta(hunt, meta_round)
+            await ctx.send(f":white_check_mark: {code} source_mode set to '{mode}'.")
+        except SheetRefreshError as exc:
+            await ctx.send(
+                f":warning: Source mode updated but some sheets are stale ({exc}). Use !rebuild to retry.")
+        except Exception as exc:
+            await ctx.send(f":warning: Source mode updated but refresh failed: {exc}")
+
+    @commands.hybrid_command(
+        name="pool",
+        description="Tag this puzzle into the round's aggregation pool (organiser only)",
+    )
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def pool(self, ctx):
+        """*Tag puzzle as aggregates-into for its meta: !pool (run in a puzzle channel)*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            return
+        puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is.")
+            return
+        # Find rounds this puzzle belongs to and tag them with aggregates-into edge
+        added = False
+        for rid in puzzle.tags:
+            rnd = RoundJsonDb.get_by_attr(id=rid)
+            if rnd and rnd.meta_id:
+                PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, rid, "aggregates-into")
+                added = True
+        if not added:
+            await ctx.send(":x: This puzzle is not tagged to any meta round.")
+            return
+        try:
+            await self.service.refresh_metas(hunt, list(RoundJsonDb.get_by_attr(id=rid) for rid in puzzle.tags))
+            await ctx.send(f":white_check_mark: Tagged as aggregates-into. Sheets updated.")
+        except SheetRefreshError as exc:
+            await ctx.send(
+                f":warning: Edge set but some sheets are stale ({exc}). Use !rebuild to retry.")
+        except Exception as exc:
+            await ctx.send(f":warning: Edge set but refresh failed: {exc}")
 
     async def _round_impl(self, ctx, round_name, command, make_category = True, make_puzzle = True):
 
