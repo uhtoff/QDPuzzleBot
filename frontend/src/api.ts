@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { HuntDetail, HuntList, RollupAnswers, User } from "./types";
+import type { EvidenceItem, HuntDetail, HuntList, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -316,5 +316,22 @@ export function useRollupAnswers(roundId: number, enabled: boolean) {
     queryKey: ["rollup-answers", roundId],
     queryFn: () => apiGet<RollupAnswers>(`/api/rollups/${roundId}/answers`),
     enabled,
+  });
+}
+
+export function useEvidence(huntUid: string) {
+  return useQuery({
+    queryKey: ["evidence", huntUid],
+    queryFn: () => apiGet<EvidenceItem[]>(`/api/evidence?hunt_uid=${huntUid}`),
+    staleTime: 10_000,
+  });
+}
+
+export function useUpdateEvidence(huntUid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, targetPuzzleId }: { itemId: number; targetPuzzleId: number | null }) =>
+      apiSend<EvidenceItem>(`/api/evidence/${itemId}`, "PATCH", { target_puzzle_id: targetPuzzleId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evidence", huntUid] }),
   });
 }

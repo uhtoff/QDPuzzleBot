@@ -118,3 +118,13 @@ export interface RollupAnswers {
   mode: string;
   answers: RollupAnswer[];
 }
+
+export interface EvidenceItem {
+  id: number;
+  source_puzzle_id: number;
+  source_puzzle_name: string;
+  target_puzzle_id: number | null;
+  target_puzzle_name: string | null;
+  note: string;
+  created_at: string | null;
+}

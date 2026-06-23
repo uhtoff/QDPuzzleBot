@@ -21,6 +21,7 @@ import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
+import { EvidencePanel } from "../components/EvidencePanel";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { Puzzle } from "../types";
 
@@ -29,7 +30,7 @@ export default function HuntBoard() {
   const { data, isLoading, error } = useHunt(uid);
   const qc = useQueryClient();
   const live = useActivityFeed((u) => { if (u === uid) qc.invalidateQueries({ queryKey: ["hunt", uid] }); });
-  const [view, setView] = useState<"board" | "all" | "arrange">("board");
+  const [view, setView] = useState<"board" | "all" | "arrange" | "evidence">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
@@ -88,9 +89,10 @@ export default function HuntBoard() {
           data={[
             { label: "By meta", value: "board" },
             { label: "All puzzles", value: "all" },
+            { label: "Evidence", value: "evidence" },
             ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
           ]}
-          w={data.hunt.can_manage ? 360 : 260}
+          w={data.hunt.can_manage ? 460 : 360}
         />
         {data.hunt.can_manage && <CreateControls detail={data} uid={uid!} />}
       </Group>
@@ -106,6 +108,7 @@ export default function HuntBoard() {
         <PuzzleTable detail={data} puzzles={allPuzzles} live={live} onOpenNotes={openNotes} />
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
+      {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
 
       <PuzzleDrawer puzzle={notesPuzzle} detail={data} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
