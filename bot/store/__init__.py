@@ -8,7 +8,8 @@ from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, Addition
 from .round_data import RoundData, _RoundJsonDb, MissingRoundError
 from .rollup_data import RollupData, _RollupJsonDb
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb
+from .evidence_data import EvidenceData
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb
 
 from bot.utils import config
 
@@ -94,3 +95,4 @@ if config.storage == 'mysql':
     )
     activity_db.autocommit = True
     ChannelActivityDb = MySQLChannelActivityDb(mydb=activity_db)
+    EvidenceJsonDb = MySQLEvidenceDb(mydb=mydb)

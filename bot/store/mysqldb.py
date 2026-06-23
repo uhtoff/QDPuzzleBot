@@ -13,6 +13,7 @@ from .round_data import RoundData
 from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
+from .evidence_data import EvidenceData
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +443,69 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
         finally:
             cursor.close()
         return {row['channel_id']: row for row in rows}
+
+
+class MySQLEvidenceDb(_MySQLBaseDb):
+    TABLE_NAME = 'evidence_items'
+
+    def log(self, hunt_id: int, source_puzzle_id: int, note: str) -> 'EvidenceData':
+        """Insert one evidence item and return it."""
+        import datetime
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "INSERT INTO evidence_items (hunt_id, source_puzzle_id, note, created_at)"
+                " VALUES (%s, %s, %s, %s)",
+                (hunt_id, source_puzzle_id, note, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        e = EvidenceData()
+        e.id = new_id
+        e.hunt_id = hunt_id
+        e.source_puzzle_id = source_puzzle_id
+        e.note = note
+        e.created_at = now
+        return e
+
+    def get_all(self, hunt_id: int, source_puzzle_id=None, target_puzzle_id=None):
+        """Return evidence items for a hunt, optionally filtered."""
+        where = ["hunt_id = %s"]
+        params = [hunt_id]
+        if source_puzzle_id is not None:
+            where.append("source_puzzle_id = %s")
+            params.append(source_puzzle_id)
+        if target_puzzle_id == "unassigned":
+            where.append("target_puzzle_id IS NULL")
+        elif target_puzzle_id is not None:
+            where.append("target_puzzle_id = %s")
+            params.append(target_puzzle_id)
+        sql = "SELECT * FROM evidence_items WHERE " + " AND ".join(where) + " ORDER BY created_at ASC"
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [EvidenceData.import_dict(r) for r in rows]
+
+    def set_target(self, item_id: int, target_puzzle_id):
+        """Set or clear target_puzzle_id on an item. Returns updated EvidenceData."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "UPDATE evidence_items SET target_puzzle_id = %s WHERE id = %s",
+                (target_puzzle_id, item_id),
+            )
+            cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        return EvidenceData.import_dict(row) if row else None
 
 
 class MySQLGuildSettingsDb():
