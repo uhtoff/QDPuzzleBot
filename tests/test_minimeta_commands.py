@@ -1,29 +1,16 @@
 """Tests for M8 minimeta bang commands."""
-import asyncio
-import types
 from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from tests.conftest import make_puzzle, make_round
+from tests.conftest import make_cog, make_ctx, make_puzzle
 from bot.cogs.puzzles import Puzzles
 
 
-def _make_ctx(puzzle, channel_id=111, message_id=1):
-    ctx = MagicMock()
-    ctx.channel.id = channel_id
-    ctx.message.id = message_id
-    ctx.guild = MagicMock()
-    ctx.send = AsyncMock()
-    return ctx
-
-
-def _make_cog(puzzle, hunt=None):
-    cog = Puzzles.__new__(Puzzles)
-    cog.get_puzzle = lambda ctx: puzzle
-    cog.get_hunt = lambda ctx: hunt or MagicMock()
-    cog.service = MagicMock()
-    cog.info = AsyncMock()  # pin refresh — asserted in TestPinRefresh
+def _make_cog_with_info(puzzle, hunt=None):
+    """Like make_cog but also stubs cog.info (used in TestPinRefresh)."""
+    cog = make_cog(puzzle, hunt)
+    cog.info = AsyncMock()
     return cog
 
 
@@ -31,8 +18,8 @@ class TestMakeMiniMeta:
     @pytest.mark.asyncio
     async def test_sets_puzzle_type_and_confirms(self):
         puzzle = make_puzzle(id=1)
-        cog = _make_cog(puzzle)
-        ctx = _make_ctx(puzzle)
+        cog = make_cog(puzzle)
+        ctx = make_ctx()
         cog.service.make_minimeta = MagicMock()
 
         await Puzzles.make_minimeta.callback(cog, ctx)
@@ -46,8 +33,8 @@ class TestListMinis:
     @pytest.mark.asyncio
     async def test_empty_list(self):
         puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(puzzle)
-        ctx = _make_ctx(puzzle)
+        cog = make_cog(puzzle)
+        ctx = make_ctx()
         cog.service.get_minis = MagicMock(return_value=[])
 
         await Puzzles.list_minis.callback(cog, ctx)
@@ -60,8 +47,8 @@ class TestListMinis:
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
         mini1 = make_puzzle(id=2, name="Mini A", solved=False)
         mini2 = make_puzzle(id=3, name="Mini B", solved=True, solution="ANS")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = make_cog(parent)
+        ctx = make_ctx()
         cog.service.get_minis = MagicMock(return_value=[mini1, mini2])
 
         await Puzzles.list_minis.callback(cog, ctx)
@@ -77,8 +64,8 @@ class TestSolveMiniCommand:
     @pytest.mark.asyncio
     async def test_delegates_to_service(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = _make_cog_with_info(parent)
+        ctx = make_ctx()
         cog.service.solve_mini_by_number = AsyncMock(return_value=True)
 
         await Puzzles.solve_mini.callback(cog, ctx, 2, "ANSWER")
@@ -93,8 +80,8 @@ class TestSolveMiniCommand:
     @pytest.mark.asyncio
     async def test_bad_number_sends_error(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = make_cog(parent)
+        ctx = make_ctx()
         cog.service.solve_mini_by_number = AsyncMock(side_effect=ValueError("No mini #9"))
 
         await Puzzles.solve_mini.callback(cog, ctx, 9, "X")
@@ -107,8 +94,8 @@ class TestUnsolveMiniCommand:
     @pytest.mark.asyncio
     async def test_delegates_to_service(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = _make_cog_with_info(parent)
+        ctx = make_ctx()
         cog.service.unsolve_mini_by_number = AsyncMock()
 
         await Puzzles.unsolve_mini.callback(cog, ctx, 1)
@@ -124,8 +111,8 @@ class TestPinRefresh:
     @pytest.mark.asyncio
     async def test_add_mini_refreshes_pin(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = _make_cog_with_info(parent)
+        ctx = make_ctx()
         mini = make_puzzle(id=2, name="Mini A", channel_id=9001)
         cog.service.create_mini = AsyncMock(return_value=mini)
 
@@ -137,8 +124,8 @@ class TestPinRefresh:
     @pytest.mark.asyncio
     async def test_solve_mini_refreshes_pin(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = _make_cog_with_info(parent)
+        ctx = make_ctx()
         cog.service.solve_mini_by_number = AsyncMock(return_value=True)
 
         await Puzzles.solve_mini.callback(cog, ctx, 1, "ANS")
@@ -149,8 +136,8 @@ class TestPinRefresh:
     @pytest.mark.asyncio
     async def test_unsolve_mini_refreshes_pin(self):
         parent = make_puzzle(id=1, puzzle_type="Minimeta")
-        cog = _make_cog(parent)
-        ctx = _make_ctx(parent)
+        cog = _make_cog_with_info(parent)
+        ctx = make_ctx()
         cog.service.unsolve_mini_by_number = AsyncMock()
 
         await Puzzles.unsolve_mini.callback(cog, ctx, 1)

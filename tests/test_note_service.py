@@ -1,14 +1,7 @@
 """Tests for PuzzleService.add_note / erase_note."""
 from unittest.mock import patch
 
-from tests.conftest import make_puzzle
-
-
-def _make_hunt(id=10):
-    from bot.store.hunt_data import HuntData
-    h = HuntData()
-    h.id = id
-    return h
+from tests.conftest import make_hunt, make_puzzle
 
 
 class TestAddNote:
@@ -18,7 +11,7 @@ class TestAddNote:
     async def test_appends_note_with_attribution(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = []
 
@@ -33,7 +26,7 @@ class TestAddNote:
     async def test_appends_to_existing_notes(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = ["first note - https://discord.com/msg/1"]
 
@@ -47,7 +40,7 @@ class TestAddNote:
     async def test_web_attribution_format(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = []
 
@@ -65,7 +58,7 @@ class TestEraseNote:
     async def test_removes_note_by_index(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = ["note A - url1", "note B - url2", "note C - url3"]
 
@@ -79,7 +72,7 @@ class TestEraseNote:
     async def test_removes_first_note(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = ["note A - url1", "note B - url2"]
 
@@ -93,7 +86,7 @@ class TestEraseNote:
     async def test_bad_index_returns_false_no_commit(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = ["note A - url1"]
 
@@ -107,7 +100,7 @@ class TestEraseNote:
     async def test_zero_index_returns_false(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
         puzzle.notes = ["note A - url1"]
 

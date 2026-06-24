@@ -1,17 +1,7 @@
 """Tests for meta-matching service layer + HuntData fields."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.conftest import make_puzzle
-
-
-def _make_hunt(id=10):
-    from bot.store.hunt_data import HuntData
-    h = HuntData()
-    h.id = id
-    h.google_sheet_id = "SHEET1"
-    h.unassigned_sheet_page_id = None
-    h.unassigned_table_id = None
-    return h
+from tests.conftest import make_hunt, make_puzzle
 
 
 class TestHuntDataFields:
@@ -30,13 +20,13 @@ class TestRefreshUnassigned:
         bot = MagicMock()
         bot.get_cog.return_value = None
         svc = PuzzleService(bot)
-        await svc.refresh_unassigned(_make_hunt())   # must not raise
+        await svc.refresh_unassigned(make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None))   # must not raise
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_creates_tab_and_table_lazily(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt()
+        hunt = make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None)
         PuzzleDb.get_unassigned.return_value = []
         gsheet = MagicMock()
         gsheet.create_blank_tab = AsyncMock(return_value=42)
@@ -54,7 +44,7 @@ class TestRefreshUnassigned:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_reconcile_shapes_rows_uppercase_and_blank_unsolved(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt(); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
+        hunt = make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
         PuzzleDb.get_unassigned.return_value = [
             make_puzzle(id=1, name="Solved One", solved=True, solution="cat"),
             make_puzzle(id=2, name="Open Two", solved=False, solution=None),
@@ -75,7 +65,7 @@ class TestRefreshUnassigned:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_classified_row_is_pruned(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt(); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
+        hunt = make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
         PuzzleDb.get_unassigned.return_value = []          # pool now empty
         gsheet = MagicMock()
         gsheet.read_unassigned_keys = AsyncMock(return_value=[5])    # id 5 still in sheet

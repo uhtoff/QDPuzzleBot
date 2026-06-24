@@ -15,8 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bot.store.hunt_data import HuntData
-from tests.conftest import make_puzzle, make_round
+from tests.conftest import make_hunt, make_puzzle, make_round
 
 
 # ---------------------------------------------------------------------------
@@ -31,14 +30,6 @@ def _make_cog():
     bot.get_cog.return_value = None  # no GoogleSheets cog
     cog = Puzzles(bot)
     return cog
-
-
-def _make_hunt(id=10, google_sheet_id="SHEET1", archive_google_sheet_id="ARCHIVE1"):
-    h = HuntData()
-    h.id = id
-    h.google_sheet_id = google_sheet_id
-    h.archive_google_sheet_id = archive_google_sheet_id
-    return h
 
 
 def _no_guild():
@@ -59,7 +50,7 @@ class TestWebSolvePuzzleState:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run_solve(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -179,7 +170,7 @@ class TestSolutionCasingNormalization:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     def _patch_ctx(self):
         return (
@@ -288,7 +279,7 @@ class TestWebAddToMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, round_data):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
@@ -334,7 +325,7 @@ class TestWebRemoveFromMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, round_data):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
@@ -381,7 +372,7 @@ class TestWebMoveToMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, new_round, old_rounds_by_id=None):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         old_rounds_by_id = old_rounds_by_id or {}
 
         def fake_round_get(**kwargs):
@@ -428,7 +419,7 @@ class TestWebAddPartial:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -499,7 +490,7 @@ class TestWebChangeSolution:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -557,7 +548,7 @@ class TestWebAddSolution:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -612,7 +603,7 @@ class TestWebConvertToFeeder:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, meta_round=None, round_members=None):
         """round_members = the puzzles get_all_from_round returns for the meta's
@@ -722,7 +713,7 @@ class TestWebDeletePuzzle:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, meta_rounds=None):
         """Run service.delete_puzzle with mocked DBs. meta_rounds is the list
@@ -788,7 +779,7 @@ class TestWebDeleteRound:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, hunt_round, puzzles=None):
         """Run service.delete_round with mocked DBs.
@@ -858,7 +849,7 @@ class TestWebSetPuzzleUrl:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, url, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -921,7 +912,7 @@ class TestWebConvertToMeta:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -984,7 +975,7 @@ class TestWebRenamePuzzle:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, name, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -1047,7 +1038,7 @@ class TestBangUnsolveDelegation:
         import discord
 
         puz = make_puzzle(id=5, solved=True, solution="WRONG")
-        hunt = _make_hunt()
+        hunt = make_hunt()
 
         # Build a minimal ctx stub
         ctx = MagicMock()

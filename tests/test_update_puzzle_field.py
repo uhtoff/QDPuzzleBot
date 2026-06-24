@@ -3,14 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.conftest import make_puzzle
-
-
-def _make_hunt(id=10):
-    from bot.store.hunt_data import HuntData
-    h = HuntData()
-    h.id = id
-    return h
+from tests.conftest import make_hunt, make_puzzle
 
 
 class TestUpdatePuzzleFieldStatus:
@@ -20,7 +13,7 @@ class TestUpdatePuzzleFieldStatus:
     async def test_sets_valid_status_and_commits(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "status", "solved")
@@ -32,7 +25,7 @@ class TestUpdatePuzzleFieldStatus:
     async def test_status_case_insensitive_validation(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "status", "In Progress")
@@ -44,7 +37,7 @@ class TestUpdatePuzzleFieldStatus:
     async def test_invalid_status_raises_value_error(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         with pytest.raises(ValueError, match="status"):
@@ -56,7 +49,7 @@ class TestUpdatePuzzleFieldStatus:
     async def test_puzzle_unchanged_on_invalid_status(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10, status="unstarted")
 
         with pytest.raises(ValueError):
@@ -72,7 +65,7 @@ class TestUpdatePuzzleFieldPriority:
     async def test_sets_valid_priority_and_commits(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "priority", "high")
@@ -84,7 +77,7 @@ class TestUpdatePuzzleFieldPriority:
     async def test_sets_very_high_priority(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "priority", "very high")
@@ -96,7 +89,7 @@ class TestUpdatePuzzleFieldPriority:
     async def test_invalid_priority_raises_value_error(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         with pytest.raises(ValueError, match="priority"):
@@ -112,7 +105,7 @@ class TestUpdatePuzzleFieldPuzzleType:
     async def test_sets_puzzle_type_and_commits(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "puzzle_type", "crossword")
@@ -125,7 +118,7 @@ class TestUpdatePuzzleFieldPuzzleType:
         """puzzle_type is free-form — no validation of value."""
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         await svc.update_puzzle_field(hunt, puzzle, "puzzle_type", "some-custom-type")
@@ -141,7 +134,7 @@ class TestUpdatePuzzleFieldUnknownField:
     async def test_unknown_field_raises_value_error(self, PuzzleDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         with pytest.raises(ValueError, match="field"):
@@ -154,7 +147,7 @@ class TestUpdatePuzzleFieldUnknownField:
         """'name' is not a supported field for this method."""
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(None)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         with pytest.raises(ValueError):

@@ -1,5 +1,8 @@
 """Shared fixtures for the QDPuzzleBot test suite."""
 
+from unittest.mock import AsyncMock, MagicMock
+
+from bot.store.hunt_data import HuntData
 from bot.store.puzzle_data import PuzzleData
 from bot.store.round_data import RoundData
 
@@ -96,3 +99,49 @@ def make_puzzle_row(
 def make_round_ref(id, name, meta_code="RC", is_meta_of=False):
     """Build a round reference dict as embedded in a puzzle row."""
     return {"id": id, "name": name, "meta_code": meta_code, "is_meta_of": is_meta_of}
+
+
+def make_hunt(
+    id=10,
+    google_sheet_id="SHEET1",
+    archive_google_sheet_id="ARCHIVE1",
+    **kwargs,
+):
+    """Return a HuntData with sensible defaults.
+
+    Extra attributes can be set via kwargs, e.g.::
+
+        make_hunt(evidence_sheet_page_id=None)
+    """
+    h = HuntData()
+    h.id = id
+    h.google_sheet_id = google_sheet_id
+    h.archive_google_sheet_id = archive_google_sheet_id
+    for attr, val in kwargs.items():
+        setattr(h, attr, val)
+    return h
+
+
+def make_ctx(channel_id=111, message_id=1):
+    """Return a minimal mock Discord Context suitable for cog callback tests."""
+    ctx = MagicMock()
+    ctx.channel.id = channel_id
+    ctx.message.id = message_id
+    ctx.guild = MagicMock()
+    ctx.send = AsyncMock()
+    return ctx
+
+
+def make_cog(puzzle=None, hunt=None):
+    """Return a Puzzles cog stub with get_puzzle/get_hunt/service mocked.
+
+    ``puzzle`` is returned by ``cog.get_puzzle``; ``hunt`` (or a fresh
+    MagicMock) is returned by ``cog.get_hunt``.
+    """
+    from bot.cogs.puzzles import Puzzles
+
+    cog = Puzzles.__new__(Puzzles)
+    cog.get_puzzle = lambda ctx: puzzle
+    cog.get_hunt = lambda ctx: hunt or MagicMock()
+    cog.service = MagicMock()
+    return cog
