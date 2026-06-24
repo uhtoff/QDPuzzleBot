@@ -786,7 +786,7 @@ class GoogleSheets(commands.Cog):
                     {"columnIndex": 0, "columnName": "id"},
                     {"columnIndex": 1, "columnName": "Puzzle"},
                     {"columnIndex": 2, "columnName": "Answer"},
-                    {"columnIndex": 3, "columnName": "Length", "columnType": "DOUBLE"},
+                    {"columnIndex": 3, "columnName": "Length"},
                     {"columnIndex": 4, "columnName": "Notes"},
                 ],
             }}}]}
@@ -830,10 +830,15 @@ class GoogleSheets(commands.Cog):
 
     @staticmethod
     def _unassigned_len_cell(value):
-        """Length cell: a number when solved, blank ("") when unsolved."""
+        """Length cell: a number when solved, an empty cell when unsolved.
+
+        Blank is written as empty CellData (clears userEnteredValue) rather than
+        an empty string — an empty cell is valid in a number-typed Table column,
+        whereas a string "" makes Sheets reject the whole atomic batch.
+        """
         if isinstance(value, (int, float)):
             return {"userEnteredValue": {"numberValue": value}}
-        return {"userEnteredValue": {"stringValue": ""}}
+        return {}
 
     async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
         """Apply the incremental reconcile to the Unassigned Puzzles tab.
@@ -865,7 +870,14 @@ class GoogleSheets(commands.Cog):
             except (ValueError, IndexError):
                 continue
 
-        requests = []
+        # Always pin the tab to the far left (index 0). Idempotent — a no-op when
+        # it is already first — and keeps it leftmost even if someone drags it.
+        requests = [{
+            "updateSheetProperties": {
+                "properties": {"sheetId": page_id, "index": 0},
+                "fields": "index",
+            }
+        }]
 
         # Updates: refresh Puzzle/Answer/Length (cols B-D) on the matched row.
         update_by_id = {row[0]: row for row in updates}

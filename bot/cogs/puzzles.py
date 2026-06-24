@@ -666,9 +666,9 @@ class Puzzles(commands.Cog):
         try:
             await self.service.refresh_unassigned(hunt, show_round=show_round)
             await ctx.send(":white_check_mark: Unassigned Puzzles tab reconciled.")
-        except Exception:
+        except Exception as exc:
             logger.exception("rebuild_unassigned failed for hunt %s", hunt.id if hunt else "?")
-            await ctx.send(":warning: Failed to reconcile unassigned tab.")
+            await ctx.send(f":warning: Failed to reconcile unassigned tab: `{type(exc).__name__}: {exc}`")
 
     async def update_metapuzzle(self, ctx, hunt_round):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
