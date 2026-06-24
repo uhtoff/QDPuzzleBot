@@ -36,6 +36,7 @@ import {
   type RetagMode,
 } from "../api";
 import { notifyError, showSheetWarning, statusColor } from "../util";
+import { ConfirmModal } from "./ConfirmModal";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 
 interface MetaOption {
@@ -64,6 +65,8 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
     disabled: isPending,
     data: { puzzleId: puzzle.id, sourceMetaCode: columnMetaCode },
   });
+  // Pending action for the ConfirmModal (minimeta / convert-to-meta).
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
   // Metas this puzzle is not already in (candidates for "add").
   const inCodes = new Set(puzzle.rounds.map((r) => r.meta_code).filter(Boolean));
@@ -77,6 +80,7 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
   const canRemove = columnMetaCode != null && here != null && !here.is_meta_of;
 
   return (
+    <>
     <Card
       ref={setNodeRef}
       withBorder
@@ -153,21 +157,25 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
                 <Menu.Divider />
                 <Menu.Item
                   color="grape"
-                  onClick={() => {
-                    if (window.confirm(`Mark "${puzzle.name}" as a minimeta?`)) {
-                      onMakeMinimeta(puzzle.id);
-                    }
-                  }}
+                  onClick={() =>
+                    setPendingAction({
+                      title: "Make minimeta",
+                      message: `Mark "${puzzle.name}" as a minimeta?`,
+                      onConfirm: () => onMakeMinimeta(puzzle.id),
+                    })
+                  }
                 >
                   Make minimeta
                 </Menu.Item>
                 <Menu.Item
                   color="grape"
-                  onClick={() => {
-                    if (window.confirm(`Convert "${puzzle.name}" to a meta?\nThis creates a new meta round around it.`)) {
-                      onConvertToMeta(puzzle.id);
-                    }
-                  }}
+                  onClick={() =>
+                    setPendingAction({
+                      title: "Convert to meta",
+                      message: `Convert "${puzzle.name}" to a meta? This creates a new meta round around it.`,
+                      onConfirm: () => onConvertToMeta(puzzle.id),
+                    })
+                  }
                 >
                   Convert to meta
                 </Menu.Item>
@@ -202,6 +210,21 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
         </Group>
       )}
     </Card>
+    {pendingAction && (
+      <ConfirmModal
+        opened={pendingAction != null}
+        onClose={() => setPendingAction(null)}
+        onConfirm={() => {
+          pendingAction.onConfirm();
+          setPendingAction(null);
+        }}
+        title={pendingAction.title}
+        message={pendingAction.message}
+        confirmLabel="Confirm"
+        confirmColor="grape"
+      />
+    )}
+    </>
   );
 }
 
@@ -265,6 +288,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   // exposes the latest call's variables, so concurrent retags would otherwise
   // grey out just one card.
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+  // Deferred drag action awaiting confirmation via ConfirmModal.
+  const [dragConfirm, setDragConfirm] = useState<{ title: string; message: string; puzzleId: number; metaCode: string; mode: RetagMode } | null>(null);
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -360,8 +385,13 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         return;
       }
       const names = currentMetas.map((r) => r.name).join(", ");
-      if (!window.confirm(`Remove "${p.name}" from all metas: ${names}?`)) return;
-      runRetag(puzzleId, "", "clear");
+      setDragConfirm({
+        title: "Remove from all metas",
+        message: `Remove "${p.name}" from all metas: ${names}?`,
+        puzzleId,
+        metaCode: "",
+        mode: "clear",
+      });
       return;
     }
 
@@ -374,13 +404,18 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     if (p && !p.is_meta && p.rounds.filter((r) => r.meta_code).length > 1) {
       const lost = p.rounds.filter((r) => r.meta_code && r.meta_code !== metaCode);
       const names = lost.map((r) => r.name).join(", ");
-      const ok = window.confirm(
-        `"${p.name}" is also in: ${names}.\n\n` +
+      setDragConfirm({
+        title: "Move puzzle",
+        message:
+          `"${p.name}" is also in: ${names}. ` +
           `Dragging onto a meta MOVES it — it will be removed from those other metas. ` +
-          `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead.\n\n` +
+          `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead. ` +
           `Move it anyway?`,
-      );
-      if (!ok) return;
+        puzzleId,
+        metaCode,
+        mode: "move",
+      });
+      return;
     }
     runRetag(puzzleId, metaCode, "move");
   }
@@ -481,6 +516,19 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           This cannot be undone.
         </Text>
       </TypedConfirmModal>
+
+      <ConfirmModal
+        opened={dragConfirm != null}
+        onClose={() => setDragConfirm(null)}
+        onConfirm={() => {
+          if (dragConfirm) runRetag(dragConfirm.puzzleId, dragConfirm.metaCode, dragConfirm.mode);
+          setDragConfirm(null);
+        }}
+        title={dragConfirm?.title ?? ""}
+        message={dragConfirm?.message ?? ""}
+        confirmLabel="Move"
+        confirmColor="blue"
+      />
     </Box>
   );
 }
