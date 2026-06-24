@@ -12,6 +12,49 @@ plus a **React/Mantine SPA over an embedded Quart API** (`bot/web/`, `frontend/`
 Core data model: `hunts → rounds → puzzles`, with the feeder→meta link expressed via
 the many-to-many `tags(puzzle_id, round_id)` table.
 
+## Domain vocabulary (canonical)
+
+Use these terms; this is the agreed model. (The `rounds` *table* is not the same as a
+"round" the *label* — see below.)
+
+- **TagGroup** — a named, typed group of *puzzles*, identified by a tag; puzzles are
+  *tagged into* it (it is **not** "a group of tags"). Stored as a row in the `rounds`
+  table: `TagGroup` is the umbrella concept, `rounds` is just the table name.
+- **Target puzzle** — every TagGroup is built around one target puzzle (`rounds.meta_id`).
+  A **TagGroup is solved when its target puzzle is solved** — that derived status is the
+  only thing that happens automatically; the target itself is an ordinary puzzle a human
+  solves like any other. A TagGroup with **no target** is a view / holding-pen; its
+  members are *unassigned* (they contribute to nothing).
+- **Two edge types** — how a member contributes to its TagGroup's target (carried on
+  `tags.edge_type`):
+  - **`feeds`** — the member contributes *its own answer*; available only once that
+    member is **solved**.
+  - **`informs`** — the member contributes *other information*; can arrive **before /
+    without** the member being solved.
+  A target may take a mix of both. What the target's sheet shows — an answer list vs a
+  dossier of facts — follows from which edge feeds it; it is not a separate mechanism.
+- **meta vs capstone** — informal shorthand for *which edge dominates a TagGroup*: a
+  **meta** is fed mostly by `feeds` (answers), a **capstone** mostly by `informs`
+  (information). They are structurally identical — both are TagGroups with a real target
+  puzzle that gets solved. They are **not** separate types, and a capstone is solved the
+  same way a meta is.
+
+These are **not** types — do not model them as kinds of TagGroup:
+
+- **round / metapuzzle / runaround** — presentation labels and *scope* (one zone vs the
+  whole hunt), not distinct structures. The only thing that differs by label today is the
+  welcome message. A *runaround* is just a TagGroup whose membership is "everything" —
+  either tag the answers in directly, or nest rounds under it and let the rollup walk the
+  subtree.
+- **creation order** — *group-first* (make the group + target, tag members as they
+  arrive) vs *feeders-first* (create members unassigned, tag them into a group later, via
+  the Unassigned workflow). Same end state; only *when* tagging happens.
+- **metameta** — a TagGroup whose members are themselves the targets of other groups; a
+  rollup/nesting detail, not a kind.
+
+Keep **feeder** reserved for *a feeding puzzle* ("the feeders feed the meta"); use the
+verbs **feeds / informs** for the edges so the noun doesn't collide.
+
 ## Roadmap & planning
 
 - **`docs/PLANS.md` is the authoritative roadmap** (milestones M0–M11 + improvement

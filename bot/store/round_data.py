@@ -20,7 +20,7 @@ class RoundData:
     meta_code: str = "0"  # 6-char handle (the DB column is CHAR(6)); was mis-typed int
     type: str = ""
     # M6 typed-group columns (additive; backfilled + kept-updated, read by nothing yet).
-    kind: str = ""               # meta / metameta / metaless (+ cluster/capstone/... later)
+    kind: str = ""               # meta / metameta / metaless
     status: str = "active"       # active / solved / archived (a round is solved when its meta is)
     parent_group_id: Optional[int] = None  # group-in-group NESTING (dormant; cycle-guarded setter)
     start_time: Optional[datetime.datetime] = None

@@ -763,7 +763,7 @@ class PuzzleService:
         !convert_to_feeder bang and the web endpoint).
 
         Deletes the round whose meta this puzzle is — which ORPHANS every feeder
-        tagged to that round (capstone rule) — drops the round id from the puzzle's
+        tagged to that round — drops the round id from the puzzle's
         tags, clears the metapuzzle flag, commits, and reverts the puzzle's sheet
         restructure. Mirrors solve's durability ordering: the DB mutation is
         committed before the sheet revert, so a Sheets failure (which
