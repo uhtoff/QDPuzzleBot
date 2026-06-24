@@ -482,3 +482,180 @@ class TestWebAddSolution:
         puz = make_puzzle(solved=True, solution="FIRST")
         await self._run(cog, hunt, puz, "SECOND")
         assert puz.solve_time is not None and puz.solve_time >= before
+
+
+# ---------------------------------------------------------------------------
+# set_puzzle_url (service) — mirrors !link: puzzle.url = url; commit; gsheet
+# update_puzzle (skipped here, no gsheet cog). No solve_time, no status change.
+# ---------------------------------------------------------------------------
+class TestWebSetPuzzleUrl:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, url, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.set_puzzle_url(_no_guild(), hunt, puzzle, url)
+
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_sets_url(self, cog, hunt):
+        puz = make_puzzle()          # url defaults to ""
+        await self._run(cog, hunt, puz, "https://example.com/p")
+        assert puz.url == "https://example.com/p"
+
+    @pytest.mark.asyncio
+    async def test_commits_puzzle(self, cog, hunt):
+        puz = make_puzzle(id=42)
+        commits = await self._run(cog, hunt, puz, "https://x")
+        assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_solved_or_stamp_time(self, cog, hunt):
+        puz = make_puzzle(solved=False)
+        await self._run(cog, hunt, puz, "https://x")
+        assert puz.solved is False
+        assert puz.solve_time is None
+
+
+# ---------------------------------------------------------------------------
+# convert_to_meta (service) — mirrors !convert_to_meta + _round_impl convert
+# branch: create a RoundData wrapping the puzzle (type "Metapuzzle"), meta_id =
+# puzzle.id, generate meta_code; then puzzle.add_tag(round.id), metapuzzle=1,
+# commit. gsheet restructure (convert_puzzle_spreadsheet) + channel-type live at
+# the edge / are skipped with no gsheet cog. Method returns (round, puzzle).
+# NOTE: _round_impl calls RoundJsonDb.generate_uid for meta_code — the harness
+# must give RoundJsonDb.generate_uid a return value (e.g. "MCODE1").
+# ---------------------------------------------------------------------------
+class TestWebConvertToMeta:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r))
+            mock_rdb.generate_uid.return_value = "MCODE1"
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            result = await cog.service.convert_to_meta(_no_guild(), hunt, puzzle)
+
+        return result
+
+    @pytest.mark.asyncio
+    async def test_marks_metapuzzle(self, cog, hunt):
+        puz = make_puzzle(metapuzzle=0)
+        await self._run(cog, hunt, puz)
+        assert puz.metapuzzle == 1
+        assert puz.is_metapuzzle() is True
+
+    @pytest.mark.asyncio
+    async def test_creates_round_with_meta_id(self, cog, hunt):
+        puz = make_puzzle(id=7)
+        new_round, _ = await self._run(cog, hunt, puz)
+        assert new_round.meta_id == 7
+        assert new_round.type == "Metapuzzle"
+
+    @pytest.mark.asyncio
+    async def test_tags_puzzle_to_new_round(self, cog, hunt):
+        puz = make_puzzle(id=7, tags=[])
+        new_round, _ = await self._run(cog, hunt, puz)
+        assert new_round.id in puz.tags
+
+
+# ---------------------------------------------------------------------------
+# rename_puzzle (service) — set name, set channel_name (cleaned), commit, gsheet
+# update_puzzle(puzzle, True), refresh the round's meta. The service ALSO owns the
+# Discord channel rename via self.safe_rename, but it is guarded on `guild is not
+# None` — so under _no_guild() the channel rename is skipped (same as solve). These
+# tests therefore assert ONLY the DB transition; do not assert any rename call.
+# ---------------------------------------------------------------------------
+class TestWebRenamePuzzle:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, name, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.rename_puzzle(_no_guild(), hunt, puzzle, name)
+
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_sets_name(self, cog, hunt):
+        puz = make_puzzle(name="Old Name")
+        await self._run(cog, hunt, puz, "New Name")
+        assert puz.name == "New Name"
+
+    @pytest.mark.asyncio
+    async def test_commits_puzzle(self, cog, hunt):
+        puz = make_puzzle(id=42, name="Old")
+        commits = await self._run(cog, hunt, puz, "New")
+        assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
