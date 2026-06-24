@@ -600,7 +600,7 @@ class Puzzles(commands.Cog):
             )
         except RuntimeError:
             return await ctx.send(":x: Failed to create puzzle (server full?).")
-        asyncio.create_task(self.service.refresh_unassigned(hunt))
+        asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
     # --- legacy create twins removed (Phase 5 strangle) ---
 
@@ -1122,7 +1122,7 @@ class Puzzles(commands.Cog):
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
             await self.service.add_to_meta(puzzle, meta_round)
-            asyncio.create_task(self.service.refresh_unassigned(self.get_hunt(ctx)))
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
             await ctx.send(
                 f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets are being updated.")
         else:
@@ -1146,7 +1146,7 @@ class Puzzles(commands.Cog):
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets are being updated.")
             await self.service.move_to_meta(self.get_guild(ctx), puzzle, meta_round)
-            asyncio.create_task(self.service.refresh_unassigned(self.get_hunt(ctx)))
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -1174,7 +1174,7 @@ class Puzzles(commands.Cog):
             await ctx.send(
                 f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets are being updated.")
             await self.service.remove_from_meta(puzzle, meta_round)
-            asyncio.create_task(self.service.refresh_unassigned(self.get_hunt(ctx)))
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -2233,7 +2233,7 @@ class Puzzles(commands.Cog):
             await self._warn_stale_sheets(ctx, sheet_warning)
         else:
             await ctx.send(":white_check_mark: Sheets all tidied away.")
-        asyncio.create_task(self.service.refresh_unassigned(hunt))
+        asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
     @commands.command(aliases=["s"])
     @with_puzzle_mutex(wait=False)

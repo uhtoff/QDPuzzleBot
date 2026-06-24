@@ -841,3 +841,20 @@ class PuzzleService:
             prunes=prunes,
         )
 
+    async def refresh_unassigned_safe(self, hunt, show_round=False):
+        """Fire-and-forget wrapper for the background reconcile.
+
+        Never raises and logs any failure (with hunt id) to discord.log, so a
+        broken background sync is visible there instead of surfacing only as a
+        stray asyncio "Task exception was never retrieved" trace. Use this for
+        every asyncio.create_task(...) trigger; the awaited !rebuild path calls
+        refresh_unassigned directly so it can report to the channel.
+        """
+        try:
+            await self.refresh_unassigned(hunt, show_round=show_round)
+        except Exception:
+            logger.exception(
+                "background refresh_unassigned failed for hunt %s",
+                getattr(hunt, "id", "?"),
+            )
+

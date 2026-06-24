@@ -357,7 +357,7 @@ async def solve_puzzle(puzzle_id):
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
         # Best-effort: keep the Unassigned Puzzles tab in sync.
-        asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
@@ -449,7 +449,7 @@ async def retag_puzzle(puzzle_id):
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
         if hunt_obj is not None:
-            asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
+            asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
         resp = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
@@ -643,7 +643,7 @@ async def create_puzzle(uid):
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
     # Best-effort: keep the Unassigned Puzzles tab in sync (a no-meta create adds one).
-    asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
+    asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 
