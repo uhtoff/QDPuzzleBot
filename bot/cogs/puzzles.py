@@ -1500,14 +1500,7 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
-        if meta_round is not None:
-            RoundJsonDb.delete(meta_round.id)
-            if meta_round.id in puzzle.tags:
-                puzzle.tags.remove(meta_round.id)
-        puzzle.metapuzzle = False
-        PuzzleJsonDb.commit(puzzle)
-        await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
+        await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
         # Channel rename intentionally omitted (see convert_to_meta): the dashboard
         # label supersedes the name prefix and renames hit the strict rename bucket.
         self.set_channel_type(ctx, "Puzzle")

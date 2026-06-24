@@ -665,6 +665,49 @@ class PuzzleService:
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
 
+    async def convert_to_feeder(self, guild, hunt, puzzle):
+        """Demote a metapuzzle back to an ordinary feeder (ctx-free seam for the
+        !convert_to_feeder bang and the web endpoint).
+
+        Deletes the round whose meta this puzzle is — which ORPHANS every feeder
+        tagged to that round (capstone rule) — drops the round id from the puzzle's
+        tags, clears the metapuzzle flag, commits, and reverts the puzzle's sheet
+        restructure. Mirrors solve's durability ordering: the DB mutation is
+        committed before the sheet revert, so a Sheets failure (which
+        convert_puzzle_spreadsheet restores-and-re-raises) leaves the demotion
+        saved; the edge presents it as a non-fatal warning.
+
+        Returns the number of feeders orphaned by the round deletion (every puzzle
+        that was tagged to the deleted round, excluding the meta itself)."""
+        orphaned = len(self.feeders_orphaned_by_convert(puzzle))
+        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        if meta_round is not None:
+            RoundJsonDb.delete(meta_round.id)
+            if meta_round.id in puzzle.tags:
+                puzzle.tags.remove(meta_round.id)
+        puzzle.metapuzzle = False
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.convert_puzzle_spreadsheet(puzzle)
+
+        await self.notifier.board_changed(hunt)
+        return orphaned
+
+    def feeders_orphaned_by_convert(self, puzzle):
+        """Read-only: the feeders that converting *puzzle* back to a feeder would
+        orphan — every puzzle tagged to its meta round except the meta itself.
+        Powers the web convert confirm, which must name the orphan count up front.
+        Returns [] if the puzzle backs no round."""
+        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        if meta_round is None:
+            return []
+        return [
+            p for p in PuzzleJsonDb.get_all_from_round(meta_round.id)
+            if p.id != puzzle.id
+        ]
+
     async def add_partial(self, guild, hunt, puzzle, solution):
         """Mark a puzzle as partially solved: set status, append solution,
         commit and refresh metas. Does NOT set solve_time and does NOT push

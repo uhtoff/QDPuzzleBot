@@ -482,3 +482,117 @@ class TestWebAddSolution:
         puz = make_puzzle(solved=True, solution="FIRST")
         await self._run(cog, hunt, puz, "SECOND")
         assert puz.solve_time is not None and puz.solve_time >= before
+
+
+# ---------------------------------------------------------------------------
+# convert_to_feeder (service) — demote a metapuzzle back to a feeder. Mirrors
+# the cog convert_to_feeder body: find the round whose meta_id is this puzzle,
+# delete it (orphaning its feeders), drop the round from tags, clear metapuzzle,
+# commit, revert the spreadsheet. Returns the count of feeders orphaned by the
+# round deletion (every puzzle tagged to the round, excluding the meta itself).
+# ---------------------------------------------------------------------------
+class TestWebConvertToFeeder:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, meta_round=None, round_members=None):
+        """round_members = the puzzles get_all_from_round returns for the meta's
+        round (feeders + the meta itself)."""
+        commits = []
+        deletes = []
+
+        def fake_round_get(**kwargs):
+            # convert_to_feeder looks the round up by meta_id=puzzle.id
+            return meta_round
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_pdb.get_all_from_round.return_value = round_members or []
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.delete.side_effect = lambda rid: deletes.append(rid)
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            orphaned = await cog.service.convert_to_feeder(_no_guild(), hunt, puzzle)
+
+        return orphaned, commits, deletes
+
+    @pytest.mark.asyncio
+    async def test_clears_metapuzzle_flag(self, cog, hunt):
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        rnd = make_round(id=5, meta_id=1)
+        await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
+        assert not puz.metapuzzle
+
+    @pytest.mark.asyncio
+    async def test_deletes_meta_round(self, cog, hunt):
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        rnd = make_round(id=5, meta_id=1)
+        _, _, deletes = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
+        assert deletes == [5]
+
+    @pytest.mark.asyncio
+    async def test_removes_round_from_tags(self, cog, hunt):
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        rnd = make_round(id=5, meta_id=1)
+        await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
+        assert 5 not in puz.tags
+
+    @pytest.mark.asyncio
+    async def test_commits_puzzle(self, cog, hunt):
+        puz = make_puzzle(id=42, metapuzzle=1, tags=[5])
+        rnd = make_round(id=5, meta_id=42)
+        _, commits, _ = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
+        assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
+
+    @pytest.mark.asyncio
+    async def test_returns_orphan_count_excluding_meta(self, cog, hunt):
+        # Round 5 holds the meta (id 1) plus two feeders -> 2 orphaned feeders.
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        feeder_a = make_puzzle(id=2, tags=[5])
+        feeder_b = make_puzzle(id=3, tags=[5])
+        rnd = make_round(id=5, meta_id=1)
+        orphaned, _, _ = await self._run(
+            cog, hunt, puz, meta_round=rnd, round_members=[puz, feeder_a, feeder_b]
+        )
+        assert orphaned == 2
+
+    @pytest.mark.asyncio
+    async def test_no_round_clears_flag_without_delete(self, cog, hunt):
+        # Defensive: a metapuzzle with no backing round still demotes cleanly.
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
+        orphaned, _, deletes = await self._run(cog, hunt, puz, meta_round=None)
+        assert not puz.metapuzzle
+        assert deletes == []
+        assert orphaned == 0
+
+    def test_preview_lists_orphan_feeders(self, cog):
+        # Read-only helper that powers the confirm dialog: feeders minus the meta.
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        feeder_a = make_puzzle(id=2, tags=[5])
+        feeder_b = make_puzzle(id=3, tags=[5])
+        rnd = make_round(id=5, meta_id=1)
+        with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb") as mock_pdb:
+            mock_rdb.get_by_attr.return_value = rnd
+            mock_pdb.get_all_from_round.return_value = [puz, feeder_a, feeder_b]
+            orphans = cog.service.feeders_orphaned_by_convert(puz)
+        assert [p.id for p in orphans] == [2, 3]
+
+    def test_preview_empty_when_no_round(self, cog):
+        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
+        with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb:
+            mock_rdb.get_by_attr.return_value = None
+            assert cog.service.feeders_orphaned_by_convert(puz) == []

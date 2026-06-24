@@ -487,6 +487,95 @@ async def retag_puzzle(puzzle_id):
         return jsonify(resp)
 
 
+# --- Convert a metapuzzle back to a feeder (organiser only, destructive) -----
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-feeder/preview", methods=["GET"])
+@login_required
+async def convert_to_feeder_preview(puzzle_id):
+    """Read-only preview for the convert confirm dialog: how many feeders (and
+    which) demoting this metapuzzle would orphan by deleting its round."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+    if not puzzle.is_metapuzzle():
+        return jsonify({"error": "not_a_metapuzzle"}), 400
+
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    orphans = cog.service.feeders_orphaned_by_convert(puzzle)
+    return jsonify({
+        "orphan_count": len(orphans),
+        "orphan_feeders": [{"id": p.id, "name": p.name} for p in orphans],
+    })
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-feeder", methods=["POST"])
+@login_required
+async def convert_to_feeder(puzzle_id):
+    """Demote a metapuzzle back to a feeder via the bot's own service logic.
+
+    Destructive: deletes the puzzle's meta round, orphaning every feeder tagged to
+    it (the frontend confirms against the preview count first). Mirrors the solve
+    family's edge wrapper — organiser-gated, puzzle-locked, audited, board pushed —
+    and treats a Sheets failure as a non-fatal warning (the demotion is committed)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not puzzle.is_metapuzzle():
+            return jsonify({"error": "not_a_metapuzzle"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        orphaned = None
+        warning = None
+        try:
+            orphaned = await cog.service.convert_to_feeder(guild, hunt_obj, puzzle)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        except SheetRefreshError as exc:
+            warning = str(exc)
+        except HttpError:
+            logger.exception("web convert_to_feeder: sheet revert failed for puzzle %s", puzzle.id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+        await _audit("convert_to_feeder", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        resp = {"ok": True}
+        if orphaned is not None:
+            resp["orphaned"] = orphaned
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
+
+
 # --- Rebuild a meta roll-up sheet (organiser only) --------------------------
 
 @actions_bp.route("/rollups/<int:round_id>/rebuild", methods=["POST"])
