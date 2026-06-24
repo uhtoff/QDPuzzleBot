@@ -29,6 +29,7 @@ import type { BoardGroup, HuntDetail, Puzzle } from "../types";
 import {
   useConvertToFeeder,
   useConvertToFeederPreview,
+  useDeletePuzzle,
   useRetagPuzzle,
   type RetagMode,
 } from "../api";
@@ -48,10 +49,12 @@ interface CardProps {
   metas: MetaOption[];
   onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
   onConvertToFeeder: (puzzle: Puzzle) => void;
+  onDeletePuzzle: (puzzle: Puzzle) => void;
+  isOrganiser: boolean;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -141,6 +144,14 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
                 </Menu.Item>
               </>
             )}
+            {isOrganiser && (
+              <>
+                <Menu.Divider />
+                <Menu.Item color="red" onClick={() => onDeletePuzzle(puzzle)}>
+                  Delete puzzle…
+                </Menu.Item>
+              </>
+            )}
           </Menu.Dropdown>
         </Menu>
       </Group>
@@ -209,12 +220,16 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
 export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const retag = useRetagPuzzle(uid);
   const convert = useConvertToFeeder(uid);
+  const deletePuzzleMut = useDeletePuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
   const [convertTarget, setConvertTarget] = useState<Puzzle | null>(null);
   // Preview the orphan impact only while the confirm modal is open for a target.
   const convertPreview = useConvertToFeederPreview(convertTarget?.id ?? null, convertTarget != null);
+  // Puzzle awaiting a delete confirm (null = modal closed).
+  const [deleteTarget, setDeleteTarget] = useState<Puzzle | null>(null);
+  const isOrganiser = detail.hunt.can_manage;
   // Track every in-flight retag ourselves: React Query's single mutation only
   // exposes the latest call's variables, so concurrent retags would otherwise
   // grey out just one card.
@@ -264,6 +279,21 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           color: "green",
         });
         setConvertTarget(null);
+      },
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function runDeletePuzzle() {
+    if (!deleteTarget) return;
+    const name = deleteTarget.name;
+    deletePuzzleMut.mutate(deleteTarget.id, {
+      onSuccess: (data) => {
+        if (data.sheet_warning) {
+          notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
+        }
+        notifications.show({ message: `"${name}" permanently deleted.`, color: "green" });
+        setDeleteTarget(null);
       },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });
@@ -338,6 +368,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     metas={metas}
                     onRetag={runRetag}
                     onConvertToFeeder={setConvertTarget}
+                    onDeletePuzzle={setDeleteTarget}
+                    isOrganiser={isOrganiser}
                     isPending={pendingIds.has(p.id)}
                   />
                 ))}
@@ -393,6 +425,21 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
             No feeders are tagged to this meta — nothing will be orphaned.
           </Text>
         )}
+      </TypedConfirmModal>
+
+      <TypedConfirmModal
+        opened={deleteTarget != null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={runDeletePuzzle}
+        title={`Delete "${deleteTarget?.name ?? ""}"`}
+        confirmPhrase={deleteTarget?.name ?? ""}
+        confirmLabel="Delete puzzle"
+        loading={deletePuzzleMut.isPending}
+      >
+        <Text size="sm" c="red">
+          ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
+          This cannot be undone.
+        </Text>
       </TypedConfirmModal>
     </Box>
   );
