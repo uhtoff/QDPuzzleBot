@@ -194,7 +194,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const retag = useRetagPuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
-  const retagPuzzleId = retag.isPending ? (retag.variables as { puzzleId?: number } | undefined)?.puzzleId ?? null : null;
+  // Track every in-flight retag ourselves: React Query's single mutation only
+  // exposes the latest call's variables, so concurrent retags would otherwise
+  // grey out just one card.
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -203,7 +206,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     .filter((g) => g.meta_code != null)
     .map((g) => ({ code: g.meta_code as string, name: g.name }));
 
-  const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) =>
+  const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) => {
+    setPendingIds((s) => new Set(s).add(puzzleId));
     retag.mutate(
       { puzzleId, metaCode, mode },
       {
@@ -212,8 +216,15 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
             notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
           }
         },
+        onSettled: () =>
+          setPendingIds((s) => {
+            const next = new Set(s);
+            next.delete(puzzleId);
+            return next;
+          }),
       }
     );
+  };
 
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
@@ -266,7 +277,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
-                    isPending={retagPuzzleId === p.id}
+                    isPending={pendingIds.has(p.id)}
                   />
                 ))}
               </Column>
