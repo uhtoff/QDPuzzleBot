@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-24
-Status: ready for handoff — Phase 1 (tests) not yet started. Design @ 7a51235; 5a (predecessor) merged to main.
+Status: ready for handoff — test(parity): Phase 1 — failing service tests for create_hunt/delete_hunt @ d8e41f6
 
 ## Goal
 
@@ -58,6 +58,16 @@ guard) — do NOT assert the exact Discord call sequence; that is decided in Pha
 
 ## Next step
 
-Start Phase 1 (Opus 4.8): write `tests/test_create_hunt_service.py` and
-`tests/test_delete_hunt_service.py` from the skeletons in `current-spec.md`, confirm they fail only on
-the missing `create_hunt` / `delete_hunt` methods, commit the tests alone.
+Phase 1 done @ d8e41f6: `tests/test_create_hunt_service.py` (4 tests) and
+`tests/test_delete_hunt_service.py` (2 tests) committed. All 6 fail cleanly with `AttributeError`
+on the not-yet-existing `create_hunt` / `delete_hunt` methods (no import/bootstrap fatals); they
+collect under the same `pytest` runner the final gate uses. Pinned contract: duplicate name →
+`raise RuntimeError` (matches `create_round` → `RuntimeError("round_exists")`); per-puzzle sheet
+teardown uses `delete_puzzle_spreadsheet`; whole-file sheet delete uses the new
+`delete_hunt_spreadsheet(file_id)` (Phase 3). `create_hunt` kwargs asserted: `name`, `url`,
+`start_timestamp`, `role_name`, `create_archive_sheet`.
+
+Start Phase 2 (Sonnet 4.6): add `PuzzleService.create_hunt` (modelled on `create_mini` :1029) and
+rewire the cog `create_hunt` (`puzzles.py:426`). Acceptance: `timeout 180 pipenv run python -m
+pytest tests/test_create_hunt_service.py tests/test_solve_equivalence.py tests/test_create_service.py
+-q`.
