@@ -748,8 +748,8 @@ class GoogleSheets(commands.Cog):
             rows,
         )
 
-    async def ensure_unclassified_table(self, page_id, show_round=False):
-        """Create an Unclassified Puzzles native Table. Idempotent.
+    async def ensure_unassigned_table(self, page_id, show_round=False):
+        """Create an Unassigned Puzzles native Table. Idempotent.
 
         Uses the context-var spreadsheet id (set by _gsheet_cog).
         Returns the table id (existing or newly created).
@@ -762,7 +762,7 @@ class GoogleSheets(commands.Cog):
         )
         sheets = resp.get("sheets", [])
         if len(sheets) == 0:
-            raise RuntimeError(f"ensure_unclassified_table: no sheet found for page_id {page_id}")
+            raise RuntimeError(f"ensure_unassigned_table: no sheet found for page_id {page_id}")
 
         table_range = sheets[0].get("tableRange") or None
         if table_range is not None:
@@ -802,8 +802,8 @@ class GoogleSheets(commands.Cog):
         result = await execute_with_retry(req, on_retry=self._notify_retry)
         return result["replies"][0]["addTable"]["table"]["tableId"]
 
-    async def read_unclassified_keys(self, page_id):
-        """Read puzzle ids from column A of the Unclassified tab (skip header)."""
+    async def read_unassigned_keys(self, page_id):
+        """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
         tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
@@ -819,8 +819,8 @@ class GoogleSheets(commands.Cog):
                 continue
         return keys
 
-    async def apply_unclassified_changes(self, page_id, table_id, appends, updates, prunes):
-        """Apply incremental reconcile to the Unclassified Puzzles Table.
+    async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
+        """Apply incremental reconcile to the Unassigned Puzzles Table.
 
         Uses the context-var spreadsheet id (set by _gsheet_cog).
         Only writes bot-managed columns (A-E); never touches user Notes.

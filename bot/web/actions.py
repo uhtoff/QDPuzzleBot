@@ -356,8 +356,8 @@ async def solve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
-        # Best-effort: keep the Unclassified Puzzles tab in sync.
-        asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
@@ -446,10 +446,10 @@ async def retag_puzzle(puzzle_id):
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
         await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=meta_code)
-        # Best-effort: keep the Unclassified Puzzles tab in sync.
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
         if hunt_obj is not None:
-            asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
+            asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
         resp = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
@@ -639,10 +639,10 @@ async def create_puzzle(uid):
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 
-@actions_bp.route("/hunts/<uid>/unclassified", methods=["POST"])
+@actions_bp.route("/hunts/<uid>/unassigned", methods=["POST"])
 @login_required
-async def create_unclassified(uid):
-    """Create a hunt-level (unclassified) puzzle, via the bot."""
+async def create_unassigned(uid):
+    """Create a hunt-level (unassigned) puzzle, via the bot."""
     ctx, err = await _organiser_hunt(uid)
     if err:
         return err
@@ -668,9 +668,9 @@ async def create_unclassified(uid):
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    await _audit("create_unclassified", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
-    # Best-effort: keep the Unclassified Puzzles tab in sync.
-    asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
+    await _audit("create_unassigned", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
+    # Best-effort: keep the Unassigned Puzzles tab in sync.
+    asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 

@@ -345,8 +345,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return found
 
-    def get_unclassified(self, hunt_id) -> List[PuzzleData]:
-        """Return non-meta puzzles that feed no meta (for the Unclassified Puzzles tab)."""
+    def get_unassigned(self, hunt_id) -> List[PuzzleData]:
+        """Return non-meta puzzles that feed no meta (for the Unassigned Puzzles tab)."""
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(
             "SELECT p.* FROM puzzles p"

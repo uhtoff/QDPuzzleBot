@@ -781,13 +781,13 @@ class PuzzleService:
             rows,
         )
 
-    async def refresh_unclassified(self, hunt, show_round=False):
-        """Incremental reconcile of the Unclassified Puzzles tab.
+    async def refresh_unassigned(self, hunt, show_round=False):
+        """Incremental reconcile of the Unassigned Puzzles tab.
 
         Creates the tab and table lazily on first call. Appends new puzzles,
         updates answer/length for existing ids (e.g. solved), prunes classified ones.
         """
-        from bot.core.unclassified import unclassified_row, diff_rows
+        from bot.core.unassigned import unassigned_row, diff_rows
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
@@ -795,37 +795,37 @@ class PuzzleService:
 
         # Lazy-create tab + table
         dirty = False
-        if hunt.unclassified_sheet_page_id is None:
+        if hunt.unassigned_sheet_page_id is None:
             page_id = await gsheet_cog.create_blank_tab(
-                hunt.google_sheet_id, "Unclassified Puzzles",
+                hunt.google_sheet_id, "Unassigned Puzzles",
             )
-            hunt.unclassified_sheet_page_id = page_id
+            hunt.unassigned_sheet_page_id = page_id
             dirty = True
 
-        if hunt.unclassified_table_id is None:
-            table_id = await gsheet_cog.ensure_unclassified_table(
-                hunt.unclassified_sheet_page_id,
+        if hunt.unassigned_table_id is None:
+            table_id = await gsheet_cog.ensure_unassigned_table(
+                hunt.unassigned_sheet_page_id,
                 show_round,
             )
-            hunt.unclassified_table_id = table_id
+            hunt.unassigned_table_id = table_id
             dirty = True
 
         if dirty:
             HuntJsonDb.commit(hunt)
 
-        # Fetch current unclassified puzzles from DB
-        pool = PuzzleJsonDb.get_unclassified(hunt.id)
-        desired = [unclassified_row(p) for p in pool]
+        # Fetch current unassigned puzzles from DB
+        pool = PuzzleJsonDb.get_unassigned(hunt.id)
+        desired = [unassigned_row(p) for p in pool]
 
         # Read current sheet keys and reconcile
-        keys = await gsheet_cog.read_unclassified_keys(
-            hunt.unclassified_sheet_page_id,
+        keys = await gsheet_cog.read_unassigned_keys(
+            hunt.unassigned_sheet_page_id,
         )
         appends, updates, prunes = diff_rows(keys, desired)
 
-        await gsheet_cog.apply_unclassified_changes(
-            page_id=hunt.unclassified_sheet_page_id,
-            table_id=hunt.unclassified_table_id,
+        await gsheet_cog.apply_unassigned_changes(
+            page_id=hunt.unassigned_sheet_page_id,
+            table_id=hunt.unassigned_table_id,
             appends=appends,
             updates=updates,
             prunes=prunes,

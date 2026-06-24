@@ -35,8 +35,8 @@ class HuntData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
     evidence_sheet_page_id: Optional[int] = None
-    unclassified_sheet_page_id: Optional[int] = None
-    unclassified_table_id: Optional[int] = None
+    unassigned_sheet_page_id: Optional[int] = None
+    unassigned_table_id: Optional[int] = None
 
     def __hash__(self):
         return self.id

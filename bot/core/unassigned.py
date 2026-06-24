@@ -1,7 +1,7 @@
-"""Pure helpers for the Unclassified Puzzles worktable reconcile."""
+"""Pure helpers for the Unassigned Puzzles worktable reconcile."""
 
 
-def unclassified_row(puzzle):
+def unassigned_row(puzzle):
     """Shape a puzzle into a sheet row: [id, name, ANSWER_UPPER, length].
 
     Unsolved puzzles get blank Answer and blank Length.
@@ -21,7 +21,7 @@ def diff_rows(current_ids, desired_rows):
     """Compare current sheet keys against desired rows.
 
     Args:
-        current_ids: list of puzzle ids currently in the sheet (from read_unclassified_keys).
+        current_ids: list of puzzle ids currently in the sheet (from read_unassigned_keys).
         desired_rows: list of [id, name, answer, length] rows from the DB.
 
     Returns:

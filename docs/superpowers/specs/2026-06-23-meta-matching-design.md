@@ -1,4 +1,4 @@
-# Meta-matching — "Unclassified Puzzles" worktable design
+# Meta-matching — "Unassigned Puzzles" worktable design
 
 > Part of M9b. Date: 2026-06-23. Branch: `working-1`.
 > Companion feature (capstones / progressive reveal) is a **separate** spec, designed next.
@@ -7,7 +7,7 @@
 
 Give solvers a single Google-Sheet working space where every puzzle that hasn't yet been tied
 to a meta sits together — so they can theorise, annotate, rearrange, and work out which meta each
-one feeds. The bot keeps the list current (adds new unclassified puzzles, fills in answers as they
+one feeds. The bot keeps the list current (adds new unassigned puzzles, fills in answers as they
 get solved, removes ones that get classified); the humans do the thinking. Classification itself
 still happens the normal way (dashboard drag / bang command) — the sheet is a **thinking space, not
 an input**.
@@ -19,24 +19,24 @@ an input**.
   `bot/core/puzzle_service.py`). Puzzles created at **hunt level** (no round) get **no tag**.
 - A "meta" is a **round** with `meta_id` set (`RoundData.meta_id`). A puzzle "feeds a meta" when it
   is tagged into a round that has a `meta_id`.
-- Therefore **"unclassified" = a puzzle that feeds no meta** — it is not tagged into any
+- Therefore **"unassigned" = a puzzle that feeds no meta** — it is not tagged into any
   meta-bearing round. In practice today that is: hunt-category puzzles (no round tag) and any
   puzzles in a metaless round. (When capstones land, a capstone is **not** counted as a "real meta"
-  for this purpose, so converting a meta to a capstone makes its feeders unclassified again — see
+  for this purpose, so converting a meta to a capstone makes its feeders unassigned again — see
   Open items.)
 - The orphaned pool is already derivable: `bot/web/data.py:get_board` returns each puzzle with a
   `rounds` array; a puzzle feeding no meta has no meta-bearing round in it.
 
 ## In scope
 
-- A per-hunt **`Unclassified Puzzles`** Google-Sheet tab holding a **native Sheets Table**
+- A per-hunt **`Unassigned Puzzles`** Google-Sheet tab holding a **native Sheets Table**
   (`addTable`), reconciled incrementally (append / update / prune) — NOT clear-and-overwrite.
 - The pool: **non-meta puzzles, solved or unsolved, that feed no meta.**
-- Schema: `hunts.unclassified_sheet_page_id` (+ table id) so the tab/table is created lazily once.
-- Service method `refresh_unclassified(hunt)` + store query for the pool.
+- Schema: `hunts.unassigned_sheet_page_id` (+ table id) so the tab/table is created lazily once.
+- Service method `refresh_unassigned(hunt)` + store query for the pool.
 - Triggers: puzzle create (hunt-level), solve, retag/assign, manual `!rebuild`-style command —
   fire-and-forget, mirroring `refresh_evidence`.
-- **Web-create of unclassified (hunt-level) puzzles** — a dashboard path to create a puzzle with no
+- **Web-create of unassigned (hunt-level) puzzles** — a dashboard path to create a puzzle with no
   round, so the worktable can be fed from the dashboard, not only via bang. (Aligns with the project
   principle that **every bang command should have a web-dashboard equivalent**.)
 
@@ -52,7 +52,7 @@ an input**.
 
 ## The tab
 
-One tab per hunt, **`Unclassified Puzzles`**, created lazily on first refresh (reuse the
+One tab per hunt, **`Unassigned Puzzles`**, created lazily on first refresh (reuse the
 `create_blank_tab` pattern from evidence, `bot/cogs/puzzles_gsheet.py:376`). It holds a **native
 Google Sheets Table** so the built-in filter/sort works (sorting by `Length` while matching is a
 primary use). `addTable`/`updateTable` are new gsheet-cog methods (no current support).
@@ -97,25 +97,25 @@ rows. The only unpreservable case is the user deleting a row's `id` cell — gua
 
 ### Triggers
 
-`refresh_unclassified(hunt)` fired fire-and-forget (like `refresh_evidence`) after:
-- a puzzle is **created** at hunt level (new unclassified),
+`refresh_unassigned(hunt)` fired fire-and-forget (like `refresh_evidence`) after:
+- a puzzle is **created** at hunt level (new unassigned),
 - a puzzle is **solved** (fill answer/length),
-- a **retag/assign** (so a just-classified puzzle is pruned; a just-unclassified one appears),
+- a **retag/assign** (so a just-classified puzzle is pruned; a just-unassigned one appears),
 - a manual `!rebuild`-style command (and a dashboard rebuild button, optional).
 
 ## Data model / schema
 
-- `hunts.unclassified_sheet_page_id INT NULL` (+ `unclassified_table_id INT NULL` for the native
+- `hunts.unassigned_sheet_page_id INT NULL` (+ `unassigned_table_id INT NULL` for the native
   table) — mirrors `hunts.evidence_sheet_page_id` (`bot/store/hunt_data.py:37`).
-- New migration **`010_unclassified.sql`** (next free number — **check for collision** with the
+- New migration **`010_unassigned.sql`** (next free number — **check for collision** with the
   parallel `!reconcile` session before merging; see memory `migration-number-collisions`).
 - No change to `tags` / `puzzles` / `rounds`. Classification reuses the existing tag graph.
 
 ## Service / store / gsheet seams
 
-- **Store:** `PuzzleJsonDb.get_unclassified(hunt_id) -> list[PuzzleData]` — non-meta puzzles
+- **Store:** `PuzzleJsonDb.get_unassigned(hunt_id) -> list[PuzzleData]` — non-meta puzzles
   (`metapuzzle = 0`) with no tag into a meta-bearing round.
-- **Service:** `PuzzleService.refresh_unclassified(hunt)` — resolve gsheet cog, lazily create the
+- **Service:** `PuzzleService.refresh_unassigned(hunt)` — resolve gsheet cog, lazily create the
   tab+table, read current table keys, diff, apply append/update/prune.
 - **gsheet cog:** new `add_table` / `update_table` / row append+delete helpers via `batchUpdate`
   (`addTable`, `appendCells`/`insertDimension`, `deleteDimension`). Read current keys via
@@ -133,18 +133,18 @@ rows. The only unpreservable case is the user deleting a row's `id` cell — gua
 
 | File | Change |
 |---|---|
-| `migrations/010_unclassified.sql` | new — `hunts.unclassified_sheet_page_id` + `unclassified_table_id` |
+| `migrations/010_unassigned.sql` | new — `hunts.unassigned_sheet_page_id` + `unassigned_table_id` |
 | `bot/store/hunt_data.py` | add the two fields |
-| `bot/store/mysqldb.py` | `get_unclassified(hunt_id)` query |
-| `bot/core/puzzle_service.py` | `refresh_unclassified`; fire it from create/solve/retag |
+| `bot/store/mysqldb.py` | `get_unassigned(hunt_id)` query |
+| `bot/core/puzzle_service.py` | `refresh_unassigned`; fire it from create/solve/retag |
 | `bot/cogs/puzzles_gsheet.py` | `add_table`/`update_table` + row append/update/delete; read keys |
 | `bot/cogs/puzzles.py` | `!rebuild`-style trigger with a `Round` column flag (+ wire create/solve/retag bang paths) |
-| `bot/web/actions.py` | fire `refresh_unclassified` from web create/solve/retag edges; **new web endpoint to create a hunt-level (unclassified) puzzle** |
-| `frontend/src/…` | dashboard control to create an unclassified puzzle |
+| `bot/web/actions.py` | fire `refresh_unassigned` from web create/solve/retag edges; **new web endpoint to create a hunt-level (unassigned) puzzle** |
+| `frontend/src/…` | dashboard control to create an unassigned puzzle |
 
 ## Acceptance criteria
 
-- A solved-or-unsolved puzzle that feeds no meta appears as a row in the `Unclassified Puzzles`
+- A solved-or-unsolved puzzle that feeds no meta appears as a row in the `Unassigned Puzzles`
   table (Answer/Length blank until solved; Answer uppercase; Length excludes spaces).
 - Solving such a puzzle fills its Answer + Length **in place**, preserving its row position and the
   user's adjacent notes.
@@ -158,7 +158,7 @@ rows. The only unpreservable case is the user deleting a row's `id` cell — gua
 - `Length` = letters excluding spaces only (hyphens/punctuation counted).
 - Solved/unsolved shown by a blank `Answer` — no marker column.
 - `Round` column hidden by default, enabled via a **command flag**.
-- **Web parity:** web-create of unclassified (hunt-level) puzzles is **in scope** (project
+- **Web parity:** web-create of unassigned (hunt-level) puzzles is **in scope** (project
   principle: every bang command has a dashboard equivalent).
 - **Capstone carry-forward:** making a meta a capstone **orphans its feeders** — the capstone spec
   must treat a capstone as not-a-meta for classification.
