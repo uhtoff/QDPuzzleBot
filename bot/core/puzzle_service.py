@@ -6,6 +6,7 @@ the service does DB + Google Sheets + intrinsic Discord mutations and RAISES on
 failure. Presentation (embeds, confirmations) and error-tolerance policy stay at
 the edges.
 """
+import asyncio
 import datetime
 import logging
 
@@ -36,6 +37,59 @@ class PuzzleService:
             from bot.core.notifier import NullNotifier
             notifier = NullNotifier()
         self.notifier = notifier
+
+        # Deferred rename state (moved from Puzzles cog; see Phase 6).
+        self._pending_renames: dict[int, str] = {}
+        self._rename_tasks: set = set()
+
+    async def safe_rename(self, channel, name, ctx=None):
+        """Rename a Discord channel, coalescing rapid renames under rate limit.
+
+        Moved from Puzzles cog (Phase 6). `ctx` may be None (web callers); no user-
+        facing message is sent in that case."""
+        try:
+            await channel.edit(name=name)
+            return True
+        except discord.RateLimited as exc:
+            already_pending = channel.id in self._pending_renames
+            self._pending_renames[channel.id] = name
+            if ctx is not None:
+                await ctx.send(
+                    f"⏳ Discord is rate-limiting renames on this channel; "
+                    f"I'll apply the new name in about {round(exc.retry_after)}s."
+                )
+            if not already_pending:
+                task = asyncio.create_task(self._deferred_rename(channel, exc.retry_after))
+                self._rename_tasks.add(task)
+                task.add_done_callback(self._rename_tasks.discard)
+            return False
+
+    async def _deferred_rename(self, channel, delay):
+        """Wait out the rename bucket, then apply the latest requested name,
+        coalescing any further renames queued while we were waiting."""
+        attempts = 0
+        while attempts < 6:
+            await asyncio.sleep(delay + 1)
+            name = self._pending_renames.get(channel.id)
+            if name is None:
+                return
+            attempts += 1
+            try:
+                await channel.edit(name=name)
+            except discord.RateLimited as exc:
+                delay = exc.retry_after
+                continue
+            except discord.HTTPException:
+                logger.exception("Deferred rename of channel %s failed", channel.id)
+                self._pending_renames.pop(channel.id, None)
+                return
+            # Applied. If a newer name was queued meanwhile, loop to apply it too.
+            if self._pending_renames.get(channel.id) == name:
+                self._pending_renames.pop(channel.id, None)
+                return
+            delay = 0
+        logger.warning("Gave up deferred rename of channel %s after repeated rate limits", channel.id)
+        self._pending_renames.pop(channel.id, None)
 
     def _gsheet_cog(self, hunt):
         """Resolve the GoogleSheets cog and point it at this hunt's spreadsheets.
@@ -766,6 +820,43 @@ class PuzzleService:
 
         await self.notifier.board_changed(hunt)
         return new_round, puzzle
+
+    async def rename_puzzle(self, guild, hunt, puzzle, name):
+        """Rename a puzzle: set name/channel_name, commit, refresh metas.
+
+        Caller must check for duplicate names before calling. The Discord
+        channel rename is guarded on `guild is not None` so that web calls
+        (and tests with _no_guild) skip it.
+        """
+        puzzle.name = name
+        puzzle.channel_name = clean_name(name)
+
+        # Rename the Discord channel (skip when guild is None — web + test path).
+        if guild is not None and puzzle.channel_id:
+            channel = guild.get_channel(puzzle.channel_id)
+            if channel is not None:
+                await self.safe_rename(channel, puzzle.channel_name)
+
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_puzzle(puzzle, True)
+
+        # Refresh metas this puzzle feeds to (same failure-isolation as solve).
+        failed = []
+        for tag in puzzle.tags:
+            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            if meta_round is not None:
+                try:
+                    await self.refresh_meta(hunt, meta_round)
+                except Exception:
+                    failed.append(tag)
+
+        await self.notifier.board_changed(hunt)
+
+        if failed:
+            raise SheetRefreshError(failed)
 
     def get_minis(self, minimeta_id):
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""

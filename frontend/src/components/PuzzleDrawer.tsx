@@ -15,13 +15,14 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { IconCircleCheck, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
+import { IconCircleCheck, IconEdit, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
 import {
   useAddNote,
   useAddSheet,
   useEraseNote,
   useRemoveSheet,
+  useRenamePuzzle,
   useSetPuzzleLink,
   useUpdatePuzzle,
 } from "../api";
@@ -52,12 +53,16 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const [linkUrl, setLinkUrl] = useState("");
   const [solveOpen, setSolveOpen] = useState(false);
   const [linkOpened, { open: openLink, close: closeLink }] = useDisclosure(false);
+  const [renameEditing, setRenameEditing] = useState(false);
+  const [renameTemp, setRenameTemp] = useState("");
+
   const add = useAddNote(uid);
   const erase = useEraseNote(uid);
   const update = useUpdatePuzzle(uid);
   const setLink = useSetPuzzleLink(uid);
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
+  const rename = useRenamePuzzle(uid);
 
   function submitNote() {
     const note = text.trim();
@@ -83,7 +88,47 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
       onClose={onClose}
       position="right"
       size="md"
-      title={puzzle ? puzzle.name : "Puzzle"}
+      title={
+        puzzle && editable ? (
+          <Group gap={4} justify="center" wrap="nowrap">
+            {renameEditing ? (
+              <TextInput
+                size="sm"
+                value={renameTemp}
+                onChange={(e) => setRenameTemp(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const newName = renameTemp.trim();
+                    if (newName && puzzle.id !== undefined) {
+                      rename.mutate({ puzzleId: puzzle.id, name: newName }, {
+                        onSuccess: () => setRenameEditing(false),
+                        onError: () => setRenameEditing(false),
+                      });
+                    } else {
+                      setRenameEditing(false);
+                    }
+                  }
+                  if (e.key === "Escape") setRenameEditing(false);
+                }}
+                autoFocus
+              />
+            ) : (
+              <>
+                <Text size="sm" fw={600} style={{ cursor: "pointer" }}
+                  onClick={() => { setRenameEditing(true); setRenameTemp(puzzle.name); }}
+                >
+                  {puzzle.name}
+                </Text>
+                <ActionIcon variant="subtle" size="sm" color="gray"
+                  onClick={() => { setRenameEditing(true); setRenameTemp(puzzle.name); }}
+                >
+                  <IconEdit size={14} />
+                </ActionIcon>
+              </>
+            )}
+          </Group>
+        ) : (puzzle ? puzzle.name : "Puzzle")
+      }
     >
       {puzzle && (
         <Stack>
