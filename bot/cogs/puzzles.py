@@ -108,6 +108,10 @@ class Puzzles(commands.Cog):
         self.position_lock = asyncio.Lock()
         self.environment = {}
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print(f"{type(self).__name__} Cog ready.")
+
     async def cog_before_invoke(self, ctx):
         """For separating commands use ctx.message.id"""
         """For logging ctx.author.name and ctx.message.content"""
