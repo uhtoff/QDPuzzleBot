@@ -7,7 +7,6 @@ import discord
 from discord import app_commands
 from discord.ext import tasks, commands
 from googleapiclient.errors import HttpError
-import pytz
 import asyncio
 from functools import wraps
 
@@ -2208,18 +2207,12 @@ class Puzzles(commands.Cog):
 
     async def _partial_impl(self, ctx, *args):
         solution = self._normalize_solution(args)
-        self.get_puzzle(ctx).status = "Partially Solved"
-
-        if self.get_puzzle(ctx).solution:
-            self.get_puzzle(ctx).solution += "/" + solution
-        else:
-            self.get_puzzle(ctx).solution = solution
-
-        PuzzleJsonDb.commit(self.get_puzzle(ctx))
+        puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
 
         sheet_warning = None
         try:
-            await self._update_all_metas(ctx, self.get_puzzle(ctx))
+            await self.service.add_partial(self.get_guild(ctx), hunt, puzzle, solution)
         except SheetRefreshError as exc:
             sheet_warning = exc
 
@@ -2310,22 +2303,16 @@ class Puzzles(commands.Cog):
 
         solution = self._normalize_solution(args)
 
-
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
 
         if solution == "":
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
 
-        puzzle.solution = solution
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        PuzzleJsonDb.commit(puzzle)
-
-
         sheet_warning = None
         try:
-            await self._update_all_metas(ctx, puzzle)
+            await self.service.change_solution(self.get_guild(ctx), hunt, puzzle, solution)
         except SheetRefreshError as exc:
             sheet_warning = exc
 
@@ -2337,7 +2324,6 @@ class Puzzles(commands.Cog):
             value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`. "
         )
         await ctx.send(embed=embed)
-        await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)
@@ -2357,20 +2343,15 @@ class Puzzles(commands.Cog):
 
 
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
 
         if solution == "":
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
 
-        puzzle.solution += "/" + solution
-        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
-
-        PuzzleJsonDb.commit(puzzle)
-
-
         sheet_warning = None
         try:
-            await self._update_all_metas(ctx, puzzle)
+            await self.service.add_solution(self.get_guild(ctx), hunt, puzzle, solution)
         except SheetRefreshError as exc:
             sheet_warning = exc
 
@@ -2378,7 +2359,6 @@ class Puzzles(commands.Cog):
         embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
                               description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
         await ctx.send(embed=embed)
-        await self.get_gsheet_cog(ctx).update_solution(puzzle)
         await self.info(ctx, update=True)
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)

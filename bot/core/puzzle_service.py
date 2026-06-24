@@ -644,6 +644,60 @@ class PuzzleService:
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
 
+    async def add_partial(self, guild, hunt, puzzle, solution):
+        """Mark a puzzle as partially solved: set status, append solution,
+        commit and refresh metas. Does NOT set solve_time and does NOT push
+        to Google Sheets (matches _partial_impl).
+        """
+        puzzle.status = "Partially Solved"
+        if puzzle.solution:
+            puzzle.solution += "/" + solution
+        else:
+            puzzle.solution = solution
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def change_solution(self, guild, hunt, puzzle, solution):
+        """Replace the solution on an already-solved puzzle: set new solution,
+        stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        puzzle.solution = solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_solution(puzzle)
+
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def add_solution(self, guild, hunt, puzzle, solution):
+        """Append a solution to an already-solved puzzle: append with slash,
+        stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        puzzle.solution += "/" + solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_solution(puzzle)
+
+        if failed:
+            raise SheetRefreshError(failed)
+
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,
         and drop it from the in-memory puzzle. Shared by the web + Discord removal

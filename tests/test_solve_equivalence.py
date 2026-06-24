@@ -362,7 +362,7 @@ class TestWebAddPartial:
     @pytest.mark.asyncio
     async def test_does_not_set_solve_time(self, cog, hunt):
         # Divergence from solve: partial leaves solve_time untouched.
-        puz = make_puzzle(solution=None, solve_time=None)
+        puz = make_puzzle(solution=None)
         await self._run(cog, hunt, puz, "PART")
         assert puz.solve_time is None
 
