@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, RollupsJsonDb, RollupData
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb, RollupsJsonDb, RollupData
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -2358,15 +2358,8 @@ class Puzzles(commands.Cog):
             return
 
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
         prev_solution = puzzle.solution
-        puzzle.status = "Unsolved"
-        puzzle.solution = ""
-
-        puzzle.solve_time = None
-
-        puzzle.archive_time = None
-
-        PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(
@@ -2375,28 +2368,18 @@ class Puzzles(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-        await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
+        sheet_warning = None
+        try:
+            await self.service.unsolve(self.get_guild(ctx), hunt, puzzle)
+        except SheetRefreshError as exc:
+            sheet_warning = exc
+
         await self.move_to_bottom(ctx)
-
-        puzzle.solved = False
-
-        hunt_round = self.get_hunt_round(ctx)
-        if hunt_round:
-            # M6: mirror the solve hook — if this puzzle is the round's meta, the
-            # round is no longer solved.
-            if hunt_round.meta_id == puzzle.id:
-                hunt_round.solve_time = None
-                hunt_round.status = "active"
-                RoundJsonDb.commit(hunt_round)
-            try:
-                await self.update_metapuzzle(ctx, hunt_round)
-            except SheetRefreshError as exc:
-                await self._warn_stale_sheets(ctx, exc)
-
         await self.info(ctx, update=True)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
-        await ctx.send(":white_check_mark: Sheets all restored.")
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
+        else:
+            await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)

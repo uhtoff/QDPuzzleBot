@@ -908,3 +908,58 @@ class TestWebRenamePuzzle:
         puz = make_puzzle(id=42, name="Old")
         commits = await self._run(cog, hunt, puz, "New")
         assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
+
+
+# ---------------------------------------------------------------------------
+# Bang !unsolve delegation — verifies the cog delegates to service.unsolve
+# ---------------------------------------------------------------------------
+class TestBangUnsolveDelegation:
+    """The !unsolve bang command must delegate business logic to service.unsolve.
+
+    This test mocks service.unsolve and asserts the cog calls it with the
+    correct puzzle_data argument, so the full service logic (meta refresh,
+    minimeta rollup, thread unarchive) is invoked rather than a hand-rolled
+    partial implementation.
+    """
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.mark.asyncio
+    async def test_bang_unsolve_calls_service_unsolve(self, cog):
+        """!unsolve must call self.service.unsolve(guild, hunt, puzzle_data)."""
+        from unittest.mock import AsyncMock, patch
+        import discord
+
+        puz = make_puzzle(id=5, solved=True, solution="WRONG")
+        hunt = _make_hunt()
+
+        # Build a minimal ctx stub
+        ctx = MagicMock()
+        ctx.channel.id = puz.channel_id
+        ctx.guild = MagicMock(spec=discord.Guild)
+        ctx.send = AsyncMock()
+
+        # Stub helpers the cog uses before delegating
+        cog.get_puzzle = MagicMock(return_value=puz)
+        cog.get_hunt = MagicMock(return_value=hunt)
+        cog.get_guild = MagicMock(return_value=ctx.guild)
+        cog.get_guild_data = MagicMock()
+        cog.get_guild_data.return_value.discord_bot_emoji = ":robot:"
+        cog.move_to_bottom = AsyncMock()
+        cog.info = AsyncMock()
+        cog._warn_stale_sheets = AsyncMock()
+
+        # Mock service.unsolve — this is what we're asserting IS called
+        cog.service.unsolve = AsyncMock()
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb"), \
+             patch("bot.cogs.puzzles.RoundJsonDb"):
+            await cog.unsolve.callback(cog, ctx)
+
+        cog.service.unsolve.assert_called_once()
+        call_args = cog.service.unsolve.call_args
+        # The puzzle data must be passed somewhere in the call
+        all_args = list(call_args.args) + list(call_args.kwargs.values())
+        assert puz in all_args
