@@ -1423,9 +1423,8 @@ class Puzzles(commands.Cog):
             hunt_round, puzzle = await self.service.convert_to_meta(
                 ctx.guild, self.get_hunt(ctx), puzzle
             )
-        except RuntimeError as exc:
-            if str(exc) == "already_meta":
-                await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
             return
         # Point the request-scoped cache at the freshly-created round so the
         # metapuzzle intro embed below (info → send_initial_metapuzzle_channel_messages)
@@ -1451,7 +1450,11 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
-        await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
+        try:
+            await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
         # Channel rename intentionally omitted (see convert_to_meta): the dashboard
         # label supersedes the name prefix and renames hit the strict rename bucket.
         self.set_channel_type(ctx, "Puzzle")
