@@ -914,7 +914,7 @@ class GoogleSheets(commands.Cog):
             reverse=True,
         )
         for grid_row in prune_rows:
-            requests.append({"deleteDimensionRange": {
+            requests.append({"deleteDimension": {
                 "range": {
                     "sheetId": page_id,
                     "dimension": "ROWS",
