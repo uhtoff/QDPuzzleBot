@@ -256,7 +256,7 @@ export function useCreateMeta(uid: string) {
   });
 }
 
-export type RetagMode = "move" | "add" | "remove";
+export type RetagMode = "move" | "add" | "remove" | "clear";
 
 export function useRetagPuzzle(uid: string) {
   const qc = useQueryClient();
