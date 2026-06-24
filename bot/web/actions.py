@@ -462,6 +462,42 @@ async def log_clue(puzzle_id):
     return jsonify({"ok": True})
 
 
+# --- Make minimeta (organiser+) ------------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/make-minimeta", methods=["POST"])
+@login_required
+async def make_minimeta_puzzle(puzzle_id):
+    """Mark a puzzle as a minimeta cluster parent (mirrors !make_minimeta)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        cog.service.make_minimeta(puzzle)
+        await _audit("make_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    return jsonify({"ok": True})
+
+
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):

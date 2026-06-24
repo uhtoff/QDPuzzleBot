@@ -26,7 +26,7 @@ import {
 import { IconDotsVertical } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup, HuntDetail, Puzzle } from "../types";
-import { useRetagPuzzle, type RetagMode } from "../api";
+import { useMakeMinimeta, useRetagPuzzle, type RetagMode } from "../api";
 import { statusColor } from "../util";
 
 interface MetaOption {
@@ -41,10 +41,11 @@ interface CardProps {
   columnName: string;
   metas: MetaOption[];
   onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
+  onMakeMinimeta: (puzzleId: number) => void;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onMakeMinimeta, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -126,6 +127,21 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
                 </Menu.Item>
               </>
             )}
+            {!puzzle.is_meta && !puzzle.solved && (
+              <>
+                <Menu.Divider />
+                <Menu.Item
+                  color="grape"
+                  onClick={() => {
+                    if (window.confirm(`Mark "${puzzle.name}" as a minimeta?`)) {
+                      onMakeMinimeta(puzzle.id);
+                    }
+                  }}
+                >
+                  Make minimeta
+                </Menu.Item>
+              </>
+            )}
           </Menu.Dropdown>
         </Menu>
       </Group>
@@ -193,6 +209,7 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
 
 export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const retag = useRetagPuzzle(uid);
+  const makeMinimeta = useMakeMinimeta(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // Track every in-flight retag ourselves: React Query's single mutation only
@@ -226,6 +243,12 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       }
     );
   };
+
+  function onMakeMinimeta(puzzleId: number) {
+    makeMinimeta.mutate(puzzleId, {
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
 
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
@@ -295,6 +318,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
+                    onMakeMinimeta={onMakeMinimeta}
                     isPending={pendingIds.has(p.id)}
                   />
                 ))}
