@@ -1,3 +1,10 @@
+export interface Guild {
+  id: number;
+  guild_snowflake: string | null;
+  guild_name: string;
+  is_admin: boolean;
+}
+
 export interface User {
   id: number;
   username: string | null;

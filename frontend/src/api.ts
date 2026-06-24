@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { EvidenceItem, HuntDetail, HuntList, RollupAnswers, User } from "./types";
+import type { EvidenceItem, Guild, HuntDetail, HuntList, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -506,5 +506,41 @@ export function useCreateArchiveSheet(uid: string) {
     mutationFn: () =>
       apiSend<{ ok: boolean; archive_google_sheet_id: string }>(`/api/hunts/${uid}/archive-sheet`, "POST"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useAdminGuilds() {
+  return useQuery({
+    queryKey: ["guilds", "admin"],
+    queryFn: () => apiGet<{ guilds: Guild[] }>("/api/guilds?admin=1").then((d) => d.guilds),
+    staleTime: 60_000,
+  });
+}
+
+export interface CreateHuntPayload {
+  guild_id: number;
+  name: string;
+  url: string;
+  start_timestamp: number;
+  role_name?: string;
+  username?: string;
+  password?: string;
+  create_archive_sheet?: boolean;
+}
+
+export function useCreateHunt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateHuntPayload) =>
+      apiSend<{ uid: string }>("/api/hunts", "POST", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunts"] }),
+  });
+}
+
+export function useDeleteHunt(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<{ ok: boolean; failed_channels?: string[] }>(`/api/hunts/${uid}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunts"] }),
   });
 }

@@ -131,6 +131,7 @@ export default function HuntBoard() {
           {data.hunt.is_admin && (
             <AdminSettingsPanel
               uid={uid!}
+              huntName={data.hunt.name}
               url={data.hunt.url}
               start_timestamp={data.hunt.start_timestamp}
               username={data.hunt.username}
@@ -139,6 +140,7 @@ export default function HuntBoard() {
               puzzle_prefix={data.hunt.puzzle_prefix}
               archived={data.hunt.archived}
               hasArchiveSheet={!!data.hunt.archive_sheet_base_url}
+              puzzleCount={data.summary.total}
             />
           )}
           {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}

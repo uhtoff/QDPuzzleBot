@@ -12,18 +12,21 @@ import {
   Title,
 } from "@mantine/core";
 import { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   IconAlertTriangle,
   IconArchive,
   IconChevronDown,
   IconChevronUp,
   IconFileSpreadsheet,
+  IconTrash,
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
-import { useArchiveHunt, useCreateArchiveSheet, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { useArchiveHunt, useCreateArchiveSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
 
 interface AdminSettingsPanelProps {
   uid: string;
+  huntName: string;
   url: string;
   start_timestamp: number | null;
   username: string;
@@ -32,6 +35,7 @@ interface AdminSettingsPanelProps {
   puzzle_prefix: string;
   archived: boolean;
   hasArchiveSheet: boolean;
+  puzzleCount: number;
 }
 
 interface FormValues {
@@ -45,6 +49,7 @@ interface FormValues {
 
 export function AdminSettingsPanel({
   uid,
+  huntName,
   url,
   start_timestamp,
   username,
@@ -53,13 +58,17 @@ export function AdminSettingsPanel({
   puzzle_prefix,
   archived,
   hasArchiveSheet,
+  puzzleCount,
 }: AdminSettingsPanelProps) {
+  const navigate = useNavigate();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const settingsMut = useUpdateHuntSettings(uid);
   const archiveMut = useArchiveHunt(uid);
   const sheetMut = useCreateArchiveSheet(uid);
+  const deleteMut = useDeleteHunt(uid);
 
   const startLocalDefault =
     start_timestamp != null && start_timestamp > 0
@@ -162,6 +171,18 @@ export function AdminSettingsPanel({
       },
     });
   }, [sheetMut]);
+
+  const handleDelete = useCallback(() => {
+    deleteMut.mutate(undefined, {
+      onSuccess: () => {
+        notifications.show({ message: `Hunt "${huntName}" deleted.`, color: "green" });
+        navigate("/");
+      },
+      onError: (e) => {
+        notifications.show({ message: (e as Error).message, color: "red" });
+      },
+    });
+  }, [deleteMut, huntName, navigate]);
 
   return (
     <Stack gap="md">
@@ -292,6 +313,41 @@ export function AdminSettingsPanel({
             ? "Are you sure you want to unarchive this hunt? It will become active and editable again."
             : "⚠️ This will archive the hunt, making it read-only for all users."}
         </Text>
+      </TypedConfirmModal>
+
+      <Divider />
+
+      {/* Delete danger zone */}
+      <Stack gap="sm">
+        <Title order={5} c="red">Danger zone</Title>
+        <Button
+          color="red"
+          variant="light"
+          size="xs"
+          leftSection={<IconTrash size={14} />}
+          onClick={() => setDeleteConfirmOpen(true)}
+          loading={deleteMut.isPending}
+        >
+          Delete hunt
+        </Button>
+      </Stack>
+
+      <TypedConfirmModal
+        opened={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={handleDelete}
+        title="Delete hunt permanently"
+        confirmPhrase={huntName}
+        confirmLabel="Delete permanently"
+        loading={deleteMut.isPending}
+      >
+        <Stack gap="xs">
+          <Text size="sm" c="red" fw={600}>
+            This is irreversible. The following will be permanently deleted:
+          </Text>
+          <Text size="sm">• {puzzleCount} puzzle(s), all rounds, all Discord channels and categories</Text>
+          <Text size="sm">• Google spreadsheets — permanently deleted from Google Drive, not recoverable</Text>
+        </Stack>
       </TypedConfirmModal>
     </Stack>
   );
