@@ -69,7 +69,7 @@ def test_update_url_building_keys():
 
 def test_unprovided_fields_left_untouched():
     svc, hunt = _settings_service(), _settings_hunt()
-    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+    with patch("bot.core.puzzle_service.HuntJsonDb") as _hdb:
         svc.update_hunt_settings(hunt, url="https://new.example/")
     assert hunt.username == "" and hunt.password == ""
     assert hunt.start_timestamp == 0 and hunt.start_time is None

@@ -95,6 +95,12 @@ export interface HuntDetail {
     sheet_base_url: string | null;
     archive_sheet_base_url: string | null;
     can_manage: boolean;
+    is_admin: boolean;
+    start_timestamp: number | null;
+    username: string;
+    password: string;
+    url_sep: string;
+    puzzle_prefix: string;
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];

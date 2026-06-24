@@ -15,6 +15,7 @@ from quart import Blueprint, current_app, jsonify, request
 from . import data, events
 from bot.web import data as web_data
 from .auth import (
+    ADMIN_ROLES,
     ORGANISER_ROLES,
     current_user,
     hunt_visible,
@@ -616,6 +617,115 @@ async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
     if not any(r in names for r in roles):
         return jsonify({"error": "insufficient_role"}), 403
     return None
+
+
+async def require_admin(guild_snowflake):
+    """Shorthand for require_organiser with ADMIN_ROLES (just forwards)."""
+    return await require_organiser(guild_snowflake, roles=ADMIN_ROLES)
+
+
+# --- Hunt settings (admin only) --------------------------------------------
+
+_SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix"}
+
+
+@actions_bp.route("/hunts/<uid>/settings", methods=["PATCH"])
+@login_required
+async def patch_hunt_settings(uid):
+    """Update whitelisted per-hunt settings. Admin only."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    extra = set(body.keys()) - _SETTINGS_KEYS
+    if extra:
+        return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    cog.service.update_hunt_settings(hunt_obj, **body)
+    await _audit("hunt_settings", hunt_uid=uid)
+    return jsonify({"ok": True})
+
+
+# --- Hunt archive actions (admin only) -------------------------------------
+
+@actions_bp.route("/hunts/<uid>/archive", methods=["POST"])
+@login_required
+async def post_hunt_archive(uid):
+    """Toggle hunt archived state. Admin only."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb
+
+    body = await request.get_json(silent=True) or {}
+    # "archived" key is optional; default to True (archive on POST without body).
+    archived = body.get("archived", True)
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+
+    hunt_obj.archived = bool(archived)
+    HuntJsonDb.commit(hunt_obj)
+    await _audit("hunt_archive", hunt_uid=uid, detail={"archived": bool(archived)})
+    return jsonify({"ok": True, "archived": bool(archived)})
+
+
+@actions_bp.route("/hunts/<uid>/archive-sheet", methods=["POST"])
+@login_required
+async def post_hunt_archive_sheet(uid):
+    """Create the hunt's archive Google Sheet (one-way). Admin only."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+
+    if hunt_obj.archive_google_sheet_id:
+        return jsonify({"error": "archive_sheet_exists"}), 409
+
+    gsheet_cog = current_app.bot.get_cog("GoogleSheets")
+    if gsheet_cog is None:
+        return jsonify({"error": "gsheet_unavailable"}), 503
+
+    gsheet_cog.set_spreadsheet_id(hunt_obj.google_sheet_id)
+    gsheet_cog.set_archive_spreadsheet_id(hunt_obj.archive_google_sheet_id)
+
+    try:
+        sheet_id = await gsheet_cog.create_hunt_archive_spreadsheet(hunt_obj.name)
+        hunt_obj.archive_google_sheet_id = sheet_id
+        HuntJsonDb.commit(hunt_obj)
+    except Exception:
+        logger.exception("web archive sheet creation failed for hunt %s", hunt_obj.id)
+        return jsonify({"error": "sheet_creation_failed"}), 500
+
+    await _audit("hunt_archive_sheet", hunt_uid=uid)
+    return jsonify({"ok": True, "archive_google_sheet_id": sheet_id})
 
 
 # --- Retag puzzles between metas (organiser only) ---------------------------

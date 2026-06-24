@@ -469,3 +469,42 @@ export function useUpdateEvidence(huntUid: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["evidence", huntUid] }),
   });
 }
+
+export interface HuntSettingsPatch {
+  url?: string;
+  start_timestamp?: number;
+  username?: string;
+  password?: string;
+  url_sep?: string;
+  puzzle_prefix?: string;
+}
+
+export function useUpdateHuntSettings(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: HuntSettingsPatch) =>
+      apiSend<{ ok: boolean }>(`/api/hunts/${uid}/settings`, "PATCH", patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useArchiveHunt(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      apiSend<{ ok: boolean; archived: boolean }>(`/api/hunts/${uid}/archive`, "POST", { archived }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+      qc.invalidateQueries({ queryKey: ["hunts"] });
+    },
+  });
+}
+
+export function useCreateArchiveSheet(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiSend<{ ok: boolean; archive_google_sheet_id: string }>(`/api/hunts/${uid}/archive-sheet`, "POST"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}

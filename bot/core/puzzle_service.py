@@ -1399,3 +1399,27 @@ class PuzzleService:
                 getattr(hunt, "id", "?"),
             )
 
+    # -- Hunt settings -------------------------------------------------
+
+    _UNSET = object()
+
+    def update_hunt_settings(self, hunt, *, url=_UNSET, start_timestamp=_UNSET,
+                             username=_UNSET, password=_UNSET, url_sep=_UNSET,
+                             puzzle_prefix=_UNSET):
+        """Apply whitelisted per-hunt settings and commit. Only provided keys change."""
+        if url is not self._UNSET:
+            hunt.url = url
+        if start_timestamp is not self._UNSET:
+            hunt.start_timestamp = start_timestamp
+            hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+        if username is not self._UNSET:
+            hunt.username = username
+        if password is not self._UNSET:
+            hunt.password = password
+        if url_sep is not self._UNSET:
+            hunt.url_sep = url_sep
+        if puzzle_prefix is not self._UNSET:
+            hunt.puzzle_prefix = puzzle_prefix
+        HuntJsonDb.commit(hunt)
+        return hunt
+

@@ -1528,8 +1528,7 @@ class Puzzles(commands.Cog):
 
         if ":" in arg:
             username, password = arg.split(":", 1)
-            self.get_hunt(ctx).username = username
-            self.get_hunt(ctx).password = password
+            self.service.update_hunt_settings(self.get_hunt(ctx), username=username, password=password)
             return await ctx.send(
                 f":white_check_mark: I've updated the login details for hunt {self.get_hunt(ctx).name}"
             )
@@ -1544,7 +1543,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This must be sent in a channel related to a hunt")
             return
 
-        self.get_hunt(ctx).start_timestamp = timestamp
+        self.service.update_hunt_settings(self.get_hunt(ctx), start_timestamp=timestamp)
         return await ctx.send(
             f":white_check_mark: I've updated the start time for hunt {self.get_hunt(ctx).name}"
         )

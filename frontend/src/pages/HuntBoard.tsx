@@ -23,6 +23,8 @@ import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { ReconcilePanel } from "../components/ReconcilePanel";
+import { HuntInfoPanel } from "../components/HuntInfoPanel";
+import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { Puzzle } from "../types";
 
@@ -83,6 +85,16 @@ export default function HuntBoard() {
         </Stack>
       </Group>
 
+      {/* Hunt info — visible to all users who can see the hunt */}
+      <HuntInfoPanel
+        url={data.hunt.url}
+        start_timestamp={data.hunt.start_timestamp}
+        sheet_base_url={data.hunt.sheet_base_url}
+        archive_sheet_base_url={data.hunt.archive_sheet_base_url}
+        username={data.hunt.username}
+        password={data.hunt.password}
+      />
+
       <Group justify="space-between" align="center">
         <SegmentedControl
           value={view}
@@ -111,7 +123,25 @@ export default function HuntBoard() {
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
-      {view === "manage" && data.hunt.can_manage && <ReconcilePanel uid={uid!} />}
+      {view === "manage" && data.hunt.can_manage && (
+        <Stack gap="md">
+          {/* Admin settings panel — admin-gated */}
+          {data.hunt.is_admin && (
+            <AdminSettingsPanel
+              uid={uid!}
+              url={data.hunt.url}
+              start_timestamp={data.hunt.start_timestamp}
+              username={data.hunt.username}
+              password={data.hunt.password}
+              url_sep={data.hunt.url_sep}
+              puzzle_prefix={data.hunt.puzzle_prefix}
+              archived={data.hunt.archived}
+              hasArchiveSheet={!!data.hunt.archive_sheet_base_url}
+            />
+          )}
+          <ReconcilePanel uid={uid!} />
+        </Stack>
+      )}
 
       <PuzzleDrawer puzzle={notesPuzzle} detail={data} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
