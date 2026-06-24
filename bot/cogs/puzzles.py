@@ -707,9 +707,7 @@ class Puzzles(commands.Cog):
             raise SheetRefreshError(failed)
 
     async def web_refresh_meta(self, hunt, hunt_round):
-        """Best-effort wrapper over PuzzleService.refresh_meta, retained as the
-        swallowing wrapper still used by web_create_puzzle (deferred to M3.5).
-        Swallows Sheets errors."""
+        """Best-effort wrapper over PuzzleService.refresh_meta.  Swallows Sheets errors."""
         try:
             await self.service.refresh_meta(hunt, hunt_round)
         except Exception:
@@ -736,43 +734,6 @@ class Puzzles(commands.Cog):
             await notifier.refresh_info(guild, hunt, puzzle)
         except Exception:
             logger.exception("web_refresh_info: failed to refresh pinned info for puzzle %s", puzzle.id)
-
-    async def web_create_puzzle(self, guild, hunt, round_data, puzzle_name, is_meta=False, send_welcome=True):
-        """ctx-free puzzle creation for the dashboard.
-
-        Delegates to PuzzleService.create_puzzle (canonical implementation).
-        Raises RuntimeError("<code>") on a recoverable problem (e.g. no space).
-        """
-        from bot.core.notifier import DiscordNotifier
-        notifier = DiscordNotifier(self.bot) if send_welcome else None
-        new_puzzle = await self.service.create_puzzle(
-            guild, hunt, round_data, puzzle_name,
-            is_meta=is_meta,
-            notifier=notifier,
-        )
-        # Best-effort meta-sheet refresh for any tags assigned (service already
-        # does this internally; duplicate calls are cheap).
-        for tag in new_puzzle.tags:
-            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=tag))
-        return new_puzzle
-
-    async def web_create_round(self, guild, hunt, name):
-        """ctx-free metapuzzle/round creation for the dashboard (like !mp).
-
-        Delegates to PuzzleService.create_round (canonical implementation).
-        Suppresses the service's early welcome (notifier=None) because meta_code
-        is not yet populated when create_puzzle fires it; instead sends the
-        welcome once afterwards so meta_code is present in the embed. Raises
-        RuntimeError("<code>") on a recoverable problem.
-        """
-        new_round, puzzle = await self.service.create_round(
-            guild, hunt, name, notifier=None,
-        )
-        # Send the meta welcome now that meta_code/meta_id are populated.
-        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
-        if channel is not None:
-            await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
-        return new_round, puzzle
 
     async def web_post_solved_embed(self, guild, hunt, puzzle):
         """Best-effort dashboard-side presentation after service.solve: post the

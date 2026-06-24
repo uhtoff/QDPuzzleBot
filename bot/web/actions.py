@@ -1129,7 +1129,11 @@ async def create_puzzle(uid):
         return jsonify({"error": "bot_unavailable"}), 503
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
-        puzzle = await cog.web_create_puzzle(guild, hunt_obj, meta_round, name)
+        from bot.core.notifier import DiscordNotifier
+        puzzle = await cog.service.create_puzzle(
+            guild, hunt_obj, meta_round, name,
+            notifier=DiscordNotifier(current_app.bot),
+        )
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -1161,7 +1165,18 @@ async def create_meta(uid):
         return jsonify({"error": "bot_unavailable"}), 503
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
-        new_round, puzzle = await cog.web_create_round(guild, hunt_obj, name)
+        from bot.core.notifier import DiscordNotifier
+        new_round, puzzle = await cog.service.create_round(
+            guild, hunt_obj, name, notifier=None,
+        )
+        # Send the meta welcome now that meta_code/meta_id are populated.
+        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
+        if channel is not None:
+            notifier = DiscordNotifier(bot)
+            try:
+                await notifier.welcome(guild, hunt_obj, new_round, puzzle, channel)
+            except Exception:
+                logger.exception("create_meta: failed to send/pin welcome message")
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:

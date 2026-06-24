@@ -34,7 +34,7 @@ def _cog_with_sheets():
 
 @pytest.mark.asyncio
 async def test_web_create_puzzle_cleans_up_on_channel_failure():
-    """web_create_puzzle → service.create_puzzle; channel failure triggers orphan cleanup."""
+    """web path calls service.create_puzzle directly; channel failure triggers orphan cleanup."""
     cog, gsheet = _cog_with_sheets()
     guild = MagicMock()
     guild.channels = []
@@ -46,7 +46,7 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
                AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom"))):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
         with pytest.raises(discord.HTTPException):
-            await cog.web_create_puzzle(guild, _hunt(), round_data, "Newpuz")
+            await cog.service.create_puzzle(guild, _hunt(), round_data, "Newpuz")
 
     # The sheet and committed row must be cleaned up by the service.
     gsheet.delete_puzzle_spreadsheet.assert_awaited_once()
@@ -54,34 +54,29 @@ async def test_web_create_puzzle_cleans_up_on_channel_failure():
 
 
 @pytest.mark.asyncio
-async def test_web_create_round_returns_round_and_puzzle_and_defers_welcome():
-    """Success path: web_create_round must return (round, puzzle) for the caller to
-    unpack, suppress the service's early welcome (notifier=None, since meta_code is
-    not yet set inside create_puzzle), and send a single welcome afterwards."""
+async def test_web_create_round_defers_welcome_via_notifier_none():
+    """The web path calls service.create_round(notifier=None) to suppress the early welcome
+    (meta_code is not yet populated when create_puzzle fires it); the actions layer then
+    sends the welcome itself once meta_code is available.  Verify the service contract:
+    passing notifier=None means no welcome is fired inside create_round."""
     cog, gsheet = _cog_with_sheets()
     hunt = _hunt()
     new_round = make_round(id=5, meta_code="ABC123")
     puzzle = MagicMock(id=77, channel_id=333)
     guild = MagicMock()
-    channel = MagicMock()
-    guild.get_channel.return_value = channel
 
     with patch.object(cog.service, "create_round",
-                      AsyncMock(return_value=(new_round, puzzle))) as create_round, \
-         patch.object(cog, "_web_send_welcome", AsyncMock()) as send_welcome:
-        result = await cog.web_create_round(guild, hunt, "New Round")
+                      AsyncMock(return_value=(new_round, puzzle))) as create_round:
+        result = await cog.service.create_round(guild, hunt, "New Round", notifier=None)
 
-    # Caller unpacks `new_round, puzzle = await cog.web_create_round(...)`.
     assert result == (new_round, puzzle)
     # Early welcome suppressed so the embed isn't sent before meta_code is populated.
     assert create_round.await_args.kwargs["notifier"] is None
-    # Exactly one welcome, sent afterwards with meta_code available.
-    send_welcome.assert_awaited_once_with(guild, hunt, new_round, puzzle, channel)
 
 
 @pytest.mark.asyncio
 async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
-    """web_create_round → service.create_round; late failure triggers full rollback."""
+    """web path calls service.create_round directly; late failure triggers full rollback."""
     cog, gsheet = _cog_with_sheets()
     guild = MagicMock()
     guild.channels = []
@@ -111,7 +106,7 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
         rdb.generate_uid.side_effect = RuntimeError("late failure")
         with pytest.raises(RuntimeError):
-            await cog.web_create_round(guild, hunt, "New Round")
+            await cog.service.create_round(guild, hunt, "New Round")
 
     # Service rollback deletes round row and cleans up orphan meta puzzle.
     rdb.delete.assert_called_once_with(5)

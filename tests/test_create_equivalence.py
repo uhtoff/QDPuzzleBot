@@ -64,8 +64,8 @@ async def test_bang_and_web_create_share_service_call():
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(created_channel, True))):
 
-        # Web edge — folds onto PuzzleService (Phase 4 ✓).
-        await cog.web_create_puzzle(guild, hunt, round_data, "Newpuz", is_meta=False)
+        # Web edge — calls service directly (Phase 2e: web_create_puzzle deleted).
+        await cog.service.create_puzzle(guild, hunt, round_data, "Newpuz", is_meta=False)
 
         # Bang edge — Phase 5 folds !p onto the SAME service path. The bang command
         # is a discord.py Command; drive its mutex-wrapped callback directly. The
