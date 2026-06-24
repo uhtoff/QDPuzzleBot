@@ -399,13 +399,14 @@ async def retag_puzzle(puzzle_id):
     body = await request.get_json(silent=True) or {}
     meta_code = (body.get("meta_code") or "").strip()
     mode = body.get("mode") or "move"
-    if mode not in ("move", "add", "remove"):
+    if mode not in ("move", "add", "remove", "clear"):
         return jsonify({"error": "bad_mode"}), 400
 
     from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
+    # "clear" unassigns from ALL metas, so it carries no meta_code to validate.
     meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
-    if meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]:
+    if mode != "clear" and (meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]):
         return jsonify({"error": "bad_meta_code"}), 400
     # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
     # !move_to_meta decorator — a concurrent write to the meta puzzle itself is not
@@ -416,6 +417,10 @@ async def retag_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
         if mode == "remove" and puzzle.id == meta_round.meta_id:
             return jsonify({"error": "cannot_remove_own_meta"}), 400
+        if mode == "clear" and puzzle.is_metapuzzle():
+            # A metapuzzle can't be unassigned (mirrors "move", which never clears
+            # a metapuzzle's tags — doing so would orphan its round).
+            return jsonify({"error": "cannot_unassign_meta"}), 400
 
         bot = current_app.bot
         cog = bot.get_cog("Puzzles")
@@ -432,6 +437,8 @@ async def retag_puzzle(puzzle_id):
                 await cog.service.add_to_meta(puzzle, meta_round)
             elif mode == "remove":
                 await cog.service.remove_from_meta(puzzle, meta_round)
+            elif mode == "clear":
+                await cog.service.clear_metas(puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:

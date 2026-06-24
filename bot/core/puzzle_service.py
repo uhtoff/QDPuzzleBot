@@ -425,6 +425,22 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    async def clear_metas(self, puzzle):
+        """Untag a puzzle from ALL metas in one shot (idempotent), commit, refresh
+        every formerly-affected meta. Used by drag-to-Unassigned. Callers must
+        reject metapuzzles before calling — clearing a metapuzzle's tags would
+        orphan its round (mirrors move_to_meta's protection)."""
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        old_tags = list(puzzle.tags)
+        if old_tags:
+            puzzle.tags.clear()
+            PuzzleJsonDb.commit(puzzle)
+        affected = [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
+        failed = await self.refresh_metas(hunt, affected)
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
     async def set_parent_group(self, child_round, parent_id):
         """Nest `child_round` under group `parent_id` (the parent_group_id tree),
         rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.

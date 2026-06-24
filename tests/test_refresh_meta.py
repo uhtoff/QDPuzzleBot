@@ -110,6 +110,20 @@ class TestRefreshMetaFires:
             await svc.add_to_meta(puzzle, meta_round)
         assert gsheet.add_metapuzzle_data.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_clear_metas_untags_all_and_rebuilds_each(self):
+        svc, gsheet = _svc_with_sheets()
+        # Feeder tagged to two metas; clearing must empty its tags and refresh both.
+        puzzle = make_puzzle(id=2, tags=[5, 6])
+        with _patched() as (pdb, hdb, rdb, _ru):
+            hdb.get_by_attr.return_value = _hunt()
+            rdb.get_by_attr.side_effect = lambda id: make_round(id=id, meta_id=id)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_all_from_round.return_value = []
+            await svc.clear_metas(puzzle)
+        assert puzzle.tags == []
+        assert gsheet.add_metapuzzle_data.await_count == 2
+
 
 class TestRollupBookkeeping:
     @pytest.mark.asyncio
