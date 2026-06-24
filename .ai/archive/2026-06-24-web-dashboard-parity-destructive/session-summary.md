@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-06-24
-Status: in progress — feat(parity): all 4 areas complete @ 4c00111
+Status: in progress — docs(parity): session summary — all four destructive areas complete @ a0f9f45
 
 ## Goal
 
