@@ -624,6 +624,65 @@ async def require_admin(guild_snowflake):
     return await require_organiser(guild_snowflake, roles=ADMIN_ROLES)
 
 
+# --- Hunt create / delete (admin only) ------------------------------------
+
+_CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
+_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_archive_sheet"}
+
+
+@actions_bp.route("/hunts", methods=["POST"])
+@login_required
+async def create_hunt():
+    """Create a new hunt. Admin only. Returns the new hunt uid."""
+    body = await request.get_json(silent=True) or {}
+
+    missing = _CREATE_HUNT_REQUIRED - set(body.keys())
+    if missing:
+        return jsonify({"error": "missing_keys", "required": sorted(missing)}), 400
+    extra = set(body.keys()) - _CREATE_HUNT_REQUIRED - _CREATE_HUNT_OPTIONAL
+    if extra:
+        return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+
+    guild_id = body["guild_id"]
+    guilds_map = await data.get_guilds_map()
+    guild_info = guilds_map.get(guild_id)
+    if guild_info is None:
+        return jsonify({"error": "guild_not_found"}), 404
+    guild_snowflake = guild_info["guild_snowflake"]
+
+    perm = await require_admin(guild_snowflake)
+    if perm:
+        return perm
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = bot.get_guild(int(guild_snowflake)) if guild_snowflake else None
+    if guild is None:
+        return jsonify({"error": "guild_unavailable"}), 503
+
+    fields = {k: v for k, v in body.items() if k in _CREATE_HUNT_OPTIONAL}
+    try:
+        new_hunt = await cog.service.create_hunt(
+            guild,
+            name=body["name"],
+            url=body["url"],
+            start_timestamp=body["start_timestamp"],
+            guild_id=guild_id,
+            **fields,
+        )
+    except RuntimeError as exc:
+        if "hunt_exists" in str(exc):
+            return jsonify({"error": "hunt_exists"}), 409
+        raise
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("create_hunt", hunt_uid=new_hunt.uid)
+    return jsonify({"uid": new_hunt.uid})
+
+
 # --- Hunt settings (admin only) --------------------------------------------
 
 _SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix"}

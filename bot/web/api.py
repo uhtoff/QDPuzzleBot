@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 
-from quart import Blueprint, current_app, jsonify, session, websocket
+from quart import Blueprint, current_app, jsonify, request, session, websocket
 
 from . import data, events
 from .auth import (
@@ -26,6 +26,29 @@ _WS_AUTH_REFRESH_SECONDS = 60
 
 def _sheet_base(sheet_id):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid=" if sheet_id else None
+
+
+@api_bp.route("/guilds")
+@login_required
+async def list_guilds():
+    """Return the guilds the current user belongs to.
+    Pass ?admin=1 to restrict to guilds where the user holds an admin role."""
+    user = current_user()
+    admin_only = request.args.get("admin") == "1"
+    guilds_map = await data.get_guilds_map()
+    result = []
+    for guild_id, info in guilds_map.items():
+        snowflake = info["guild_snowflake"]
+        is_admin = await user_can_manage(user["id"], snowflake, roles=ADMIN_ROLES)
+        if admin_only and not is_admin:
+            continue
+        result.append({
+            "id": guild_id,
+            "guild_snowflake": str(snowflake) if snowflake else None,
+            "guild_name": info["guild_name"],
+            "is_admin": is_admin,
+        })
+    return jsonify({"guilds": result})
 
 
 @api_bp.route("/hunts")
