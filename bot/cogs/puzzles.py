@@ -2217,7 +2217,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved == 0:
+        elif not self.get_puzzle(ctx).solved:
             await self._solve_impl(ctx, *args)
             return
 
@@ -2255,7 +2255,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved == 0:
+        elif not self.get_puzzle(ctx).solved:
             await self._partial_impl(ctx, *args)
             return
 
