@@ -30,6 +30,18 @@ from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+def resolve_puzzle_names(puzzle_ids):
+    """Return a {puzzle_id: name} map with a 'Puzzle {id}' fallback for unknown ids.
+
+    Does a single PuzzleJsonDb.get_by_attr lookup per id (no double-lookup).
+    """
+    names = {}
+    for pid in puzzle_ids:
+        p = PuzzleJsonDb.get_by_attr(id=pid)
+        names[pid] = p.name if p else f"Puzzle {pid}"
+    return names
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot
@@ -1329,7 +1341,7 @@ class PuzzleService:
             HuntJsonDb.commit(hunt)
         items = EvidenceJsonDb.get_all(hunt.id)
         puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
-        names = {pid: ((PuzzleJsonDb.get_by_attr(id=pid) or None) and PuzzleJsonDb.get_by_attr(id=pid).name) or f"Puzzle {pid}" for pid in puzzle_ids}
+        names = resolve_puzzle_names(puzzle_ids)
         rows = [
             [
                 names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}"),

@@ -347,13 +347,11 @@ def build_board(puzzles, rollups_by_round=None):
 
 def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
     """Return evidence items for a hunt with resolved puzzle names."""
-    from bot.store import EvidenceJsonDb, PuzzleJsonDb
+    from bot.store import EvidenceJsonDb
+    from bot.core.puzzle_service import resolve_puzzle_names
     items = EvidenceJsonDb.get_all(hunt_id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
     puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
-    names = {}
-    for pid in puzzle_ids:
-        p = PuzzleJsonDb.get_by_attr(id=pid)
-        names[pid] = p.name if p else f"Puzzle {pid}"
+    names = resolve_puzzle_names(puzzle_ids)
     return [
         {
             "id": i.id,
