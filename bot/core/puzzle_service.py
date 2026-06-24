@@ -1178,6 +1178,15 @@ class PuzzleService:
         await self._delete_additional_sheet(hunt, puzzle, sheet)
         await self.notifier.board_changed(hunt)
 
+    async def remove_sheet_by_index(self, hunt, puzzle, index):
+        """Remove an additional sheet by 1-based index. Raises IndexError if out of bounds.
+        Converts the index to a sheet id and delegates to remove_sheet."""
+        sheets = puzzle.additional_sheets
+        if index < 1 or index > len(sheets):
+            raise IndexError(f"Sheet index {index} out of range (1–{len(sheets)})")
+        sheet_id = sheets[index - 1].id
+        await self.remove_sheet(hunt, puzzle, sheet_id)
+
     # -------------------------------------------------------------------------
     # Create helpers (M3.5) — canonical paths used by bang + web edges
     # -------------------------------------------------------------------------

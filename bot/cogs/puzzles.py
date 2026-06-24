@@ -899,11 +899,8 @@ class Puzzles(commands.Cog):
             return await self.send_not_puzzle_channel(ctx)
         if number < 1 or number > len(puzzle.additional_sheets):
             return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
-        sheet = puzzle.additional_sheets[number - 1]
-        name = sheet.puzzle_name
-        # Call the helper directly: the sheet is already resolved by index here, so
-        # service.remove_sheet() (which re-looks-up by id) would just re-scan the list.
-        await self.service._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
+        name = puzzle.additional_sheets[number - 1].puzzle_name
+        await self.service.remove_sheet_by_index(self.get_hunt(ctx), puzzle, number)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
