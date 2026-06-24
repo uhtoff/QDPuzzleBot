@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDisclosure } from "@mantine/hooks";
 import {
   ActionIcon,
   Anchor,
@@ -7,6 +8,7 @@ import {
   Divider,
   Drawer,
   Group,
+  Popover,
   ScrollArea,
   Stack,
   Text,
@@ -20,6 +22,7 @@ import {
   useAddSheet,
   useEraseNote,
   useRemoveSheet,
+  useSetPuzzleLink,
   useUpdatePuzzle,
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
@@ -46,10 +49,13 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const editable = !detail.hunt.archived;
   const [text, setText] = useState("");
   const [sheetName, setSheetName] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [solveOpen, setSolveOpen] = useState(false);
+  const [linkOpened, { open: openLink, close: closeLink }] = useDisclosure(false);
   const add = useAddNote(uid);
   const erase = useEraseNote(uid);
   const update = useUpdatePuzzle(uid);
+  const setLink = useSetPuzzleLink(uid);
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
 
@@ -100,6 +106,50 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                   value={puzzle.puzzle_type}
                   onSave={(puzzle_type) => update.mutate({ puzzleId: puzzle.id, patch: { puzzle_type } })}
                 />
+              </MetaRow>
+              <MetaRow label="Link">
+                <Popover opened={linkOpened} onClose={closeLink} position="bottom-start" withArrow shadow="md">
+                  <Popover.Target>
+                    <Text
+                      size="sm"
+                      c={!puzzle.url ? "dimmed" : undefined}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => {
+                        setLinkUrl(puzzle.url || "");
+                        openLink();
+                      }}
+                    >
+                      {puzzle.url || "set link"}
+                    </Text>
+                  </Popover.Target>
+                  <Popover.Dropdown>
+                    <Group gap="xs">
+                      <TextInput
+                        size="xs"
+                        placeholder="https://…"
+                        value={linkUrl}
+                        onChange={(e) => setLinkUrl(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === "Enter" && setLink.mutate(
+                          { puzzleId: puzzle.id, url: linkUrl.trim() },
+                          { onSuccess: () => closeLink() }
+                        )}
+                        data-autofocus
+                      />
+                      <Button
+                        size="xs"
+                        onClick={() => {
+                          setLink.mutate(
+                            { puzzleId: puzzle.id, url: linkUrl.trim() },
+                            { onSuccess: () => closeLink() }
+                          );
+                        }}
+                        loading={setLink.isPending}
+                      >
+                        Save
+                      </Button>
+                    </Group>
+                  </Popover.Dropdown>
+                </Popover>
               </MetaRow>
             </Stack>
           ) : (

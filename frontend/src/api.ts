@@ -160,6 +160,15 @@ export function useRemoveSheet(uid: string) {
   });
 }
 
+export function useSetPuzzleLink(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, url }: { puzzleId: number; url: string }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/link`, "POST", { url }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 /** Modes for solve-variant actions (mirrors web/actions.py). */
 export type SolveMode = "full" | "partial" | "change" | "add";
 

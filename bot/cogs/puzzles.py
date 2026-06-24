@@ -2060,12 +2060,11 @@ class Puzzles(commands.Cog):
     async def link(self, ctx, *, url: str):
         """*Update link to puzzle*"""
         if self.get_puzzle(ctx):
-            self.get_puzzle(ctx).url = url
-            if self.get_gsheet_cog(ctx) is not None:
-                # update google sheet ID
-                await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx))
+            puzzle = self.get_puzzle(ctx)
+            hunt = self.get_hunt(ctx)
+            await self.service.set_puzzle_url(ctx.guild, hunt, puzzle, url)
             await self.send_state(
-                ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if url else None
+                ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if url else None
             )
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")

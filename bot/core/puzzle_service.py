@@ -718,6 +718,17 @@ class PuzzleService:
         SheetsJsonDb.delete(sheet.id)
         puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
 
+    async def set_puzzle_url(self, guild, hunt, puzzle, url):
+        """Set the puzzle URL, commit and push to Google Sheets. Mirrors !link."""
+        puzzle.url = url
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_puzzle(puzzle)
+
+        await self.notifier.board_changed(hunt)
+
     def make_minimeta(self, puzzle):
         """Mark a puzzle as a minimeta cluster parent. Idempotent."""
         puzzle.puzzle_type = "Minimeta"
