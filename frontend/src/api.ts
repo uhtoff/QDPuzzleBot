@@ -160,6 +160,9 @@ export function useRemoveSheet(uid: string) {
   });
 }
 
+/** Modes for solve-variant actions (mirrors web/actions.py). */
+export type SolveMode = "full" | "partial" | "change" | "add";
+
 export interface PuzzlePatch {
   status?: string;
   priority?: string;
@@ -178,13 +181,13 @@ export function useUpdatePuzzle(uid: string) {
 export function useSolvePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ puzzleId, solution }: { puzzleId: number; solution: string }) =>
+    mutationFn: ({ puzzleId, solution, mode }: { puzzleId: number; solution: string; mode?: SolveMode }) =>
       apiSend<{ ok: boolean; solution: string; sheet_warning?: string }>(
         `/api/puzzles/${puzzleId}/solve`,
         "POST",
-        { solution }
+        { solution, mode: mode ?? "full" }
       ),
-    onMutate: async ({ puzzleId, solution }) => {
+    onMutate: async ({ puzzleId, solution, mode }) => {
       await qc.cancelQueries({ queryKey: ["hunt", uid] });
       const previous = qc.getQueryData(["hunt", uid]) as
         | { board?: { round_id: number; puzzles: Array<{ id: number; solved?: boolean; solution?: string | null; status?: string } & Record<string, unknown>> }[] }
@@ -195,7 +198,7 @@ export function useSolvePuzzle(uid: string) {
           board: previous.board.map((g) => ({
             ...g,
             puzzles: g.puzzles.map(
-              (p) => p.id === puzzleId ? { ...p, solved: true, solution, status: "Solved" } : p
+              (p) => p.id === puzzleId ? { ...p, solved: mode === "full" || p.solved, solution, status: mode === "full" ? "Solved" : p.status } : p
             ),
           })),
         });
