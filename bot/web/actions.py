@@ -314,7 +314,12 @@ async def remove_sheet(puzzle_id, sheet_id):
 @actions_bp.route("/puzzles/<int:puzzle_id>/solve", methods=["POST"])
 @login_required
 async def solve_puzzle(puzzle_id):
-    """Mark a puzzle solved via the bot (posts the SOLVED embed, archives the sheet)."""
+    """Mark a puzzle solved / partially solved / change or add solution via the bot.
+
+    Body: {"solution": "...", "mode": "full"|"partial"|"change"|"add"}.
+    Default mode is "full".  mark-complete = frontend sends
+    mode:"full", solution:"✅" (no new mode needed).
+    """
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
@@ -323,6 +328,9 @@ async def solve_puzzle(puzzle_id):
 
     body = await request.get_json(silent=True) or {}
     solution = (body.get("solution") or "").strip()
+    mode = (body.get("mode") or "full").strip().lower()
+    if mode not in ("full", "partial", "change", "add"):
+        return jsonify({"error": "bad_mode"}), 400
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
@@ -330,7 +338,11 @@ async def solve_puzzle(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if not solution and not puzzle.solution:
+
+        # Empty-solution guards (mirrors cog's guards per mode).
+        if mode == "full" and not solution and not puzzle.solution:
+            return jsonify({"error": "empty_solution"}), 400
+        if mode in ("change", "add") and not solution:
             return jsonify({"error": "empty_solution"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -342,23 +354,35 @@ async def solve_puzzle(puzzle_id):
         guild = bot.get_guild(int(snowflake)) if snowflake else None
         warning = None
         try:
-            await cog.service.solve(guild, hunt_obj, puzzle, solution)
+            if mode == "full":
+                await cog.service.solve(guild, hunt_obj, puzzle, solution)
+            elif mode == "partial":
+                await cog.service.add_partial(guild, hunt_obj, puzzle, solution)
+            elif mode == "change":
+                await cog.service.change_solution(guild, hunt_obj, puzzle, solution)
+            else:  # add
+                await cog.service.add_solution(guild, hunt_obj, puzzle, solution)
         except SheetRefreshError as exc:
-            # The solve is fully applied and the stale meta(s) are badged; surface
-            # a non-fatal toast so the user knows a sheet needs a Rebuild.
             warning = str(exc)
         except HttpError:
-            # Best-effort: the solve is recorded; a Sheets archive hiccup must
-            # not fail the dashboard action (mirrors the old web path).
-            logger.exception("web solve: sheet archive failed for puzzle %s", puzzle.id)
-            warning = "A sheet update failed; the solve is saved. Use Rebuild to retry."
+            logger.exception("web solve: sheet update failed for puzzle %s", puzzle.id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
-        await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
-        await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
+
+        # Post solved embed + refresh minimeta pin only for full solves.
+        if mode == "full":
+            await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
+            await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
+
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
-        await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
+        await _audit(
+            f"solve_{mode}",
+            puzzle_id=puzzle.id,
+            hunt_uid=ctx["hunt"]["uid"],
+            detail=puzzle.solution,
+        )
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
             resp["sheet_warning"] = warning
