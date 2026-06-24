@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-06-24
-Status: in progress — synced to main (1ca094c); Area 1 (convert_to_feeder) BACKEND done & green (service + preview helper + bang rewire + 2 endpoints); frontend next. Areas 2–4 pending.
+Status: in progress — feat(parity): convert_to_feeder web parity — frontend @ 954699b
 
 ## Goal
 
@@ -33,11 +33,28 @@ Shared architecture (thin controller): worktree-1's
   (contract to mirror), `tests/test_solve_equivalence.py` `_run` harness (copy, don't invent).
 - **Coordinate with worktree-1** on the shared puzzle kebab menu + `api.ts` to keep merges clean.
 
+## Progress (Claude Code, 2026-06-24)
+
+- Synced working-2 to local main (`1ca094c`).
+- **Area 1 convert_to_feeder — DONE.** Backend `eb7dfa6`, frontend `954699b`.
+  - `PuzzleService.convert_to_feeder(guild,hunt,puzzle)` + read-only
+    `feeders_orphaned_by_convert(puzzle)` (puzzle_service.py, after `unsolve`).
+  - Bang `!convert_to_feeder` rewired onto the service.
+  - `GET /api/puzzles/<id>/convert-to-feeder/preview` + `POST .../convert-to-feeder`
+    (actions.py, before `rebuild_rollup`).
+  - Reusable `TypedConfirmModal` (type-the-name gate) — built for reuse by areas 2–4.
+  - Board kebab "Convert to feeder…" (metas only) → preview → typed confirm.
+  - 8 new equivalence tests; `test_solve_equivalence.py` + `test_refresh_meta.py` green; tsc clean.
+  - NOT done: manual dashboard click-through (needs running app).
+
 ## Next steps
 
-Follow `current-spec.md`, lowest blast radius → highest:
-convert_to_feeder → delete_puzzle → delete_round/group → reconcile. Each tests-first:
-failing equivalence test → extract/lift + rewire bang → endpoint → frontend confirm UX.
+Areas remaining, lowest blast radius → highest: delete_puzzle → delete_round/group →
+reconcile. Each tests-first: failing equivalence test → extract/lift + rewire bang →
+endpoint → frontend confirm UX (reuse `TypedConfirmModal`).
+- Area 2/3 need the cog-level delete orchestration (`_delete_puzzles`,
+  `_delete_round_category`) LIFTED into the service before the web can reuse it.
+- Area 4 reconcile: service already extracted; only web endpoints + admin pane missing.
 
 ## Open questions
 
