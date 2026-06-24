@@ -3,7 +3,7 @@
 Tool: Pi
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-24
-Status: complete @ bf7a23f (Phases 2–7 of hunt admin pane)
+Status: complete @ bf7a23f (Phases 2–7 of hunt admin pane) — fix(parity): let admins reach Manage tab to unarchive an archived hunt @ d51c109
 
 ## Goal
 
