@@ -4,7 +4,10 @@ import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
-import { useCreateMeta, useCreatePuzzle, useCreateUnclassified } from "../api";
+import { useCreateMeta, useCreatePuzzle } from "../api";
+
+// Sentinel dropdown value for "no meta" — sent to the API as an empty meta_code.
+const UNASSIGNED = "__unassigned__";
 
 function errMessage(e: unknown) {
   return (e as Error)?.message || "Something went wrong";
@@ -13,30 +16,29 @@ function errMessage(e: unknown) {
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const [puzzleOpen, puzzle] = useDisclosure(false);
   const [metaOpen, meta] = useDisclosure(false);
-  const [unclassifiedOpen, unclassified] = useDisclosure(false);
 
   const metaOptions = useMemo(
-    () =>
-      detail.board
+    () => [
+      ...detail.board
         .filter((g) => g.meta_code != null)
         .map((g) => ({ value: g.meta_code as string, label: g.name })),
+      { value: UNASSIGNED, label: "Unassigned (no meta)" },
+    ],
     [detail.board]
   );
 
   const [puzzleName, setPuzzleName] = useState("");
-  const [metaCode, setMetaCode] = useState<string | null>(metaOptions[0]?.value ?? null);
+  const [metaCode, setMetaCode] = useState<string | null>(metaOptions[0]?.value ?? UNASSIGNED);
   const [metaName, setMetaName] = useState("");
-  const [unclassName, setUnclassName] = useState("");
 
   const createPuzzle = useCreatePuzzle(uid);
   const createMeta = useCreateMeta(uid);
-  const createUnclassified = useCreateUnclassified(uid);
 
   function submitPuzzle() {
     const name = puzzleName.trim();
-    if (!name || !metaCode) return;
+    if (!name || metaCode == null) return;
     createPuzzle.mutate(
-      { name, metaCode },
+      { name, metaCode: metaCode === UNASSIGNED ? "" : metaCode },
       {
         onSuccess: () => {
           notifications.show({ message: `Created puzzle “${name}”`, color: "green" });
@@ -64,39 +66,14 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
     );
   }
 
-  function submitUnclassified() {
-    const name = unclassName.trim();
-    if (!name) return;
-    createUnclassified.mutate(
-      { name },
-      {
-        onSuccess: () => {
-          notifications.show({ message: `Created unclassified puzzle “${name}”`, color: "green" });
-          setUnclassName("");
-          unclassified.close();
-        },
-        onError: (e) => notifications.show({ message: errMessage(e), color: "red" }),
-      }
-    );
-  }
-
   return (
     <>
       <Group gap="xs">
-        <Button
-          size="xs"
-          variant="light"
-          leftSection={<IconPlus size={14} />}
-          onClick={puzzle.open}
-          disabled={metaOptions.length === 0}
-        >
+        <Button size="xs" variant="light" leftSection={<IconPlus size={14} />} onClick={puzzle.open}>
           New puzzle
         </Button>
         <Button size="xs" variant="light" color="grape" leftSection={<IconPlus size={14} />} onClick={meta.open}>
           New meta
-        </Button>
-        <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={14} />} onClick={unclassified.open}>
-          New unclassified
         </Button>
       </Group>
 
@@ -111,6 +88,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
           />
           <Select
             label="Meta"
+            description="Pick a meta, or “Unassigned” to create a hunt-level puzzle in the hunt category."
             data={metaOptions}
             value={metaCode}
             onChange={setMetaCode}
@@ -119,7 +97,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
           <Button
             onClick={submitPuzzle}
             loading={createPuzzle.isPending}
-            disabled={!puzzleName.trim() || !metaCode}
+            disabled={!puzzleName.trim() || metaCode == null}
           >
             Create
           </Button>
@@ -137,22 +115,6 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             onKeyDown={(e) => e.key === "Enter" && submitMeta()}
           />
           <Button color="grape" onClick={submitMeta} loading={createMeta.isPending} disabled={!metaName.trim()}>
-            Create
-          </Button>
-        </Stack>
-      </Modal>
-
-      <Modal opened={unclassifiedOpen} onClose={unclassified.close} title="New unclassified puzzle" centered>
-        <Stack>
-          <TextInput
-            label="Puzzle name"
-            description="Creates a hunt-level puzzle not assigned to any meta round."
-            value={unclassName}
-            onChange={(e) => setUnclassName(e.currentTarget.value)}
-            data-autofocus
-            onKeyDown={(e) => e.key === "Enter" && submitUnclassified()}
-          />
-          <Button color="blue" onClick={submitUnclassified} loading={createUnclassified.isPending} disabled={!unclassName.trim()}>
             Create
           </Button>
         </Stack>

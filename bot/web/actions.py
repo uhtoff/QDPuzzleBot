@@ -605,7 +605,11 @@ async def _organiser_hunt(uid):
 @actions_bp.route("/hunts/<uid>/puzzles", methods=["POST"])
 @login_required
 async def create_puzzle(uid):
-    """Create a puzzle (channel + sheet) inside an existing meta, via the bot."""
+    """Create a puzzle (channel + sheet) via the bot.
+
+    An empty ``meta_code`` creates an *unassigned* puzzle (no meta tag); the
+    channel lands in the hunt category (see PuzzleService.create_puzzle).
+    """
     ctx, err = await _organiser_hunt(uid)
     if err:
         return err
@@ -618,9 +622,11 @@ async def create_puzzle(uid):
     from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
-    if meta_round is None or meta_round.hunt_id != hunt_obj.id:
-        return jsonify({"error": "bad_meta_code"}), 400
+    meta_round = None
+    if meta_code:
+        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        if meta_round is None or meta_round.hunt_id != hunt_obj.id:
+            return jsonify({"error": "bad_meta_code"}), 400
     if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
         return jsonify({"error": "duplicate_name"}), 409
 
@@ -636,40 +642,7 @@ async def create_puzzle(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
-    return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
-
-
-@actions_bp.route("/hunts/<uid>/unassigned", methods=["POST"])
-@login_required
-async def create_unassigned(uid):
-    """Create a hunt-level (unassigned) puzzle, via the bot."""
-    ctx, err = await _organiser_hunt(uid)
-    if err:
-        return err
-    body = await request.get_json(silent=True) or {}
-    name = (body.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "empty_name"}), 400
-
-    from bot.store import HuntJsonDb, PuzzleJsonDb
-
-    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
-        return jsonify({"error": "duplicate_name"}), 409
-
-    bot = current_app.bot
-    cog = bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    guild = bot.get_guild(int(ctx["guild_snowflake"]))
-    try:
-        puzzle = await cog.service.create_puzzle(guild, hunt_obj, None, name)
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    await _audit("create_unassigned", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
-    # Best-effort: keep the Unassigned Puzzles tab in sync.
+    # Best-effort: keep the Unassigned Puzzles tab in sync (a no-meta create adds one).
     asyncio.create_task(cog.service.refresh_unassigned(hunt_obj))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
