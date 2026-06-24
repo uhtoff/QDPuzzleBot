@@ -748,12 +748,14 @@ class GoogleSheets(commands.Cog):
             rows,
         )
 
-    async def ensure_unclassified_table(self, spreadsheet_id, page_id, show_round=False):
+    async def ensure_unclassified_table(self, page_id, show_round=False):
         """Create an Unclassified Puzzles native Table. Idempotent.
 
+        Uses the context-var spreadsheet id (set by _gsheet_cog).
         Returns the table id (existing or newly created).
         Columns: id (hidden), Puzzle, Answer, Length, Round (hidden unless show_round).
         """
+        spreadsheet_id = self.get_spreadsheet_id()
         resp = await execute_with_retry(
             get_sheet().get(spreadsheetId=spreadsheet_id, ranges=[f"Sheet{page_id}"]),
             on_retry=self._notify_retry,
@@ -762,9 +764,9 @@ class GoogleSheets(commands.Cog):
         if len(sheets) == 0:
             raise RuntimeError(f"ensure_unclassified_table: no sheet found for page_id {page_id}")
 
-        table = (sheets[0].get("tableRange")) or None
-        if table is not None:
-            return int(table.split("!")[0].split("Sheet")[-1]) if "!" in table else None
+        table_range = sheets[0].get("tableRange") or None
+        if table_range is not None:
+            return int(table_range.split("!")[0].split("Sheet")[-1]) if "!" in table_range else None
 
         # Create native Table with headers; row 0 = header, data starts at row 1.
         hide_id = True
@@ -800,8 +802,9 @@ class GoogleSheets(commands.Cog):
         result = await execute_with_retry(req, on_retry=self._notify_retry)
         return result["replies"][0]["addTable"]["table"]["tableId"]
 
-    async def read_unclassified_keys(self, spreadsheet_id, page_id):
+    async def read_unclassified_keys(self, page_id):
         """Read puzzle ids from column A of the Unclassified tab (skip header)."""
+        spreadsheet_id = self.get_spreadsheet_id()
         tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             return []
@@ -816,13 +819,14 @@ class GoogleSheets(commands.Cog):
                 continue
         return keys
 
-    async def apply_unclassified_changes(self, spreadsheet_id, page_id, table_id,
-                                        appends, updates, prunes):
+    async def apply_unclassified_changes(self, page_id, table_id, appends, updates, prunes):
         """Apply incremental reconcile to the Unclassified Puzzles Table.
 
+        Uses the context-var spreadsheet id (set by _gsheet_cog).
         Only writes bot-managed columns (A-E); never touches user Notes.
         Appends new rows, updates answer/length for existing ids, deletes pruned rows.
         """
+        spreadsheet_id = self.get_spreadsheet_id()
         tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             return
@@ -889,15 +893,22 @@ class GoogleSheets(commands.Cog):
                     }
                 }})
 
-        # Appends: write below existing data using values update.
+        # Appends: write below existing data using batchUpdate updateCells.
         if appends:
             val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
             vals = (val_resp.get("values", []) or [])
             append_row_start = len(vals)
-            # Convert int lengths to strings for RAW input
+            # Convert int lengths to strings for display
             grid_rows = []
             for r in appends:
-                grid_rows.append([str(r[0]), r[1], r[2], str(r[3]) if isinstance(r[3], int) else r[3]])
+                length_val = str(r[3]) if isinstance(r[3], int) else r[3]
+                cells = [
+                    {"userEnteredValue": {"stringValue": str(r[0])}},
+                    {"userEnteredValue": {"stringValue": r[1]}},
+                    {"userEnteredValue": {"stringValue": r[2]}},
+                    {"userEnteredValue": {"stringValue": length_val}},
+                ]
+                grid_rows.append(cells)
             requests.append({"updateCells": {
                 "range": {
                     "sheetId": page_id,
@@ -907,9 +918,7 @@ class GoogleSheets(commands.Cog):
                     "endColumnIndex": 5,
                 },
                 "fields": "USER_ENTERED_VALUE",
-                "rows": [{"values": [
-                    {"userEnteredValue": {"stringValue": c}} for c in row
-                ] for row in grid_rows}],
+                "rows": [{"values": row} for row in grid_rows],
             }})
 
         if requests:
