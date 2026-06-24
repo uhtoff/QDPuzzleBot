@@ -165,6 +165,120 @@ class TestWebSolvePuzzleState:
 
 
 # ---------------------------------------------------------------------------
+# Solution casing normalization — service-level uppercase
+# ---------------------------------------------------------------------------
+
+class TestSolutionCasingNormalization:
+    """Service methods must normalize solution strings to uppercase so both
+    the bang and web surfaces get consistent casing without relying on the
+    edge to strip/upper first."""
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    def _patch_ctx(self):
+        return (
+            patch("bot.cogs.puzzles.PuzzleJsonDb"),
+            patch("bot.cogs.puzzles.RoundJsonDb"),
+            patch("bot.cogs.puzzles.HuntJsonDb"),
+            patch("bot.cogs.puzzles.GuildSettingsDb"),
+        )
+
+    async def _run_solve(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.solve(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_add_partial(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.add_partial(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_change_solution(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.change_solution(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_add_solution(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.add_solution(_no_guild(), hunt, puzzle, solution)
+
+    @pytest.mark.asyncio
+    async def test_solve_normalizes_to_uppercase(self, cog, hunt):
+        """service.solve with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solution=None)
+        await self._run_solve(cog, hunt, puz, "  abc  ")
+        assert puz.solution == "ABC"
+
+    @pytest.mark.asyncio
+    async def test_add_partial_normalizes_to_uppercase(self, cog, hunt):
+        """service.add_partial with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solution=None)
+        await self._run_add_partial(cog, hunt, puz, "  partial  ")
+        assert puz.solution == "PARTIAL"
+
+    @pytest.mark.asyncio
+    async def test_change_solution_normalizes_to_uppercase(self, cog, hunt):
+        """service.change_solution with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solved=True, solution="OLD")
+        await self._run_change_solution(cog, hunt, puz, "  new  ")
+        assert puz.solution == "NEW"
+
+    @pytest.mark.asyncio
+    async def test_add_solution_normalizes_to_uppercase(self, cog, hunt):
+        """service.add_solution with lowercase input appends uppercase solution."""
+        puz = make_puzzle(solved=True, solution="FIRST")
+        await self._run_add_solution(cog, hunt, puz, "  second  ")
+        assert puz.solution == "FIRST/SECOND"
+
+
+# ---------------------------------------------------------------------------
 # add_to_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 

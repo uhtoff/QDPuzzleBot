@@ -2157,7 +2157,8 @@ class Puzzles(commands.Cog):
 
     @staticmethod
     def _normalize_solution(args):
-        return " ".join(args).strip().upper()
+        # Joins args and strips whitespace; the service normalizes case to uppercase.
+        return " ".join(args).strip()
 
     async def _update_all_metas(self, ctx, puzzle):
         """Refresh every metapuzzle this puzzle is tagged to, on the SAME isolation

@@ -612,6 +612,7 @@ class PuzzleService:
         SheetRefreshError at the very end (after archive + commit) if one or more
         meta sheets failed to refresh — the solve itself is fully applied; each
         failed meta is badged for the dashboard."""
+        solution = solution.strip().upper()
         if solution == "" and puzzle.solution in [None, ""]:
             return False
 
@@ -853,6 +854,7 @@ class PuzzleService:
         commit and refresh metas. Does NOT set solve_time and does NOT push
         to Google Sheets (matches _partial_impl).
         """
+        solution = solution.strip().upper()
         puzzle.status = "Partially Solved"
         if puzzle.solution:
             puzzle.solution += "/" + solution
@@ -869,6 +871,7 @@ class PuzzleService:
     async def change_solution(self, guild, hunt, puzzle, solution):
         """Replace the solution on an already-solved puzzle: set new solution,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        solution = solution.strip().upper()
         puzzle.solution = solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
@@ -887,6 +890,7 @@ class PuzzleService:
     async def add_solution(self, guild, hunt, puzzle, solution):
         """Append a solution to an already-solved puzzle: append with slash,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        solution = solution.strip().upper()
         puzzle.solution += "/" + solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
