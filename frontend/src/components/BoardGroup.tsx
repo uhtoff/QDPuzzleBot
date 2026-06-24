@@ -48,7 +48,7 @@ interface Props {
 }
 
 export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
-  const solvedAll = group.meta_solved || (group.num_feeders > 0 && group.num_solved_feeders === group.num_feeders);
+  const solvedAll = group.meta_solved;
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
