@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import {
   Box,
+  Button,
   Group,
   Select,
   Stack,
   Table,
   Text,
+  TextInput,
 } from "@mantine/core";
 import type { EvidenceItem, HuntDetail } from "../types";
-import { useEvidence, useUpdateEvidence } from "../api";
+import { useEvidence, useLogClue, useUpdateEvidence } from "../api";
 
 interface Props {
   uid: string;
@@ -18,7 +20,19 @@ interface Props {
 export function EvidencePanel({ uid, detail }: Props) {
   const { data: items = [], isLoading, error } = useEvidence(uid);
   const updateEvidence = useUpdateEvidence(uid);
+  const logClue = useLogClue(uid);
   const [filterSource, setFilterSource] = useState<string | null>(null);
+
+  const [cluePuzzleId, setCluePuzzleId] = useState<string | null>(null);
+  const [clueNote, setClueNote] = useState("");
+
+  function submitClue() {
+    if (!cluePuzzleId || !clueNote.trim()) return;
+    logClue.mutate(
+      { puzzleId: Number(cluePuzzleId), note: clueNote.trim() },
+      { onSuccess: () => { setCluePuzzleId(null); setClueNote(""); } }
+    );
+  }
 
   const allPuzzles = useMemo(() => {
     const seen = new Map<number, string>();
@@ -52,6 +66,26 @@ export function EvidencePanel({ uid, detail }: Props) {
           w={240}
         />
         <Text size="xs" c="dimmed">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</Text>
+      </Group>
+
+      <Group gap="sm">
+        <Select
+          size="xs"
+          placeholder="Source puzzle …"
+          data={allPuzzles}
+          value={cluePuzzleId ?? ""}
+          onChange={(v) => setCluePuzzleId(v || null)}
+          w={240}
+        />
+        <TextInput
+          size="xs"
+          placeholder="Log a clue…"
+          value={clueNote}
+          onChange={(e) => setClueNote(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === "Enter" && submitClue()}
+          style={{ flex: 1 }}
+        />
+        <Button size="xs" onClick={submitClue} loading={logClue.isPending}>Log clue</Button>
       </Group>
 
       {filtered.length === 0 ? (

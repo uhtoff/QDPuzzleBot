@@ -426,6 +426,42 @@ async def set_puzzle_link(puzzle_id):
     return jsonify({"ok": True})
 
 
+# --- Log a clue (any member of the hunt's guild) --------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/clues", methods=["POST"])
+@login_required
+async def log_clue(puzzle_id):
+    """Log a single clue/note for a puzzle, via the bot (mirrors !clue). No role gate."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    note = (body.get("note") or "").strip()
+    if not note:
+        return jsonify({"error": "empty_note"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        cog.service.log_clues(hunt_obj, puzzle, [note])
+        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+
+    return jsonify({"ok": True})
+
+
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
