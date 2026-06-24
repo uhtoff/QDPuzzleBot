@@ -498,6 +498,58 @@ async def make_minimeta_puzzle(puzzle_id):
     return jsonify({"ok": True})
 
 
+# --- Convert puzzle to meta (organiser+) ----------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-meta", methods=["POST"])
+@login_required
+async def convert_to_meta(puzzle_id):
+    """Convert an existing feeder puzzle into a metapuzzle, via the bot (mirrors !ctm)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        if puzzle.is_metapuzzle():
+            return jsonify({"error": "already_meta"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        warning = None
+        try:
+            await cog.service.convert_to_meta(None, hunt_obj, puzzle)
+        except RuntimeError as exc:
+            if str(exc) == "already_meta":
+                return jsonify({"error": "already_meta"}), 400
+            raise
+        except (HttpError, SheetRefreshError):
+            logger.exception("convert_to_meta: sheet update failed for puzzle %s", puzzle_id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+
+        await _audit("convert_to_meta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    resp = {"ok": True}
+    if warning:
+        resp["sheet_warning"] = warning
+    return jsonify(resp)
+
+
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):

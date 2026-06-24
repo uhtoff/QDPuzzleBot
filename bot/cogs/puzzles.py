@@ -1439,13 +1439,14 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
             return
 
-        # create round without puzzle or category
-        hunt_round, puzzle = await self._round_impl(ctx, puzzle.name,"Metapuzzle", False, False)
-        self.set_hunt_round(ctx, hunt_round)
-        puzzle.add_tag(hunt_round.id)
-        puzzle.metapuzzle = 1
-        PuzzleJsonDb.commit(puzzle)
-        await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
+        try:
+            hunt_round, puzzle = await self.service.convert_to_meta(
+                ctx.guild, self.get_hunt(ctx), puzzle
+            )
+        except RuntimeError as exc:
+            if str(exc) == "already_meta":
+                await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
+            return
         # Channel rename intentionally omitted: the web dashboard's META label
         # supersedes the "🧩" name prefix, and renames hit Discord's strict
         # per-channel rename bucket (2/10min) — toggling convert burned it.

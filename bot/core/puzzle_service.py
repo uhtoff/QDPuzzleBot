@@ -734,6 +734,39 @@ class PuzzleService:
         puzzle.puzzle_type = "Minimeta"
         PuzzleJsonDb.commit(puzzle)
 
+    async def convert_to_meta(self, guild, hunt, puzzle):
+        """Convert an existing feeder puzzle into a meta.
+
+        Creates a new round wrapping the puzzle, tags the puzzle to that
+        round, sets metapuzzle=1 and commits. Returns (round, puzzle).
+        Raises RuntimeError("already_meta") if the puzzle is already a meta.
+        """
+        if puzzle.is_metapuzzle():
+            raise RuntimeError("already_meta")
+
+        new_round = RoundData(
+            name=puzzle.name,
+            hunt_id=hunt.id,
+            category_id=puzzle.channel_id,
+            type="Metapuzzle",
+            kind="meta",
+        )
+        RoundJsonDb.commit(new_round)
+        new_round.meta_code = RoundJsonDb.generate_uid("meta_code", 6, puzzle.name)
+        new_round.meta_id = puzzle.id
+        RoundJsonDb.commit(new_round)
+
+        puzzle.add_tag(new_round.id)
+        puzzle.metapuzzle = 1
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.convert_puzzle_spreadsheet(puzzle)
+
+        await self.notifier.board_changed(hunt)
+        return new_round, puzzle
+
     def get_minis(self, minimeta_id):
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)

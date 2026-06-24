@@ -190,6 +190,17 @@ export function useMakeMinimeta(uid: string) {
   });
 }
 
+export function useConvertToMeta(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-meta`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 /** Modes for solve-variant actions (mirrors web/actions.py). */
 export type SolveMode = "full" | "partial" | "change" | "add";
 
