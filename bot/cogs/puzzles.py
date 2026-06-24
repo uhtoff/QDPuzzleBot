@@ -2617,16 +2617,14 @@ class Puzzles(commands.Cog):
         if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
             return
 
+        puzzle = self.get_puzzle(ctx)
+        hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
         try:
-            await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
-            if self.get_hunt_round(ctx):
-                try:
-                    await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
-                except SheetRefreshError as exc:
-                    await self._warn_stale_sheets(ctx, exc)
-            await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
-                   .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
-            await ctx.channel.delete(reason=self.DELETE_REASON)
+            await self.service.delete_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
+            await hunt_general_channel.send(
+                f":white_check_mark: Puzzle {puzzle.name} successfully deleted and sheet cleaned up.")
+        except SheetRefreshError as exc:
+            await hunt_general_channel.send(f":warning: Puzzle {puzzle.name} deleted. {exc}")
         except Exception:
             logger.exception("Puzzle deletion failed")
             await ctx.send(":x: Channel deletion failed")
@@ -2682,16 +2680,11 @@ class Puzzles(commands.Cog):
 
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
-        hunt_round = self.get_hunt_round(ctx)
-        round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        failed = await self._delete_puzzles(ctx, round_puzzles)
+        failed = await self.service.delete_round(ctx.guild, self.get_hunt(ctx), hunt_round)
 
-        await self.delete_round_data(hunt_round)
-
-        await self._delete_round_category(ctx, hunt_round)
-
-        await hunt_general_channel.send(f":white_check_mark: Round {self.get_hunt_round(ctx).name} successfully deleted.  "
-                                        f"All puzzle sheets have been deleted.")
+        await hunt_general_channel.send(
+            f":white_check_mark: Round {hunt_round.name} successfully deleted.  "
+            f"All puzzle sheets have been deleted.")
         await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)

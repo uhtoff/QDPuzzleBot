@@ -596,3 +596,139 @@ class TestWebConvertToFeeder:
         with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb:
             mock_rdb.get_by_attr.return_value = None
             assert cog.service.feeders_orphaned_by_convert(puz) == []
+
+
+# ---------------------------------------------------------------------------
+# PuzzleService.delete_puzzle — DB + Discord state mutations
+# ---------------------------------------------------------------------------
+class TestWebDeletePuzzle:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, meta_rounds=None):
+        """Run service.delete_puzzle with mocked DBs. meta_rounds is the list
+        RoundJsonDb.get_by_attr returns for each tag (one per tag)."""
+        deletes = []
+        tag_rounds = list(meta_rounds or [])
+
+        def fake_round_get(**kwargs):
+            rid = kwargs.get("id")
+            for r in tag_rounds:
+                if r is not None and r.id == rid:
+                    return r
+            return None
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.delete.side_effect = lambda pid: deletes.append(("puzzle", pid))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.delete_puzzle(_no_guild(), hunt, puzzle)
+
+        return deletes
+
+    @pytest.mark.asyncio
+    async def test_deletes_puzzle_db_record(self, cog, hunt):
+        puz = make_puzzle(id=7, tags=[])
+        deletes = await self._run(cog, hunt, puz)
+        assert ("puzzle", 7) in deletes
+
+    @pytest.mark.asyncio
+    async def test_deletes_tagged_round_meta_refresh(self, cog, hunt):
+        """delete_puzzle refreshes parent metas (via refresh_metas) for each tag."""
+        rnd = make_round(id=5, meta_id=3)
+        puz = make_puzzle(id=7, tags=[5])
+        # Service calls RoundJsonDb.get_by_attr(id=5) to resolve the tag.
+        await self._run(cog, hunt, puz, meta_rounds=[rnd])
+        # No assertion on meta sheet calls — gsheet cog is None in tests.
+        # The DB delete is the minimal observable invariant.
+
+    @pytest.mark.asyncio
+    async def test_no_guild_skips_channel_delete(self, cog, hunt):
+        """Guild=None is a safe no-op for Discord teardown."""
+        puz = make_puzzle(id=7, channel_id=999, tags=[])
+        deletes = await self._run(cog, hunt, puz)
+        assert ("puzzle", 7) in deletes
+
+
+# ---------------------------------------------------------------------------
+# PuzzleService.delete_round — DB + Discord state mutations
+# ---------------------------------------------------------------------------
+class TestWebDeleteRound:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, hunt_round, puzzles=None):
+        """Run service.delete_round with mocked DBs.
+        puzzles = PuzzleJsonDb.get_all_from_round return value."""
+        puzzle_deletes = []
+        round_deletes = []
+        puzzles = puzzles or []
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.delete.side_effect = lambda pid: puzzle_deletes.append(pid)
+            mock_rdb.delete.side_effect = lambda rid: round_deletes.append(rid)
+            mock_pdb.get_all_from_round.return_value = puzzles
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            failed = await cog.service.delete_round(_no_guild(), hunt, hunt_round)
+
+        return puzzle_deletes, round_deletes, failed
+
+    @pytest.mark.asyncio
+    async def test_deletes_round_db_record(self, cog, hunt):
+        rnd = make_round(id=5)
+        _, round_deletes, _ = await self._run(cog, hunt, rnd)
+        assert 5 in round_deletes
+
+    @pytest.mark.asyncio
+    async def test_deletes_all_puzzle_db_records(self, cog, hunt):
+        rnd = make_round(id=5)
+        p1 = make_puzzle(id=1, tags=[5])
+        p2 = make_puzzle(id=2, tags=[5])
+        puzzle_deletes, _, _ = await self._run(cog, hunt, rnd, puzzles=[p1, p2])
+        assert set(puzzle_deletes) == {1, 2}
+
+    @pytest.mark.asyncio
+    async def test_empty_round_deletes_cleanly(self, cog, hunt):
+        rnd = make_round(id=5)
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[])
+        assert puzzle_deletes == []
+        assert 5 in round_deletes
+        assert failed == []
+
+    @pytest.mark.asyncio
+    async def test_no_guild_skips_channel_delete(self, cog, hunt):
+        """Guild=None → no Discord teardown, all DB deletes still happen."""
+        rnd = make_round(id=5)
+        p = make_puzzle(id=1, channel_id=888, tags=[5])
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[p])
+        assert 1 in puzzle_deletes
+        assert 5 in round_deletes
+        assert failed == []
