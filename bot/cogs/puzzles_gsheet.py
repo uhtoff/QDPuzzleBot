@@ -748,59 +748,68 @@ class GoogleSheets(commands.Cog):
             rows,
         )
 
-    async def ensure_unassigned_table(self, page_id, show_round=False):
-        """Create an Unassigned Puzzles native Table. Idempotent.
+    # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
+    # (Notes) belongs to solvers and is NEVER written by the reconcile.
+    UNASSIGNED_HEADER = ["id", "Puzzle", "Answer", "Length", "Notes"]
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog).
-        Returns the table id (existing or newly created).
-        Columns: id (hidden), Puzzle, Answer, Length, Round (hidden unless show_round).
+    async def ensure_unassigned_table(self, page_id, show_round=False):
+        """Prepare the Unassigned Puzzles tab: write the header row and, best
+        effort, wrap it in a native Table (hidden id column) for nicer styling.
+
+        Uses the context-var spreadsheet id (set by _gsheet_cog). Returns a table
+        id to persist on the hunt (the native Table's id when one is created,
+        otherwise the page id as a harmless sentinel). The service guards this
+        behind a null table id, so it runs once per hunt; the data writes do not
+        depend on the native Table succeeding.
         """
         spreadsheet_id = self.get_spreadsheet_id()
-        resp = await execute_with_retry(
-            get_sheet().get(spreadsheetId=spreadsheet_id, ranges=[f"Sheet{page_id}"]),
-            on_retry=self._notify_retry,
-        )
-        sheets = resp.get("sheets", [])
-        if len(sheets) == 0:
-            raise RuntimeError(f"ensure_unassigned_table: no sheet found for page_id {page_id}")
+        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        if tab_name is None:
+            raise RuntimeError(f"ensure_unassigned_table: no tab with page id {page_id}")
+        safe_name = tab_name.replace("'", "''")
 
-        table_range = sheets[0].get("tableRange") or None
-        if table_range is not None:
-            return int(table_range.split("!")[0].split("Sheet")[-1]) if "!" in table_range else None
+        # Header row, written plainly so data is visible even without the Table.
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [self.UNASSIGNED_HEADER])
 
-        # Create native Table with headers; row 0 = header, data starts at row 1.
-        hide_id = True
-        hide_round = not show_round
-
-        body = {
-            "requests": [{
-                "addTable": {
-                    "table": {
-                        "range": {
-                            "sheetId": page_id,
-                            "startRowIndex": 0,
-                            "endRowIndex": 1,
-                            "startColumnIndex": 0,
-                            "endColumnIndex": 5,
-                        },
-                        "format": {
-                            "headerRowCount": 1,
-                            "columnProperties": [
-                                {"hiddenByUser": hide_id, "userDefinedVisible": not hide_id},
-                                {},
-                                {},
-                                {},
-                                {"hiddenByUser": hide_round, "userDefinedVisible": not hide_round},
-                            ],
-                        },
+        table_id = page_id
+        try:
+            body = {"requests": [{"addTable": {"table": {
+                "name": "Unassigned Puzzles",
+                "range": {
+                    "sheetId": page_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(self.UNASSIGNED_HEADER),
+                },
+                "columnProperties": [
+                    {"columnIndex": 0, "columnName": "id"},
+                    {"columnIndex": 1, "columnName": "Puzzle"},
+                    {"columnIndex": 2, "columnName": "Answer"},
+                    {"columnIndex": 3, "columnName": "Length", "columnType": "DOUBLE"},
+                    {"columnIndex": 4, "columnName": "Notes"},
+                ],
+            }}}]}
+            result = await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body),
+                on_retry=self._notify_retry,
+            )
+            table_id = result["replies"][0]["addTable"]["table"]["tableId"]
+            # Hide the bookkeeping id column.
+            await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": [{
+                    "updateDimensionProperties": {
+                        "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                                  "startIndex": 0, "endIndex": 1},
+                        "properties": {"hiddenByUser": True},
+                        "fields": "hiddenByUser",
                     }
-                }
-            }]
-        }
-
-        req = get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body)
-        result = await execute_with_retry(req, on_retry=self._notify_retry)
-        return result["replies"][0]["addTable"]["table"]["tableId"]
+                }]}),
+                on_retry=self._notify_retry,
+            )
+        except Exception:
+            logger.exception("ensure_unassigned_table: native Table styling skipped")
+        return table_id
 
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
@@ -819,12 +828,22 @@ class GoogleSheets(commands.Cog):
                 continue
         return keys
 
-    async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
-        """Apply incremental reconcile to the Unassigned Puzzles Table.
+    @staticmethod
+    def _unassigned_len_cell(value):
+        """Length cell: a number when solved, blank ("") when unsolved."""
+        if isinstance(value, (int, float)):
+            return {"userEnteredValue": {"numberValue": value}}
+        return {"userEnteredValue": {"stringValue": ""}}
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog).
-        Only writes bot-managed columns (A-E); never touches user Notes.
-        Appends new rows, updates answer/length for existing ids, deletes pruned rows.
+    async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
+        """Apply the incremental reconcile to the Unassigned Puzzles tab.
+
+        Uses the context-var spreadsheet id (set by _gsheet_cog). Writes only the
+        bot-owned columns A-D (id, Puzzle, Answer, Length) and NEVER column E
+        (Notes). Reconcile is keyed on the id in column A:
+          * updates  -> rewrite Puzzle/Answer/Length on the existing row
+          * prunes   -> delete the whole row (bottom-first so indices stay valid)
+          * appends  -> add new rows just below the existing data
         """
         spreadsheet_id = self.get_spreadsheet_id()
         tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
@@ -832,92 +851,81 @@ class GoogleSheets(commands.Cog):
             return
         safe_name = tab_name.replace("'", "''")
 
+        # Single read of the id column. vals[0] is the header (grid row 0), so a
+        # data row at vals index i sits at 0-based grid row i.
+        val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+        vals = val_resp.get("values", []) or []
+        id_to_row = {}
+        for i in range(1, len(vals)):
+            cell = vals[i]
+            if not cell:
+                continue
+            try:
+                id_to_row[int(cell[0])] = i
+            except (ValueError, IndexError):
+                continue
+
         requests = []
 
-        # Updates: find rows by id (column A), write answer+length for matched ids.
-        if updates:
-            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
-            vals = (val_resp.get("values", []) or [])
-            for i, cell_val in enumerate(vals):
-                if not cell_val:
-                    continue
-                try:
-                    rid = int(cell_val[0])
-                except (ValueError, IndexError):
-                    continue
-                match_row = None
-                for row in updates:
-                    if row[0] == rid:
-                        match_row = row
-                        break
-                if match_row is None:
-                    continue
-                # Write updated name, answer, length at current row (1-indexed = i+1)
-                requests.append({"updateCells": {
-                    "range": {
-                        "sheetId": page_id,
-                        "startRowIndex": i - 1,  # header is row 0
-                        "endRowIndex": i,
-                        "startColumnIndex": 1,
-                        "endColumnIndex": 4,
-                    },
-                    "fields": "USER_ENTERED_VALUE",
-                    "rows": [{"values": [
-                        {"userEnteredValue": {"stringValue": match_row[1]}},
-                        {"userEnteredValue": {"stringValue": match_row[2]}},
-                        {"userEnteredValue": {"numberValue": match_row[3]}},
-                    ]}],
-                }})
-
-        # Prunes: delete whole rows by id (bottom-first to avoid index shift).
-        if prunes:
-            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
-            vals = (val_resp.get("values", []) or [])
-            prune_rows = []
-            for i, cell_val in enumerate(vals):
-                if not cell_val:
-                    continue
-                try:
-                    rid = int(cell_val[0])
-                except (ValueError, IndexError):
-                    continue
-                if rid in prunes:
-                    prune_rows.append(i)  # 1-indexed sheet row
-            for r in sorted(prune_rows, reverse=True):
-                requests.append({"deleteDimensionRange": {
-                    "range": {
-                        "sheetId": page_id,
-                        "dimension": "ROWS",
-                        "startIndex": r - 1,  # header is row 0, data rows start at 1
-                        "endIndex": r,
-                    }
-                }})
-
-        # Appends: write below existing data using batchUpdate updateCells.
-        if appends:
-            val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
-            vals = (val_resp.get("values", []) or [])
-            append_row_start = len(vals)
-            # Convert int lengths to strings for display
-            grid_rows = []
-            for r in appends:
-                length_val = str(r[3]) if isinstance(r[3], int) else r[3]
-                cells = [
-                    {"userEnteredValue": {"stringValue": str(r[0])}},
-                    {"userEnteredValue": {"stringValue": r[1]}},
-                    {"userEnteredValue": {"stringValue": r[2]}},
-                    {"userEnteredValue": {"stringValue": length_val}},
-                ]
-                grid_rows.append(cells)
+        # Updates: refresh Puzzle/Answer/Length (cols B-D) on the matched row.
+        update_by_id = {row[0]: row for row in updates}
+        for rid, grid_row in id_to_row.items():
+            row = update_by_id.get(rid)
+            if row is None:
+                continue
             requests.append({"updateCells": {
                 "range": {
                     "sheetId": page_id,
-                    "startRowIndex": append_row_start,
-                    "endRowIndex": append_row_start + len(grid_rows),
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 5,
+                    "startRowIndex": grid_row,
+                    "endRowIndex": grid_row + 1,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 4,
                 },
-                "fields": "USER_ENTERED_VALUE",
+                "fields": "userEnteredValue",
+                "rows": [{"values": [
+                    {"userEnteredValue": {"stringValue": str(row[1])}},
+                    {"userEnteredValue": {"stringValue": str(row[2])}},
+                    self._unassigned_len_cell(row[3]),
+                ]}],
+            }})
+
+        # Prunes: delete whole rows, bottom-first so earlier indices stay valid.
+        prune_rows = sorted(
+            (id_to_row[pid] for pid in prunes if pid in id_to_row),
+            reverse=True,
+        )
+        for grid_row in prune_rows:
+            requests.append({"deleteDimensionRange": {
+                "range": {
+                    "sheetId": page_id,
+                    "dimension": "ROWS",
+                    "startIndex": grid_row,
+                    "endIndex": grid_row + 1,
+                },
+            }})
+
+        # Appends: write new rows (cols A-D) below the data. The pruned rows above
+        # are deleted earlier in this same batch, so the new bottom is len(vals)
+        # minus the number of pruned rows.
+        if appends:
+            append_start = len(vals) - len(prune_rows)
+            grid_rows = []
+            for r in appends:
+                grid_rows.append([
+                    {"userEnteredValue": {"numberValue": r[0]}},
+                    {"userEnteredValue": {"stringValue": str(r[1])}},
+                    {"userEnteredValue": {"stringValue": str(r[2])}},
+                    self._unassigned_len_cell(r[3]),
+                ])
+            requests.append({"updateCells": {
+                "range": {
+                    "sheetId": page_id,
+                    "startRowIndex": append_start,
+                    "endRowIndex": append_start + len(grid_rows),
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 4,
+                },
+                "fields": "userEnteredValue",
                 "rows": [{"values": row} for row in grid_rows],
             }})
 

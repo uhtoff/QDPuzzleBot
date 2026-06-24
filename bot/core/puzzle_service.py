@@ -796,12 +796,19 @@ class PuzzleService:
         if gsheet_cog is None:
             return
 
+        tab_name = "Unassigned Puzzles"
+
         # Lazy-create tab + table
         dirty = False
         if hunt.unassigned_sheet_page_id is None:
-            page_id = await gsheet_cog.create_blank_tab(
-                hunt.google_sheet_id, "Unassigned Puzzles",
-            )
+            try:
+                page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, tab_name)
+            except Exception:
+                # A tab with this name may already exist from an earlier run —
+                # reuse it rather than failing (addSheet errors on duplicate names).
+                page_id = gsheet_cog.get_page_id_by_name(tab_name)
+                if page_id is None:
+                    raise
             hunt.unassigned_sheet_page_id = page_id
             dirty = True
 
