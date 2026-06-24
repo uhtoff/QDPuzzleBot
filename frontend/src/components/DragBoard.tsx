@@ -35,7 +35,7 @@ import {
   useRetagPuzzle,
   type RetagMode,
 } from "../api";
-import { statusColor } from "../util";
+import { notifyError, showSheetWarning, statusColor } from "../util";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 
 interface MetaOption {
@@ -279,9 +279,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       { puzzleId, metaCode, mode },
       {
         onSuccess: (data) => {
-          if (data.sheet_warning) {
-            notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
-          }
+          showSheetWarning(data);
         },
         onSettled: () =>
           setPendingIds((s) => {
@@ -298,20 +296,18 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     const name = convertTarget.name;
     convert.mutate(convertTarget.id, {
       onSuccess: (data) => {
-        if (data.sheet_warning) {
-          notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
-        }
+        showSheetWarning(data);
         const orphans = data.orphaned ?? 0;
         notifications.show({
           message:
             orphans > 0
-              ? `Converted “${name}” to a feeder — ${orphans} feeder${orphans === 1 ? "" : "s"} orphaned.`
-              : `Converted “${name}” to a feeder.`,
+              ? `Converted "${name}" to a feeder — ${orphans} feeder${orphans === 1 ? "" : "s"} orphaned.`
+              : `Converted "${name}" to a feeder.`,
           color: "green",
         });
         setConvertTarget(null);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -320,25 +316,24 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     const name = deleteTarget.name;
     deletePuzzleMut.mutate(deleteTarget.id, {
       onSuccess: (data) => {
-        if (data.sheet_warning) {
-          notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
-        }
+        showSheetWarning(data);
         notifications.show({ message: `"${name}" permanently deleted.`, color: "green" });
         setDeleteTarget(null);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
   function onMakeMinimeta(puzzleId: number) {
     makeMinimeta.mutate(puzzleId, {
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
   function onConvertToMeta(puzzleId: number) {
     convertToMeta.mutate(puzzleId, {
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onSuccess: (data) => showSheetWarning(data),
+      onError: notifyError,
     });
   }
 
@@ -442,7 +437,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         opened={convertTarget != null}
         onClose={() => setConvertTarget(null)}
         onConfirm={runConvertToFeeder}
-        title={`Convert “${convertTarget?.name ?? ""}” to a feeder`}
+        title={`Convert "${convertTarget?.name ?? ""}" to a feeder`}
         confirmPhrase={convertTarget?.name ?? ""}
         confirmLabel="Convert to feeder"
         loading={convert.isPending}

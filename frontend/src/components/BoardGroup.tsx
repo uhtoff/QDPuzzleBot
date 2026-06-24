@@ -38,7 +38,7 @@ import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
-import { relativeTime, statusColor } from "../util";
+import { notifyError, relativeTime, statusColor } from "../util";
 
 interface Props {
   group: BoardGroupType;
@@ -77,7 +77,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             ? { message: `Rebuilt "${group.name}" sheet`, color: "green" }
             : { message: data.error || "Rebuild failed", color: "red" }
         ),
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -89,7 +89,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             ? { message: `"${group.name}" → ${mode}`, color: "green" }
             : { message: "Failed to update source_mode", color: "red" }
         ),
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -106,7 +106,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         setNestModalOpen(false);
         setNestParentId(null);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -124,7 +124,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         }
         setDeleteRoundOpen(false);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 

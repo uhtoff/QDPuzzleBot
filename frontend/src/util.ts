@@ -1,3 +1,29 @@
+import { notifications } from "@mantine/notifications";
+
+export function notifyError(e: unknown): void {
+  const message = e instanceof Error ? e.message : String(e);
+  notifications.show({ message, color: "red" });
+}
+
+export function notifySuccess(msg: string): void {
+  notifications.show({ message: msg, color: "green" });
+}
+
+export function showSheetWarning(data: unknown): void {
+  if (
+    data &&
+    typeof data === "object" &&
+    "sheet_warning" in data &&
+    (data as Record<string, unknown>).sheet_warning
+  ) {
+    notifications.show({
+      message: String((data as Record<string, unknown>).sheet_warning),
+      color: "yellow",
+      autoClose: 8000,
+    });
+  }
+}
+
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
