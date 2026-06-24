@@ -1,9 +1,19 @@
-import { useState } from "react";
-import { Badge, Button, Group, Menu, Modal, Popover, Stack, Text, TextInput } from "@mantine/core";
+import { useState, useEffect } from "react";
+import {
+  Badge,
+  Button,
+  Group,
+  Menu,
+  Modal,
+  Popover,
+  Stack,
+  Text,
+  TextInput,
+} from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import type { Puzzle } from "../types";
-import { useSolvePuzzle } from "../api";
+import { useSolvePuzzle, type SolveMode } from "../api";
 import { priorityColor, statusColor } from "../util";
 
 const STATUS_OPTIONS = [
@@ -99,45 +109,153 @@ export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: 
   );
 }
 
-/** Modal to enter a solution and mark a puzzle solved (posts the SOLVED message to Discord). */
+/**
+ * Modal to mark a puzzle solved or change its solution.
+ *
+ * Unsolved puzzles: **Mark partial** and **Mark complete** buttons.
+ * Solved puzzles: **Change solution** and **Add solution** buttons.
+ */
 export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; uid: string; onClose: () => void }) {
-  const [solution, setSolution] = useState("");
   const solve = useSolvePuzzle(uid);
+  // One input per action button.
+  const [partialText, setPartialText] = useState("");
+  const [fullText, setFullText] = useState("");
+  const [changeText, setChangeText] = useState("");
+  const [addText, setAddText] = useState("");
 
-  function submit() {
-    const value = solution.trim();
-    if (!value || !puzzle) return;
+  function submit(mode: SolveMode) {
+    if (!puzzle) return;
+    const value =
+      mode === "partial" ? partialText : mode === "full" ? fullText : mode === "change" ? changeText : addText;
+
+    // Guards mirror cog behaviour.
+    if (mode !== "partial" && !value.trim()) return; // optional for partial only
+    if ((mode === "full" || mode === "partial") && puzzle.solved) return; // already solved
+    if ((mode === "change" || mode === "add") && !puzzle.solved) return; // not yet solved
+
     solve.mutate(
-      { puzzleId: puzzle.id, solution: value },
+      { puzzleId: puzzle.id, solution: value.trim(), mode },
       {
         onSuccess: (data) => {
-          notifications.show({ message: `Marked “${puzzle.name}” solved`, color: "green" });
+          const msg =
+            mode === "full"
+              ? `Marked \"${puzzle.name}\" solved`
+              : mode === "partial"
+                ? `Marked \"${puzzle.name}\" partially solved`
+                : mode === "change"
+                  ? `Changed solution for \"${puzzle.name}\"`
+                  : `Added solution to \"${puzzle.name}\"`;
+          notifications.show({ message: msg, color: mode === "partial" ? "blue" : "green" });
           if (data.sheet_warning) {
             notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
           }
-          setSolution("");
+          setPartialText("");
+          setFullText("");
+          setChangeText("");
+          setAddText("");
           onClose();
         },
         onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
-      }
+      },
     );
   }
+
+  function handleKey(e: React.KeyboardEvent, mode: SolveMode) {
+    if (e.key === "Enter") submit(mode);
+  }
+
+  // When the puzzle changes, prefill change/add with current solution.
+  useEffect(() => {
+    if (puzzle?.solution && puzzle.solved) {
+      setChangeText(puzzle.solution);
+    }
+  }, [puzzle?.id]);
+
+  const isSolved = puzzle?.solved ?? false;
 
   return (
     <Modal opened={puzzle !== null} onClose={onClose} title={puzzle ? `Solve — ${puzzle.name}` : "Solve"} centered>
       {puzzle && (
         <Stack>
-          <TextInput
-            label="Solution"
-            description="Posts the SOLVED message to the channel and archives the sheet."
-            value={solution}
-            onChange={(e) => setSolution(e.currentTarget.value)}
-            onKeyDown={(e) => e.key === "Enter" && submit()}
-            data-autofocus
-          />
-          <Button color="green" onClick={submit} loading={solve.isPending} disabled={!solution.trim()}>
-            Mark solved
-          </Button>
+          {isSolved && (
+            <Text size="sm" c="dimmed">
+              Current solution: {puzzle.solution}
+            </Text>
+          )}
+
+          {!isSolved ? (
+            /* --- unsolved: partial + complete --- */
+            <Stack gap="sm">
+              <TextInput
+                label="Partial solution (optional)"
+                description="Records a partial answer without fully solving the puzzle."
+                value={partialText}
+                onChange={(e) => setPartialText(e.currentTarget.value)}
+                onKeyDown={(e) => handleKey(e, "partial")}
+              />
+              <Button
+                color="blue"
+                variant="light"
+                onClick={() => submit("partial")}
+                loading={solve.isPending}
+              >
+                Mark partial
+              </Button>
+
+              <TextInput
+                label="Solution"
+                description="Posts the SOLVED message to the channel and archives the sheet."
+                value={fullText}
+                onChange={(e) => setFullText(e.currentTarget.value)}
+                onKeyDown={(e) => handleKey(e, "full")}
+              />
+              <Button
+                color="green"
+                onClick={() => submit("full")}
+                loading={solve.isPending}
+                disabled={!fullText.trim()}
+              >
+                Mark complete
+              </Button>
+            </Stack>
+          ) :
+            /* --- solved: change + add --- */
+            <Stack gap="sm">
+              <TextInput
+                label="Change solution"
+                description="Replaces the current solution."
+                value={changeText}
+                onChange={(e) => setChangeText(e.currentTarget.value)}
+                onKeyDown={(e) => handleKey(e, "change")}
+              />
+              <Button
+                color="orange"
+                variant="light"
+                onClick={() => submit("change")}
+                loading={solve.isPending}
+                disabled={!changeText.trim()}
+              >
+                Change solution
+              </Button>
+
+              <TextInput
+                label="Add solution"
+                description="Appends to the existing solution."
+                value={addText}
+                onChange={(e) => setAddText(e.currentTarget.value)}
+                onKeyDown={(e) => handleKey(e, "add")}
+              />
+              <Button
+                color="teal"
+                variant="light"
+                onClick={() => submit("add")}
+                loading={solve.isPending}
+                disabled={!addText.trim()}
+              >
+                Add solution
+              </Button>
+            </Stack>
+          }
         </Stack>
       )}
     </Modal>

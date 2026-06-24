@@ -425,6 +425,22 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    async def clear_metas(self, puzzle):
+        """Untag a puzzle from ALL metas in one shot (idempotent), commit, refresh
+        every formerly-affected meta. Used by drag-to-Unassigned. Callers must
+        reject metapuzzles before calling — clearing a metapuzzle's tags would
+        orphan its round (mirrors move_to_meta's protection)."""
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        old_tags = list(puzzle.tags)
+        if old_tags:
+            puzzle.tags.clear()
+            PuzzleJsonDb.commit(puzzle)
+        affected = [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
+        failed = await self.refresh_metas(hunt, affected)
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
     async def set_parent_group(self, child_round, parent_id):
         """Nest `child_round` under group `parent_id` (the parent_group_id tree),
         rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.
@@ -627,6 +643,60 @@ class PuzzleService:
                 round_.solve_time = None
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
+
+    async def add_partial(self, guild, hunt, puzzle, solution):
+        """Mark a puzzle as partially solved: set status, append solution,
+        commit and refresh metas. Does NOT set solve_time and does NOT push
+        to Google Sheets (matches _partial_impl).
+        """
+        puzzle.status = "Partially Solved"
+        if puzzle.solution:
+            puzzle.solution += "/" + solution
+        else:
+            puzzle.solution = solution
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def change_solution(self, guild, hunt, puzzle, solution):
+        """Replace the solution on an already-solved puzzle: set new solution,
+        stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        puzzle.solution = solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_solution(puzzle)
+
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def add_solution(self, guild, hunt, puzzle, solution):
+        """Append a solution to an already-solved puzzle: append with slash,
+        stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        puzzle.solution += "/" + solution
+        puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
+        PuzzleJsonDb.commit(puzzle)
+
+        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_metas(hunt, rounds)
+        await self.notifier.board_changed(hunt)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.update_solution(puzzle)
+
+        if failed:
+            raise SheetRefreshError(failed)
 
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,

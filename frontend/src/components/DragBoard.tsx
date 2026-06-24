@@ -151,15 +151,16 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
 }
 
 function Column({ group, children }: { group: BoardGroup; children: ReactNode }) {
-  const droppable = group.meta_code != null;
+  // The Unassigned column (meta_code === null) is a drop target too: dropping a
+  // puzzle there clears it from all metas. Its metaCode in the drop data is null.
+  const isUnassigned = group.meta_code == null;
   const { setNodeRef, isOver } = useDroppable({
     id: `meta:${group.meta_code}`,
-    disabled: !droppable,
     data: { metaCode: group.meta_code },
   });
   return (
     <Paper
-      ref={droppable ? setNodeRef : undefined}
+      ref={setNodeRef}
       withBorder
       p="xs"
       radius="md"
@@ -167,7 +168,7 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
       style={{
         flex: "0 0 auto",
         outline: isOver ? "2px solid var(--mantine-color-blue-5)" : undefined,
-        opacity: droppable ? 1 : 0.85,
+        opacity: isUnassigned && !isOver ? 0.85 : 1,
       }}
     >
       <Group justify="space-between" mb="xs">
@@ -194,7 +195,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const retag = useRetagPuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
-  const retagPuzzleId = retag.isPending ? (retag.variables as { puzzleId?: number } | undefined)?.puzzleId ?? null : null;
+  // Track every in-flight retag ourselves: React Query's single mutation only
+  // exposes the latest call's variables, so concurrent retags would otherwise
+  // grey out just one card.
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -203,7 +207,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     .filter((g) => g.meta_code != null)
     .map((g) => ({ code: g.meta_code as string, name: g.name }));
 
-  const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) =>
+  const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) => {
+    setPendingIds((s) => new Set(s).add(puzzleId));
     retag.mutate(
       { puzzleId, metaCode, mode },
       {
@@ -212,8 +217,15 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
             notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
           }
         },
+        onSettled: () =>
+          setPendingIds((s) => {
+            const next = new Set(s);
+            next.delete(puzzleId);
+            return next;
+          }),
       }
     );
+  };
 
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
@@ -224,14 +236,31 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     setActive(null);
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
     const sourceMetaCode = e.active.data.current?.sourceMetaCode as string | null | undefined;
-    const metaCode = e.over?.data.current?.metaCode as string | null | undefined;
+    if (!puzzleId || e.over == null) return;
+    const metaCode = e.over.data.current?.metaCode as string | null | undefined;
+    const p = byId.get(puzzleId);
+
+    // Dropped on the Unassigned column (metaCode === null): clear all metas.
+    if (metaCode == null) {
+      if (!p) return;
+      const currentMetas = p.rounds.filter((r) => r.meta_code);
+      if (currentMetas.length === 0) return; // already unassigned — no-op
+      if (p.is_meta) {
+        notifications.show({ message: "A meta can't be unassigned.", color: "yellow" });
+        return;
+      }
+      const names = currentMetas.map((r) => r.name).join(", ");
+      if (!window.confirm(`Remove "${p.name}" from all metas: ${names}?`)) return;
+      runRetag(puzzleId, "", "clear");
+      return;
+    }
+
     // Skip a no-op drop back onto the puzzle's current meta — otherwise every
     // drop fires a retag that moves the Discord channel (a PATCH /channels write).
-    if (!puzzleId || !metaCode || metaCode === sourceMetaCode) return;
+    if (metaCode === sourceMetaCode) return;
     // A plain drag is a "move": the server clears all of this puzzle's meta tags
     // and re-adds only the target, silently detaching it from any other metas.
     // Warn first when that would actually lose memberships.
-    const p = byId.get(puzzleId);
     if (p && !p.is_meta && p.rounds.filter((r) => r.meta_code).length > 1) {
       const lost = p.rounds.filter((r) => r.meta_code && r.meta_code !== metaCode);
       const names = lost.map((r) => r.name).join(", ");
@@ -249,8 +278,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   return (
     <Box>
       <Text size="sm" c="dimmed" mb="xs">
-        Drag a puzzle onto a meta to reassign it (moves its Discord channel too). Use the ⋮ menu on a card to
-        add it to an additional meta or remove it from one.
+        Drag a puzzle onto a meta to reassign it (moves its Discord channel too), or onto Unassigned to remove it
+        from all metas. Use the ⋮ menu on a card to add it to an additional meta or remove it from just one.
       </Text>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <ScrollArea type="auto" offsetScrollbars>
@@ -266,7 +295,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
-                    isPending={retagPuzzleId === p.id}
+                    isPending={pendingIds.has(p.id)}
                   />
                 ))}
               </Column>
