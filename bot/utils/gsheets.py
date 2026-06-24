@@ -3,6 +3,7 @@ import logging
 import random
 import socket
 import ssl
+import threading
 import time
 from http.client import HTTPException
 
@@ -24,6 +25,20 @@ _MAX_DELAY = 60.0
 # the credentials file and re-runs auth setup, adding latency and load for nothing.
 _sheets_service = None
 _drive_service = None
+
+# The googleapiclient service and its underlying httplib2.Http are NOT thread-safe,
+# and we drive .execute() both on the event loop (execute_sync) and on worker
+# threads (execute_with_retry -> asyncio.to_thread). Two concurrent .execute()
+# calls on the shared Http corrupt the C heap ("free(): corrupted unsorted
+# chunks" / abort). Serialize every .execute() so only one runs at a time. The
+# lock is held solely around the single blocking call — never across an await or a
+# nested Sheets call — so it cannot deadlock.
+_execute_lock = threading.Lock()
+
+
+def _execute_locked(request):
+    with _execute_lock:
+        return request.execute()
 
 
 def _credentials():
@@ -93,7 +108,7 @@ def execute_sync(request, max_retries=_MAX_RETRIES):
     attempt = 0
     while True:
         try:
-            return request.execute()
+            return _execute_locked(request)
         except Exception as error:
             if not _is_retryable(error) or attempt >= max_retries:
                 raise
@@ -122,7 +137,7 @@ async def execute_with_retry(request, max_retries=_MAX_RETRIES, on_retry=None):
     notified = False
     while True:
         try:
-            return await asyncio.to_thread(request.execute)
+            return await asyncio.to_thread(_execute_locked, request)
         except Exception as error:
             if not _is_retryable(error) or attempt >= max_retries:
                 raise
