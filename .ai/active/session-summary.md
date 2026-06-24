@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-24
-Status: in progress — parity plan written; Phase 1 spec ready, not yet implemented (last commit 72f38cf, the arrange-tab work)
+Status: in progress — docs: web/bang command-parity plan + Phase 1 (solve panel) spec @ 7a706a2
 
 ## Goal
 
@@ -27,6 +27,12 @@ spec in `.ai/active/current-spec.md`.
   not the service), guarded by `tests/test_solve_equivalence.py`.
 - Tier D commands (Discord channel ordering, archive-to-threads, bot runtime,
   debug) are excluded as not web-appropriate unless explicitly requested.
+- `!sync_meta`/`!sync_round` are Discord-only → moved to Tier D (excluded).
+- Tier C (hunt lifecycle/settings) gets its OWN admin route + pane. Hunt creation
+  lives on the all-hunts screen with link (mandatory), start time (optional),
+  login (optional) — promoting set_start/set_login to creation-time fields.
+- `!update_settings` is reviewed setting-by-setting at Phase 5; some keys may be
+  excluded or promoted to creation. Not bulk-exposed.
 
 ## Rejected approaches
 

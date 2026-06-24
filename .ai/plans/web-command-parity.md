@@ -45,19 +45,24 @@ rollup, source-mode, nesting, mini creation, evidence routing, rollup answers.
 
 ### Tier B — organiser structural / power tools
 - `!delete_puzzle`, `!delete_round`/`group` — deletion (no delete of any kind on web).
-- `!sync_meta` / `!sync_round` — sync a category's puzzles to its meta.
 - `!reconcile` — Discord↔Sheets reconcile (dry-run / `apply` / `apply orphans`).
 - `!rebuild_unassigned` — explicit button (currently only fires automatically).
 - `!pool` — tag a puzzle as aggregates-into for its meta.
 - `!round` (plain round, no meta) — create a category without a metapuzzle.
 
-### Tier C — hunt lifecycle & settings (admin)
+### Tier C — hunt lifecycle & settings (admin)  →  own admin route + pane
 - `!hunt` (create), `!delete_hunt`, `!set_to_archive`, `!set_start`, `!set_login`,
   `!parallel_hunt`, `!update_settings` (channel/hunt/guild settings editor).
+- **Decision:** these live in a dedicated admin route/pane, NOT scattered into the
+  per-hunt board. Hunt **creation** is the exception — it lives on the all-hunts
+  (HuntList) screen, and `set_start` + `set_login` are promoted to creation-time
+  fields there (see Phase 5).
 
 ### Tier D — intentionally EXCLUDED (not web-appropriate)
 - Discord channel ordering: `!move_to_top/bottom/solved` (board auto-orders).
 - Archive-to-threads: `!archive_round/category/channel/solved_manually`.
+- `!sync_meta` / `!sync_round` — Discord-only (sync a category's puzzles to its
+  meta); no web equivalent intended.
 - Bot runtime/info: `!start_reminders/stop_reminders`, `!uptime`, `!starttime`,
   `!info_bot`, `!invite`.
 - Debug/admin: `!list_tags/add_tag/remove_tag`, `!show_settings`,
@@ -104,15 +109,28 @@ Goal: dashboard can do everything the solve family does, not just full solve/uns
 ### Phase 3 — Deletion & structural  (Tier B)
 - `delete_puzzle`, `delete_round/group`: destructive → require organiser + explicit
   typed confirm; reuse the bot's delete service paths (channel + sheet teardown).
-- `sync_meta`, `rebuild_unassigned` (button), `pool`, plain `round` create.
+- `rebuild_unassigned` (button), `pool`, plain `round` create.
+- (`sync_meta` dropped — Discord-only, see Tier D.)
 
 ### Phase 4 — Reconcile  (Tier B, isolated — riskiest)
 - `!reconcile` with dry-run / apply / apply-orphans. Deletes Discord channels, so it
   gets its own phase and a careful preview→confirm UI (show the diff before apply).
 
-### Phase 5 — Hunt lifecycle & settings  (Tier C)
-- create/delete hunt, `set_to_archive`, `set_start`, `set_login`, `parallel_hunt`,
-  and a settings editor (`update_settings`) for channel/hunt/guild scopes.
+### Phase 5 — Hunt lifecycle & settings  (Tier C)  — own admin route + pane
+Everything except hunt creation lives behind a dedicated admin route/pane (gated
+to admins), not scattered into the per-hunt board.
+
+- **Hunt creation on the all-hunts (HuntList) screen:** a "New hunt" form with
+  - **link** to the hunt — mandatory,
+  - **start time** — optional (promotes `!set_start` to creation-time),
+  - **login details** — optional (promotes `!set_login` to creation-time).
+  These remain editable afterwards from the admin pane.
+- **Admin pane:** `delete_hunt`, `set_to_archive` (archive toggle), edit
+  start/login post-creation, `parallel_hunt`.
+- **Settings editor (`update_settings`):** reviewed setting-by-setting when we
+  reach this phase — not all are web-appropriate, and some may instead be promoted
+  to creation-time options. Do NOT bulk-expose the whole settings surface; decide
+  per key. Treat this as a sub-spec written at Phase 5 start.
 
 ## Verification & rollback
 - Service refactors are guarded by `test_solve_equivalence.py` — run it after every
