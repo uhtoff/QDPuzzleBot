@@ -300,3 +300,185 @@ class TestWebMoveToMeta:
         # tags are NOT cleared for metas; new round is appended
         assert 7 in puz.tags
         assert 3 in puz.tags or 5 in puz.tags  # at least some old tags remain
+
+
+# ---------------------------------------------------------------------------
+# add_partial (service) — partial-solution mutation. Mirrors _partial_impl:
+# status -> "Partially Solved", append "/"+solution if a solution exists else set;
+# commit; refresh tagged metas. Does NOT set solve_time (divergence from solve).
+# ---------------------------------------------------------------------------
+class TestWebAddPartial:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.add_partial(_no_guild(), hunt, puzzle, solution)
+
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_sets_status_partially_solved(self, cog, hunt):
+        puz = make_puzzle(status="in progress", solution=None)
+        await self._run(cog, hunt, puz, "PART")
+        assert puz.status == "Partially Solved"
+
+    @pytest.mark.asyncio
+    async def test_sets_solution_when_empty(self, cog, hunt):
+        puz = make_puzzle(solution=None)
+        await self._run(cog, hunt, puz, "PART")
+        assert puz.solution == "PART"
+
+    @pytest.mark.asyncio
+    async def test_appends_with_slash_when_existing(self, cog, hunt):
+        puz = make_puzzle(solution="FIRST")
+        await self._run(cog, hunt, puz, "SECOND")
+        assert puz.solution == "FIRST/SECOND"
+
+    @pytest.mark.asyncio
+    async def test_does_not_set_solve_time(self, cog, hunt):
+        # Divergence from solve: partial leaves solve_time untouched.
+        puz = make_puzzle(solution=None, solve_time=None)
+        await self._run(cog, hunt, puz, "PART")
+        assert puz.solve_time is None
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_solved(self, cog, hunt):
+        puz = make_puzzle(solved=False, solution=None)
+        await self._run(cog, hunt, puz, "PART")
+        assert puz.solved is False
+
+
+# ---------------------------------------------------------------------------
+# change_solution (service) — already-solved branch of cog change_solution:
+# set solution = new (replace), stamp solve_time, commit, refresh metas.
+# (The unsolved fallback stays in the cog and is NOT this method's job.)
+# ---------------------------------------------------------------------------
+class TestWebChangeSolution:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.change_solution(_no_guild(), hunt, puzzle, solution)
+
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_replaces_solution(self, cog, hunt):
+        puz = make_puzzle(solved=True, solution="OLD")
+        await self._run(cog, hunt, puz, "NEW")
+        assert puz.solution == "NEW"
+
+    @pytest.mark.asyncio
+    async def test_stamps_solve_time(self, cog, hunt):
+        before = datetime.datetime.now(tz=datetime.timezone.utc)
+        puz = make_puzzle(solved=True, solution="OLD")
+        await self._run(cog, hunt, puz, "NEW")
+        assert puz.solve_time is not None and puz.solve_time >= before
+
+    @pytest.mark.asyncio
+    async def test_commits_puzzle(self, cog, hunt):
+        puz = make_puzzle(id=42, solved=True, solution="OLD")
+        commits = await self._run(cog, hunt, puz, "NEW")
+        assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
+
+
+# ---------------------------------------------------------------------------
+# add_solution (service) — already-solved branch of cog add_solution:
+# append "/"+solution, stamp solve_time, commit, refresh metas.
+# ---------------------------------------------------------------------------
+class TestWebAddSolution:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return _make_hunt()
+
+    async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
+        rounds_by_id = rounds_by_id or {}
+        commits = []
+
+        def fake_round_get(**kwargs):
+            return rounds_by_id.get(list(kwargs.values())[0])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
+            mock_rdb.get_by_attr.side_effect = fake_round_get
+            mock_rdb.commit.side_effect = lambda r: commits.append(("round", r.id))
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+
+            await cog.service.add_solution(_no_guild(), hunt, puzzle, solution)
+
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_appends_with_slash(self, cog, hunt):
+        puz = make_puzzle(solved=True, solution="FIRST")
+        await self._run(cog, hunt, puz, "SECOND")
+        assert puz.solution == "FIRST/SECOND"
+
+    @pytest.mark.asyncio
+    async def test_stamps_solve_time(self, cog, hunt):
+        before = datetime.datetime.now(tz=datetime.timezone.utc)
+        puz = make_puzzle(solved=True, solution="FIRST")
+        await self._run(cog, hunt, puz, "SECOND")
+        assert puz.solve_time is not None and puz.solve_time >= before
