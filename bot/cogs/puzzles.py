@@ -107,60 +107,6 @@ class Puzzles(commands.Cog):
         self.reminder_index=0
         self.position_lock = asyncio.Lock()
         self.environment = {}
-        # channel.id -> latest desired name, for renames deferred past the bucket.
-        self._pending_renames = {}
-        # Strong refs to in-flight deferred-rename tasks so they aren't GC'd.
-        self._rename_tasks = set()
-
-    # Discord enforces a strict, per-channel rename bucket (historically ~2 renames
-    # per 10 minutes). discord.py normally waits out a 429, but that can block a
-    # command for up to ~10 minutes. With max_ratelimit_timeout set on the bot, an
-    # over-long wait raises discord.RateLimited instead; we catch it here and apply
-    # the rename in the background, coalescing rapid renames to the latest name.
-    async def safe_rename(self, channel, name, ctx=None):
-        try:
-            await channel.edit(name=name)
-            return True
-        except discord.RateLimited as exc:
-            already_pending = channel.id in self._pending_renames
-            self._pending_renames[channel.id] = name
-            if ctx is not None:
-                await ctx.send(
-                    f"⏳ Discord is rate-limiting renames on this channel; "
-                    f"I'll apply the new name in about {round(exc.retry_after)}s."
-                )
-            if not already_pending:
-                task = asyncio.create_task(self._deferred_rename(channel, exc.retry_after))
-                self._rename_tasks.add(task)
-                task.add_done_callback(self._rename_tasks.discard)
-            return False
-
-    async def _deferred_rename(self, channel, delay):
-        """Wait out the rename bucket, then apply the latest requested name,
-        coalescing any further renames queued while we were waiting."""
-        attempts = 0
-        while attempts < 6:
-            await asyncio.sleep(delay + 1)
-            name = self._pending_renames.get(channel.id)
-            if name is None:
-                return
-            attempts += 1
-            try:
-                await channel.edit(name=name)
-            except discord.RateLimited as exc:
-                delay = exc.retry_after
-                continue
-            except discord.HTTPException:
-                logger.exception("Deferred rename of channel %s failed", channel.id)
-                self._pending_renames.pop(channel.id, None)
-                return
-            # Applied. If a newer name was queued meanwhile, loop to apply it too.
-            if self._pending_renames.get(channel.id) == name:
-                self._pending_renames.pop(channel.id, None)
-                return
-            delay = 0
-        logger.warning("Gave up deferred rename of channel %s after repeated rate limits", channel.id)
-        self._pending_renames.pop(channel.id, None)
 
     async def cog_before_invoke(self, ctx):
         """For separating commands use ctx.message.id"""
@@ -1473,13 +1419,18 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
             return
 
-        # create round without puzzle or category
-        hunt_round, puzzle = await self._round_impl(ctx, puzzle.name,"Metapuzzle", False, False)
+        try:
+            hunt_round, puzzle = await self.service.convert_to_meta(
+                ctx.guild, self.get_hunt(ctx), puzzle
+            )
+        except RuntimeError as exc:
+            if str(exc) == "already_meta":
+                await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
+            return
+        # Point the request-scoped cache at the freshly-created round so the
+        # metapuzzle intro embed below (info → send_initial_metapuzzle_channel_messages)
+        # renders the new round, not the stale pre-convert one.
         self.set_hunt_round(ctx, hunt_round)
-        puzzle.add_tag(hunt_round.id)
-        puzzle.metapuzzle = 1
-        PuzzleJsonDb.commit(puzzle)
-        await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
         # Channel rename intentionally omitted: the web dashboard's META label
         # supersedes the "🧩" name prefix, and renames hit Discord's strict
         # per-channel rename bucket (2/10min) — toggling convert burned it.
@@ -2055,18 +2006,14 @@ class Puzzles(commands.Cog):
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
                 return await ctx.send(
                     f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
-            await self.safe_rename(ctx.channel, self.clean_name(puzzle_name), ctx)
-            self.get_puzzle(ctx).name = puzzle_name
-            self.get_puzzle(ctx).channel_name = self.clean_name(puzzle_name)
-            PuzzleJsonDb.commit(self.get_puzzle(ctx))
-            if self.get_gsheet_cog(ctx) is not None:
-                # update google sheet ID
-                await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx), True)
-                if self.get_hunt_round(ctx):
-                    try:
-                        await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
-                    except SheetRefreshError as exc:
-                        await self._warn_stale_sheets(ctx, exc)
+            puzzle = self.get_puzzle(ctx)
+            try:
+                await self.service.rename_puzzle(
+                    ctx.guild, self.get_hunt(ctx), puzzle, puzzle_name
+                )
+            except SheetRefreshError as exc:
+                await self._warn_stale_sheets(ctx, exc)
+                return
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
@@ -2087,12 +2034,11 @@ class Puzzles(commands.Cog):
     async def link(self, ctx, *, url: str):
         """*Update link to puzzle*"""
         if self.get_puzzle(ctx):
-            self.get_puzzle(ctx).url = url
-            if self.get_gsheet_cog(ctx) is not None:
-                # update google sheet ID
-                await self.get_gsheet_cog(ctx).update_puzzle(self.get_puzzle(ctx))
+            puzzle = self.get_puzzle(ctx)
+            hunt = self.get_hunt(ctx)
+            await self.service.set_puzzle_url(ctx.guild, hunt, puzzle, url)
             await self.send_state(
-                ctx, ctx.channel, self.get_puzzle(ctx), description=":white_check_mark: I've updated:" if url else None
+                ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if url else None
             )
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
@@ -2597,7 +2543,7 @@ class Puzzles(commands.Cog):
                 # Category/position aren't rename-limited; apply them immediately,
                 # then defer the (strict-bucket) rename if necessary.
                 await channel.edit(category=hunt_category, position=last_position)
-                await self.safe_rename(channel, "solved-" + channel.name)
+                await self.service.safe_rename(channel, "solved-" + channel.name)
             else:
                 await channel.delete(reason=self.DELETE_REASON)
         hunt_general_channel = self.get_hunt_channel(ctx)

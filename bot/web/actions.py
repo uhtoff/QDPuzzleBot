@@ -389,6 +389,223 @@ async def solve_puzzle(puzzle_id):
         return jsonify(resp)
 
 
+# --- Link a puzzle (any member of the hunt's guild) ------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/link", methods=["POST"])
+@login_required
+async def set_puzzle_link(puzzle_id):
+    """Set the puzzle link URL, via the bot (mirrors !link). No role gate."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
+        await cog.service.set_puzzle_url(guild, hunt_obj, puzzle, url)
+        await _audit("link", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    return jsonify({"ok": True})
+
+
+# --- Log a clue (any member of the hunt's guild) --------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/clues", methods=["POST"])
+@login_required
+async def log_clue(puzzle_id):
+    """Log a single clue/note for a puzzle, via the bot (mirrors !clue). No role gate."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    note = (body.get("note") or "").strip()
+    if not note:
+        return jsonify({"error": "empty_note"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        cog.service.log_clues(hunt_obj, puzzle, [note])
+        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+
+    return jsonify({"ok": True})
+
+
+# --- Make minimeta (organiser+) ------------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/make-minimeta", methods=["POST"])
+@login_required
+async def make_minimeta_puzzle(puzzle_id):
+    """Mark a puzzle as a minimeta cluster parent (mirrors !make_minimeta)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        cog.service.make_minimeta(puzzle)
+        await _audit("make_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    return jsonify({"ok": True})
+
+
+# --- Convert puzzle to meta (organiser+) ----------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-meta", methods=["POST"])
+@login_required
+async def convert_to_meta(puzzle_id):
+    """Convert an existing feeder puzzle into a metapuzzle, via the bot (mirrors !ctm)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        if puzzle.is_metapuzzle():
+            return jsonify({"error": "already_meta"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        warning = None
+        try:
+            await cog.service.convert_to_meta(None, hunt_obj, puzzle)
+        except RuntimeError as exc:
+            if str(exc) == "already_meta":
+                return jsonify({"error": "already_meta"}), 400
+            raise
+        except (HttpError, SheetRefreshError):
+            logger.exception("convert_to_meta: sheet update failed for puzzle %s", puzzle_id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+
+        await _audit("convert_to_meta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    resp = {"ok": True}
+    if warning:
+        resp["sheet_warning"] = warning
+    return jsonify(resp)
+
+
+# --- Rename a puzzle (organiser+) -----------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/rename", methods=["POST"])
+@login_required
+async def rename_puzzle(puzzle_id):
+    """Rename a puzzle, via the bot (mirrors !rename). Organiser+ only."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    new_name = (body.get("name") or "").strip()
+    if not new_name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    # Duplicate check — match bang behaviour: reject on clash.
+    if PuzzleJsonDb.check_duplicates_in_hunt(new_name, ctx["hunt"]["id"]):
+        return jsonify({"error": "duplicate_name"}), 400
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        cog = current_app.bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+
+        # Pass the guild so the service renames the Discord channel too (mirrors
+        # the bang); safe_rename tolerates the rename rate-limit via deferral.
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
+        warning = None
+        try:
+            await cog.service.rename_puzzle(guild, hunt_obj, puzzle, new_name)
+        except SheetRefreshError as exc:
+            warning = str(exc)
+
+        await _audit("rename", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+
+    resp = {"ok": True}
+    if warning:
+        resp["sheet_warning"] = warning
+    return jsonify(resp)
+
+
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):

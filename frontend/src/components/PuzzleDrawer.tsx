@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDisclosure } from "@mantine/hooks";
 import {
   ActionIcon,
   Anchor,
@@ -7,19 +8,22 @@ import {
   Divider,
   Drawer,
   Group,
+  Popover,
   ScrollArea,
   Stack,
   Text,
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { IconCircleCheck, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
+import { IconCircleCheck, IconEdit, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
 import {
   useAddNote,
   useAddSheet,
   useEraseNote,
   useRemoveSheet,
+  useRenamePuzzle,
+  useSetPuzzleLink,
   useUpdatePuzzle,
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
@@ -46,12 +50,19 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const editable = !detail.hunt.archived;
   const [text, setText] = useState("");
   const [sheetName, setSheetName] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [solveOpen, setSolveOpen] = useState(false);
+  const [linkOpened, { open: openLink, close: closeLink }] = useDisclosure(false);
+  const [renameEditing, setRenameEditing] = useState(false);
+  const [renameTemp, setRenameTemp] = useState("");
+
   const add = useAddNote(uid);
   const erase = useEraseNote(uid);
   const update = useUpdatePuzzle(uid);
+  const setLink = useSetPuzzleLink(uid);
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
+  const rename = useRenamePuzzle(uid);
 
   function submitNote() {
     const note = text.trim();
@@ -77,7 +88,47 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
       onClose={onClose}
       position="right"
       size="md"
-      title={puzzle ? puzzle.name : "Puzzle"}
+      title={
+        puzzle && editable ? (
+          <Group gap={4} justify="center" wrap="nowrap">
+            {renameEditing ? (
+              <TextInput
+                size="sm"
+                value={renameTemp}
+                onChange={(e) => setRenameTemp(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const newName = renameTemp.trim();
+                    if (newName && puzzle.id !== undefined) {
+                      rename.mutate({ puzzleId: puzzle.id, name: newName }, {
+                        onSuccess: () => setRenameEditing(false),
+                        onError: () => setRenameEditing(false),
+                      });
+                    } else {
+                      setRenameEditing(false);
+                    }
+                  }
+                  if (e.key === "Escape") setRenameEditing(false);
+                }}
+                autoFocus
+              />
+            ) : (
+              <>
+                <Text size="sm" fw={600} style={{ cursor: "pointer" }}
+                  onClick={() => { setRenameEditing(true); setRenameTemp(puzzle.name); }}
+                >
+                  {puzzle.name}
+                </Text>
+                <ActionIcon variant="subtle" size="sm" color="gray"
+                  onClick={() => { setRenameEditing(true); setRenameTemp(puzzle.name); }}
+                >
+                  <IconEdit size={14} />
+                </ActionIcon>
+              </>
+            )}
+          </Group>
+        ) : (puzzle ? puzzle.name : "Puzzle")
+      }
     >
       {puzzle && (
         <Stack>
@@ -100,6 +151,50 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                   value={puzzle.puzzle_type}
                   onSave={(puzzle_type) => update.mutate({ puzzleId: puzzle.id, patch: { puzzle_type } })}
                 />
+              </MetaRow>
+              <MetaRow label="Link">
+                <Popover opened={linkOpened} onClose={closeLink} position="bottom-start" withArrow shadow="md">
+                  <Popover.Target>
+                    <Text
+                      size="sm"
+                      c={!puzzle.url ? "dimmed" : undefined}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => {
+                        setLinkUrl(puzzle.url || "");
+                        openLink();
+                      }}
+                    >
+                      {puzzle.url || "set link"}
+                    </Text>
+                  </Popover.Target>
+                  <Popover.Dropdown>
+                    <Group gap="xs">
+                      <TextInput
+                        size="xs"
+                        placeholder="https://…"
+                        value={linkUrl}
+                        onChange={(e) => setLinkUrl(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === "Enter" && setLink.mutate(
+                          { puzzleId: puzzle.id, url: linkUrl.trim() },
+                          { onSuccess: () => closeLink() }
+                        )}
+                        data-autofocus
+                      />
+                      <Button
+                        size="xs"
+                        onClick={() => {
+                          setLink.mutate(
+                            { puzzleId: puzzle.id, url: linkUrl.trim() },
+                            { onSuccess: () => closeLink() }
+                          );
+                        }}
+                        loading={setLink.isPending}
+                      >
+                        Save
+                      </Button>
+                    </Group>
+                  </Popover.Dropdown>
+                </Popover>
               </MetaRow>
             </Stack>
           ) : (

@@ -29,7 +29,9 @@ import type { BoardGroup, HuntDetail, Puzzle } from "../types";
 import {
   useConvertToFeeder,
   useConvertToFeederPreview,
+  useConvertToMeta,
   useDeletePuzzle,
+  useMakeMinimeta,
   useRetagPuzzle,
   type RetagMode,
 } from "../api";
@@ -50,11 +52,13 @@ interface CardProps {
   onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
   onConvertToFeeder: (puzzle: Puzzle) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
+  onMakeMinimeta: (puzzleId: number) => void;
+  onConvertToMeta: (puzzleId: number) => void;
   isOrganiser: boolean;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -144,6 +148,31 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
                 </Menu.Item>
               </>
             )}
+            {!puzzle.is_meta && !puzzle.solved && (
+              <>
+                <Menu.Divider />
+                <Menu.Item
+                  color="grape"
+                  onClick={() => {
+                    if (window.confirm(`Mark "${puzzle.name}" as a minimeta?`)) {
+                      onMakeMinimeta(puzzle.id);
+                    }
+                  }}
+                >
+                  Make minimeta
+                </Menu.Item>
+                <Menu.Item
+                  color="grape"
+                  onClick={() => {
+                    if (window.confirm(`Convert "${puzzle.name}" to a meta?\nThis creates a new meta round around it.`)) {
+                      onConvertToMeta(puzzle.id);
+                    }
+                  }}
+                >
+                  Convert to meta
+                </Menu.Item>
+              </>
+            )}
             {isOrganiser && (
               <>
                 <Menu.Divider />
@@ -221,6 +250,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const retag = useRetagPuzzle(uid);
   const convert = useConvertToFeeder(uid);
   const deletePuzzleMut = useDeletePuzzle(uid);
+  const makeMinimeta = useMakeMinimeta(uid);
+  const convertToMeta = useConvertToMeta(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
@@ -299,6 +330,18 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     });
   }
 
+  function onMakeMinimeta(puzzleId: number) {
+    makeMinimeta.mutate(puzzleId, {
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function onConvertToMeta(puzzleId: number) {
+    convertToMeta.mutate(puzzleId, {
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
     setActive(puzzleId ? byId.get(puzzleId) ?? null : null);
@@ -369,6 +412,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     onRetag={runRetag}
                     onConvertToFeeder={setConvertTarget}
                     onDeletePuzzle={setDeleteTarget}
+                    onMakeMinimeta={onMakeMinimeta}
+                    onConvertToMeta={onConvertToMeta}
                     isOrganiser={isOrganiser}
                     isPending={pendingIds.has(p.id)}
                   />

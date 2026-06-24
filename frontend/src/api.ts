@@ -160,6 +160,58 @@ export function useRemoveSheet(uid: string) {
   });
 }
 
+export function useLogClue(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, note }: { puzzleId: number; note: string }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/clues`, "POST", { note }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+      qc.invalidateQueries({ queryKey: ["evidence", uid] });
+    },
+  });
+}
+
+export function useSetPuzzleLink(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, url }: { puzzleId: number; url: string }) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/link`, "POST", { url }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useMakeMinimeta(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/make-minimeta`, "POST"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useConvertToMeta(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-meta`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useRenamePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, name }: { puzzleId: number; name: string }) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/rename`, "POST", { name },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 /** Modes for solve-variant actions (mirrors web/actions.py). */
 export type SolveMode = "full" | "partial" | "change" | "add";
 
