@@ -346,12 +346,17 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         return found
 
     def get_unassigned(self, hunt_id) -> List[PuzzleData]:
-        """Return non-meta puzzles that feed no meta (for the Unassigned Puzzles tab)."""
+        """Return non-meta puzzles that feed no meta (for the Unassigned Puzzles tab).
+
+        Excludes mini-meta feeders (parent_puzzle_id set) — those are assigned to
+        their mini-meta — and any puzzle tagged into a round that has a meta.
+        """
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(
             "SELECT p.* FROM puzzles p"
             " WHERE p.hunt_id = %s"
             "   AND p.metapuzzle = 0"
+            "   AND p.parent_puzzle_id IS NULL"   # mini-meta feeders are assigned
             "   AND NOT EXISTS ("
             "       SELECT 1 FROM tags t"
             "       JOIN rounds r ON t.round_id = r.id"

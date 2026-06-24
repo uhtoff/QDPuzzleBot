@@ -851,7 +851,14 @@ class GoogleSheets(commands.Cog):
           * appends  -> add new rows just below the existing data
         """
         spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        # Resolve the tab name + current index in one metadata read.
+        tab_name = None
+        current_index = None
+        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+            if s["properties"]["sheetId"] == int(page_id):
+                tab_name = s["properties"]["title"]
+                current_index = s["properties"].get("index")
+                break
         if tab_name is None:
             return
         safe_name = tab_name.replace("'", "''")
@@ -870,14 +877,14 @@ class GoogleSheets(commands.Cog):
             except (ValueError, IndexError):
                 continue
 
-        # Always pin the tab to the far left (index 0). Idempotent — a no-op when
-        # it is already first — and keeps it leftmost even if someone drags it.
-        requests = [{
-            "updateSheetProperties": {
+        # Pin the tab to the far left, but only when it isn't already first — so a
+        # steady-state reconcile with no row changes issues no Sheets write at all.
+        requests = []
+        if current_index not in (0, None):
+            requests.append({"updateSheetProperties": {
                 "properties": {"sheetId": page_id, "index": 0},
                 "fields": "index",
-            }
-        }]
+            }})
 
         # Updates: refresh Puzzle/Answer/Length (cols B-D) on the matched row.
         update_by_id = {row[0]: row for row in updates}
