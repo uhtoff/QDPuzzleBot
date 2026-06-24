@@ -670,6 +670,54 @@ class Puzzles(commands.Cog):
             logger.exception("rebuild_unassigned failed for hunt %s", hunt.id if hunt else "?")
             await ctx.send(f":warning: Failed to reconcile unassigned tab: `{type(exc).__name__}: {exc}`")
 
+    @staticmethod
+    def _format_reconcile_report(report, *, applied):
+        verb = "Applied" if applied else "Would apply"
+        lines = [f"**Reconcile — {verb.lower()}:**"]
+        counts = report.counts()
+        if counts:
+            lines += [f"- {kind}: {n}" for kind, n in sorted(counts.items())]
+        else:
+            lines.append("- no channel/tab changes needed")
+        if report.orphan_channels:
+            lines.append(f":wastebasket: {len(report.orphan_channels)} orphan channel"
+                         f"{'s' if len(report.orphan_channels) != 1 else ''} "
+                         "(not deleted unless you run `!reconcile apply orphans`)")
+        if report.orphan_tabs:
+            lines.append(f":wastebasket: {len(report.orphan_tabs)} orphan tab"
+                         f"{'s' if len(report.orphan_tabs) != 1 else ''} "
+                         "(not deleted unless you run `!reconcile apply orphans`)")
+        if report.failures:
+            lines.append(":warning: failures: "
+                         + ", ".join(f"{t} ({e})" for t, e in report.failures))
+        return "\n".join(lines)
+
+    @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def reconcile(self, ctx, mode: str = "", scope: str = ""):
+        """*(Organiser) Heal Discord channels + Sheets tabs from the DB.
+        `!reconcile` reports; `!reconcile apply` fixes; `!reconcile apply orphans`
+        also deletes orphans (with confirmation).*"""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        apply = mode.lower() == "apply"
+        want_orphans = scope.lower() == "orphans"
+
+        report = await self.service.reconcile(ctx.guild, hunt, apply=apply)
+        await ctx.send(self._format_reconcile_report(report, applied=apply))
+
+        if apply and want_orphans and report.has_orphans():
+            desc = (f"Delete {len(report.orphan_channels)} channel(s) and "
+                    f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?")
+            if await self._confirm_destructive(ctx, desc):
+                deleted, failed = await self.service.delete_orphans(ctx.guild, hunt, report)
+                msg = f":white_check_mark: Deleted {deleted} orphan(s)."
+                if failed:
+                    msg += f" :warning: {failed} could not be deleted."
+                await ctx.send(msg)
+
     async def update_metapuzzle(self, ctx, hunt_round):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
         Raises SheetRefreshError if it failed, so the bang edge surfaces it uniformly

@@ -402,6 +402,13 @@ class GoogleSheets(commands.Cog):
         }
         await self.batch_update(body, archive)
 
+    async def delete_sheet_tab(self, sheet_id, spreadsheet_id=None):
+        """Delete a tab by sheetId via batchUpdate. Tolerates an already-gone tab."""
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
+        body = {"requests": [{"deleteSheet": {"sheetId": int(sheet_id)}}]}
+        req = get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+        await execute_with_retry(req, on_retry=self._notify_retry)
+
     async def update_puzzle(self, puzzle_data,update_name = False):
         await self.update_puzzle_info(puzzle_data, update_name)
 
