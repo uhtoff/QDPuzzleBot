@@ -1247,17 +1247,13 @@ class Puzzles(commands.Cog):
         except Exception as exc:
             await ctx.send(f":warning: Edge set but refresh failed: {exc}")
 
-    async def _round_impl(self, ctx, round_name, command, make_category = True, make_puzzle = True):
-        """Round creation handler — delegates to service (Phase 5 strangle).
+    async def _round_impl(self, ctx, round_name, command):
+        """Round creation handler — delegates to PuzzleService.create_round.
 
-        For bang commands (!r, !mp, !metapuzzle, !roundnometa) with
-        make_category=True, delegates to PuzzleService.create_round.
         The command string determines round type:
-          !r / !round    → Round (creates meta puzzle named "name - meta")
+          !r / !round       → Round (creates meta puzzle named "name - meta")
           !mp / !metapuzzle → Metapuzzle (creates meta puzzle named "name")
           !roundnometa / !rnm → Metaless Round (no meta puzzle)
-        For convert_to_meta (!ctm, make_category=False, make_puzzle=False), creates
-        only a round entry wrapping an existing puzzle.
         """
         from bot.core.notifier import DiscordNotifier
 
@@ -1276,25 +1272,7 @@ class Puzzles(commands.Cog):
         group_type, kind, create_meta, suffix = command_map[command_key]
         hunt = self.get_hunt(ctx)
 
-        # --- Special case: convert_to_meta (make_category=False, make_puzzle=False)
-        # Just creates a round entry around an existing puzzle.
-        if not make_category and not make_puzzle:
-            existing_puzzle = self.get_puzzle(ctx)
-            new_round = RoundData(
-                name=round_name,
-                hunt_id=hunt.id,
-                category_id=existing_puzzle.channel_id,
-                type=group_type,
-                kind=kind,
-            )
-            RoundJsonDb.commit(new_round)
-            new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, round_name)
-            if existing_puzzle is not None:
-                new_round.meta_id = existing_puzzle.id
-            RoundJsonDb.commit(new_round)
-            return new_round, existing_puzzle
-
-        # --- make_category + (optionally) make_puzzle: delegate to service ---
+        # --- Delegate to service ---
         meta_puzzle_name = (
             round_name + suffix if suffix else round_name
         ) if create_meta else False
