@@ -9,6 +9,7 @@ from bot.core.puzzle_service import PuzzleService
 from bot.core.reconcile import ReconcileReport
 from bot.cogs.puzzles import Puzzles
 from bot.store.puzzle_data import PuzzleData
+from tests.conftest import make_hunt
 
 
 # --------------------------------------------------------------------------
@@ -22,7 +23,7 @@ def _service(notifier=None):
 
 
 def _hunt():
-    return SimpleNamespace(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC")
+    return make_hunt(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC")
 
 
 def _puzzle(**kw):
@@ -291,8 +292,8 @@ def test_collect_orphan_tabs_skips_structural_tabs():
         _sheet(999, "old-puzzle"),         # genuine orphan
     ]}
     svc = _service_with_gsheet(gcog)
-    hunt = SimpleNamespace(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
-                           unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
+    hunt = make_hunt(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
+                     unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
     p = _puzzle(google_page_id="100")
     p.additional_sheets = [SimpleNamespace(google_page_id="101")]
     report = ReconcileReport()
