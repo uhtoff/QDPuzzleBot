@@ -1549,26 +1549,6 @@ class Puzzles(commands.Cog):
             f":white_check_mark: I've updated the start time for hunt {self.get_hunt(ctx).name}"
         )
 
-    @commands.hybrid_command(aliases=["ph"])
-    @commands.has_any_role(*ADMIN_ROLES)
-    async def parallel_hunt(self, ctx):
-        """*Mark that hunts are being done in parallel - more than one team doing at the same time
-        Acts as a toggle."""
-        if self.get_channel_type(ctx) != "Hunt":
-            await ctx.send(":x: This must be sent in the main hunt channel")
-            return
-
-        self.get_hunt(ctx).parallel_hunt = not self.get_hunt(ctx).parallel_hunt
-
-        if self.get_hunt(ctx).parallel_hunt:
-            return await ctx.send(
-                f":white_check_mark: I've marked {self.get_hunt(ctx).name} as being run in parallel"
-            )
-        else:
-            return await ctx.send(
-                f":white_check_mark: I've marked {self.get_hunt(ctx).name} as not being run in parallel"
-            )
-
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)

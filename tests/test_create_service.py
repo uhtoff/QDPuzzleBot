@@ -22,7 +22,6 @@ def _svc_hunt():
     h.archive_google_sheet_id = "A1"
     h.url = None
     h.category_id = 1
-    h.parallel_hunt = False
     h.name = "H"
     return h
 

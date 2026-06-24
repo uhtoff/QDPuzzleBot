@@ -94,7 +94,6 @@ async def test_web_create_round_cleans_up_meta_puzzle_on_late_failure():
 
     hunt = _hunt()
     hunt.category_id = 1
-    hunt.parallel_hunt = False
     hunt.name = "H"
 
     created_puzzle = MagicMock(id=77, name="New Round", channel_id=None)

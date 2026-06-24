@@ -21,7 +21,6 @@ def _hunt(id=10, uid="HUNT1", guild_id=111222333):
     h.archive_google_sheet_id = "A1"
     h.url = None
     h.category_id = 1
-    h.parallel_hunt = False
     h.name = "H"
     return h
 

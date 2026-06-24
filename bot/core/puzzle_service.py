@@ -1232,7 +1232,7 @@ class PuzzleService:
 
         new_category_name = clean_name(name)
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
-        if existing_category or hunt.parallel_hunt:
+        if existing_category:
             new_category_name = new_category_name + " — " + clean_name(hunt.name)
             existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
