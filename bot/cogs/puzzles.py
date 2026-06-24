@@ -1096,7 +1096,7 @@ class Puzzles(commands.Cog):
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1118,7 +1118,7 @@ class Puzzles(commands.Cog):
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1140,7 +1140,7 @@ class Puzzles(commands.Cog):
     async def remove_from_meta(self, ctx, meta_code):
         """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1221,7 +1221,7 @@ class Puzzles(commands.Cog):
     async def pool(self, ctx):
         """*Tag puzzle as aggregates-into for its meta: !pool (run in a puzzle channel)*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
@@ -1445,7 +1445,7 @@ class Puzzles(commands.Cog):
                 await ctx.send(embed=e)
 
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
@@ -1510,7 +1510,7 @@ class Puzzles(commands.Cog):
         elif self.get_puzzle(ctx):
             settings = self.get_puzzle(ctx)
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
@@ -1946,7 +1946,7 @@ class Puzzles(commands.Cog):
                 return
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     async def _update_puzzle_field(self, ctx, field, value):
         """Set a puzzle attribute and re-render the channel state, or warn if not a puzzle channel."""
@@ -1957,7 +1957,7 @@ class Puzzles(commands.Cog):
                 ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if value else None
             )
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -1971,7 +1971,7 @@ class Puzzles(commands.Cog):
                 ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if url else None
             )
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.hybrid_command(description="Update puzzle status")
     @app_commands.choices(status=[
@@ -1987,7 +1987,7 @@ class Puzzles(commands.Cog):
         """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         hunt = self.get_hunt(ctx)
         try:
@@ -2003,7 +2003,7 @@ class Puzzles(commands.Cog):
         """*Update puzzle type, e.g. "crossword"*"""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         hunt = self.get_hunt(ctx)
         await self.service.update_puzzle_field(hunt, puzzle, "puzzle_type", puzzle_type)
@@ -2021,7 +2021,7 @@ class Puzzles(commands.Cog):
         """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         hunt = self.get_hunt(ctx)
         try:
@@ -2487,7 +2487,7 @@ class Puzzles(commands.Cog):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
         # Wrapper for delete command
         if self.get_channel_type(ctx) != "Puzzle":
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
 
         if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):

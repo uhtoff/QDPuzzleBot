@@ -138,4 +138,4 @@ class TestPoolCommand:
         cog.get_channel_type = lambda ctx: "Hunt"
         ctx = _ctx(channel_type="Hunt")
         await Puzzles.pool.callback(cog, ctx)
-        assert "Puzzle channel" in ctx.send.call_args[0][0]
+        assert "puzzle channel" in ctx.send.call_args[0][0]
