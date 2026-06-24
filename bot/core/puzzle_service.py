@@ -183,12 +183,29 @@ class PuzzleService:
                     continue
                 report.add_orphan_channel(channel.id, channel.name)
 
+    # Structural tabs that live in the spreadsheet template (or are otherwise
+    # not tracked by a page id) and must never be treated as orphan puzzle tabs.
+    RESERVED_TAB_TITLES = frozenset({
+        "REFERENCE", "Unassigned Puzzles", "Evidence",
+        "Tab template", "Meta Tab template", "Overview",
+    })
+
     def _collect_orphan_tabs(self, hunt, puzzles, report):
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return
         spreadsheet = gsheet_cog.get_spreadsheet_id()
         valid = {str(p.google_page_id) for p in puzzles if p.google_page_id and not p.archived}
+        # Additional per-puzzle sheets are real puzzle tabs, not orphans.
+        for puzzle in puzzles:
+            for sheet in getattr(puzzle, "additional_sheets", None) or []:
+                if sheet.google_page_id:
+                    valid.add(str(sheet.google_page_id))
+        # Bot-managed structural tabs tracked on the hunt are never orphans.
+        for page_id in (getattr(hunt, "unassigned_sheet_page_id", None),
+                        getattr(hunt, "evidence_sheet_page_id", None)):
+            if page_id is not None:
+                valid.add(str(page_id))
         try:
             sheets = gsheet_cog.sheet_list(spreadsheet)["sheets"]
         except Exception:  # noqa: BLE001
@@ -198,10 +215,14 @@ class PuzzleService:
             props = sheet.get("properties", {})
             if props.get("hidden"):
                 continue
+            title = props.get("title", "")
+            # Skip template/structural tabs not tracked by a page id (e.g. REFERENCE).
+            if title in self.RESERVED_TAB_TITLES:
+                continue
             sheet_id = props.get("sheetId")
             if str(sheet_id) in valid:
                 continue
-            report.add_orphan_tab(sheet_id, props.get("title", str(sheet_id)))
+            report.add_orphan_tab(sheet_id, title or str(sheet_id))
 
     async def delete_orphans(self, guild, hunt, report):
         """Delete the orphan channels/tabs recorded in `report`. Tolerant of

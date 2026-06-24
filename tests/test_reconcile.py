@@ -259,6 +259,33 @@ def test_reconcile_failure_isolated_per_puzzle():
            any(t == "Boom" for t, _ in report.failures)
 
 
+def test_collect_orphan_tabs_skips_structural_tabs():
+    """Structural tabs (REFERENCE template tab, Unassigned Puzzles, Evidence)
+    and puzzle additional-sheet tabs are never orphans — only a genuinely
+    unmatched tab is flagged."""
+    def _sheet(sheet_id, title):
+        return {"properties": {"sheetId": sheet_id, "title": title}}
+
+    gcog = MagicMock()
+    gcog.get_spreadsheet_id.return_value = "SS"
+    gcog.sheet_list.return_value = {"sheets": [
+        _sheet(100, "Tide"),               # valid puzzle tab
+        _sheet(101, "Tide — notes"),       # puzzle additional sheet
+        _sheet(200, "Unassigned Puzzles"), # structural (page-id tracked)
+        _sheet(201, "Evidence"),           # structural (page-id tracked)
+        _sheet(300, "REFERENCE"),          # structural template tab (untracked)
+        _sheet(999, "old-puzzle"),         # genuine orphan
+    ]}
+    svc = _service_with_gsheet(gcog)
+    hunt = SimpleNamespace(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
+                           unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
+    p = _puzzle(google_page_id="100")
+    p.additional_sheets = [SimpleNamespace(google_page_id="101")]
+    report = ReconcileReport()
+    svc._collect_orphan_tabs(hunt, [p], report)
+    assert report.orphan_tabs == [(999, "old-puzzle")]
+
+
 # --------------------------------------------------------------------------
 # Task 5: Orphan deletion
 # --------------------------------------------------------------------------
