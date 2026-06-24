@@ -281,6 +281,34 @@ export function useRetagPuzzle(uid: string) {
   });
 }
 
+export interface ConvertPreview {
+  orphan_count: number;
+  orphan_feeders: { id: number; name: string }[];
+}
+
+/** Read-only preview for the convert-to-feeder confirm dialog: how many feeders
+ * (and which) demoting this metapuzzle would orphan. Only fetched while enabled. */
+export function useConvertToFeederPreview(puzzleId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["convert-preview", puzzleId],
+    queryFn: () =>
+      apiGet<ConvertPreview>(`/api/puzzles/${puzzleId}/convert-to-feeder/preview`),
+    enabled: enabled && puzzleId != null,
+  });
+}
+
+export function useConvertToFeeder(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; orphaned?: number; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-feeder`,
+        "POST"
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useRebuildRollup(uid: string) {
   const qc = useQueryClient();
   return useMutation({
