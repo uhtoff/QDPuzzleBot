@@ -13,3 +13,4 @@ ORGANISER_ROLES = ADMIN_ROLES + ('Organisers',)
 STATUSES = ["unstarted", "in progress", "stuck", "needs extraction",
             "needs submission", "solved", "backsolved"]
 PRIORITIES = ["low", "medium", "high", "very high"]
+SOURCE_MODES = ("round", "subtree", "explicit")

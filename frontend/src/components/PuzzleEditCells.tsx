@@ -14,7 +14,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import type { Puzzle } from "../types";
 import { useSolvePuzzle, type SolveMode } from "../api";
-import { priorityColor, statusColor } from "../util";
+import { notifyError, showSheetWarning, priorityColor, statusColor } from "../util";
 
 const STATUS_OPTIONS = [
   "Unstarted",
@@ -146,16 +146,14 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; ui
                   ? `Changed solution for \"${puzzle.name}\"`
                   : `Added solution to \"${puzzle.name}\"`;
           notifications.show({ message: msg, color: mode === "partial" ? "blue" : "green" });
-          if (data.sheet_warning) {
-            notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
-          }
+          showSheetWarning(data);
           setPartialText("");
           setFullText("");
           setChangeText("");
           setAddText("");
           onClose();
         },
-        onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+        onError: notifyError,
       },
     );
   }

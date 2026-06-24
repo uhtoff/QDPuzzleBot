@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
@@ -6,7 +7,6 @@ import {
   Badge,
   Box,
   Group,
-  Indicator,
   Modal,
   Select,
   Table,
@@ -17,7 +17,6 @@ import {
   IconAlertTriangle,
   IconCircleCheck,
   IconCopy,
-  IconNote,
   IconRefresh,
   IconTrash,
   IconTree,
@@ -38,7 +37,8 @@ import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
-import { relativeTime, statusColor } from "../util";
+import { PuzzleRowActions } from "./PuzzleRowActions";
+import { notifyError, relativeTime, statusColor } from "../util";
 
 interface Props {
   group: BoardGroupType;
@@ -52,7 +52,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
-  const [expandedMinis, setExpandedMinis] = useState<Set<number>>(new Set());
+  const { expandedMinis, toggleMinis } = useMiniExpansion();
   const [nestModalOpen, setNestModalOpen] = useState(false);
   const [nestParentId, setNestParentId] = useState<string|null>(null);
   // Aggregated answers reveal
@@ -77,7 +77,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             ? { message: `Rebuilt "${group.name}" sheet`, color: "green" }
             : { message: data.error || "Rebuild failed", color: "red" }
         ),
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -89,7 +89,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             ? { message: `"${group.name}" → ${mode}`, color: "green" }
             : { message: "Failed to update source_mode", color: "red" }
         ),
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -106,7 +106,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         setNestModalOpen(false);
         setNestParentId(null);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -124,7 +124,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         }
         setDeleteRoundOpen(false);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -139,14 +139,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
     }
     clipboard.copy(rows.join("\n"));
     notifications.show({ message: `Copied ${rows.length} answers`, color: "green" });
-  }
-
-  function toggleMinis(id: number) {
-    setExpandedMinis((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
   }
 
   function activityFor(p: Puzzle): string {
@@ -313,36 +305,14 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                     {activityFor(p)}
                   </Text>
                 </Table.Td>
-                <Table.Td w={76}>
-                  <Group gap={2} wrap="nowrap">
-                    {editable && !p.solved && (
-                      <Tooltip label="Mark solved">
-                        <ActionIcon variant="subtle" color="green" onClick={() => setSolvePuzzle(p)} aria-label="Solve">
-                          <IconCircleCheck size={16} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                    <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
-                      <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Details">
-                        <IconNote size={15} />
-                      </ActionIcon>
-                    </Indicator>
-                    {p.puzzle_type === "Minimeta" && (
-                      <Tooltip label={`${p.mini_puzzles.filter((m) => m.solved).length}/${p.mini_puzzles.length} minis solved`}>
-                        <ActionIcon
-                          size="sm"
-                          variant="subtle"
-                          onClick={() => toggleMinis(p.id)}
-                          aria-label="Toggle minis"
-                        >
-                          <Badge color="violet" variant="light">
-                            {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
-                          </Badge>
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                  </Group>
-                </Table.Td>
+                <PuzzleRowActions
+                  puzzle={p}
+                  editable={editable}
+                  onSolve={setSolvePuzzle}
+                  onOpenNotes={onOpenNotes}
+                  onToggleMinis={toggleMinis}
+                  tdWidth={76}
+                />
               </Table.Tr>
               {p.puzzle_type === "Minimeta" && expandedMinis.has(p.id) && (
                 <Table.Tr>

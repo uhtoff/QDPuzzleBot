@@ -2,17 +2,7 @@
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.conftest import make_puzzle
-
-
-def _make_hunt(id=10):
-    from bot.store.hunt_data import HuntData
-    h = HuntData()
-    h.id = id
-    h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCHIVE1"
-    h.evidence_sheet_page_id = None
-    return h
+from tests.conftest import make_hunt, make_puzzle
 
 
 class TestEvidenceData:
@@ -67,7 +57,7 @@ class TestLogClues:
         EvidenceDb.log.side_effect = [item1, item2]
 
         svc = PuzzleService(MagicMock())
-        hunt = _make_hunt()
+        hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
         result = svc.log_clues(hunt, puzzle, ["note A", "note B"])
@@ -84,7 +74,7 @@ class TestLogClues:
         EvidenceDb.log.return_value = item
 
         svc = PuzzleService(MagicMock())
-        result = svc.log_clues(_make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
+        result = svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
 
         EvidenceDb.log.assert_called_once_with(10, 3, "solo note")
         assert result == [item]
@@ -93,7 +83,7 @@ class TestLogClues:
     def test_empty_list_returns_empty(self, EvidenceDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(MagicMock())
-        result = svc.log_clues(_make_hunt(), make_puzzle(id=3, hunt_id=10), [])
+        result = svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), [])
         EvidenceDb.log.assert_not_called()
         assert result == []
 
@@ -106,7 +96,7 @@ class TestRefreshEvidence:
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
     async def test_creates_tab_lazily_when_none(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt()
+        hunt = make_hunt()
         hunt.evidence_sheet_page_id = None
 
         item = MagicMock()
@@ -138,7 +128,7 @@ class TestRefreshEvidence:
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
     async def test_skips_tab_create_when_already_set(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt()
+        hunt = make_hunt()
         hunt.evidence_sheet_page_id = 99  # already exists
 
         EvidenceDb.get_all.return_value = []
@@ -162,7 +152,7 @@ class TestRefreshEvidence:
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
     async def test_aggregate_to_tab_receives_correct_columns(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt()
+        hunt = make_hunt()
         hunt.evidence_sheet_page_id = 99
 
         EvidenceDb.get_all.return_value = []
@@ -188,7 +178,7 @@ class TestRefreshEvidence:
     async def test_no_gsheet_cog_is_noop(self, EvidenceDb, PuzzleDb, HuntDb):
         """refresh_evidence is a no-op when the gsheet cog is unavailable."""
         from bot.core.puzzle_service import PuzzleService
-        hunt = _make_hunt()
+        hunt = make_hunt()
         hunt.evidence_sheet_page_id = 99
 
         EvidenceDb.get_all.return_value = []

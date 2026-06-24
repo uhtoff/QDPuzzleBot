@@ -15,8 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bot.store.hunt_data import HuntData
-from tests.conftest import make_puzzle, make_round
+from tests.conftest import make_hunt, make_puzzle, make_round
 
 
 # ---------------------------------------------------------------------------
@@ -31,14 +30,6 @@ def _make_cog():
     bot.get_cog.return_value = None  # no GoogleSheets cog
     cog = Puzzles(bot)
     return cog
-
-
-def _make_hunt(id=10, google_sheet_id="SHEET1", archive_google_sheet_id="ARCHIVE1"):
-    h = HuntData()
-    h.id = id
-    h.google_sheet_id = google_sheet_id
-    h.archive_google_sheet_id = archive_google_sheet_id
-    return h
 
 
 def _no_guild():
@@ -59,7 +50,7 @@ class TestWebSolvePuzzleState:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run_solve(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -165,6 +156,120 @@ class TestWebSolvePuzzleState:
 
 
 # ---------------------------------------------------------------------------
+# Solution casing normalization — service-level uppercase
+# ---------------------------------------------------------------------------
+
+class TestSolutionCasingNormalization:
+    """Service methods must normalize solution strings to uppercase so both
+    the bang and web surfaces get consistent casing without relying on the
+    edge to strip/upper first."""
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return make_hunt()
+
+    def _patch_ctx(self):
+        return (
+            patch("bot.cogs.puzzles.PuzzleJsonDb"),
+            patch("bot.cogs.puzzles.RoundJsonDb"),
+            patch("bot.cogs.puzzles.HuntJsonDb"),
+            patch("bot.cogs.puzzles.GuildSettingsDb"),
+        )
+
+    async def _run_solve(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.solve(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_add_partial(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.add_partial(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_change_solution(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.change_solution(_no_guild(), hunt, puzzle, solution)
+
+    async def _run_add_solution(self, cog, hunt, puzzle, solution):
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
+             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
+             patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
+             patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
+             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
+             patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
+            mock_pdb.commit.side_effect = lambda p: None
+            mock_rdb.get_by_attr.return_value = None
+            mock_hdb.get_by_attr.return_value = hunt
+            mock_gsdb.get.return_value = None
+            await cog.service.add_solution(_no_guild(), hunt, puzzle, solution)
+
+    @pytest.mark.asyncio
+    async def test_solve_normalizes_to_uppercase(self, cog, hunt):
+        """service.solve with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solution=None)
+        await self._run_solve(cog, hunt, puz, "  abc  ")
+        assert puz.solution == "ABC"
+
+    @pytest.mark.asyncio
+    async def test_add_partial_normalizes_to_uppercase(self, cog, hunt):
+        """service.add_partial with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solution=None)
+        await self._run_add_partial(cog, hunt, puz, "  partial  ")
+        assert puz.solution == "PARTIAL"
+
+    @pytest.mark.asyncio
+    async def test_change_solution_normalizes_to_uppercase(self, cog, hunt):
+        """service.change_solution with lowercase input stores uppercase solution."""
+        puz = make_puzzle(solved=True, solution="OLD")
+        await self._run_change_solution(cog, hunt, puz, "  new  ")
+        assert puz.solution == "NEW"
+
+    @pytest.mark.asyncio
+    async def test_add_solution_normalizes_to_uppercase(self, cog, hunt):
+        """service.add_solution with lowercase input appends uppercase solution."""
+        puz = make_puzzle(solved=True, solution="FIRST")
+        await self._run_add_solution(cog, hunt, puz, "  second  ")
+        assert puz.solution == "FIRST/SECOND"
+
+
+# ---------------------------------------------------------------------------
 # add_to_meta (service) — tag mutation
 # ---------------------------------------------------------------------------
 
@@ -174,7 +279,7 @@ class TestWebAddToMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, round_data):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
@@ -220,7 +325,7 @@ class TestWebRemoveFromMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, round_data):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
              patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
@@ -267,7 +372,7 @@ class TestWebMoveToMeta:
         return _make_cog()
 
     async def _run(self, cog, puzzle, new_round, old_rounds_by_id=None):
-        hunt = _make_hunt()
+        hunt = make_hunt()
         old_rounds_by_id = old_rounds_by_id or {}
 
         def fake_round_get(**kwargs):
@@ -314,7 +419,7 @@ class TestWebAddPartial:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -385,7 +490,7 @@ class TestWebChangeSolution:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -443,7 +548,7 @@ class TestWebAddSolution:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, solution, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -498,7 +603,7 @@ class TestWebConvertToFeeder:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, meta_round=None, round_members=None):
         """round_members = the puzzles get_all_from_round returns for the meta's
@@ -608,7 +713,7 @@ class TestWebDeletePuzzle:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, meta_rounds=None):
         """Run service.delete_puzzle with mocked DBs. meta_rounds is the list
@@ -674,7 +779,7 @@ class TestWebDeleteRound:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, hunt_round, puzzles=None):
         """Run service.delete_round with mocked DBs.
@@ -744,7 +849,7 @@ class TestWebSetPuzzleUrl:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, url, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -807,7 +912,7 @@ class TestWebConvertToMeta:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -870,7 +975,7 @@ class TestWebRenamePuzzle:
 
     @pytest.fixture
     def hunt(self):
-        return _make_hunt()
+        return make_hunt()
 
     async def _run(self, cog, hunt, puzzle, name, rounds_by_id=None):
         rounds_by_id = rounds_by_id or {}
@@ -908,3 +1013,58 @@ class TestWebRenamePuzzle:
         puz = make_puzzle(id=42, name="Old")
         commits = await self._run(cog, hunt, puz, "New")
         assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
+
+
+# ---------------------------------------------------------------------------
+# Bang !unsolve delegation — verifies the cog delegates to service.unsolve
+# ---------------------------------------------------------------------------
+class TestBangUnsolveDelegation:
+    """The !unsolve bang command must delegate business logic to service.unsolve.
+
+    This test mocks service.unsolve and asserts the cog calls it with the
+    correct puzzle_data argument, so the full service logic (meta refresh,
+    minimeta rollup, thread unarchive) is invoked rather than a hand-rolled
+    partial implementation.
+    """
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.mark.asyncio
+    async def test_bang_unsolve_calls_service_unsolve(self, cog):
+        """!unsolve must call self.service.unsolve(guild, hunt, puzzle_data)."""
+        from unittest.mock import AsyncMock, patch
+        import discord
+
+        puz = make_puzzle(id=5, solved=True, solution="WRONG")
+        hunt = make_hunt()
+
+        # Build a minimal ctx stub
+        ctx = MagicMock()
+        ctx.channel.id = puz.channel_id
+        ctx.guild = MagicMock(spec=discord.Guild)
+        ctx.send = AsyncMock()
+
+        # Stub helpers the cog uses before delegating
+        cog.get_puzzle = MagicMock(return_value=puz)
+        cog.get_hunt = MagicMock(return_value=hunt)
+        cog.get_guild = MagicMock(return_value=ctx.guild)
+        cog.get_guild_data = MagicMock()
+        cog.get_guild_data.return_value.discord_bot_emoji = ":robot:"
+        cog.move_to_bottom = AsyncMock()
+        cog.info = AsyncMock()
+        cog._warn_stale_sheets = AsyncMock()
+
+        # Mock service.unsolve — this is what we're asserting IS called
+        cog.service.unsolve = AsyncMock()
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb"), \
+             patch("bot.cogs.puzzles.RoundJsonDb"):
+            await cog.unsolve.callback(cog, ctx)
+
+        cog.service.unsolve.assert_called_once()
+        call_args = cog.service.unsolve.call_args
+        # The puzzle data must be passed somewhere in the call
+        all_args = list(call_args.args) + list(call_args.kwargs.values())
+        assert puz in all_args

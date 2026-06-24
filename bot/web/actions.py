@@ -23,7 +23,6 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.constants import STATUSES, PRIORITIES
 from bot.core.locks import puzzle_lock
 from bot.core.errors import SheetRefreshError
 
@@ -32,10 +31,6 @@ logger = logging.getLogger(__name__)
 actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
-
-PUZZLE_STATUSES = set(STATUSES)
-PUZZLE_PRIORITIES = set(PRIORITIES)
-
 
 def _display_name(user):
     return user.get("global_name") or user.get("username") or "web user"
@@ -150,14 +145,17 @@ async def add_note(puzzle_id):
         return jsonify({"error": "empty_note"}), 400
     text = text[:MAX_NOTE_LEN]
 
-    from bot.store import PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    cog = current_app.bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        puzzle.notes.append(f"{text} - {_display_name(current_user())} (web)")
-        PuzzleJsonDb.commit(puzzle)
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        attribution = f"{_display_name(current_user())} (web)"
+        await cog.service.add_note(hunt_obj, puzzle, text, attribution)
         await _audit("note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})
@@ -171,16 +169,18 @@ async def erase_note(puzzle_id, index):
     if err:
         return err
 
-    from bot.store import PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    cog = current_app.bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if not (1 <= index <= len(puzzle.notes)):
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        erased = await cog.service.erase_note(hunt_obj, puzzle, index)
+        if not erased:
             return jsonify({"error": "bad_index", "notes": puzzle.notes}), 400
-        del puzzle.notes[index - 1]
-        PuzzleJsonDb.commit(puzzle)
         await _audit("erase_note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})
@@ -206,32 +206,30 @@ async def update_puzzle(puzzle_id):
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
 
+        cog = current_app.bot.get_cog("Puzzles")
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+
         changed = False
-        if "status" in body:
-            value = (body.get("status") or "").strip()
-            if value.lower() not in PUZZLE_STATUSES:
-                return jsonify({"error": "bad_status"}), 400
-            puzzle.status = value
-            changed = True
-        if "priority" in body:
-            value = (body.get("priority") or "").strip()
-            if value.lower() not in PUZZLE_PRIORITIES:
-                return jsonify({"error": "bad_priority"}), 400
-            puzzle.priority = value
-            changed = True
-        if "puzzle_type" in body:
-            puzzle.puzzle_type = (body.get("puzzle_type") or "").strip()
+        for web_field, db_field, err_key in [
+            ("status", "status", "bad_status"),
+            ("priority", "priority", "bad_priority"),
+            ("puzzle_type", "puzzle_type", None),
+        ]:
+            if web_field not in body:
+                continue
+            value = (body.get(web_field) or "").strip()
+            try:
+                await cog.service.update_puzzle_field(hunt_obj, puzzle, db_field, value)
+            except ValueError:
+                return jsonify({"error": err_key or f"bad_{web_field}"}), 400
             changed = True
 
         if changed:
-            PuzzleJsonDb.commit(puzzle)
             await _audit("update_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
-            cog = current_app.bot.get_cog("Puzzles")
             if cog is not None:
                 snowflake = ctx["guild_snowflake"]
                 guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-                hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
                 await cog.web_refresh_info(guild, hunt_obj, puzzle)
     return jsonify({"ok": True})
 
@@ -1227,22 +1225,15 @@ async def set_source_mode(round_id):
 
     body = await request.get_json(silent=True) or {}
     mode = (body.get("source_mode") or "").strip()
-    allowed = ("round", "subtree", "explicit")
-    if mode not in allowed:
-        return jsonify({"error": "bad_source_mode", "allowed": allowed}), 400
+    from bot.core.constants import SOURCE_MODES
+    if mode not in SOURCE_MODES:
+        return jsonify({"error": "bad_source_mode", "allowed": SOURCE_MODES}), 400
 
-    from bot.store import HuntJsonDb, RoundJsonDb, RollupsJsonDb
-    from bot.store.rollup_data import RollupData
+    from bot.store import HuntJsonDb, RoundJsonDb
 
     meta_round = RoundJsonDb.get_by_attr(id=round_id)
     if meta_round is None:
         return jsonify({"error": "round_not_found"}), 404
-
-    rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
-    if rollup is None:
-        rollup = RollupData(hunt_id=meta_round.hunt_id, round_id=meta_round.id)
-    rollup.source_mode = mode
-    RollupsJsonDb.commit(rollup)
 
     bot = current_app.bot
     cog = bot.get_cog("Puzzles")
@@ -1250,7 +1241,7 @@ async def set_source_mode(round_id):
         return jsonify({"error": "bot_unavailable"}), 503
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     try:
-        await cog.service.refresh_meta(hunt_obj, meta_round)
+        await cog.service.set_source_mode(hunt_obj, meta_round, mode)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     except Exception as exc:
@@ -1349,7 +1340,11 @@ async def create_puzzle(uid):
         return jsonify({"error": "bot_unavailable"}), 503
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
-        puzzle = await cog.web_create_puzzle(guild, hunt_obj, meta_round, name)
+        from bot.core.notifier import DiscordNotifier
+        puzzle = await cog.service.create_puzzle(
+            guild, hunt_obj, meta_round, name,
+            notifier=DiscordNotifier(current_app.bot),
+        )
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -1381,7 +1376,18 @@ async def create_meta(uid):
         return jsonify({"error": "bot_unavailable"}), 503
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
-        new_round, puzzle = await cog.web_create_round(guild, hunt_obj, name)
+        from bot.core.notifier import DiscordNotifier
+        new_round, puzzle = await cog.service.create_round(
+            guild, hunt_obj, name, notifier=None,
+        )
+        # Send the meta welcome now that meta_code/meta_id are populated.
+        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
+        if channel is not None:
+            notifier = DiscordNotifier(bot)
+            try:
+                await notifier.welcome(guild, hunt_obj, new_round, puzzle, channel)
+            except Exception:
+                logger.exception("create_meta: failed to send/pin welcome message")
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:

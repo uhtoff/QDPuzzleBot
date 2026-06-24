@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, SheetsJsonDb, RollupsJsonDb, RollupData
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -222,11 +222,6 @@ class Puzzles(commands.Cog):
                 break
 
         return choices
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print(f"{type(self).__name__} Cog ready.")
-
 
     def clean_name(self, name):
         """Cleanup name to be appropriate for discord channel."""
@@ -666,9 +661,7 @@ class Puzzles(commands.Cog):
             raise SheetRefreshError(failed)
 
     async def web_refresh_meta(self, hunt, hunt_round):
-        """Best-effort wrapper over PuzzleService.refresh_meta, retained as the
-        swallowing wrapper still used by web_create_puzzle (deferred to M3.5).
-        Swallows Sheets errors."""
+        """Best-effort wrapper over PuzzleService.refresh_meta.  Swallows Sheets errors."""
         try:
             await self.service.refresh_meta(hunt, hunt_round)
         except Exception:
@@ -695,43 +688,6 @@ class Puzzles(commands.Cog):
             await notifier.refresh_info(guild, hunt, puzzle)
         except Exception:
             logger.exception("web_refresh_info: failed to refresh pinned info for puzzle %s", puzzle.id)
-
-    async def web_create_puzzle(self, guild, hunt, round_data, puzzle_name, is_meta=False, send_welcome=True):
-        """ctx-free puzzle creation for the dashboard.
-
-        Delegates to PuzzleService.create_puzzle (canonical implementation).
-        Raises RuntimeError("<code>") on a recoverable problem (e.g. no space).
-        """
-        from bot.core.notifier import DiscordNotifier
-        notifier = DiscordNotifier(self.bot) if send_welcome else None
-        new_puzzle = await self.service.create_puzzle(
-            guild, hunt, round_data, puzzle_name,
-            is_meta=is_meta,
-            notifier=notifier,
-        )
-        # Best-effort meta-sheet refresh for any tags assigned (service already
-        # does this internally; duplicate calls are cheap).
-        for tag in new_puzzle.tags:
-            await self.web_refresh_meta(hunt, RoundJsonDb.get_by_attr(id=tag))
-        return new_puzzle
-
-    async def web_create_round(self, guild, hunt, name):
-        """ctx-free metapuzzle/round creation for the dashboard (like !mp).
-
-        Delegates to PuzzleService.create_round (canonical implementation).
-        Suppresses the service's early welcome (notifier=None) because meta_code
-        is not yet populated when create_puzzle fires it; instead sends the
-        welcome once afterwards so meta_code is present in the embed. Raises
-        RuntimeError("<code>") on a recoverable problem.
-        """
-        new_round, puzzle = await self.service.create_round(
-            guild, hunt, name, notifier=None,
-        )
-        # Send the meta welcome now that meta_code/meta_id are populated.
-        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
-        if channel is not None:
-            await self._web_send_welcome(guild, hunt, new_round, puzzle, channel)
-        return new_round, puzzle
 
     async def web_post_solved_embed(self, guild, hunt, puzzle):
         """Best-effort dashboard-side presentation after service.solve: post the
@@ -897,11 +853,8 @@ class Puzzles(commands.Cog):
             return await self.send_not_puzzle_channel(ctx)
         if number < 1 or number > len(puzzle.additional_sheets):
             return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
-        sheet = puzzle.additional_sheets[number - 1]
-        name = sheet.puzzle_name
-        # Call the helper directly: the sheet is already resolved by index here, so
-        # service.remove_sheet() (which re-looks-up by id) would just re-scan the list.
-        await self.service._delete_additional_sheet(self.get_hunt(ctx), puzzle, sheet)
+        name = puzzle.additional_sheets[number - 1].puzzle_name
+        await self.service.remove_sheet_by_index(self.get_hunt(ctx), puzzle, number)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
@@ -1102,7 +1055,7 @@ class Puzzles(commands.Cog):
     async def add_to_meta(self, ctx, meta_code):
         """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1124,7 +1077,7 @@ class Puzzles(commands.Cog):
     async def move_to_meta(self, ctx, meta_code):
         """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1146,7 +1099,7 @@ class Puzzles(commands.Cog):
     async def remove_from_meta(self, ctx, meta_code):
         """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
@@ -1198,7 +1151,8 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def source_mode(self, ctx, code: str, mode: str):
         """*Set rollup source mode: !source_mode <meta_code> <round|subtree|explicit>*"""
-        if mode not in ("round", "subtree", "explicit"):
+        from bot.core.constants import SOURCE_MODES
+        if mode not in SOURCE_MODES:
             await ctx.send(":x: source_mode must be one of: round, subtree, explicit")
             return
         hunt = self.get_hunt(ctx)
@@ -1209,13 +1163,8 @@ class Puzzles(commands.Cog):
         if not meta_round or not meta_round.meta_id:
             await ctx.send(":x: Invalid meta code — must reference a meta round.")
             return
-        rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
-        if rollup is None:
-            rollup = RollupData(hunt_id=hunt.id, round_id=meta_round.id)
-        rollup.source_mode = mode
-        RollupsJsonDb.commit(rollup)
         try:
-            await self.service.refresh_meta(hunt, meta_round)
+            await self.service.set_source_mode(hunt, meta_round, mode)
             await ctx.send(f":white_check_mark: {code} source_mode set to '{mode}'.")
         except SheetRefreshError as exc:
             await ctx.send(
@@ -1231,7 +1180,7 @@ class Puzzles(commands.Cog):
     async def pool(self, ctx):
         """*Tag puzzle as aggregates-into for its meta: !pool (run in a puzzle channel)*"""
         if self.get_channel_type(ctx) == "Hunt":
-            await ctx.send(":x: This does not appear to be a Puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
@@ -1257,17 +1206,13 @@ class Puzzles(commands.Cog):
         except Exception as exc:
             await ctx.send(f":warning: Edge set but refresh failed: {exc}")
 
-    async def _round_impl(self, ctx, round_name, command, make_category = True, make_puzzle = True):
-        """Round creation handler — delegates to service (Phase 5 strangle).
+    async def _round_impl(self, ctx, round_name, command):
+        """Round creation handler — delegates to PuzzleService.create_round.
 
-        For bang commands (!r, !mp, !metapuzzle, !roundnometa) with
-        make_category=True, delegates to PuzzleService.create_round.
         The command string determines round type:
-          !r / !round    → Round (creates meta puzzle named "name - meta")
+          !r / !round       → Round (creates meta puzzle named "name - meta")
           !mp / !metapuzzle → Metapuzzle (creates meta puzzle named "name")
           !roundnometa / !rnm → Metaless Round (no meta puzzle)
-        For convert_to_meta (!ctm, make_category=False, make_puzzle=False), creates
-        only a round entry wrapping an existing puzzle.
         """
         from bot.core.notifier import DiscordNotifier
 
@@ -1286,25 +1231,7 @@ class Puzzles(commands.Cog):
         group_type, kind, create_meta, suffix = command_map[command_key]
         hunt = self.get_hunt(ctx)
 
-        # --- Special case: convert_to_meta (make_category=False, make_puzzle=False)
-        # Just creates a round entry around an existing puzzle.
-        if not make_category and not make_puzzle:
-            existing_puzzle = self.get_puzzle(ctx)
-            new_round = RoundData(
-                name=round_name,
-                hunt_id=hunt.id,
-                category_id=existing_puzzle.channel_id,
-                type=group_type,
-                kind=kind,
-            )
-            RoundJsonDb.commit(new_round)
-            new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, round_name)
-            if existing_puzzle is not None:
-                new_round.meta_id = existing_puzzle.id
-            RoundJsonDb.commit(new_round)
-            return new_round, existing_puzzle
-
-        # --- make_category + (optionally) make_puzzle: delegate to service ---
+        # --- Delegate to service ---
         meta_puzzle_name = (
             round_name + suffix if suffix else round_name
         ) if create_meta else False
@@ -1382,9 +1309,8 @@ class Puzzles(commands.Cog):
             hunt_round, puzzle = await self.service.convert_to_meta(
                 ctx.guild, self.get_hunt(ctx), puzzle
             )
-        except RuntimeError as exc:
-            if str(exc) == "already_meta":
-                await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
             return
         # Point the request-scoped cache at the freshly-created round so the
         # metapuzzle intro embed below (info → send_initial_metapuzzle_channel_messages)
@@ -1410,7 +1336,11 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
-        await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
+        try:
+            await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
         # Channel rename intentionally omitted (see convert_to_meta): the dashboard
         # label supersedes the name prefix and renames hit the strict rename bucket.
         self.set_channel_type(ctx, "Puzzle")
@@ -1474,7 +1404,7 @@ class Puzzles(commands.Cog):
                 await ctx.send(embed=e)
 
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
@@ -1518,7 +1448,7 @@ class Puzzles(commands.Cog):
         elif self.get_puzzle(ctx):
             settings = self.get_puzzle(ctx)
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
@@ -1897,8 +1827,8 @@ class Puzzles(commands.Cog):
             return await channel.send(embeds=embed_list)
 
     async def send_not_puzzle_channel(self, ctx):
-        # TODO: Fix this
-        if ctx.channel and ctx.channel.category.name == self.get_solved_puzzle_category(""):
+        category = ctx.channel.category if ctx.channel else None
+        if category is not None and category.name.endswith(f"-{self.SOLVED_PUZZLES_CATEGORY}"):
             await ctx.send(":x: This puzzle appears to already be solved")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
@@ -1954,7 +1884,7 @@ class Puzzles(commands.Cog):
                 return
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     async def _update_puzzle_field(self, ctx, field, value):
         """Set a puzzle attribute and re-render the channel state, or warn if not a puzzle channel."""
@@ -1965,7 +1895,7 @@ class Puzzles(commands.Cog):
                 ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if value else None
             )
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -1979,7 +1909,7 @@ class Puzzles(commands.Cog):
                 ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if url else None
             )
         else:
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
 
     @commands.hybrid_command(description="Update puzzle status")
     @app_commands.choices(status=[
@@ -1993,17 +1923,29 @@ class Puzzles(commands.Cog):
     @with_puzzle_mutex(wait=True)
     async def status(self, ctx, *, status: str):
         """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
-        if status is not None and status.lower() not in self.STATUSES:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await self.send_not_puzzle_channel(ctx)
+            return
+        hunt = self.get_hunt(ctx)
+        try:
+            await self.service.update_puzzle_field(hunt, puzzle, "status", status)
+        except ValueError:
             await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
             return
-
-        await self._update_puzzle_field(ctx, "status", status)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Update puzzle type, e.g. "crossword"*"""
-        await self._update_puzzle_field(ctx, "puzzle_type", puzzle_type)
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await self.send_not_puzzle_channel(ctx)
+            return
+        hunt = self.get_hunt(ctx)
+        await self.service.update_puzzle_field(hunt, puzzle, "puzzle_type", puzzle_type)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if puzzle_type else None)
 
     @commands.hybrid_command(description="Update puzzle priority")
     @app_commands.choices(priority=[
@@ -2015,11 +1957,17 @@ class Puzzles(commands.Cog):
     @with_puzzle_mutex(wait=True)
     async def priority(self, ctx, *, priority: str):
         """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
-        if priority is not None and priority.lower() not in self.PRIORITIES:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await self.send_not_puzzle_channel(ctx)
+            return
+        hunt = self.get_hunt(ctx)
+        try:
+            await self.service.update_puzzle_field(hunt, puzzle, "priority", priority)
+        except ValueError:
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
-
-        await self._update_puzzle_field(ctx, "priority", priority)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if priority else None)
 
     @commands.command(aliases=["notes"])
     @with_puzzle_mutex(wait=True)
@@ -2031,8 +1979,8 @@ class Puzzles(commands.Cog):
 
         message = "Showing notes left by users!"
         if note:
-            self.get_puzzle(ctx).notes.append(f"{note} - {ctx.message.jump_url}")
-            PuzzleJsonDb.commit(self.get_puzzle(ctx))
+            hunt = self.get_hunt(ctx)
+            await self.service.add_note(hunt, self.get_puzzle(ctx), note, ctx.message.jump_url)
             message = (
                 f"Added a new note! Use `!erase_note {len(self.get_puzzle(ctx).notes)}` to remove the note if needed. "
                 f"Check `!notes` for the current list of notes."
@@ -2068,11 +2016,9 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
 
-        if 1 <= note_index <= len(self.get_puzzle(ctx).notes):
-            del self.get_puzzle(ctx).notes[note_index - 1]
-            description = f"Erased note {note_index}"
-        else:
-            description = f"Unable to find note {note_index}"
+        hunt = self.get_hunt(ctx)
+        erased = await self.service.erase_note(hunt, self.get_puzzle(ctx), note_index)
+        description = f"Erased note {note_index}" if erased else f"Unable to find note {note_index}"
 
         puzzle = self.get_puzzle(ctx)
 
@@ -2092,7 +2038,8 @@ class Puzzles(commands.Cog):
 
     @staticmethod
     def _normalize_solution(args):
-        return " ".join(args).strip().upper()
+        # Joins args and strips whitespace; the service normalizes case to uppercase.
+        return " ".join(args).strip()
 
     async def _update_all_metas(self, ctx, puzzle):
         """Refresh every metapuzzle this puzzle is tagged to, on the SAME isolation
@@ -2208,7 +2155,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved == 0:
+        elif not self.get_puzzle(ctx).solved:
             await self._solve_impl(ctx, *args)
             return
 
@@ -2246,7 +2193,7 @@ class Puzzles(commands.Cog):
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved == 0:
+        elif not self.get_puzzle(ctx).solved:
             await self._partial_impl(ctx, *args)
             return
 
@@ -2293,15 +2240,8 @@ class Puzzles(commands.Cog):
             return
 
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
         prev_solution = puzzle.solution
-        puzzle.status = "Unsolved"
-        puzzle.solution = ""
-
-        puzzle.solve_time = None
-
-        puzzle.archive_time = None
-
-        PuzzleJsonDb.commit(self.get_puzzle(ctx))
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
         embed = discord.Embed(
@@ -2310,28 +2250,18 @@ class Puzzles(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-        await self.get_gsheet_cog(ctx).restore_puzzle_spreadsheet(puzzle)
+        sheet_warning = None
+        try:
+            await self.service.unsolve(self.get_guild(ctx), hunt, puzzle)
+        except SheetRefreshError as exc:
+            sheet_warning = exc
+
         await self.move_to_bottom(ctx)
-
-        puzzle.solved = False
-
-        hunt_round = self.get_hunt_round(ctx)
-        if hunt_round:
-            # M6: mirror the solve hook — if this puzzle is the round's meta, the
-            # round is no longer solved.
-            if hunt_round.meta_id == puzzle.id:
-                hunt_round.solve_time = None
-                hunt_round.status = "active"
-                RoundJsonDb.commit(hunt_round)
-            try:
-                await self.update_metapuzzle(ctx, hunt_round)
-            except SheetRefreshError as exc:
-                await self._warn_stale_sheets(ctx, exc)
-
         await self.info(ctx, update=True)
-        for sheet in puzzle.additional_sheets:
-            SheetsJsonDb.commit(sheet)
-        await ctx.send(":white_check_mark: Sheets all restored.")
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
+        else:
+            await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
@@ -2495,7 +2425,7 @@ class Puzzles(commands.Cog):
         """*(admin) Permanently delete a puzzle, its channel and sheet*"""
         # Wrapper for delete command
         if self.get_channel_type(ctx) != "Puzzle":
-            await ctx.send(":x: This does not appear to be a puzzle channel")
+            await self.send_not_puzzle_channel(ctx)
             return
 
         if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):

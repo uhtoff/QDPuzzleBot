@@ -3,8 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from bot.store.puzzle_data import PuzzleData
-from bot.store.hunt_data import HuntData
-from tests.conftest import make_puzzle, make_round
+from tests.conftest import make_hunt, make_puzzle, make_round
 
 
 def _make_cog():
@@ -12,14 +11,6 @@ def _make_cog():
     bot = MagicMock()
     bot.get_cog.return_value = None
     return Puzzles(bot)
-
-
-def _make_hunt(id=10):
-    h = HuntData()
-    h.id = id
-    h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCHIVE1"
-    return h
 
 
 class TestPuzzleDataParentField:
@@ -68,7 +59,7 @@ class TestCogBeforeInvokeThread:
         import asyncio, discord
 
         mini = make_puzzle(id=5, hunt_id=10, channel_id=777, parent_puzzle_id=3, tags=[1])
-        hunt = _make_hunt(id=10)
+        hunt = make_hunt(id=10)
         round_ = make_round(id=1)
 
         GuildDb.get.return_value = MagicMock()
@@ -162,7 +153,7 @@ class TestCreateMini:
         from bot.core.puzzle_service import PuzzleService
 
         minimeta = make_puzzle(id=3, hunt_id=10, channel_id=555, tags=[1])
-        hunt = _make_hunt(id=10)
+        hunt = make_hunt(id=10)
         round_ = make_round(id=1)
         RoundDb.get_by_attr.return_value = round_
 
@@ -207,7 +198,7 @@ class TestCreateMini:
         from bot.core.puzzle_service import PuzzleService
 
         minimeta = make_puzzle(id=3, name="Big Meta", hunt_id=10, channel_id=555, tags=[1])
-        hunt = _make_hunt(id=10)  # google_sheet_id == "SHEET1"
+        hunt = make_hunt(id=10)  # google_sheet_id == "SHEET1"
         RoundDb.get_by_attr.return_value = make_round(id=1)
 
         guild = MagicMock()
@@ -248,7 +239,7 @@ class TestCreateMini:
         from bot.core.puzzle_service import PuzzleService
 
         minimeta = make_puzzle(id=3, hunt_id=10, channel_id=555, tags=[1], puzzle_type="")
-        hunt = _make_hunt()
+        hunt = make_hunt()
         RoundDb.get_by_attr.return_value = make_round(id=1)
 
         guild = MagicMock()
@@ -286,7 +277,7 @@ class TestSolveArchivesThread:
         from bot.core.puzzle_service import PuzzleService
 
         mini = make_puzzle(id=5, hunt_id=10, channel_id=9001, tags=[], parent_puzzle_id=3)
-        hunt = _make_hunt()
+        hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
         thread = MagicMock(spec=discord.Thread)
@@ -312,7 +303,7 @@ class TestSolveArchivesThread:
         from bot.core.puzzle_service import PuzzleService
 
         puzzle = make_puzzle(id=1, hunt_id=10, tags=[])
-        hunt = _make_hunt()
+        hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
         guild = MagicMock()
@@ -336,7 +327,7 @@ class TestUnsolveService:
         puzzle = make_puzzle(id=1, hunt_id=10, solved=True, solution="ANS", tags=[])
         puzzle.solve_time = "sometime"
         puzzle.archive_time = "sometime"
-        hunt = _make_hunt()
+        hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
         bot = MagicMock()
@@ -362,7 +353,7 @@ class TestUnsolveService:
         mini = make_puzzle(id=5, solved=True, solution="X", tags=[], parent_puzzle_id=3, channel_id=9001)
         mini.solve_time = "t"
         mini.archive_time = "t"
-        hunt = _make_hunt()
+        hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
         thread = MagicMock(spec=discord.Thread)
@@ -400,7 +391,7 @@ class TestSolveMiniByNumber:
         svc.solve = AsyncMock(return_value=True)
 
         asyncio.run(
-            svc.solve_mini_by_number(None, _make_hunt(), 3, 2, "ANSWER")
+            svc.solve_mini_by_number(None, make_hunt(), 3, 2, "ANSWER")
         )
 
         svc.solve.assert_called_once()
@@ -419,7 +410,7 @@ class TestSolveMiniByNumber:
 
         with pytest.raises(ValueError, match="No mini #5"):
             asyncio.run(
-                svc.solve_mini_by_number(None, _make_hunt(), 3, 5, "X")
+                svc.solve_mini_by_number(None, make_hunt(), 3, 5, "X")
             )
 
 
@@ -441,7 +432,7 @@ class TestUnsolveMiniByNumber:
         svc.unsolve = AsyncMock()
 
         asyncio.run(
-            svc.unsolve_mini_by_number(None, _make_hunt(), 3, 1)
+            svc.unsolve_mini_by_number(None, make_hunt(), 3, 1)
         )
 
         svc.unsolve.assert_called_once()

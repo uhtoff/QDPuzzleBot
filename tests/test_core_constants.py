@@ -26,6 +26,10 @@ def test_auth_uses_core_roles():
     assert auth_mod.ORGANISER_ROLES is core.ORGANISER_ROLES
 
 
-def test_actions_statuses_match_core():
-    assert actions_mod.PUZZLE_STATUSES == set(core.STATUSES)
-    assert actions_mod.PUZZLE_PRIORITIES == set(core.PRIORITIES)
+def test_actions_does_not_redefine_constants():
+    """The web layer no longer maintains its own PUZZLE_STATUSES/PRIORITIES sets;
+    validation moved to PuzzleService.update_puzzle_field which reads from core."""
+    assert not hasattr(actions_mod, "PUZZLE_STATUSES"), \
+        "PUZZLE_STATUSES should be removed from actions — validation is in the service"
+    assert not hasattr(actions_mod, "PUZZLE_PRIORITIES"), \
+        "PUZZLE_PRIORITIES should be removed from actions — validation is in the service"

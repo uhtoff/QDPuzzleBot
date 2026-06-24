@@ -1,17 +1,13 @@
 import { useMemo, useState } from "react";
 import { Button, Group, Modal, Select, Stack, TextInput } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
 import { useCreateMeta, useCreatePuzzle } from "../api";
+import { notifyError, notifySuccess } from "../util";
 
 // Sentinel dropdown value for "no meta" — sent to the API as an empty meta_code.
 const UNASSIGNED = "__unassigned__";
-
-function errMessage(e: unknown) {
-  return (e as Error)?.message || "Something went wrong";
-}
 
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const [puzzleOpen, puzzle] = useDisclosure(false);
@@ -41,11 +37,11 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
       { name, metaCode: metaCode === UNASSIGNED ? "" : metaCode },
       {
         onSuccess: () => {
-          notifications.show({ message: `Created puzzle “${name}”`, color: "green" });
+          notifySuccess(`Created puzzle "${name}"`);
           setPuzzleName("");
           puzzle.close();
         },
-        onError: (e) => notifications.show({ message: errMessage(e), color: "red" }),
+        onError: notifyError,
       }
     );
   }
@@ -57,11 +53,11 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
       { name },
       {
         onSuccess: () => {
-          notifications.show({ message: `Created meta “${name}”`, color: "green" });
+          notifySuccess(`Created meta "${name}"`);
           setMetaName("");
           meta.close();
         },
-        onError: (e) => notifications.show({ message: errMessage(e), color: "red" }),
+        onError: notifyError,
       }
     );
   }

@@ -15,6 +15,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.round_data import RoundData
@@ -30,6 +31,18 @@ from bot.core.discord_channels import (
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_puzzle_names(puzzle_ids):
+    """Return a {puzzle_id: name} map with a 'Puzzle {id}' fallback for unknown ids.
+
+    Does a single PuzzleJsonDb.get_by_attr lookup per id (no double-lookup).
+    """
+    names = {}
+    for pid in puzzle_ids:
+        p = PuzzleJsonDb.get_by_attr(id=pid)
+        names[pid] = p.name if p else f"Puzzle {pid}"
+    return names
 
 
 class PuzzleService:
@@ -352,6 +365,23 @@ class PuzzleService:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
 
+    async def set_source_mode(self, hunt, meta_round, mode):
+        """Set the aggregation source_mode for a meta round, then refresh its sheet.
+
+        Validates *mode* against SOURCE_MODES, creates the rollup row if needed,
+        commits the change, then calls refresh_meta.  Raises ValueError for an
+        unrecognised mode.  Any refresh failure propagates to the caller.
+        """
+        from bot.core.constants import SOURCE_MODES
+        if mode not in SOURCE_MODES:
+            raise ValueError(
+                f"source_mode must be one of: {', '.join(SOURCE_MODES)}"
+            )
+        rollup = self._find_or_create_rollup(meta_round)
+        rollup.source_mode = mode
+        RollupsJsonDb.commit(rollup)
+        await self.refresh_meta(hunt, meta_round)
+
     async def refresh_minimeta(self, hunt, minimeta):
         """Roll a minimeta's mini-puzzles (its parent_puzzle_id children) up onto the
         minimeta's OWN sheet, tracking the outcome on a puzzle-keyed `rollups` record.
@@ -614,6 +644,7 @@ class PuzzleService:
         SheetRefreshError at the very end (after archive + commit) if one or more
         meta sheets failed to refresh — the solve itself is fully applied; each
         failed meta is badged for the dashboard."""
+        solution = solution.strip().upper()
         if solution == "" and puzzle.solution in [None, ""]:
             return False
 
@@ -855,6 +886,7 @@ class PuzzleService:
         commit and refresh metas. Does NOT set solve_time and does NOT push
         to Google Sheets (matches _partial_impl).
         """
+        solution = solution.strip().upper()
         puzzle.status = "Partially Solved"
         if puzzle.solution:
             puzzle.solution += "/" + solution
@@ -871,6 +903,7 @@ class PuzzleService:
     async def change_solution(self, guild, hunt, puzzle, solution):
         """Replace the solution on an already-solved puzzle: set new solution,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        solution = solution.strip().upper()
         puzzle.solution = solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
@@ -889,6 +922,7 @@ class PuzzleService:
     async def add_solution(self, guild, hunt, puzzle, solution):
         """Append a solution to an already-solved puzzle: append with slash,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
+        solution = solution.strip().upper()
         puzzle.solution += "/" + solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
@@ -903,6 +937,42 @@ class PuzzleService:
 
         if failed:
             raise SheetRefreshError(failed)
+
+    async def update_puzzle_field(self, hunt, puzzle, field, value):
+        """Set status, priority, or puzzle_type on *puzzle* and commit.
+
+        Validates *field* against the allowed set and validates *value* against
+        the known constants for status and priority.  Raises ValueError on bad
+        field or bad value.  puzzle_type is free-form (no value validation).
+        """
+        _VALID_FIELDS = {"status", "priority", "puzzle_type"}
+        if field not in _VALID_FIELDS:
+            raise ValueError(f"Unknown puzzle field {field!r}; must be one of {sorted(_VALID_FIELDS)}")
+
+        if field == "status":
+            if value.lower() not in {s.lower() for s in STATUSES}:
+                raise ValueError(f"Invalid status {value!r}; must be one of {STATUSES}")
+        elif field == "priority":
+            if value.lower() not in {p.lower() for p in PRIORITIES}:
+                raise ValueError(f"Invalid priority {value!r}; must be one of {PRIORITIES}")
+
+        setattr(puzzle, field, value)
+        PuzzleJsonDb.commit(puzzle)
+
+    async def add_note(self, hunt, puzzle, text, attribution):
+        """Append a note to the puzzle.  Each surface passes its own attribution
+        string (e.g. a Discord jump URL or "Alice (web)").  Commits immediately."""
+        puzzle.notes.append(f"{text} - {attribution}")
+        PuzzleJsonDb.commit(puzzle)
+
+    async def erase_note(self, hunt, puzzle, index):
+        """Remove the note at 1-based *index*.  Returns True on success, False if
+        the index is out of range.  Does NOT commit on failure."""
+        if not (1 <= index <= len(puzzle.notes)):
+            return False
+        del puzzle.notes[index - 1]
+        PuzzleJsonDb.commit(puzzle)
+        return True
 
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,
@@ -1110,6 +1180,15 @@ class PuzzleService:
         await self._delete_additional_sheet(hunt, puzzle, sheet)
         await self.notifier.board_changed(hunt)
 
+    async def remove_sheet_by_index(self, hunt, puzzle, index):
+        """Remove an additional sheet by 1-based index. Raises IndexError if out of bounds.
+        Converts the index to a sheet id and delegates to remove_sheet."""
+        sheets = puzzle.additional_sheets
+        if index < 1 or index > len(sheets):
+            raise IndexError(f"Sheet index {index} out of range (1–{len(sheets)})")
+        sheet_id = sheets[index - 1].id
+        await self.remove_sheet(hunt, puzzle, sheet_id)
+
     # -------------------------------------------------------------------------
     # Create helpers (M3.5) — canonical paths used by bang + web edges
     # -------------------------------------------------------------------------
@@ -1310,7 +1389,7 @@ class PuzzleService:
             HuntJsonDb.commit(hunt)
         items = EvidenceJsonDb.get_all(hunt.id)
         puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
-        names = {pid: ((PuzzleJsonDb.get_by_attr(id=pid) or None) and PuzzleJsonDb.get_by_attr(id=pid).name) or f"Puzzle {pid}" for pid in puzzle_ids}
+        names = resolve_puzzle_names(puzzle_ids)
         rows = [
             [
                 names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}"),

@@ -78,28 +78,25 @@ class TestSourceModeCommand:
     @pytest.mark.asyncio
     async def test_source_mode_sets_and_refreshes(self):
         hunt = types.SimpleNamespace(id=10)
-        service = MagicMock(refresh_meta=AsyncMock())
+        service = MagicMock(set_source_mode=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
         meta_round = make_round(id=5, meta_code="META", meta_id=99)
-        rollup = MagicMock(round_id=5, source_mode="round")
-        with patch("bot.cogs.puzzles.RoundJsonDb") as rdb, \
-             patch("bot.cogs.puzzles.RollupsJsonDb") as rudb:
+        with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
             rdb.get_by_attr.return_value = meta_round
-            rudb.get_by_attr.return_value = rollup
             await Puzzles.source_mode.callback(cog, ctx, "META", "subtree")
-        assert rollup.source_mode == "subtree"
-        rudb.commit.assert_called_once_with(rollup)
-        service.refresh_meta.assert_awaited_once()
+        service.set_source_mode.assert_awaited_once_with(hunt, meta_round, "subtree")
+        assert ":white_check_mark:" in ctx.send.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_source_mode_rejects_invalid_mode(self):
         hunt = types.SimpleNamespace(id=10)
-        service = MagicMock(refresh_meta=AsyncMock())
+        service = MagicMock(set_source_mode=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
         await Puzzles.source_mode.callback(cog, ctx, "META", "banana")
         assert "one of" in ctx.send.call_args[0][0].lower()
+        service.set_source_mode.assert_not_awaited()
 
 
 class TestPoolCommand:
@@ -141,4 +138,4 @@ class TestPoolCommand:
         cog.get_channel_type = lambda ctx: "Hunt"
         ctx = _ctx(channel_type="Hunt")
         await Puzzles.pool.callback(cog, ctx)
-        assert "Puzzle channel" in ctx.send.call_args[0][0]
+        assert "puzzle channel" in ctx.send.call_args[0][0]

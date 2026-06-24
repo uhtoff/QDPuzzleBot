@@ -43,14 +43,6 @@ class GoogleSheets(commands.Cog):
         self.overview_page_id = None
         self.sheets_service = get_sheet()
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print(f"{type(self).__name__} Cog ready.")
-
-    @commands.command()
-    async def read(self, ctx):
-        print(await execute_with_retry(get_sheet().get(spreadsheetId=self.get_spreadsheet_id())))
-
     def set_spreadsheet_id(self, spreadsheet_id):
         _current_spreadsheet_id.set(spreadsheet_id)
 

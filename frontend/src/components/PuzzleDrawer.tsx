@@ -27,6 +27,7 @@ import {
   useUpdatePuzzle,
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
+import { showSheetWarning } from "../util";
 
 interface Props {
   puzzle: Puzzle | null;
@@ -101,7 +102,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                     const newName = renameTemp.trim();
                     if (newName && puzzle.id !== undefined) {
                       rename.mutate({ puzzleId: puzzle.id, name: newName }, {
-                        onSuccess: () => setRenameEditing(false),
+                        onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
                         onError: () => setRenameEditing(false),
                       });
                     } else {

@@ -15,6 +15,7 @@ import {
 import { IconAlertTriangle, IconCheck } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useReconcile, type ReconcileResult } from "../api";
+import { notifyError } from "../util";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 
 export function ReconcilePanel({ uid }: { uid: string }) {
@@ -25,7 +26,7 @@ export function ReconcilePanel({ uid }: { uid: string }) {
   async function runReport() {
     reconcileMut.mutate({ mode: "report" }, {
       onSuccess: (data) => setReport(data),
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -38,7 +39,7 @@ export function ReconcilePanel({ uid }: { uid: string }) {
           color: "green",
         });
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
@@ -57,7 +58,7 @@ export function ReconcilePanel({ uid }: { uid: string }) {
         });
         setOrphanConfirmOpen(false);
       },
-      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      onError: notifyError,
     });
   }
 
