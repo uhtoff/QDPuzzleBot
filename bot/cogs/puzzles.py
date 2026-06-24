@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb, RollupsJsonDb, RollupData
+    RoundData, RoundJsonDb, HuntData, HuntJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -1239,7 +1239,8 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def source_mode(self, ctx, code: str, mode: str):
         """*Set rollup source mode: !source_mode <meta_code> <round|subtree|explicit>*"""
-        if mode not in ("round", "subtree", "explicit"):
+        from bot.core.constants import SOURCE_MODES
+        if mode not in SOURCE_MODES:
             await ctx.send(":x: source_mode must be one of: round, subtree, explicit")
             return
         hunt = self.get_hunt(ctx)
@@ -1250,13 +1251,8 @@ class Puzzles(commands.Cog):
         if not meta_round or not meta_round.meta_id:
             await ctx.send(":x: Invalid meta code — must reference a meta round.")
             return
-        rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
-        if rollup is None:
-            rollup = RollupData(hunt_id=hunt.id, round_id=meta_round.id)
-        rollup.source_mode = mode
-        RollupsJsonDb.commit(rollup)
         try:
-            await self.service.refresh_meta(hunt, meta_round)
+            await self.service.set_source_mode(hunt, meta_round, mode)
             await ctx.send(f":white_check_mark: {code} source_mode set to '{mode}'.")
         except SheetRefreshError as exc:
             await ctx.send(

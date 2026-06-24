@@ -350,6 +350,23 @@ class PuzzleService:
             rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
         return rollup
 
+    async def set_source_mode(self, hunt, meta_round, mode):
+        """Set the aggregation source_mode for a meta round, then refresh its sheet.
+
+        Validates *mode* against SOURCE_MODES, creates the rollup row if needed,
+        commits the change, then calls refresh_meta.  Raises ValueError for an
+        unrecognised mode.  Any refresh failure propagates to the caller.
+        """
+        from bot.core.constants import SOURCE_MODES
+        if mode not in SOURCE_MODES:
+            raise ValueError(
+                f"source_mode must be one of: {', '.join(SOURCE_MODES)}"
+            )
+        rollup = self._find_or_create_rollup(meta_round)
+        rollup.source_mode = mode
+        RollupsJsonDb.commit(rollup)
+        await self.refresh_meta(hunt, meta_round)
+
     async def refresh_minimeta(self, hunt, minimeta):
         """Roll a minimeta's mini-puzzles (its parent_puzzle_id children) up onto the
         minimeta's OWN sheet, tracking the outcome on a puzzle-keyed `rollups` record.

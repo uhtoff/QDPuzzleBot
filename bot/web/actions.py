@@ -1016,22 +1016,15 @@ async def set_source_mode(round_id):
 
     body = await request.get_json(silent=True) or {}
     mode = (body.get("source_mode") or "").strip()
-    allowed = ("round", "subtree", "explicit")
-    if mode not in allowed:
-        return jsonify({"error": "bad_source_mode", "allowed": allowed}), 400
+    from bot.core.constants import SOURCE_MODES
+    if mode not in SOURCE_MODES:
+        return jsonify({"error": "bad_source_mode", "allowed": SOURCE_MODES}), 400
 
-    from bot.store import HuntJsonDb, RoundJsonDb, RollupsJsonDb
-    from bot.store.rollup_data import RollupData
+    from bot.store import HuntJsonDb, RoundJsonDb
 
     meta_round = RoundJsonDb.get_by_attr(id=round_id)
     if meta_round is None:
         return jsonify({"error": "round_not_found"}), 404
-
-    rollup = RollupsJsonDb.get_by_attr(round_id=meta_round.id)
-    if rollup is None:
-        rollup = RollupData(hunt_id=meta_round.hunt_id, round_id=meta_round.id)
-    rollup.source_mode = mode
-    RollupsJsonDb.commit(rollup)
 
     bot = current_app.bot
     cog = bot.get_cog("Puzzles")
@@ -1039,7 +1032,7 @@ async def set_source_mode(round_id):
         return jsonify({"error": "bot_unavailable"}), 503
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     try:
-        await cog.service.refresh_meta(hunt_obj, meta_round)
+        await cog.service.set_source_mode(hunt_obj, meta_round, mode)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     except Exception as exc:
