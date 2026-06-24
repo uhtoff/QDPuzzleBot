@@ -935,6 +935,21 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    async def add_note(self, hunt, puzzle, text, attribution):
+        """Append a note to the puzzle.  Each surface passes its own attribution
+        string (e.g. a Discord jump URL or "Alice (web)").  Commits immediately."""
+        puzzle.notes.append(f"{text} - {attribution}")
+        PuzzleJsonDb.commit(puzzle)
+
+    async def erase_note(self, hunt, puzzle, index):
+        """Remove the note at 1-based *index*.  Returns True on success, False if
+        the index is out of range.  Does NOT commit on failure."""
+        if not (1 <= index <= len(puzzle.notes)):
+            return False
+        del puzzle.notes[index - 1]
+        PuzzleJsonDb.commit(puzzle)
+        return True
+
     async def _delete_additional_sheet(self, hunt, puzzle, sheet):
         """Delete an additional sheet's Google tab (best-effort) and its DB row,
         and drop it from the in-memory puzzle. Shared by the web + Discord removal

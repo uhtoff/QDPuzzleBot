@@ -149,14 +149,17 @@ async def add_note(puzzle_id):
         return jsonify({"error": "empty_note"}), 400
     text = text[:MAX_NOTE_LEN]
 
-    from bot.store import PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    cog = current_app.bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        puzzle.notes.append(f"{text} - {_display_name(current_user())} (web)")
-        PuzzleJsonDb.commit(puzzle)
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        attribution = f"{_display_name(current_user())} (web)"
+        await cog.service.add_note(hunt_obj, puzzle, text, attribution)
         await _audit("note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})
@@ -170,16 +173,18 @@ async def erase_note(puzzle_id, index):
     if err:
         return err
 
-    from bot.store import PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    cog = current_app.bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if not (1 <= index <= len(puzzle.notes)):
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        erased = await cog.service.erase_note(hunt_obj, puzzle, index)
+        if not erased:
             return jsonify({"error": "bad_index", "notes": puzzle.notes}), 400
-        del puzzle.notes[index - 1]
-        PuzzleJsonDb.commit(puzzle)
         await _audit("erase_note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         return jsonify({"notes": puzzle.notes})

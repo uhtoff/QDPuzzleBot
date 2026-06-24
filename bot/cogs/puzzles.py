@@ -2092,8 +2092,8 @@ class Puzzles(commands.Cog):
 
         message = "Showing notes left by users!"
         if note:
-            self.get_puzzle(ctx).notes.append(f"{note} - {ctx.message.jump_url}")
-            PuzzleJsonDb.commit(self.get_puzzle(ctx))
+            hunt = self.get_hunt(ctx)
+            await self.service.add_note(hunt, self.get_puzzle(ctx), note, ctx.message.jump_url)
             message = (
                 f"Added a new note! Use `!erase_note {len(self.get_puzzle(ctx).notes)}` to remove the note if needed. "
                 f"Check `!notes` for the current list of notes."
@@ -2129,11 +2129,9 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
 
-        if 1 <= note_index <= len(self.get_puzzle(ctx).notes):
-            del self.get_puzzle(ctx).notes[note_index - 1]
-            description = f"Erased note {note_index}"
-        else:
-            description = f"Unable to find note {note_index}"
+        hunt = self.get_hunt(ctx)
+        erased = await self.service.erase_note(hunt, self.get_puzzle(ctx), note_index)
+        description = f"Erased note {note_index}" if erased else f"Unable to find note {note_index}"
 
         puzzle = self.get_puzzle(ctx)
 
