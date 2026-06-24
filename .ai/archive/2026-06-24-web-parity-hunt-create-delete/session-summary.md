@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-24
-Status: ready for handoff — test(parity): Phase 1 — failing service tests for create_hunt/delete_hunt @ d8e41f6
+Status: ready for handoff — Fix round banner: only go green when meta is solved, not all feeders @ 24c7687
 
 ## Goal
 
