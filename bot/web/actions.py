@@ -22,7 +22,6 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.constants import STATUSES, PRIORITIES
 from bot.core.locks import puzzle_lock
 from bot.core.errors import SheetRefreshError
 
@@ -31,10 +30,6 @@ logger = logging.getLogger(__name__)
 actions_bp = Blueprint("actions", __name__, url_prefix="/api")
 
 MAX_NOTE_LEN = 1000
-
-PUZZLE_STATUSES = set(STATUSES)
-PUZZLE_PRIORITIES = set(PRIORITIES)
-
 
 def _display_name(user):
     return user.get("global_name") or user.get("username") or "web user"
@@ -210,32 +205,30 @@ async def update_puzzle(puzzle_id):
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
 
+        cog = current_app.bot.get_cog("Puzzles")
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+
         changed = False
-        if "status" in body:
-            value = (body.get("status") or "").strip()
-            if value.lower() not in PUZZLE_STATUSES:
-                return jsonify({"error": "bad_status"}), 400
-            puzzle.status = value
-            changed = True
-        if "priority" in body:
-            value = (body.get("priority") or "").strip()
-            if value.lower() not in PUZZLE_PRIORITIES:
-                return jsonify({"error": "bad_priority"}), 400
-            puzzle.priority = value
-            changed = True
-        if "puzzle_type" in body:
-            puzzle.puzzle_type = (body.get("puzzle_type") or "").strip()
+        for web_field, db_field, err_key in [
+            ("status", "status", "bad_status"),
+            ("priority", "priority", "bad_priority"),
+            ("puzzle_type", "puzzle_type", None),
+        ]:
+            if web_field not in body:
+                continue
+            value = (body.get(web_field) or "").strip()
+            try:
+                await cog.service.update_puzzle_field(hunt_obj, puzzle, db_field, value)
+            except ValueError:
+                return jsonify({"error": err_key or f"bad_{web_field}"}), 400
             changed = True
 
         if changed:
-            PuzzleJsonDb.commit(puzzle)
             await _audit("update_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
-            cog = current_app.bot.get_cog("Puzzles")
             if cog is not None:
                 snowflake = ctx["guild_snowflake"]
                 guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-                hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
                 await cog.web_refresh_info(guild, hunt_obj, puzzle)
     return jsonify({"ok": True})
 

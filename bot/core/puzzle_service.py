@@ -15,6 +15,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.round_data import RoundData
@@ -934,6 +935,27 @@ class PuzzleService:
 
         if failed:
             raise SheetRefreshError(failed)
+
+    async def update_puzzle_field(self, hunt, puzzle, field, value):
+        """Set status, priority, or puzzle_type on *puzzle* and commit.
+
+        Validates *field* against the allowed set and validates *value* against
+        the known constants for status and priority.  Raises ValueError on bad
+        field or bad value.  puzzle_type is free-form (no value validation).
+        """
+        _VALID_FIELDS = {"status", "priority", "puzzle_type"}
+        if field not in _VALID_FIELDS:
+            raise ValueError(f"Unknown puzzle field {field!r}; must be one of {sorted(_VALID_FIELDS)}")
+
+        if field == "status":
+            if value.lower() not in {s.lower() for s in STATUSES}:
+                raise ValueError(f"Invalid status {value!r}; must be one of {STATUSES}")
+        elif field == "priority":
+            if value.lower() not in {p.lower() for p in PRIORITIES}:
+                raise ValueError(f"Invalid priority {value!r}; must be one of {PRIORITIES}")
+
+        setattr(puzzle, field, value)
+        PuzzleJsonDb.commit(puzzle)
 
     async def add_note(self, hunt, puzzle, text, attribution):
         """Append a note to the puzzle.  Each surface passes its own attribution

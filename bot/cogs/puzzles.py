@@ -2054,17 +2054,29 @@ class Puzzles(commands.Cog):
     @with_puzzle_mutex(wait=True)
     async def status(self, ctx, *, status: str):
         """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
-        if status is not None and status.lower() not in self.STATUSES:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
+            return
+        hunt = self.get_hunt(ctx)
+        try:
+            await self.service.update_puzzle_field(hunt, puzzle, "status", status)
+        except ValueError:
             await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
             return
-
-        await self._update_puzzle_field(ctx, "status", status)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Update puzzle type, e.g. "crossword"*"""
-        await self._update_puzzle_field(ctx, "puzzle_type", puzzle_type)
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
+            return
+        hunt = self.get_hunt(ctx)
+        await self.service.update_puzzle_field(hunt, puzzle, "puzzle_type", puzzle_type)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if puzzle_type else None)
 
     @commands.hybrid_command(description="Update puzzle priority")
     @app_commands.choices(priority=[
@@ -2076,11 +2088,17 @@ class Puzzles(commands.Cog):
     @with_puzzle_mutex(wait=True)
     async def priority(self, ctx, *, priority: str):
         """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
-        if priority is not None and priority.lower() not in self.PRIORITIES:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            await ctx.send(":x: This does not appear to be a puzzle channel")
+            return
+        hunt = self.get_hunt(ctx)
+        try:
+            await self.service.update_puzzle_field(hunt, puzzle, "priority", priority)
+        except ValueError:
             await ctx.send(f":exclamation: Priority should be one of {self.PRIORITIES}, got \"{priority}\"")
             return
-
-        await self._update_puzzle_field(ctx, "priority", priority)
+        await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if priority else None)
 
     @commands.command(aliases=["notes"])
     @with_puzzle_mutex(wait=True)
