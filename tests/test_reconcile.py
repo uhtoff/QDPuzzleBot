@@ -308,6 +308,26 @@ def test_format_report_summarises_counts_and_orphans():
     assert "Boom" in text  # failures surfaced
 
 
+def test_format_report_names_orphans():
+    r = ReconcileReport()
+    r.add_orphan_channel(1, "stray-chan")
+    r.add_orphan_tab(2, "Stale Tab")
+    text = Puzzles._format_reconcile_report(r, applied=False)
+    # The warning that suggests running `apply orphans` should name the items.
+    assert "#stray-chan" in text
+    assert '"Stale Tab"' in text
+
+
+def test_format_report_truncates_orphan_names():
+    r = ReconcileReport()
+    for i in range(25):
+        r.add_orphan_channel(i, f"chan-{i}")
+    text = Puzzles._format_reconcile_report(r, applied=False)
+    assert "#chan-19" in text
+    assert "#chan-20" not in text
+    assert "…and 5 more" in text
+
+
 def test_orphan_confirmation_names_items_to_delete():
     r = ReconcileReport()
     r.add_orphan_channel(1, "stray-chan")

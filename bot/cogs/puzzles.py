@@ -670,7 +670,29 @@ class Puzzles(commands.Cog):
             await ctx.send(f":warning: Failed to reconcile unassigned tab: `{type(exc).__name__}: {exc}`")
 
     @staticmethod
-    def _format_reconcile_report(report, *, applied):
+    def _orphan_name_lines(report, *, limit=20):
+        """Render named, truncated sections for the orphan channels/tabs in
+        `report`. Each list is capped at `limit` entries (with an "…and N more"
+        line) to stay within Discord's message limits. Shared by the reconcile
+        report and the destructive-confirmation prompt."""
+        lines = []
+
+        def _section(label, items, render):
+            if not items:
+                return
+            shown = items[:limit]
+            names = ", ".join(render(item) for item in shown)
+            lines.append(f"**{label}:** {names}")
+            remaining = len(items) - len(shown)
+            if remaining:
+                lines.append(f"…and {remaining} more")
+
+        _section("Channels", report.orphan_channels, lambda c: f"#{c[1]}")
+        _section("Tabs", report.orphan_tabs, lambda t: f'"{t[1]}"')
+        return lines
+
+    @staticmethod
+    def _format_reconcile_report(report, *, applied, limit=20):
         verb = "Applied" if applied else "Would apply"
         lines = [f"**Reconcile — {verb.lower()}:**"]
         counts = report.counts()
@@ -686,6 +708,7 @@ class Puzzles(commands.Cog):
             lines.append(f":wastebasket: {len(report.orphan_tabs)} orphan tab"
                          f"{'s' if len(report.orphan_tabs) != 1 else ''} "
                          "(not deleted unless you run `!reconcile apply orphans`)")
+        lines += Puzzles._orphan_name_lines(report, limit=limit)
         if report.failures:
             lines.append(":warning: failures: "
                          + ", ".join(f"{t} ({e})" for t, e in report.failures))
@@ -698,19 +721,9 @@ class Puzzles(commands.Cog):
         (with an "…and N more" line) to stay within Discord's embed limits."""
         lines = [f"Delete {len(report.orphan_channels)} channel(s) and "
                  f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?"]
-
-        def _section(label, items, render):
-            if not items:
-                return
-            shown = items[:limit]
-            names = ", ".join(render(item) for item in shown)
-            lines.append(f"\n**{label}:** {names}")
-            remaining = len(items) - len(shown)
-            if remaining:
-                lines.append(f"…and {remaining} more")
-
-        _section("Channels", report.orphan_channels, lambda c: f"#{c[1]}")
-        _section("Tabs", report.orphan_tabs, lambda t: f'"{t[1]}"')
+        for line in Puzzles._orphan_name_lines(report, limit=limit):
+            # Blank-line separator before each section header for readability.
+            lines.append(f"\n{line}" if line.startswith("**") else line)
         return "\n".join(lines)
 
     @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
