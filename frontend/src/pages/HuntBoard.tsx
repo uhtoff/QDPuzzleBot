@@ -104,9 +104,11 @@ export default function HuntBoard() {
             { label: "All puzzles", value: "all" },
             { label: "Evidence", value: "evidence" },
             ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
-            ...(data.hunt.can_manage ? [{ label: "Manage", value: "manage" }] : []),
+            // Admins can always reach Manage (to unarchive) even when the hunt is
+            // archived and can_manage is therefore false.
+            ...(data.hunt.can_manage || data.hunt.is_admin ? [{ label: "Manage", value: "manage" }] : []),
           ]}
-          w={data.hunt.can_manage ? 570 : 360}
+          w={360 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.is_admin ? 105 : 0)}
         />
         {data.hunt.can_manage && <CreateControls detail={data} uid={uid!} />}
       </Group>
@@ -123,9 +125,9 @@ export default function HuntBoard() {
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
-      {view === "manage" && data.hunt.can_manage && (
+      {view === "manage" && (data.hunt.can_manage || data.hunt.is_admin) && (
         <Stack gap="md">
-          {/* Admin settings panel — admin-gated */}
+          {/* Admin settings panel — admin-gated; reachable even when archived */}
           {data.hunt.is_admin && (
             <AdminSettingsPanel
               uid={uid!}
@@ -139,7 +141,8 @@ export default function HuntBoard() {
               hasArchiveSheet={!!data.hunt.archive_sheet_base_url}
             />
           )}
-          <ReconcilePanel uid={uid!} />
+          {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}
+          {data.hunt.can_manage && <ReconcilePanel uid={uid!} />}
         </Stack>
       )}
 
