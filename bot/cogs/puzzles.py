@@ -1959,8 +1959,8 @@ class Puzzles(commands.Cog):
             return await channel.send(embeds=embed_list)
 
     async def send_not_puzzle_channel(self, ctx):
-        # TODO: Fix this
-        if ctx.channel and ctx.channel.category.name == self.get_solved_puzzle_category(""):
+        category = ctx.channel.category if ctx.channel else None
+        if category is not None and category.name.endswith(f"-{self.SOLVED_PUZZLES_CATEGORY}"):
             await ctx.send(":x: This puzzle appears to already be solved")
         else:
             await ctx.send(":x: This does not appear to be a puzzle channel")
