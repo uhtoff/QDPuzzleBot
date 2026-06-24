@@ -256,6 +256,15 @@ export function useCreateMeta(uid: string) {
   });
 }
 
+export function useCreateUnclassified(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) =>
+      apiSend<{ ok: boolean; puzzle_id: number }>(`/api/hunts/${uid}/unclassified`, "POST", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export type RetagMode = "move" | "add" | "remove";
 
 export function useRetagPuzzle(uid: string) {

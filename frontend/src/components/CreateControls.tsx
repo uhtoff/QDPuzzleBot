@@ -4,7 +4,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
-import { useCreateMeta, useCreatePuzzle } from "../api";
+import { useCreateMeta, useCreatePuzzle, useCreateUnclassified } from "../api";
 
 function errMessage(e: unknown) {
   return (e as Error)?.message || "Something went wrong";
@@ -13,6 +13,7 @@ function errMessage(e: unknown) {
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const [puzzleOpen, puzzle] = useDisclosure(false);
   const [metaOpen, meta] = useDisclosure(false);
+  const [unclassifiedOpen, unclassified] = useDisclosure(false);
 
   const metaOptions = useMemo(
     () =>
@@ -25,9 +26,11 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const [puzzleName, setPuzzleName] = useState("");
   const [metaCode, setMetaCode] = useState<string | null>(metaOptions[0]?.value ?? null);
   const [metaName, setMetaName] = useState("");
+  const [unclassName, setUnclassName] = useState("");
 
   const createPuzzle = useCreatePuzzle(uid);
   const createMeta = useCreateMeta(uid);
+  const createUnclassified = useCreateUnclassified(uid);
 
   function submitPuzzle() {
     const name = puzzleName.trim();
@@ -61,6 +64,22 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
     );
   }
 
+  function submitUnclassified() {
+    const name = unclassName.trim();
+    if (!name) return;
+    createUnclassified.mutate(
+      { name },
+      {
+        onSuccess: () => {
+          notifications.show({ message: `Created unclassified puzzle “${name}”`, color: "green" });
+          setUnclassName("");
+          unclassified.close();
+        },
+        onError: (e) => notifications.show({ message: errMessage(e), color: "red" }),
+      }
+    );
+  }
+
   return (
     <>
       <Group gap="xs">
@@ -75,6 +94,9 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
         </Button>
         <Button size="xs" variant="light" color="grape" leftSection={<IconPlus size={14} />} onClick={meta.open}>
           New meta
+        </Button>
+        <Button size="xs" variant="light" color="blue" leftSection={<IconPlus size={14} />} onClick={unclassified.open}>
+          New unclassified
         </Button>
       </Group>
 
@@ -115,6 +137,22 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             onKeyDown={(e) => e.key === "Enter" && submitMeta()}
           />
           <Button color="grape" onClick={submitMeta} loading={createMeta.isPending} disabled={!metaName.trim()}>
+            Create
+          </Button>
+        </Stack>
+      </Modal>
+
+      <Modal opened={unclassifiedOpen} onClose={unclassified.close} title="New unclassified puzzle" centered>
+        <Stack>
+          <TextInput
+            label="Puzzle name"
+            description="Creates a hunt-level puzzle not assigned to any meta round."
+            value={unclassName}
+            onChange={(e) => setUnclassName(e.currentTarget.value)}
+            data-autofocus
+            onKeyDown={(e) => e.key === "Enter" && submitUnclassified()}
+          />
+          <Button color="blue" onClick={submitUnclassified} loading={createUnclassified.isPending} disabled={!unclassName.trim()}>
             Create
           </Button>
         </Stack>
