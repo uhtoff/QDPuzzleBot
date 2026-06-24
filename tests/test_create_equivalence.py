@@ -15,7 +15,6 @@ import pytest
 from bot.cogs.puzzles import Puzzles
 from bot.core.puzzle_service import PuzzleService
 from bot.store.hunt_data import HuntData
-from bot.store.puzzle_data import PuzzleData
 from tests.conftest import make_round, make_puzzle
 
 

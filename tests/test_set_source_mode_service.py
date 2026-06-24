@@ -3,7 +3,7 @@
 Written before the implementation; these must pass once the service method
 is added.
 """
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.core.puzzle_service import PuzzleService
