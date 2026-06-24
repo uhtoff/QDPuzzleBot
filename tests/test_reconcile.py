@@ -133,6 +133,20 @@ def test_channel_missing_and_no_existing_creates_and_welcomes():
     notifier.welcome.assert_awaited()  # welcome only on genuine creation
 
 
+def test_channel_skipped_for_mini_puzzle():
+    # A mini (parent_puzzle_id set) lives as a thread under its minimeta; reconcile
+    # must not promote it to a standalone text channel even when none is found.
+    guild = _guild_with(channels=[], categories=[_category(500)])
+    svc = _service(notifier=AsyncMock())
+    p = _puzzle(channel_id=None, channel_name="mini", tags=[], parent_puzzle_id=42)
+    with patch.object(ps, "get_or_create_channel",
+                      new=AsyncMock()) as create:
+        actions = asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
+    assert actions == []
+    create.assert_not_awaited()
+    assert p.channel_id is None  # untouched
+
+
 def test_channel_relink_when_named_channel_exists_no_welcome():
     cat = _category(500)
     existing = SimpleNamespace(id=888, name="tide", mention="<#888>", category=cat)
@@ -259,6 +273,33 @@ def test_reconcile_failure_isolated_per_puzzle():
            any(t == "Boom" for t, _ in report.failures)
 
 
+def test_collect_orphan_tabs_skips_structural_tabs():
+    """Structural tabs (REFERENCE template tab, Unassigned Puzzles, Evidence)
+    and puzzle additional-sheet tabs are never orphans — only a genuinely
+    unmatched tab is flagged."""
+    def _sheet(sheet_id, title):
+        return {"properties": {"sheetId": sheet_id, "title": title}}
+
+    gcog = MagicMock()
+    gcog.get_spreadsheet_id.return_value = "SS"
+    gcog.sheet_list.return_value = {"sheets": [
+        _sheet(100, "Tide"),               # valid puzzle tab
+        _sheet(101, "Tide — notes"),       # puzzle additional sheet
+        _sheet(200, "Unassigned Puzzles"), # structural (page-id tracked)
+        _sheet(201, "Evidence"),           # structural (page-id tracked)
+        _sheet(300, "REFERENCE"),          # structural template tab (untracked)
+        _sheet(999, "old-puzzle"),         # genuine orphan
+    ]}
+    svc = _service_with_gsheet(gcog)
+    hunt = SimpleNamespace(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
+                           unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
+    p = _puzzle(google_page_id="100")
+    p.additional_sheets = [SimpleNamespace(google_page_id="101")]
+    report = ReconcileReport()
+    svc._collect_orphan_tabs(hunt, [p], report)
+    assert report.orphan_tabs == [(999, "old-puzzle")]
+
+
 # --------------------------------------------------------------------------
 # Task 5: Orphan deletion
 # --------------------------------------------------------------------------
@@ -306,6 +347,47 @@ def test_format_report_summarises_counts_and_orphans():
     assert "tab_create: 1" in text
     assert "1 orphan channel" in text
     assert "Boom" in text  # failures surfaced
+
+
+def test_format_report_names_orphans():
+    r = ReconcileReport()
+    r.add_orphan_channel(1, "stray-chan")
+    r.add_orphan_tab(2, "Stale Tab")
+    text = Puzzles._format_reconcile_report(r, applied=False)
+    # The warning that suggests running `apply orphans` should name the items.
+    assert "#stray-chan" in text
+    assert '"Stale Tab"' in text
+
+
+def test_format_report_truncates_orphan_names():
+    r = ReconcileReport()
+    for i in range(25):
+        r.add_orphan_channel(i, f"chan-{i}")
+    text = Puzzles._format_reconcile_report(r, applied=False)
+    assert "#chan-19" in text
+    assert "#chan-20" not in text
+    assert "…and 5 more" in text
+
+
+def test_orphan_confirmation_names_items_to_delete():
+    r = ReconcileReport()
+    r.add_orphan_channel(1, "stray-chan")
+    r.add_orphan_tab(2, "Stale Tab")
+    text = Puzzles._format_orphan_confirmation(r)
+    assert "Delete 1 channel(s) and 1 tab(s)" in text
+    assert "#stray-chan" in text
+    assert '"Stale Tab"' in text
+
+
+def test_orphan_confirmation_truncates_long_lists():
+    r = ReconcileReport()
+    for i in range(25):
+        r.add_orphan_channel(i, f"chan-{i}")
+    text = Puzzles._format_orphan_confirmation(r, limit=20)
+    assert "#chan-0" in text
+    assert "#chan-19" in text
+    assert "#chan-20" not in text
+    assert "…and 5 more" in text
 
 
 # --------------------------------------------------------------------------

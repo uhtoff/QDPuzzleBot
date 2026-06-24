@@ -616,7 +616,29 @@ class Puzzles(commands.Cog):
             await ctx.send(f":warning: Failed to reconcile unassigned tab: `{type(exc).__name__}: {exc}`")
 
     @staticmethod
-    def _format_reconcile_report(report, *, applied):
+    def _orphan_name_lines(report, *, limit=20):
+        """Render named, truncated sections for the orphan channels/tabs in
+        `report`. Each list is capped at `limit` entries (with an "…and N more"
+        line) to stay within Discord's message limits. Shared by the reconcile
+        report and the destructive-confirmation prompt."""
+        lines = []
+
+        def _section(label, items, render):
+            if not items:
+                return
+            shown = items[:limit]
+            names = ", ".join(render(item) for item in shown)
+            lines.append(f"**{label}:** {names}")
+            remaining = len(items) - len(shown)
+            if remaining:
+                lines.append(f"…and {remaining} more")
+
+        _section("Channels", report.orphan_channels, lambda c: f"#{c[1]}")
+        _section("Tabs", report.orphan_tabs, lambda t: f'"{t[1]}"')
+        return lines
+
+    @staticmethod
+    def _format_reconcile_report(report, *, applied, limit=20):
         verb = "Applied" if applied else "Would apply"
         lines = [f"**Reconcile — {verb.lower()}:**"]
         counts = report.counts()
@@ -632,9 +654,22 @@ class Puzzles(commands.Cog):
             lines.append(f":wastebasket: {len(report.orphan_tabs)} orphan tab"
                          f"{'s' if len(report.orphan_tabs) != 1 else ''} "
                          "(not deleted unless you run `!reconcile apply orphans`)")
+        lines += Puzzles._orphan_name_lines(report, limit=limit)
         if report.failures:
             lines.append(":warning: failures: "
                          + ", ".join(f"{t} ({e})" for t, e in report.failures))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_orphan_confirmation(report, *, limit=20):
+        """Build the destructive-confirmation prompt, naming the orphan channels
+        and tabs that would be deleted. Truncates each list to `limit` entries
+        (with an "…and N more" line) to stay within Discord's embed limits."""
+        lines = [f"Delete {len(report.orphan_channels)} channel(s) and "
+                 f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?"]
+        for line in Puzzles._orphan_name_lines(report, limit=limit):
+            # Blank-line separator before each section header for readability.
+            lines.append(f"\n{line}" if line.startswith("**") else line)
         return "\n".join(lines)
 
     @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
@@ -654,8 +689,7 @@ class Puzzles(commands.Cog):
         await ctx.send(self._format_reconcile_report(report, applied=apply))
 
         if apply and want_orphans and report.has_orphans():
-            desc = (f"Delete {len(report.orphan_channels)} channel(s) and "
-                    f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?")
+            desc = self._format_orphan_confirmation(report)
             if await self._confirm_destructive(ctx, desc):
                 deleted, failed = await self.service.delete_orphans(ctx.guild, hunt, report)
                 msg = f":white_check_mark: Deleted {deleted} orphan(s)."
@@ -1417,14 +1451,7 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
-        if meta_round is not None:
-            RoundJsonDb.delete(meta_round.id)
-            if meta_round.id in puzzle.tags:
-                puzzle.tags.remove(meta_round.id)
-        puzzle.metapuzzle = False
-        PuzzleJsonDb.commit(puzzle)
-        await self.get_gsheet_cog(ctx).convert_puzzle_spreadsheet(puzzle)
+        await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
         # Channel rename intentionally omitted (see convert_to_meta): the dashboard
         # label supersedes the name prefix and renames hit the strict rename bucket.
         self.set_channel_type(ctx, "Puzzle")
@@ -2536,16 +2563,14 @@ class Puzzles(commands.Cog):
         if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
             return
 
+        puzzle = self.get_puzzle(ctx)
+        hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
         try:
-            await self.delete_puzzle_data(ctx, self.get_puzzle(ctx))
-            if self.get_hunt_round(ctx):
-                try:
-                    await self.update_metapuzzle(ctx, self.get_hunt_round(ctx))
-                except SheetRefreshError as exc:
-                    await self._warn_stale_sheets(ctx, exc)
-            await (self.bot.get_channel(self.get_hunt(ctx).channel_id)
-                   .send(f":white_check_mark: Puzzle {self.get_puzzle(ctx).name} successfully deleted and sheet cleaned up."))
-            await ctx.channel.delete(reason=self.DELETE_REASON)
+            await self.service.delete_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
+            await hunt_general_channel.send(
+                f":white_check_mark: Puzzle {puzzle.name} successfully deleted and sheet cleaned up.")
+        except SheetRefreshError as exc:
+            await hunt_general_channel.send(f":warning: Puzzle {puzzle.name} deleted. {exc}")
         except Exception:
             logger.exception("Puzzle deletion failed")
             await ctx.send(":x: Channel deletion failed")
@@ -2601,16 +2626,11 @@ class Puzzles(commands.Cog):
 
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
-        hunt_round = self.get_hunt_round(ctx)
-        round_puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
-        failed = await self._delete_puzzles(ctx, round_puzzles)
+        failed = await self.service.delete_round(ctx.guild, self.get_hunt(ctx), hunt_round)
 
-        await self.delete_round_data(hunt_round)
-
-        await self._delete_round_category(ctx, hunt_round)
-
-        await hunt_general_channel.send(f":white_check_mark: Round {self.get_hunt_round(ctx).name} successfully deleted.  "
-                                        f"All puzzle sheets have been deleted.")
+        await hunt_general_channel.send(
+            f":white_check_mark: Round {hunt_round.name} successfully deleted.  "
+            f"All puzzle sheets have been deleted.")
         await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
