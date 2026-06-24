@@ -281,6 +281,85 @@ export function useRetagPuzzle(uid: string) {
   });
 }
 
+export interface ConvertPreview {
+  orphan_count: number;
+  orphan_feeders: { id: number; name: string }[];
+}
+
+/** Read-only preview for the convert-to-feeder confirm dialog: how many feeders
+ * (and which) demoting this metapuzzle would orphan. Only fetched while enabled. */
+export function useConvertToFeederPreview(puzzleId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["convert-preview", puzzleId],
+    queryFn: () =>
+      apiGet<ConvertPreview>(`/api/puzzles/${puzzleId}/convert-to-feeder/preview`),
+    enabled: enabled && puzzleId != null,
+  });
+}
+
+export function useConvertToFeeder(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; orphaned?: number; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-feeder`,
+        "POST"
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useDeletePuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(`/api/puzzles/${puzzleId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export interface DeleteRoundResult {
+  ok: boolean;
+  failed_channels?: string[];
+}
+
+export function useDeleteRound(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (roundId: number) =>
+      apiSend<DeleteRoundResult>(`/api/rounds/${roundId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export interface ReconcileAction {
+  kind: string;
+  target: string;
+  detail: string;
+}
+
+export interface ReconcileResult {
+  ok: boolean;
+  actions: ReconcileAction[];
+  orphan_channels: { id: number; name: string }[];
+  orphan_tabs: { id: number; title: string }[];
+  failures: { target: string; error: string }[];
+  deleted: number;
+}
+
+export function useReconcile(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mode, confirmedOrphans }: { mode: string; confirmedOrphans?: string[] }) =>
+      apiSend<ReconcileResult>(
+        `/api/hunts/${uid}/reconcile?mode=${encodeURIComponent(mode)}`,
+        "POST",
+        confirmedOrphans ? { confirmed_orphans: confirmedOrphans } : {}
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useRebuildRollup(uid: string) {
   const qc = useQueryClient();
   return useMutation({

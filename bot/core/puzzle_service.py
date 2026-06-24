@@ -671,6 +671,129 @@ class PuzzleService:
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
 
+    async def convert_to_feeder(self, guild, hunt, puzzle):
+        """Demote a metapuzzle back to an ordinary feeder (ctx-free seam for the
+        !convert_to_feeder bang and the web endpoint).
+
+        Deletes the round whose meta this puzzle is — which ORPHANS every feeder
+        tagged to that round (capstone rule) — drops the round id from the puzzle's
+        tags, clears the metapuzzle flag, commits, and reverts the puzzle's sheet
+        restructure. Mirrors solve's durability ordering: the DB mutation is
+        committed before the sheet revert, so a Sheets failure (which
+        convert_puzzle_spreadsheet restores-and-re-raises) leaves the demotion
+        saved; the edge presents it as a non-fatal warning.
+
+        Returns the number of feeders orphaned by the round deletion (every puzzle
+        that was tagged to the deleted round, excluding the meta itself)."""
+        orphaned = len(self.feeders_orphaned_by_convert(puzzle))
+        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        if meta_round is not None:
+            RoundJsonDb.delete(meta_round.id)
+            if meta_round.id in puzzle.tags:
+                puzzle.tags.remove(meta_round.id)
+        puzzle.metapuzzle = False
+        PuzzleJsonDb.commit(puzzle)
+
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.convert_puzzle_spreadsheet(puzzle)
+
+        await self.notifier.board_changed(hunt)
+        return orphaned
+
+    def feeders_orphaned_by_convert(self, puzzle):
+        """Read-only: the feeders that converting *puzzle* back to a feeder would
+        orphan — every puzzle tagged to its meta round except the meta itself.
+        Powers the web convert confirm, which must name the orphan count up front.
+        Returns [] if the puzzle backs no round."""
+        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        if meta_round is None:
+            return []
+        return [
+            p for p in PuzzleJsonDb.get_all_from_round(meta_round.id)
+            if p.id != puzzle.id
+        ]
+
+    # --- delete_puzzle / delete_round --- ctx-free delete seams ----------------
+
+    _DISCORD_DELETE_REASON = "bot-delete"
+    _SOLVE_DIVIDER_NAME = "———solved———"
+
+    async def _safe_delete_channel(self, guild, channel_id):
+        """Delete a Discord channel by id, tolerating already-missing or rate-limited.
+        Returns True if deleted, False otherwise. Guild=None is a no-op."""
+        if guild is None or not channel_id:
+            return False
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            return False
+        try:
+            await channel.delete(reason=self._DISCORD_DELETE_REASON)
+            return True
+        except discord.NotFound:
+            return False
+        except (discord.RateLimited, discord.HTTPException):
+            logger.exception("delete: could not delete channel %s", channel_id)
+            return False
+
+    async def delete_puzzle(self, guild, hunt, puzzle):
+        """Delete a puzzle: sheet tab, DB record, Discord channel, then refresh any
+        parent metas. Ctx-free seam for !delete_puzzle and the web endpoint.
+        Guild may be None (skips channel deletion).
+        Raises SheetRefreshError if a parent meta refresh fails (deletion already committed
+        and channel already deleted). The bang edge should send warnings to the hunt
+        general channel rather than ctx.send after calling this."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+        meta_rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        PuzzleJsonDb.delete(puzzle.id)
+        failed = await self.refresh_metas(hunt, meta_rounds)
+        await self._safe_delete_channel(guild, puzzle.channel_id)
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def delete_round(self, guild, hunt, hunt_round):
+        """Delete all puzzles in a round (sheet + DB + Discord channel per puzzle),
+        delete the round's Discord category (including its solved-divider channel),
+        and delete the round DB record. Per-puzzle failures are isolated: one failure
+        is logged and the run continues. Guild may be None (skips all Discord deletions).
+        Returns the list of puzzle names whose Discord channels could not be deleted."""
+        puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+        failed_channels = []
+        for puzzle in puzzles:
+            gsheet_cog = self._gsheet_cog(hunt)
+            if gsheet_cog is not None:
+                try:
+                    await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+                except Exception:
+                    logger.exception("delete_round: sheet delete failed for puzzle %s", puzzle.id)
+            PuzzleJsonDb.delete(puzzle.id)
+            if guild is not None and puzzle.channel_id:
+                if not await self._safe_delete_channel(guild, puzzle.channel_id):
+                    failed_channels.append(puzzle.name)
+
+        RoundJsonDb.delete(hunt_round.id)
+
+        if guild is not None and hunt_round.category_id:
+            category = discord.utils.get(guild.categories, id=hunt_round.category_id)
+            if category is not None:
+                for ch in list(category.channels):
+                    if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                        try:
+                            await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_round: could not delete divider channel")
+                try:
+                    await category.delete(reason=self._DISCORD_DELETE_REASON)
+                except Exception:
+                    logger.exception("delete_round: could not delete category %s",
+                                     hunt_round.category_id)
+
+        await self.notifier.board_changed(hunt)
+        return failed_channels
+
     async def add_partial(self, guild, hunt, puzzle, solution):
         """Mark a puzzle as partially solved: set status, append solution,
         commit and refresh metas. Does NOT set solve_time and does NOT push

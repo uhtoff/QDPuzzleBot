@@ -487,6 +487,260 @@ async def retag_puzzle(puzzle_id):
         return jsonify(resp)
 
 
+# --- Convert a metapuzzle back to a feeder (organiser only, destructive) -----
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-feeder/preview", methods=["GET"])
+@login_required
+async def convert_to_feeder_preview(puzzle_id):
+    """Read-only preview for the convert confirm dialog: how many feeders (and
+    which) demoting this metapuzzle would orphan by deleting its round."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+    if not puzzle.is_metapuzzle():
+        return jsonify({"error": "not_a_metapuzzle"}), 400
+
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    orphans = cog.service.feeders_orphaned_by_convert(puzzle)
+    return jsonify({
+        "orphan_count": len(orphans),
+        "orphan_feeders": [{"id": p.id, "name": p.name} for p in orphans],
+    })
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-feeder", methods=["POST"])
+@login_required
+async def convert_to_feeder(puzzle_id):
+    """Demote a metapuzzle back to a feeder via the bot's own service logic.
+
+    Destructive: deletes the puzzle's meta round, orphaning every feeder tagged to
+    it (the frontend confirms against the preview count first). Mirrors the solve
+    family's edge wrapper — organiser-gated, puzzle-locked, audited, board pushed —
+    and treats a Sheets failure as a non-fatal warning (the demotion is committed)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not puzzle.is_metapuzzle():
+            return jsonify({"error": "not_a_metapuzzle"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        orphaned = None
+        warning = None
+        try:
+            orphaned = await cog.service.convert_to_feeder(guild, hunt_obj, puzzle)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        except SheetRefreshError as exc:
+            warning = str(exc)
+        except HttpError:
+            logger.exception("web convert_to_feeder: sheet revert failed for puzzle %s", puzzle.id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+        await _audit("convert_to_feeder", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        resp = {"ok": True}
+        if orphaned is not None:
+            resp["orphaned"] = orphaned
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
+
+
+# --- Delete a puzzle (organiser only) ----------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>", methods=["DELETE"])
+@login_required
+async def delete_puzzle(puzzle_id):
+    """Permanently delete a puzzle: DB record, sheet tab, Discord channel, and
+    meta sheet refresh. Organiser-gated, puzzle-locked, audited, board pushed.
+    A sheet-refresh failure is a non-fatal warning (deletion is committed)."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        warning = None
+        try:
+            await cog.service.delete_puzzle(guild, hunt_obj, puzzle)
+        except SheetRefreshError as exc:
+            warning = str(exc)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+
+        await _audit("delete_puzzle", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
+        resp = {"ok": True}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
+
+
+# --- Delete a round (organiser only) -----------------------------------------
+
+@actions_bp.route("/rounds/<int:round_id>", methods=["DELETE"])
+@login_required
+async def delete_round(round_id):
+    """Permanently delete a round: all its puzzle DB records, sheet tabs, Discord
+    channels, the round Discord category, and the round DB record. Per-puzzle
+    failures are isolated. Returns failed_channels (names whose Discord channel
+    could not be deleted) alongside ok:true so the caller can surface what remains.
+    Organiser-gated, audited, board pushed."""
+    ctx, err = await _visible_hunt_for_round(round_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, RoundJsonDb
+
+    hunt_round = RoundJsonDb.get_by_attr(id=round_id)
+    if hunt_round is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+    try:
+        failed_channels = await cog.service.delete_round(guild, hunt_obj, hunt_round)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("delete_round", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"round_id={round_id} name={hunt_round.name}")
+    resp = {"ok": True}
+    if failed_channels:
+        resp["failed_channels"] = failed_channels
+    return jsonify(resp)
+
+
+# --- Reconcile (organiser only) ----------------------------------------------
+
+@actions_bp.route("/hunts/<uid>/reconcile", methods=["POST"])
+@login_required
+async def reconcile(uid):
+    """Run the reconcile workflow for a hunt.
+
+    Query param `mode`:
+      report       — dry-run only; returns actions+orphans, nothing is applied.
+      apply        — apply non-destructive fixes (channel create/rename, tab create).
+      apply-orphans — also delete orphan Discord channels/tabs (requires explicit
+                      `confirmed_orphans` body field listing all orphan names).
+
+    Returns {ok, actions, orphan_channels, orphan_tabs, deleted, failures}.
+    """
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    mode = request.args.get("mode", "report")
+    if mode not in ("report", "apply", "apply-orphans"):
+        return jsonify({"error": "invalid_mode", "valid": ["report", "apply", "apply-orphans"]}), 400
+
+    body = await request.get_json(silent=True) or {}
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = bot.get_guild(int(snowflake)) if snowflake else None
+    if guild is None:
+        return jsonify({"error": "guild_unavailable"}), 503
+
+    apply = mode in ("apply", "apply-orphans")
+    report = await cog.service.reconcile(guild, hunt_obj, apply=apply)
+
+    deleted = 0
+    if mode == "apply-orphans":
+        confirmed = set(body.get("confirmed_orphans") or [])
+        report_orphan_names = {name for _, name in report.orphan_channels} | \
+                              {title for _, title in report.orphan_tabs}
+        if not confirmed >= report_orphan_names:
+            return jsonify({
+                "error": "orphan_confirmation_mismatch",
+                "expected": sorted(report_orphan_names),
+            }), 400
+        deleted_count, _ = await cog.service.delete_orphans(guild, hunt_obj, report)
+        deleted = deleted_count
+
+    await _audit("reconcile", hunt_uid=uid, detail=f"mode={mode}")
+    return jsonify({
+        "ok": True,
+        "actions": [{"kind": a.kind, "target": a.target, "detail": a.detail}
+                    for a in report.actions],
+        "orphan_channels": [{"id": cid, "name": name}
+                            for cid, name in report.orphan_channels],
+        "orphan_tabs": [{"id": sid, "title": title}
+                        for sid, title in report.orphan_tabs],
+        "failures": [{"target": t, "error": e} for t, e in report.failures],
+        "deleted": deleted,
+    })
+
+
 # --- Rebuild a meta roll-up sheet (organiser only) --------------------------
 
 @actions_bp.route("/rollups/<int:round_id>/rebuild", methods=["POST"])

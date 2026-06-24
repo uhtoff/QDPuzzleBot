@@ -19,12 +19,14 @@ import {
   IconCopy,
   IconNote,
   IconRefresh,
+  IconTrash,
   IconTree,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import {
+  useDeleteRound,
   useRebuildRollup,
   useRollupAnswers,
   useSetNesting,
@@ -32,6 +34,7 @@ import {
   useUpdatePuzzle,
   type SourceMode,
 } from "../api";
+import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
@@ -63,6 +66,8 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const sourceModeMut = useSetSourceMode(detail.hunt.uid);
   const nestingMut = useSetNesting(detail.hunt.uid);
+  const deleteRoundMut = useDeleteRound(detail.hunt.uid);
+  const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
 
   function rebuild() {
     rebuildMut.mutate(group.round_id, {
@@ -100,6 +105,24 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         });
         setNestModalOpen(false);
         setNestParentId(null);
+      },
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function runDeleteRound() {
+    deleteRoundMut.mutate(group.round_id, {
+      onSuccess: (data) => {
+        if (data.failed_channels && data.failed_channels.length > 0) {
+          notifications.show({
+            message: `Round "${group.name}" deleted. Could not delete channels for: ${data.failed_channels.join(", ")}.`,
+            color: "yellow",
+            autoClose: 10000,
+          });
+        } else {
+          notifications.show({ message: `Round "${group.name}" permanently deleted.`, color: "green" });
+        }
+        setDeleteRoundOpen(false);
       },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });
@@ -226,6 +249,23 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               aria-label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
             >
               <IconCopy size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {/* Delete round button — organiser only, non-archived, real rounds only */}
+        {group.round_id !== 0 && isOrganiser && editable && (
+          <Tooltip label="Delete this round and all its puzzles">
+            <ActionIcon
+              variant="subtle"
+              color="red"
+              mr="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteRoundOpen(true);
+              }}
+              aria-label="Delete round"
+            >
+              <IconTrash size={16} />
             </ActionIcon>
           </Tooltip>
         )}
@@ -383,6 +423,22 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           </Box>
         )}
       </Accordion.Panel>
+
+      <TypedConfirmModal
+        opened={deleteRoundOpen}
+        onClose={() => setDeleteRoundOpen(false)}
+        onConfirm={runDeleteRound}
+        title={`Delete round "${group.name}"`}
+        confirmPhrase={group.name}
+        confirmLabel="Delete round"
+        loading={deleteRoundMut.isPending}
+      >
+        <Text size="sm" c="red">
+          ⚠️ This permanently deletes <b>{group.num_feeders} puzzle{group.num_feeders === 1 ? "" : "s"}</b>,
+          their Discord channels and Google sheet tabs, and the round&rsquo;s Discord category.
+          This cannot be undone.
+        </Text>
+      </TypedConfirmModal>
     </Accordion.Item>
   );
 }

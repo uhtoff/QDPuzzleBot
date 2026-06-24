@@ -26,8 +26,15 @@ import {
 import { IconDotsVertical } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup, HuntDetail, Puzzle } from "../types";
-import { useRetagPuzzle, type RetagMode } from "../api";
+import {
+  useConvertToFeeder,
+  useConvertToFeederPreview,
+  useDeletePuzzle,
+  useRetagPuzzle,
+  type RetagMode,
+} from "../api";
 import { statusColor } from "../util";
+import { TypedConfirmModal } from "./TypedConfirmModal";
 
 interface MetaOption {
   code: string;
@@ -41,10 +48,13 @@ interface CardProps {
   columnName: string;
   metas: MetaOption[];
   onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
+  onConvertToFeeder: (puzzle: Puzzle) => void;
+  onDeletePuzzle: (puzzle: Puzzle) => void;
+  isOrganiser: boolean;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -126,6 +136,22 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
                 </Menu.Item>
               </>
             )}
+            {puzzle.is_meta && (
+              <>
+                <Menu.Divider />
+                <Menu.Item color="red" onClick={() => onConvertToFeeder(puzzle)}>
+                  Convert to feeder…
+                </Menu.Item>
+              </>
+            )}
+            {isOrganiser && (
+              <>
+                <Menu.Divider />
+                <Menu.Item color="red" onClick={() => onDeletePuzzle(puzzle)}>
+                  Delete puzzle…
+                </Menu.Item>
+              </>
+            )}
           </Menu.Dropdown>
         </Menu>
       </Group>
@@ -193,8 +219,17 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
 
 export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const retag = useRetagPuzzle(uid);
+  const convert = useConvertToFeeder(uid);
+  const deletePuzzleMut = useDeletePuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
+  // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
+  const [convertTarget, setConvertTarget] = useState<Puzzle | null>(null);
+  // Preview the orphan impact only while the confirm modal is open for a target.
+  const convertPreview = useConvertToFeederPreview(convertTarget?.id ?? null, convertTarget != null);
+  // Puzzle awaiting a delete confirm (null = modal closed).
+  const [deleteTarget, setDeleteTarget] = useState<Puzzle | null>(null);
+  const isOrganiser = detail.hunt.can_manage;
   // Track every in-flight retag ourselves: React Query's single mutation only
   // exposes the latest call's variables, so concurrent retags would otherwise
   // grey out just one card.
@@ -226,6 +261,43 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       }
     );
   };
+
+  function runConvertToFeeder() {
+    if (!convertTarget) return;
+    const name = convertTarget.name;
+    convert.mutate(convertTarget.id, {
+      onSuccess: (data) => {
+        if (data.sheet_warning) {
+          notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
+        }
+        const orphans = data.orphaned ?? 0;
+        notifications.show({
+          message:
+            orphans > 0
+              ? `Converted “${name}” to a feeder — ${orphans} feeder${orphans === 1 ? "" : "s"} orphaned.`
+              : `Converted “${name}” to a feeder.`,
+          color: "green",
+        });
+        setConvertTarget(null);
+      },
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
+
+  function runDeletePuzzle() {
+    if (!deleteTarget) return;
+    const name = deleteTarget.name;
+    deletePuzzleMut.mutate(deleteTarget.id, {
+      onSuccess: (data) => {
+        if (data.sheet_warning) {
+          notifications.show({ message: data.sheet_warning, color: "yellow", autoClose: 8000 });
+        }
+        notifications.show({ message: `"${name}" permanently deleted.`, color: "green" });
+        setDeleteTarget(null);
+      },
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  }
 
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
@@ -295,6 +367,9 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
+                    onConvertToFeeder={setConvertTarget}
+                    onDeletePuzzle={setDeleteTarget}
+                    isOrganiser={isOrganiser}
                     isPending={pendingIds.has(p.id)}
                   />
                 ))}
@@ -317,6 +392,55 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           {(retag.error as Error).message}
         </Text>
       )}
+
+      <TypedConfirmModal
+        opened={convertTarget != null}
+        onClose={() => setConvertTarget(null)}
+        onConfirm={runConvertToFeeder}
+        title={`Convert “${convertTarget?.name ?? ""}” to a feeder`}
+        confirmPhrase={convertTarget?.name ?? ""}
+        confirmLabel="Convert to feeder"
+        loading={convert.isPending}
+      >
+        <Text size="sm">
+          This deletes the metapuzzle&rsquo;s round and demotes it to an ordinary feeder.
+          Its Google sheet is restructured back to a plain puzzle.
+        </Text>
+        {convertPreview.isLoading ? (
+          <Group gap={6}>
+            <Loader size="xs" />
+            <Text size="sm" c="dimmed">
+              Checking which feeders would be orphaned&hellip;
+            </Text>
+          </Group>
+        ) : convertPreview.data && convertPreview.data.orphan_count > 0 ? (
+          <Text size="sm" c="red">
+            ⚠️ {convertPreview.data.orphan_count} feeder
+            {convertPreview.data.orphan_count === 1 ? "" : "s"} tagged to this meta will be{" "}
+            <b>orphaned</b> (unassigned from any meta):{" "}
+            {convertPreview.data.orphan_feeders.map((f) => f.name).join(", ")}.
+          </Text>
+        ) : (
+          <Text size="sm" c="dimmed">
+            No feeders are tagged to this meta — nothing will be orphaned.
+          </Text>
+        )}
+      </TypedConfirmModal>
+
+      <TypedConfirmModal
+        opened={deleteTarget != null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={runDeletePuzzle}
+        title={`Delete "${deleteTarget?.name ?? ""}"`}
+        confirmPhrase={deleteTarget?.name ?? ""}
+        confirmLabel="Delete puzzle"
+        loading={deletePuzzleMut.isPending}
+      >
+        <Text size="sm" c="red">
+          ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
+          This cannot be undone.
+        </Text>
+      </TypedConfirmModal>
     </Box>
   );
 }
