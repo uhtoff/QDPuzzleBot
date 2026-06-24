@@ -18,12 +18,14 @@ from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, Sh
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.round_data import RoundData
+from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
     clean_name, get_or_create_channel, solve_divider_position,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
+    SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 
@@ -1398,6 +1400,77 @@ class PuzzleService:
                 "background refresh_unassigned failed for hunt %s",
                 getattr(hunt, "id", "?"),
             )
+
+    # -- Hunt create / delete ------------------------------------------
+
+    async def create_hunt(self, guild, *, name, url, start_timestamp,
+                          role_name=None, username=None, password=None,
+                          create_archive_sheet=False, guild_id=0):
+        """Create a hunt: Discord category/channels + Google Sheet + DB row.
+
+        Raises RuntimeError("hunt_exists") if the name is already taken.
+        Returns the committed HuntData.
+        """
+        if HuntJsonDb.check_duplicates(name):
+            raise RuntimeError("hunt_exists")
+
+        team_role = None
+        if role_name:
+            team_role = discord.utils.get(guild.roles, name=role_name)
+            if team_role is None:
+                team_role = await guild.create_role(
+                    name=role_name, colour=discord.Colour.random(),
+                    mentionable=True, reason="bot-role",
+                )
+
+        # Category is brand-new, so channels are created directly (no get_or_create lookup).
+        category_name = clean_name(name)
+        category = await guild.create_category(
+            category_name, position=max(len(guild.categories) - 2, 0)
+        )
+        text_channel = await guild.create_text_channel(
+            "general", category=category, reason="bot-hunt-general", position=0
+        )
+        if SOLVE_CATEGORY:
+            await guild.create_category(
+                f"{name}-solved", position=max(len(guild.categories) - 2, 0)
+            )
+        else:
+            await guild.create_text_channel(
+                SOLVE_DIVIDER, category=category, reason="bot-round", position=500
+            )
+
+        gsheet_cog = self._gsheet_cog(None)
+        google_sheet_id = ""
+        archive_google_sheet_id = ""
+        if gsheet_cog is not None:
+            google_sheet_id = await gsheet_cog.create_hunt_spreadsheet(name)
+            if create_archive_sheet:
+                archive_google_sheet_id = await gsheet_cog.create_hunt_archive_spreadsheet(name)
+
+        new_hunt = HuntData(
+            name=name,
+            category_id=category.id,
+            channel_id=text_channel.id,
+            guild_id=guild_id,
+            url=url,
+            uid=HuntJsonDb.generate_uid('uid'),
+        )
+        new_hunt.start_timestamp = start_timestamp
+        new_hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+        if username:
+            new_hunt.username = username
+        if password:
+            new_hunt.password = password
+        if team_role is not None:
+            new_hunt.role_id = team_role.id
+        if google_sheet_id:
+            new_hunt.google_sheet_id = google_sheet_id
+        if archive_google_sheet_id:
+            new_hunt.archive_google_sheet_id = archive_google_sheet_id
+
+        HuntJsonDb.commit(new_hunt)
+        return new_hunt
 
     # -- Hunt settings -------------------------------------------------
 

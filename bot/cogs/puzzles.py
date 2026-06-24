@@ -424,65 +424,24 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None):
-        guild = ctx.guild
-
-        if await self.check_available_space(ctx,5,2) is False:
+        if await self.check_available_space(ctx, 5, 2) is False:
             return await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
 
-        category_name = self.clean_name(hunt_name)
-        google_drive_id = None
-        team_role = None
-        if role_name:
-            # Reuse an existing role with this name if present, so a hunt's team
-            # role id is captured even when the role was made by hand.
-            team_role = discord.utils.get(guild.roles, name=role_name)
-            if team_role is None:
-                team_role = await guild.create_role(
-                    name=role_name, colour=discord.Colour.random(), mentionable=True, reason=self.ROLE_REASON
-                )
-
-        category = await guild.create_category(category_name, position=max(len(guild.categories) - 2,0))
-        text_channel, created_text = await self.get_or_create_channel(
-            guild=guild, category=category, channel_name=self.GENERAL_CHANNEL_NAME, channel_type="text", reason=self.HUNT_REASON, position = 0
-        )
         settings = self.get_guild_data(ctx)
-
-        if self.SOLVE_CATEGORY:
-            await guild.create_category(self.get_solved_puzzle_category(hunt_name), position=max(len(guild.categories) - 2,0))
-        else:
-            await self.get_or_create_channel(
-                guild=guild, category=category, channel_name=self.SOLVE_DIVIDER,
-                channel_type="text", reason=self.ROUND_REASON, position=500
-            )
-
-        if self.get_gsheet_cog(ctx) is not None:
-            google_drive_id = await self.get_gsheet_cog(ctx).create_hunt_spreadsheet(hunt_name)
-
-        uid = HuntJsonDb.generate_uid('uid')
-
-        new_hunt = HuntData(
+        new_hunt = await self.service.create_hunt(
+            ctx.guild,
             name=hunt_name,
-            category_id=category.id,
-            channel_id=text_channel.id,
-            guild_id=settings.id,
             url=hunt_url,
-            uid=uid,
+            start_timestamp=0,
+            role_name=role_name,
+            guild_id=settings.id if settings else 0,
         )
 
-        if team_role is not None:
-            # Captured so the dashboard can gate active-hunt visibility by team role.
-            new_hunt.role_id = team_role.id
-
-        if google_drive_id:
-            new_hunt.google_sheet_id=google_drive_id
-
-        HuntJsonDb.commit(new_hunt)
-
-        # add hunt settings
+        text_channel = self.bot.get_channel(new_hunt.channel_id)
         initial_message = await self.send_initial_hunt_channel_messages(ctx, text_channel, hunt=new_hunt)
         await initial_message.pin()
 
-        return (category, text_channel, True)
+        return (ctx.guild.get_channel(new_hunt.category_id), text_channel, True)
 
     @commands.hybrid_command(description="Set the hunt to use a second spreadsheet to hold solved puzzles (admin only)",)
     @commands.has_any_role(*ADMIN_ROLES)
