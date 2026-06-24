@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-24
-Status: in progress — Phase 1 (tests) written & RED-verified (10 new failing tests in test_solve_equivalence.py); next: Phase 2 extract service methods (Sonnet 4.6). Target models: Phase 1 = Opus 4.8, Phases 2–4 = Sonnet 4.6.
+Status: ready for handoff — all 4 phases complete + whole-handoff verification green (318 passed, tsc clean) @ 387e50b. Parity-plan Phase 1 (solve panel) DONE. Hunt-lifecycle/settings (was "Phase 5") split to a separate plan; remaining web-command-parity work = parity Phases 2–4 (next planning task).
 
 ## Goal
 
