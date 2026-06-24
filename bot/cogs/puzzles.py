@@ -600,6 +600,7 @@ class Puzzles(commands.Cog):
             )
         except RuntimeError:
             return await ctx.send(":x: Failed to create puzzle (server full?).")
+        asyncio.create_task(self.service.refresh_unclassified(hunt))
 
     # --- legacy create twins removed (Phase 5 strangle) ---
 
@@ -653,6 +654,21 @@ class Puzzles(commands.Cog):
             msg += (f"\n:warning: {len(failed)} still failing (left stale): "
                     + ", ".join(str(f) for f in failed))
         await ctx.send(msg)
+
+    @commands.hybrid_command(name="rebuild_unclassified", description="Rebuild the Unclassified Puzzles tab (organiser only)")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def rebuild_unclassified(self, ctx, *, show_round: bool = False):
+        """*(Organiser) Reconcile the Unclassified Puzzles sheet tab: !rebuild_unclassified [--round]*"""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        try:
+            await self.service.refresh_unclassified(hunt, show_round=show_round)
+            await ctx.send(":white_check_mark: Unclassified Puzzles tab reconciled.")
+        except Exception:
+            logger.exception("rebuild_unclassified failed for hunt %s", hunt.id if hunt else "?")
+            await ctx.send(":warning: Failed to reconcile unclassified tab.")
 
     async def update_metapuzzle(self, ctx, hunt_round):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
@@ -1106,6 +1122,7 @@ class Puzzles(commands.Cog):
         meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
         if meta_round:
             await self.service.add_to_meta(puzzle, meta_round)
+            asyncio.create_task(self.service.refresh_unclassified(self.get_hunt(ctx)))
             await ctx.send(
                 f":white_check_mark: This puzzle has been tagged to {meta_round.name} and meta sheets are being updated.")
         else:
@@ -1129,6 +1146,7 @@ class Puzzles(commands.Cog):
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets are being updated.")
             await self.service.move_to_meta(self.get_guild(ctx), puzzle, meta_round)
+            asyncio.create_task(self.service.refresh_unclassified(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -1156,6 +1174,7 @@ class Puzzles(commands.Cog):
             await ctx.send(
                 f":white_check_mark: This puzzle has been removed from {meta_round.name} and meta sheets are being updated.")
             await self.service.remove_from_meta(puzzle, meta_round)
+            asyncio.create_task(self.service.refresh_unclassified(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
 
@@ -2214,6 +2233,7 @@ class Puzzles(commands.Cog):
             await self._warn_stale_sheets(ctx, sheet_warning)
         else:
             await ctx.send(":white_check_mark: Sheets all tidied away.")
+        asyncio.create_task(self.service.refresh_unclassified(hunt))
 
     @commands.command(aliases=["s"])
     @with_puzzle_mutex(wait=False)
