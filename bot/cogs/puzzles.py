@@ -223,11 +223,6 @@ class Puzzles(commands.Cog):
 
         return choices
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print(f"{type(self).__name__} Cog ready.")
-
-
     def clean_name(self, name):
         """Cleanup name to be appropriate for discord channel."""
         return _channels.clean_name(name)
