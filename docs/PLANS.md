@@ -32,7 +32,7 @@ engine: a typed relationship graph + one generic roll-up writer.
 |---|---|
 | **A. Flexible meta-meta + pull many titles/answers into one sheet** | a `feeds-meta` edge to a higher meta + a roll-up over the subtree |
 | **B. Minipuzzle / minimeta cluster with linked sheets** | minipuzzles as `additional_sheets` tabs under one puzzle + a roll-up scoped to that cluster |
-| **C. Capstone / progressive reveal** | a **different** edge type — `reveals` — feeding a "dossier" tab; the capstone is **never auto-solved** |
+| **C. Capstone / progressive reveal** | a **different** edge type — `reveals` — feeding a "dossier" tab; solved only by manual `!solve` |
 | **D. Flexible answer aggregation (selection / round / subtree)** | the same writer with a `source_mode` of `round` / `subtree` / `explicit` |
 
 ### ✅ RESOLVED — "round" vs "collections of tags" → typed groups on the existing tables (M6)
@@ -503,8 +503,7 @@ Web POST/PATCH now also re-render the sheet (fixed). **Spec:**
 capstone half to M9b (below); it is NOT in `0ad872c`.**
 
 **M9b — Capstones / progressive reveal (Feature C, full).** **NOT STARTED** *(deps: M9)* The capstone
-scope the original M9 promised but didn't ship: `reveals` edge → dossier tab; **capstone is never
-auto-solved** (guard the M5 solve hook in `puzzle_service.solve`); "meta matching" — route clues to a
+scope the original M9 promised but didn't ship: `reveals` edge → dossier tab; "meta matching" — route clues to a
 target *and* match against the hunt's metas/answers (today routing is a plain manual dropdown of all
 puzzles, no matching); grouped-by-target/suspect roll-up **views** (only the flat evidence tab exists);
 the PB10 "Detectives" typed clue store (`suspect`/`attribute`/`assigned_detective`) as an *optional
