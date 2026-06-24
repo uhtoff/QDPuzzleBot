@@ -1009,6 +1009,48 @@ async def delete_puzzle(puzzle_id):
         return jsonify(resp)
 
 
+# --- Delete a hunt (admin only) -----------------------------------------------
+
+@actions_bp.route("/hunts/<uid>", methods=["DELETE"])
+@login_required
+async def delete_hunt(uid):
+    """Permanently delete a hunt: all puzzle DB records, sheet tabs + files, Discord
+    channels, categories, and the hunt DB record. Admin only. No archived lockout.
+    Returns failed_channels alongside ok:true so the caller can surface what remains."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    # Deliberately no archived 403 guard — admins must be able to delete archived hunts.
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+    try:
+        failed = await cog.service.delete_hunt(guild, hunt_obj)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("delete_hunt", hunt_uid=uid,
+                 detail=f"name={hunt_obj.name}")
+    resp = {"ok": True}
+    if failed:
+        resp["failed_channels"] = failed
+    return jsonify(resp)
+
+
 # --- Delete a round (organiser only) -----------------------------------------
 
 @actions_bp.route("/rounds/<int:round_id>", methods=["DELETE"])
