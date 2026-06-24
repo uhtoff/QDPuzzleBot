@@ -63,6 +63,12 @@ class PuzzleService:
         """Make the puzzle's Discord channel match the DB. Returns the list of
         actions taken/needed. Resolution order: keep+fix existing > relink named >
         create. Welcome is reposted ONLY when a brand-new channel is created."""
+        # Mini-puzzles live as threads inside their minimeta's channel (see
+        # create_mini) and are deliberately untagged. Reconcile has no
+        # thread-creation path, so a mini here would be wrongly promoted to a
+        # standalone text channel — skip channel reconciliation for them.
+        if puzzle.parent_puzzle_id is not None:
+            return []
         actions = []
         category, home_round = self._home_category(guild, puzzle)
         want_name = clean_name(puzzle.name)

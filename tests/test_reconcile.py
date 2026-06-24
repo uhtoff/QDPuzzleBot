@@ -133,6 +133,20 @@ def test_channel_missing_and_no_existing_creates_and_welcomes():
     notifier.welcome.assert_awaited()  # welcome only on genuine creation
 
 
+def test_channel_skipped_for_mini_puzzle():
+    # A mini (parent_puzzle_id set) lives as a thread under its minimeta; reconcile
+    # must not promote it to a standalone text channel even when none is found.
+    guild = _guild_with(channels=[], categories=[_category(500)])
+    svc = _service(notifier=AsyncMock())
+    p = _puzzle(channel_id=None, channel_name="mini", tags=[], parent_puzzle_id=42)
+    with patch.object(ps, "get_or_create_channel",
+                      new=AsyncMock()) as create:
+        actions = asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
+    assert actions == []
+    create.assert_not_awaited()
+    assert p.channel_id is None  # untouched
+
+
 def test_channel_relink_when_named_channel_exists_no_welcome():
     cat = _category(500)
     existing = SimpleNamespace(id=888, name="tide", mention="<#888>", category=cat)
