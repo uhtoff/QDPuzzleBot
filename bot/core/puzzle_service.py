@@ -1472,6 +1472,72 @@ class PuzzleService:
         HuntJsonDb.commit(new_hunt)
         return new_hunt
 
+    async def delete_hunt(self, guild, hunt) -> list:
+        """Tear down a hunt: puzzles, rounds, spreadsheet files, Discord channels, DB row.
+
+        Per-puzzle channel failures are isolated and returned as a list of puzzle names.
+        """
+        failed_channels = []
+
+        # Delete each puzzle's sheet tab + DB row + Discord channel
+        puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+        for puzzle in puzzles:
+            gsheet_cog = self._gsheet_cog(hunt)
+            if gsheet_cog is not None:
+                try:
+                    await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
+                except Exception:
+                    logger.exception("delete_hunt: sheet delete failed for puzzle %s", puzzle.id)
+            PuzzleJsonDb.delete(puzzle.id)
+            if guild is not None and puzzle.channel_id:
+                if not await self._safe_delete_channel(guild, puzzle.channel_id):
+                    failed_channels.append(puzzle.name)
+
+        # Delete each round's category + DB row
+        hunt_rounds = RoundJsonDb.get_all(hunt.id)
+        for hunt_round in hunt_rounds:
+            RoundJsonDb.delete(hunt_round.id)
+            if guild is not None and hunt_round.category_id:
+                category = discord.utils.get(guild.categories, id=hunt_round.category_id)
+                if category is not None:
+                    for ch in list(category.channels):
+                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                            try:
+                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                            except Exception:
+                                logger.exception("delete_hunt: could not delete divider channel")
+                    try:
+                        await category.delete(reason=self._DISCORD_DELETE_REASON)
+                    except Exception:
+                        logger.exception("delete_hunt: could not delete round category %s",
+                                         hunt_round.category_id)
+
+        # Delete spreadsheet files (whole Drive file, not just tabs)
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            if hunt.google_sheet_id:
+                await gsheet_cog.delete_hunt_spreadsheet(hunt.google_sheet_id)
+            if hunt.archive_google_sheet_id:
+                await gsheet_cog.delete_hunt_spreadsheet(hunt.archive_google_sheet_id)
+
+        # Delete hunt channel + category (best-effort; failures logged, not raised)
+        if guild is not None:
+            if hunt.channel_id:
+                try:
+                    await self._safe_delete_channel(guild, hunt.channel_id)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete hunt channel %s", hunt.channel_id)
+            if hunt.category_id:
+                category = discord.utils.get(guild.categories, id=hunt.category_id)
+                if category is not None:
+                    try:
+                        await category.delete(reason=self._DISCORD_DELETE_REASON)
+                    except Exception:
+                        logger.exception("delete_hunt: could not delete hunt category %s", hunt.category_id)
+
+        HuntJsonDb.delete(hunt.id)
+        return failed_channels
+
     # -- Hunt settings -------------------------------------------------
 
     _UNSET = object()

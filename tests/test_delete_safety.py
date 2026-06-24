@@ -68,8 +68,12 @@ async def test_safe_delete_notfound_is_silent(caplog):
 
 @pytest.mark.asyncio
 async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
-    """delete_hunt must not abort when one puzzle channel is already gone."""
-    import bot.cogs.puzzles as puzzles_mod
+    """delete_hunt must not abort when one puzzle channel is already gone.
+
+    The teardown is now in the service layer (PuzzleService.delete_hunt);
+    patch the service DB references and set up guild.get_channel accordingly.
+    """
+    import bot.core.puzzle_service as svc_mod
 
     cog = _cog()
     # Two puzzles; channel for the first is missing, second present.
@@ -77,32 +81,37 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
     p2 = SimpleNamespace(id=2, name="P2", channel_id=102)
     present = SimpleNamespace(id=102, delete=AsyncMock())
 
+    hunt_obj = SimpleNamespace(
+        id=10, name="TestHunt",
+        channel_id=200, category_id=0,
+        google_sheet_id="", archive_google_sheet_id="",
+    )
+
     guild = MagicMock()
-    guild.channels = [present]      # 101 missing, 102 present
     guild.categories = []
+    # get_channel returns the present channel for 102, None otherwise.
+    guild.get_channel = MagicMock(side_effect=lambda cid: present if cid == 102 else None)
 
     hunt_channel = SimpleNamespace(delete=AsyncMock(), send=AsyncMock(),
                                    category=SimpleNamespace(delete=AsyncMock()))
-    ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=hunt_channel)
+    ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=hunt_channel, guild=guild)
     cog.environment[7] = {
-        "channel_type": "Hunt", "hunt": SimpleNamespace(id=10, name="TestHunt"),
+        "channel_type": "Hunt", "hunt": hunt_obj,
         "hunt_round": None, "puzzle": None, "guild": guild, "guild_data": None,
         "channel": hunt_channel,
     }
 
-    monkeypatch.setattr(puzzles_mod, "PuzzleJsonDb", MagicMock(
+    monkeypatch.setattr(svc_mod, "PuzzleJsonDb", MagicMock(
         get_all_from_hunt=MagicMock(return_value=[p1, p2]), delete=MagicMock()))
-    monkeypatch.setattr(puzzles_mod, "RoundJsonDb", MagicMock(
+    monkeypatch.setattr(svc_mod, "RoundJsonDb", MagicMock(
         get_all=MagicMock(return_value=[])))
-    monkeypatch.setattr(puzzles_mod, "HuntJsonDb", MagicMock(delete=MagicMock()))
-    cog._confirm_destructive = AsyncMock(return_value=True)  # gate added in Task 4; harmless now
-    cog.delete_puzzle_data = AsyncMock(return_value=True)
+    monkeypatch.setattr(svc_mod, "HuntJsonDb", MagicMock(delete=MagicMock()))
+    cog._confirm_destructive = AsyncMock(return_value=True)
 
     # Should complete without raising despite channel 101 missing.
     await cog.delete_hunt.callback(cog, ctx)
 
     present.delete.assert_awaited_once()        # the present channel was deleted
-    hunt_channel.delete.assert_awaited()        # reached the end (did not abort)
     # the remainder (P1, whose channel was missing) is reported to the user
     warn = [c for c in hunt_channel.send.await_args_list
             if "Could not delete channels for" in str(c)]

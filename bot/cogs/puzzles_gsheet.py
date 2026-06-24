@@ -538,6 +538,16 @@ class GoogleSheets(commands.Cog):
         return new_file_id
 
 
+    async def delete_hunt_spreadsheet(self, file_id: str):
+        """Delete a whole Drive spreadsheet file by id. Tolerates already-gone files."""
+        try:
+            await execute_with_retry(
+                get_drive().files().delete(fileId=file_id),
+                on_retry=self._notify_retry,
+            )
+        except Exception:
+            logger.exception("delete_hunt_spreadsheet: could not delete file %s (may already be gone)", file_id)
+
     async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
         puzzle_index = self.INITIAL_OFFSET

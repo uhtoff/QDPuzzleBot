@@ -2618,22 +2618,11 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This command must be done from the main hunt channel")
             return
         hunt = self.get_hunt(ctx)
-        hunt_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-        n = len(hunt_puzzles)
+        n = len(PuzzleJsonDb.get_all_from_hunt(hunt.id))
         if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
             return
-        failed = await self._delete_puzzles(ctx, hunt_puzzles)
-        hunt_rounds = RoundJsonDb.get_all(self.get_hunt(ctx).id)
-        for hunt_round in hunt_rounds:
-            try:
-                await self.delete_round_data(hunt_round)
-                await self._delete_round_category(ctx, hunt_round)
-            except Exception:
-                logger.exception("Failed to delete round %s during hunt deletion", hunt_round.id)
+        failed = await self.service.delete_hunt(ctx.guild, hunt)
         await self._warn_failed_channels(hunt_channel, failed)
-        await hunt_channel.delete(reason=self.DELETE_REASON)
-        await hunt_channel.category.delete(reason=self.DELETE_REASON)
-        HuntJsonDb.delete(self.get_hunt(ctx).id)
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
         self.set_hunt(ctx, None)
