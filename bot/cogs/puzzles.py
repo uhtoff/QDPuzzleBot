@@ -1393,6 +1393,10 @@ class Puzzles(commands.Cog):
             if str(exc) == "already_meta":
                 await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
             return
+        # Point the request-scoped cache at the freshly-created round so the
+        # metapuzzle intro embed below (info → send_initial_metapuzzle_channel_messages)
+        # renders the new round, not the stale pre-convert one.
+        self.set_hunt_round(ctx, hunt_round)
         # Channel rename intentionally omitted: the web dashboard's META label
         # supersedes the "🧩" name prefix, and renames hit Discord's strict
         # per-channel rename bucket (2/10min) — toggling convert burned it.

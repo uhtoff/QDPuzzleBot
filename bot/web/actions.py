@@ -587,9 +587,14 @@ async def rename_puzzle(puzzle_id):
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
+        # Pass the guild so the service renames the Discord channel too (mirrors
+        # the bang); safe_rename tolerates the rename rate-limit via deferral.
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
         warning = None
         try:
-            await cog.service.rename_puzzle(None, hunt_obj, puzzle, new_name)
+            await cog.service.rename_puzzle(guild, hunt_obj, puzzle, new_name)
         except SheetRefreshError as exc:
             warning = str(exc)
 
