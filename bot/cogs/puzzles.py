@@ -692,6 +692,28 @@ class Puzzles(commands.Cog):
                          + ", ".join(f"{t} ({e})" for t, e in report.failures))
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_orphan_confirmation(report, *, limit=20):
+        """Build the destructive-confirmation prompt, naming the orphan channels
+        and tabs that would be deleted. Truncates each list to `limit` entries
+        (with an "…and N more" line) to stay within Discord's embed limits."""
+        lines = [f"Delete {len(report.orphan_channels)} channel(s) and "
+                 f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?"]
+
+        def _section(label, items, render):
+            if not items:
+                return
+            shown = items[:limit]
+            names = ", ".join(render(item) for item in shown)
+            lines.append(f"\n**{label}:** {names}")
+            remaining = len(items) - len(shown)
+            if remaining:
+                lines.append(f"…and {remaining} more")
+
+        _section("Channels", report.orphan_channels, lambda c: f"#{c[1]}")
+        _section("Tabs", report.orphan_tabs, lambda t: f'"{t[1]}"')
+        return "\n".join(lines)
+
     @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def reconcile(self, ctx, mode: str = "", scope: str = ""):
@@ -709,8 +731,7 @@ class Puzzles(commands.Cog):
         await ctx.send(self._format_reconcile_report(report, applied=apply))
 
         if apply and want_orphans and report.has_orphans():
-            desc = (f"Delete {len(report.orphan_channels)} channel(s) and "
-                    f"{len(report.orphan_tabs)} tab(s) with no matching puzzle?")
+            desc = self._format_orphan_confirmation(report)
             if await self._confirm_destructive(ctx, desc):
                 deleted, failed = await self.service.delete_orphans(ctx.guild, hunt, report)
                 msg = f":white_check_mark: Deleted {deleted} orphan(s)."
