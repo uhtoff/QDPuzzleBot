@@ -356,6 +356,8 @@ async def solve_puzzle(puzzle_id):
             return _discord_error_response(exc)
         await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
+        # Best-effort: keep the Unclassified Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
         await _audit("solve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=puzzle.solution)
         resp = {"ok": True, "solution": puzzle.solution}
         if warning:
@@ -400,7 +402,7 @@ async def retag_puzzle(puzzle_id):
     if mode not in ("move", "add", "remove"):
         return jsonify({"error": "bad_mode"}), 400
 
-    from bot.store import PuzzleJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
     meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
     if meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]:
@@ -444,6 +446,10 @@ async def retag_puzzle(puzzle_id):
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
         await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=meta_code)
+        # Best-effort: keep the Unclassified Puzzles tab in sync.
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        if hunt_obj is not None:
+            asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
         resp = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
@@ -630,6 +636,41 @@ async def create_puzzle(uid):
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
+    return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
+
+
+@actions_bp.route("/hunts/<uid>/unclassified", methods=["POST"])
+@login_required
+async def create_unclassified(uid):
+    """Create a hunt-level (unclassified) puzzle, via the bot."""
+    ctx, err = await _organiser_hunt(uid)
+    if err:
+        return err
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
+        return jsonify({"error": "duplicate_name"}), 409
+
+    bot = current_app.bot
+    cog = bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = bot.get_guild(int(ctx["guild_snowflake"]))
+    try:
+        puzzle = await cog.service.create_puzzle(guild, hunt_obj, None, name)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    await _audit("create_unclassified", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
+    # Best-effort: keep the Unclassified Puzzles tab in sync.
+    asyncio.create_task(cog.service.refresh_unclassified(hunt_obj))
     return jsonify({"ok": True, "puzzle_id": puzzle.id, "name": puzzle.name})
 
 
