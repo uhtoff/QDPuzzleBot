@@ -594,7 +594,10 @@ class PuzzleService:
         notifier.  Raises the underlying exception on failure so edges can
         decide tolerance.
         """
-        category = discord.utils.get(guild.categories, id=round_data.category_id) if round_data else None
+        # No round (an unassigned puzzle) → drop the channel in the hunt's own category
+        # rather than at the guild root.
+        category_id = round_data.category_id if round_data else hunt.category_id
+        category = discord.utils.get(guild.categories, id=category_id) if category_id else None
 
         # Space checks before we create any Google sheet (avoids orphan sheets).
         if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
