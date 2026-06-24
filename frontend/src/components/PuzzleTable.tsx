@@ -1,23 +1,22 @@
 import { useMemo, useState } from "react";
+import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import {
-  ActionIcon,
   Badge,
   Checkbox,
   Group,
-  Indicator,
   MultiSelect,
   Table,
   Text,
   TextInput,
-  Tooltip,
 } from "@mantine/core";
-import { IconCircleCheck, IconNote, IconSearch } from "@tabler/icons-react";
+import { IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import { useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
+import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, priorityColor, relativeTime, statusColor } from "../util";
 
 interface Props {
@@ -42,16 +41,8 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const [types, setTypes] = useState<string[]>([]);
   const [hideSolved, setHideSolved] = useState(false);
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
-  const [expandedMinis, setExpandedMinis] = useState<Set<number>>(new Set());
+  const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
-
-  function toggleMinis(id: number) {
-    setExpandedMinis((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
   const editable = !detail.hunt.archived;
 
   const statusOptions = useMemo(() => uniqueValues(puzzles, "status"), [puzzles]);
@@ -215,36 +206,13 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     {activityFor(p)}
                   </Text>
                 </Table.Td>
-                <Table.Td>
-                  <Group gap={4} wrap="nowrap">
-                    {editable && !p.solved && (
-                      <Tooltip label="Mark solved">
-                        <ActionIcon variant="subtle" color="green" onClick={() => setSolvePuzzle(p)} aria-label="Solve">
-                          <IconCircleCheck size={17} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                    <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
-                      <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
-                        <IconNote size={16} />
-                      </ActionIcon>
-                    </Indicator>
-                    {p.puzzle_type === "Minimeta" && (
-                      <Tooltip label={`${p.mini_puzzles.filter(m => m.solved).length}/${p.mini_puzzles.length} minis solved`}>
-                        <ActionIcon
-                          size="sm"
-                          variant="subtle"
-                          onClick={() => toggleMinis(p.id)}
-                          aria-label="Toggle minis"
-                        >
-                          <Badge color="violet" variant="light">
-                            {p.mini_puzzles.filter(m => m.solved).length}/{p.mini_puzzles.length}
-                          </Badge>
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                  </Group>
-                </Table.Td>
+                <PuzzleRowActions
+                  puzzle={p}
+                  editable={editable}
+                  onSolve={setSolvePuzzle}
+                  onOpenNotes={onOpenNotes}
+                  onToggleMinis={toggleMinis}
+                />
               </Table.Tr>
               {p.puzzle_type === "Minimeta" && expandedMinis.has(p.id) && (
                 <Table.Tr>
