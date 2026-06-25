@@ -99,30 +99,33 @@ class TestRefreshMetaFires:
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_add_to_meta_triggers_rebuild(self):
+    async def test_tag_with_edge_triggers_rebuild(self):
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         puzzle = make_puzzle(id=2, tags=[])
+        puzzle.tag_edges = {}
         with _patched() as (pdb, hdb, _r, _ru):
             hdb.get_by_attr.return_value = _hunt()
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_tag_group.return_value = [puzzle]
-            await svc.add_to_meta(puzzle, meta_round)
+            await svc.tag_with_edge(puzzle, meta_round, "feeds")
         assert gsheet.add_metapuzzle_data.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_clear_metas_untags_all_and_rebuilds_each(self):
+    async def test_untag_from_rebuilds_affected_groups(self):
         svc, gsheet = _svc_with_sheets()
-        # Feeder tagged to two metas; clearing must empty its tags and refresh both.
+        # Feeder tagged to two metas; untagging from one must refresh it.
         puzzle = make_puzzle(id=2, tags=[5, 6])
+        puzzle.tag_edges = {5: "feeds", 6: "feeds"}
         with _patched() as (pdb, hdb, rdb, _ru):
             hdb.get_by_attr.return_value = _hunt()
             rdb.get_by_attr.side_effect = lambda id: make_round(id=id, target_puzzle_id=id)
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_tag_group.return_value = []
-            await svc.clear_metas(puzzle)
-        assert puzzle.tags == []
-        assert gsheet.add_metapuzzle_data.await_count == 2
+            await svc.untag_from(puzzle, make_round(id=5, target_puzzle_id=5))
+        assert 5 not in puzzle.tags
+        assert 6 in puzzle.tags
+        assert gsheet.add_metapuzzle_data.await_count == 1
 
 
 class TestRollupBookkeeping:

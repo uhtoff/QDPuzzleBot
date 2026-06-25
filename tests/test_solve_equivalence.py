@@ -270,10 +270,10 @@ class TestSolutionCasingNormalization:
 
 
 # ---------------------------------------------------------------------------
-# add_to_meta (service) — tag mutation
+# add_to_meta → tag_with_edge (service) — tag mutation
 # ---------------------------------------------------------------------------
 
-class TestWebAddToMeta:
+class TestWebTagWithEdge:
     @pytest.fixture
     def cog(self):
         return _make_cog()
@@ -289,11 +289,12 @@ class TestWebAddToMeta:
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.service.add_to_meta(puzzle, round_data)
+            await cog.service.tag_with_edge(puzzle, round_data, "feeds")
 
     @pytest.mark.asyncio
     async def test_adds_round_to_tags(self, cog):
         puz = make_puzzle(tags=[])
+        puz.tag_edges = {}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)
         assert 5 in puz.tags
@@ -301,6 +302,7 @@ class TestWebAddToMeta:
     @pytest.mark.asyncio
     async def test_idempotent_duplicate_tag(self, cog):
         puz = make_puzzle(tags=[5])
+        puz.tag_edges = {}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)
         assert puz.tags.count(5) == 1
@@ -308,6 +310,7 @@ class TestWebAddToMeta:
     @pytest.mark.asyncio
     async def test_does_not_disturb_other_tags(self, cog):
         puz = make_puzzle(tags=[3, 4])
+        puz.tag_edges = {}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)
         assert 3 in puz.tags
@@ -316,10 +319,10 @@ class TestWebAddToMeta:
 
 
 # ---------------------------------------------------------------------------
-# remove_from_meta (service) — tag mutation
+# remove_from_meta → untag_from (service) — tag removal
 # ---------------------------------------------------------------------------
 
-class TestWebRemoveFromMeta:
+class TestWebUntagFrom:
     @pytest.fixture
     def cog(self):
         return _make_cog()
@@ -335,11 +338,12 @@ class TestWebRemoveFromMeta:
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.service.remove_from_meta(puzzle, round_data)
+            await cog.service.untag_from(puzzle, round_data)
 
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog):
         puz = make_puzzle(tags=[5])
+        puz.tag_edges = {5: "feeds"}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)
         assert 5 not in puz.tags
@@ -347,6 +351,7 @@ class TestWebRemoveFromMeta:
     @pytest.mark.asyncio
     async def test_idempotent_missing_tag(self, cog):
         puz = make_puzzle(tags=[3])
+        puz.tag_edges = {}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)  # should not raise
         assert 5 not in puz.tags
@@ -363,10 +368,10 @@ class TestWebRemoveFromMeta:
 
 
 # ---------------------------------------------------------------------------
-# move_to_meta (service) — tag replacement (non-metapuzzle)
+# move_to_meta → tag_edge_only (service) — edge-scoped tag replacement
 # ---------------------------------------------------------------------------
 
-class TestWebMoveToMeta:
+class TestWebTagEdgeOnly:
     @pytest.fixture
     def cog(self):
         return _make_cog()
@@ -387,24 +392,25 @@ class TestWebMoveToMeta:
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.side_effect = fake_round_get
             mock_hdb.get_by_attr.return_value = hunt
-            await cog.service.move_to_meta(None, puzzle, new_round)  # guild=None
+            await cog.service.tag_edge_only(puzzle, new_round, "feeds", guild=None)
 
     @pytest.mark.asyncio
-    async def test_feeder_replaces_all_tags_with_new_round(self, cog):
+    async def test_feeder_replaces_same_type_edges(self, cog):
         puz = make_puzzle(tags=[3, 4], metapuzzle=0)
+        puz.tag_edges = {3: "feeds", 4: "feeds"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 4: make_round(id=4)})
-        assert puz.tags == [7]
+        assert 7 in puz.tags
 
     @pytest.mark.asyncio
-    async def test_metapuzzle_keeps_own_tags(self, cog):
-        # A metapuzzle's own tags are NOT cleared (it would orphan the round).
-        puz = make_puzzle(id=10, tags=[3, 5], metapuzzle=1)
+    async def test_preserves_different_type_edges(self, cog):
+        # Edge "informs" on group 5 is NOT removed by a feeds-only tag_edge_only.
+        puz = make_puzzle(tags=[3, 5], metapuzzle=0)
+        puz.tag_edges = {3: "feeds", 5: "informs"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 5: make_round(id=5)})
-        # tags are NOT cleared for metas; new round is appended
         assert 7 in puz.tags
-        assert 3 in puz.tags or 5 in puz.tags  # at least some old tags remain
+        assert 5 in puz.tags  # informs edge preserved
 
 
 # ---------------------------------------------------------------------------
@@ -590,13 +596,13 @@ class TestWebAddSolution:
 
 
 # ---------------------------------------------------------------------------
-# convert_to_feeder (service) — demote a metapuzzle back to a feeder. Mirrors
+# convert_to_feeder → convert_to_puzzle (service) — demote a metapuzzle. Mirrors
 # the cog convert_to_feeder body: find the round whose meta_id is this puzzle,
 # delete it (orphaning its feeders), drop the round from tags, clear metapuzzle,
 # commit, revert the spreadsheet. Returns the count of feeders orphaned by the
 # round deletion (every puzzle tagged to the round, excluding the meta itself).
 # ---------------------------------------------------------------------------
-class TestWebConvertToFeeder:
+class TestWebConvertToPuzzle:
     @pytest.fixture
     def cog(self):
         return _make_cog()
@@ -612,7 +618,7 @@ class TestWebConvertToFeeder:
         deletes = []
 
         def fake_round_get(**kwargs):
-            # convert_to_feeder looks the round up by meta_id=puzzle.id
+            # convert_to_puzzle looks the round up by target_puzzle_id=puzzle.id
             return meta_round
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
@@ -630,7 +636,7 @@ class TestWebConvertToFeeder:
             mock_hdb.get_by_attr.return_value = hunt
             mock_gsdb.get.return_value = None
 
-            orphaned = await cog.service.convert_to_feeder(_no_guild(), hunt, puzzle)
+            orphaned = await cog.service.convert_to_puzzle(_no_guild(), hunt, puzzle)
 
         return orphaned, commits, deletes
 

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt, make_puzzle, make_round
+from tests.conftest import make_hunt, make_puzzle
 
 
 def _make_cog_convert():

@@ -26,10 +26,9 @@ from tests.conftest import make_puzzle, make_round
 # Service methods the views may await — every one must be an AsyncMock so the view
 # body runs to completion regardless of which one the current code path calls.
 _ASYNC_SERVICE_METHODS = [
-    "add_to_meta", "move_to_meta", "remove_from_meta", "clear_metas",
     "tag_with_edge", "tag_edge_only", "untag_from",
     "create_tag_group", "convert_to_type", "convert_to_meta",
-    "convert_to_puzzle", "convert_to_feeder", "refresh_unassigned_safe",
+    "convert_to_puzzle", "refresh_unassigned_safe",
 ]
 
 

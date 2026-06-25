@@ -840,13 +840,16 @@ async def retag_puzzle(puzzle_id):
         warning = None
         try:
             if mode == "move":
-                await cog.service.move_to_meta(guild, puzzle, target_group)
+                await cog.service.tag_edge_only(puzzle, target_group, "feeds", guild)
             elif mode == "add":
-                await cog.service.add_to_meta(puzzle, target_group)
+                await cog.service.tag_with_edge(puzzle, target_group, "feeds")
             elif mode == "remove":
-                await cog.service.remove_from_meta(puzzle, target_group)
+                await cog.service.untag_from(puzzle, target_group)
             elif mode == "clear":
-                await cog.service.clear_metas(puzzle)
+                for gid in list(puzzle.tags):
+                    g = RoundJsonDb.get_by_attr(id=gid)
+                    if g is not None:
+                        await cog.service.untag_from(puzzle, g)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:
@@ -941,7 +944,7 @@ async def convert_to_feeder(puzzle_id):
         orphaned = None
         warning = None
         try:
-            orphaned = await cog.service.convert_to_feeder(guild, hunt_obj, puzzle)
+            orphaned = await cog.service.convert_to_puzzle(guild, hunt_obj, puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:

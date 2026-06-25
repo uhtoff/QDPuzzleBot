@@ -1060,7 +1060,7 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
         target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
-            await self.service.add_to_meta(puzzle, target_group)
+            await self.service.tag_with_edge(puzzle, target_group)
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
             await ctx.send(
                 f":white_check_mark: This puzzle has been tagged to {target_group.name} and meta sheets are being updated.")
@@ -1084,7 +1084,7 @@ class Puzzles(commands.Cog):
         if target_group:
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {target_group.name} and meta sheets are being updated.")
-            await self.service.move_to_meta(self.get_guild(ctx), puzzle, target_group)
+            await self.service.tag_edge_only(puzzle, target_group, "feeds", self.get_guild(ctx))
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
@@ -1112,7 +1112,7 @@ class Puzzles(commands.Cog):
         if target_group:
             await ctx.send(
                 f":white_check_mark: This puzzle has been removed from {target_group.name} and meta sheets are being updated.")
-            await self.service.remove_from_meta(puzzle, target_group)
+            await self.service.untag_from(puzzle, target_group)
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
         else:
             await ctx.send(":x: Please send a valid meta code")
@@ -1336,7 +1336,7 @@ class Puzzles(commands.Cog):
             return
 
         try:
-            await self.service.convert_to_feeder(ctx.guild, self.get_hunt(ctx), puzzle)
+            await self.service.convert_to_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
         except RuntimeError as e:
             await ctx.send(f":x: {e}")
             return

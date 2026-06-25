@@ -81,6 +81,15 @@ def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool
     )
 
 
+TYPE_DEFAULTS = {
+    "Round":      {"default_edge": "feeds",   "default_source_mode": "round"},
+    "Metapuzzle": {"default_edge": "feeds",   "default_source_mode": "round"},
+    "Capstone":   {"default_edge": "informs", "default_source_mode": "round"},
+    "Runaround":  {"default_edge": "feeds",   "default_source_mode": "subtree"},
+    "Group":      {"default_edge": "none",    "default_source_mode": "round"},
+}
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot
@@ -528,67 +537,144 @@ class PuzzleService:
                 failed.append(tag_group.id)
         return failed
 
-    async def move_to_meta(self, guild, puzzle, target_group):
-        """Retag a puzzle to target_group (replacing its tags unless it is itself a
-        metapuzzle), move its channel into the group's category, commit, and refresh
-        the affected groups. The tag mutation always commits; if any meta sheet fails
-        to refresh, each is badged and a SheetRefreshError is raised at the end."""
+    async def tag_with_edge(self, puzzle, group, edge):
+        """Upsert an edge for (puzzle, group) in the DB, then keep in-memory
+        ``puzzle.tags`` + ``puzzle.tag_edges`` in sync.
+
+        Mirrors add_to_meta's path but with typed edges.
+        """
+        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, group.id, edge)
+        if group.id not in puzzle.tags:
+            puzzle.tags.append(group.id)
+        puzzle.tag_edges[group.id] = edge
+        PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if guild is not None and puzzle.channel_id:
+        failed = await self.refresh_targets(hunt, [group])
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def tag_edge_only(self, puzzle, group, edge, guild=None):
+        """Tag *puzzle* into *group* with *edge*, removing any other edges
+        of the **same type** (other groups carrying *edge* are swept).
+
+        If ``edge == "feeds"`` and guild is provided, also move the channel
+        to the group's category.  Delegates the actual tagging to
+        :meth:`tag_with_edge`.
+        """
+        # Sweep other groups that carry the same edge type
+        other_groups = [] 
+        for gid, etype in list(puzzle.tag_edges.items()):
+            if etype == edge and gid != group.id:
+                other_group = RoundJsonDb.get_by_attr(id=gid)
+                if other_group is not None:
+                    await self.untag_from(puzzle, other_group, edge=edge)
+                    other_groups.append(other_group)
+
+        # Move channel for feeds edges (backward compat with move_to_meta)
+        if edge == "feeds" and guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            new_category = discord.utils.get(guild.categories, id=target_group.category_id)
+            new_category = discord.utils.get(guild.categories, id=group.category_id)
             if channel is not None and new_category is not None and channel.category_id != new_category.id:
                 await channel.edit(category=new_category, position=2)
-        if puzzle.is_metapuzzle() is False:
-            puzzle.tags.clear()
-        puzzle.tags.append(target_group.id)
+
+        await self.tag_with_edge(puzzle, group, edge)
+
+    async def untag_from(self, puzzle, group, edge=None):
+        """Remove *puzzle* from *group*, optionally guarded by edge type.
+
+        When *edge* is provided and the membership edge doesn't match, this is
+        a no-op.  Mirrors remove_from_meta's guard against removing the last
+        tag of a metapuzzle.
+        """
+        # Type guard: if edge specified and current edge differs, no-op
+        if edge is not None and puzzle.tag_edges.get(group.id) != edge:
+            return
+        # Guard against removing the last membership of a metapuzzle
+        if puzzle.is_metapuzzle() and len(puzzle.tags) <= 1:
+            raise ValueError("cannot remove the last tag from a metapuzzle")
+        PuzzleJsonDb.delete_tag(puzzle.id, group.id)
+        if group.id in puzzle.tags:
+            puzzle.tags.remove(group.id)
+        puzzle.tag_edges.pop(group.id, None)
         PuzzleJsonDb.commit(puzzle)
-        affected = [target_group] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_targets(hunt, affected)
+        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+        failed = await self.refresh_targets(hunt, [group])
         await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
-    async def add_to_meta(self, puzzle, target_group):
-        """Tag a puzzle to an additional meta (idempotent), commit, refresh."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        if target_group.id not in puzzle.tags:
-            puzzle.tags.append(target_group.id)
-            PuzzleJsonDb.commit(puzzle)
-        failed = await self.refresh_targets(hunt, [target_group])
-        await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
+    async def bulk_re_edge(self, tag_group, new_edge, hunt):
+        """Flip every member of *tag_group* to *new_edge*.
 
-    async def remove_from_meta(self, puzzle, target_group):
-        """Untag a puzzle from a meta (idempotent), commit, refresh affected groups."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if target_group.id in puzzle.tags:
-            puzzle.tags.remove(target_group.id)
-            PuzzleJsonDb.commit(puzzle)
-        affected = [target_group] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_targets(hunt, affected)
-        await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
+        Returns a human-readable summary string, e.g.
+        ``'flipped 3 feeds + 2 none → informs'`` or ``'0 members'``.
+        """
+        members = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+        if not members:
+            return "0 members"
 
-    async def clear_metas(self, puzzle):
-        """Untag a puzzle from ALL metas in one shot (idempotent), commit, refresh
-        every formerly-affected meta. Used by drag-to-Unassigned. Callers must
-        reject metapuzzles before calling — clearing a metapuzzle's tags would
-        orphan its round (mirrors move_to_meta's protection)."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if old_tags:
-            puzzle.tags.clear()
-            PuzzleJsonDb.commit(puzzle)
-        affected = [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_targets(hunt, affected)
+        # Count existing edge types before the flip
+        counter = {}
+        for p in members:
+            current = p.tag_edges.get(tag_group.id, "feeds")
+            counter[current] = counter.get(current, 0) + 1
+
+        PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
+
+        # Build summary string listing only non-zero edge types
+        parts = [f"{v} {k}" for k, v in counter.items() if v]
+        summary = "flipped " + " + ".join(parts) + f" → {new_edge}"
+
+        await self.refresh_target(hunt, tag_group)
         await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
+        return summary
+
+    async def convert_to_type(self, guild, hunt, puzzle, new_type):
+        """Convert *puzzle* into a group of *new_type*.
+
+        If the puzzle is already backed by a group, updates type + source_mode
+        and (unless Runaround) flips members to the default edge.  If not yet
+        grouped, promotes in-place: creates a TagGroupData row, tags the puzzle,
+        sets ``metapuzzle=1``, and commits.
+
+        Returns ``(tag_group, summary_string)``.
+        """
+        tag_group = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+
+        if tag_group is None:
+            # Bare puzzle — promote in-place (no Discord channel creation)
+            tag_group = TagGroupData(
+                name=puzzle.name,
+                hunt_id=hunt.id,
+                category_id=puzzle.channel_id,
+                type=new_type,
+            )
+            RoundJsonDb.commit(tag_group)
+            tag_group.target_puzzle_id = puzzle.id
+            tag_group.group_code = RoundJsonDb.generate_uid("group_code", 6, puzzle.name)
+            RoundJsonDb.commit(tag_group)
+            puzzle.add_tag(tag_group.id)
+            puzzle.metapuzzle = 1
+            PuzzleJsonDb.commit(puzzle)
+        else:
+            # Already grouped — just update type
+            tag_group.type = new_type
+            RoundJsonDb.commit(tag_group)
+
+        # Set source_mode from defaults
+        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
+        await self.set_source_mode(hunt, tag_group, default_sm)
+
+        # Flip edges (unless Runaround or edge is "none")
+        if new_type != "Runaround":
+            default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
+            summary = await self.bulk_re_edge(tag_group, default_edge, hunt)
+        else:
+            summary = "no edge change (runaround)"
+
+        await self.notifier.board_changed(hunt)
+        return tag_group, summary
 
     async def set_parent_group(self, child_group, parent_id):
         """Nest `child_group` under group `parent_id` (the parent_group_id tree),
@@ -794,9 +880,9 @@ class PuzzleService:
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
 
-    async def convert_to_feeder(self, guild, hunt, puzzle):
-        """Demote a metapuzzle back to an ordinary feeder (ctx-free seam for the
-        !convert_to_feeder bang and the web endpoint).
+    async def convert_to_puzzle(self, guild, hunt, puzzle):
+        """Demote a metapuzzle back to an ordinary puzzle (ctx-free seam for the
+        !convert_to_puzzle bang and the web endpoint).
 
         Deletes the round whose meta this puzzle is — which ORPHANS every feeder
         tagged to that round — drops the round id from the puzzle's

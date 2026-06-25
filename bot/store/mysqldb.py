@@ -403,6 +403,30 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
 
+    def delete_tag(self, puzzle_id, tag_group_id):
+        """Delete a single tag membership row."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s",
+                (puzzle_id, tag_group_id),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def bulk_update_edge_type(self, tag_group_id, new_edge):
+        """Update every member of a group to the same edge_type."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "UPDATE tags SET edge_type = %s WHERE tag_group_id = %s",
+                (new_edge, tag_group_id),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
     def commit(self, puzzle):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.cursor(dictionary=True)
