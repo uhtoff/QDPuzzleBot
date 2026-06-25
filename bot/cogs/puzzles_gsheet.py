@@ -69,7 +69,7 @@ class GoogleSheets(commands.Cog):
         flag[0] = True
         try:
             await channel.send(
-                "⏳ Google Sheets is busy (rate-limited); retrying your change — "
+                "⏳ Google Sheets returned a temporary error; retrying your change — "
                 "this may take a few seconds."
             )
         except Exception:
