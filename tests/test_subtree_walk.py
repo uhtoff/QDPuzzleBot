@@ -29,7 +29,7 @@ class TestSubtreeWalk:
              patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb:
             rdb.get_all.return_value = [root, a, b, unrelated]
             # p_solved appears in BOTH a and b -> must be deduped to one row.
-            pdb.get_all_from_round.side_effect = lambda rid: {
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {
                 1: [], 2: [p_solved, p_unsolved], 3: [p_solved]}.get(rid, [])
             puzzles = await svc.collect_subtree_puzzles(root)
         assert sorted(p.id for p in puzzles) == [50]   # solved-only, deduped
@@ -45,5 +45,5 @@ class TestSubtreeWalk:
         with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb:
             rdb.get_all.return_value = [root, loop]
-            pdb.get_all_from_round.return_value = []
+            pdb.get_all_from_tag_group.return_value = []
             await svc.collect_subtree_puzzles(root)     # must return, not hang

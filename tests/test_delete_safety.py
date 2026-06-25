@@ -97,7 +97,7 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
     ctx = SimpleNamespace(message=SimpleNamespace(id=7), channel=hunt_channel, guild=guild)
     cog.environment[7] = {
         "channel_type": "Hunt", "hunt": hunt_obj,
-        "hunt_round": None, "puzzle": None, "guild": guild, "guild_data": None,
+        "tag_group": None, "puzzle": None, "guild": guild, "guild_data": None,
         "channel": hunt_channel,
     }
 
@@ -127,7 +127,7 @@ async def test_delete_puzzle_aborts_when_not_confirmed(monkeypatch):
                           author=SimpleNamespace(id=42))
     cog.environment[7] = {
         "channel_type": "Puzzle", "hunt": SimpleNamespace(id=10, channel_id=900),
-        "hunt_round": None, "puzzle": puzzle, "guild": MagicMock(), "guild_data": None,
+        "tag_group": None, "puzzle": puzzle, "guild": MagicMock(), "guild_data": None,
         "channel": chan,
     }
     cog._confirm_destructive = AsyncMock(return_value=False)   # user cancels

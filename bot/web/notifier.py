@@ -23,7 +23,7 @@ class WebNotifier(Notifier):
         except Exception:
             logger.exception("WebNotifier.board_changed: failed to publish board event")
 
-    async def welcome(self, guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None) -> None:
+    async def welcome(self, guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) -> None:
         return None
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:

@@ -57,8 +57,8 @@ class TestSourceModeRouting:
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = feeders
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = feeders
+            await svc.refresh_target(_hunt(), meta_round)
         gsheet.add_metapuzzle_data.assert_awaited_once_with(metapuzzle, feeders)
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
@@ -77,8 +77,8 @@ class TestSourceModeRouting:
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metapuzzle
             rdb.get_all.return_value = [meta_round, child]   # RoundJsonDb.get_all(hunt_id)
-            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            await svc.refresh_target(_hunt(), meta_round)
         # the metameta renderer received exactly the branch's solved puzzles
         args = gsheet.add_metametapuzzle_data.await_args
         assert args.args[0] is metapuzzle
@@ -99,8 +99,8 @@ class TestSourceModeRouting:
         other.tag_edges = {5: "feeds-meta"}
         with _patched(rollup_existing=existing) as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = [pooled, other]
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = [pooled, other]
+            await svc.refresh_target(_hunt(), meta_round)
         # Only the aggregates-into member is rendered (pool = name+solution).
         gsheet.add_metapuzzle_data.assert_awaited_once()
         args = gsheet.add_metapuzzle_data.await_args

@@ -59,8 +59,8 @@ class TestRefreshMetaFires:
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         gsheet.set_spreadsheet_id.assert_called_with("SHEET1")
         gsheet.set_archive_spreadsheet_id.assert_called_with("ARCH1")
 
@@ -72,8 +72,8 @@ class TestRefreshMetaFires:
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = feeders
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = feeders
+            await svc.refresh_target(_hunt(), meta_round)
         gsheet.add_metapuzzle_data.assert_awaited_once_with(metapuzzle, feeders)
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
@@ -93,8 +93,8 @@ class TestRefreshMetaFires:
             pdb.get_by_attr.return_value = metameta
             rdb.get_all.return_value = [meta_round, child]
             # The subtree walk queries each child round for puzzles.
-            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: branch_solved}[rid]
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: branch_solved}[rid]
+            await svc.refresh_target(_hunt(), meta_round)
         gsheet.add_metametapuzzle_data.assert_awaited_once_with(metameta, branch_solved)
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
@@ -106,7 +106,7 @@ class TestRefreshMetaFires:
         with _patched() as (pdb, hdb, _r, _ru):
             hdb.get_by_attr.return_value = _hunt()
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = [puzzle]
+            pdb.get_all_from_tag_group.return_value = [puzzle]
             await svc.add_to_meta(puzzle, meta_round)
         assert gsheet.add_metapuzzle_data.await_count == 1
 
@@ -119,7 +119,7 @@ class TestRefreshMetaFires:
             hdb.get_by_attr.return_value = _hunt()
             rdb.get_by_attr.side_effect = lambda id: make_round(id=id, target_puzzle_id=id)
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = []
+            pdb.get_all_from_tag_group.return_value = []
             await svc.clear_metas(puzzle)
         assert puzzle.tags == []
         assert gsheet.add_metapuzzle_data.await_count == 2
@@ -132,8 +132,8 @@ class TestRollupBookkeeping:
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
         assert committed.tag_group_id == 5
         assert committed.hunt_id == 10
@@ -148,9 +148,9 @@ class TestRollupBookkeeping:
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = []
+            pdb.get_all_from_tag_group.return_value = []
             with pytest.raises(RuntimeError, match="sheets down"):
-                await svc.refresh_meta(_hunt(), meta_round)
+                await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
         assert committed.last_ok == 0
         assert "sheets down" in committed.last_error
@@ -163,8 +163,8 @@ class TestRollupBookkeeping:
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, last_ok=0, last_error="old")
         with _patched(rollup_existing=existing) as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
         assert committed.id == 9          # same row, not a new insert
         assert committed.last_ok == 1
@@ -179,8 +179,8 @@ class TestRollupBookkeeping:
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
         assert committed.tab_page_id == 42
         assert committed.metadata_id == 777
@@ -194,8 +194,8 @@ class TestRollupBookkeeping:
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)   # must NOT raise
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)   # must NOT raise
         committed = rudb.commit.call_args[0][0]
         assert committed.last_ok == 1            # render succeeded
         assert committed.tab_page_id == 42       # trusted pointer still recorded
@@ -230,7 +230,7 @@ class TestSolveFailureIsolation:
         with _patched() as (pdb, _h, rdb, rudb):
             rdb.get_by_attr.side_effect = lambda **kw: round_by_id(kw["id"])
             pdb.get_by_attr.side_effect = lambda **kw: puzzle_by_id(kw["id"])
-            pdb.get_all_from_round.return_value = []
+            pdb.get_all_from_tag_group.return_value = []
             with pytest.raises(SheetRefreshError) as exc:
                 await svc.solve(None, _hunt(), puzzle, "ANSWER")
 

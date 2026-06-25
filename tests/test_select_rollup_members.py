@@ -48,7 +48,7 @@ class TestSelectRollupMembers:
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
         feeder.tag_edges = {5: "feeds-meta"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder]
+            pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
@@ -65,7 +65,7 @@ class TestSelectRollupMembers:
         pooled = make_puzzle(id=3, name="Pooled", solution="P")
         pooled.tag_edges = {5: "aggregates-into"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder, pooled]
+            pdb.get_all_from_tag_group.return_value = [feeder, pooled]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
 
@@ -79,7 +79,7 @@ class TestSelectRollupMembers:
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
         with _patched() as (pdb, rdb):
             rdb.get_all.return_value = [meta_round, child]
-            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
@@ -95,7 +95,7 @@ class TestSelectRollupMembers:
         other = make_puzzle(id=3, name="Feeder", solution="F")
         other.tag_edges = {5: "feeds-meta"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [pooled, other]
+            pdb.get_all_from_tag_group.return_value = [pooled, other]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
@@ -110,6 +110,6 @@ class TestSelectRollupMembers:
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
         feeder.tag_edges = {5: "feeds-meta"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder]
+            pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]

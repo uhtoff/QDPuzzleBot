@@ -22,7 +22,7 @@ from bot.core.notifier import (   # <-- new → right reason
 async def test_null_notifier_methods_are_noops():
     n = NullNotifier()
     # Each interface method awaits cleanly and returns None.
-    assert await n.welcome(guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None) is None
+    assert await n.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) is None
     assert await n.refresh_info(guild=None, hunt=None, puzzle=None) is None
     assert await n.puzzle_solved(guild=None, hunt=None, puzzle=None) is None
 
@@ -53,7 +53,7 @@ async def test_composite_notifier_fans_out_each_method_to_all_sinks():
     a, b = _sink(), _sink()
     comp = CompositeNotifier([a, b])
 
-    await comp.welcome(guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None)
+    await comp.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None)
     await comp.refresh_info(guild=None, hunt=None, puzzle=None)
     await comp.puzzle_solved(guild=None, hunt=None, puzzle=None)
 

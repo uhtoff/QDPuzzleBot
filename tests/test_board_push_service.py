@@ -72,8 +72,8 @@ async def test_move_to_meta_emits_board_changed():
          patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.move_to_meta(guild=None, puzzle=puzzle, meta_round=meta_round)
+        patch.object(svc, "refresh_targets", AsyncMock(return_value=[]))
+        await svc.move_to_meta(guild=None, puzzle=puzzle, target_group=meta_round)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
@@ -91,8 +91,8 @@ async def test_add_to_meta_emits_board_changed():
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb"):
         hdb.get_by_attr.return_value = hunt
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.add_to_meta(puzzle=puzzle, meta_round=meta_round)
+        patch.object(svc, "refresh_targets", AsyncMock(return_value=[]))
+        await svc.add_to_meta(puzzle=puzzle, target_group=meta_round)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
@@ -112,8 +112,8 @@ async def test_remove_from_meta_emits_board_changed():
          patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.remove_from_meta(puzzle=puzzle, meta_round=meta_round)
+        patch.object(svc, "refresh_targets", AsyncMock(return_value=[]))
+        await svc.remove_from_meta(puzzle=puzzle, target_group=meta_round)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
@@ -183,7 +183,7 @@ async def test_create_puzzle_emits_board_changed():
 # ---- create_round ----
 
 @pytest.mark.asyncio
-async def test_create_round_emits_board_changed():
+async def test_create_tag_group_emits_board_changed():
     notifier = _notifier()
     bot = MagicMock()
     gsheet = MagicMock()
@@ -210,6 +210,6 @@ async def test_create_round_emits_board_changed():
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
         rdb.generate_uid.return_value = "META01"
-        await svc.create_round(guild, hunt, "New Round")
+        await svc.create_tag_group(guild, hunt, "New Round")
 
     notifier.board_changed.assert_awaited_once_with(hunt)

@@ -29,7 +29,7 @@ class Notifier(abc.ABC):
         self,
         guild,
         hunt,
-        hunt_round: Optional[object] = None,
+        tag_group: Optional[object] = None,
         puzzle: Optional[object] = None,
         channel=None,
     ) -> None:
@@ -62,7 +62,7 @@ class Notifier(abc.ABC):
 class NullNotifier(Notifier):
     """No-op notifier — every method awaits cleanly and returns None."""
 
-    async def welcome(self, guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None) -> None:
+    async def welcome(self, guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) -> None:
         return None
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:
@@ -92,7 +92,7 @@ class DiscordNotifier(Notifier):
         self,
         guild,
         hunt,
-        hunt_round: Optional[object] = None,
+        tag_group: Optional[object] = None,
         puzzle: Optional[object] = None,
         channel=None,
     ) -> None:
@@ -106,7 +106,7 @@ class DiscordNotifier(Notifier):
         from bot.store import GuildSettingsDb
         kwargs = {
             "hunt": hunt,
-            "hunt_round": hunt_round,
+            "tag_group": tag_group,
             "puzzle": puzzle,
             # ctx is None on this path, so the welcome handlers can't fall back to
             # the environment for guild settings (needed by _overview_url). Supply
@@ -141,14 +141,14 @@ class DiscordNotifier(Notifier):
         if channel is None:
             return
 
-        # For metas, find the round this puzzle is the meta of.
-        hunt_round = None
+        # For metas, find the group this puzzle is the meta of.
+        tag_group = None
         if puzzle.is_metapuzzle():
             from bot.store import RoundJsonDb
             for tag in puzzle.tags:
                 candidate = RoundJsonDb.get_by_attr(id=tag)
                 if candidate and candidate.target_puzzle_id == puzzle.id:
-                    hunt_round = candidate
+                    tag_group = candidate
                     break
 
         try:
@@ -159,7 +159,7 @@ class DiscordNotifier(Notifier):
             )
             kwargs = {
                 "hunt": hunt,
-                "hunt_round": hunt_round,
+                "tag_group": tag_group,
                 "puzzle": puzzle,
                 "update": True,
             }
@@ -206,12 +206,12 @@ class CompositeNotifier(Notifier):
         self,
         guild,
         hunt,
-        hunt_round: Optional[object] = None,
+        tag_group: Optional[object] = None,
         puzzle: Optional[object] = None,
         channel=None,
     ) -> None:
         for n in self._notifiers:
-            await n.welcome(guild, hunt, hunt_round, puzzle, channel)
+            await n.welcome(guild, hunt, tag_group, puzzle, channel)
 
     async def refresh_info(
         self,

@@ -103,7 +103,7 @@ class TestPoolCommand:
     @pytest.mark.asyncio
     async def test_pool_tags_with_aggregates_into(self):
         hunt = types.SimpleNamespace(id=10)
-        service = MagicMock(refresh_metas=AsyncMock())
+        service = MagicMock(refresh_targets=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
         puzzle = MagicMock(
@@ -133,7 +133,7 @@ class TestPoolCommand:
     @pytest.mark.asyncio
     async def test_pool_rejects_hunt_channel(self):
         hunt = types.SimpleNamespace(id=10)
-        service = MagicMock(refresh_metas=AsyncMock())
+        service = MagicMock(refresh_targets=AsyncMock())
         cog = _cog(hunt, service)
         cog.get_channel_type = lambda ctx: "Hunt"
         ctx = _ctx(channel_type="Hunt")

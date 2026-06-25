@@ -1,6 +1,6 @@
 """The bang meta-refresh helpers follow the same isolation path as solve/retag (M5).
 
-_update_all_metas and update_metapuzzle both route through PuzzleService.refresh_metas
+_update_all_metas and update_metapuzzle both route through PuzzleService.refresh_targets
 (failure-isolated, each meta badged) and raise SheetRefreshError if any meta failed, so
 every bang edge surfaces a stale sheet via _warn_stale_sheets rather than aborting.
 """
@@ -16,7 +16,7 @@ from tests.conftest import make_puzzle, make_round
 def _cog(failed):
     cog = Puzzles.__new__(Puzzles)
     cog.get_hunt = lambda ctx: MagicMock(id=10)
-    cog.service = MagicMock(refresh_metas=AsyncMock(return_value=failed))
+    cog.service = MagicMock(refresh_targets=AsyncMock(return_value=failed))
     return cog
 
 
@@ -28,7 +28,7 @@ async def test_update_all_metas_attempts_all_then_raises():
         rdb.get_by_attr.side_effect = lambda **kw: make_round(id=kw["id"], target_puzzle_id=kw["id"] * 10)
         with pytest.raises(SheetRefreshError) as exc:
             await cog._update_all_metas(None, puzzle)
-    rounds_arg = cog.service.refresh_metas.await_args[0][1]
+    rounds_arg = cog.service.refresh_targets.await_args[0][1]
     assert [r.id for r in rounds_arg] == [5, 6]  # every tag handed to the isolated path
     assert exc.value.failed_round_ids == [5]
 

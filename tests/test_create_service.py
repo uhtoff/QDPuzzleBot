@@ -102,7 +102,7 @@ async def test_create_round_creates_round_and_meta_puzzle():
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
         rdb.generate_uid.return_value = "META01"
-        result = await svc.create_round(guild, _svc_hunt(), "New Round", notifier=notifier)
+        result = await svc.create_tag_group(guild, _svc_hunt(), "New Round", notifier=notifier)
 
     new_round, puzzle = result
     assert puzzle is meta_puzzle
@@ -138,7 +138,7 @@ async def test_create_round_rolls_back_on_failure():
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
         rdb.generate_uid.side_effect = RuntimeError("late failure")  # fails AFTER create_puzzle
         with pytest.raises(RuntimeError):
-            await svc.create_round(guild, _svc_hunt(), "New Round", notifier=notifier)
+            await svc.create_tag_group(guild, _svc_hunt(), "New Round", notifier=notifier)
 
     # Round row deleted, orphan meta puzzle cleaned, cloned category removed.
     rdb.delete.assert_called_once_with(5)

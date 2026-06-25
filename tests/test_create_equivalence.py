@@ -70,7 +70,7 @@ async def test_bang_and_web_create_share_service_call():
         # is a discord.py Command; drive its mutex-wrapped callback directly. The
         # cog-level dup check + space check stay at the edge, so stub them out.
         cog.environment[7] = {
-            "channel_type": "Group", "hunt": hunt, "hunt_round": round_data,
+            "channel_type": "Group", "hunt": hunt, "tag_group": round_data,
             "puzzle": None, "guild": guild, "guild_data": None, "gsheet_cog": None,
         }
         bang_ctx = MagicMock()

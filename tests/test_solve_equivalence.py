@@ -624,7 +624,7 @@ class TestWebConvertToFeeder:
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
-            mock_pdb.get_all_from_round.return_value = round_members or []
+            mock_pdb.get_all_from_tag_group.return_value = round_members or []
             mock_rdb.get_by_attr.side_effect = fake_round_get
             mock_rdb.delete.side_effect = lambda rid: deletes.append(rid)
             mock_hdb.get_by_attr.return_value = hunt
@@ -692,7 +692,7 @@ class TestWebConvertToFeeder:
         with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb") as mock_pdb:
             mock_rdb.get_by_attr.return_value = rnd
-            mock_pdb.get_all_from_round.return_value = [puz, feeder_a, feeder_b]
+            mock_pdb.get_all_from_tag_group.return_value = [puz, feeder_a, feeder_b]
             orphans = cog.service.feeders_orphaned_by_convert(puz)
         assert [p.id for p in orphans] == [2, 3]
 
@@ -798,7 +798,7 @@ class TestWebDeleteRound:
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.delete.side_effect = lambda pid: puzzle_deletes.append(pid)
             mock_rdb.delete.side_effect = lambda rid: round_deletes.append(rid)
-            mock_pdb.get_all_from_round.return_value = puzzles
+            mock_pdb.get_all_from_tag_group.return_value = puzzles
             mock_hdb.get_by_attr.return_value = hunt
             mock_gsdb.get.return_value = None
 

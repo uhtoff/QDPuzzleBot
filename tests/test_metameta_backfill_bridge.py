@@ -55,7 +55,7 @@ class TestMetametaBridge:
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
             rdb.get_all.return_value = [meta_round]
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         pdb.get_all_from_hunt.assert_not_called()   # no hunt-wide scan post-M7
         gsheet.add_metametapuzzle_data.assert_awaited_once()
