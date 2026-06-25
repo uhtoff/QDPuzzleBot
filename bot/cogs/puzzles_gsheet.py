@@ -5,7 +5,6 @@ can be easily disabled; simply omit this file.
 """
 import contextvars
 import logging
-import copy
 from typing import List
 
 from discord.ext import commands
@@ -363,10 +362,7 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
-        if puzzle.is_target:
-            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index, self.METAPUZZLE_SHEET)
-        else:
-            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
+        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
 
 
     async def create_blank_tab(self, spreadsheet_id: str, name: str) -> int:
@@ -560,26 +556,29 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
         return sheet_id
 
-    async def convert_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        """Converts puzzle sheet from a metapuzzle to a feeder and vice versa"""
-        old_puzzle = copy.copy(puzzle_data)
-        await self.add_new_puzzle_sheet(puzzle_data)
-        try:
-            await self.copy_puzzle(old_puzzle, puzzle_data)
-            await self.delete_puzzle_spreadsheet(old_puzzle)
-            await self.update_puzzle_info(puzzle_data, True)
-        except Exception:
-            # The convert isn't atomic: we've already created the replacement sheet.
-            # If a later step fails, delete that orphan and restore the original page
-            # id so a failed convert leaves the puzzle as it was rather than stranding
-            # a duplicate tab (the source of the "Extra"/"Extra (2)" broken state).
-            try:
-                await self.delete_sheet(puzzle_data.google_page_id)
-            except Exception:
-                logger.exception("Failed to clean up half-created sheet %s after a failed convert",
-                                 puzzle_data.google_page_id)
-            puzzle_data.google_page_id = old_puzzle.google_page_id
-            raise
+    async def promote_tab_to_group(self, puzzle_data: PuzzleData):
+        """Promote a puzzle's existing tab into a target (group) tab in place.
+
+        Inserts the contribution columns + native Table (preserving the solver's
+        grid via promote_tab_to_target) and refreshes the tab name. Inverse of
+        demote_tab_to_puzzle."""
+        await self.promote_tab_to_target(puzzle_data)
+        await self.update_puzzle_info(puzzle_data, True)
+
+    async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData):
+        """Demote a target tab back to an ordinary puzzle tab in place.
+
+        Removes the contribution Table and its CONTRIBUTION_WIDTH left columns; the
+        solver grid (which rode the original promote shift) slides back into place,
+        so no content is overwritten. Inverse of promote_tab_to_group."""
+        page_id = puzzle_data.google_page_id
+        await self.batch_update({"requests": [{
+            "deleteDimension": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
+            }
+        }]})
+        await self.update_puzzle_info(puzzle_data, True)
 
     # --- Generic roll-up engine (M2) -------------------------------------
     # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.

@@ -32,6 +32,7 @@ def _svc_with_sheets():
     gsheet = MagicMock()
     gsheet.add_metapuzzle_data = AsyncMock()
     gsheet.add_metametapuzzle_data = AsyncMock()
+    gsheet.render_contribution = AsyncMock()
     gsheet.archive_puzzle_spreadsheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     bot = MagicMock()
@@ -74,7 +75,10 @@ class TestRefreshMetaFires:
             pdb.get_by_attr.return_value = metapuzzle
             pdb.get_all_from_tag_group.return_value = feeders
             await svc.refresh_target(_hunt(), meta_round)
-        gsheet.add_metapuzzle_data.assert_awaited_once_with(metapuzzle, feeders)
+        # Task 10: renderers collapsed onto the unified render_contribution.
+        gsheet.render_contribution.assert_awaited_once_with(
+            metapuzzle, 5, feeders, evidence=[])
+        gsheet.add_metapuzzle_data.assert_not_awaited()
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -95,7 +99,11 @@ class TestRefreshMetaFires:
             # The subtree walk queries each child round for puzzles.
             pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: branch_solved}[rid]
             await svc.refresh_target(_hunt(), meta_round)
-        gsheet.add_metametapuzzle_data.assert_awaited_once_with(metameta, branch_solved)
+        # Task 10: subtree membership still branch-walked, but rendered via the
+        # unified contribution table (no separate metameta renderer).
+        gsheet.render_contribution.assert_awaited_once_with(
+            metameta, 5, branch_solved, evidence=[])
+        gsheet.add_metametapuzzle_data.assert_not_awaited()
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -109,7 +117,7 @@ class TestRefreshMetaFires:
             pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = [puzzle]
             await svc.tag_with_edge(puzzle, meta_round, "feeds")
-        assert gsheet.add_metapuzzle_data.await_count == 1
+        assert gsheet.render_contribution.await_count == 1
 
     @pytest.mark.asyncio
     async def test_untag_from_rebuilds_affected_groups(self):
@@ -125,7 +133,7 @@ class TestRefreshMetaFires:
             await svc.untag_from(puzzle, make_round(id=5, target_puzzle_id=5))
         assert 5 not in puzzle.tags
         assert 6 in puzzle.tags
-        assert gsheet.add_metapuzzle_data.await_count == 1
+        assert gsheet.render_contribution.await_count == 1
 
 
 class TestRollupBookkeeping:
@@ -147,7 +155,7 @@ class TestRollupBookkeeping:
     @pytest.mark.asyncio
     async def test_persists_failure_and_reraises(self):
         svc, gsheet = _svc_with_sheets()
-        gsheet.add_metapuzzle_data.side_effect = RuntimeError("sheets down")
+        gsheet.render_contribution.side_effect = RuntimeError("sheets down")
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
@@ -209,15 +217,15 @@ class TestSolveFailureIsolation:
     @pytest.mark.asyncio
     async def test_one_failing_meta_does_not_skip_others_or_archive(self):
         svc, gsheet = _svc_with_sheets()
-        # add_metapuzzle_data fails for the first meta, succeeds for the second.
+        # render_contribution fails for the first meta, succeeds for the second.
         calls = {"n": 0}
 
-        async def flaky(metapuzzle, feeders):
+        async def flaky(metapuzzle, tag_group_id, members, evidence=None):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("first meta sheet down")
 
-        gsheet.add_metapuzzle_data.side_effect = flaky
+        gsheet.render_contribution.side_effect = flaky
 
         puzzle = make_puzzle(id=2, tags=[5, 6])
         round5 = make_round(id=5, target_puzzle_id=100)
@@ -238,7 +246,7 @@ class TestSolveFailureIsolation:
                 await svc.solve(None, _hunt(), puzzle, "ANSWER")
 
         # Both metas attempted; the archive still ran despite the first failure.
-        assert gsheet.add_metapuzzle_data.await_count == 2
+        assert gsheet.render_contribution.await_count == 2
         gsheet.archive_puzzle_spreadsheet.assert_awaited_once()
         assert exc.value.failed_round_ids == [5]
         assert puzzle.solved is True

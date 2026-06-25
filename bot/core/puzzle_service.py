@@ -487,15 +487,16 @@ class PuzzleService:
             ]
 
     async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):
-        """Select feeder membership via select_rollup_members and delegate to the
-        existing renderer (add_metapuzzle_data or add_metametapuzzle_data)."""
-        members = await self.select_rollup_members(tag_group, rollup)
-        mode = rollup.source_mode or "round"
+        """Render the unified contribution table for tag_group's target.
 
-        if mode == "subtree":
-            await gsheet_cog.add_metametapuzzle_data(metapuzzle, members)
-        else:
-            await gsheet_cog.add_metapuzzle_data(metapuzzle, members)
+        Selects feeder membership via select_rollup_members and delegates to the
+        cog's render_contribution (contribution_rows -> reconcile_table).
+
+        evidence=[] for now: feeders/group rows are fully correct; informs *content*
+        rows are wired when the evidence accessor is plumbed through (follow-up,
+        see EvidenceJsonDb in bot/store/mysqldb.py)."""
+        members = await self.select_rollup_members(tag_group, rollup)
+        await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=[])
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
@@ -889,8 +890,8 @@ class PuzzleService:
         tags, clears the is_target flag, commits, and reverts the puzzle's sheet
         restructure. Mirrors solve's durability ordering: the DB mutation is
         committed before the sheet revert, so a Sheets failure (which
-        convert_puzzle_spreadsheet restores-and-re-raises) leaves the demotion
-        saved; the edge presents it as a non-fatal warning.
+        demote_tab_to_puzzle raises) leaves the demotion saved; the edge presents
+        it as a non-fatal warning.
 
         Returns the number of feeders orphaned by the round deletion (every puzzle
         that was tagged to the deleted round, excluding the meta itself)."""
@@ -905,7 +906,7 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.convert_puzzle_spreadsheet(puzzle)
+            await gsheet_cog.demote_tab_to_puzzle(puzzle)
 
         await self.notifier.board_changed(hunt)
         return orphaned
@@ -1159,7 +1160,7 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.convert_puzzle_spreadsheet(puzzle)
+            await gsheet_cog.promote_tab_to_group(puzzle)
 
         await self.notifier.board_changed(hunt)
         return new_round, puzzle

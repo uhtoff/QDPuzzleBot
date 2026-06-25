@@ -154,6 +154,34 @@ def test_promote_inserts_columns_before_adding_table():
     assert insert_idx < table_idx
 
 
+def test_demote_removes_contribution_columns():
+    # Inverse of promote: drop the CONTRIBUTION_WIDTH left columns (and the Table
+    # they hold); the solver grid slides back into place.
+    cog = _cog()
+    calls = _capture_batch(cog)
+
+    async def fake_update_info(puzzle, update_tab_name=False, name=None, page_id=None):
+        pass
+
+    cog.update_puzzle_info = fake_update_info
+
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Alpha"
+    p.google_page_id = 905
+
+    asyncio.run(cog.demote_tab_to_puzzle(p))
+
+    deletes = [r["deleteDimension"] for body in calls for r in body["requests"]
+               if "deleteDimension" in r]
+    assert deletes, "demote must delete the contribution columns"
+    rng = deletes[0]["range"]
+    assert rng["sheetId"] == 905
+    assert rng["dimension"] == "COLUMNS"
+    assert rng["startIndex"] == 0
+    assert rng["endIndex"] == cog.CONTRIBUTION_WIDTH
+
+
 # --- Task 10: render_contribution from the service -------------------------
 
 def test_render_contribution_builds_rows_and_reconciles():

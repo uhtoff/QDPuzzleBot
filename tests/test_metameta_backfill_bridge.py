@@ -28,6 +28,7 @@ def _svc_with_sheets():
     gsheet = MagicMock()
     gsheet.add_metapuzzle_data = AsyncMock()
     gsheet.add_metametapuzzle_data = AsyncMock()
+    gsheet.render_contribution = AsyncMock()
     gsheet.archive_puzzle_spreadsheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     bot = MagicMock()
@@ -58,4 +59,4 @@ class TestMetametaBridge:
             pdb.get_all_from_tag_group.return_value = []
             await svc.refresh_target(_hunt(), meta_round)
         pdb.get_all_from_hunt.assert_not_called()   # no hunt-wide scan post-M7
-        gsheet.add_metametapuzzle_data.assert_awaited_once()
+        gsheet.render_contribution.assert_awaited_once()
