@@ -147,7 +147,7 @@ class DiscordNotifier(Notifier):
             from bot.store import RoundJsonDb
             for tag in puzzle.tags:
                 candidate = RoundJsonDb.get_by_attr(id=tag)
-                if candidate and candidate.meta_id == puzzle.id:
+                if candidate and candidate.target_puzzle_id == puzzle.id:
                     hunt_round = candidate
                     break
 

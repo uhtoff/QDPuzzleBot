@@ -152,10 +152,10 @@ async def rollup_answers(round_id):
     if meta_round is None:
         return jsonify({"error": "round_not_found"}), 404
 
-    rollup = RollupsJsonDb.get_by_attr(round_id=round_id)
+    rollup = RollupsJsonDb.get_by_attr(tag_group_id=round_id)
     if rollup is None:
         # In-memory default — never persist.
-        rollup = RollupData(round_id=round_id)
+        rollup = RollupData(tag_group_id=round_id)
 
     bot = current_app.bot
     cog = bot.get_cog("Puzzles") if bot else None

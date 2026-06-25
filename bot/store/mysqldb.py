@@ -9,7 +9,7 @@ import re
 
 import pytz
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
-from .round_data import RoundData
+from .tag_group_data import TagGroupData
 from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
@@ -140,29 +140,29 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             logger.info(f"Unable to find hunt for {keyword} - {value}")
             return None
 
-class MySQLRoundJsonDb(_MySQLBaseDb):
-    TABLE_NAME = 'rounds'
+class MySQLTagGroupJsonDb(_MySQLBaseDb):
+    TABLE_NAME = 'tag_group'
     def get_lowest_code_in_hunt(self, hunt_id):
         """Retrieve lower code from database return 0 if none set"""
         cursor = self.mydb.cursor(dictionary=True)
         try:
-            cursor.execute("SELECT meta_code FROM rounds WHERE hunt_id = %s ORDER BY meta_code DESC LIMIT 0,1", (hunt_id,))
+            cursor.execute("SELECT group_code FROM tag_group WHERE hunt_id = %s ORDER BY group_code DESC LIMIT 0,1", (hunt_id,))
             row = cursor.fetchone()
         finally:
             cursor.close()
         if row:
-            return row['meta_code']
+            return row['group_code']
         return 0
 
-    def check_duplicate_meta_code(self, meta_code):
+    def check_duplicate_group_code(self, group_code):
         cursor = self.mydb.cursor()
-        cursor.execute("SELECT 1 FROM rounds WHERE meta_code = %s LIMIT 1", (meta_code,))
+        cursor.execute("SELECT 1 FROM tag_group WHERE group_code = %s LIMIT 1", (group_code,))
         found = cursor.fetchone() is not None
         cursor.close()
         return found
 
     def get_by_attr(self,**kwargs):
-        """Retrieve Round by attribute.  Only last sent attribute processed"""
+        """Retrieve TagGroup by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
             cursor = self.mydb.cursor(dictionary = True)
@@ -172,26 +172,25 @@ class MySQLRoundJsonDb(_MySQLBaseDb):
             finally:
                 cursor.close()
             if row:
-                return RoundData.import_dict(row)
-            logger.info(f"Unable to find Round for {keyword} - {value}")
+                return TagGroupData.import_dict(row)
+            logger.info(f"Unable to find TagGroup for {keyword} - {value}")
             return None
 
-    def get_all(self, hunt_id="*") -> List[RoundData]:
-        """Retrieve all rounds for hunt"""
-        round_datas = []
+    def get_all(self, hunt_id="*") -> List[TagGroupData]:
+        """Retrieve all tag groups for hunt"""
+        tag_group_datas = []
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM rounds WHERE hunt_id = %s", (hunt_id,))
+        cursor.execute("SELECT * FROM tag_group WHERE hunt_id = %s", (hunt_id,))
         rows = cursor.fetchall()
         for row in rows:
-            round_datas.append(RoundData.import_dict(row))
+            tag_group_datas.append(TagGroupData.import_dict(row))
         cursor.close()
-        return round_datas
-        # return RoundData.sort_by_round_start(round_datas) TODO - ideally return by round start time
+        return tag_group_datas
 
-    def delete(self, round_id):
-        super(MySQLRoundJsonDb, self).delete(round_id)
+    def delete(self, tag_group_id):
+        super(MySQLTagGroupJsonDb, self).delete(tag_group_id)
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("DELETE FROM tags WHERE round_id = %s", (round_id,))
+        cursor.execute("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
         cursor.close()
 
 class MySQLAdditionalSheetsDb(_MySQLBaseDb):
@@ -296,11 +295,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return puzzle_datas
 
-    def get_all_from_round(self, round_id) -> List[PuzzleData]:
+    def get_all_from_tag_group(self, tag_group_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT puzzles.* FROM puzzles LEFT JOIN tags ON puzzles.id = tags.puzzle_id WHERE tags.round_id = %s", (round_id,))
+        cursor.execute("SELECT puzzles.* FROM puzzles LEFT JOIN tags ON puzzles.id = tags.puzzle_id WHERE tags.tag_group_id = %s", (tag_group_id,))
         rows = cursor.fetchall()
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
@@ -359,8 +358,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "   AND p.parent_puzzle_id IS NULL"   # mini-meta feeders are assigned
             "   AND NOT EXISTS ("
             "       SELECT 1 FROM tags t"
-            "       JOIN rounds r ON t.round_id = r.id"
-            "       WHERE t.puzzle_id = p.id AND r.meta_id > 0"
+            "       JOIN tag_group r ON t.tag_group_id = r.id"
+            "       WHERE t.puzzle_id = p.id AND r.target_puzzle_id > 0"
             "   )",
             (hunt_id,),
         )
@@ -370,12 +369,12 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_tags(self, puzzle):
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = "SELECT tags.round_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
+        select_stmt = "SELECT tags.tag_group_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle.tags.append(row['round_id'])
-            puzzle.tag_edges[row['round_id']] = row['edge_type'] or "feeds-meta"
+            puzzle.tags.append(row['tag_group_id'])
+            puzzle.tag_edges[row['tag_group_id']] = row['edge_type'] or "feeds-meta"
         cursor.close()
 
     def get_additional_sheets(self, puzzle):
@@ -390,15 +389,15 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             puzzle.additional_sheets.append(sheet)
         cursor.close()
 
-    def tag_puzzle_with_edge(self, puzzle_id, round_id, edge_type):
+    def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):
         """M7: idempotent upsert of a membership edge with typed edge_type.
-        Relies on migration 005's UNIQUE KEY (round_id, puzzle_id)."""
+        Relies on migration 005's UNIQUE KEY (tag_group_id, puzzle_id)."""
         cursor = self.mydb.cursor()
         try:
             cursor.execute(
-                "INSERT INTO tags (round_id, puzzle_id, edge_type) VALUES (%s, %s, %s)"
+                "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s)"
                 " ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
-                (round_id, puzzle_id, edge_type),
+                (tag_group_id, puzzle_id, edge_type),
             )
         finally:
             cursor.close()
@@ -407,20 +406,20 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def commit(self, puzzle):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = "SELECT round_id FROM tags WHERE puzzle_id = %s"
+        select_stmt = "SELECT tag_group_id FROM tags WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         database_tags = []
         for row in rows:
-            database_tags.append(row['round_id'])
+            database_tags.append(row['tag_group_id'])
         tags_to_remove = set(database_tags) - set(puzzle.tags)
         if len(tags_to_remove) > 0:
             placeholders = ",".join(["%s"] * len(tags_to_remove))
-            delete_stmt = f"DELETE FROM tags WHERE round_id IN ({placeholders}) AND puzzle_id = %s"
+            delete_stmt = f"DELETE FROM tags WHERE tag_group_id IN ({placeholders}) AND puzzle_id = %s"
             cursor.execute(delete_stmt, (*tags_to_remove, puzzle.id))
         tags_to_add = set(puzzle.tags) - set(database_tags)
         if len(tags_to_add) > 0:
-            insert_stmt = "INSERT INTO tags (round_id, puzzle_id) VALUES " + \
+            insert_stmt = "INSERT INTO tags (tag_group_id, puzzle_id) VALUES " + \
                 ",".join(["(%s, %s)"] * len(tags_to_add))
             params = []
             for tag in tags_to_add:
@@ -542,7 +541,7 @@ class MySQLGuildSettingsDb():
         stmt = ("SELECT channel_id, channel_type FROM ( "
                     "SELECT category_id as channel_id, 'Hunt' as channel_type FROM hunts "
                     "UNION SELECT channel_id as channel_id, 'Hunt' as channel_type FROM hunts "
-                    "UNION SELECT category_id as channel_id, 'Group' as channel_type FROM rounds "
+                    "UNION SELECT category_id as channel_id, 'Group' as channel_type FROM tag_group "
                     "UNION SELECT channel_id, 'Puzzle' as channel_type FROM puzzles "
                 ") channel_types WHERE channel_id=%s")
         data = (channel_id,)

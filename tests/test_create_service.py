@@ -106,8 +106,8 @@ async def test_create_round_creates_round_and_meta_puzzle():
 
     new_round, puzzle = result
     assert puzzle is meta_puzzle
-    assert new_round.meta_id == meta_puzzle.id
-    assert new_round.meta_code == "META01"
+    assert new_round.target_puzzle_id == meta_puzzle.id
+    assert new_round.group_code == "META01"
 
 
 @pytest.mark.asyncio

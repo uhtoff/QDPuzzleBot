@@ -18,7 +18,7 @@ from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, Sh
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
-from bot.store.round_data import RoundData
+from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
@@ -336,7 +336,7 @@ class PuzzleService:
         Serialized per round via rollup_lock so only one writer touches a given meta
         sheet at a time; the DB read happens INSIDE the lock so each holder renders
         post-commit state (no lost update against a concurrent !rebuild)."""
-        if hunt is None or hunt_round is None or not hunt_round.meta_id:
+        if hunt is None or hunt_round is None or not hunt_round.target_puzzle_id:
             return
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
@@ -344,7 +344,7 @@ class PuzzleService:
             return
 
         async with rollup_lock(hunt_round.id):
-            metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+            metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.target_puzzle_id)
             if metapuzzle is None:
                 return
             rollup = self._find_or_create_rollup(hunt_round)
@@ -360,9 +360,9 @@ class PuzzleService:
         """Return the rollup row for this meta round, creating an unsaved one (with
         the current-meta defaults) if none exists yet. Not committed until
         _mark_rollup writes the refresh outcome."""
-        rollup = RollupsJsonDb.get_by_attr(round_id=hunt_round.id)
+        rollup = RollupsJsonDb.get_by_attr(tag_group_id=hunt_round.id)
         if rollup is None:
-            rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
+            rollup = RollupData(hunt_id=hunt_round.hunt_id, tag_group_id=hunt_round.id)
         return rollup
 
     async def set_source_mode(self, hunt, meta_round, mode):
@@ -466,7 +466,7 @@ class PuzzleService:
         page_id = metapuzzle.google_page_id
         rollup.tab_page_id = int(page_id) if page_id not in (None, "") else None
         # A rollup is keyed by EITHER a round (meta rounds) or a target puzzle (minimetas).
-        ident = rollup.round_id if rollup.round_id else f"puzzle:{rollup.target_puzzle_id}"
+        ident = rollup.tag_group_id if rollup.tag_group_id else f"puzzle:{rollup.target_puzzle_id}"
         if rollup.metadata_id is None and rollup.tab_page_id is not None:
             try:
                 _, rollup.metadata_id = await gsheet_cog.stamp_rollup_metadata(
@@ -676,7 +676,7 @@ class PuzzleService:
                 await self.refresh_meta(hunt, meta_round)
             except Exception:
                 failed.append(tag)
-            if meta_round and meta_round.meta_id == puzzle.id:
+            if meta_round and meta_round.target_puzzle_id == puzzle.id:
                 meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
                 meta_round.status = "solved"   # M6: a round is solved when its meta is
                 RoundJsonDb.commit(meta_round)
@@ -753,7 +753,7 @@ class PuzzleService:
         # Mirror round-solve undo if this puzzle was a round meta.
         for tag in puzzle.tags:
             round_ = RoundJsonDb.get_by_attr(id=tag)
-            if round_ and round_.meta_id == puzzle.id:
+            if round_ and round_.target_puzzle_id == puzzle.id:
                 round_.solve_time = None
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
@@ -773,7 +773,7 @@ class PuzzleService:
         Returns the number of feeders orphaned by the round deletion (every puzzle
         that was tagged to the deleted round, excluding the meta itself)."""
         orphaned = len(self.feeders_orphaned_by_convert(puzzle))
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        meta_round = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if meta_round is not None:
             RoundJsonDb.delete(meta_round.id)
             if meta_round.id in puzzle.tags:
@@ -793,7 +793,7 @@ class PuzzleService:
         orphan — every puzzle tagged to its meta round except the meta itself.
         Powers the web convert confirm, which must name the orphan count up front.
         Returns [] if the puzzle backs no round."""
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+        meta_round = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if meta_round is None:
             return []
         return [
@@ -1020,7 +1020,7 @@ class PuzzleService:
         if puzzle.is_metapuzzle():
             raise RuntimeError("already_meta")
 
-        new_round = RoundData(
+        new_round = TagGroupData(
             name=puzzle.name,
             hunt_id=hunt.id,
             category_id=puzzle.channel_id,
@@ -1028,8 +1028,8 @@ class PuzzleService:
             kind="meta",
         )
         RoundJsonDb.commit(new_round)
-        new_round.meta_code = RoundJsonDb.generate_uid("meta_code", 6, puzzle.name)
-        new_round.meta_id = puzzle.id
+        new_round.group_code = RoundJsonDb.generate_uid("group_code", 6, puzzle.name)
+        new_round.target_puzzle_id = puzzle.id
         RoundJsonDb.commit(new_round)
 
         puzzle.add_tag(new_round.id)
@@ -1295,8 +1295,8 @@ class PuzzleService:
                            meta_puzzle_name=None, round_type="Metapuzzle", round_kind="meta"):
         """Create a new metapuzzle/round: category clone + round row + optional meta puzzle.
 
-        Returns (RoundData, PuzzleData) when ``meta_puzzle_name`` is not False,
-        else (RoundData, None).  Raises RuntimeError("<code>") on recoverable
+        Returns (TagGroupData, PuzzleData) when ``meta_puzzle_name`` is not False,
+        else (TagGroupData, None).  Raises RuntimeError("<code>") on recoverable
         problems; raises the underlying exception otherwise.
         ``meta_puzzle_name``: name for the meta puzzle. Defaults to round ``name``.
         Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
@@ -1336,7 +1336,7 @@ class PuzzleService:
                     channel_type="text", position=500,
                 )
 
-            new_round = RoundData(
+            new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=new_category.id,
                 type=round_type, kind=round_kind,
@@ -1348,9 +1348,9 @@ class PuzzleService:
                 puzzle = await self.create_puzzle(
                     guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,
                 )
-                new_round.meta_id = puzzle.id
+                new_round.target_puzzle_id = puzzle.id
 
-            new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, name)
+            new_round.group_code = RoundJsonDb.generate_uid('group_code', 6, name)
             RoundJsonDb.commit(new_round)
 
             await self.notifier.board_changed(hunt)

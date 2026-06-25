@@ -16,7 +16,7 @@ class TestSubtreeWalk:
     @pytest.mark.asyncio
     async def test_collects_descendants_deduped_and_solved_only(self):
         svc = PuzzleService(MagicMock())
-        root = make_round(id=1, meta_id=10)
+        root = make_round(id=1, target_puzzle_id=10)
         a = make_round(id=2)
         a.parent_group_id = 1
         b = make_round(id=3)

@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    RoundData, RoundJsonDb, HuntData, HuntJsonDb
+    TagGroupData, RoundJsonDb, HuntData, HuntJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -148,14 +148,14 @@ class Puzzles(commands.Cog):
                 if hunt_round:
                     channel_type = hunt_round.type
                     hunt = HuntJsonDb.get_by_attr(id=hunt_round.hunt_id)
-                    if hunt_round.meta_id:
-                        puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+                    if hunt_round.target_puzzle_id:
+                        puzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.target_puzzle_id)
             if channel_type == 'Puzzle':
                 puzzle = PuzzleJsonDb.get_by_attr(channel_id=ctx.channel.id,)
                 # Check if we've actually got the metapuzzle for a round and set the right channel type if so
                 # Otherwise grab the group/round from the category
                 if puzzle:
-                    hunt_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
+                    hunt_round = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                     if hunt_round:
                         channel_type = hunt_round.type
                     else:
@@ -209,14 +209,14 @@ class Puzzles(commands.Cog):
         for r in rounds_sorted:
             # filter to only rounds that are metas (meta_code is a 6-char string;
             # non-meta rounds keep the default int 0)
-            if not isinstance(r.meta_code, str) or len(r.meta_code) != 6:
+            if not isinstance(r.group_code, str) or len(r.group_code) != 6:
                 continue
             # Build a human label. Keep it short-ish.
-            label = f"{r.name} ({r.meta_code})"
+            label = f"{r.name} ({r.group_code})"
             # Allow searching by name OR meta_code OR id
-            haystack = f"{r.name} {r.meta_code} {r.id}".lower()
+            haystack = f"{r.name} {r.group_code} {r.id}".lower()
             if current_lc in haystack:
-                choices.append(app_commands.Choice(name=label[:100], value=r.meta_code))
+                choices.append(app_commands.Choice(name=label[:100], value=r.group_code))
 
             if len(choices) >= 25:  # Discord hard limit
                 break
@@ -529,10 +529,10 @@ class Puzzles(commands.Cog):
         category = getattr(ctx.channel, "category", None)
         if category is not None:
             candidate = RoundJsonDb.get_by_attr(category_id=category.id)
-            if candidate is not None and candidate.meta_id:
+            if candidate is not None and candidate.target_puzzle_id:
                 target = candidate
         rounds = [target] if target is not None else [
-            r for r in RoundJsonDb.get_all(hunt.id) if r.meta_id
+            r for r in RoundJsonDb.get_all(hunt.id) if r.target_puzzle_id
         ]
         if not rounds:
             await ctx.send(":information_source: No meta sheets to rebuild in this hunt.")
@@ -546,7 +546,7 @@ class Puzzles(commands.Cog):
                 ok += 1
             except Exception:
                 logger.exception("!rebuild: refresh failed for round %s", meta_round.id)
-                failed.append(meta_round.meta_code or meta_round.name or str(meta_round.id))
+                failed.append(meta_round.group_code or meta_round.name or str(meta_round.id))
 
         msg = f":white_check_mark: Rebuilt {ok} meta sheet{'s' if ok != 1 else ''}."
         if failed:
@@ -1058,7 +1058,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        meta_round = RoundJsonDb.get_by_attr(group_code=meta_code)
         if meta_round:
             await self.service.add_to_meta(puzzle, meta_round)
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
@@ -1080,7 +1080,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        meta_round = RoundJsonDb.get_by_attr(group_code=meta_code)
         if meta_round:
             await ctx.send(
                 f":white_check_mark: This puzzle has been moved to {meta_round.name} and meta sheets are being updated.")
@@ -1102,11 +1102,11 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        meta_round = RoundJsonDb.get_by_attr(group_code=meta_code)
         if not meta_round:
             await ctx.send(":x: Please send a valid meta code")
             return
-        if puzzle.id == meta_round.meta_id:
+        if puzzle.id == meta_round.target_puzzle_id:
             await ctx.send(":x: You can't remove a metapuzzle from it's own round!")
             return
         if meta_round:
@@ -1125,13 +1125,13 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     async def nest(self, ctx, child_code: str, parent_code: Optional[str] = None):
         """*Nest a round under another or clear nesting: !nest <child_code> <parent_code|none>*"""
-        child_round = RoundJsonDb.get_by_attr(meta_code=child_code)
+        child_round = RoundJsonDb.get_by_attr(group_code=child_code)
         if not child_round:
             await ctx.send(":x: Invalid child meta code")
             return
         parent_id = None
         if parent_code is not None and parent_code.lower() != "none":
-            parent_round = RoundJsonDb.get_by_attr(meta_code=parent_code)
+            parent_round = RoundJsonDb.get_by_attr(group_code=parent_code)
             if not parent_round:
                 await ctx.send(":x: Invalid parent meta code")
                 return
@@ -1159,8 +1159,8 @@ class Puzzles(commands.Cog):
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
             return
-        meta_round = RoundJsonDb.get_by_attr(meta_code=code)
-        if not meta_round or not meta_round.meta_id:
+        meta_round = RoundJsonDb.get_by_attr(group_code=code)
+        if not meta_round or not meta_round.target_puzzle_id:
             await ctx.send(":x: Invalid meta code — must reference a meta round.")
             return
         try:
@@ -1191,7 +1191,7 @@ class Puzzles(commands.Cog):
         added = False
         for rid in puzzle.tags:
             rnd = RoundJsonDb.get_by_attr(id=rid)
-            if rnd and rnd.meta_id:
+            if rnd and rnd.target_puzzle_id:
                 PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, rid, "aggregates-into")
                 added = True
         if not added:
@@ -1322,7 +1322,7 @@ class Puzzles(commands.Cog):
         self.set_channel_type(ctx, "Metapuzzle")
         await self.info(ctx, update=True)
         await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a metapuzzle within the category, other puzzles can now be tagged to it using its meta code {hunt_round.meta_code}."
+            f":white_check_mark: I've converted this puzzle into a metapuzzle within the category, other puzzles can now be tagged to it using its meta code {hunt_round.group_code}."
         )
 
     @commands.hybrid_command(description="Convert puzzle to feeder", )
@@ -1683,9 +1683,9 @@ class Puzzles(commands.Cog):
         • `!p <puzzle-name>` will add a puzzle to this meta.
         • `!list` : List all puzzles in this meta.
         • `!info` will re-post this message.
-        • `!move_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta and move it to this category.
-        • `!add_to_meta {hunt_round.meta_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
-        • `!remove_from_meta {hunt_round.meta_code}` when used in another puzzle channel will remove it from this meta.
+        • `!move_to_meta {hunt_round.group_code}` when used in another puzzle channel will add it to this meta and move it to this category.
+        • `!add_to_meta {hunt_round.group_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
+        • `!remove_from_meta {hunt_round.group_code}` when used in another puzzle channel will remove it from this meta.
         • `!sync_meta` (admin_only) when used in this channel will assign all the puzzles in the category to the meta.
         • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
@@ -1721,9 +1721,9 @@ class Puzzles(commands.Cog):
         • `!p <puzzle-name>` will add a puzzle to this round.
         • `!list` : List all puzzles in this round.
         • `!info` will re-post this message.
-        • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
-        • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!remove_from_round {hunt_round.meta_code}` when used in another puzzle channel will remove it from this round.
+        • `!move_to_round {hunt_round.group_code}` when used in another puzzle channel will add it to this round and move it to this category.
+        • `!add_to_round {hunt_round.group_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!remove_from_round {hunt_round.group_code}` when used in another puzzle channel will remove it from this round.
         • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         """,
                         inline=False,
@@ -1755,9 +1755,9 @@ class Puzzles(commands.Cog):
         • `!p <puzzle-name>` will add a puzzle to this round.
         • `!list` : List all puzzles in this round.
         • `!info` will re-post this message.
-        • `!move_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round and move it to this category.
-        • `!add_to_round {hunt_round.meta_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!remove_from_round {hunt_round.meta_code}` when used in another puzzle channel will remove it from this round.
+        • `!move_to_round {hunt_round.group_code}` when used in another puzzle channel will add it to this round and move it to this category.
+        • `!add_to_round {hunt_round.group_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!remove_from_round {hunt_round.group_code}` when used in another puzzle channel will remove it from this round.
         • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
@@ -2503,7 +2503,7 @@ class Puzzles(commands.Cog):
         self.set_puzzle(ctx, None)
         self.set_hunt_round(ctx, None)
 
-    async def delete_round_data(self, hunt_round: RoundData):
+    async def delete_round_data(self, hunt_round: TagGroupData):
         RoundJsonDb.delete(hunt_round.id)
         return True
 

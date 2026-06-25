@@ -33,8 +33,8 @@ async def test_hunt_wide_rebuilds_only_metas():
     service = MagicMock(refresh_meta=AsyncMock())
     cog = _cog(hunt, service)
     ctx = _ctx(category=None)
-    metas = [make_round(id=1, meta_id=100), make_round(id=2, meta_id=101)]
-    non_meta = make_round(id=3, meta_id=0)
+    metas = [make_round(id=1, target_puzzle_id=100), make_round(id=2, target_puzzle_id=101)]
+    non_meta = make_round(id=3, target_puzzle_id=0)
     with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
         rdb.get_all.return_value = metas + [non_meta]
         await Puzzles.rebuild.callback(cog, ctx)
@@ -48,7 +48,7 @@ async def test_targeted_when_in_a_meta_category():
     service = MagicMock(refresh_meta=AsyncMock())
     cog = _cog(hunt, service)
     ctx = _ctx(category=types.SimpleNamespace(id=999))
-    target = make_round(id=5, meta_id=50, category_id=999)
+    target = make_round(id=5, target_puzzle_id=50, category_id=999)
     with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
         rdb.get_by_attr.return_value = target
         await Puzzles.rebuild.callback(cog, ctx)
@@ -62,8 +62,8 @@ async def test_summary_reports_failures():
     service = MagicMock(refresh_meta=AsyncMock(side_effect=[None, RuntimeError("down")]))
     cog = _cog(hunt, service)
     ctx = _ctx(category=None)
-    metas = [make_round(id=1, meta_id=100, meta_code="AAA"),
-             make_round(id=2, meta_id=101, meta_code="BBB")]
+    metas = [make_round(id=1, target_puzzle_id=100, group_code="AAA"),
+             make_round(id=2, target_puzzle_id=101, group_code="BBB")]
     with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
         rdb.get_all.return_value = metas
         await Puzzles.rebuild.callback(cog, ctx)

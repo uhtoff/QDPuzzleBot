@@ -61,7 +61,7 @@ async def test_web_create_round_defers_welcome_via_notifier_none():
     passing notifier=None means no welcome is fired inside create_round."""
     cog, gsheet = _cog_with_sheets()
     hunt = _hunt()
-    new_round = make_round(id=5, meta_code="ABC123")
+    new_round = make_round(id=5, group_code="ABC123")
     puzzle = MagicMock(id=77, channel_id=333)
     guild = MagicMock()
 

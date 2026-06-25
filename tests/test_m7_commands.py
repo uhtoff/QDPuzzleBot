@@ -34,8 +34,8 @@ class TestNestCommand:
         service = MagicMock(set_parent_group=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
-        child = make_round(id=5, meta_code="CHILD")
-        parent = make_round(id=3, meta_code="PARENT")
+        child = make_round(id=5, group_code="CHILD")
+        parent = make_round(id=3, group_code="PARENT")
         with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
             def get_by_meta(code):
                 if code == "CHILD":
@@ -43,7 +43,7 @@ class TestNestCommand:
                 if code == "PARENT":
                     return parent
                 return None
-            rdb.get_by_attr.side_effect = lambda **kw: get_by_meta(kw.get("meta_code"))
+            rdb.get_by_attr.side_effect = lambda **kw: get_by_meta(kw.get("group_code"))
             await Puzzles.nest.callback(cog, ctx, "CHILD", "PARENT")
         service.set_parent_group.assert_awaited_once_with(child, 3)
         assert "nested under" in ctx.send.call_args[0][0]
@@ -54,7 +54,7 @@ class TestNestCommand:
         service = MagicMock(set_parent_group=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
-        child = make_round(id=5, meta_code="CHILD")
+        child = make_round(id=5, group_code="CHILD")
         with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
             rdb.get_by_attr.return_value = child
             await Puzzles.nest.callback(cog, ctx, "CHILD", "none")
@@ -81,7 +81,7 @@ class TestSourceModeCommand:
         service = MagicMock(set_source_mode=AsyncMock())
         cog = _cog(hunt, service)
         ctx = _ctx()
-        meta_round = make_round(id=5, meta_code="META", meta_id=99)
+        meta_round = make_round(id=5, group_code="META", target_puzzle_id=99)
         with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
             rdb.get_by_attr.return_value = meta_round
             await Puzzles.source_mode.callback(cog, ctx, "META", "subtree")
@@ -113,7 +113,7 @@ class TestPoolCommand:
             hunt_id=10,
             channel_id=111,
         )
-        meta_round = make_round(id=5, meta_id=99)
+        meta_round = make_round(id=5, target_puzzle_id=99)
         cog.get_puzzle = lambda _ctx: puzzle
         with patch("bot.cogs.puzzles.RoundJsonDb") as rdb, \
              patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb:
@@ -122,7 +122,7 @@ class TestPoolCommand:
                 kid = kw.get("id")
                 if kid == 5:
                     return meta_round
-                if kw.get("meta_code"):
+                if kw.get("group_code"):
                     return None
                 return None
             rdb.get_by_attr.side_effect = get_round

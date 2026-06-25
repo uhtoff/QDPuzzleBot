@@ -813,7 +813,7 @@ async def retag_puzzle(puzzle_id):
     from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
     # "clear" unassigns from ALL metas, so it carries no meta_code to validate.
-    meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+    meta_round = RoundJsonDb.get_by_attr(group_code=meta_code)
     if mode != "clear" and (meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]):
         return jsonify({"error": "bad_meta_code"}), 400
     # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
@@ -823,7 +823,7 @@ async def retag_puzzle(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if mode == "remove" and puzzle.id == meta_round.meta_id:
+        if mode == "remove" and puzzle.id == meta_round.target_puzzle_id:
             return jsonify({"error": "cannot_remove_own_meta"}), 400
         if mode == "clear" and puzzle.is_metapuzzle():
             # A metapuzzle can't be unassigned (mirrors "move", which never clears
@@ -1328,7 +1328,7 @@ async def create_puzzle(uid):
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     meta_round = None
     if meta_code:
-        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
+        meta_round = RoundJsonDb.get_by_attr(group_code=meta_code)
         if meta_round is None or meta_round.hunt_id != hunt_obj.id:
             return jsonify({"error": "bad_meta_code"}), 400
     if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
@@ -1392,8 +1392,8 @@ async def create_meta(uid):
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.meta_code)
-    return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})
+    await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.group_code)
+    return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.group_code})
 
 
 # --- Minimeta mini-puzzle creation (organiser only) --------------------------

@@ -30,7 +30,7 @@ def _svc():
 async def test_set_source_mode_creates_rollup_when_missing():
     """When no rollup exists yet, one is created and committed with the new mode."""
     svc = _svc()
-    meta_round = make_round(id=5, meta_id=1)
+    meta_round = make_round(id=5, target_puzzle_id=1)
     with patch("bot.core.puzzle_service.RollupsJsonDb") as mock_rudb, \
          patch.object(svc, "refresh_meta", new_callable=AsyncMock) as mock_refresh:
         mock_rudb.get_by_attr.return_value = None  # no existing rollup
@@ -39,7 +39,7 @@ async def test_set_source_mode_creates_rollup_when_missing():
         mock_rudb.commit.assert_called_once()
         committed = mock_rudb.commit.call_args.args[0]
         assert committed.source_mode == "subtree"
-        assert committed.round_id == 5
+        assert committed.tag_group_id == 5
         # refresh_meta must be called after commit
         mock_refresh.assert_awaited_once()
 
@@ -48,8 +48,8 @@ async def test_set_source_mode_creates_rollup_when_missing():
 async def test_set_source_mode_updates_existing_rollup():
     """When a rollup exists, its source_mode is updated in-place and committed."""
     svc = _svc()
-    meta_round = make_round(id=7, meta_id=2)
-    existing = RollupData(id=42, hunt_id=10, round_id=7, source_mode="round")
+    meta_round = make_round(id=7, target_puzzle_id=2)
+    existing = RollupData(id=42, hunt_id=10, tag_group_id=7, source_mode="round")
     with patch("bot.core.puzzle_service.RollupsJsonDb") as mock_rudb, \
          patch.object(svc, "refresh_meta", new_callable=AsyncMock):
         mock_rudb.get_by_attr.return_value = existing
@@ -65,7 +65,7 @@ async def test_set_source_mode_calls_refresh_meta():
     """refresh_meta is awaited with (hunt, meta_round) after the commit."""
     svc = _svc()
     hunt = _hunt()
-    meta_round = make_round(id=3, meta_id=1)
+    meta_round = make_round(id=3, target_puzzle_id=1)
     with patch("bot.core.puzzle_service.RollupsJsonDb") as mock_rudb, \
          patch.object(svc, "refresh_meta", new_callable=AsyncMock) as mock_refresh:
         mock_rudb.get_by_attr.return_value = None
@@ -77,7 +77,7 @@ async def test_set_source_mode_calls_refresh_meta():
 async def test_set_source_mode_invalid_mode_raises():
     """An unrecognised mode raises ValueError before touching the DB."""
     svc = _svc()
-    meta_round = make_round(id=5, meta_id=1)
+    meta_round = make_round(id=5, target_puzzle_id=1)
     with patch("bot.core.puzzle_service.RollupsJsonDb") as mock_rudb, \
          patch.object(svc, "refresh_meta", new_callable=AsyncMock):
         mock_rudb.get_by_attr.return_value = None
@@ -92,7 +92,7 @@ async def test_set_source_mode_invalid_mode_raises():
 async def test_set_source_mode_accepts_all_valid_modes(mode):
     """All three valid modes are accepted without error."""
     svc = _svc()
-    meta_round = make_round(id=5, meta_id=1)
+    meta_round = make_round(id=5, target_puzzle_id=1)
     with patch("bot.core.puzzle_service.RollupsJsonDb") as mock_rudb, \
          patch.object(svc, "refresh_meta", new_callable=AsyncMock):
         mock_rudb.get_by_attr.return_value = None

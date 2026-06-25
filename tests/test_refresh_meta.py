@@ -56,7 +56,7 @@ class TestRefreshMetaFires:
     @pytest.mark.asyncio
     async def test_points_cog_at_hunt_spreadsheet(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_round.return_value = []
@@ -67,7 +67,7 @@ class TestRefreshMetaFires:
     @pytest.mark.asyncio
     async def test_calls_add_metapuzzle_data_for_regular_meta(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
@@ -83,12 +83,12 @@ class TestRefreshMetaFires:
         # The backfill (004) set source_mode='subtree' on rollups for
         # metameta puzzles, so this path still calls add_metametapuzzle_data.
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metameta = make_puzzle(id=1, metapuzzle=1, metameta=1)
         child = make_round(id=6)
         child.parent_group_id = 5
         branch_solved = [make_puzzle(id=2, solved=True), make_puzzle(id=3, solved=True)]
-        existing = RollupData(id=9, hunt_id=10, round_id=5, source_mode="subtree")
+        existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
             rdb.get_all.return_value = [meta_round, child]
@@ -101,7 +101,7 @@ class TestRefreshMetaFires:
     @pytest.mark.asyncio
     async def test_add_to_meta_triggers_rebuild(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         puzzle = make_puzzle(id=2, tags=[])
         with _patched() as (pdb, hdb, _r, _ru):
             hdb.get_by_attr.return_value = _hunt()
@@ -117,7 +117,7 @@ class TestRefreshMetaFires:
         puzzle = make_puzzle(id=2, tags=[5, 6])
         with _patched() as (pdb, hdb, rdb, _ru):
             hdb.get_by_attr.return_value = _hunt()
-            rdb.get_by_attr.side_effect = lambda id: make_round(id=id, meta_id=id)
+            rdb.get_by_attr.side_effect = lambda id: make_round(id=id, target_puzzle_id=id)
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_round.return_value = []
             await svc.clear_metas(puzzle)
@@ -129,13 +129,13 @@ class TestRollupBookkeeping:
     @pytest.mark.asyncio
     async def test_persists_last_ok_on_success(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_round.return_value = []
             await svc.refresh_meta(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
-        assert committed.round_id == 5
+        assert committed.tag_group_id == 5
         assert committed.hunt_id == 10
         assert committed.last_ok == 1
         assert committed.last_error is None
@@ -145,7 +145,7 @@ class TestRollupBookkeeping:
     async def test_persists_failure_and_reraises(self):
         svc, gsheet = _svc_with_sheets()
         gsheet.add_metapuzzle_data.side_effect = RuntimeError("sheets down")
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_round.return_value = []
@@ -159,8 +159,8 @@ class TestRollupBookkeeping:
     async def test_updates_existing_rollup_in_place(self):
         """find-or-create reuses the existing row rather than duplicating it."""
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        existing = RollupData(id=9, hunt_id=10, round_id=5, last_ok=0, last_error="old")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        existing = RollupData(id=9, hunt_id=10, tag_group_id=5, last_ok=0, last_error="old")
         with _patched(rollup_existing=existing) as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
             pdb.get_all_from_round.return_value = []
@@ -174,7 +174,7 @@ class TestRollupBookkeeping:
     async def test_tab_pointer_uses_google_page_id_and_records_metadata(self):
         svc, gsheet = _svc_with_sheets()
         gsheet.stamp_rollup_metadata = AsyncMock(return_value=(42, 777))
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
@@ -189,7 +189,7 @@ class TestRollupBookkeeping:
     async def test_metadata_stamp_failure_is_non_fatal(self):
         svc, gsheet = _svc_with_sheets()
         gsheet.stamp_rollup_metadata = AsyncMock(side_effect=RuntimeError("meta api down"))
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
@@ -217,8 +217,8 @@ class TestSolveFailureIsolation:
         gsheet.add_metapuzzle_data.side_effect = flaky
 
         puzzle = make_puzzle(id=2, tags=[5, 6])
-        round5 = make_round(id=5, meta_id=100)
-        round6 = make_round(id=6, meta_id=101)
+        round5 = make_round(id=5, target_puzzle_id=100)
+        round6 = make_round(id=6, target_puzzle_id=101)
 
         def round_by_id(id):
             return {5: round5, 6: round6}[id]
