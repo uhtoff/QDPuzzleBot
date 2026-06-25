@@ -5,7 +5,6 @@ can be easily disabled; simply omit this file.
 """
 import contextvars
 import logging
-import copy
 from typing import List
 
 from discord.ext import commands
@@ -29,11 +28,7 @@ _notified_flag = contextvars.ContextVar("notified_flag", default=None)
 class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
     FORMULA_INPUT = "formulaValue"
-    PUZZLE_SHEET = "Tab template"
-    METAPUZZLE_SHEET = "Meta Tab template"
-    FIRST_PUZZLE_ROW = 3
-    FIRST_PUZZLE_COLUMN = 0
-    FIRST_METAPUZZLE_COLUMN = 2
+    PUZZLE_SHEET = "Tab template"   # still used by create_additional_spreadsheet (Extra Sheets)
     INITIAL_OFFSET = 7
     sheets_service = None
 
@@ -104,55 +99,6 @@ class GoogleSheets(commands.Cog):
             )
         return response
 
-    def get_grid_size(self, old_puzzle) -> tuple:
-        target = int(old_puzzle.google_page_id)
-        # Look in the expected spreadsheet first, but fall back to the other one:
-        # if the archived flag is out of sync with where the sheet actually lives,
-        # querying only one would miss it and silently return (0, 0).
-        primary = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
-        secondary = self.get_spreadsheet_id() if old_puzzle.archived else self.get_archive_spreadsheet_id()
-        seen = []
-        for spreadsheet_id in (primary, secondary):
-            if not spreadsheet_id:
-                continue
-            response = execute_sync(get_sheet().get(
-                spreadsheetId=spreadsheet_id,
-                fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
-            ))
-            for sheet in response.get("sheets", []):
-                props = sheet.get("properties", {})
-                seen.append(props.get("sheetId"))
-                if props.get("sheetId") == target:
-                    grid = props.get("gridProperties", {})
-                    return grid.get("rowCount", 0), grid.get("columnCount", 0)
-
-        logger.warning(
-            "get_grid_size: sheet %s not found (searched %s; saw ids %s)",
-            target, [s for s in (primary, secondary) if s], seen,
-        )
-        return 0, 0
-
-    async def update_grid_size(self, sheet_id, row_count, column_count):
-        body = {
-            "requests": [
-                {
-                    "updateSheetProperties": {
-                        "properties": {
-                            "sheetId": sheet_id,
-                            "gridProperties": {
-                                "rowCount": row_count,
-                                "columnCount": column_count
-                            }
-                        },
-                        "fields": "gridProperties(rowCount,columnCount)"
-
-                    }
-                }
-            ]
-        }
-        await self.batch_update(body)
-        return body
-
     def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
         if spreadsheet_id is None:
             existing = {
@@ -217,57 +163,6 @@ class GoogleSheets(commands.Cog):
             'requests': requests
         }
         await self.batch_update(updates, puzzle.archived)
-
-    async def copy_puzzle(self, old_puzzle, new_puzzle):
-        old_grid_rows, old_grid_columns = self.get_grid_size(old_puzzle)
-        if not old_grid_rows or not old_grid_columns:
-            # get_grid_size couldn't locate the source sheet; resizing to 0 rows
-            # would be rejected by Sheets ("can't delete all the rows") and copying
-            # nothing would lose data, so abort rather than corrupt the sheet.
-            raise RuntimeError(
-                f"Couldn't read the source sheet (page id {old_puzzle.google_page_id}) "
-                "while converting the puzzle; aborting before resizing it to zero rows."
-            )
-        if new_puzzle.is_target:
-            new_grid_columns = old_grid_columns + 2
-        else:
-            new_grid_columns = old_grid_columns
-        new_grid_rows = old_grid_rows
-        await self.update_grid_size(new_puzzle.google_page_id, new_grid_rows, new_grid_columns)
-        old_start_row = new_start_row = self.FIRST_PUZZLE_ROW
-        if new_puzzle.is_target:
-            old_start_column = self.FIRST_PUZZLE_COLUMN
-            new_start_column = self.FIRST_METAPUZZLE_COLUMN
-        else:
-            old_start_column = self.FIRST_METAPUZZLE_COLUMN
-            new_start_column = self.FIRST_PUZZLE_COLUMN
-        body = {
-            'requests': [
-                {
-                    "copyPaste": {
-                        "source": {
-                            "sheetId": old_puzzle.google_page_id,
-                            "startRowIndex": old_start_row,
-                            "endRowIndex": old_grid_rows,
-                            "startColumnIndex": old_start_column,
-                            "endColumnIndex": old_grid_columns,
-                        },
-                        "destination": {
-                            "sheetId": new_puzzle.google_page_id,
-                            "startRowIndex": new_start_row,
-                            "endRowIndex": new_grid_rows,
-                            "startColumnIndex": new_start_column,
-                            "endColumnIndex": new_grid_columns,
-                        },
-                        "pasteType": "PASTE_NORMAL",
-                        "pasteOrientation": "NORMAL"
-                    }
-                }
-
-            ]
-        }
-
-        await self.batch_update(body, old_puzzle.archived)
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
@@ -363,10 +258,7 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
-        if puzzle.is_target:
-            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index, self.METAPUZZLE_SHEET)
-        else:
-            puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
+        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
 
 
     async def create_blank_tab(self, spreadsheet_id: str, name: str) -> int:
@@ -560,26 +452,29 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
         return sheet_id
 
-    async def convert_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        """Converts puzzle sheet from a metapuzzle to a feeder and vice versa"""
-        old_puzzle = copy.copy(puzzle_data)
-        await self.add_new_puzzle_sheet(puzzle_data)
-        try:
-            await self.copy_puzzle(old_puzzle, puzzle_data)
-            await self.delete_puzzle_spreadsheet(old_puzzle)
-            await self.update_puzzle_info(puzzle_data, True)
-        except Exception:
-            # The convert isn't atomic: we've already created the replacement sheet.
-            # If a later step fails, delete that orphan and restore the original page
-            # id so a failed convert leaves the puzzle as it was rather than stranding
-            # a duplicate tab (the source of the "Extra"/"Extra (2)" broken state).
-            try:
-                await self.delete_sheet(puzzle_data.google_page_id)
-            except Exception:
-                logger.exception("Failed to clean up half-created sheet %s after a failed convert",
-                                 puzzle_data.google_page_id)
-            puzzle_data.google_page_id = old_puzzle.google_page_id
-            raise
+    async def promote_tab_to_group(self, puzzle_data: PuzzleData):
+        """Promote a puzzle's existing tab into a target (group) tab in place.
+
+        Inserts the contribution columns + native Table (preserving the solver's
+        grid via promote_tab_to_target) and refreshes the tab name. Inverse of
+        demote_tab_to_puzzle."""
+        await self.promote_tab_to_target(puzzle_data)
+        await self.update_puzzle_info(puzzle_data, True)
+
+    async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData):
+        """Demote a target tab back to an ordinary puzzle tab in place.
+
+        Removes the contribution Table and its CONTRIBUTION_WIDTH left columns; the
+        solver grid (which rode the original promote shift) slides back into place,
+        so no content is overwritten. Inverse of promote_tab_to_group."""
+        page_id = puzzle_data.google_page_id
+        await self.batch_update({"requests": [{
+            "deleteDimension": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
+            }
+        }]})
+        await self.update_puzzle_info(puzzle_data, True)
 
     # --- Generic roll-up engine (M2) -------------------------------------
     # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.
@@ -764,6 +659,7 @@ class GoogleSheets(commands.Cog):
     # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
     # (Notes) belongs to solvers and is NEVER written by the reconcile.
     UNASSIGNED_HEADER = ["id", "Puzzle", "Answer", "Length", "Notes"]
+    CONTRIBUTION_HEADER = ["key", "Type", "Source", "Content"]
 
     async def ensure_unassigned_table(self, page_id, show_round=False):
         """Prepare the Unassigned Puzzles tab: write the header row and, best
@@ -824,6 +720,235 @@ class GoogleSheets(commands.Cog):
             logger.exception("ensure_unassigned_table: native Table styling skipped")
         return table_id
 
+    # --- Task 6: contribution Table create --------------------------------
+
+    async def _add_contribution_table(self, page_id, header_row=0):
+        """Create the unified contribution native Table on a target's tab.
+
+        Columns: A key (hidden), B Type, C Source, D Content. The table range
+        starts at header_row and initially spans the header only; appendCells
+        grows it over the body. Returns the native tableId (or page_id sentinel
+        if the Table API is unavailable, matching ensure_unassigned_table)."""
+        table_id = page_id
+        body = {"requests": [{"addTable": {"table": {
+            "name": "Contributions",
+            "range": {
+                "sheetId": page_id,
+                "startRowIndex": header_row,
+                "endRowIndex": header_row + 1,
+                "startColumnIndex": 0,
+                "endColumnIndex": len(self.CONTRIBUTION_HEADER),
+            },
+            "columnProperties": [
+                {"columnIndex": i, "columnName": name}
+                for i, name in enumerate(self.CONTRIBUTION_HEADER)
+            ],
+        }}}]}
+        result = await self.batch_update(body)
+        try:
+            table_id = result["replies"][0]["addTable"]["table"]["tableId"]
+        except (KeyError, IndexError, TypeError):
+            return table_id
+        # Hide the key column.
+        await self.batch_update({"requests": [{
+            "updateDimensionProperties": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": 1},
+                "properties": {"hiddenByUser": True},
+                "fields": "hiddenByUser",
+            }
+        }]})
+        return table_id
+
+    # --- Task 7: generalized key-anchored reconciler ----------------------
+
+    async def reconcile_table(self, page_id, key_count, desired_rows, data_col_count):
+        """Incrementally reconcile a key-anchored table on `page_id`.
+
+        Reads column A keys, diffs against desired_rows (via diff_rows), then
+        applies updates (rewrite cols 0..data_col_count-1 on the matched row),
+        prunes (delete whole row, bottom-first), and appends (write new rows
+        below). key_count is unused beyond documenting the single key column;
+        kept for symmetry with multi-key callers. Inserts only — never a sized
+        overwrite of solver rows below the table."""
+        from bot.core.unassigned import diff_rows
+        spreadsheet_id = self.get_spreadsheet_id()
+
+        tab_name = None
+        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+            if s["properties"]["sheetId"] == int(page_id):
+                tab_name = s["properties"]["title"]
+                break
+        if tab_name is None:
+            return
+        safe_name = tab_name.replace("'", "''")
+
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+        vals = resp.get("values", []) or []
+        key_to_row = {}
+        for i in range(1, len(vals)):
+            if vals[i]:
+                key_to_row[vals[i][0]] = i
+
+        current_keys = list(key_to_row)
+        appends, updates, prunes = diff_rows(current_keys, desired_rows)
+
+        def _cell(v):
+            return {"userEnteredValue": {"stringValue": str(v)}}
+
+        requests = []
+        # Updates: rewrite the whole row (cols 0..data_col_count-1).
+        update_by_key = {row[0]: row for row in updates}
+        for key, grid_row in key_to_row.items():
+            row = update_by_key.get(key)
+            if row is None:
+                continue
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                          "endRowIndex": grid_row + 1, "startColumnIndex": 0,
+                          "endColumnIndex": data_col_count},
+                "fields": "userEnteredValue",
+                "rows": [{"values": [_cell(v) for v in row]}],
+            }})
+        # Prunes: delete whole rows bottom-first.
+        for grid_row in sorted((key_to_row[k] for k in prunes), reverse=True):
+            requests.append({"deleteDimension": {
+                "range": {"sheetId": page_id, "dimension": "ROWS",
+                          "startIndex": grid_row, "endIndex": grid_row + 1}}})
+        # Appends: write new rows below the current data (after prunes shrink it).
+        if appends:
+            start = len(vals) - len(prunes)
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": start,
+                          "endRowIndex": start + len(appends), "startColumnIndex": 0,
+                          "endColumnIndex": data_col_count},
+                "fields": "userEnteredValue",
+                "rows": [{"values": [_cell(v) for v in row]} for row in appends],
+            }})
+
+        if requests:
+            await self.batch_update({"requests": requests})
+
+    # --- Task 8: code-generated puzzle tab ---------------------------------
+
+    async def generate_puzzle_tab(self, puzzle, is_target, index=None):
+        """Create a puzzle tab entirely in code (no template duplicateSheet).
+
+        Adds a blank tab, writes the captured header layout + the dynamic
+        name/url hyperlink, and (when is_target) the contribution Table.
+        Sets puzzle.google_page_id. Returns the new page id."""
+        from bot.cogs import sheet_layout
+        import inspect as insp
+
+        spreadsheet_id = self.get_spreadsheet_id()
+        name = self.get_unique_tab_name(puzzle.name)
+        _result = self.create_blank_tab(spreadsheet_id, name)
+        page_id = await _result if insp.iscoroutine(_result) else _result
+        puzzle.google_page_id = page_id
+
+        # Static header cells from the captured layout.
+        cells, merges = sheet_layout.puzzle_tab_layout(is_target)
+        requests = []
+        for c in cells:
+            requests.append(self.update_cell(
+                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]),
+                c["type"], page_id))
+        # Merges.
+        for start_r, end_r, start_c, end_c in merges:
+            requests.append({
+                "mergeCells": {
+                    "range": {"sheetId": page_id,
+                              "startRowIndex": start_r, "endRowIndex": end_r,
+                              "startColumnIndex": start_c, "endColumnIndex": end_c},
+                    "mergeType": "MERGE_ALL",
+                }})
+        # Dynamic name/url hyperlink (always bot-written, not from the artifact).
+        requests.append(self.update_cell(
+            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            self.get_row(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name),
+            self.FORMULA_INPUT, page_id))
+        if requests:
+            await self.batch_update({"requests": requests})
+
+        if is_target:
+            await self._add_contribution_table(page_id)
+        return page_id
+
+    # --- Task 9: in-place promotion ----------------------------------------
+
+    CONTRIBUTION_WIDTH = 4   # cols A-D
+
+    async def promote_tab_to_target(self, puzzle):
+        """Transform an existing puzzle tab into a target tab without losing
+        solver data. Insert contribution-width columns at the left (shifting the
+        grid + header right), add the contribution Table into the freed columns,
+        then restore the header. Inserts only — no sized overwrite."""
+        page_id = puzzle.google_page_id
+        spreadsheet_id = self.get_spreadsheet_id()
+        tab_name = self.get_page_name_by_id(page_id)
+        if tab_name is None:
+            return
+        safe_name = tab_name.replace("'", "''")
+
+        # 1. Save at-risk header cells (flavour + progress) BEFORE shifting.
+        flavour_ref = "B2"   # user-owned, not in config; captured layout confirms B2
+        progress_ref = config.puzzle_cell_progress  # B3
+        saved_cells = {}
+        for label, ref in [("flavour", flavour_ref), ("progress", progress_ref)]:
+            resp = await self._values_get(
+                spreadsheet_id, f"'{safe_name}'!{ref}")
+            vals = resp.get("values") or []
+            if vals and vals[0]:
+                saved_cells[label] = (vals[0][0], self.get_row(ref), self.get_column(ref))
+
+        # 2. Insert contribution-width columns at column A.
+        await self.batch_update({"requests": [{
+            "insertDimension": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
+                "inheritFromBefore": False,
+            }
+        }]})
+
+        # 3. Add the contribution Table into the freed left columns.
+        await self._add_contribution_table(page_id)
+
+        # 4. Reconstruct the bot-owned header (name/url hyperlink) in its
+        #    post-shift position; restore flavour/progress.
+        requests = [self.update_cell(
+            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            self.get_row(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name) + self.CONTRIBUTION_WIDTH,
+            self.FORMULA_INPUT, page_id)]
+        for label in ("flavour", "progress"):
+            if label in saved_cells:
+                val, row, col = saved_cells[label]
+                requests.append(self.update_cell(
+                    str(val), row, col + self.CONTRIBUTION_WIDTH,
+                    self.STRING_INPUT, page_id))
+        if requests:
+            await self.batch_update({"requests": requests})
+
+    # --- Task 10: render contribution table from service -------------------
+
+    async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
+        """Render the unified contribution table on the target's tab.
+
+        Excludes the target's own row, builds desired rows from edges/evidence,
+        and reconciles the native Table on the target's page."""
+        from bot.core.contribution import contribution_rows
+        contributing = [p for p in members if p.id != target_puzzle.id]
+        rows = contribution_rows(tag_group_id, contributing, evidence)
+        await self.reconcile_table(
+            page_id=target_puzzle.google_page_id,
+            key_count=1,
+            desired_rows=rows,
+            data_col_count=len(self.CONTRIBUTION_HEADER),
+        )
+
+    # --- Existing unassigned table methods follow --------------------------
+
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
@@ -856,117 +981,21 @@ class GoogleSheets(commands.Cog):
     async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
         """Apply the incremental reconcile to the Unassigned Puzzles tab.
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog). Writes only the
-        bot-owned columns A-D (id, Puzzle, Answer, Length) and NEVER column E
-        (Notes). Reconcile is keyed on the id in column A:
-          * updates  -> rewrite Puzzle/Answer/Length on the existing row
-          * prunes   -> delete the whole row (bottom-first so indices stay valid)
-          * appends  -> add new rows just below the existing data
+        Delegates all heavy lifting to `reconcile_table`, which handles deletes,
+        inserts, and updates against the native Table.
         """
-        spreadsheet_id = self.get_spreadsheet_id()
-        # Resolve the tab name + current index in one metadata read.
-        tab_name = None
-        current_index = None
-        for s in self.sheet_list(spreadsheet_id)["sheets"]:
-            if s["properties"]["sheetId"] == int(page_id):
-                tab_name = s["properties"]["title"]
-                current_index = s["properties"].get("index")
-                break
-        if tab_name is None:
-            return
-        safe_name = tab_name.replace("'", "''")
+        rows = []
+        for row in appends:
+            rows.append([str(v) for v in row])
+        for row in updates:
+            rows.append([str(v) for v in row])
 
-        # Single read of the id column. vals[0] is the header (grid row 0), so a
-        # data row at vals index i sits at 0-based grid row i.
-        val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
-        vals = val_resp.get("values", []) or []
-        id_to_row = {}
-        for i in range(1, len(vals)):
-            cell = vals[i]
-            if not cell:
-                continue
-            try:
-                id_to_row[int(cell[0])] = i
-            except (ValueError, IndexError):
-                continue
-
-        # Pin the tab to the far left, but only when it isn't already first — so a
-        # steady-state reconcile with no row changes issues no Sheets write at all.
-        requests = []
-        if current_index not in (0, None):
-            requests.append({"updateSheetProperties": {
-                "properties": {"sheetId": page_id, "index": 0},
-                "fields": "index",
-            }})
-
-        # Updates: refresh Puzzle/Answer/Length (cols B-D) on the matched row.
-        update_by_id = {row[0]: row for row in updates}
-        for rid, grid_row in id_to_row.items():
-            row = update_by_id.get(rid)
-            if row is None:
-                continue
-            requests.append({"updateCells": {
-                "range": {
-                    "sheetId": page_id,
-                    "startRowIndex": grid_row,
-                    "endRowIndex": grid_row + 1,
-                    "startColumnIndex": 1,
-                    "endColumnIndex": 4,
-                },
-                "fields": "userEnteredValue",
-                "rows": [{"values": [
-                    {"userEnteredValue": {"stringValue": str(row[1])}},
-                    {"userEnteredValue": {"stringValue": str(row[2])}},
-                    self._unassigned_len_cell(row[3]),
-                ]}],
-            }})
-
-        # Prunes: delete whole rows, bottom-first so earlier indices stay valid.
-        prune_rows = sorted(
-            (id_to_row[pid] for pid in prunes if pid in id_to_row),
-            reverse=True,
+        await self.reconcile_table(
+            page_id=page_id,
+            key_count=1,
+            desired_rows=rows,
+            data_col_count=4,  # id, name, answer, length
         )
-        for grid_row in prune_rows:
-            requests.append({"deleteDimension": {
-                "range": {
-                    "sheetId": page_id,
-                    "dimension": "ROWS",
-                    "startIndex": grid_row,
-                    "endIndex": grid_row + 1,
-                },
-            }})
-
-        # Appends: write new rows (cols A-D) below the data. The pruned rows above
-        # are deleted earlier in this same batch, so the new bottom is len(vals)
-        # minus the number of pruned rows.
-        if appends:
-            append_start = len(vals) - len(prune_rows)
-            grid_rows = []
-            for r in appends:
-                grid_rows.append([
-                    {"userEnteredValue": {"numberValue": r[0]}},
-                    {"userEnteredValue": {"stringValue": str(r[1])}},
-                    {"userEnteredValue": {"stringValue": str(r[2])}},
-                    self._unassigned_len_cell(r[3]),
-                ])
-            requests.append({"updateCells": {
-                "range": {
-                    "sheetId": page_id,
-                    "startRowIndex": append_start,
-                    "endRowIndex": append_start + len(grid_rows),
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 4,
-                },
-                "fields": "userEnteredValue",
-                "rows": [{"values": row} for row in grid_rows],
-            }})
-
-        if requests:
-            req = get_sheet().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={"requests": requests},
-            )
-            await execute_with_retry(req, on_retry=self._notify_retry)
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!

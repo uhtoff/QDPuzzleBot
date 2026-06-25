@@ -906,7 +906,7 @@ class TestWebSetPuzzleUrl:
 # convert_to_meta (service) — mirrors !convert_to_meta + _round_impl convert
 # branch: create a RoundData wrapping the puzzle (type "Metapuzzle"), meta_id =
 # puzzle.id, generate meta_code; then puzzle.add_tag(round.id), metapuzzle=1,
-# commit. gsheet restructure (convert_puzzle_spreadsheet) + channel-type live at
+# commit. gsheet restructure (promote_tab_to_group) + channel-type live at
 # the edge / are skipped with no gsheet cog. Method returns (round, puzzle).
 # NOTE: _round_impl calls TagGroupJsonDb.generate_uid for meta_code — the harness
 # must give TagGroupJsonDb.generate_uid a return value (e.g. "MCODE1").

@@ -75,42 +75,56 @@ The Sheets cog has **no hard coupling** to the renamed vocabulary — it works t
 A single code path builds any puzzle tab:
 
 1. `addSheet` (new blank tab).
-2. Write the **header** cells (hardcoded layout, see below).
+2. Write the **header** cells from a **captured layout** (see "Template capture" below).
 3. If the puzzle **is a target**, add the **contribution table** (a real native Table).
 
-**Target-ness signal — has-target, name-agnostic.** The trigger is **"is this puzzle the
-target of some tag_group?"** Today that is `puzzle.is_metapuzzle()`
-(`bot/store/puzzle_data.py:87` → `self.metapuzzle == 1`); a pending change (see below) may
-replace the `metapuzzle` column with a derived `has_target(puzzle)` helper. **D depends on
-the has-target *concept*, not the column** — it calls whatever the current accessor is and
-does not bake in `metapuzzle`.
+**Template capture (option 2 — read-once) — DONE.** Captured 2026-06-25 by reading the
+master template spreadsheet's hidden "Tab template" (sheetId 1971123506) and "Meta Tab
+template" (42737759) tabs through the project's own authed Sheets client (no openpyxl/xlsx
+needed) and persisting the result as `bot/cogs/sheet_layout.py`. The captured layout (3
+frozen header rows):
 
-The signal means **has-target**, *not* "is-fed". An audit of all readers confirmed
-`metapuzzle` is used purely as has-target everywhere; the fed-vs-informed distinction lives
+- **Static labels:** A1 "Puzzle Title:", H1 "Solution:", A2 "Puzzle Flavor Text:",
+  A3 "Progress Summary:" (bold).
+- **Merges:** B1:G1 (title), I1:Q1 (solution), B2:Q2 (flavour), B3:Q3 (progress).
+- **Bot-dynamic** (written at runtime from config, NOT from the artifact): `B1`
+  name/url (`puzzle_cell_name`/`_link`), `I1` solution (`puzzle_cell_solution`),
+  `B3` progress (`puzzle_cell_progress`, default "none").
+- **User-owned:** `B2` flavour text (not bot-written).
+- The Meta tab's old rollup region (A4 "managed by the bot" notice; A5/B5 "Puzzle name"/
+  "Puzzle solution" headers, data below) is **replaced** by the generated contribution Table.
+
+**Target-ness signal — `puzzle.is_target` (B2 has landed).** The trigger is **"is this puzzle
+the target of some tag_group?"**, answered by **`puzzle.is_target`** — the puzzle-side
+accessor B2 introduced when it dropped the `metapuzzle`/`metameta` columns. The gsheet layer
+already uses it (`add_new_puzzle_sheet`, `convert_puzzle_spreadsheet`,
+`add_metametapuzzle_data`), so D consumes the same attribute.
+
+The signal means **has-target**, *not* "is-fed": the fed-vs-informed distinction lives
 entirely in the **edge layer** (`select_rollup_members` filters `tag_edges == "feeds"`;
-membership never gates on `metapuzzle`). So a Capstone's or Runaround's target is equally a
+membership never gates on `is_target`). So a Capstone's or Runaround's target is equally a
 target. The contribution table is correct for all of them — its rows distinguish
 `Feeder` / `Information` / `Group` from the **edges**, so it renders the right content
-whether the target is fed, informed, or both. D must never read the has-target signal as
-"this is a fed meta".
+whether the target is fed, informed, or both. D must never read `is_target` as "this is a
+fed meta".
 
-> **Prerequisite: Milestone B2** — `docs/superpowers/specs/2026-06-25-milestone-b2-derive-has-target-design.md`.
-> B2 (sequenced **after C, before D**) derives has-target and drops the denormalised
-> `metapuzzle` + `metameta` columns, replacing `is_metapuzzle()` with a `has_target(puzzle)`
-> accessor. D is written name-agnostic, so it reads `has_target` once B2 lands (and would
-> still work via `is_metapuzzle()` if B2 slipped).
+> **Prerequisite: Milestone B2 — LANDED** (`docs/superpowers/specs/2026-06-25-milestone-b2-derive-has-target-design.md`).
+> B2 dropped the `metapuzzle`/`metameta` columns (migration 013), introduced the puzzle-side
+> `puzzle.is_target` accessor, renamed `RoundJsonDb`→`TagGroupJsonDb`, and rewrote
+> `get_unassigned` to derive target-ness via `NOT EXISTS(tag_group WHERE target_puzzle_id =
+> p.id)`. D builds on this directly (`puzzle.is_target`, `TagGroupJsonDb`, the derived
+> `get_unassigned`).
 
 This replaces `add_new_sheet`'s `duplicateSheet` and **retires** `copy_puzzle`'s
 column-shuffle. **Create and promote become the same routine** — promotion is just "this
 tab now also gets a contribution table" (see Promotion below). Both hidden templates
 ("Tab template", "Meta Tab template") are deleted.
 
-**Header layout is hardcoded in code** (Approach A), reproducing what the templates give
-today: the name/url hyperlink cell, the flavour line, and the progress line/formulas, plus
-formatting. Per-hunt strings that already live in `config` stay in `config`. The exact
-cells (flavour text, progress formula, row/column constants `FIRST_PUZZLE_ROW` etc.) must
-be **captured from the current templates during planning** so generated tabs match today's
-appearance.
+**Header layout comes from the captured artifact** `bot/cogs/sheet_layout.py` (Approach A via
+read-once capture): the generator writes the static labels + merges from the artifact and the
+dynamic name/url, solution, progress cells from `config.puzzle_cell_*`. The flavour cell (B2)
+is user-owned and never written. This reproduces today's appearance without keeping the
+templates.
 
 > Why retire "Tab template" too (beyond the parent design's stated boundary): the regular
 > and meta tabs differ only by the contribution-table columns — the header is effectively
@@ -125,6 +139,10 @@ appearance.
 One real native Table (`addTable`, range covering the **body**, not just the header) on the
 target's own tab — feeders, informers, and grouped members in a single filterable list.
 
+**Placement:** the table occupies the **left columns A-D**, below the header rows, with the
+solver grid shifted right (see Data preservation) — generalizing the existing meta layout
+(rollup in the left columns, puzzle grid shifted to `FIRST_METAPUZZLE_COLUMN`).
+
 | col | role |
 |---|---|
 | **A** (hidden) | row key (stable, edge-anchored — see below) |
@@ -134,6 +152,12 @@ target's own tab — feeders, informers, and grouped members in a single filtera
 
 A real Table gives banding, header styling, column types, and genuine interactive filter &
 sort on `Type` for free, built in code.
+
+**Key-column placement — column A, hidden.** The captured template puts descriptive labels in
+A1:A3, but those are the *only* things in column A — every dynamic cell (`B1`/`I1`/`B3`) is
+already ≥ column B. So the generator writes the header **labels starting at column B**, leaving
+column A free to be the hidden key column (header rows empty, body rows the key). This matches
+the parent design and keeps the bookkeeping key out of sight.
 
 **Row key (column A, hidden)** — anchored on the **edge type** (stable; *not* the volatile
 `tag.id`), so the reconcile survives re-tagging:
@@ -174,23 +198,32 @@ without any Sheets calls.
 
 ## Data preservation
 
+**One uniform model for every tab.** All tabs — regular puzzles and targets — are generated
+from the **same standard model: 3 frozen header rows, a hidden key column A, header labels at
+column B+**. A target is just "the standard tab **plus** the generated aggregate table"; there
+is no bespoke meta layout. (The legacy live meta tabs with 4 frozen rows / extra header rows
+are **historical** and are NOT reproduced — we generate clean and uniform.)
+
 The preservation seam is **promotion** — a regular puzzle tab gaining a contribution table.
-Steady-state table growth (the reconcile above) is insert-based and never at risk. The
-promotion sequence is **all inserts, never sized overwrites**:
+This **generalizes the existing convert** (`copy_puzzle`), which already shifts a meta's puzzle
+content rightward (`FIRST_METAPUZZLE_COLUMN = 2`) to free the left columns for the rollup.
 
-1. **Save** the at-risk cells: **flavour** and **progress** (read their current values).
-   These are the only user/bot data the transform endangers.
-2. **Insert columns** equal to the contribution-table width at the left
-   (`insertDimension COLUMNS` at column A), shifting the existing solver grid + header
-   right intact — no overwrite.
-3. **Write the contribution table** (real native Table) into the freed left columns; hide
-   column A.
-4. **Reconstruct the header**: regenerate the bot-owned cells (name/url hyperlink, answer)
-   and **re-insert the saved flavour + progress** into their new positions.
+D's contribution table is 4 columns (key, Type, Source, Content), so promotion frees the left
+**4** columns and hides the key column A. Sequence (all inserts, never sized overwrites):
 
-The solver's working grid is preserved purely by the column insert. **Create is the
-degenerate case** of the same routine — a fresh tab has nothing to save and the "insert" is
-just the initial table write.
+1. **Insert columns** at the left equal to the contribution-table width
+   (`insertDimension COLUMNS` at column A) — the solver grid + header shift right intact, so a
+   solver's existing `B5` becomes `F5`, never overwritten.
+2. **Add the contribution table** (real native Table) into the freed left columns A-D.
+3. **Hide column A** (the key column) — now empty in the header rows and the key in the body.
+4. **Regenerate the header**: rewrite the bot-owned cells (name/url, solution, progress) at
+   their `config.puzzle_cell_*` positions and **restore the user-owned flavour cell** (it rode
+   the shift; read-and-restore it to its proper place — the one piece of user data the
+   transform must preserve by hand). Labels are written starting at column B so nothing
+   meaningful lives in the hidden column A.
+
+**Create is the degenerate case** — a fresh tab has no solver grid to shift, so the generator
+just writes the header (labels at B+, A free) and adds the table in A-D with A hidden.
 
 Belt + suspenders, as in the parent design:
 - **Suspenders (the guarantee):** insert-based growth — content is pushed down/right, never
@@ -280,8 +313,9 @@ assert the `batchUpdate` request shapes** — no live Google calls, no new infra
 - **Existing copied tabs:** the first refresh after D should generate the table onto
   whatever tab already exists via the insert-based promotion path (no separate migration).
   Confirm this holds for already-copied meta tabs on the test hunt.
-- **`refresh_unassigned` liveness:** verify whether `refresh_unassigned` is wired into main;
-  if not, note it as a prerequisite for the Unassigned Feeders retrofit.
+- **`refresh_unassigned` liveness:** CONFIRMED live — called via `refresh_unassigned_safe()`
+  in `bot/cogs/puzzles.py` and `bot/web/actions.py`; the reconcile-diff already exists as pure
+  functions `unassigned_row` / `diff_rows` in `bot/core/unassigned.py`. D generalises those.
 - **`metapuzzle` overload — cross-check with C.** `metapuzzle == 1` is now "has-target",
   shared by Metapuzzle / Capstone / Runaround targets. `convert_to_type(..., "Group")`'s
   already-grouped branch (`puzzle_service.py:660-663`) sets only `tag_group.type` — it does

@@ -1,9 +1,10 @@
-"""M7: refresh_meta routes by rollup.source_mode (round / subtree / explicit).
+"""M7: refresh_meta selects membership by rollup.source_mode (round / subtree / explicit).
 
-Mirrors the seam in test_refresh_meta.py (present, mocked GoogleSheets cog) but
-asserts WHICH renderer the source_mode branch awaits — and that the wrong one is
-NOT awaited. The helpers are defined module-local (the parallel gate shards by
-file; no cross-test-file imports).
+Mirrors the seam in test_refresh_meta.py (present, mocked GoogleSheets cog). Post
+Task 10 the two renderers are collapsed onto the unified render_contribution, so
+source_mode no longer picks a renderer — it picks MEMBERSHIP. These tests assert
+the member set handed to render_contribution per mode. The helpers are defined
+module-local (the parallel gate shards by file; no cross-test-file imports).
 """
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,6 +29,7 @@ def _svc_with_sheets():
     gsheet = MagicMock()
     gsheet.add_metapuzzle_data = AsyncMock()
     gsheet.add_metametapuzzle_data = AsyncMock()
+    gsheet.render_contribution = AsyncMock()
     gsheet.archive_puzzle_spreadsheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     bot = MagicMock()
@@ -49,8 +51,8 @@ def _patched(rollup_existing=None):
 
 class TestSourceModeRouting:
     @pytest.mark.asyncio
-    async def test_round_mode_calls_add_metapuzzle_data(self):
-        # rollup.source_mode == "round" (the default) -> today's path, unchanged.
+    async def test_round_mode_renders_all_group_members(self):
+        # rollup.source_mode == "round" (the default): all feeds members rendered.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, is_target=True)
@@ -59,8 +61,12 @@ class TestSourceModeRouting:
             pdb.get_by_attr.return_value = metapuzzle
             pdb.get_all_from_tag_group.return_value = feeders
             await svc.refresh_target(_hunt(), meta_round)
-        gsheet.add_metapuzzle_data.assert_awaited_once_with(metapuzzle, feeders)
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
+        gsheet.render_contribution.assert_awaited_once()
+        args = gsheet.render_contribution.await_args
+        assert args.args[0] is metapuzzle
+        assert args.args[1] == 5
+        assert [p.id for p in args.args[2]] == [2]
+        assert args.kwargs["evidence"] == []
 
     @pytest.mark.asyncio
     async def test_subtree_mode_aggregates_branch_solved_puzzles(self):
@@ -80,11 +86,12 @@ class TestSourceModeRouting:
             rdb.get_all.return_value = [meta_round, child]   # TagGroupJsonDb.get_all(hunt_id)
             pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
             await svc.refresh_target(_hunt(), meta_round)
-        # the metameta renderer received exactly the branch's solved puzzles
-        args = gsheet.add_metametapuzzle_data.await_args
+        # render_contribution received exactly the branch's solved puzzles
+        gsheet.render_contribution.assert_awaited_once()
+        args = gsheet.render_contribution.await_args
         assert args.args[0] is metapuzzle
-        assert [p.id for p in args.args[1]] == [2]
-        gsheet.add_metapuzzle_data.assert_not_awaited()
+        assert args.args[1] == 5
+        assert [p.id for p in args.args[2]] == [2]
 
     @pytest.mark.asyncio
     async def test_explicit_mode_uses_aggregates_into_members(self):
@@ -103,8 +110,8 @@ class TestSourceModeRouting:
             pdb.get_all_from_tag_group.return_value = [pooled, other]
             await svc.refresh_target(_hunt(), meta_round)
         # Only the 'none' edge member is rendered (pool = name+solution).
-        gsheet.add_metapuzzle_data.assert_awaited_once()
-        args = gsheet.add_metapuzzle_data.await_args
+        gsheet.render_contribution.assert_awaited_once()
+        args = gsheet.render_contribution.await_args
         assert args.args[0] is metapuzzle
-        assert [p.id for p in args.args[1]] == [2]
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
+        assert args.args[1] == 5
+        assert [p.id for p in args.args[2]] == [2]
