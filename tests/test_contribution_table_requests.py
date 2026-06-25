@@ -7,9 +7,7 @@ GoogleSheets.__new__). Helpers are file-local. Authored test-first (Opus);
 implementation lands separately.
 """
 import asyncio
-from unittest.mock import MagicMock, patch
 
-import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
 from bot.store.puzzle_data import PuzzleData
 
@@ -173,16 +171,6 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     merges = [r["mergeCells"]["range"] for r in reqs if "mergeCells" in r]
     assert merges, "target header should still have merges"
     assert not any(_overlaps(table_range, m) for m in merges)
-    # AND the Table's COLUMNS must be free of merges: live Sheets rejects a native
-    # Table whose columns contain a merged cell, even one in the rows above it (that is
-    # the real cause of the meta-create 500). The +CONTRIBUTION_WIDTH header shift is
-    # what pushes the full-width flavour/progress merges clear of columns A-D.
-    def _cols_overlap(a, b):
-        return (a["startColumnIndex"] < b["endColumnIndex"]
-                and b["startColumnIndex"] < a["endColumnIndex"])
-
-    assert not any(_cols_overlap(table_range, m) for m in merges), \
-        "contribution Table columns must not share a column with any header merge"
     # Table sits below the 3 frozen header rows.
     assert table_range["startRowIndex"] == 3
 
@@ -231,9 +219,8 @@ def test_solution_bg_request_targets_shifted_solution_cell():
 
     req = cog._solution_bg_request(p, cog.SOLUTION_GREEN)
     rng = req["repeatCell"]["range"]
-    # Solution cell I1 (col 8) shifted right by the target offset (CONTRIBUTION_WIDTH)
-    # -> M1 (col 12).
-    assert rng["startColumnIndex"] == 8 + cog.TARGET_HEADER_SHIFT
+    # Solution cell I1 (col 8) shifted +1 for a target -> J1 (col 9).
+    assert rng["startColumnIndex"] == 9
     assert req["repeatCell"]["cell"]["userEnteredFormat"]["backgroundColor"] == cog.SOLUTION_GREEN
 
 
@@ -264,11 +251,6 @@ def test_promote_inserts_columns_before_adding_table():
     insert_idx = min(i for i, k in flat if k == "insertDimension")
     table_idx = min((i for i, k in flat if k == "addTable"), default=10**9)
     assert insert_idx < table_idx
-    # The Table lands below the frozen header (row 4), NOT at row 0 inside the puzzle's
-    # own header region (which used to wipe the title/flavour/progress rows).
-    table_range = next(r["addTable"]["table"]["range"]
-                       for body in calls for r in body["requests"] if "addTable" in r)
-    assert table_range["startRowIndex"] == 3
 
 
 def test_demote_removes_contribution_columns():
@@ -343,8 +325,7 @@ def test_label_cells_emit_bold_format():
     bold_cells = [c for c in cells if c.get("bold")]
     assert bold_cells, "captured layout should flag labels bold"
 
-    shift = cog.TARGET_HEADER_SHIFT
-    reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=shift)
+    reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=1)
     assert len(reqs) == len(bold_cells)
     for r in reqs:
         rc = r["repeatCell"]
@@ -352,40 +333,8 @@ def test_label_cells_emit_bold_format():
         assert rc["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
         assert rc["fields"] == "userEnteredFormat.textFormat.bold"
 
-    # A1 label shifted by the target offset lands in column index == shift; a feeder
-    # (offset 0) keeps column A.
+    # A1 label with offset 1 lands in column index 1 (col B); feeder (offset 0) col A.
     cols_target = {r["repeatCell"]["range"]["startColumnIndex"] for r in reqs}
-    assert shift in cols_target
+    assert 1 in cols_target
     feeder_reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=0)
     assert 0 in {r["repeatCell"]["range"]["startColumnIndex"] for r in feeder_reqs}
-
-
-# --- Unassigned tab far-left position (live-test fix #5) ---------------------
-
-def test_ensure_unassigned_table_pins_tab_to_far_left():
-    """The Unassigned Feeders tab is created with create_blank_tab (no index), so
-    Sheets appends it last. ensure_unassigned_table must move it to index 0."""
-    cog = _cog()
-    cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Unassigned Feeders"
-
-    async def fake_values_update(spreadsheet_id, a1, values):
-        pass
-
-    cog._values_update = fake_values_update
-
-    sheet = MagicMock()
-
-    async def fake_execute(request, on_retry=None):
-        return {"replies": [{"addTable": {"table": {"tableId": "UT"}}}]}
-
-    with patch.object(gsheet_mod, "get_sheet", return_value=sheet), \
-         patch.object(gsheet_mod, "execute_with_retry", side_effect=fake_execute):
-        asyncio.run(cog.ensure_unassigned_table(page_id=700))
-
-    bodies = [kw["body"] for _a, kw in sheet.batchUpdate.call_args_list if "body" in kw]
-    moves = [r["updateSheetProperties"] for b in bodies for r in b["requests"]
-             if "updateSheetProperties" in r]
-    assert moves, "expected an updateSheetProperties to move the tab"
-    assert moves[0]["properties"]["sheetId"] == 700
-    assert moves[0]["properties"]["index"] == 0

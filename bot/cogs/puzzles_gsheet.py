@@ -147,23 +147,34 @@ class GoogleSheets(commands.Cog):
     def get_column(self, ref):
         return ord(ref[0].lower()) - 97
 
-    # A target tab shifts its header right by the contribution Table's width so the
-    # Table occupies the freed left columns (A = hidden key, B-D = Type/Source/Content)
-    # and the header labels/values land clear of it in column E onward. The shift MUST
-    # equal the Table width (CONTRIBUTION_WIDTH): a smaller shift leaves the full-width
-    # flavour/progress merges sitting inside the Table's columns, which live Sheets
-    # rejects ("can't insert a table over a merged range"). A feeder tab — and any
-    # additional sheet, which is never a target tab — keeps column A.
-    TARGET_HEADER_SHIFT = 4   # == CONTRIBUTION_WIDTH
+    # A target tab shifts its header right so column A is free to be the
+    # contribution Table's hidden key column (labels land to the right, col A holds
+    # the key). Freshly generated targets shift by TARGET_HEADER_SHIFT (Table at row
+    # 4); targets promoted in place keep the older CONTRIBUTION_WIDTH shift (Table at
+    # row 0, solver grid pushed clear). A feeder tab — and any additional sheet,
+    # which is never a target tab — keeps column A.
+    TARGET_HEADER_SHIFT = 1
 
     def _header_shift(self, puzzle, page_id):
         """Columns to shift header writes right on `page_id`. Only a target's OWN
-        main tab is shifted (the contribution Table occupies the freed left columns);
-        additional sheets (page_id != google_page_id) are not shifted. Both the
-        code-generated and promoted paths now use the same shift, so this is a constant."""
+        main tab is shifted; additional sheets (page_id != google_page_id) are not.
+
+        The shift is read from where the contribution Table actually sits, so writes
+        land correctly whether the tab was code-generated (Table at row 4 → shift 1)
+        or promoted in place (Table at row 0 → shift CONTRIBUTION_WIDTH)."""
         if not getattr(puzzle, "is_target", False) or page_id is None \
                 or int(page_id) != int(puzzle.google_page_id or 0):
             return 0
+        try:
+            for s in self.sheet_list()["sheets"]:
+                if s["properties"]["sheetId"] == int(page_id):
+                    tables = s.get("tables", []) or []
+                    if tables:
+                        start = tables[0].get("range", {}).get("startRowIndex", 0)
+                        return self.TARGET_HEADER_SHIFT if start else self.CONTRIBUTION_WIDTH
+                    break
+        except Exception:
+            logger.exception("_header_shift: could not read table position for %s", page_id)
         return self.TARGET_HEADER_SHIFT
 
     # --- Tab formatting (replaces the styling the old template tab carried) -----
@@ -766,18 +777,6 @@ class GoogleSheets(commands.Cog):
             raise RuntimeError(f"ensure_unassigned_table: no tab with page id {page_id}")
         safe_name = tab_name.replace("'", "''")
 
-        # Pin the Unassigned Feeders tab to the far-left (first) position. It is
-        # created with create_blank_tab, which sets no index, so Sheets appends it at
-        # the END — move it to index 0. Best effort: tab order is cosmetic.
-        try:
-            await execute_with_retry(
-                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body={
-                    "requests": [self._sheet_props_request(page_id, "index", 0)]}),
-                on_retry=self._notify_retry,
-            )
-        except Exception:
-            logger.exception("ensure_unassigned_table: could not move tab to far left")
-
         # Header row, written plainly so data is visible even without the Table.
         await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [self.UNASSIGNED_HEADER])
 
@@ -999,10 +998,8 @@ class GoogleSheets(commands.Cog):
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
 
-        # Target tabs shift the header right by the Table width so columns A-D hold the
-        # contribution Table (A = hidden key) and the labels/values land clear of it in
-        # column E onward. A smaller shift would leave the header merges in the Table's
-        # columns, which live Sheets rejects ("table over a merged range").
+        # Target tabs shift the header one column right so column A is free for the
+        # contribution Table's hidden key column (labels in B, values in C+).
         offset = self.TARGET_HEADER_SHIFT if is_target else 0
 
         # Static header cells from the captured layout.
@@ -1037,8 +1034,8 @@ class GoogleSheets(commands.Cog):
         if requests:
             await self.batch_update({"requests": requests})
 
-        # Contribution Table below the frozen header (row 4), columns A-D — clear of
-        # the header merges, which the +CONTRIBUTION_WIDTH shift pushed to column E+.
+        # Contribution Table below the frozen header (row 4), so it never overlaps
+        # the header merges in rows 1-3.
         if is_target:
             await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
         return page_id
@@ -1079,12 +1076,8 @@ class GoogleSheets(commands.Cog):
             }
         }]})
 
-        # 3. Add the contribution Table into the freed left columns, below the frozen
-        #    header (row 4) — same geometry as a code-generated target, so the Table
-        #    never lands inside the puzzle's own header rows (it used to start at row 0,
-        #    overwriting the title/flavour/progress region).
-        from bot.cogs import sheet_layout
-        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+        # 3. Add the contribution Table into the freed left columns.
+        await self._add_contribution_table(page_id)
 
         # 4. Reconstruct the bot-owned header (name/url hyperlink) in its
         #    post-shift position; restore flavour/progress.
