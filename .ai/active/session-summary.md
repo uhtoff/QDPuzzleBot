@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-25
-Status: ready for handoff — Phase 1 (tests)
+Status: in progress — Phase 1 (failing tests) complete; Phase 2 (service layer) next
 
 ## Goal
 
@@ -17,8 +17,12 @@ family, and web API parity. **No new DB migrations.**
 Design agreed and committed at:
 `docs/superpowers/specs/2026-06-25-milestone-c-commands-design.md` (fe292a2)
 
-Implementation plan written to `.ai/active/current-spec.md`. Nothing implemented yet.
-Test suite is green (392 passed, 0 failures) as of last Phase B commit `406bbf4`.
+Implementation plan written to `.ai/active/current-spec.md`. **Phase 1 done:** three
+failing test files committed (`tests/test_edge_primitives.py`, `tests/test_convert_service.py`,
+`tests/test_edge_web.py`) — 35 tests, all red for the right reason (25 AttributeError
+on missing service methods, 10 AssertionError on un-wired web/rename features). Acceptance
+log: `/tmp/test-p1.log`. Phase 2 (service layer, Sonnet) implements the methods to turn
+them green. Test suite was green (392 passed) as of last Phase B commit `406bbf4`.
 
 ## Context the executing agent needs
 
