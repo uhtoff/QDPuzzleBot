@@ -75,8 +75,15 @@ The Sheets cog has **no hard coupling** to the renamed vocabulary — it works t
 A single code path builds any puzzle tab:
 
 1. `addSheet` (new blank tab).
-2. Write the **header** cells (hardcoded layout, see below).
+2. Write the **header** cells from a **captured layout** (see "Template capture" below).
 3. If the puzzle **is a target**, add the **contribution table** (a real native Table).
+
+**Template capture (option 2 — read-once).** The header content the templates provide
+(flavour line, progress line/formulas, static prompts) lives only in the live "Tab template"
+/ "Meta Tab template" tabs, not the repo. A one-off capture step reads each template tab's
+grid via the Sheets API and persists it as a repo layout artifact; the generator builds tabs
+from that artifact, after which the templates are retired. The capture is also the
+feasibility probe — if the grid comes through cleanly, the approach is proven.
 
 **Target-ness signal — has-target, name-agnostic.** The trigger is **"is this puzzle the
 target of some tag_group?"** Today that is `puzzle.is_metapuzzle()`
@@ -280,8 +287,9 @@ assert the `batchUpdate` request shapes** — no live Google calls, no new infra
 - **Existing copied tabs:** the first refresh after D should generate the table onto
   whatever tab already exists via the insert-based promotion path (no separate migration).
   Confirm this holds for already-copied meta tabs on the test hunt.
-- **`refresh_unassigned` liveness:** verify whether `refresh_unassigned` is wired into main;
-  if not, note it as a prerequisite for the Unassigned Feeders retrofit.
+- **`refresh_unassigned` liveness:** CONFIRMED live — called via `refresh_unassigned_safe()`
+  in `bot/cogs/puzzles.py` and `bot/web/actions.py`; the reconcile-diff already exists as pure
+  functions `unassigned_row` / `diff_rows` in `bot/core/unassigned.py`. D generalises those.
 - **`metapuzzle` overload — cross-check with C.** `metapuzzle == 1` is now "has-target",
   shared by Metapuzzle / Capstone / Runaround targets. `convert_to_type(..., "Group")`'s
   already-grouped branch (`puzzle_service.py:660-663`) sets only `tag_group.type` — it does
