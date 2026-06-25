@@ -1035,6 +1035,25 @@ class GoogleSheets(commands.Cog):
         if requests:
             await self.batch_update({"requests": requests})
 
+    # --- Task 10: render contribution table from service -------------------
+
+    async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
+        """Render the unified contribution table on the target's tab.
+
+        Excludes the target's own row, builds desired rows from edges/evidence,
+        and reconciles the native Table on the target's page."""
+        from bot.core.contribution import contribution_rows
+        contributing = [p for p in members if p.id != target_puzzle.id]
+        rows = contribution_rows(tag_group_id, contributing, evidence)
+        await self.reconcile_table(
+            page_id=target_puzzle.google_page_id,
+            key_count=1,
+            desired_rows=rows,
+            data_col_count=len(self.CONTRIBUTION_HEADER),
+        )
+
+    # --- Existing unassigned table methods follow --------------------------
+
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
