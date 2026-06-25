@@ -33,11 +33,14 @@ Use these terms; this is the agreed model. (The `rounds` *table* is not the same
     without** the member being solved.
   A target may take a mix of both. What the target's sheet shows — an answer list vs a
   dossier of facts — follows from which edge feeds it; it is not a separate mechanism.
-- **meta vs capstone** — informal shorthand for *which edge dominates a TagGroup*: a
-  **meta** is fed mostly by `feeds` (answers), a **capstone** mostly by `informs`
-  (information). They are structurally identical — both are TagGroups with a real target
-  puzzle that gets solved. They are **not** separate types, and a capstone is solved the
-  same way a meta is.
+- **meta vs capstone** — *derived from the incoming edge, never declared.* A **meta** is
+  a target puzzle that is **fed** (receives `feeds` edges — feeders' answers); a
+  **capstone** is a target puzzle that is **informed** (receives `informs` edges —
+  information). Same group machinery, solved the same way — so **informing a puzzle makes
+  it a capstone**, with no separate kind and no precondition (strip the last `informs`
+  edge and it stops being one). The asymmetry: `feeds` carries one answer, shared with
+  every group it feeds, whereas `informs` carries **distinct information per target**, so
+  one puzzle can inform several capstones differently.
 
 These are **not** types — do not model them as kinds of TagGroup:
 
