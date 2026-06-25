@@ -76,8 +76,21 @@ A single code path builds any puzzle tab:
 
 1. `addSheet` (new blank tab).
 2. Write the **header** cells (hardcoded layout, see below).
-3. If the puzzle is a **target** (has `target_puzzle_id`, i.e. it is fed or informed),
-   add the **contribution table** (a real native Table).
+3. If the puzzle **is a target**, add the **contribution table** (a real native Table).
+
+**Target-ness signal — consume, do not re-derive.** The trigger is the existing
+`puzzle.is_metapuzzle()` (`bot/store/puzzle_data.py:87` → `self.metapuzzle == 1`). This is
+the puzzle-side denormalised mirror of "is the target of some tag_group", deliberately
+**kept** (not dropped like the tag_group-side `kind`; see the schema-changes spec) and
+maintained in lockstep with `tag_group.target_puzzle_id` across every create / convert /
+demote path. D **reads** it; it does not scan tag_groups to re-derive target-ness and does
+not add a new derivation.
+
+Note the flag means **has-target**, *not* "is-fed": a Capstone's or Runaround's target is
+also `metapuzzle == 1`. The contribution table is correct for all of them — its rows
+distinguish `Feeder` / `Information` / `Group` from the edges, so the table renders the right
+content whether the target is fed, informed, or both. D must never read `metapuzzle == 1` as
+"this is a fed meta".
 
 This replaces `add_new_sheet`'s `duplicateSheet` and **retires** `copy_puzzle`'s
 column-shuffle. **Create and promote become the same routine** — promotion is just "this
@@ -261,6 +274,13 @@ assert the `batchUpdate` request shapes** — no live Google calls, no new infra
   Confirm this holds for already-copied meta tabs on the test hunt.
 - **`refresh_unassigned` liveness:** verify whether `refresh_unassigned` is wired into main;
   if not, note it as a prerequisite for the Unassigned Feeders retrofit.
+- **`metapuzzle` overload — cross-check with C.** `metapuzzle == 1` is now "has-target",
+  shared by Metapuzzle / Capstone / Runaround targets. `convert_to_type(..., "Group")`'s
+  already-grouped branch (`puzzle_service.py:660-663`) sets only `tag_group.type` — it does
+  **not** clear `target_puzzle_id` / `metapuzzle`, so a converted Group may retain a target
+  and the flag. Whether that is intended (vs `Group ⟺ target_puzzle_id IS NULL` from the
+  parent design) is a **C** question. D's only requirement: trigger on `is_metapuzzle()`
+  (has-target) and let the edge rows decide content — do not assume the flag means "fed".
 - **Native Table + archive:** `appendCells(tableId)` / table-range behaviour under archive
   is a known undocumented area — confirm the contribution table does not regress the
   existing archive flow (no behaviour change intended).
