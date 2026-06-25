@@ -119,6 +119,8 @@ def test_reconcile_table_numeric_length_and_resizes_table():
     assert append[1]["values"][3] == {}   # blank, not "", so the batch isn't rejected
     resize = [r["updateTable"] for r in flat if "updateTable" in r]
     assert resize and resize[0]["table"]["range"]["endRowIndex"] == 3
+    # Preserve the Table's 5-col span (incl. solver-owned Notes), not the 4 written.
+    assert resize[0]["table"]["range"]["endColumnIndex"] == 5
 
 
 # --- Task 8: generate_puzzle_tab (no template duplicateSheet) ---------------

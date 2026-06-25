@@ -880,9 +880,13 @@ class GoogleSheets(commands.Cog):
             rng = table.get("range", {})
             header_row = rng.get("startRowIndex", 0)
             key_col = rng.get("startColumnIndex", 0)
+            # Preserve the Table's column span on resize: the bot writes
+            # `data_col_count` columns but the Table may legitimately span more
+            # (Unassigned's solver-owned Notes column), which must stay in it.
+            end_col = rng.get("endColumnIndex", key_col + data_col_count)
             table_id = table.get("tableId")
         else:
-            header_row, key_col, table_id = 0, 0, None
+            header_row, key_col, end_col, table_id = 0, 0, data_col_count, None
 
         key_letter = self._col_letter(key_col)
         resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{key_letter}")
@@ -953,7 +957,7 @@ class GoogleSheets(commands.Cog):
                     "range": {"sheetId": page_id,
                               "startRowIndex": header_row, "endRowIndex": end_row,
                               "startColumnIndex": key_col,
-                              "endColumnIndex": key_col + data_col_count},
+                              "endColumnIndex": end_col},
                 },
                 "fields": "range",
             }}]})
