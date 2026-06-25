@@ -156,7 +156,21 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     p.is_target = True
 
     asyncio.run(cog.generate_puzzle_tab(p, is_target=True))
-    assert any("addTable" in r for body in calls for r in body["requests"])
+    reqs = [r for body in calls for r in body["requests"]]
+    assert any("addTable" in r for r in reqs)
+
+    # Regression: the contribution Table must NOT be inserted over a merged range
+    # (live Sheets rejects that with "can't insert a table over a merged range").
+    def _overlaps(a, b):
+        return (a["startRowIndex"] < b["endRowIndex"] and b["startRowIndex"] < a["endRowIndex"]
+                and a["startColumnIndex"] < b["endColumnIndex"] and b["startColumnIndex"] < a["endColumnIndex"])
+
+    table_range = next(r["addTable"]["table"]["range"] for r in reqs if "addTable" in r)
+    merges = [r["mergeCells"]["range"] for r in reqs if "mergeCells" in r]
+    assert merges, "target header should still have merges"
+    assert not any(_overlaps(table_range, m) for m in merges)
+    # Table sits below the 3 frozen header rows.
+    assert table_range["startRowIndex"] == 3
 
 
 # --- Task 9: promote_tab_to_target (insert before table; preserve grid) -----

@@ -147,14 +147,45 @@ class GoogleSheets(commands.Cog):
     def get_column(self, ref):
         return ord(ref[0].lower()) - 97
 
+    # A target tab shifts its header right so column A is free to be the
+    # contribution Table's hidden key column (labels land to the right, col A holds
+    # the key). Freshly generated targets shift by TARGET_HEADER_SHIFT (Table at row
+    # 4); targets promoted in place keep the older CONTRIBUTION_WIDTH shift (Table at
+    # row 0, solver grid pushed clear). A feeder tab — and any additional sheet,
+    # which is never a target tab — keeps column A.
+    TARGET_HEADER_SHIFT = 1
+
+    def _header_shift(self, puzzle, page_id):
+        """Columns to shift header writes right on `page_id`. Only a target's OWN
+        main tab is shifted; additional sheets (page_id != google_page_id) are not.
+
+        The shift is read from where the contribution Table actually sits, so writes
+        land correctly whether the tab was code-generated (Table at row 4 → shift 1)
+        or promoted in place (Table at row 0 → shift CONTRIBUTION_WIDTH)."""
+        if not getattr(puzzle, "is_target", False) or page_id is None \
+                or int(page_id) != int(puzzle.google_page_id or 0):
+            return 0
+        try:
+            for s in self.sheet_list()["sheets"]:
+                if s["properties"]["sheetId"] == int(page_id):
+                    tables = s.get("tables", []) or []
+                    if tables:
+                        start = tables[0].get("range", {}).get("startRowIndex", 0)
+                        return self.TARGET_HEADER_SHIFT if start else self.CONTRIBUTION_WIDTH
+                    break
+        except Exception:
+            logger.exception("_header_shift: could not read table position for %s", page_id)
+        return self.TARGET_HEADER_SHIFT
+
     async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None):
 
         puzzle_name = name or puzzle.name
 
         new_sheet_id = page_id or puzzle.google_page_id
+        offset = self._header_shift(puzzle, new_sheet_id)
         requests = [
             self.update_cell('=HYPERLINK("' + puzzle.url + '","' + puzzle_name + '")', self.get_row(config.puzzle_cell_name),
-                             self.get_column(config.puzzle_cell_name), self.FORMULA_INPUT, new_sheet_id),
+                             self.get_column(config.puzzle_cell_name) + offset, self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
             unique_name = self.get_unique_tab_name(puzzle_name)
@@ -346,10 +377,11 @@ class GoogleSheets(commands.Cog):
                             self.move_sheet_to_start(sheet.google_page_id),
                             self.revert_tab_colour(sheet.google_page_id)])
 
+        main_offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
-                                     self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id),
+                                     self.get_column(config.puzzle_cell_solution) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
                     self.update_cell("", self.get_row(config.puzzle_cell_progress),
-                                     self.get_column(config.puzzle_cell_progress), self.STRING_INPUT, puzzle_data.google_page_id),
+                                     self.get_column(config.puzzle_cell_progress) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
                     self.move_sheet_to_start(puzzle_data.google_page_id),
                     self.revert_tab_colour(puzzle_data.google_page_id)])
         updates = {
@@ -359,8 +391,9 @@ class GoogleSheets(commands.Cog):
 
 
     async def update_solution(self, puzzle_data: PuzzleData):
+        offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = [self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
-                                     self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id)
+                                     self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id)
                     ]
         updates = {
             'requests': requests
@@ -368,9 +401,10 @@ class GoogleSheets(commands.Cog):
         await self.batch_update(updates, puzzle_data.archived)
 
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+        offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
-        requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution), self.STRING_INPUT, puzzle_data.google_page_id),
-            self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress), self.STRING_INPUT, puzzle_data.google_page_id),
+        requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
+            self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self.move_sheet_to_end(puzzle_data.google_page_id),
             self.change_tab_colour('green', puzzle_data.google_page_id)])
         for sheet in puzzle_data.additional_sheets:
@@ -894,12 +928,16 @@ class GoogleSheets(commands.Cog):
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
 
+        # Target tabs shift the header one column right so column A is free for the
+        # contribution Table's hidden key column (labels in B, values in C+).
+        offset = self.TARGET_HEADER_SHIFT if is_target else 0
+
         # Static header cells from the captured layout.
         cells, merges = sheet_layout.puzzle_tab_layout(is_target)
         requests = []
         for c in cells:
             requests.append(self.update_cell(
-                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]),
+                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]) + offset,
                 c["type"], page_id))
         # Merges.
         for start_r, end_r, start_c, end_c in merges:
@@ -907,20 +945,23 @@ class GoogleSheets(commands.Cog):
                 "mergeCells": {
                     "range": {"sheetId": page_id,
                               "startRowIndex": start_r, "endRowIndex": end_r,
-                              "startColumnIndex": start_c, "endColumnIndex": end_c},
+                              "startColumnIndex": start_c + offset,
+                              "endColumnIndex": end_c + offset},
                     "mergeType": "MERGE_ALL",
                 }})
         # Dynamic name/url hyperlink (always bot-written, not from the artifact).
         requests.append(self.update_cell(
             f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
             self.get_row(config.puzzle_cell_name),
-            self.get_column(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name) + offset,
             self.FORMULA_INPUT, page_id))
         if requests:
             await self.batch_update({"requests": requests})
 
+        # Contribution Table below the frozen header (row 4), so it never overlaps
+        # the header merges in rows 1-3.
         if is_target:
-            await self._add_contribution_table(page_id)
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
         return page_id
 
     # --- Task 9: in-place promotion ----------------------------------------
