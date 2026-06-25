@@ -128,7 +128,7 @@ class TestPoolCommand:
             rdb.get_by_attr.side_effect = get_round
 
             await Puzzles.pool.callback(cog, ctx)
-        pdb.tag_puzzle_with_edge.assert_called_once_with(42, 5, "aggregates-into")
+        pdb.tag_puzzle_with_edge.assert_called_once_with(42, 5, "none")
 
     @pytest.mark.asyncio
     async def test_pool_rejects_hunt_channel(self):

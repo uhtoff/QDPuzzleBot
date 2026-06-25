@@ -6,6 +6,11 @@ from typing import List, Optional, TypeVar, Type
 
 logger = logging.getLogger(__name__)
 
+# Edge-type vocabulary constants — the three allowed values.
+EDGE_FEEDS = "feeds"
+EDGE_INFORMS = "informs"
+EDGE_NONE = "none"
+
 class MissingTagGroupError(RuntimeError):
     pass
 
@@ -19,13 +24,16 @@ class TagGroupData:
     target_puzzle_id: int = 0
     group_code: str = "0"  # 6-char handle (the DB column is CHAR(6))
     type: str = ""
-    # M6 typed-group columns (additive; backfilled + kept-updated, read by nothing yet).
-    kind: str = ""               # meta / metameta / metaless
     status: str = "active"       # active / solved / archived (a tag_group is solved when its target is)
     parent_group_id: Optional[int] = None  # group-in-group NESTING (dormant; cycle-guarded setter)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
+
+    @property
+    def has_target(self) -> bool:
+        """True if this group has a target puzzle (not a metaless/Group type)."""
+        return bool(self.target_puzzle_id)
 
     T = TypeVar("T", bound="TagGroupData")
 

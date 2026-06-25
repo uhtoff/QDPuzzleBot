@@ -12,26 +12,12 @@ def _rounds():
     from bot.store import mydb
     cur = mydb.cursor(dictionary=True)
     cur.execute(
-        "SELECT r.id, r.target_puzzle_id, r.kind, r.status, r.solve_time, r.archive_time, "
-        "p.metameta AS meta_metameta "
-        "FROM tag_group r LEFT JOIN puzzles p ON p.id = r.target_puzzle_id"
+        "SELECT r.id, r.target_puzzle_id, r.status, r.solve_time, r.archive_time "
+        "FROM tag_group r"
     )
     rows = cur.fetchall()
     cur.close()
     return rows
-
-
-def test_kind_backfill_matches_meta_shape():
-    rows = _rounds()
-    if not rows:
-        pytest.skip("no rounds in test DB")
-    for r in rows:
-        if not r["target_puzzle_id"]:
-            assert r["kind"] == "metaless", r
-        elif r["meta_metameta"] == 1:
-            assert r["kind"] == "metameta", r
-        else:
-            assert r["kind"] == "meta", r
 
 
 def test_status_backfill_matches_lifecycle_times():

@@ -4,7 +4,6 @@ from bot.store.tag_group_data import TagGroupData
 
 def test_typed_group_defaults():
     r = TagGroupData()
-    assert r.kind == ""
     assert r.status == "active"
     assert r.parent_group_id is None
 
@@ -18,9 +17,8 @@ def test_group_code_is_str():
 def test_import_dict_round_trips_typed_group_fields():
     r = TagGroupData.import_dict({
         "id": 3, "hunt_id": 10, "target_puzzle_id": 5, "group_code": "ABC123",
-        "kind": "meta", "status": "solved", "parent_group_id": 9,
+        "status": "solved", "parent_group_id": 9,
     })
-    assert r.kind == "meta"
     assert r.status == "solved"
     assert r.parent_group_id == 9
     assert r.group_code == "ABC123"

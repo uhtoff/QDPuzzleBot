@@ -74,6 +74,7 @@ class TestSourceModeRouting:
         child = make_round(id=6, target_puzzle_id=0)
         child.parent_group_id = 5
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
+        solved.tag_edges = {6: "feeds"}
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metapuzzle
             rdb.get_all.return_value = [meta_round, child]   # RoundJsonDb.get_all(hunt_id)
@@ -88,20 +89,20 @@ class TestSourceModeRouting:
     @pytest.mark.asyncio
     async def test_explicit_mode_uses_aggregates_into_members(self):
         # rollup.source_mode == "explicit": only puzzles whose edge into THIS round
-        # is 'aggregates-into' are aggregated, rendered via the 2-col pool shape.
+        # is 'none' are aggregated, rendered via the 2-col pool shape.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "aggregates-into"}
+        pooled.tag_edges = {5: "none"}
         other = make_puzzle(id=3, name="Feeder", solution="F")
-        other.tag_edges = {5: "feeds-meta"}
+        other.tag_edges = {5: "feeds"}
         with _patched(rollup_existing=existing) as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
             pdb.get_all_from_tag_group.return_value = [pooled, other]
             await svc.refresh_target(_hunt(), meta_round)
-        # Only the aggregates-into member is rendered (pool = name+solution).
+        # Only the 'none' edge member is rendered (pool = name+solution).
         gsheet.add_metapuzzle_data.assert_awaited_once()
         args = gsheet.add_metapuzzle_data.await_args
         assert args.args[0] is metapuzzle

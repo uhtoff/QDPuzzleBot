@@ -1178,7 +1178,7 @@ class Puzzles(commands.Cog):
     )
     @commands.has_any_role(*ORGANISER_ROLES)
     async def pool(self, ctx):
-        """*Tag puzzle as aggregates-into for its meta: !pool (run in a puzzle channel)*"""
+        """*Tag puzzle with 'none' edge for its meta: !pool (run in a puzzle channel)*"""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1187,19 +1187,19 @@ class Puzzles(commands.Cog):
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is.")
             return
-        # Find rounds this puzzle belongs to and tag them with aggregates-into edge
+        # Find rounds this puzzle belongs to and tag them with none edge
         added = False
         for rid in puzzle.tags:
             rnd = RoundJsonDb.get_by_attr(id=rid)
             if rnd and rnd.target_puzzle_id:
-                PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, rid, "aggregates-into")
+                PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, rid, "none")
                 added = True
         if not added:
             await ctx.send(":x: This puzzle is not tagged to any meta round.")
             return
         try:
             await self.service.refresh_targets(hunt, list(RoundJsonDb.get_by_attr(id=rid) for rid in puzzle.tags))
-            await ctx.send(":white_check_mark: Tagged as aggregates-into. Sheets updated.")
+            await ctx.send(":white_check_mark: Tagged as none (pool member). Sheets updated.")
         except SheetRefreshError as exc:
             await ctx.send(
                 f":warning: Edge set but some sheets are stale ({exc}). Use !rebuild to retry.")
@@ -1218,17 +1218,17 @@ class Puzzles(commands.Cog):
 
         command_key = command.casefold()
 
-        # command_map: key → (group_type, kind, create_meta_puzzle, meta_name_suffix)
+        # command_map: key → (group_type, create_meta_puzzle, meta_name_suffix)
         command_map = {
-            "r": ("Round", "meta", True, " - meta"),
-            "round": ("Round", "meta", True, " - meta"),
-            "mp": ("Metapuzzle", "meta", True, None),
-            "metapuzzle": ("Metapuzzle", "meta", True, None),
-            "roundnometa": ("Metaless Round", "metaless", False, None),
-            "rnm": ("Metaless Round", "metaless", False, None),
+            "r": ("Round", True, " - meta"),
+            "round": ("Round", True, " - meta"),
+            "mp": ("Metapuzzle", True, None),
+            "metapuzzle": ("Metapuzzle", True, None),
+            "roundnometa": ("Metaless Round", False, None),
+            "rnm": ("Metaless Round", False, None),
         }
 
-        group_type, kind, create_meta, suffix = command_map[command_key]
+        group_type, create_meta, suffix = command_map[command_key]
         hunt = self.get_hunt(ctx)
 
         # --- Delegate to service ---
@@ -1243,7 +1243,6 @@ class Puzzles(commands.Cog):
                 notifier=notifier,
                 meta_puzzle_name=meta_puzzle_name,
                 round_type=group_type,
-                round_kind=kind,
             )
             return new_round, puzzle
         except RuntimeError as exc:

@@ -45,6 +45,42 @@ def resolve_puzzle_names(puzzle_ids):
     return names
 
 
+def is_fed(tag_group_id: int, puzzles_in_group: list) -> bool:
+    """Return True if any member of the group has a 'feeds' edge to it.
+
+    A group with any feeds-edge member is a 'meta' in the old vocabulary.
+    puzzles_in_group is the list returned by PuzzleJsonDb.get_all_from_tag_group.
+    """
+    return any(
+        p.tag_edges.get(tag_group_id) == "feeds"
+        for p in puzzles_in_group
+    )
+
+
+def is_informed(tag_group_id: int, puzzles_in_group: list) -> bool:
+    """Return True if any member of the group has an 'informs' edge to it.
+
+    A group with any informs-edge member is a 'capstone' in the design vocabulary.
+    """
+    return any(
+        p.tag_edges.get(tag_group_id) == "informs"
+        for p in puzzles_in_group
+    )
+
+
+def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool:
+    """Return True if the group's feeders are themselves meta groups (have targets).
+
+    A group is metameta when its feeding members are target puzzles of other groups
+    — i.e. the group aggregates meta answers, not feeder answers.
+    """
+    target_puzzle_ids = {g.target_puzzle_id for g in all_tag_groups if g.target_puzzle_id}
+    return any(
+        p.tag_edges.get(tag_group.id) == "feeds" and p.id in target_puzzle_ids
+        for p in puzzles_in_group
+    )
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot
@@ -431,14 +467,14 @@ class PuzzleService:
         elif mode == "explicit":
             return [
                 p for p in feeders
-                if p.tag_edges.get(tag_group.id) == "aggregates-into"
+                if p.tag_edges.get(tag_group.id) == "none"
             ]
         else:
             # 'round' (default): all group members, optionally filtered by edge_type_filter.
-            filt = rollup.edge_type_filter or "feeds-meta"
+            filt = rollup.edge_type_filter or "feeds"
             return [
                 p for p in feeders
-                if p.tag_edges.get(tag_group.id, "feeds-meta") == filt
+                if p.tag_edges.get(tag_group.id, "feeds") == filt
             ]
 
     async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):
@@ -628,7 +664,7 @@ class PuzzleService:
             if rnd.id == root_group.id:
                 continue  # skip the meta group itself
             for p in PuzzleJsonDb.get_all_from_tag_group(rnd.id):
-                if p.id not in seen_ids and p.solved:
+                if p.id not in seen_ids and p.solved and p.tag_edges.get(rnd.id, "feeds") == "feeds":
                     seen_ids.add(p.id)
                     puzzles.append(p)
         return puzzles
@@ -1025,7 +1061,6 @@ class PuzzleService:
             hunt_id=hunt.id,
             category_id=puzzle.channel_id,
             type="Metapuzzle",
-            kind="meta",
         )
         RoundJsonDb.commit(new_round)
         new_round.group_code = RoundJsonDb.generate_uid("group_code", 6, puzzle.name)
@@ -1292,7 +1327,7 @@ class PuzzleService:
         return new_puzzle
 
     async def create_tag_group(self, guild, hunt, name, notifier=None,
-                               meta_puzzle_name=None, round_type="Metapuzzle", round_kind="meta"):
+                               meta_puzzle_name=None, round_type="Metapuzzle"):
         """Create a new metapuzzle/round: category clone + group row + optional meta puzzle.
 
         Returns (TagGroupData, PuzzleData) when ``meta_puzzle_name`` is not False,
@@ -1300,7 +1335,7 @@ class PuzzleService:
         problems; raises the underlying exception otherwise.
         ``meta_puzzle_name``: name for the meta puzzle. Defaults to group ``name``.
         Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
-        ``round_type`` / ``round_kind`` let callers specify group classification.
+        ``round_type`` lets callers specify group classification.
         """
         mp_name = meta_puzzle_name if isinstance(meta_puzzle_name, str) else name
         create_meta = meta_puzzle_name is not False
@@ -1339,7 +1374,7 @@ class PuzzleService:
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=new_category.id,
-                type=round_type, kind=round_kind,
+                type=round_type,
             )
             RoundJsonDb.commit(new_round)
 

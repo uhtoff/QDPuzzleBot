@@ -30,7 +30,7 @@ class RollupData:
     tab_page_id: Optional[int] = None
     metadata_id: Optional[int] = None
     source_mode: str = "round"            # inert until M7 (round/subtree/explicit)
-    edge_type_filter: Optional[str] = "feeds-meta"  # inert until M7
+    edge_type_filter: Optional[str] = "feeds"
     last_ok: int = 1
     last_error: Optional[str] = None
     updated_at: Optional[datetime.datetime] = None

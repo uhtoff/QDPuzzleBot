@@ -374,7 +374,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         rows = cursor.fetchall()
         for row in rows:
             puzzle.tags.append(row['tag_group_id'])
-            puzzle.tag_edges[row['tag_group_id']] = row['edge_type'] or "feeds-meta"
+            puzzle.tag_edges[row['tag_group_id']] = row['edge_type'] or "feeds"
         cursor.close()
 
     def get_additional_sheets(self, puzzle):

@@ -8,7 +8,7 @@ def test_defaults_match_current_meta_behaviour():
     r = RollupData()
     assert r.id == 0
     assert r.source_mode == "round"
-    assert r.edge_type_filter == "feeds-meta"
+    assert r.edge_type_filter == "feeds"
     assert r.last_ok == 1
     assert r.last_error is None
     assert r.tab_page_id is None

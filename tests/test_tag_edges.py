@@ -79,8 +79,8 @@ def test_get_tags_populates_tag_edges():
     rid_aggr = _insert_tag_group()
     pid = _insert_puzzle()
     try:
-        _insert_tag(rid_default, pid)                       # defaults to feeds-meta
-        _insert_tag(rid_aggr, pid, edge_type="aggregates-into")
+        _insert_tag(rid_default, pid)                       # defaults to feeds
+        _insert_tag(rid_aggr, pid, edge_type="none")
 
         puzzle = PuzzleData()
         puzzle.id = pid
@@ -89,8 +89,8 @@ def test_get_tags_populates_tag_edges():
         # tags is unchanged: still the list of tag_group_ids.
         assert set(puzzle.tags) == {rid_default, rid_aggr}
         # tag_edges maps each tag_group_id to its edge_type.
-        assert puzzle.tag_edges[rid_default] == "feeds-meta"
-        assert puzzle.tag_edges[rid_aggr] == "aggregates-into"
+        assert puzzle.tag_edges[rid_default] == "feeds"
+        assert puzzle.tag_edges[rid_aggr] == "none"
     finally:
         _delete_puzzle(pid)
         _delete_tag_group(rid_default)
@@ -101,12 +101,12 @@ def test_tag_puzzle_with_edge_inserts_then_updates():
     rid = _insert_tag_group()
     pid = _insert_puzzle()
     try:
-        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "aggregates-into")
-        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds-meta")  # update in place
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "none")
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds")  # update in place
 
         rows = _tag_rows(rid, pid)
         assert len(rows) == 1                       # one edge per pair, not duplicated
-        assert rows[0]["edge_type"] == "feeds-meta"  # latest value won
+        assert rows[0]["edge_type"] == "feeds"  # latest value won
     finally:
         _delete_puzzle(pid)
         _delete_tag_group(rid)
