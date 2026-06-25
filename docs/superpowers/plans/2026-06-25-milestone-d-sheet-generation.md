@@ -111,7 +111,18 @@ No commit (investigation only) — record findings in `.ai/active/session-summar
 
 ---
 
-## Task 2: `[INTEGRATION]` Capture the template layout (option-2 feasibility probe)
+## Task 2: Capture the template layout — ✅ DONE (2026-06-25)
+
+> **Status: COMPLETE.** Captured by reading the master template spreadsheet's hidden
+> "Tab template" (1971123506) / "Meta Tab template" (42737759) tabs through the project's own
+> authed Sheets client — no credential gate, no openpyxl/xlsx — and committed as
+> `bot/cogs/sheet_layout.py`. The steps below are the record of how it was produced; the
+> executor only needs to confirm the artifact imports.
+> **Captured geometry (drives Tasks 6 & 9):** 3 frozen header rows; static bold labels
+> A1 "Puzzle Title:", H1 "Solution:", A2 "Puzzle Flavor Text:", A3 "Progress Summary:";
+> merges B1:G1, I1:Q1, B2:Q2, B3:Q3; bot-dynamic B1 (name/url), I1 (solution), B3 (progress);
+> user-owned B2 (flavour); the meta tab's old A4/A5 rollup region is REPLACED by the
+> contribution Table (it is NOT reproduced).
 
 **Files:**
 - Create: `scripts/capture_template_layout.py` (one-off tool)
@@ -539,6 +550,16 @@ git commit -m "feat(sheets): Unassigned Feeders feeds-only membership test [Mile
 
 ## Task 6: Contribution-table create request (real native Table over the body)
 
+> **⚠ GEOMETRY CORRECTION (from the Task 2 capture) — apply when coding this task:**
+> The captured template keeps **visible labels in A1:A3**, so the parent design's "hidden
+> column A" is wrong. Therefore: (1) the table's header row sits at **row `FROZEN_ROWS` (3),
+> not row 0** — pass `header_row=3`; (2) **do NOT hide column A** — the key column is rendered
+> **greyed and visible** in the table body (rows 4+), consistent with the old rollup that kept
+> column A unhidden. Update the impl (drop the `updateDimensionProperties` hide request; add a
+> grey `repeatCell` on the key column over the table range) and the test (assert
+> `startRowIndex == 3` and **no** hidden-column request). See the spec's "Key-column
+> placement" + "Placement" sections.
+
 **Files:**
 - Modify: `bot/cogs/puzzles_gsheet.py` (new method `_add_contribution_table`)
 - Test: `tests/test_contribution_table_requests.py` (create)
@@ -921,6 +942,16 @@ git commit -m "feat(sheets): generate puzzle tabs in code (retire duplicateSheet
 ---
 
 ## Task 9: Promotion-safe transform (regular tab → target tab)
+
+> **⚠ GEOMETRY CORRECTION (from the Task 2 capture) — apply when coding this task:**
+> The rollup region is **below** the 3 frozen header rows, so promotion inserts **ROWS, not
+> columns**, and the header (rows 1-3, incl. the user-owned flavour cell B2) is **never
+> touched** — there is **NO flavour/progress save+restore step** (delete it). Replace the
+> sequence with: (1) `insertDimension ROWS` at `startIndex = FROZEN_ROWS (3)`, enough rows for
+> the table header + initial body — solver content below rides down intact; (2)
+> `_add_contribution_table(page_id, header_row=3)`. No header reconstruction. Update the test
+> to assert an `insertDimension` with `dimension: "ROWS"` and `startIndex: 3` precedes the
+> `addTable`. See the spec's "Data preservation" section.
 
 **Files:**
 - Modify: `bot/cogs/puzzles_gsheet.py` (new `promote_tab_to_target`; rewire `convert_puzzle_spreadsheet`)

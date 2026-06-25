@@ -78,12 +78,21 @@ A single code path builds any puzzle tab:
 2. Write the **header** cells from a **captured layout** (see "Template capture" below).
 3. If the puzzle **is a target**, add the **contribution table** (a real native Table).
 
-**Template capture (option 2 — read-once).** The header content the templates provide
-(flavour line, progress line/formulas, static prompts) lives only in the live "Tab template"
-/ "Meta Tab template" tabs, not the repo. A one-off capture step reads each template tab's
-grid via the Sheets API and persists it as a repo layout artifact; the generator builds tabs
-from that artifact, after which the templates are retired. The capture is also the
-feasibility probe — if the grid comes through cleanly, the approach is proven.
+**Template capture (option 2 — read-once) — DONE.** Captured 2026-06-25 by reading the
+master template spreadsheet's hidden "Tab template" (sheetId 1971123506) and "Meta Tab
+template" (42737759) tabs through the project's own authed Sheets client (no openpyxl/xlsx
+needed) and persisting the result as `bot/cogs/sheet_layout.py`. The captured layout (3
+frozen header rows):
+
+- **Static labels:** A1 "Puzzle Title:", H1 "Solution:", A2 "Puzzle Flavor Text:",
+  A3 "Progress Summary:" (bold).
+- **Merges:** B1:G1 (title), I1:Q1 (solution), B2:Q2 (flavour), B3:Q3 (progress).
+- **Bot-dynamic** (written at runtime from config, NOT from the artifact): `B1`
+  name/url (`puzzle_cell_name`/`_link`), `I1` solution (`puzzle_cell_solution`),
+  `B3` progress (`puzzle_cell_progress`, default "none").
+- **User-owned:** `B2` flavour text (not bot-written).
+- The Meta tab's old rollup region (A4 "managed by the bot" notice; A5/B5 "Puzzle name"/
+  "Puzzle solution" headers, data below) is **replaced** by the generated contribution Table.
 
 **Target-ness signal — has-target, name-agnostic.** The trigger is **"is this puzzle the
 target of some tag_group?"** Today that is `puzzle.is_metapuzzle()`
@@ -112,12 +121,11 @@ column-shuffle. **Create and promote become the same routine** — promotion is 
 tab now also gets a contribution table" (see Promotion below). Both hidden templates
 ("Tab template", "Meta Tab template") are deleted.
 
-**Header layout is hardcoded in code** (Approach A), reproducing what the templates give
-today: the name/url hyperlink cell, the flavour line, and the progress line/formulas, plus
-formatting. Per-hunt strings that already live in `config` stay in `config`. The exact
-cells (flavour text, progress formula, row/column constants `FIRST_PUZZLE_ROW` etc.) must
-be **captured from the current templates during planning** so generated tabs match today's
-appearance.
+**Header layout comes from the captured artifact** `bot/cogs/sheet_layout.py` (Approach A via
+read-once capture): the generator writes the static labels + merges from the artifact and the
+dynamic name/url, solution, progress cells from `config.puzzle_cell_*`. The flavour cell (B2)
+is user-owned and never written. This reproduces today's appearance without keeping the
+templates.
 
 > Why retire "Tab template" too (beyond the parent design's stated boundary): the regular
 > and meta tabs differ only by the contribution-table columns — the header is effectively
@@ -132,9 +140,13 @@ appearance.
 One real native Table (`addTable`, range covering the **body**, not just the header) on the
 target's own tab — feeders, informers, and grouped members in a single filterable list.
 
+**Placement (per the captured layout):** the table sits **below the 3 frozen header rows**,
+starting at row 4 (0-based row `FROZEN_ROWS = 3`) — exactly where the old meta rollup lived
+(A5 "Puzzle name"). It does **not** insert columns on the left.
+
 | col | role |
 |---|---|
-| **A** (hidden) | row key (stable, edge-anchored — see below) |
+| **A** | row key (stable, edge-anchored — see below) |
 | **B** `Type` | `Feeder` / `Information` / `Group` — visible, filterable |
 | **C** | source puzzle (hyperlink) |
 | **D** | answer (Feeder) / content (Information) / — (Group) |
@@ -142,7 +154,15 @@ target's own tab — feeders, informers, and grouped members in a single filtera
 A real Table gives banding, header styling, column types, and genuine interactive filter &
 sort on `Type` for free, built in code.
 
-**Row key (column A, hidden)** — anchored on the **edge type** (stable; *not* the volatile
+**Key-column placement — NOT a hidden column A.** The parent design said "hide column A (the
+key)", but the captured header keeps visible labels in A1:A3 ("Puzzle Title:", "Flavor",
+"Progress"), so hiding column A would hide them. Resolution: the key lives in column A *of the
+table body* (rows 4+, consistent with the old layout that put rollup names in column A
+unhidden) and is rendered **greyed, not hidden** — bookkeeping the eye skips but the reconcile
+can read. (If a fully hidden key is wanted later, move it to a trailing table column and hide
+that; deferred — greyed-visible is the v1.)
+
+**Row key (column A, table body)** — anchored on the **edge type** (stable; *not* the volatile
 `tag.id`), so the reconcile survives re-tagging:
 
 | key | `Type` | one row per |
@@ -182,22 +202,23 @@ without any Sheets calls.
 ## Data preservation
 
 The preservation seam is **promotion** — a regular puzzle tab gaining a contribution table.
-Steady-state table growth (the reconcile above) is insert-based and never at risk. The
-promotion sequence is **all inserts, never sized overwrites**:
+The captured layout makes this **simpler than the parent design assumed**: the rollup region
+sits *below* the 3 frozen header rows, so the transform inserts **rows**, not columns, and the
+header (rows 1-3, including the user-owned flavour cell B2) is **never touched** — there is
+**no save/restore step**.
 
-1. **Save** the at-risk cells: **flavour** and **progress** (read their current values).
-   These are the only user/bot data the transform endangers.
-2. **Insert columns** equal to the contribution-table width at the left
-   (`insertDimension COLUMNS` at column A), shifting the existing solver grid + header
-   right intact — no overwrite.
-3. **Write the contribution table** (real native Table) into the freed left columns; hide
-   column A.
-4. **Reconstruct the header**: regenerate the bot-owned cells (name/url hyperlink, answer)
-   and **re-insert the saved flavour + progress** into their new positions.
+Promotion sequence (all inserts, never sized overwrites):
 
-The solver's working grid is preserved purely by the column insert. **Create is the
-degenerate case** of the same routine — a fresh tab has nothing to save and the "insert" is
-just the initial table write.
+1. **Insert rows** at row 4 (`insertDimension ROWS` at `startIndex = FROZEN_ROWS`), enough to
+   seat the contribution table's header + initial body. Any solver content that was below the
+   frozen header rides **down**, intact.
+2. **Add the contribution table** (real native Table) into the freed rows starting at row 4.
+3. The header (rows 1-3) and the bot-dynamic cells (B1 name/url, I1 solution, B3 progress) are
+   untouched by a row insert below them — no reconstruction needed.
+
+The solver's working grid is preserved purely by the row insert. **Create is the degenerate
+case** of the same routine — a fresh tab has nothing below the header, so the "insert" is just
+the initial table write at row 4.
 
 Belt + suspenders, as in the parent design:
 - **Suspenders (the guarantee):** insert-based growth — content is pushed down/right, never
