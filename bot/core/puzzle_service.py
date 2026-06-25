@@ -1534,7 +1534,7 @@ class PuzzleService:
         Creates the tab and table lazily on first call. Appends new puzzles,
         updates answer/length for existing ids (e.g. solved), prunes classified ones.
         """
-        from bot.core.unassigned import unassigned_row, diff_rows
+        from bot.core.unassigned import unassigned_row
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
@@ -1567,22 +1567,18 @@ class PuzzleService:
         if dirty:
             HuntJsonDb.commit(hunt)
 
-        # Fetch current unassigned puzzles from DB
+        # Fetch current unassigned puzzles from DB and reconcile the native Table
+        # against the full desired set — reconcile_table does the single diff
+        # (read sheet keys, append/update/prune) and grows the Table. Column 3
+        # (Length) is number-typed, so it must be written numeric.
         pool = PuzzleJsonDb.get_unassigned(hunt.id)
         desired = [unassigned_row(p) for p in pool]
 
-        # Read current sheet keys and reconcile
-        keys = await gsheet_cog.read_unassigned_keys(
-            hunt.unassigned_sheet_page_id,
-        )
-        appends, updates, prunes = diff_rows(keys, desired)
-
-        await gsheet_cog.apply_unassigned_changes(
+        await gsheet_cog.reconcile_table(
             page_id=hunt.unassigned_sheet_page_id,
-            table_id=hunt.unassigned_table_id,
-            appends=appends,
-            updates=updates,
-            prunes=prunes,
+            desired_rows=desired,
+            data_col_count=4,   # id, name, answer, length (Notes col E is solver-owned)
+            numeric_cols=(3,),
         )
 
     async def refresh_unassigned_safe(self, hunt, show_round=False):

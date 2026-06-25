@@ -77,7 +77,7 @@ def test_reconcile_table_appends_updates_prunes():
     sent = _capture_lowlevel(cog, ["feeds:2", "informs:9"])
     desired = [["feeds:2", "Feeder", "Alpha", "WORD"],   # update
                ["none:3", "Group", "Beta", ""]]          # append
-    asyncio.run(cog.reconcile_table(page_id=900, key_count=1, desired_rows=desired,
+    asyncio.run(cog.reconcile_table(page_id=900, desired_rows=desired,
                                     data_col_count=4))
     flat = [r for body in sent for r in body["requests"]]
     kinds = {k for r in flat for k in r}
@@ -85,6 +85,40 @@ def test_reconcile_table_appends_updates_prunes():
     assert "deleteDimension" in kinds  # informs:9 pruned
     # append present (an updateCells writing the new bottom row, or appendCells)
     assert any("updateCells" in r or "appendCells" in r for r in flat)
+
+
+def test_reconcile_table_numeric_length_and_resizes_table():
+    """Number-typed Length column is written numeric (blank when unsolved), and the
+    native Table is resized to cover header + data so rows belong to it."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
+        "properties": {"sheetId": 700, "title": "Unassigned Feeders", "index": 0},
+        "tables": [{"tableId": "UT", "range": {
+            "sheetId": 700, "startRowIndex": 0, "startColumnIndex": 0,
+            "endRowIndex": 1, "endColumnIndex": 5}}],
+    }]}
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["id"]]}   # header only, no data yet
+
+    sent = []
+
+    async def fake_batch(body, archive=False):
+        sent.append(body)
+
+    cog._values_get = fake_values_get
+    cog.batch_update = fake_batch
+
+    desired = [[1, "Solved", "CAT", 3], [2, "Open", "", ""]]
+    asyncio.run(cog.reconcile_table(page_id=700, desired_rows=desired,
+                                    data_col_count=4, numeric_cols=(3,)))
+    flat = [r for body in sent for r in body["requests"]]
+    append = [r for r in flat if "updateCells" in r][-1]["updateCells"]["rows"]
+    assert append[0]["values"][3] == {"userEnteredValue": {"numberValue": 3}}
+    assert append[1]["values"][3] == {}   # blank, not "", so the batch isn't rejected
+    resize = [r["updateTable"] for r in flat if "updateTable" in r]
+    assert resize and resize[0]["table"]["range"]["endRowIndex"] == 3
 
 
 # --- Task 8: generate_puzzle_tab (no template duplicateSheet) ---------------
@@ -188,7 +222,7 @@ def test_render_contribution_builds_rows_and_reconciles():
     cog = _cog()
     captured = {}
 
-    async def fake_reconcile(page_id, key_count, desired_rows, data_col_count):
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
         captured["page_id"] = page_id
         captured["rows"] = desired_rows
         captured["cols"] = data_col_count
@@ -211,21 +245,3 @@ def test_render_contribution_builds_rows_and_reconciles():
     assert captured["cols"] == 4
     # the meta's own row is not a contribution of itself
     assert captured["rows"] == [["feeds:2", "Feeder", "Alpha", "WORD"]]
-
-
-# --- Task 11: apply_unassigned_changes delegates to reconcile_table ---------
-
-def test_apply_unassigned_changes_delegates_to_reconcile_table():
-    cog = _cog()
-    seen = {}
-
-    async def fake_reconcile(page_id, key_count, desired_rows, data_col_count):
-        seen["page_id"] = page_id
-        seen["rows"] = desired_rows
-
-    cog.reconcile_table = fake_reconcile
-    # appends/updates are [id, name, answer, length]; prunes are ids
-    asyncio.run(cog.apply_unassigned_changes(
-        page_id=700, table_id="T",
-        appends=[[2, "Alpha", "WORD", 4]], updates=[], prunes=[]))
-    assert seen["page_id"] == 700

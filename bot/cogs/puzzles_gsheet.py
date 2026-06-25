@@ -762,42 +762,76 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 7: generalized key-anchored reconciler ----------------------
 
-    async def reconcile_table(self, page_id, key_count, desired_rows, data_col_count):
-        """Incrementally reconcile a key-anchored table on `page_id`.
+    async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=()):
+        """Incrementally reconcile the native Table on `page_id` against the FULL
+        `desired_rows` (the single source of truth — callers pass the whole desired
+        set, not a pre-diff).
 
-        Reads column A keys, diffs against desired_rows (via diff_rows), then
-        applies updates (rewrite cols 0..data_col_count-1 on the matched row),
-        prunes (delete whole row, bottom-first), and appends (write new rows
-        below). key_count is unused beyond documenting the single key column;
-        kept for symmetry with multi-key callers. Inserts only — never a sized
-        overwrite of solver rows below the table."""
+        Adaptive: locates the Table on the page and reads its own range, so the
+        header row and key (first) column come from where the Table actually sits
+        — unassigned at row 0 col A, the contribution table at row 4 col A. Keys are
+        matched as strings (sheet cells read back as text) so int ids (Unassigned)
+        and string keys ("feeds:2") both work.
+
+        `numeric_cols` lists 0-based column indices (relative to the table's first
+        column) written as numbers — blank cell when the value isn't numeric. The
+        Unassigned Length column NEEDS this: a number-typed Table column rejects a
+        string (esp. "" when unsolved), failing the whole atomic batch.
+
+        After writing, resizes the Table to cover its header + all data rows, so the
+        rows are part of the Table (otherwise the header is purely decorative)."""
         from bot.core.unassigned import diff_rows
         spreadsheet_id = self.get_spreadsheet_id()
 
-        tab_name = None
+        sheet = None
         for s in self.sheet_list(spreadsheet_id)["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
-                tab_name = s["properties"]["title"]
+                sheet = s
                 break
-        if tab_name is None:
+        if sheet is None:
             return
-        safe_name = tab_name.replace("'", "''")
+        safe_name = sheet["properties"]["title"].replace("'", "''")
 
-        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+        # Use the Table's own range: header row + the (hidden) key column position.
+        tables = sheet.get("tables", []) or []
+        table = tables[0] if tables else None
+        if table is not None:
+            rng = table.get("range", {})
+            header_row = rng.get("startRowIndex", 0)
+            key_col = rng.get("startColumnIndex", 0)
+            table_id = table.get("tableId")
+        else:
+            header_row, key_col, table_id = 0, 0, None
+
+        key_letter = self._col_letter(key_col)
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{key_letter}")
         vals = resp.get("values", []) or []
         key_to_row = {}
-        for i in range(1, len(vals)):
+        for i in range(header_row + 1, len(vals)):
             if vals[i]:
-                key_to_row[vals[i][0]] = i
+                key_to_row[str(vals[i][0])] = i
 
-        current_keys = list(key_to_row)
-        appends, updates, prunes = diff_rows(current_keys, desired_rows)
+        # Stringify keys for the diff; keep the original cell values for writing.
+        norm_rows = [[str(r[0])] + list(r[1:]) for r in desired_rows]
+        appends, updates, prunes = diff_rows(list(key_to_row), norm_rows)
 
-        def _cell(v):
+        numeric = set(numeric_cols)
+
+        def _cell(col, v):
+            if col in numeric:
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    return {"userEnteredValue": {"numberValue": v}}
+                s = str(v).strip()
+                if s and s.lstrip("-").isdigit():
+                    return {"userEnteredValue": {"numberValue": int(s)}}
+                return {}   # blank cell — valid in a number-typed Table column
             return {"userEnteredValue": {"stringValue": str(v)}}
 
+        def _row_cells(row):
+            return [_cell(c, v) for c, v in enumerate(row)]
+
         requests = []
-        # Updates: rewrite the whole row (cols 0..data_col_count-1).
+        # Updates: rewrite the whole row (cols key_col..key_col+data_col_count-1).
         update_by_key = {row[0]: row for row in updates}
         for key, grid_row in key_to_row.items():
             row = update_by_key.get(key)
@@ -805,10 +839,10 @@ class GoogleSheets(commands.Cog):
                 continue
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
-                          "endRowIndex": grid_row + 1, "startColumnIndex": 0,
-                          "endColumnIndex": data_col_count},
+                          "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                          "endColumnIndex": key_col + data_col_count},
                 "fields": "userEnteredValue",
-                "rows": [{"values": [_cell(v) for v in row]}],
+                "rows": [{"values": _row_cells(row)}],
             }})
         # Prunes: delete whole rows bottom-first.
         for grid_row in sorted((key_to_row[k] for k in prunes), reverse=True):
@@ -820,14 +854,28 @@ class GoogleSheets(commands.Cog):
             start = len(vals) - len(prunes)
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": start,
-                          "endRowIndex": start + len(appends), "startColumnIndex": 0,
-                          "endColumnIndex": data_col_count},
+                          "endRowIndex": start + len(appends), "startColumnIndex": key_col,
+                          "endColumnIndex": key_col + data_col_count},
                 "fields": "userEnteredValue",
-                "rows": [{"values": [_cell(v) for v in row]} for row in appends],
+                "rows": [{"values": _row_cells(row)} for row in appends],
             }})
 
         if requests:
             await self.batch_update({"requests": requests})
+
+        # Grow/shrink the Table so the data rows actually belong to it.
+        if table_id is not None:
+            end_row = header_row + 1 + len(norm_rows)
+            await self.batch_update({"requests": [{"updateTable": {
+                "table": {
+                    "tableId": table_id,
+                    "range": {"sheetId": page_id,
+                              "startRowIndex": header_row, "endRowIndex": end_row,
+                              "startColumnIndex": key_col,
+                              "endColumnIndex": key_col + data_col_count},
+                },
+                "fields": "range",
+            }}]})
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
@@ -942,60 +990,10 @@ class GoogleSheets(commands.Cog):
         rows = contribution_rows(tag_group_id, contributing, evidence)
         await self.reconcile_table(
             page_id=target_puzzle.google_page_id,
-            key_count=1,
             desired_rows=rows,
             data_col_count=len(self.CONTRIBUTION_HEADER),
         )
 
-    # --- Existing unassigned table methods follow --------------------------
-
-    async def read_unassigned_keys(self, page_id):
-        """Read puzzle ids from column A of the Unassigned tab (skip header)."""
-        spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
-        if tab_name is None:
-            return []
-        safe_name = tab_name.replace("'", "''")
-        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A2:A")
-        values = resp.get("values", []) or []
-        keys = []
-        for cell in values:
-            try:
-                keys.append(int(cell[0]))
-            except (ValueError, IndexError):
-                continue
-        return keys
-
-    @staticmethod
-    def _unassigned_len_cell(value):
-        """Length cell: a number when solved, an empty cell when unsolved.
-
-        Blank is written as empty CellData (clears userEnteredValue) rather than
-        an empty string — an empty cell is valid in a number-typed Table column,
-        whereas a string "" makes Sheets reject the whole atomic batch.
-        """
-        if isinstance(value, (int, float)):
-            return {"userEnteredValue": {"numberValue": value}}
-        return {}
-
-    async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
-        """Apply the incremental reconcile to the Unassigned Puzzles tab.
-
-        Delegates all heavy lifting to `reconcile_table`, which handles deletes,
-        inserts, and updates against the native Table.
-        """
-        rows = []
-        for row in appends:
-            rows.append([str(v) for v in row])
-        for row in updates:
-            rows.append([str(v) for v in row])
-
-        await self.reconcile_table(
-            page_id=page_id,
-            key_count=1,
-            desired_rows=rows,
-            data_col_count=4,  # id, name, answer, length
-        )
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!

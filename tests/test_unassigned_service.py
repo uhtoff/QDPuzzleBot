@@ -31,8 +31,7 @@ class TestRefreshUnassigned:
         gsheet = MagicMock()
         gsheet.create_blank_tab = AsyncMock(return_value=42)
         gsheet.ensure_unassigned_table = AsyncMock(return_value=7)
-        gsheet.read_unassigned_keys = AsyncMock(return_value=[])
-        gsheet.apply_unassigned_changes = AsyncMock()
+        gsheet.reconcile_table = AsyncMock()
         bot = MagicMock(); bot.get_cog.return_value = gsheet
         svc = PuzzleService(bot)
         await svc.refresh_unassigned(hunt)
@@ -50,29 +49,31 @@ class TestRefreshUnassigned:
             make_puzzle(id=2, name="Open Two", solved=False, solution=None),
         ]
         gsheet = MagicMock()
-        gsheet.read_unassigned_keys = AsyncMock(return_value=[])     # nothing in sheet yet
-        gsheet.apply_unassigned_changes = AsyncMock()
+        gsheet.reconcile_table = AsyncMock()
         bot = MagicMock(); bot.get_cog.return_value = gsheet
         svc = PuzzleService(bot)
         await svc.refresh_unassigned(hunt)
-        # appends carry uppercased answer + length, blank for unsolved
-        appends = gsheet.apply_unassigned_changes.call_args.kwargs.get("appends") \
-            or gsheet.apply_unassigned_changes.call_args[0][2]
-        assert [1, "Solved One", "CAT", 3] in appends
-        assert [2, "Open Two", "", ""] in appends
+        # The full desired set is handed to reconcile_table (which does the single
+        # diff against the live sheet): rows carry uppercased answer + length,
+        # blank for unsolved. Length col is flagged numeric.
+        kwargs = gsheet.reconcile_table.call_args.kwargs
+        desired = kwargs["desired_rows"]
+        assert [1, "Solved One", "CAT", 3] in desired
+        assert [2, "Open Two", "", ""] in desired
+        assert kwargs["numeric_cols"] == (3,)
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    async def test_classified_row_is_pruned(self, PuzzleDb, HuntDb):
+    async def test_empty_pool_reconciles_empty_desired(self, PuzzleDb, HuntDb):
+        # Pruning of classified rows now happens INSIDE reconcile_table (it diffs the
+        # full desired set against the live sheet). At the service level we only
+        # assert the empty pool is forwarded as an empty desired set.
         from bot.core.puzzle_service import PuzzleService
         hunt = make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
         PuzzleDb.get_unassigned.return_value = []          # pool now empty
         gsheet = MagicMock()
-        gsheet.read_unassigned_keys = AsyncMock(return_value=[5])    # id 5 still in sheet
-        gsheet.apply_unassigned_changes = AsyncMock()
+        gsheet.reconcile_table = AsyncMock()
         bot = MagicMock(); bot.get_cog.return_value = gsheet
         svc = PuzzleService(bot)
         await svc.refresh_unassigned(hunt)
-        prunes = gsheet.apply_unassigned_changes.call_args.kwargs.get("prunes") \
-            or gsheet.apply_unassigned_changes.call_args[0][3]
-        assert 5 in prunes
+        assert gsheet.reconcile_table.call_args.kwargs["desired_rows"] == []
