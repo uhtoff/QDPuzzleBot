@@ -777,6 +777,18 @@ class GoogleSheets(commands.Cog):
             raise RuntimeError(f"ensure_unassigned_table: no tab with page id {page_id}")
         safe_name = tab_name.replace("'", "''")
 
+        # Pin the Unassigned Feeders tab to the far-left (first) position. It is
+        # created with create_blank_tab, which sets no index, so Sheets appends it at
+        # the END — move it to index 0. Best effort: tab order is cosmetic.
+        try:
+            await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body={
+                    "requests": [self._sheet_props_request(page_id, "index", 0)]}),
+                on_retry=self._notify_retry,
+            )
+        except Exception:
+            logger.exception("ensure_unassigned_table: could not move tab to far left")
+
         # Header row, written plainly so data is visible even without the Table.
         await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [self.UNASSIGNED_HEADER])
 
@@ -1035,9 +1047,18 @@ class GoogleSheets(commands.Cog):
             await self.batch_update({"requests": requests})
 
         # Contribution Table below the frozen header (row 4), so it never overlaps
-        # the header merges in rows 1-3.
+        # the header merges in rows 1-3. Best effort: Google's Sheets write path
+        # returns transient 500s ("Internal error encountered") on a busy spreadsheet,
+        # and a flicker here must NOT abort meta creation (the user just sees a 500 and
+        # a half-made meta). If it fails, the tab is left without the Table; it is
+        # created lazily on the first contribution render (see _ensure_contribution_table).
         if is_target:
-            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            try:
+                await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            except Exception:
+                logger.exception(
+                    "generate_puzzle_tab: contribution Table deferred for page %s "
+                    "(transient Sheets error); it will be created on first render", page_id)
         return page_id
 
     # --- Task 9: in-place promotion ----------------------------------------
@@ -1097,12 +1118,37 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 10: render contribution table from service -------------------
 
+    async def _ensure_contribution_table(self, page_id):
+        """Return True if the target's contribution Table exists, creating it (below
+        the frozen header) if missing. Meta creation adds it, but a transient Sheets
+        500 there can leave the tab tableless — this self-heals on the next render.
+        Returns False if it still cannot be created, so the caller skips the data
+        write rather than letting reconcile_table fall back to row 0 over the header."""
+        from bot.cogs import sheet_layout
+        spreadsheet_id = self.get_spreadsheet_id()
+        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+            if s["properties"]["sheetId"] == int(page_id):
+                if s.get("tables"):
+                    return True
+                break
+        try:
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            return True
+        except Exception:
+            logger.exception("_ensure_contribution_table: could not create table on %s", page_id)
+            return False
+
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
         """Render the unified contribution table on the target's tab.
 
         Excludes the target's own row, builds desired rows from edges/evidence,
         and reconciles the native Table on the target's page."""
         from bot.core.contribution import contribution_rows
+        # Self-heal: the Table may be missing if its creation hit a transient Sheets
+        # error at meta-creation time. Create it now; skip the write if it still can't
+        # be made (better an empty tab than contribution data clobbering row 0).
+        if not await self._ensure_contribution_table(target_puzzle.google_page_id):
+            return
         contributing = [p for p in members if p.id != target_puzzle.id]
         rows = contribution_rows(tag_group_id, contributing, evidence)
         await self.reconcile_table(

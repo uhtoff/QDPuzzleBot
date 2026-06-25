@@ -7,7 +7,9 @@ GoogleSheets.__new__). Helpers are file-local. Authored test-first (Opus);
 implementation lands separately.
 """
 import asyncio
+from unittest.mock import MagicMock, patch
 
+import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
 from bot.store.puzzle_data import PuzzleData
 
@@ -294,6 +296,11 @@ def test_render_contribution_builds_rows_and_reconciles():
 
     cog.reconcile_table = fake_reconcile
 
+    async def fake_ensure(page_id):
+        return True
+
+    cog._ensure_contribution_table = fake_ensure
+
     meta = PuzzleData()
     meta.id = 1
     meta.name = "Meta"
@@ -338,3 +345,119 @@ def test_label_cells_emit_bold_format():
     assert 1 in cols_target
     feeder_reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=0)
     assert 0 in {r["repeatCell"]["range"]["startColumnIndex"] for r in feeder_reqs}
+
+
+# --- Unassigned tab far-left position (live-test fix #5) ---------------------
+
+def test_ensure_unassigned_table_pins_tab_to_far_left():
+    """The Unassigned Feeders tab is created with create_blank_tab (no index), so
+    Sheets appends it last. ensure_unassigned_table must move it to index 0."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Unassigned Feeders"
+
+    async def fake_values_update(spreadsheet_id, a1, values):
+        pass
+
+    cog._values_update = fake_values_update
+
+    sheet = MagicMock()
+
+    async def fake_execute(request, on_retry=None):
+        return {"replies": [{"addTable": {"table": {"tableId": "UT"}}}]}
+
+    with patch.object(gsheet_mod, "get_sheet", return_value=sheet), \
+         patch.object(gsheet_mod, "execute_with_retry", side_effect=fake_execute):
+        asyncio.run(cog.ensure_unassigned_table(page_id=700))
+
+    bodies = [kw["body"] for _a, kw in sheet.batchUpdate.call_args_list if "body" in kw]
+    moves = [r["updateSheetProperties"] for b in bodies for r in b["requests"]
+             if "updateSheetProperties" in r]
+    assert moves, "expected an updateSheetProperties to move the tab"
+    assert moves[0]["properties"]["sheetId"] == 700
+    assert moves[0]["properties"]["index"] == 0
+
+
+# --- Resilience: transient Sheets 500 must not abort meta creation (#1) ------
+
+def test_generate_puzzle_tab_survives_contribution_table_failure():
+    """A transient Sheets error creating the contribution Table must NOT abort meta
+    creation — generate_puzzle_tab returns the page id; the Table is deferred."""
+    cog = _cog()
+    _capture_batch(cog)   # header batch succeeds
+    cog.create_blank_tab = lambda spreadsheet_id, name: 904
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_unique_tab_name = lambda n: n
+
+    async def boom(page_id, header_row=0):
+        raise RuntimeError("Internal error encountered.")
+
+    cog._add_contribution_table = boom
+
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Meta"
+    p.url = "http://m"
+    p.is_target = True
+
+    page_id = asyncio.run(cog.generate_puzzle_tab(p, is_target=True))
+    assert page_id == 904   # creation completed despite the Table failure
+
+
+def test_render_contribution_creates_missing_table_then_reconciles():
+    """If the tab has no contribution Table (creation transiently failed earlier),
+    render_contribution creates it before writing data."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = lambda spreadsheet_id=None: {
+        "sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}   # no "tables"
+
+    created = []
+
+    async def fake_add(page_id, header_row=0):
+        created.append((page_id, header_row))
+
+    reconciled = []
+
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
+        reconciled.append(page_id)
+
+    cog._add_contribution_table = fake_add
+    cog.reconcile_table = fake_reconcile
+
+    meta = PuzzleData()
+    meta.id = 1
+    meta.name = "Meta"
+    meta.google_page_id = 900
+
+    asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
+    assert created and created[0][0] == 900   # table created lazily
+    assert reconciled == [900]                 # then the data write proceeds
+
+
+def test_render_contribution_skips_write_when_table_uncreatable():
+    """If the Table still can't be created (sustained Sheets outage), skip the data
+    write so contribution rows never clobber the header at row 0."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = lambda spreadsheet_id=None: {
+        "sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}
+
+    async def boom(page_id, header_row=0):
+        raise RuntimeError("Internal error encountered.")
+
+    reconciled = []
+
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
+        reconciled.append(page_id)
+
+    cog._add_contribution_table = boom
+    cog.reconcile_table = fake_reconcile
+
+    meta = PuzzleData()
+    meta.id = 1
+    meta.name = "Meta"
+    meta.google_page_id = 900
+
+    asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
+    assert reconciled == []   # no data written when the table couldn't be made
