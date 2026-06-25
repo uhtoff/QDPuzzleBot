@@ -68,7 +68,7 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "You can't add sheets to a solved puzzle.";
     case "sheet_not_found":
       return "That sheet no longer exists — refresh and try again.";
-    case "bad_meta_code":
+    case "bad_group_code":
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
       return `Discord error — please try again.`;
@@ -242,7 +242,7 @@ export function useSolvePuzzle(uid: string) {
     onMutate: async ({ puzzleId, solution, mode }) => {
       await qc.cancelQueries({ queryKey: ["hunt", uid] });
       const previous = qc.getQueryData(["hunt", uid]) as
-        | { board?: { round_id: number; puzzles: Array<{ id: number; solved?: boolean; solution?: string | null; status?: string } & Record<string, unknown>> }[] }
+        | { board?: { tag_group_id: number; puzzles: Array<{ id: number; solved?: boolean; solution?: string | null; status?: string } & Record<string, unknown>> }[] }
         | undefined;
       if (previous?.board) {
         qc.setQueryData(["hunt", uid], {
@@ -296,7 +296,7 @@ export function useCreatePuzzle(uid: string) {
     mutationFn: ({ name, metaCode }: { name: string; metaCode: string }) =>
       apiSend<{ ok: boolean; puzzle_id: number }>(`/api/hunts/${uid}/puzzles`, "POST", {
         name,
-        meta_code: metaCode,
+        group_code: metaCode,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
@@ -306,7 +306,7 @@ export function useCreateMeta(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ name }: { name: string }) =>
-      apiSend<{ ok: boolean; meta_code: string }>(`/api/hunts/${uid}/metas`, "POST", { name }),
+      apiSend<{ ok: boolean; group_code: string }>(`/api/hunts/${uid}/metas`, "POST", { name }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
@@ -326,7 +326,7 @@ export function useRetagPuzzle(uid: string) {
       mode: RetagMode;
     }) =>
       apiSend<{ ok: boolean; sheet_warning?: string }>(`/api/puzzles/${puzzleId}/meta`, "POST", {
-        meta_code: metaCode,
+        group_code: metaCode,
         mode,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
@@ -379,7 +379,7 @@ export function useDeleteRound(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (roundId: number) =>
-      apiSend<DeleteRoundResult>(`/api/rounds/${roundId}`, "DELETE"),
+      apiSend<DeleteRoundResult>(`/api/tag_groups/${roundId}`, "DELETE"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
@@ -438,8 +438,8 @@ export function useSetNesting(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ roundId, parentId }: { roundId: number; parentId: number | null }) =>
-      apiSend<{ ok: boolean }>(`/api/rounds/${roundId}/nest`, "POST", {
-        parent_round_id: parentId,
+      apiSend<{ ok: boolean }>(`/api/tag_groups/${roundId}/nest`, "POST", {
+        parent_tag_group_id: parentId,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });

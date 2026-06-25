@@ -6,7 +6,7 @@ import type { HuntDetail } from "../types";
 import { useCreateMeta, useCreatePuzzle } from "../api";
 import { notifyError, notifySuccess } from "../util";
 
-// Sentinel dropdown value for "no meta" — sent to the API as an empty meta_code.
+// Sentinel dropdown value for "no meta" — sent to the API as an empty group_code.
 const UNASSIGNED = "__unassigned__";
 
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
@@ -16,8 +16,8 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const metaOptions = useMemo(
     () => [
       ...detail.board
-        .filter((g) => g.meta_code != null)
-        .map((g) => ({ value: g.meta_code as string, label: g.name })),
+        .filter((g) => g.group_code != null)
+        .map((g) => ({ value: g.group_code as string, label: g.name })),
       { value: UNASSIGNED, label: "Unassigned (no meta)" },
     ],
     [detail.board]
