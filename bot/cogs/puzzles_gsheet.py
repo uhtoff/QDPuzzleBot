@@ -177,6 +177,51 @@ class GoogleSheets(commands.Cog):
             logger.exception("_header_shift: could not read table position for %s", page_id)
         return self.TARGET_HEADER_SHIFT
 
+    # --- Tab formatting (replaces the styling the old template tab carried) -----
+    HEADER_FONT = "JetBrains Mono"
+    HEADER_GREY = {"red": 0.851, "green": 0.851, "blue": 0.851}
+    SOLUTION_GREEN = {"red": 0.0, "green": 0.85, "blue": 0.0}   # bright green once solved
+    LABEL_COL_WIDTH = 220   # px — fits "Puzzle Flavor Text:" etc.
+
+    def _tab_format_requests(self, page_id, label_col):
+        """Formatting a code-generated tab needs but a blank addSheet lacks: the
+        whole tab in JetBrains Mono, the 3 header rows frozen + grey, and the label
+        column widened. (The old duplicateSheet template carried these.)"""
+        from bot.cogs import sheet_layout
+        return [
+            {"updateSheetProperties": {
+                "properties": {"sheetId": page_id,
+                               "gridProperties": {"frozenRowCount": sheet_layout.FROZEN_ROWS}},
+                "fields": "gridProperties.frozenRowCount"}},
+            {"repeatCell": {
+                "range": {"sheetId": page_id},
+                "cell": {"userEnteredFormat": {"textFormat": {"fontFamily": self.HEADER_FONT}}},
+                "fields": "userEnteredFormat.textFormat.fontFamily"}},
+            {"repeatCell": {
+                "range": {"sheetId": page_id, "startRowIndex": 0,
+                          "endRowIndex": sheet_layout.FROZEN_ROWS},
+                "cell": {"userEnteredFormat": {"backgroundColor": self.HEADER_GREY}},
+                "fields": "userEnteredFormat.backgroundColor"}},
+            {"updateDimensionProperties": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": label_col, "endIndex": label_col + 1},
+                "properties": {"pixelSize": self.LABEL_COL_WIDTH},
+                "fields": "pixelSize"}},
+        ]
+
+    def _solution_bg_request(self, puzzle, colour):
+        """Set the solution cell's background on a puzzle's own tab (green on solve,
+        grey on unsolve), honouring the target header shift."""
+        offset = self._header_shift(puzzle, puzzle.google_page_id)
+        row = self.get_row(config.puzzle_cell_solution)
+        col = self.get_column(config.puzzle_cell_solution) + offset
+        return {"repeatCell": {
+            "range": {"sheetId": puzzle.google_page_id,
+                      "startRowIndex": row, "endRowIndex": row + 1,
+                      "startColumnIndex": col, "endColumnIndex": col + 1},
+            "cell": {"userEnteredFormat": {"backgroundColor": colour}},
+            "fields": "userEnteredFormat.backgroundColor"}}
+
     async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None):
 
         puzzle_name = name or puzzle.name
@@ -382,6 +427,7 @@ class GoogleSheets(commands.Cog):
                                      self.get_column(config.puzzle_cell_solution) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
                     self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                      self.get_column(config.puzzle_cell_progress) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
+                    self._solution_bg_request(puzzle_data, self.HEADER_GREY),   # un-green the solution cell
                     self.move_sheet_to_start(puzzle_data.google_page_id),
                     self.revert_tab_colour(puzzle_data.google_page_id)])
         updates = {
@@ -405,6 +451,7 @@ class GoogleSheets(commands.Cog):
         requests = []
         requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
+            self._solution_bg_request(puzzle_data, self.SOLUTION_GREEN),
             self.move_sheet_to_end(puzzle_data.google_page_id),
             self.change_tab_colour('green', puzzle_data.google_page_id)])
         for sheet in puzzle_data.additional_sheets:
@@ -955,6 +1002,10 @@ class GoogleSheets(commands.Cog):
             self.get_row(config.puzzle_cell_name),
             self.get_column(config.puzzle_cell_name) + offset,
             self.FORMULA_INPUT, page_id))
+        # Tab styling: JetBrains Mono, frozen + grey header rows, wide label column
+        # (the label column is wherever the labels land — A for a feeder, B for a
+        # target). The solution cell stays grey here; it turns green only on solve.
+        requests += self._tab_format_requests(page_id, label_col=offset)
         if requests:
             await self.batch_update({"requests": requests})
 

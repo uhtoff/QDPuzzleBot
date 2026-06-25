@@ -173,6 +173,55 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     assert table_range["startRowIndex"] == 3
 
 
+def test_generate_puzzle_tab_formats_tab():
+    cog = _cog()
+    calls = _capture_batch(cog)
+    cog.create_blank_tab = lambda spreadsheet_id, name: 903
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_unique_tab_name = lambda n: n
+
+    p = PuzzleData()
+    p.id = 3
+    p.name = "Feeder"
+    p.url = "http://f"
+    p.is_target = False
+
+    asyncio.run(cog.generate_puzzle_tab(p, is_target=False))
+    reqs = [r for body in calls for r in body["requests"]]
+
+    frozen = [r["updateSheetProperties"] for r in reqs if "updateSheetProperties" in r]
+    assert frozen and frozen[0]["properties"]["gridProperties"]["frozenRowCount"] == 3
+
+    fonts = [r["repeatCell"] for r in reqs if "repeatCell" in r
+             and "textFormat" in r["repeatCell"]["cell"]["userEnteredFormat"]]
+    assert fonts and fonts[0]["cell"]["userEnteredFormat"]["textFormat"]["fontFamily"] == "JetBrains Mono"
+
+    greys = [r["repeatCell"] for r in reqs if "repeatCell" in r
+             and "backgroundColor" in r["repeatCell"]["cell"]["userEnteredFormat"]]
+    assert greys and greys[0]["range"]["endRowIndex"] == 3   # the 3 frozen header rows
+
+    widths = [r["updateDimensionProperties"] for r in reqs if "updateDimensionProperties" in r]
+    assert widths and widths[0]["range"]["startIndex"] == 0   # col A wide for a feeder
+
+
+def test_solution_bg_request_targets_shifted_solution_cell():
+    cog = _cog()
+    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
+        "properties": {"sheetId": 905, "title": "Meta"},
+        "tables": [{"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0}}]}]}
+
+    p = PuzzleData()
+    p.id = 1
+    p.is_target = True
+    p.google_page_id = 905
+
+    req = cog._solution_bg_request(p, cog.SOLUTION_GREEN)
+    rng = req["repeatCell"]["range"]
+    # Solution cell I1 (col 8) shifted +1 for a target -> J1 (col 9).
+    assert rng["startColumnIndex"] == 9
+    assert req["repeatCell"]["cell"]["userEnteredFormat"]["backgroundColor"] == cog.SOLUTION_GREEN
+
+
 # --- Task 9: promote_tab_to_target (insert before table; preserve grid) -----
 
 def test_promote_inserts_columns_before_adding_table():
