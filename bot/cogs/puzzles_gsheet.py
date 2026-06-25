@@ -865,6 +865,75 @@ class GoogleSheets(commands.Cog):
         }]})
         return table_id
 
+    # --- Task 7: generalized key-anchored reconciler ----------------------
+
+    async def reconcile_table(self, page_id, key_count, desired_rows, data_col_count):
+        """Incrementally reconcile a key-anchored table on `page_id`.
+
+        Reads column A keys, diffs against desired_rows (via diff_rows), then
+        applies updates (rewrite cols 0..data_col_count-1 on the matched row),
+        prunes (delete whole row, bottom-first), and appends (write new rows
+        below). key_count is unused beyond documenting the single key column;
+        kept for symmetry with multi-key callers. Inserts only — never a sized
+        overwrite of solver rows below the table."""
+        from bot.core.unassigned import diff_rows
+        spreadsheet_id = self.get_spreadsheet_id()
+
+        tab_name = None
+        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+            if s["properties"]["sheetId"] == int(page_id):
+                tab_name = s["properties"]["title"]
+                break
+        if tab_name is None:
+            return
+        safe_name = tab_name.replace("'", "''")
+
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
+        vals = resp.get("values", []) or []
+        key_to_row = {}
+        for i in range(1, len(vals)):
+            if vals[i]:
+                key_to_row[vals[i][0]] = i
+
+        current_keys = list(key_to_row)
+        appends, updates, prunes = diff_rows(current_keys, desired_rows)
+
+        def _cell(v):
+            return {"userEnteredValue": {"stringValue": str(v)}}
+
+        requests = []
+        # Updates: rewrite the whole row (cols 0..data_col_count-1).
+        update_by_key = {row[0]: row for row in updates}
+        for key, grid_row in key_to_row.items():
+            row = update_by_key.get(key)
+            if row is None:
+                continue
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                          "endRowIndex": grid_row + 1, "startColumnIndex": 0,
+                          "endColumnIndex": data_col_count},
+                "fields": "userEnteredValue",
+                "rows": [{"values": [_cell(v) for v in row]}],
+            }})
+        # Prunes: delete whole rows bottom-first.
+        for grid_row in sorted((key_to_row[k] for k in prunes), reverse=True):
+            requests.append({"deleteDimension": {
+                "range": {"sheetId": page_id, "dimension": "ROWS",
+                          "startIndex": grid_row, "endIndex": grid_row + 1}}})
+        # Appends: write new rows below the current data (after prunes shrink it).
+        if appends:
+            start = len(vals) - len(prunes)
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": start,
+                          "endRowIndex": start + len(appends), "startColumnIndex": 0,
+                          "endColumnIndex": data_col_count},
+                "fields": "userEnteredValue",
+                "rows": [{"values": [_cell(v) for v in row]} for row in appends],
+            }})
+
+        if requests:
+            await self.batch_update({"requests": requests})
+
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
