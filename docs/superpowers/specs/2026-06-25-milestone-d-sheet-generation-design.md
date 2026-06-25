@@ -94,15 +94,11 @@ target. The contribution table is correct for all of them — its rows distingui
 whether the target is fed, informed, or both. D must never read the has-target signal as
 "this is a fed meta".
 
-> **Pending: derive `metapuzzle` (drop the column).** `metapuzzle` is a denormalised cache
-> of `EXISTS(tag_group WHERE target_puzzle_id = p.id)` — the same shape as the `kind` column
-> B dropped, and never a deliberate design keep. An audit found **no reader** relies on it
-> meaning "fed" (all use has-target), so it can be derived behaviour-preservingly. Dropping
-> it is a cross-cutting change (2 raw SQL readers, ~15 `is_metapuzzle()` sites → a
-> `has_target` helper, a drop-column migration, ~10 test files; `metameta` is the identical
-> sibling). Most sites sit in **C's** convert/membership rewrite, so it is best folded into
-> C or done as a dedicated step right after C — **before** D. Sequencing TBD with the owner;
-> D is written name-agnostic so either outcome works.
+> **Prerequisite: Milestone B2** — `docs/superpowers/specs/2026-06-25-milestone-b2-derive-has-target-design.md`.
+> B2 (sequenced **after C, before D**) derives has-target and drops the denormalised
+> `metapuzzle` + `metameta` columns, replacing `is_metapuzzle()` with a `has_target(puzzle)`
+> accessor. D is written name-agnostic, so it reads `has_target` once B2 lands (and would
+> still work via `is_metapuzzle()` if B2 slipped).
 
 This replaces `add_new_sheet`'s `duplicateSheet` and **retires** `copy_puzzle`'s
 column-shuffle. **Create and promote become the same routine** — promotion is just "this
