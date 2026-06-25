@@ -96,9 +96,9 @@ def make_puzzle_row(
     }
 
 
-def make_round_ref(id, name, meta_code="RC", is_meta_of=False):
+def make_round_ref(id, name, group_code="RC", is_target_of=False):
     """Build a round reference dict as embedded in a puzzle row."""
-    return {"id": id, "name": name, "meta_code": meta_code, "is_meta_of": is_meta_of}
+    return {"id": id, "name": name, "group_code": group_code, "is_target_of": is_target_of}
 
 
 def make_hunt(
