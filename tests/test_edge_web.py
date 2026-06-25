@@ -61,7 +61,7 @@ def web():
 
     target_group = make_round(id=7, group_code="X", category_id=999)
     target_group.hunt_id = 10
-    puzzle = make_puzzle(id=5, channel_id=222)
+    puzzle = make_puzzle(id=5, channel_id=222, metapuzzle=1)
 
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
