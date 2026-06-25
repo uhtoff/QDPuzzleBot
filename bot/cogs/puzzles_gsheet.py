@@ -980,6 +980,61 @@ class GoogleSheets(commands.Cog):
             await self._add_contribution_table(page_id)
         return page_id
 
+    # --- Task 9: in-place promotion ----------------------------------------
+
+    CONTRIBUTION_WIDTH = 4   # cols A-D
+
+    async def promote_tab_to_target(self, puzzle):
+        """Transform an existing puzzle tab into a target tab without losing
+        solver data. Insert contribution-width columns at the left (shifting the
+        grid + header right), add the contribution Table into the freed columns,
+        then restore the header. Inserts only — no sized overwrite."""
+        page_id = puzzle.google_page_id
+        spreadsheet_id = self.get_spreadsheet_id()
+        tab_name = self.get_page_name_by_id(page_id)
+        if tab_name is None:
+            return
+        safe_name = tab_name.replace("'", "''")
+
+        # 1. Save at-risk header cells (flavour + progress) BEFORE shifting.
+        flavour_ref = "B2"   # user-owned, not in config; captured layout confirms B2
+        progress_ref = config.puzzle_cell_progress  # B3
+        saved_cells = {}
+        for label, ref in [("flavour", flavour_ref), ("progress", progress_ref)]:
+            resp = await self._values_get(
+                spreadsheet_id, f"'{safe_name}'!{ref}")
+            vals = resp.get("values") or []
+            if vals and vals[0]:
+                saved_cells[label] = (vals[0][0], self.get_row(ref), self.get_column(ref))
+
+        # 2. Insert contribution-width columns at column A.
+        await self.batch_update({"requests": [{
+            "insertDimension": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
+                "inheritFromBefore": False,
+            }
+        }]})
+
+        # 3. Add the contribution Table into the freed left columns.
+        await self._add_contribution_table(page_id)
+
+        # 4. Reconstruct the bot-owned header (name/url hyperlink) in its
+        #    post-shift position; restore flavour/progress.
+        requests = [self.update_cell(
+            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            self.get_row(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name) + self.CONTRIBUTION_WIDTH,
+            self.FORMULA_INPUT, page_id)]
+        for label in ("flavour", "progress"):
+            if label in saved_cells:
+                val, row, col = saved_cells[label]
+                requests.append(self.update_cell(
+                    str(val), row, col + self.CONTRIBUTION_WIDTH,
+                    self.STRING_INPUT, page_id))
+        if requests:
+            await self.batch_update({"requests": requests})
+
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
