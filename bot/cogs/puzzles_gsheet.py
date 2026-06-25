@@ -764,6 +764,7 @@ class GoogleSheets(commands.Cog):
     # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
     # (Notes) belongs to solvers and is NEVER written by the reconcile.
     UNASSIGNED_HEADER = ["id", "Puzzle", "Answer", "Length", "Notes"]
+    CONTRIBUTION_HEADER = ["key", "Type", "Source", "Content"]
 
     async def ensure_unassigned_table(self, page_id, show_round=False):
         """Prepare the Unassigned Puzzles tab: write the header row and, best
@@ -822,6 +823,46 @@ class GoogleSheets(commands.Cog):
             )
         except Exception:
             logger.exception("ensure_unassigned_table: native Table styling skipped")
+        return table_id
+
+    # --- Task 6: contribution Table create --------------------------------
+
+    async def _add_contribution_table(self, page_id, header_row=0):
+        """Create the unified contribution native Table on a target's tab.
+
+        Columns: A key (hidden), B Type, C Source, D Content. The table range
+        starts at header_row and initially spans the header only; appendCells
+        grows it over the body. Returns the native tableId (or page_id sentinel
+        if the Table API is unavailable, matching ensure_unassigned_table)."""
+        table_id = page_id
+        body = {"requests": [{"addTable": {"table": {
+            "name": "Contributions",
+            "range": {
+                "sheetId": page_id,
+                "startRowIndex": header_row,
+                "endRowIndex": header_row + 1,
+                "startColumnIndex": 0,
+                "endColumnIndex": len(self.CONTRIBUTION_HEADER),
+            },
+            "columnProperties": [
+                {"columnIndex": i, "columnName": name}
+                for i, name in enumerate(self.CONTRIBUTION_HEADER)
+            ],
+        }}}]}
+        result = await self.batch_update(body)
+        try:
+            table_id = result["replies"][0]["addTable"]["table"]["tableId"]
+        except (KeyError, IndexError, TypeError):
+            return table_id
+        # Hide the key column.
+        await self.batch_update({"requests": [{
+            "updateDimensionProperties": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": 1},
+                "properties": {"hiddenByUser": True},
+                "fields": "hiddenByUser",
+            }
+        }]})
         return table_id
 
     async def read_unassigned_keys(self, page_id):
