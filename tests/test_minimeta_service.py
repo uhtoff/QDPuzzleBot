@@ -56,7 +56,7 @@ class TestCogBeforeInvokeThread:
     @patch("bot.cogs.puzzles.RoundJsonDb")
     def test_thread_routes_to_mini_puzzle(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
         from bot.cogs.puzzles import Puzzles
-        import asyncio, discord
+        import asyncio
 
         mini = make_puzzle(id=5, hunt_id=10, channel_id=777, parent_puzzle_id=3, tags=[1])
         hunt = make_hunt(id=10)
@@ -87,7 +87,7 @@ class TestCogBeforeInvokeThread:
     @patch("bot.cogs.puzzles.RoundJsonDb")
     def test_unknown_thread_becomes_guild(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
         from bot.cogs.puzzles import Puzzles
-        import asyncio, discord
+        import asyncio
 
         GuildDb.get.return_value = MagicMock()
         GuildDb.get_channel_type.return_value = None
