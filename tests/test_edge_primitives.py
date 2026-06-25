@@ -41,8 +41,8 @@ def _make_cog_c():
 def _service_mocks(cog, groups_by_id=None):
     """Patch the JsonDb seams and stub the service's sheet/board side-effects.
 
-    ``groups_by_id`` feeds ``RoundJsonDb.get_by_attr(id=...)`` so the methods can
-    resolve the "other" groups they touch. Yields the (PuzzleJsonDb, RoundJsonDb,
+    ``groups_by_id`` feeds ``TagGroupJsonDb.get_by_attr(id=...)`` so the methods can
+    resolve the "other" groups they touch. Yields the (PuzzleJsonDb, TagGroupJsonDb,
     HuntJsonDb) mocks so a test can configure/inspect DB calls.
     """
     groups_by_id = groups_by_id or {}
@@ -59,7 +59,7 @@ def _service_mocks(cog, groups_by_id=None):
         return None
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
         mpdb.commit.side_effect = lambda p: None
         mpdb.tag_puzzle_with_edge.return_value = None

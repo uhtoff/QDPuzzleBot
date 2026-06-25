@@ -33,8 +33,6 @@ class PuzzleData:
     voice_channel_id: int = 0
     url: str = ""
     google_page_id: str = ""
-    metapuzzle: int = 0
-    metameta: int = 0
     additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False
@@ -48,6 +46,7 @@ class PuzzleData:
     archive_time: Optional[datetime.datetime] = None
     tags: List[int] = field(default_factory=list)
     tag_edges: Dict[int, str] = field(default_factory=dict)  # M7: tag_group_id -> edge_type
+    is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)
     parent_puzzle_id: Optional[int] = None
 
     @classmethod
@@ -83,9 +82,6 @@ class PuzzleData:
         Sorts puzzles by start_time.
         """
         return sorted(puzzles, key=lambda p: p.start_time)
-
-    def is_metapuzzle(self) -> bool:
-        return self.metapuzzle == 1
 
     def add_tag(self, tag):
         self.tags.append(tag)

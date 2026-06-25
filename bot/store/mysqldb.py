@@ -235,12 +235,13 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges']
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target']
 
     def construct_puzzle(self, row):
         puzzle = PuzzleData.import_dict(row)
         self.get_tags(puzzle)
         self.get_additional_sheets(puzzle)
+        self.get_is_target(puzzle)
         return puzzle
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
@@ -354,7 +355,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute(
             "SELECT p.* FROM puzzles p"
             " WHERE p.hunt_id = %s"
-            "   AND p.metapuzzle = 0"
+            "   AND NOT EXISTS (SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = p.id)"
             "   AND p.parent_puzzle_id IS NULL"   # mini-meta feeders are assigned
             "   AND NOT EXISTS ("
             "       SELECT 1 FROM tags t"
@@ -387,6 +388,19 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             for attr, value in sheet.__dict__.items():
                 setattr(sheet, attr, row.get(attr, None))
             puzzle.additional_sheets.append(sheet)
+        cursor.close()
+
+    def get_is_target(self, puzzle):
+        """Derive is-target: True iff some tag_group targets this puzzle.
+
+        Eager-loaded here (the single read seam) so is-meta reads stay free
+        attribute accesses. Lookup on tag_group.target_puzzle_id."""
+        cursor = self.mydb.cursor()
+        cursor.execute(
+            "SELECT 1 FROM tag_group WHERE target_puzzle_id = %s LIMIT 1",
+            (puzzle.id,),
+        )
+        puzzle.is_target = cursor.fetchone() is not None
         cursor.close()
 
     def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):

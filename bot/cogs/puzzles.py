@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupData, RoundJsonDb, HuntData, HuntJsonDb
+    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -134,7 +134,7 @@ class Puzzles(commands.Cog):
                 channel_type = 'Puzzle'
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
                 for tag_id in puzzle.tags:
-                    r = RoundJsonDb.get_by_attr(id=tag_id)
+                    r = TagGroupJsonDb.get_by_attr(id=tag_id)
                     if r:
                         tag_group = r
                         break
@@ -149,7 +149,7 @@ class Puzzles(commands.Cog):
             if channel_type == 'Hunt':
                 hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             if channel_type == 'Group':
-                tag_group = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
+                tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
                 if tag_group:
                     channel_type = tag_group.type
                     hunt = HuntJsonDb.get_by_attr(id=tag_group.hunt_id)
@@ -160,11 +160,11 @@ class Puzzles(commands.Cog):
                 # Check if we've actually got the metapuzzle for a group and set the right channel type if so
                 # Otherwise grab the group from the category
                 if puzzle:
-                    tag_group = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+                    tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                     if tag_group:
                         channel_type = tag_group.type
                     else:
-                        tag_group = RoundJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
+                        tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
                     hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
@@ -186,7 +186,7 @@ class Puzzles(commands.Cog):
         if self.get_puzzle(ctx):
             PuzzleJsonDb.commit(self.get_puzzle(ctx))
         if self.get_tag_group(ctx):
-            RoundJsonDb.commit(self.get_tag_group(ctx))
+            TagGroupJsonDb.commit(self.get_tag_group(ctx))
         if self.get_hunt(ctx):
             HuntJsonDb.commit(self.get_hunt(ctx))
         if self.get_guild_data(ctx):
@@ -200,8 +200,8 @@ class Puzzles(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         # Pull valid rounds/metas from DB
         channel = interaction.channel
-        hunt_id = RoundJsonDb.get_by_attr(category_id = channel.category.id).hunt_id
-        rounds = RoundJsonDb.get_all(hunt_id)
+        hunt_id = TagGroupJsonDb.get_by_attr(category_id = channel.category.id).hunt_id
+        rounds = TagGroupJsonDb.get_all(hunt_id)
         rounds_sorted = sorted(
             rounds,
             key=lambda r: (
@@ -508,18 +508,6 @@ class Puzzles(commands.Cog):
 
     # --- legacy create twins removed (Phase 5 strangle) ---
 
-    async def _update_metameta_impl(self, ctx, metameta, hunt_id):
-        all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
-        await self.get_gsheet_cog(ctx).add_metametapuzzle_data(metameta, all_puzzles)
-
-    @commands.command()
-    async def update_metameta(self, ctx):
-        hunt_id = self.get_hunt(ctx).id
-        meta_meta_puzzle = PuzzleJsonDb.get_by_attr(metameta=1)
-        if meta_meta_puzzle:
-            await self._update_metameta_impl(ctx, meta_meta_puzzle, hunt_id)
-        await ctx.send(":white_check_mark: Meta meta updated")
-
     @commands.hybrid_command(description="Rebuild meta roll-up sheets (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def rebuild(self, ctx):
@@ -533,11 +521,11 @@ class Puzzles(commands.Cog):
         target = None
         category = getattr(ctx.channel, "category", None)
         if category is not None:
-            candidate = RoundJsonDb.get_by_attr(category_id=category.id)
+            candidate = TagGroupJsonDb.get_by_attr(category_id=category.id)
             if candidate is not None and candidate.target_puzzle_id:
                 target = candidate
         rounds = [target] if target is not None else [
-            r for r in RoundJsonDb.get_all(hunt.id) if r.target_puzzle_id
+            r for r in TagGroupJsonDb.get_all(hunt.id) if r.target_puzzle_id
         ]
         if not rounds:
             await ctx.send(":information_source: No meta sheets to rebuild in this hunt.")
@@ -776,7 +764,7 @@ class Puzzles(commands.Cog):
 
 
     def get_tag_from_category(self, category):
-        tag_group = RoundJsonDb.get_by_attr(category_id=category.id)
+        tag_group = TagGroupJsonDb.get_by_attr(category_id=category.id)
         if tag_group:
             return tag_group.id
         else:
@@ -790,7 +778,7 @@ class Puzzles(commands.Cog):
         tag_info = ""
         tags = puzzle.tags.copy()
         for tag in tags:
-            tag_name = RoundJsonDb.get_by_attr(id=tag).name
+            tag_name = TagGroupJsonDb.get_by_attr(id=tag).name
             tag_info += f"{tag_name} - ID:{tag}\n"
         embed = discord.Embed(
             description=f"""Tag listing for {puzzle.name}"""
@@ -800,7 +788,7 @@ class Puzzles(commands.Cog):
             value=tag_info,
             inline=False,
         )
-        groups = RoundJsonDb.get_all(self.get_hunt(ctx).id)
+        groups = TagGroupJsonDb.get_all(self.get_hunt(ctx).id)
         group_info = ""
         for group in groups:
             group_info += f"{group.name} - ID:{group.id}\n"
@@ -1033,7 +1021,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a main group channel")
             return
         meta_category = ctx.channel.category
-        target_group = RoundJsonDb.get_by_attr(category_id=meta_category.id)
+        target_group = TagGroupJsonDb.get_by_attr(category_id=meta_category.id)
         if not target_group:
             await ctx.send(":x: Could not find the group for this category.")
             return
@@ -1076,7 +1064,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await self.service.tag_with_edge(puzzle, target_group, "feeds")
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
@@ -1098,7 +1086,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await ctx.send(
                 f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
@@ -1120,7 +1108,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if not target_group:
             await ctx.send(":x: Please send a valid group code")
             return
@@ -1144,7 +1132,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await self.service.tag_with_edge(puzzle, target_group, "informs")
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
@@ -1165,7 +1153,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await ctx.send(
                 f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
@@ -1186,7 +1174,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await self.service.tag_with_edge(puzzle, target_group, "none")
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
@@ -1207,7 +1195,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await ctx.send(
                 f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
@@ -1325,7 +1313,7 @@ class Puzzles(commands.Cog):
         if ( puzzle := self.get_puzzle(ctx) ) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif puzzle.is_metapuzzle():
+        elif puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
             return
 
@@ -1350,7 +1338,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a capstone.")
             return
 
@@ -1375,7 +1363,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a runaround.")
             return
 
@@ -1400,7 +1388,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a group.")
             return
 
@@ -1428,7 +1416,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif puzzle.is_metapuzzle() is False:
+        elif puzzle.is_target is False:
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
@@ -1461,7 +1449,7 @@ class Puzzles(commands.Cog):
         if self.get_channel_type(ctx) == "Puzzle":
             PuzzleJsonDb.commit(settings)
         elif self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
-            RoundJsonDb.commit(settings)
+            TagGroupJsonDb.commit(settings)
         elif self.get_channel_type(ctx) == "Hunt":
             HuntJsonDb.commit(settings)
         else:
@@ -2143,7 +2131,7 @@ class Puzzles(commands.Cog):
         service.refresh_metas, and a SheetRefreshError is raised if any failed so the
         bang edge can warn (via _warn_stale_sheets) instead of aborting mid-loop."""
         hunt = self.get_hunt(ctx)
-        tag_groups = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed = await self.service.refresh_targets(hunt, tag_groups)
         if failed:
             raise SheetRefreshError(failed)
@@ -2600,7 +2588,7 @@ class Puzzles(commands.Cog):
         self.set_tag_group(ctx, None)
 
     async def delete_round_data(self, tag_group: TagGroupData):
-        RoundJsonDb.delete(tag_group.id)
+        TagGroupJsonDb.delete(tag_group.id)
         return True
 
     async def _confirm_destructive(self, ctx, description):

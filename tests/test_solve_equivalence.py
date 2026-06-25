@@ -60,11 +60,11 @@ class TestWebSolvePuzzleState:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -175,18 +175,18 @@ class TestSolutionCasingNormalization:
     def _patch_ctx(self):
         return (
             patch("bot.cogs.puzzles.PuzzleJsonDb"),
-            patch("bot.cogs.puzzles.RoundJsonDb"),
+            patch("bot.cogs.puzzles.TagGroupJsonDb"),
             patch("bot.cogs.puzzles.HuntJsonDb"),
             patch("bot.cogs.puzzles.GuildSettingsDb"),
         )
 
     async def _run_solve(self, cog, hunt, puzzle, solution):
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: None
@@ -197,11 +197,11 @@ class TestSolutionCasingNormalization:
 
     async def _run_add_partial(self, cog, hunt, puzzle, solution):
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: None
@@ -212,11 +212,11 @@ class TestSolutionCasingNormalization:
 
     async def _run_change_solution(self, cog, hunt, puzzle, solution):
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: None
@@ -227,11 +227,11 @@ class TestSolutionCasingNormalization:
 
     async def _run_add_solution(self, cog, hunt, puzzle, solution):
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: None
@@ -281,10 +281,10 @@ class TestWebTagWithEdge:
     async def _run(self, cog, puzzle, round_data):
         hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
@@ -330,10 +330,10 @@ class TestWebUntagFrom:
     async def _run(self, cog, puzzle, round_data):
         hunt = make_hunt()
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.return_value = round_data
@@ -384,10 +384,10 @@ class TestWebTagEdgeOnly:
             return old_rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb):
             mock_pdb.commit.side_effect = lambda p: None
             mock_rdb.get_by_attr.side_effect = fake_round_get
@@ -396,7 +396,7 @@ class TestWebTagEdgeOnly:
 
     @pytest.mark.asyncio
     async def test_feeder_replaces_same_type_edges(self, cog):
-        puz = make_puzzle(tags=[3, 4], metapuzzle=0)
+        puz = make_puzzle(tags=[3, 4])
         puz.tag_edges = {3: "feeds", 4: "feeds"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 4: make_round(id=4)})
@@ -405,7 +405,7 @@ class TestWebTagEdgeOnly:
     @pytest.mark.asyncio
     async def test_preserves_different_type_edges(self, cog):
         # Edge "informs" on group 5 is NOT removed by a feeds-only tag_edge_only.
-        puz = make_puzzle(tags=[3, 5], metapuzzle=0)
+        puz = make_puzzle(tags=[3, 5])
         puz.tag_edges = {3: "feeds", 5: "informs"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 5: make_round(id=5)})
@@ -435,11 +435,11 @@ class TestWebAddPartial:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -506,11 +506,11 @@ class TestWebChangeSolution:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -564,11 +564,11 @@ class TestWebAddSolution:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -622,11 +622,11 @@ class TestWebConvertToPuzzle:
             return meta_round
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -642,28 +642,28 @@ class TestWebConvertToPuzzle:
 
     @pytest.mark.asyncio
     async def test_clears_metapuzzle_flag(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
-        assert not puz.metapuzzle
+        assert not puz.is_target
 
     @pytest.mark.asyncio
     async def test_deletes_meta_round(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         _, _, deletes = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert deletes == [5]
 
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert 5 not in puz.tags
 
     @pytest.mark.asyncio
     async def test_commits_puzzle(self, cog, hunt):
-        puz = make_puzzle(id=42, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=42, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=42)
         _, commits, _ = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
@@ -671,7 +671,7 @@ class TestWebConvertToPuzzle:
     @pytest.mark.asyncio
     async def test_returns_orphan_count_excluding_meta(self, cog, hunt):
         # Round 5 holds the meta (id 1) plus two feeders -> 2 orphaned feeders.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         feeder_a = make_puzzle(id=2, tags=[5])
         feeder_b = make_puzzle(id=3, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
@@ -683,19 +683,19 @@ class TestWebConvertToPuzzle:
     @pytest.mark.asyncio
     async def test_no_round_clears_flag_without_delete(self, cog, hunt):
         # Defensive: a metapuzzle with no backing round still demotes cleanly.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
+        puz = make_puzzle(id=1, is_target=True, tags=[])
         orphaned, _, deletes = await self._run(cog, hunt, puz, meta_round=None)
-        assert not puz.metapuzzle
+        assert not puz.is_target
         assert deletes == []
         assert orphaned == 0
 
     def test_preview_lists_orphan_feeders(self, cog):
         # Read-only helper that powers the confirm dialog: feeders minus the meta.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         feeder_a = make_puzzle(id=2, tags=[5])
         feeder_b = make_puzzle(id=3, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
-        with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb, \
+        with patch("bot.core.puzzle_service.TagGroupJsonDb") as mock_rdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb") as mock_pdb:
             mock_rdb.get_by_attr.return_value = rnd
             mock_pdb.get_all_from_tag_group.return_value = [puz, feeder_a, feeder_b]
@@ -703,8 +703,8 @@ class TestWebConvertToPuzzle:
         assert [p.id for p in orphans] == [2, 3]
 
     def test_preview_empty_when_no_round(self, cog):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
-        with patch("bot.core.puzzle_service.RoundJsonDb") as mock_rdb:
+        puz = make_puzzle(id=1, is_target=True, tags=[])
+        with patch("bot.core.puzzle_service.TagGroupJsonDb") as mock_rdb:
             mock_rdb.get_by_attr.return_value = None
             assert cog.service.feeders_orphaned_by_convert(puz) == []
 
@@ -723,7 +723,7 @@ class TestWebDeletePuzzle:
 
     async def _run(self, cog, hunt, puzzle, meta_rounds=None):
         """Run service.delete_puzzle with mocked DBs. meta_rounds is the list
-        RoundJsonDb.get_by_attr returns for each tag (one per tag)."""
+        TagGroupJsonDb.get_by_attr returns for each tag (one per tag)."""
         deletes = []
         tag_rounds = list(meta_rounds or [])
 
@@ -735,11 +735,11 @@ class TestWebDeletePuzzle:
             return None
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.delete.side_effect = lambda pid: deletes.append(("puzzle", pid))
@@ -762,7 +762,7 @@ class TestWebDeletePuzzle:
         """delete_puzzle refreshes parent metas (via refresh_metas) for each tag."""
         rnd = make_round(id=5, target_puzzle_id=3)
         puz = make_puzzle(id=7, tags=[5])
-        # Service calls RoundJsonDb.get_by_attr(id=5) to resolve the tag.
+        # Service calls TagGroupJsonDb.get_by_attr(id=5) to resolve the tag.
         await self._run(cog, hunt, puz, meta_rounds=[rnd])
         # No assertion on meta sheet calls — gsheet cog is None in tests.
         # The DB delete is the minimal observable invariant.
@@ -795,11 +795,11 @@ class TestWebDeleteRound:
         puzzles = puzzles or []
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.delete.side_effect = lambda pid: puzzle_deletes.append(pid)
@@ -865,11 +865,11 @@ class TestWebSetPuzzleUrl:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -908,8 +908,8 @@ class TestWebSetPuzzleUrl:
 # puzzle.id, generate meta_code; then puzzle.add_tag(round.id), metapuzzle=1,
 # commit. gsheet restructure (convert_puzzle_spreadsheet) + channel-type live at
 # the edge / are skipped with no gsheet cog. Method returns (round, puzzle).
-# NOTE: _round_impl calls RoundJsonDb.generate_uid for meta_code — the harness
-# must give RoundJsonDb.generate_uid a return value (e.g. "MCODE1").
+# NOTE: _round_impl calls TagGroupJsonDb.generate_uid for meta_code — the harness
+# must give TagGroupJsonDb.generate_uid a return value (e.g. "MCODE1").
 # ---------------------------------------------------------------------------
 class TestWebConvertToMeta:
     @pytest.fixture
@@ -928,11 +928,11 @@ class TestWebConvertToMeta:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -948,10 +948,9 @@ class TestWebConvertToMeta:
 
     @pytest.mark.asyncio
     async def test_marks_metapuzzle(self, cog, hunt):
-        puz = make_puzzle(metapuzzle=0)
+        puz = make_puzzle()
         await self._run(cog, hunt, puz)
-        assert puz.metapuzzle == 1
-        assert puz.is_metapuzzle() is True
+        assert puz.is_target is True
 
     @pytest.mark.asyncio
     async def test_creates_round_with_meta_id(self, cog, hunt):
@@ -991,11 +990,11 @@ class TestWebRenamePuzzle:
             return rounds_by_id.get(list(kwargs.values())[0])
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb") as mock_pdb, \
-             patch("bot.cogs.puzzles.RoundJsonDb") as mock_rdb, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
              patch("bot.cogs.puzzles.HuntJsonDb") as mock_hdb, \
              patch("bot.cogs.puzzles.GuildSettingsDb") as mock_gsdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb", mock_pdb), \
-             patch("bot.core.puzzle_service.RoundJsonDb", mock_rdb), \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb), \
              patch("bot.core.puzzle_service.HuntJsonDb", mock_hdb), \
              patch("bot.core.puzzle_service.GuildSettingsDb", mock_gsdb):
             mock_pdb.commit.side_effect = lambda p: commits.append(("puzzle", p.id))
@@ -1066,7 +1065,7 @@ class TestBangUnsolveDelegation:
         cog.service.unsolve = AsyncMock()
 
         with patch("bot.cogs.puzzles.PuzzleJsonDb"), \
-             patch("bot.cogs.puzzles.RoundJsonDb"):
+             patch("bot.cogs.puzzles.TagGroupJsonDb"):
             await cog.unsolve.callback(cog, ctx)
 
         cog.service.unsolve.assert_called_once()

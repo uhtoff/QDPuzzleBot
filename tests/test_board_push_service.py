@@ -50,7 +50,7 @@ async def test_solve_emits_board_changed():
     puzzle = make_puzzle(id=1, hunt_id=10)
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.return_value = None
         await svc.solve(guild=MagicMock(), hunt=hunt, puzzle=puzzle, solution="ANSWER")
 
@@ -70,7 +70,7 @@ async def test_tag_edge_only_emits_board_changed():
 
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb"), \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
         svc.refresh_targets = AsyncMock(return_value=[])
@@ -112,7 +112,7 @@ async def test_untag_from_emits_board_changed():
 
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb"), \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
         svc.refresh_targets = AsyncMock(return_value=[])
@@ -202,9 +202,9 @@ async def test_create_tag_group_emits_board_changed():
     ref_cat.clone = AsyncMock(return_value=new_cat)
     new_cat.edit = AsyncMock()
     hunt = _hunt()
-    meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
+    meta_puzzle = make_puzzle(id=77, name="New Round", is_target=True, channel_id=222)
 
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=333), True))), \

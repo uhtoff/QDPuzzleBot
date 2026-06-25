@@ -41,7 +41,7 @@ def _patched(rollup_existing=None):
     `rollup_existing` (None -> a fresh round-mode row is created)."""
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
         rudb.get_by_attr.return_value = rollup_existing
         yield pdb, hdb, rdb, rudb
@@ -53,7 +53,7 @@ class TestSourceModeRouting:
         # rollup.source_mode == "round" (the default) -> today's path, unchanged.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
@@ -68,7 +68,7 @@ class TestSourceModeRouting:
         # parent_group_id branch and render via the metameta (3-col) path.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         # child round 6 nested under round 5; its solved feeder is id=2.
         child = make_round(id=6, target_puzzle_id=0)
@@ -77,7 +77,7 @@ class TestSourceModeRouting:
         solved.tag_edges = {6: "feeds"}
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            rdb.get_all.return_value = [meta_round, child]   # RoundJsonDb.get_all(hunt_id)
+            rdb.get_all.return_value = [meta_round, child]   # TagGroupJsonDb.get_all(hunt_id)
             pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
             await svc.refresh_target(_hunt(), meta_round)
         # the metameta renderer received exactly the branch's solved puzzles
@@ -92,7 +92,7 @@ class TestSourceModeRouting:
         # is 'none' are aggregated, rendered via the 2-col pool shape.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
         pooled.tag_edges = {5: "none"}

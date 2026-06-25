@@ -19,7 +19,7 @@ def _svc():
 async def test_valid_nesting_sets_parent_and_commits():
     svc = _svc()
     child, parent = make_round(id=1), make_round(id=2)
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.side_effect = lambda **kw: {2: parent}.get(kw["id"])
         await svc.set_parent_group(child, 2)
     assert child.parent_group_id == 2
@@ -30,7 +30,7 @@ async def test_valid_nesting_sets_parent_and_commits():
 async def test_self_nest_rejected():
     svc = _svc()
     child = make_round(id=1)
-    with patch("bot.core.puzzle_service.RoundJsonDb"):
+    with patch("bot.core.puzzle_service.TagGroupJsonDb"):
         with pytest.raises(ValueError):
             await svc.set_parent_group(child, 1)
     assert child.parent_group_id is None
@@ -41,7 +41,7 @@ async def test_descendant_cycle_rejected():
     svc = _svc()
     child, parent = make_round(id=1), make_round(id=2)
     parent.parent_group_id = 1  # round 2 is already nested under round 1
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.side_effect = lambda **kw: {1: child, 2: parent}.get(kw["id"])
         with pytest.raises(ValueError):
             await svc.set_parent_group(child, 2)  # nesting 1 under 2 would cycle
@@ -54,7 +54,7 @@ async def test_clear_parent_always_allowed():
     svc = _svc()
     child = make_round(id=1)
     child.parent_group_id = 9
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         await svc.set_parent_group(child, None)
     assert child.parent_group_id is None
     rdb.commit.assert_called_once_with(child)

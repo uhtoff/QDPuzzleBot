@@ -11,7 +11,7 @@ from typing import List
 from discord.ext import commands
 
 from bot.utils import config
-from bot.store import PuzzleData, RoundJsonDb
+from bot.store import PuzzleData, TagGroupJsonDb
 from bot.utils.gsheets import get_sheet, get_drive, execute_sync, execute_with_retry
 
 logger = logging.getLogger(__name__)
@@ -228,14 +228,14 @@ class GoogleSheets(commands.Cog):
                 f"Couldn't read the source sheet (page id {old_puzzle.google_page_id}) "
                 "while converting the puzzle; aborting before resizing it to zero rows."
             )
-        if new_puzzle.is_metapuzzle():
+        if new_puzzle.is_target:
             new_grid_columns = old_grid_columns + 2
         else:
             new_grid_columns = old_grid_columns
         new_grid_rows = old_grid_rows
         await self.update_grid_size(new_puzzle.google_page_id, new_grid_rows, new_grid_columns)
         old_start_row = new_start_row = self.FIRST_PUZZLE_ROW
-        if new_puzzle.is_metapuzzle():
+        if new_puzzle.is_target:
             old_start_column = self.FIRST_PUZZLE_COLUMN
             new_start_column = self.FIRST_METAPUZZLE_COLUMN
         else:
@@ -363,7 +363,7 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
-        if puzzle.metapuzzle == 1:
+        if puzzle.is_target:
             puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index, self.METAPUZZLE_SHEET)
         else:
             puzzle.google_page_id = await self.add_new_sheet(self.get_unique_tab_name(puzzle.name), index)
@@ -499,7 +499,7 @@ class GoogleSheets(commands.Cog):
             if self.get_archive_spreadsheet_id():
                 current_name = self.get_page_name_by_id(sheet.google_page_id)
                 sheet.google_page_id = await self.move_puzzle_spreadsheet(True, sheet.google_page_id, current_name)
-        if puzzle_data.is_metapuzzle() is False and self.get_archive_spreadsheet_id():
+        if puzzle_data.is_target is False and self.get_archive_spreadsheet_id():
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(True, puzzle_data.google_page_id, puzzle_data.name)
             puzzle_data.archived = True
             return
@@ -744,12 +744,12 @@ class GoogleSheets(commands.Cog):
         for round_puzzle in round_puzzles:
             if round_puzzle.id == puzzle.id:      # skip self
                 continue
-            if round_puzzle.metapuzzle == 1:      # metas roll up via their feeders, not here
+            if round_puzzle.is_target:      # metas roll up via their feeders, not here
                 continue
             if len(round_puzzle.tags) > 1:        # ambiguous multi-round membership
                 continue
             if round_puzzle.tags:
-                round = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0])
+                round = TagGroupJsonDb.get_by_attr(id=round_puzzle.tags[0])
                 round_name = round.name
             else:
                 round_name = "No Round"
