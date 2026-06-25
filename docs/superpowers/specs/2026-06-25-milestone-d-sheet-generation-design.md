@@ -94,27 +94,26 @@ frozen header rows):
 - The Meta tab's old rollup region (A4 "managed by the bot" notice; A5/B5 "Puzzle name"/
   "Puzzle solution" headers, data below) is **replaced** by the generated contribution Table.
 
-**Target-ness signal — has-target, name-agnostic.** The trigger is **"is this puzzle the
-target of some tag_group?"** Today that is `puzzle.is_metapuzzle()`
-(`bot/store/puzzle_data.py:87` → `self.metapuzzle == 1`); a pending change (see below) may
-replace the `metapuzzle` column with a derived `has_target(puzzle)` helper. **D depends on
-the has-target *concept*, not the column** — it calls whatever the current accessor is and
-does not bake in `metapuzzle`.
+**Target-ness signal — `puzzle.is_target` (B2 has landed).** The trigger is **"is this puzzle
+the target of some tag_group?"**, answered by **`puzzle.is_target`** — the puzzle-side
+accessor B2 introduced when it dropped the `metapuzzle`/`metameta` columns. The gsheet layer
+already uses it (`add_new_puzzle_sheet`, `convert_puzzle_spreadsheet`,
+`add_metametapuzzle_data`), so D consumes the same attribute.
 
-The signal means **has-target**, *not* "is-fed". An audit of all readers confirmed
-`metapuzzle` is used purely as has-target everywhere; the fed-vs-informed distinction lives
+The signal means **has-target**, *not* "is-fed": the fed-vs-informed distinction lives
 entirely in the **edge layer** (`select_rollup_members` filters `tag_edges == "feeds"`;
-membership never gates on `metapuzzle`). So a Capstone's or Runaround's target is equally a
+membership never gates on `is_target`). So a Capstone's or Runaround's target is equally a
 target. The contribution table is correct for all of them — its rows distinguish
 `Feeder` / `Information` / `Group` from the **edges**, so it renders the right content
-whether the target is fed, informed, or both. D must never read the has-target signal as
-"this is a fed meta".
+whether the target is fed, informed, or both. D must never read `is_target` as "this is a
+fed meta".
 
-> **Prerequisite: Milestone B2** — `docs/superpowers/specs/2026-06-25-milestone-b2-derive-has-target-design.md`.
-> B2 (sequenced **after C, before D**) derives has-target and drops the denormalised
-> `metapuzzle` + `metameta` columns, replacing `is_metapuzzle()` with a `has_target(puzzle)`
-> accessor. D is written name-agnostic, so it reads `has_target` once B2 lands (and would
-> still work via `is_metapuzzle()` if B2 slipped).
+> **Prerequisite: Milestone B2 — LANDED** (`docs/superpowers/specs/2026-06-25-milestone-b2-derive-has-target-design.md`).
+> B2 dropped the `metapuzzle`/`metameta` columns (migration 013), introduced the puzzle-side
+> `puzzle.is_target` accessor, renamed `RoundJsonDb`→`TagGroupJsonDb`, and rewrote
+> `get_unassigned` to derive target-ness via `NOT EXISTS(tag_group WHERE target_puzzle_id =
+> p.id)`. D builds on this directly (`puzzle.is_target`, `TagGroupJsonDb`, the derived
+> `get_unassigned`).
 
 This replaces `add_new_sheet`'s `duplicateSheet` and **retires** `copy_puzzle`'s
 column-shuffle. **Create and promote become the same routine** — promotion is just "this

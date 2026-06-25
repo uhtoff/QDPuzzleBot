@@ -19,12 +19,12 @@
 
 - **Milestone C is landed** (this worktree is on `main` @ the C merge): `convert_to_type`,
   edge vocabulary `feeds`/`informs`/`none`, `target_puzzle_id`/`group_code` all present.
-- **Milestone B2** (derive `has_target`, drop `metapuzzle`/`metameta`) is sequenced *before*
-  D. This plan is **written name-agnostic**: it calls `puzzle.is_metapuzzle()` (the current
-  has-target accessor) everywhere. If B2 lands first, do a single find-replace of
-  `is_metapuzzle()` → the new `has_target(...)` accessor during Task 1 and note it; nothing
-  else changes.
-- **No DB migration** in D.
+- **Milestone B2 is LANDED** (merged into this worktree). The puzzle-side has-target accessor
+  is **`puzzle.is_target`** (the `metapuzzle`/`metameta` columns are gone, migration 013); the
+  gsheet layer already uses `puzzle.is_target`. `RoundJsonDb` is renamed `TagGroupJsonDb`.
+  `get_unassigned` already derives target-ness via `NOT EXISTS(tag_group WHERE
+  target_puzzle_id = p.id)`. Use `puzzle.is_target` / `TagGroupJsonDb` throughout.
+- **No DB migration** in D (013 is B2's; D adds none).
 
 ## Run rules (inlined — the executor does not read global instructions)
 
@@ -98,10 +98,9 @@ Expected: exits 0.
 
 - [ ] **Step 4: Confirm no migration is needed and record the has-target accessor**
 
-Run: `ls migrations/ | tail -3` (expect `012_edge_model.sql` highest; D adds none).
-Run: `grep -rn "def is_metapuzzle\|def has_target" bot/store/puzzle_data.py bot/core/puzzle_service.py`
-Record which accessor exists. If B2 has already landed (`has_target` present, `metapuzzle`
-gone), use `has_target(...)` wherever this plan writes `is_metapuzzle()`.
+Run: `ls migrations/ | tail -3` (expect `013_drop_role_flags.sql` highest — B2's; D adds none).
+Run: `grep -rn "is_target" bot/store/puzzle_data.py bot/cogs/puzzles_gsheet.py | head`
+Confirm `puzzle.is_target` is the live accessor (B2 landed); use it throughout.
 
 **Acceptance:** baseline log shows 0 failures (paste the summary line); ruff exit 0; frontend
 build result recorded. If the baseline is RED or the DB is unreachable, STOP and write
@@ -474,7 +473,7 @@ insert helpers; do not invent new infrastructure):
 #  - a puzzle with only an informs edge    -> INCLUDED (its answer feeds nothing)
 #  - a puzzle with only a none edge         -> INCLUDED
 #  - a puzzle with no tags                  -> INCLUDED
-#  - a target puzzle (is_metapuzzle)        -> EXCLUDED
+#  - a target puzzle (is_target)            -> EXCLUDED
 #  - a mini-meta child (parent_puzzle_id)   -> EXCLUDED
 #
 # Build these via the same insert helpers test_tag_edges.py uses
@@ -493,27 +492,30 @@ meta-bearing round" clause.
 
 - [ ] **Step 3: Update `get_unassigned`**
 
-Replace the `NOT EXISTS` membership clause so only a **`feeds`** edge to a meta disqualifies:
+B2 already rewrote `get_unassigned` to derive target-ness (the `metapuzzle = 0` clause became
+`NOT EXISTS(tag_group mt WHERE mt.target_puzzle_id = p.id)`). D's single change is to the
+**membership** `NOT EXISTS` clause: add `AND t.edge_type = 'feeds'` so only a `feeds` edge to a
+meta disqualifies (informs/none membership no longer does). Also update the docstring:
 
 ```python
     def get_unassigned(self, hunt_id) -> List[PuzzleData]:
         """Return feeder puzzles with no `feeds` edge to any meta (Unassigned Feeders tab).
 
-        A puzzle whose answer feeds nothing is an unassigned feeder regardless of
-        any informs / none membership. Excludes target puzzles and mini-meta feeders.
+        A puzzle whose answer feeds nothing is an unassigned feeder regardless of any
+        informs / none membership. Excludes target puzzles (B2 derivation) and mini-meta feeders.
         """
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(
             "SELECT p.* FROM puzzles p"
             " WHERE p.hunt_id = %s"
-            "   AND p.metapuzzle = 0"            # B2: -> NOT EXISTS(tag_group tg WHERE tg.target_puzzle_id = p.id)
+            "   AND NOT EXISTS (SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = p.id)"
             "   AND p.parent_puzzle_id IS NULL"
             "   AND NOT EXISTS ("
             "       SELECT 1 FROM tags t"
             "       JOIN tag_group r ON t.tag_group_id = r.id"
             "       WHERE t.puzzle_id = p.id"
             "         AND r.target_puzzle_id > 0"
-            "         AND t.edge_type = 'feeds'"   # NEW: only a feeds edge disqualifies
+            "         AND t.edge_type = 'feeds'"   # NEW (D): only a feeds edge disqualifies
             "   )",
             (hunt_id,),
         )
@@ -521,9 +523,6 @@ Replace the `NOT EXISTS` membership clause so only a **`feeds`** edge to a meta 
         cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 ```
-
-(If B2 has landed, also swap the `p.metapuzzle = 0` line for the has-target `NOT EXISTS`
-shown in the comment.)
 
 - [ ] **Step 4: Run it to confirm it passes**
 
@@ -847,7 +846,7 @@ def test_generate_puzzle_tab_writes_header_and_no_table_for_feeder():
     cog.get_unique_tab_name = lambda n: n
 
     from bot.store.puzzle_data import PuzzleData
-    p = PuzzleData(); p.id = 2; p.name = "Alpha"; p.url = "http://x"; p.metapuzzle = 0
+    p = PuzzleData(); p.id = 2; p.name = "Alpha"; p.url = "http://x"; p.is_target = False
 
     page_id = asyncio.run(cog.generate_puzzle_tab(p, is_target=False))
     assert page_id == 901
@@ -863,7 +862,7 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     cog.get_unique_tab_name = lambda n: n
 
     from bot.store.puzzle_data import PuzzleData
-    p = PuzzleData(); p.id = 1; p.name = "Meta"; p.url = "http://m"; p.metapuzzle = 1
+    p = PuzzleData(); p.id = 1; p.name = "Meta"; p.url = "http://m"; p.is_target = True
 
     asyncio.run(cog.generate_puzzle_tab(p, is_target=True))
     assert any("addTable" in r for body in calls for r in body["requests"])
@@ -916,7 +915,7 @@ Rewire `add_new_puzzle_sheet` to call the generator (keep the method name; calle
 
 ```python
     async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
-        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_metapuzzle(), index=index)
+        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
 ```
 
 - [ ] **Step 4: Run the file tests + full suite**
