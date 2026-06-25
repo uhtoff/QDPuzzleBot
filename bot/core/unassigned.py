@@ -24,6 +24,9 @@ def diff_rows(current_ids, desired_rows):
         current_ids: list of puzzle ids currently in the sheet (from read_unassigned_keys).
         desired_rows: list of [id, name, answer, length] rows from the DB.
 
+    Keys may be ints (Unassigned puzzle ids) or strings (contribution row keys);
+    the diff only requires row[0] be hashable and comparable. Shared by both tables.
+
     Returns:
         (appends, updates, prunes) where:
             appends: desired rows whose id is NOT in current_ids.
