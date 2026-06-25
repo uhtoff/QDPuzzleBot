@@ -209,6 +209,25 @@ class GoogleSheets(commands.Cog):
                 "fields": "pixelSize"}},
         ]
 
+    def _label_bold_requests(self, page_id, cells, offset):
+        """repeatCell requests that bold the static label cells. The captured
+        layout marks the labels (Puzzle Title:, Solution: …) bold, but update_cell
+        only writes userEnteredValue, so the bold flag is applied here. `offset`
+        shifts the label column right for a target tab (matches generate_puzzle_tab)."""
+        reqs = []
+        for c in cells:
+            if not c.get("bold"):
+                continue
+            row = self.get_row(c["a1"])
+            col = self.get_column(c["a1"]) + offset
+            reqs.append({"repeatCell": {
+                "range": {"sheetId": page_id,
+                          "startRowIndex": row, "endRowIndex": row + 1,
+                          "startColumnIndex": col, "endColumnIndex": col + 1},
+                "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                "fields": "userEnteredFormat.textFormat.bold"}})
+        return reqs
+
     def _solution_bg_request(self, puzzle, colour):
         """Set the solution cell's background on a puzzle's own tab (green on solve,
         grey on unsolve), honouring the target header shift."""
@@ -1010,6 +1029,8 @@ class GoogleSheets(commands.Cog):
         # (the label column is wherever the labels land — A for a feeder, B for a
         # target). The solution cell stays grey here; it turns green only on solve.
         requests += self._tab_format_requests(page_id, label_col=offset)
+        # Bold the static labels (the captured layout flags them; update_cell drops it).
+        requests += self._label_bold_requests(page_id, cells, offset)
         if requests:
             await self.batch_update({"requests": requests})
 

@@ -310,3 +310,31 @@ def test_render_contribution_builds_rows_and_reconciles():
     assert captured["cols"] == 4
     # the meta's own row is not a contribution of itself
     assert captured["rows"] == [["feeds:2", "Feeder", "Alpha", "WORD"]]
+
+
+# --- Bold static labels (live-test fix #4) ----------------------------------
+
+def test_label_cells_emit_bold_format():
+    """generate_puzzle_tab must bold the captured label cells (the layout flags
+    them bold; update_cell only writes the value). One repeatCell per bold label,
+    column shifted by the target offset."""
+    from bot.cogs import sheet_layout
+
+    cog = _cog()
+    cells, _ = sheet_layout.puzzle_tab_layout(is_target=True)
+    bold_cells = [c for c in cells if c.get("bold")]
+    assert bold_cells, "captured layout should flag labels bold"
+
+    reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=1)
+    assert len(reqs) == len(bold_cells)
+    for r in reqs:
+        rc = r["repeatCell"]
+        assert rc["range"]["sheetId"] == 900
+        assert rc["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
+        assert rc["fields"] == "userEnteredFormat.textFormat.bold"
+
+    # A1 label with offset 1 lands in column index 1 (col B); feeder (offset 0) col A.
+    cols_target = {r["repeatCell"]["range"]["startColumnIndex"] for r in reqs}
+    assert 1 in cols_target
+    feeder_reqs = cog._label_bold_requests(page_id=900, cells=cells, offset=0)
+    assert 0 in {r["repeatCell"]["range"]["startColumnIndex"] for r in feeder_reqs}
