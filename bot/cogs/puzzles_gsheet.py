@@ -28,11 +28,7 @@ _notified_flag = contextvars.ContextVar("notified_flag", default=None)
 class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
     FORMULA_INPUT = "formulaValue"
-    PUZZLE_SHEET = "Tab template"
-    METAPUZZLE_SHEET = "Meta Tab template"
-    FIRST_PUZZLE_ROW = 3
-    FIRST_PUZZLE_COLUMN = 0
-    FIRST_METAPUZZLE_COLUMN = 2
+    PUZZLE_SHEET = "Tab template"   # still used by create_additional_spreadsheet (Extra Sheets)
     INITIAL_OFFSET = 7
     sheets_service = None
 
@@ -103,55 +99,6 @@ class GoogleSheets(commands.Cog):
             )
         return response
 
-    def get_grid_size(self, old_puzzle) -> tuple:
-        target = int(old_puzzle.google_page_id)
-        # Look in the expected spreadsheet first, but fall back to the other one:
-        # if the archived flag is out of sync with where the sheet actually lives,
-        # querying only one would miss it and silently return (0, 0).
-        primary = self.get_archive_spreadsheet_id() if old_puzzle.archived else self.get_spreadsheet_id()
-        secondary = self.get_spreadsheet_id() if old_puzzle.archived else self.get_archive_spreadsheet_id()
-        seen = []
-        for spreadsheet_id in (primary, secondary):
-            if not spreadsheet_id:
-                continue
-            response = execute_sync(get_sheet().get(
-                spreadsheetId=spreadsheet_id,
-                fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
-            ))
-            for sheet in response.get("sheets", []):
-                props = sheet.get("properties", {})
-                seen.append(props.get("sheetId"))
-                if props.get("sheetId") == target:
-                    grid = props.get("gridProperties", {})
-                    return grid.get("rowCount", 0), grid.get("columnCount", 0)
-
-        logger.warning(
-            "get_grid_size: sheet %s not found (searched %s; saw ids %s)",
-            target, [s for s in (primary, secondary) if s], seen,
-        )
-        return 0, 0
-
-    async def update_grid_size(self, sheet_id, row_count, column_count):
-        body = {
-            "requests": [
-                {
-                    "updateSheetProperties": {
-                        "properties": {
-                            "sheetId": sheet_id,
-                            "gridProperties": {
-                                "rowCount": row_count,
-                                "columnCount": column_count
-                            }
-                        },
-                        "fields": "gridProperties(rowCount,columnCount)"
-
-                    }
-                }
-            ]
-        }
-        await self.batch_update(body)
-        return body
-
     def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
         if spreadsheet_id is None:
             existing = {
@@ -216,57 +163,6 @@ class GoogleSheets(commands.Cog):
             'requests': requests
         }
         await self.batch_update(updates, puzzle.archived)
-
-    async def copy_puzzle(self, old_puzzle, new_puzzle):
-        old_grid_rows, old_grid_columns = self.get_grid_size(old_puzzle)
-        if not old_grid_rows or not old_grid_columns:
-            # get_grid_size couldn't locate the source sheet; resizing to 0 rows
-            # would be rejected by Sheets ("can't delete all the rows") and copying
-            # nothing would lose data, so abort rather than corrupt the sheet.
-            raise RuntimeError(
-                f"Couldn't read the source sheet (page id {old_puzzle.google_page_id}) "
-                "while converting the puzzle; aborting before resizing it to zero rows."
-            )
-        if new_puzzle.is_target:
-            new_grid_columns = old_grid_columns + 2
-        else:
-            new_grid_columns = old_grid_columns
-        new_grid_rows = old_grid_rows
-        await self.update_grid_size(new_puzzle.google_page_id, new_grid_rows, new_grid_columns)
-        old_start_row = new_start_row = self.FIRST_PUZZLE_ROW
-        if new_puzzle.is_target:
-            old_start_column = self.FIRST_PUZZLE_COLUMN
-            new_start_column = self.FIRST_METAPUZZLE_COLUMN
-        else:
-            old_start_column = self.FIRST_METAPUZZLE_COLUMN
-            new_start_column = self.FIRST_PUZZLE_COLUMN
-        body = {
-            'requests': [
-                {
-                    "copyPaste": {
-                        "source": {
-                            "sheetId": old_puzzle.google_page_id,
-                            "startRowIndex": old_start_row,
-                            "endRowIndex": old_grid_rows,
-                            "startColumnIndex": old_start_column,
-                            "endColumnIndex": old_grid_columns,
-                        },
-                        "destination": {
-                            "sheetId": new_puzzle.google_page_id,
-                            "startRowIndex": new_start_row,
-                            "endRowIndex": new_grid_rows,
-                            "startColumnIndex": new_start_column,
-                            "endColumnIndex": new_grid_columns,
-                        },
-                        "pasteType": "PASTE_NORMAL",
-                        "pasteOrientation": "NORMAL"
-                    }
-                }
-
-            ]
-        }
-
-        await self.batch_update(body, old_puzzle.archived)
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
