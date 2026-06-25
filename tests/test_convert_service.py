@@ -69,7 +69,7 @@ class TestConvertToType:
 
     @pytest.mark.asyncio
     async def test_promote_in_place_creates_group(self, cog):
-        puz = make_puzzle(id=7, metapuzzle=0)
+        puz = make_puzzle(id=7)
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
              patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
              patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:

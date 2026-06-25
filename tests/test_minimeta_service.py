@@ -27,7 +27,7 @@ class TestPuzzleDataParentField:
             "id": 5, "name": "Mini", "hunt_id": 10,
             "parent_puzzle_id": 3,
             "channel_id": 999, "solved": False, "solution": None,
-            "metapuzzle": 0, "metameta": 0, "status": "", "priority": "",
+            "status": "", "priority": "",
             "puzzle_type": "Mini", "notes": None, "url": "", "google_page_id": "",
             "archived": False, "voice_channel_id": 0, "channel_mention": "",
             "channel_name": "", "start_time": None, "solve_time": None,

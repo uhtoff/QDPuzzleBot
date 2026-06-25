@@ -520,7 +520,7 @@ async def convert_to_meta(puzzle_id):
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
 
-        if puzzle.is_metapuzzle():
+        if puzzle.is_target:
             return jsonify({"error": "already_meta"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -832,7 +832,7 @@ async def retag_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
         if mode == "remove" and puzzle.id == target_group.target_puzzle_id:
             return jsonify({"error": "cannot_remove_own_meta"}), 400
-        if mode == "clear" and puzzle.is_metapuzzle():
+        if mode == "clear" and puzzle.is_target:
             # A metapuzzle can't be unassigned (mirrors "move", which never clears
             # a metapuzzle's tags — doing so would orphan its round).
             return jsonify({"error": "cannot_unassign_meta"}), 400
@@ -903,7 +903,7 @@ async def convert_to_feeder_preview(puzzle_id):
     puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
     if puzzle is None:
         return jsonify({"error": "puzzle_not_found"}), 404
-    if not puzzle.is_metapuzzle():
+    if not puzzle.is_target:
         return jsonify({"error": "not_a_metapuzzle"}), 400
 
     cog = current_app.bot.get_cog("Puzzles")
@@ -940,7 +940,7 @@ async def convert_to_feeder(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if not puzzle.is_metapuzzle():
+        if not puzzle.is_target:
             return jsonify({"error": "not_a_metapuzzle"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -994,9 +994,9 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
             if puzzle is None:
                 return jsonify({"error": "puzzle_not_found"}), 404
 
-            if error_if_not_meta and not puzzle.is_metapuzzle():
+            if error_if_not_meta and not puzzle.is_target:
                 return jsonify({"error": "not_a_metapuzzle"}), 400
-            if not error_if_not_meta and puzzle.is_metapuzzle():
+            if not error_if_not_meta and puzzle.is_target:
                 return jsonify({"error": "already_a_metapuzzle"}), 400
 
             hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -1087,7 +1087,7 @@ async def convert_to_puzzle(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if not puzzle.is_metapuzzle():
+        if not puzzle.is_target:
             return jsonify({"error": "not_a_metapuzzle"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])

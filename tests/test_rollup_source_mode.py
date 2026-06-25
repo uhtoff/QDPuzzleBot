@@ -53,7 +53,7 @@ class TestSourceModeRouting:
         # rollup.source_mode == "round" (the default) -> today's path, unchanged.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
@@ -68,7 +68,7 @@ class TestSourceModeRouting:
         # parent_group_id branch and render via the metameta (3-col) path.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         # child round 6 nested under round 5; its solved feeder is id=2.
         child = make_round(id=6, target_puzzle_id=0)
@@ -92,7 +92,7 @@ class TestSourceModeRouting:
         # is 'none' are aggregated, rendered via the 2-col pool shape.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
         pooled.tag_edges = {5: "none"}

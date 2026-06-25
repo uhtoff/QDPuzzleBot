@@ -16,13 +16,12 @@ from bot.store.tag_group_data import TagGroupData
 
 # Local builders (kept self-contained so this M2 branch doesn't depend on the
 # M1 test-seam's conftest fixtures — M1 and M2 are parallel, independent work).
-def make_puzzle(id=1, name="Puzzle", solution=None, metapuzzle=0, metameta=0, tags=None):
+def make_puzzle(id=1, name="Puzzle", solution=None, is_target=False, tags=None):
     p = PuzzleData()
     p.id = id
     p.name = name
     p.solution = solution
-    p.metapuzzle = metapuzzle
-    p.metameta = metameta
+    p.is_target = is_target
     p.tags = tags if tags is not None else []
     return p
 
@@ -160,7 +159,7 @@ class TestAddMetametapuzzleData:
         }
         self._patch_rounds(monkeypatch, rounds)
 
-        metameta = make_puzzle(id=1, name="MetaMeta", metameta=1)
+        metameta = make_puzzle(id=1, name="MetaMeta", is_target=True)
         metameta.google_page_id = "abc"
         p_in_old = make_puzzle(id=2, name="OldHunt", solution="X", tags=[10])
         p_in_new = make_puzzle(id=3, name="NewHunt", solution="✅", tags=[11])
@@ -182,8 +181,8 @@ class TestAddMetametapuzzleData:
         rounds = {10: make_round(id=10, name="R", group_code="ZZZ")}
         self._patch_rounds(monkeypatch, rounds)
 
-        metameta = make_puzzle(id=1, name="MM", metameta=1)
-        a_meta = make_puzzle(id=2, name="AMeta", metapuzzle=1, tags=[10])
+        metameta = make_puzzle(id=1, name="MM", is_target=True)
+        a_meta = make_puzzle(id=2, name="AMeta", is_target=True, tags=[10])
         multi = make_puzzle(id=3, name="Multi", tags=[10, 11])
         normal = make_puzzle(id=4, name="Normal", solution="Y", tags=[10])
 

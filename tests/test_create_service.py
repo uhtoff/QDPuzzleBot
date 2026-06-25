@@ -90,7 +90,7 @@ async def test_create_round_creates_round_and_meta_puzzle():
 
     # The service makes the meta puzzle via its own create_puzzle; stub that seam so
     # this test isolates the round/meta orchestration (mirrors web_create_round :820).
-    meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
+    meta_puzzle = make_puzzle(id=77, name="New Round", is_target=True, channel_id=222)
     guild.get_channel = MagicMock(return_value=MagicMock(id=222))
 
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
@@ -124,7 +124,7 @@ async def test_create_round_rolls_back_on_failure():
     notifier = MagicMock()
     notifier.welcome = AsyncMock()
 
-    meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
+    meta_puzzle = make_puzzle(id=77, name="New Round", is_target=True, channel_id=222)
     cleanup_mock = AsyncMock()
 
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \

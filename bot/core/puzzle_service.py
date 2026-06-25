@@ -591,7 +591,7 @@ class PuzzleService:
         if edge is not None and puzzle.tag_edges.get(group.id) != edge:
             return
         # Guard against removing the last membership of a metapuzzle
-        if puzzle.is_metapuzzle() and len(puzzle.tags) <= 1:
+        if puzzle.is_target and len(puzzle.tags) <= 1:
             raise ValueError("cannot remove the last tag from a metapuzzle")
         PuzzleJsonDb.delete_tag(puzzle.id, group.id)
         if group.id in puzzle.tags:
@@ -636,7 +636,7 @@ class PuzzleService:
         If the puzzle is already backed by a group, updates type + source_mode
         and (unless Runaround) flips members to the default edge.  If not yet
         grouped, promotes in-place: creates a TagGroupData row, tags the puzzle,
-        sets ``metapuzzle=1``, and commits.
+        sets ``is_target=True``, and commits.
 
         Returns ``(tag_group, summary_string)``.
         """
@@ -655,7 +655,7 @@ class PuzzleService:
             tag_group.group_code = TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name)
             TagGroupJsonDb.commit(tag_group)
             puzzle.add_tag(tag_group.id)
-            puzzle.metapuzzle = 1
+            puzzle.is_target = True
             PuzzleJsonDb.commit(puzzle)
         else:
             # Already grouped — just update type
@@ -886,7 +886,7 @@ class PuzzleService:
 
         Deletes the round whose meta this puzzle is — which ORPHANS every feeder
         tagged to that round — drops the round id from the puzzle's
-        tags, clears the metapuzzle flag, commits, and reverts the puzzle's sheet
+        tags, clears the is_target flag, commits, and reverts the puzzle's sheet
         restructure. Mirrors solve's durability ordering: the DB mutation is
         committed before the sheet revert, so a Sheets failure (which
         convert_puzzle_spreadsheet restores-and-re-raises) leaves the demotion
@@ -900,7 +900,7 @@ class PuzzleService:
             TagGroupJsonDb.delete(target_group.id)
             if target_group.id in puzzle.tags:
                 puzzle.tags.remove(target_group.id)
-        puzzle.metapuzzle = False
+        puzzle.is_target = False
         PuzzleJsonDb.commit(puzzle)
 
         gsheet_cog = self._gsheet_cog(hunt)
@@ -1136,10 +1136,10 @@ class PuzzleService:
         """Convert an existing feeder puzzle into a meta.
 
         Creates a new round wrapping the puzzle, tags the puzzle to that
-        round, sets metapuzzle=1 and commits. Returns (round, puzzle).
+        round, sets is_target=True and commits. Returns (round, puzzle).
         Raises RuntimeError("already_meta") if the puzzle is already a meta.
         """
-        if puzzle.is_metapuzzle():
+        if puzzle.is_target:
             raise RuntimeError("already_meta")
 
         new_round = TagGroupData(
@@ -1154,7 +1154,7 @@ class PuzzleService:
         TagGroupJsonDb.commit(new_round)
 
         puzzle.add_tag(new_round.id)
-        puzzle.metapuzzle = 1
+        puzzle.is_target = True
         PuzzleJsonDb.commit(puzzle)
 
         gsheet_cog = self._gsheet_cog(hunt)
@@ -1356,7 +1356,7 @@ class PuzzleService:
             priority='Normal',
         )
         if is_meta:
-            new_puzzle.metapuzzle = 1
+            new_puzzle.is_target = True
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
             hunt_url_base = hunt.url.rstrip("/")

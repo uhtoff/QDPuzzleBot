@@ -24,7 +24,7 @@ def _hunt():
 async def test_solving_a_meta_marks_its_round_solved():
     svc = _svc_no_sheets()
     meta_round = make_round(id=5, target_puzzle_id=1)   # round 5's meta IS puzzle 1
-    puzzle = make_puzzle(id=1, metapuzzle=1, tags=[5])
+    puzzle = make_puzzle(id=1, is_target=True, tags=[5])
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb"), \
          patch("bot.core.puzzle_service.SheetsJsonDb"):

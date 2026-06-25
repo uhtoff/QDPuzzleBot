@@ -504,18 +504,6 @@ class Puzzles(commands.Cog):
 
     # --- legacy create twins removed (Phase 5 strangle) ---
 
-    async def _update_metameta_impl(self, ctx, metameta, hunt_id):
-        all_puzzles = PuzzleJsonDb.get_all_from_hunt(hunt_id)
-        await self.get_gsheet_cog(ctx).add_metametapuzzle_data(metameta, all_puzzles)
-
-    @commands.command()
-    async def update_metameta(self, ctx):
-        hunt_id = self.get_hunt(ctx).id
-        meta_meta_puzzle = PuzzleJsonDb.get_by_attr(metameta=1)
-        if meta_meta_puzzle:
-            await self._update_metameta_impl(ctx, meta_meta_puzzle, hunt_id)
-        await ctx.send(":white_check_mark: Meta meta updated")
-
     @commands.hybrid_command(description="Rebuild meta roll-up sheets (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def rebuild(self, ctx):
@@ -1321,7 +1309,7 @@ class Puzzles(commands.Cog):
         if ( puzzle := self.get_puzzle(ctx) ) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif puzzle.is_metapuzzle():
+        elif puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
             return
 
@@ -1346,7 +1334,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a capstone.")
             return
 
@@ -1371,7 +1359,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a runaround.")
             return
 
@@ -1396,7 +1384,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif not puzzle.is_metapuzzle():
+        elif not puzzle.is_target:
             await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a group.")
             return
 
@@ -1424,7 +1412,7 @@ class Puzzles(commands.Cog):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        elif puzzle.is_metapuzzle() is False:
+        elif puzzle.is_target is False:
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 

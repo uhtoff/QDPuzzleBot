@@ -396,7 +396,7 @@ class TestWebTagEdgeOnly:
 
     @pytest.mark.asyncio
     async def test_feeder_replaces_same_type_edges(self, cog):
-        puz = make_puzzle(tags=[3, 4], metapuzzle=0)
+        puz = make_puzzle(tags=[3, 4])
         puz.tag_edges = {3: "feeds", 4: "feeds"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 4: make_round(id=4)})
@@ -405,7 +405,7 @@ class TestWebTagEdgeOnly:
     @pytest.mark.asyncio
     async def test_preserves_different_type_edges(self, cog):
         # Edge "informs" on group 5 is NOT removed by a feeds-only tag_edge_only.
-        puz = make_puzzle(tags=[3, 5], metapuzzle=0)
+        puz = make_puzzle(tags=[3, 5])
         puz.tag_edges = {3: "feeds", 5: "informs"}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 5: make_round(id=5)})
@@ -642,28 +642,28 @@ class TestWebConvertToPuzzle:
 
     @pytest.mark.asyncio
     async def test_clears_metapuzzle_flag(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
-        assert not puz.metapuzzle
+        assert not puz.is_target
 
     @pytest.mark.asyncio
     async def test_deletes_meta_round(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         _, _, deletes = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert deletes == [5]
 
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog, hunt):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
         await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert 5 not in puz.tags
 
     @pytest.mark.asyncio
     async def test_commits_puzzle(self, cog, hunt):
-        puz = make_puzzle(id=42, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=42, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=42)
         _, commits, _ = await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
         assert any(c[0] == "puzzle" and c[1] == 42 for c in commits)
@@ -671,7 +671,7 @@ class TestWebConvertToPuzzle:
     @pytest.mark.asyncio
     async def test_returns_orphan_count_excluding_meta(self, cog, hunt):
         # Round 5 holds the meta (id 1) plus two feeders -> 2 orphaned feeders.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         feeder_a = make_puzzle(id=2, tags=[5])
         feeder_b = make_puzzle(id=3, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
@@ -683,15 +683,15 @@ class TestWebConvertToPuzzle:
     @pytest.mark.asyncio
     async def test_no_round_clears_flag_without_delete(self, cog, hunt):
         # Defensive: a metapuzzle with no backing round still demotes cleanly.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
+        puz = make_puzzle(id=1, is_target=True, tags=[])
         orphaned, _, deletes = await self._run(cog, hunt, puz, meta_round=None)
-        assert not puz.metapuzzle
+        assert not puz.is_target
         assert deletes == []
         assert orphaned == 0
 
     def test_preview_lists_orphan_feeders(self, cog):
         # Read-only helper that powers the confirm dialog: feeders minus the meta.
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[5])
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
         feeder_a = make_puzzle(id=2, tags=[5])
         feeder_b = make_puzzle(id=3, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=1)
@@ -703,7 +703,7 @@ class TestWebConvertToPuzzle:
         assert [p.id for p in orphans] == [2, 3]
 
     def test_preview_empty_when_no_round(self, cog):
-        puz = make_puzzle(id=1, metapuzzle=1, tags=[])
+        puz = make_puzzle(id=1, is_target=True, tags=[])
         with patch("bot.core.puzzle_service.TagGroupJsonDb") as mock_rdb:
             mock_rdb.get_by_attr.return_value = None
             assert cog.service.feeders_orphaned_by_convert(puz) == []
@@ -948,10 +948,9 @@ class TestWebConvertToMeta:
 
     @pytest.mark.asyncio
     async def test_marks_metapuzzle(self, cog, hunt):
-        puz = make_puzzle(metapuzzle=0)
+        puz = make_puzzle()
         await self._run(cog, hunt, puz)
-        assert puz.metapuzzle == 1
-        assert puz.is_metapuzzle() is True
+        assert puz.is_target is True
 
     @pytest.mark.asyncio
     async def test_creates_round_with_meta_id(self, cog, hunt):

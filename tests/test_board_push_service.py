@@ -202,7 +202,7 @@ async def test_create_tag_group_emits_board_changed():
     ref_cat.clone = AsyncMock(return_value=new_cat)
     new_cat.edit = AsyncMock()
     hunt = _hunt()
-    meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
+    meta_puzzle = make_puzzle(id=77, name="New Round", is_target=True, channel_id=222)
 
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
