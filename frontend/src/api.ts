@@ -302,11 +302,17 @@ export function useCreatePuzzle(uid: string) {
   });
 }
 
+/** Meta/round types accepted by create_meta (mirrors TYPE_DEFAULTS in puzzle_service.py). */
+export type MetaType = "Round" | "Metapuzzle" | "Capstone" | "Runaround" | "Group";
+
 export function useCreateMeta(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ name }: { name: string }) =>
-      apiSend<{ ok: boolean; group_code: string }>(`/api/hunts/${uid}/metas`, "POST", { name }),
+    mutationFn: ({ name, type }: { name: string; type?: MetaType }) =>
+      apiSend<{ ok: boolean; group_code: string }>(`/api/hunts/${uid}/metas`, "POST", {
+        name,
+        ...(type ? { type } : {}),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
@@ -356,6 +362,39 @@ export function useConvertToFeeder(uid: string) {
       apiSend<{ ok: boolean; orphaned?: number; sheet_warning?: string }>(
         `/api/puzzles/${puzzleId}/convert-to-feeder`,
         "POST"
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useConvertToCapstone(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-capstone`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useConvertToRunaround(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-runaround`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useConvertToGroup(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-group`, "POST",
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });

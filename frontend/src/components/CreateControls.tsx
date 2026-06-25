@@ -3,11 +3,20 @@ import { Button, Group, Modal, Select, Stack, TextInput } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
-import { useCreateMeta, useCreatePuzzle } from "../api";
+import { useCreateMeta, useCreatePuzzle, type MetaType } from "../api";
 import { notifyError, notifySuccess } from "../util";
 
 // Sentinel dropdown value for "no meta" — sent to the API as an empty group_code.
 const UNASSIGNED = "__unassigned__";
+
+// Meta/round types the create_meta route accepts (see TYPE_DEFAULTS in puzzle_service.py).
+const META_TYPES: { value: MetaType; label: string }[] = [
+  { value: "Round", label: "Round" },
+  { value: "Metapuzzle", label: "Metapuzzle" },
+  { value: "Capstone", label: "Capstone" },
+  { value: "Runaround", label: "Runaround" },
+  { value: "Group", label: "Group" },
+];
 
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const [puzzleOpen, puzzle] = useDisclosure(false);
@@ -26,6 +35,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const [puzzleName, setPuzzleName] = useState("");
   const [metaCode, setMetaCode] = useState<string | null>(metaOptions[0]?.value ?? UNASSIGNED);
   const [metaName, setMetaName] = useState("");
+  const [metaType, setMetaType] = useState<MetaType>("Metapuzzle");
 
   const createPuzzle = useCreatePuzzle(uid);
   const createMeta = useCreateMeta(uid);
@@ -50,7 +60,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
     const name = metaName.trim();
     if (!name) return;
     createMeta.mutate(
-      { name },
+      { name, type: metaType },
       {
         onSuccess: () => {
           notifySuccess(`Created meta "${name}"`);
@@ -109,6 +119,13 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             onChange={(e) => setMetaName(e.currentTarget.value)}
             data-autofocus
             onKeyDown={(e) => e.key === "Enter" && submitMeta()}
+          />
+          <Select
+            label="Type"
+            data={META_TYPES}
+            value={metaType}
+            onChange={(v) => setMetaType((v as MetaType) ?? "Metapuzzle")}
+            allowDeselect={false}
           />
           <Button color="grape" onClick={submitMeta} loading={createMeta.isPending} disabled={!metaName.trim()}>
             Create
