@@ -43,7 +43,7 @@ async def test_delete_hunt_deletes_db_row_and_spreadsheet_files():
     gsheet.delete_hunt_spreadsheet = AsyncMock()
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch.object(svc, "_gsheet_cog", return_value=gsheet):
         pdb.get_all_from_hunt.return_value = []
         rdb.get_all.return_value = []
@@ -64,7 +64,7 @@ async def test_delete_hunt_returns_failed_channels():
     one = MagicMock(); one.name = "p1"; one.channel_id = 1
     with patch("bot.core.puzzle_service.HuntJsonDb"), \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch.object(svc, "_gsheet_cog", return_value=gsheet), \
          patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=False)):
         pdb.get_all_from_hunt.return_value = [one]

@@ -35,7 +35,7 @@ async def test_hunt_wide_rebuilds_only_metas():
     ctx = _ctx(category=None)
     metas = [make_round(id=1, target_puzzle_id=100), make_round(id=2, target_puzzle_id=101)]
     non_meta = make_round(id=3, target_puzzle_id=0)
-    with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.get_all.return_value = metas + [non_meta]
         await Puzzles.rebuild.callback(cog, ctx)
     assert service.refresh_target.await_count == 2  # the non-meta round is skipped
@@ -49,7 +49,7 @@ async def test_targeted_when_in_a_meta_category():
     cog = _cog(hunt, service)
     ctx = _ctx(category=types.SimpleNamespace(id=999))
     target = make_round(id=5, target_puzzle_id=50, category_id=999)
-    with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.return_value = target
         await Puzzles.rebuild.callback(cog, ctx)
     rdb.get_all.assert_not_called()
@@ -64,7 +64,7 @@ async def test_summary_reports_failures():
     ctx = _ctx(category=None)
     metas = [make_round(id=1, target_puzzle_id=100, group_code="AAA"),
              make_round(id=2, target_puzzle_id=101, group_code="BBB")]
-    with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.get_all.return_value = metas
         await Puzzles.rebuild.callback(cog, ctx)
     msg = ctx.send.call_args[0][0]

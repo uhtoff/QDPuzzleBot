@@ -13,8 +13,7 @@ def make_puzzle(
     hunt_id=10,
     solved=False,
     solution=None,
-    metapuzzle=0,
-    metameta=0,
+    is_target=False,
     tags=None,
     status="",
     channel_id=111,
@@ -28,8 +27,7 @@ def make_puzzle(
     p.channel_id = channel_id
     p.solved = solved
     p.solution = solution
-    p.metapuzzle = metapuzzle
-    p.metameta = metameta
+    p.is_target = is_target
     p.tags = tags if tags is not None else []
     p.status = status
     p.parent_puzzle_id = parent_puzzle_id
@@ -61,7 +59,6 @@ def make_puzzle_row(
     solved=False,
     solution=None,
     is_meta=False,
-    is_metameta=False,
     rounds=None,
     notes=None,
     channel_id=None,
@@ -80,7 +77,6 @@ def make_puzzle_row(
         "discord_url": None,
         "sheet_page": None,
         "is_meta": is_meta,
-        "is_metameta": is_metameta,
         "status": status,
         "solved": solved,
         "archived": False,

@@ -33,9 +33,9 @@ def _svc_with_sheets():
 @contextmanager
 def _patched():
     """Patch the store layer the selector reads (PuzzleJsonDb for round members /
-    subtree puzzles; RoundJsonDb for the subtree walk)."""
+    subtree puzzles; TagGroupJsonDb for the subtree walk)."""
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb:
         yield pdb, rdb
 
 

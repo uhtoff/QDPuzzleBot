@@ -36,7 +36,7 @@ def _svc_with_sheets():
 def _patched(rollup_existing=None):
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
         rudb.get_by_attr.return_value = rollup_existing
         yield pdb, hdb, rdb, rudb

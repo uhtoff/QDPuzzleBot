@@ -116,7 +116,7 @@ class DiscordNotifier(Notifier):
         try:
             handler = (
                 cog.send_initial_metapuzzle_channel_messages
-                if puzzle and puzzle.is_metapuzzle()
+                if puzzle and puzzle.is_target
                 else cog.send_initial_puzzle_channel_messages
             )
             message = await handler(None, channel, **kwargs)
@@ -143,10 +143,10 @@ class DiscordNotifier(Notifier):
 
         # For metas, find the group this puzzle is the meta of.
         tag_group = None
-        if puzzle.is_metapuzzle():
-            from bot.store import RoundJsonDb
+        if puzzle.is_target:
+            from bot.store import TagGroupJsonDb
             for tag in puzzle.tags:
-                candidate = RoundJsonDb.get_by_attr(id=tag)
+                candidate = TagGroupJsonDb.get_by_attr(id=tag)
                 if candidate and candidate.target_puzzle_id == puzzle.id:
                     tag_group = candidate
                     break
@@ -154,7 +154,7 @@ class DiscordNotifier(Notifier):
         try:
             handler = (
                 cog.send_initial_metapuzzle_channel_messages
-                if puzzle.is_metapuzzle()
+                if puzzle.is_target
                 else cog.send_initial_puzzle_channel_messages
             )
             kwargs = {

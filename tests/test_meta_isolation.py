@@ -24,7 +24,7 @@ def _cog(failed):
 async def test_update_all_metas_attempts_all_then_raises():
     cog = _cog(failed=[5])
     puzzle = make_puzzle(id=2, tags=[5, 6])
-    with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.side_effect = lambda **kw: make_round(id=kw["id"], target_puzzle_id=kw["id"] * 10)
         with pytest.raises(SheetRefreshError) as exc:
             await cog._update_all_metas(None, puzzle)
@@ -37,7 +37,7 @@ async def test_update_all_metas_attempts_all_then_raises():
 async def test_update_all_metas_no_failure_does_not_raise():
     cog = _cog(failed=[])
     puzzle = make_puzzle(id=2, tags=[5])
-    with patch("bot.cogs.puzzles.RoundJsonDb") as rdb:
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.get_by_attr.side_effect = lambda **kw: make_round(id=kw["id"], target_puzzle_id=50)
         await cog._update_all_metas(None, puzzle)  # must not raise
 

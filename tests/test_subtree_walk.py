@@ -1,6 +1,6 @@
 """M7: parent_group_id subtree walk (collect_subtree_puzzles).
 
-Pure tests with RoundJsonDb / PuzzleJsonDb mocked. The walk gathers descendants
+Pure tests with TagGroupJsonDb / PuzzleJsonDb mocked. The walk gathers descendants
 that chain up to the root via parent_group_id, unions their puzzles deduped by
 id, keeps solved only, and is cycle-safe (depth cap).
 """
@@ -25,7 +25,7 @@ class TestSubtreeWalk:
         unrelated.parent_group_id = None
         p_solved = make_puzzle(id=50, solved=True, solution="S")
         p_unsolved = make_puzzle(id=51, solved=False)
-        with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+        with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb:
             rdb.get_all.return_value = [root, a, b, unrelated]
             # p_solved appears in BOTH a and b -> must be deduped to one row.
@@ -42,7 +42,7 @@ class TestSubtreeWalk:
         loop = make_round(id=2)
         loop.parent_group_id = 1
         root.parent_group_id = 2                       # 1<->2 cycle
-        with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+        with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
              patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb:
             rdb.get_all.return_value = [root, loop]
             pdb.get_all_from_tag_group.return_value = []

@@ -78,7 +78,7 @@ if config.storage == 'mysql':
     mydb.autocommit = True
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
     GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
-    RoundJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
+    TagGroupJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
     RollupsJsonDb = MySQLRollupJsonDb(mydb=mydb)

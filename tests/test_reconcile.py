@@ -109,7 +109,7 @@ def test_channel_ok_when_id_resolves_and_in_right_category(monkeypatch):
     guild = _guild_with(channels=[chan], categories=[cat])
     svc = _service()
     p = _puzzle(channel_id=999, channel_name="tide", tags=[10])
-    with patch.object(ps.RoundJsonDb, "get_by_attr",
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
         report = asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
     assert report == []  # no actions: already correct
@@ -121,7 +121,7 @@ def test_channel_missing_and_no_existing_creates_and_welcomes():
     svc = _service(notifier=notifier)
     p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
     created_chan = SimpleNamespace(id=777, name="tide", mention="<#777>", category=None)
-    with patch.object(ps.RoundJsonDb, "get_by_attr",
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)), \
          patch.object(ps, "get_or_create_channel",
                       new=AsyncMock(return_value=(created_chan, True))), \
@@ -156,7 +156,7 @@ def test_channel_relink_when_named_channel_exists_no_welcome():
     notifier = AsyncMock()
     svc = _service(notifier=notifier)
     p = _puzzle(channel_id=123456, channel_name="tide", tags=[10])  # stale id
-    with patch.object(ps.RoundJsonDb, "get_by_attr",
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)), \
          patch.object(ps.PuzzleJsonDb, "commit") as commit:
         actions = asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
@@ -170,7 +170,7 @@ def test_channel_report_only_does_not_mutate():
     guild = _guild_with(channels=[], categories=[_category(500)])
     svc = _service()
     p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
-    with patch.object(ps.RoundJsonDb, "get_by_attr",
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)), \
          patch.object(ps, "get_or_create_channel", new=AsyncMock()) as gocc, \
          patch.object(ps.PuzzleJsonDb, "commit") as commit:
@@ -239,9 +239,9 @@ def test_reconcile_collects_orphan_channel():
     svc = _service()
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="1", tags=[10])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
-         patch.object(ps.RoundJsonDb, "get_all",
+         patch.object(ps.TagGroupJsonDb, "get_all",
                       return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)]), \
-         patch.object(ps.RoundJsonDb, "get_by_attr",
+         patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
     assert (222, "stray") in report.orphan_channels
@@ -253,7 +253,7 @@ def test_reconcile_flags_broken_round_category():
     svc = _service()
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="1", tags=[])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
-         patch.object(ps.RoundJsonDb, "get_all",
+         patch.object(ps.TagGroupJsonDb, "get_all",
                       return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=7)]):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
     assert any(a.kind == "round_category_broken" for a in report.actions)
@@ -265,7 +265,7 @@ def test_reconcile_failure_isolated_per_puzzle():
     p1 = _puzzle(name="Boom", channel_id=None, channel_name="boom", tags=[10])
     p2 = _puzzle(name="Fine", channel_id=None, channel_name="fine", tags=[10])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p1, p2]), \
-         patch.object(ps.RoundJsonDb, "get_all", return_value=[]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
          patch.object(svc, "_reconcile_channel",
                       side_effect=[RuntimeError("boom"), []]), \
          patch.object(svc, "_reconcile_tabs", new=AsyncMock(return_value=[])):
@@ -406,9 +406,9 @@ def test_apply_twice_is_convergent_for_healthy_hunt():
     svc = PuzzleService(bot, notifier=AsyncMock())
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="42", tags=[10])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
-         patch.object(ps.RoundJsonDb, "get_all",
+         patch.object(ps.TagGroupJsonDb, "get_all",
                       return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)]), \
-         patch.object(ps.RoundJsonDb, "get_by_attr",
+         patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=True))
     assert report.counts() == {}

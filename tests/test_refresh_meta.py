@@ -46,7 +46,7 @@ def _patched(rollup_existing=None):
     call_args the test inspects."""
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
         rudb.get_by_attr.return_value = rollup_existing
         yield pdb, hdb, rdb, rudb
@@ -58,7 +58,7 @@ class TestRefreshMetaFires:
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, _ru):
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = []
             await svc.refresh_target(_hunt(), meta_round)
         gsheet.set_spreadsheet_id.assert_called_with("SHEET1")
@@ -68,7 +68,7 @@ class TestRefreshMetaFires:
     async def test_calls_add_metapuzzle_data_for_regular_meta(self):
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
@@ -84,7 +84,7 @@ class TestRefreshMetaFires:
         # metameta puzzles, so this path still calls add_metametapuzzle_data.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metameta = make_puzzle(id=1, metapuzzle=1, metameta=1)
+        metameta = make_puzzle(id=1, is_target=True)
         child = make_round(id=6)
         child.parent_group_id = 5
         branch_solved = [make_puzzle(id=2, solved=True), make_puzzle(id=3, solved=True)]
@@ -106,7 +106,7 @@ class TestRefreshMetaFires:
         puzzle.tag_edges = {}
         with _patched() as (pdb, hdb, _r, _ru):
             hdb.get_by_attr.return_value = _hunt()
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = [puzzle]
             await svc.tag_with_edge(puzzle, meta_round, "feeds")
         assert gsheet.add_metapuzzle_data.await_count == 1
@@ -120,7 +120,7 @@ class TestRefreshMetaFires:
         with _patched() as (pdb, hdb, rdb, _ru):
             hdb.get_by_attr.return_value = _hunt()
             rdb.get_by_attr.side_effect = lambda id: make_round(id=id, target_puzzle_id=id)
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = []
             await svc.untag_from(puzzle, make_round(id=5, target_puzzle_id=5))
         assert 5 not in puzzle.tags
@@ -134,7 +134,7 @@ class TestRollupBookkeeping:
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = []
             await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
@@ -150,7 +150,7 @@ class TestRollupBookkeeping:
         gsheet.add_metapuzzle_data.side_effect = RuntimeError("sheets down")
         meta_round = make_round(id=5, target_puzzle_id=1)
         with _patched() as (pdb, _h, _r, rudb):
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = []
             with pytest.raises(RuntimeError, match="sheets down"):
                 await svc.refresh_target(_hunt(), meta_round)
@@ -165,7 +165,7 @@ class TestRollupBookkeeping:
         meta_round = make_round(id=5, target_puzzle_id=1)
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, last_ok=0, last_error="old")
         with _patched(rollup_existing=existing) as (pdb, _h, _r, rudb):
-            pdb.get_by_attr.return_value = make_puzzle(id=1, metapuzzle=1)
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
             pdb.get_all_from_tag_group.return_value = []
             await svc.refresh_target(_hunt(), meta_round)
         committed = rudb.commit.call_args[0][0]
@@ -178,7 +178,7 @@ class TestRollupBookkeeping:
         svc, gsheet = _svc_with_sheets()
         gsheet.stamp_rollup_metadata = AsyncMock(return_value=(42, 777))
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = metapuzzle
@@ -193,7 +193,7 @@ class TestRollupBookkeeping:
         svc, gsheet = _svc_with_sheets()
         gsheet.stamp_rollup_metadata = AsyncMock(side_effect=RuntimeError("meta api down"))
         meta_round = make_round(id=5, target_puzzle_id=1)
-        metapuzzle = make_puzzle(id=1, metapuzzle=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
         metapuzzle.google_page_id = "42"
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_by_attr.return_value = metapuzzle
@@ -227,8 +227,8 @@ class TestSolveFailureIsolation:
             return {5: round5, 6: round6}[id]
 
         def puzzle_by_id(id):
-            return {100: make_puzzle(id=100, metapuzzle=1),
-                    101: make_puzzle(id=101, metapuzzle=1)}[id]
+            return {100: make_puzzle(id=100, is_target=True),
+                    101: make_puzzle(id=101, is_target=True)}[id]
 
         with _patched() as (pdb, _h, rdb, rudb):
             rdb.get_by_attr.side_effect = lambda **kw: round_by_id(kw["id"])

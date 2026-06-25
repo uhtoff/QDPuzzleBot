@@ -94,7 +94,7 @@ async def test_web_create_tag_group_cleans_up_meta_puzzle_on_late_failure():
     created_puzzle = MagicMock(id=77, name="New Round", channel_id=None)
     cleanup_mock = AsyncMock()
 
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=333), True))), \

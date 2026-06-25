@@ -162,7 +162,8 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
     """
     rows = await fetch_all(
         "SELECT puzzles.id, puzzles.name, puzzles.url, puzzles.channel_id, "
-        "puzzles.google_page_id, puzzles.metapuzzle, puzzles.metameta, "
+        "puzzles.google_page_id, "
+        "EXISTS(SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = puzzles.id) AS is_target, "
         "puzzles.status, puzzles.solved, puzzles.archived, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
         "puzzles.start_time, puzzles.solve_time, "
@@ -174,7 +175,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
         "LEFT JOIN tag_group ON tags.tag_group_id = tag_group.id "
         "LEFT JOIN channel_activity act ON act.channel_id = puzzles.channel_id "
         "WHERE puzzles.hunt_id = %s AND puzzles.parent_puzzle_id IS NULL "
-        "ORDER BY puzzles.metapuzzle DESC, puzzles.solved ASC, puzzles.id ASC",
+        "ORDER BY is_target DESC, puzzles.solved ASC, puzzles.id ASC",
         (hunt_id,),
     )
 
@@ -193,8 +194,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     if guild_snowflake and row["channel_id"] else None
                 ),
                 "sheet_page": row["google_page_id"],
-                "is_meta": bool(row["metapuzzle"]),
-                "is_metameta": bool(row["metameta"]),
+                "is_meta": bool(row["is_target"]),
                 "status": row["status"],
                 "solved": bool(row["solved"]),
                 "archived": bool(row["archived"]),

@@ -62,7 +62,6 @@ export interface Puzzle {
   discord_url: string | null;
   sheet_page: string | null;
   is_meta: boolean;
-  is_metameta: boolean;
   status: string | null;
   solved: boolean;
   archived: boolean;
