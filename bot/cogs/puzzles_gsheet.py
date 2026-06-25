@@ -934,6 +934,52 @@ class GoogleSheets(commands.Cog):
         if requests:
             await self.batch_update({"requests": requests})
 
+    # --- Task 8: code-generated puzzle tab ---------------------------------
+
+    async def generate_puzzle_tab(self, puzzle, is_target, index=None):
+        """Create a puzzle tab entirely in code (no template duplicateSheet).
+
+        Adds a blank tab, writes the captured header layout + the dynamic
+        name/url hyperlink, and (when is_target) the contribution Table.
+        Sets puzzle.google_page_id. Returns the new page id."""
+        from bot.cogs import sheet_layout
+        import inspect as insp
+
+        spreadsheet_id = self.get_spreadsheet_id()
+        name = self.get_unique_tab_name(puzzle.name)
+        _result = self.create_blank_tab(spreadsheet_id, name)
+        page_id = await _result if insp.iscoroutine(_result) else _result
+        puzzle.google_page_id = page_id
+
+        # Static header cells from the captured layout.
+        cells, merges = sheet_layout.puzzle_tab_layout(is_target)
+        requests = []
+        for c in cells:
+            requests.append(self.update_cell(
+                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]),
+                c["type"], page_id))
+        # Merges.
+        for start_r, end_r, start_c, end_c in merges:
+            requests.append({
+                "mergeCells": {
+                    "range": {"sheetId": page_id,
+                              "startRowIndex": start_r, "endRowIndex": end_r,
+                              "startColumnIndex": start_c, "endColumnIndex": end_c},
+                    "mergeType": "MERGE_ALL",
+                }})
+        # Dynamic name/url hyperlink (always bot-written, not from the artifact).
+        requests.append(self.update_cell(
+            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            self.get_row(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name),
+            self.FORMULA_INPUT, page_id))
+        if requests:
+            await self.batch_update({"requests": requests})
+
+        if is_target:
+            await self._add_contribution_table(page_id)
+        return page_id
+
     async def read_unassigned_keys(self, page_id):
         """Read puzzle ids from column A of the Unassigned tab (skip header)."""
         spreadsheet_id = self.get_spreadsheet_id()
