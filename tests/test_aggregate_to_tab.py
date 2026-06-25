@@ -148,7 +148,7 @@ class TestAddMetametapuzzleData:
     def _patch_rounds(self, monkeypatch, rounds_by_id):
         def fake_get_by_attr(id=None, **kw):
             return rounds_by_id[id]
-        monkeypatch.setattr(gsheet_mod.RoundJsonDb, "get_by_attr", fake_get_by_attr)
+        monkeypatch.setattr(gsheet_mod.TagGroupJsonDb, "get_by_attr", fake_get_by_attr)
 
     def test_includes_formerly_hardcoded_rounds(self, monkeypatch):
         cog = _cog()

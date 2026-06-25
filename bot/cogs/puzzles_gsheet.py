@@ -11,7 +11,7 @@ from typing import List
 from discord.ext import commands
 
 from bot.utils import config
-from bot.store import PuzzleData, RoundJsonDb
+from bot.store import PuzzleData, TagGroupJsonDb
 from bot.utils.gsheets import get_sheet, get_drive, execute_sync, execute_with_retry
 
 logger = logging.getLogger(__name__)
@@ -745,7 +745,7 @@ class GoogleSheets(commands.Cog):
             if len(round_puzzle.tags) > 1:        # ambiguous multi-round membership
                 continue
             if round_puzzle.tags:
-                round = RoundJsonDb.get_by_attr(id=round_puzzle.tags[0])
+                round = TagGroupJsonDb.get_by_attr(id=round_puzzle.tags[0])
                 round_name = round.name
             else:
                 round_name = "No Round"

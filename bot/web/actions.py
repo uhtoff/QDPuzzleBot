@@ -817,10 +817,10 @@ async def retag_puzzle(puzzle_id):
         return jsonify({"error": "bad_edge"}), 400
     only = bool(body.get("only", False))
 
-    from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
 
     # "clear" unassigns from ALL metas, so it carries no group_code to validate.
-    target_group = RoundJsonDb.get_by_attr(group_code=group_code)
+    target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
     if mode != "clear" and (target_group is None or target_group.hunt_id != ctx["hunt"]["id"]):
         return jsonify({"error": "bad_group_code"}), 400
     # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
@@ -857,7 +857,7 @@ async def retag_puzzle(puzzle_id):
                 await cog.service.untag_from(puzzle, target_group)
             elif mode == "clear":
                 for gid in list(puzzle.tags):
-                    g = RoundJsonDb.get_by_attr(id=gid)
+                    g = TagGroupJsonDb.get_by_attr(id=gid)
                     if g is not None:
                         await cog.service.untag_from(puzzle, g)
         except (discord.RateLimited, discord.HTTPException) as exc:
@@ -1218,9 +1218,9 @@ async def delete_tag_group(tag_group_id):
     if perm:
         return perm
 
-    from bot.store import HuntJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, TagGroupJsonDb
 
-    tag_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if tag_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
@@ -1334,9 +1334,9 @@ async def rebuild_rollup(tag_group_id):
     if perm:
         return perm
 
-    from bot.store import HuntJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, TagGroupJsonDb
 
-    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    target_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
@@ -1379,9 +1379,9 @@ async def set_source_mode(tag_group_id):
     if mode not in SOURCE_MODES:
         return jsonify({"error": "bad_source_mode", "allowed": SOURCE_MODES}), 400
 
-    from bot.store import HuntJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, TagGroupJsonDb
 
-    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    target_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
@@ -1417,15 +1417,15 @@ async def set_nesting(tag_group_id):
     body = await request.get_json(silent=True) or {}
     parent_id = body.get("parent_tag_group_id")  # None/null clears — int nests
 
-    from bot.store import RoundJsonDb
+    from bot.store import TagGroupJsonDb
 
-    child = RoundJsonDb.get_by_attr(id=tag_group_id)
+    child = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if child is None:
         return jsonify({"error": "round_not_found"}), 404
 
     # Validate parent exists (and belongs to same hunt) if nesting, not clearing
     if parent_id is not None:
-        parent = RoundJsonDb.get_by_attr(id=parent_id)
+        parent = TagGroupJsonDb.get_by_attr(id=parent_id)
         if parent is None or parent.hunt_id != child.hunt_id:
             return jsonify({"error": "bad_parent_round"}), 400
 
@@ -1473,12 +1473,12 @@ async def create_puzzle(uid):
     if not name:
         return jsonify({"error": "empty_name"}), 400
 
-    from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     target_group = None
     if group_code:
-        target_group = RoundJsonDb.get_by_attr(group_code=group_code)
+        target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
         if target_group is None or target_group.hunt_id != hunt_obj.id:
             return jsonify({"error": "bad_group_code"}), 400
     if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):

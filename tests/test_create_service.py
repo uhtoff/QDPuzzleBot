@@ -2,7 +2,7 @@
 
 These mirror the existing tests/test_create_orphan_cleanup.py wiring but target the
 SERVICE, which calls the *module* function bot.core.discord_channels.get_or_create_channel
-(not a cog attribute) and the relocated bot.core.puzzle_service.PuzzleJsonDb / RoundJsonDb.
+(not a cog attribute) and the relocated bot.core.puzzle_service.PuzzleJsonDb / TagGroupJsonDb.
 Helpers are uniquely named and local to this file (parallel gate shards by file).
 """
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -93,7 +93,7 @@ async def test_create_round_creates_round_and_meta_puzzle():
     meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
     guild.get_channel = MagicMock(return_value=MagicMock(id=222))
 
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=333), True))), \
@@ -127,7 +127,7 @@ async def test_create_round_rolls_back_on_failure():
     meta_puzzle = make_puzzle(id=77, name="New Round", metapuzzle=1, channel_id=222)
     cleanup_mock = AsyncMock()
 
-    with patch("bot.core.puzzle_service.RoundJsonDb") as rdb, \
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=333), True))), \

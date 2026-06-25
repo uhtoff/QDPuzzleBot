@@ -144,9 +144,9 @@ class DiscordNotifier(Notifier):
         # For metas, find the group this puzzle is the meta of.
         tag_group = None
         if puzzle.is_metapuzzle():
-            from bot.store import RoundJsonDb
+            from bot.store import TagGroupJsonDb
             for tag in puzzle.tags:
-                candidate = RoundJsonDb.get_by_attr(id=tag)
+                candidate = TagGroupJsonDb.get_by_attr(id=tag)
                 if candidate and candidate.target_puzzle_id == puzzle.id:
                     tag_group = candidate
                     break

@@ -53,7 +53,7 @@ class TestCogBeforeInvokeThread:
     @patch("bot.cogs.puzzles.GuildSettingsDb")
     @patch("bot.cogs.puzzles.PuzzleJsonDb")
     @patch("bot.cogs.puzzles.HuntJsonDb")
-    @patch("bot.cogs.puzzles.RoundJsonDb")
+    @patch("bot.cogs.puzzles.TagGroupJsonDb")
     def test_thread_routes_to_mini_puzzle(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
         from bot.cogs.puzzles import Puzzles
         import asyncio
@@ -84,7 +84,7 @@ class TestCogBeforeInvokeThread:
     @patch("bot.cogs.puzzles.GuildSettingsDb")
     @patch("bot.cogs.puzzles.PuzzleJsonDb")
     @patch("bot.cogs.puzzles.HuntJsonDb")
-    @patch("bot.cogs.puzzles.RoundJsonDb")
+    @patch("bot.cogs.puzzles.TagGroupJsonDb")
     def test_unknown_thread_becomes_guild(self, RoundDb, HuntDb, PuzzleDb, GuildDb):
         from bot.cogs.puzzles import Puzzles
         import asyncio
@@ -145,7 +145,7 @@ class TestGetMinis:
 
 class TestCreateMini:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_creates_puzzle_row_with_parent(self, RoundDb, PuzzleDb):
         """create_mini sets parent_puzzle_id + puzzle_type=Mini and leaves the mini
         UNTAGGED (it rolls up onto the minimeta via the puzzle-keyed path, not a round)."""
@@ -189,7 +189,7 @@ class TestCreateMini:
         PuzzleDb.commit.assert_called()
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_posts_welcome_message_with_sheet_link(self, RoundDb, PuzzleDb):
         """create_mini posts a welcome message in the thread naming the minimeta
         and linking to the mini's Google sheet tab."""
@@ -232,7 +232,7 @@ class TestCreateMini:
         assert "PAGE7" in msg             # mini's tab/page id in the link
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_auto_makes_parent_minimeta(self, RoundDb, PuzzleDb):
         """create_mini auto-sets puzzle_type=Minimeta on parent if not already set."""
         import asyncio, discord
@@ -270,7 +270,7 @@ class TestCreateMini:
 
 class TestSolveArchivesThread:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_mini_solve_archives_thread(self, RoundDb, PuzzleDb):
         """Solving a mini-puzzle archives its Discord thread."""
         import asyncio, discord
@@ -296,7 +296,7 @@ class TestSolveArchivesThread:
         guild.get_channel_or_thread.assert_called_once_with(9001)
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_regular_puzzle_solve_no_thread_archive(self, RoundDb, PuzzleDb):
         """Solving a regular puzzle does not attempt thread archive."""
         import asyncio
@@ -318,7 +318,7 @@ class TestSolveArchivesThread:
 
 class TestUnsolveService:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_unsolve_clears_fields(self, RoundDb, PuzzleDb):
         """unsolve resets solved/solution/solve_time/archive_time."""
         import asyncio
@@ -344,7 +344,7 @@ class TestUnsolveService:
         PuzzleDb.commit.assert_called()
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_mini_unsolve_unarchives_thread(self, RoundDb, PuzzleDb):
         """unsolve on a mini-puzzle unarchives its thread."""
         import asyncio, discord
@@ -374,7 +374,7 @@ class TestUnsolveService:
 
 class TestSolveMiniByNumber:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_resolves_by_number_and_delegates(self, RoundDb, PuzzleDb):
         import asyncio
         from bot.core.puzzle_service import PuzzleService
@@ -416,7 +416,7 @@ class TestSolveMiniByNumber:
 
 class TestUnsolveMiniByNumber:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RoundJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_resolves_and_delegates(self, RoundDb, PuzzleDb):
         import asyncio
         from bot.core.puzzle_service import PuzzleService

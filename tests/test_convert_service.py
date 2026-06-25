@@ -52,7 +52,7 @@ async def _run_convert(cog, puzzle, new_type, existing_group=None, summary="flip
     hunt = make_hunt()
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
-         patch("bot.core.puzzle_service.RoundJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
         mpdb.commit.side_effect = lambda p: None
         mrdb.commit.side_effect = lambda r: None
@@ -71,7 +71,7 @@ class TestConvertToType:
     async def test_promote_in_place_creates_group(self, cog):
         puz = make_puzzle(id=7, metapuzzle=0)
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
-             patch("bot.core.puzzle_service.RoundJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
              patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
             cog.service.set_source_mode = AsyncMock()
             cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")

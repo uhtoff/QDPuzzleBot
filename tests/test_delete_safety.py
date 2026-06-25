@@ -103,7 +103,7 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
 
     monkeypatch.setattr(svc_mod, "PuzzleJsonDb", MagicMock(
         get_all_from_hunt=MagicMock(return_value=[p1, p2]), delete=MagicMock()))
-    monkeypatch.setattr(svc_mod, "RoundJsonDb", MagicMock(
+    monkeypatch.setattr(svc_mod, "TagGroupJsonDb", MagicMock(
         get_all=MagicMock(return_value=[])))
     monkeypatch.setattr(svc_mod, "HuntJsonDb", MagicMock(delete=MagicMock()))
     cog._confirm_destructive = AsyncMock(return_value=True)

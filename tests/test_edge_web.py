@@ -72,7 +72,7 @@ def web():
         patch("bot.web.actions._audit", AsyncMock()),
         patch("bot.store.HuntJsonDb"),
         patch("bot.store.PuzzleJsonDb"),
-        patch("bot.store.RoundJsonDb"),
+        patch("bot.store.TagGroupJsonDb"),
     ]
     started = [p.start() for p in patches]
     _hdb, _pdb, _rdb = started[6], started[7], started[8]
@@ -85,7 +85,7 @@ def web():
         yield SimpleNamespace(
             app=app, client=app.test_client(), cog=cog, svc=cog.service,
             puzzle=puzzle, target_group=target_group,
-            HuntJsonDb=_hdb, PuzzleJsonDb=_pdb, RoundJsonDb=_rdb,
+            HuntJsonDb=_hdb, PuzzleJsonDb=_pdb, TagGroupJsonDb=_rdb,
         )
     finally:
         for p in patches:

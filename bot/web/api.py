@@ -145,10 +145,10 @@ async def rollup_answers(tag_group_id):
     if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
         return jsonify({"error": "forbidden"}), 403
 
-    from bot.store import RoundJsonDb, RollupsJsonDb
+    from bot.store import TagGroupJsonDb, RollupsJsonDb
     from bot.store.rollup_data import RollupData
 
-    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    target_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
