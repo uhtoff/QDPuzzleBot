@@ -116,10 +116,10 @@ async def _visible_hunt_by_uid(uid):
     return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
 
 
-async def _visible_hunt_for_round(round_id):
-    """Resolve a round's hunt and confirm the user may see it (same shape as above)."""
+async def _visible_hunt_for_tag_group(tag_group_id):
+    """Resolve a tag_group's hunt and confirm the user may see it (same shape as above)."""
     user = current_user()
-    hunt = await data.get_hunt_for_round(round_id)
+    hunt = await data.get_hunt_for_tag_group(tag_group_id)
     if not hunt:
         return None, (jsonify({"error": "round_not_found"}), 404)
     membership, roles_by_guild = await resolve_membership(user["id"])
@@ -530,7 +530,9 @@ async def convert_to_meta(puzzle_id):
 
         warning = None
         try:
-            await cog.service.convert_to_meta(None, hunt_obj, puzzle)
+            tag_group, _summary = await cog.service.convert_to_type(
+                None, hunt_obj, puzzle, "Metapuzzle"
+            )
         except RuntimeError as exc:
             if str(exc) == "already_meta":
                 return jsonify({"error": "already_meta"}), 400
@@ -792,7 +794,7 @@ async def post_hunt_archive_sheet(uid):
 async def retag_puzzle(puzzle_id):
     """Move/add/remove a puzzle to/from a metapuzzle, via the bot's own logic.
 
-    Body: {"meta_code": "ABC123", "mode": "move"|"add"|"remove"}. "move" also
+    Body: {"group_code": "ABC123", "mode": "move"|"add"|"remove"}. "move" also
     relocates the Discord channel to the meta's category (mirrors !move_to_meta).
     """
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
@@ -805,17 +807,22 @@ async def retag_puzzle(puzzle_id):
         return perm
 
     body = await request.get_json(silent=True) or {}
-    meta_code = (body.get("meta_code") or "").strip()
+    group_code = (body.get("group_code") or "").strip()
     mode = body.get("mode") or "move"
     if mode not in ("move", "add", "remove", "clear"):
         return jsonify({"error": "bad_mode"}), 400
 
+    edge = body.get("edge", "feeds")
+    if edge not in ("feeds", "informs", "none"):
+        return jsonify({"error": "bad_edge"}), 400
+    only = bool(body.get("only", False))
+
     from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
-    # "clear" unassigns from ALL metas, so it carries no meta_code to validate.
-    meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
-    if mode != "clear" and (meta_round is None or meta_round.hunt_id != ctx["hunt"]["id"]):
-        return jsonify({"error": "bad_meta_code"}), 400
+    # "clear" unassigns from ALL metas, so it carries no group_code to validate.
+    target_group = RoundJsonDb.get_by_attr(group_code=group_code)
+    if mode != "clear" and (target_group is None or target_group.hunt_id != ctx["hunt"]["id"]):
+        return jsonify({"error": "bad_group_code"}), 400
     # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
     # !move_to_meta decorator — a concurrent write to the meta puzzle itself is not
     # serialized against this retag, which is consistent with current behaviour.
@@ -823,7 +830,7 @@ async def retag_puzzle(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
-        if mode == "remove" and puzzle.id == meta_round.meta_id:
+        if mode == "remove" and puzzle.id == target_group.target_puzzle_id:
             return jsonify({"error": "cannot_remove_own_meta"}), 400
         if mode == "clear" and puzzle.is_metapuzzle():
             # A metapuzzle can't be unassigned (mirrors "move", which never clears
@@ -840,13 +847,19 @@ async def retag_puzzle(puzzle_id):
         warning = None
         try:
             if mode == "move":
-                await cog.service.move_to_meta(guild, puzzle, meta_round)
+                # Backward compat: move → add+only with feeds edge
+                await cog.service.tag_edge_only(puzzle, target_group, "feeds", guild)
+            elif mode == "add" and only:
+                await cog.service.tag_edge_only(puzzle, target_group, edge, guild)
             elif mode == "add":
-                await cog.service.add_to_meta(puzzle, meta_round)
+                await cog.service.tag_with_edge(puzzle, target_group, edge)
             elif mode == "remove":
-                await cog.service.remove_from_meta(puzzle, meta_round)
+                await cog.service.untag_from(puzzle, target_group)
             elif mode == "clear":
-                await cog.service.clear_metas(puzzle)
+                for gid in list(puzzle.tags):
+                    g = RoundJsonDb.get_by_attr(id=gid)
+                    if g is not None:
+                        await cog.service.untag_from(puzzle, g)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:
@@ -860,7 +873,7 @@ async def retag_puzzle(puzzle_id):
             # masked as success.
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
-        await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=meta_code)
+        await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=group_code)
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
         if hunt_obj is not None:
@@ -941,7 +954,7 @@ async def convert_to_feeder(puzzle_id):
         orphaned = None
         warning = None
         try:
-            orphaned = await cog.service.convert_to_feeder(guild, hunt_obj, puzzle)
+            orphaned = await cog.service.convert_to_puzzle(guild, hunt_obj, puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:
@@ -958,6 +971,143 @@ async def convert_to_feeder(puzzle_id):
         if warning:
             resp["sheet_warning"] = warning
         return jsonify(resp)
+
+
+# --- Convert endpoints for capstone, group, runaround ----------------------
+
+def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
+    """Shared handler for convert-to-capstone/group/runaround."""
+    async def handler():
+        from bot.store import HuntJsonDb, PuzzleJsonDb
+
+        ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+        if err:
+            return err
+        if ctx["hunt"]["archived"]:
+            return jsonify({"error": "hunt_archived"}), 403
+        perm = await require_organiser(ctx["guild_snowflake"])
+        if perm:
+            return perm
+
+        async with puzzle_lock(puzzle_id):
+            puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+            if puzzle is None:
+                return jsonify({"error": "puzzle_not_found"}), 404
+
+            if error_if_not_meta and not puzzle.is_metapuzzle():
+                return jsonify({"error": "not_a_metapuzzle"}), 400
+            if not error_if_not_meta and puzzle.is_metapuzzle():
+                return jsonify({"error": "already_a_metapuzzle"}), 400
+
+            hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+            cog = current_app.bot.get_cog("Puzzles")
+            if cog is None:
+                return jsonify({"error": "bot_unavailable"}), 503
+            snowflake = ctx["guild_snowflake"]
+            guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
+            warning = None
+            try:
+                tag_group, summary = await cog.service.convert_to_type(
+                    guild, hunt_obj, puzzle, new_type
+                )
+            except RuntimeError as exc:
+                return jsonify({"error": str(exc)}), 400
+            except (discord.RateLimited, discord.HTTPException) as exc:
+                return _discord_error_response(exc)
+            except SheetRefreshError as exc:
+                warning = str(exc)
+            except HttpError:
+                logger.exception("convert_to_%s: sheet update failed for puzzle %s", new_type.lower(), puzzle.id)
+                warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+
+            asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+            await _audit(f"convert_to_{new_type.lower()}", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            resp = {"ok": True, "summary": summary}
+            if warning:
+                resp["sheet_warning"] = warning
+            return jsonify(resp)
+
+    return handler
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-capstone", methods=["POST"])
+@login_required
+async def convert_to_capstone(puzzle_id):
+    """Convert a metapuzzle to a capstone (informs edge).
+
+    Changes the group type and flips all feeder edges to informs. Mirrors the
+    !convert_to_capstone bang command."""
+    handler = _convert_to_type_handler(puzzle_id, "Capstone", error_if_not_meta=True)
+    return await handler()
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-runaround", methods=["POST"])
+@login_required
+async def convert_to_runaround_puzzle(puzzle_id):
+    """Convert a metapuzzle to a runaround (subtree source mode).
+
+    Changes the group type and source mode without changing membership edges.
+    Mirrors the !convert_to_runaround bang command."""
+    handler = _convert_to_type_handler(puzzle_id, "Runaround", error_if_not_meta=True)
+    return await handler()
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-group", methods=["POST"])
+@login_required
+async def convert_to_group(puzzle_id):
+    """Convert a metapuzzle to a group (none edges).
+
+    Changes the group type and flips all feeder edges to none.
+    Mirrors the !convert_to_group bang command."""
+    handler = _convert_to_type_handler(puzzle_id, "Group", error_if_not_meta=True)
+    return await handler()
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-puzzle", methods=["POST"])
+@login_required
+async def convert_to_puzzle(puzzle_id):
+    """Demote a metapuzzle back to a regular puzzle. Alias of convert-to-feeder.
+
+    For backward compat the old /convert-to-feeder route is also kept.
+    Mirrors the !convert_to_puzzle bang command."""
+    # Reuse the same logic as convert_to_feeder by calling it through the cog service directly
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+        if not puzzle.is_metapuzzle():
+            return jsonify({"error": "not_a_metapuzzle"}), 400
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        try:
+            await cog.service.convert_to_puzzle(guild, hunt_obj, puzzle)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        except SheetRefreshError as exc:
+            return jsonify({"ok": True, "sheet_warning": str(exc)})
+
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+        await _audit("convert_to_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        return jsonify({"ok": True})
 
 
 # --- Delete a puzzle (organiser only) ----------------------------------------
@@ -1051,15 +1201,15 @@ async def delete_hunt(uid):
 
 # --- Delete a round (organiser only) -----------------------------------------
 
-@actions_bp.route("/rounds/<int:round_id>", methods=["DELETE"])
+@actions_bp.route("/tag_groups/<int:tag_group_id>", methods=["DELETE"])
 @login_required
-async def delete_round(round_id):
-    """Permanently delete a round: all its puzzle DB records, sheet tabs, Discord
-    channels, the round Discord category, and the round DB record. Per-puzzle
+async def delete_tag_group(tag_group_id):
+    """Permanently delete a tag group: all its puzzle DB records, sheet tabs, Discord
+    channels, the group Discord category, and the group DB record. Per-puzzle
     failures are isolated. Returns failed_channels (names whose Discord channel
     could not be deleted) alongside ok:true so the caller can surface what remains.
     Organiser-gated, audited, board pushed."""
-    ctx, err = await _visible_hunt_for_round(round_id)
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
     if ctx["hunt"]["archived"]:
@@ -1070,8 +1220,8 @@ async def delete_round(round_id):
 
     from bot.store import HuntJsonDb, RoundJsonDb
 
-    hunt_round = RoundJsonDb.get_by_attr(id=round_id)
-    if hunt_round is None:
+    tag_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    if tag_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -1083,12 +1233,12 @@ async def delete_round(round_id):
     guild = bot.get_guild(int(snowflake)) if snowflake else None
 
     try:
-        failed_channels = await cog.service.delete_round(guild, hunt_obj, hunt_round)
+        failed_channels = await cog.service.delete_round(guild, hunt_obj, tag_group)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
     await _audit("delete_round", hunt_uid=ctx["hunt"]["uid"],
-                 detail=f"round_id={round_id} name={hunt_round.name}")
+                 detail=f"tag_group_id={tag_group_id} name={tag_group.name}")
     resp = {"ok": True}
     if failed_channels:
         resp["failed_channels"] = failed_channels
@@ -1169,13 +1319,13 @@ async def reconcile(uid):
 
 # --- Rebuild a meta roll-up sheet (organiser only) --------------------------
 
-@actions_bp.route("/rollups/<int:round_id>/rebuild", methods=["POST"])
+@actions_bp.route("/rollups/<int:tag_group_id>/rebuild", methods=["POST"])
 @login_required
-async def rebuild_rollup(round_id):
-    """Rebuild one meta round's roll-up sheet, clearing its stale badge on success.
-    Keyed on round_id (a rollup is per round); organiser-gated via the round's hunt.
-    Serialization is handled inside refresh_meta's per-round rollup lock."""
-    ctx, err = await _visible_hunt_for_round(round_id)
+async def rebuild_rollup(tag_group_id):
+    """Rebuild one meta group's roll-up sheet, clearing its stale badge on success.
+    Keyed on tag_group_id (a rollup is per group); organiser-gated via the group's hunt.
+    Serialization is handled inside refresh_target's per-group rollup lock."""
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
     if ctx["hunt"]["archived"]:
@@ -1186,8 +1336,8 @@ async def rebuild_rollup(round_id):
 
     from bot.store import HuntJsonDb, RoundJsonDb
 
-    meta_round = RoundJsonDb.get_by_attr(id=round_id)
-    if meta_round is None:
+    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
     bot = current_app.bot
@@ -1196,27 +1346,27 @@ async def rebuild_rollup(round_id):
         return jsonify({"error": "bot_unavailable"}), 503
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     try:
-        await cog.service.refresh_meta(hunt_obj, meta_round)
+        await cog.service.refresh_target(hunt_obj, target_group)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     except Exception:
-        # refresh_meta has already re-badged last_ok=0; report the failure so the
+        # refresh_target has already re-badged last_ok=0; report the failure so the
         # SPA can toast and leave the badge in place for another retry.
-        logger.exception("rebuild: refresh failed for round %s", round_id)
+        logger.exception("rebuild: refresh failed for group %s", tag_group_id)
         return jsonify({"ok": False, "error": "internal_error"})
-    await _audit("rebuild_rollup", hunt_uid=ctx["hunt"]["uid"], detail=str(round_id))
+    await _audit("rebuild_rollup", hunt_uid=ctx["hunt"]["uid"], detail=str(tag_group_id))
     _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
     return jsonify({"ok": True})
 
 
 # --- Rollup source_mode setter (organiser only) -----------------------------
 
-@actions_bp.route("/rollups/<int:round_id>", methods=["PATCH"])
+@actions_bp.route("/rollups/<int:tag_group_id>", methods=["PATCH"])
 @login_required
-async def set_source_mode(round_id):
-    """Set the aggregation source_mode for a meta round, then rebuild its sheet.
+async def set_source_mode(tag_group_id):
+    """Set the aggregation source_mode for a meta group, then rebuild its sheet.
     Body: {"source_mode": "round" | "subtree" | "explicit"}. Organiser-gated."""
-    ctx, err = await _visible_hunt_for_round(round_id)
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1231,8 +1381,8 @@ async def set_source_mode(round_id):
 
     from bot.store import HuntJsonDb, RoundJsonDb
 
-    meta_round = RoundJsonDb.get_by_attr(id=round_id)
-    if meta_round is None:
+    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
     bot = current_app.bot
@@ -1241,23 +1391,23 @@ async def set_source_mode(round_id):
         return jsonify({"error": "bot_unavailable"}), 503
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     try:
-        await cog.service.set_source_mode(hunt_obj, meta_round, mode)
+        await cog.service.set_source_mode(hunt_obj, target_group, mode)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     except Exception as exc:
-        logger.exception("set_source_mode: refresh failed for round %s", round_id)
+        logger.exception("set_source_mode: refresh failed for group %s", tag_group_id)
         return jsonify({"ok": False, "error": str(exc)})
     return jsonify({"ok": True, "source_mode": mode})
 
 
 # --- Nesting setter (organiser only) ----------------------------------------
 
-@actions_bp.route("/rounds/<int:round_id>/nest", methods=["POST"])
+@actions_bp.route("/tag_groups/<int:tag_group_id>/nest", methods=["POST"])
 @login_required
-async def set_nesting(round_id):
-    """Nest a round under another, or clear nesting.
-    Body: {"parent_round_id": <id>|null}. Null clears the nesting."""
-    ctx, err = await _visible_hunt_for_round(round_id)
+async def set_nesting(tag_group_id):
+    """Nest a tag group under another, or clear nesting.
+    Body: {"parent_tag_group_id": <id>|null}. Null clears the nesting."""
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1265,11 +1415,11 @@ async def set_nesting(round_id):
         return perm
 
     body = await request.get_json(silent=True) or {}
-    parent_id = body.get("parent_round_id")  # None/null clears — int nests
+    parent_id = body.get("parent_tag_group_id")  # None/null clears — int nests
 
     from bot.store import RoundJsonDb
 
-    child = RoundJsonDb.get_by_attr(id=round_id)
+    child = RoundJsonDb.get_by_attr(id=tag_group_id)
     if child is None:
         return jsonify({"error": "round_not_found"}), 404
 
@@ -1319,18 +1469,18 @@ async def create_puzzle(uid):
         return err
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
-    meta_code = (body.get("meta_code") or "").strip()
+    group_code = (body.get("group_code") or "").strip()
     if not name:
         return jsonify({"error": "empty_name"}), 400
 
     from bot.store import HuntJsonDb, PuzzleJsonDb, RoundJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    meta_round = None
-    if meta_code:
-        meta_round = RoundJsonDb.get_by_attr(meta_code=meta_code)
-        if meta_round is None or meta_round.hunt_id != hunt_obj.id:
-            return jsonify({"error": "bad_meta_code"}), 400
+    target_group = None
+    if group_code:
+        target_group = RoundJsonDb.get_by_attr(group_code=group_code)
+        if target_group is None or target_group.hunt_id != hunt_obj.id:
+            return jsonify({"error": "bad_group_code"}), 400
     if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
         return jsonify({"error": "duplicate_name"}), 409
 
@@ -1342,7 +1492,7 @@ async def create_puzzle(uid):
     try:
         from bot.core.notifier import DiscordNotifier
         puzzle = await cog.service.create_puzzle(
-            guild, hunt_obj, meta_round, name,
+            guild, hunt_obj, target_group, name,
             notifier=DiscordNotifier(current_app.bot),
         )
     except RuntimeError as exc:
@@ -1358,7 +1508,7 @@ async def create_puzzle(uid):
 @actions_bp.route("/hunts/<uid>/metas", methods=["POST"])
 @login_required
 async def create_meta(uid):
-    """Create a new metapuzzle (category + meta channel), via the bot (like !mp)."""
+    """Create a new metapuzzle/group (category + meta channel), via the bot (like !mp)."""
     ctx, err = await _organiser_hunt(uid)
     if err:
         return err
@@ -1366,6 +1516,11 @@ async def create_meta(uid):
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "empty_name"}), 400
+
+    group_type = (body.get("type") or "Metapuzzle").strip()
+    from bot.core.puzzle_service import TYPE_DEFAULTS
+    if group_type not in TYPE_DEFAULTS:
+        return jsonify({"error": "bad_type"}), 400
 
     from bot.store import HuntJsonDb
 
@@ -1377,10 +1532,11 @@ async def create_meta(uid):
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
         from bot.core.notifier import DiscordNotifier
-        new_round, puzzle = await cog.service.create_round(
+        new_round, puzzle = await cog.service.create_tag_group(
             guild, hunt_obj, name, notifier=None,
+            round_type=group_type,
         )
-        # Send the meta welcome now that meta_code/meta_id are populated.
+        # Send the meta welcome now that group_code/target_puzzle_id are populated.
         channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
         if channel is not None:
             notifier = DiscordNotifier(bot)
@@ -1392,8 +1548,8 @@ async def create_meta(uid):
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.meta_code)
-    return jsonify({"ok": True, "round_id": new_round.id, "meta_code": new_round.meta_code})
+    await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.group_code)
+    return jsonify({"ok": True, "tag_group_id": new_round.id, "group_code": new_round.group_code})
 
 
 # --- Minimeta mini-puzzle creation (organiser only) --------------------------

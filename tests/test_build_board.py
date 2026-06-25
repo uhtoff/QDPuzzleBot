@@ -39,7 +39,7 @@ class TestBuildBoardBasic:
         board = build_board([puz])
         assert len(board) == 1
         grp = board[0]
-        assert grp["round_id"] == 0
+        assert grp["tag_group_id"] == 0
         assert grp["name"] == "Unassigned"
         assert grp["puzzles"] == [puz]
         assert grp["num_feeders"] == 1
@@ -53,20 +53,20 @@ class TestBuildBoardBasic:
         assert grp["num_solved_feeders"] == 1
 
     def test_single_round_single_feeder(self):
-        rnd = make_round_ref(id=5, name="Round One", meta_code="R1")
+        rnd = make_round_ref(id=5, name="Round One", group_code="R1")
         puz = make_puzzle_row(id=2, name="Feeder", rounds=[rnd])
         board = build_board([puz])
         assert len(board) == 1
         grp = board[0]
-        assert grp["round_id"] == 5
+        assert grp["tag_group_id"] == 5
         assert grp["name"] == "Round One"
         assert grp["num_feeders"] == 1
         assert grp["num_solved_feeders"] == 0
-        assert grp["meta_solution"] is None
-        assert grp["meta_solved"] is False
+        assert grp["target_solution"] is None
+        assert grp["target_solved"] is False
 
     def test_meta_puzzle_not_counted_as_feeder(self):
-        rnd = make_round_ref(id=5, name="Round One", is_meta_of=True)
+        rnd = make_round_ref(id=5, name="Round One", is_target_of=True)
         meta = make_puzzle_row(id=3, name="Meta", is_meta=True, solved=True,
                                solution="ANSWER", rounds=[rnd])
         board = build_board([meta])
@@ -74,8 +74,8 @@ class TestBuildBoardBasic:
         # The meta itself is not a feeder
         assert grp["num_feeders"] == 0
         assert grp["num_solved_feeders"] == 0
-        assert grp["meta_solved"] is True
-        assert grp["meta_solution"] == "ANSWER"
+        assert grp["target_solved"] is True
+        assert grp["target_solution"] == "ANSWER"
 
 
 class TestBuildBoardRollupBadge:
@@ -136,7 +136,7 @@ class TestBuildBoardOrdering:
         puz_orphan = make_puzzle_row(id=2, name="Orphan")
         # Orphan comes first → Unassigned first
         board = build_board([puz_orphan, puz_round])
-        assert board[0]["round_id"] == 0
+        assert board[0]["tag_group_id"] == 0
         assert board[1]["name"] == "Round A"
 
 
@@ -180,26 +180,26 @@ class TestBuildBoardAggregates:
         assert grp["num_solved_feeders"] == 2
 
     def test_meta_solution_and_solved_flag(self):
-        r = make_round_ref(id=1, name="R", is_meta_of=True)
+        r = make_round_ref(id=1, name="R", is_target_of=True)
         meta = make_puzzle_row(id=10, name="Meta", solved=True, solution="METASOL",
                                is_meta=True, rounds=[r])
         feeder = make_puzzle_row(id=11, name="Feeder", rounds=[make_round_ref(id=1, name="R")])
         board = build_board([meta, feeder])
         grp = board[0]
-        assert grp["meta_solution"] == "METASOL"
-        assert grp["meta_solved"] is True
+        assert grp["target_solution"] == "METASOL"
+        assert grp["target_solved"] is True
         assert grp["num_feeders"] == 1
 
     def test_unsolved_meta(self):
-        r = make_round_ref(id=1, name="R", is_meta_of=True)
+        r = make_round_ref(id=1, name="R", is_target_of=True)
         meta = make_puzzle_row(id=10, name="Meta", solved=False, rounds=[r])
         board = build_board([meta])
         grp = board[0]
-        assert grp["meta_solved"] is False
-        assert grp["meta_solution"] is None
+        assert grp["target_solved"] is False
+        assert grp["target_solution"] is None
 
-    def test_meta_code_carried_through(self):
-        r = make_round_ref(id=1, name="R", meta_code="XYZABC")
+    def test_group_code_carried_through(self):
+        r = make_round_ref(id=1, name="R", group_code="XYZABC")
         puz = make_puzzle_row(id=1, name="P", rounds=[r])
         board = build_board([puz])
-        assert board[0]["meta_code"] == "XYZABC"
+        assert board[0]["group_code"] == "XYZABC"

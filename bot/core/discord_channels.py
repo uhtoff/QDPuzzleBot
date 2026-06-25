@@ -6,9 +6,7 @@ without a cog or ctx dependency.
 import logging
 
 import discord
-import pytz
 
-from bot.store import PuzzleJsonDb
 
 logger = logging.getLogger(__name__)
 

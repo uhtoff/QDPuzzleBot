@@ -91,7 +91,7 @@ async def hunt_detail(uid):
 
     guild_snowflake = guild_or_status.get("guild_snowflake")
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_snowflake)
-    rollups = await data.get_rollups_by_round(hunt["id"])
+    rollups = await data.get_rollups_by_tag_group(hunt["id"])
     board = data.build_board(puzzles, rollups)
     solved = sum(1 for p in puzzles if p["solved"])
     # Archived hunts are read-only even for organisers.
@@ -129,15 +129,15 @@ async def hunt_puzzles(uid):
     return jsonify({"puzzles": puzzles})
 
 
-@api_bp.route("/rollups/<int:round_id>/answers")
+@api_bp.route("/rollups/<int:tag_group_id>/answers")
 @login_required
-async def rollup_answers(round_id):
-    """Read-only aggregated answers for a meta round.
+async def rollup_answers(tag_group_id):
+    """Read-only aggregated answers for a meta tag_group.
 
     Returns {mode, answers: [{name, solution}, ...]}. No writes — the endpoint
     never creates a rollup row or triggers a sheet refresh."""
     user = current_user()
-    hunt = await data.get_hunt_for_round(round_id)
+    hunt = await data.get_hunt_for_tag_group(tag_group_id)
     if not hunt:
         return jsonify({"error": "round_not_found"}), 404
     membership, roles_by_guild = await resolve_membership(user["id"])
@@ -148,21 +148,21 @@ async def rollup_answers(round_id):
     from bot.store import RoundJsonDb, RollupsJsonDb
     from bot.store.rollup_data import RollupData
 
-    meta_round = RoundJsonDb.get_by_attr(id=round_id)
-    if meta_round is None:
+    target_group = RoundJsonDb.get_by_attr(id=tag_group_id)
+    if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
-    rollup = RollupsJsonDb.get_by_attr(round_id=round_id)
+    rollup = RollupsJsonDb.get_by_attr(tag_group_id=tag_group_id)
     if rollup is None:
         # In-memory default — never persist.
-        rollup = RollupData(round_id=round_id)
+        rollup = RollupData(tag_group_id=tag_group_id)
 
     bot = current_app.bot
     cog = bot.get_cog("Puzzles") if bot else None
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
 
-    members = await cog.service.select_rollup_members(meta_round, rollup)
+    members = await cog.service.select_rollup_members(target_group, rollup)
     return jsonify({
         "mode": rollup.source_mode or "round",
         "answers": [{"name": p.name, "solution": p.solution} for p in members],

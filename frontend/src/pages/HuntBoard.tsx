@@ -114,9 +114,9 @@ export default function HuntBoard() {
       </Group>
 
       {view === "board" && (
-        <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.round_id))}>
+        <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.tag_group_id))}>
           {data.board.map((g) => (
-            <BoardGroup key={g.round_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
+            <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
           ))}
         </Accordion>
       )}

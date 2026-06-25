@@ -43,12 +43,12 @@ class TestSelectRollupMembers:
     @pytest.mark.asyncio
     async def test_round_mode_returns_feeds_meta_members_without_rendering(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        rollup = RollupData(id=9, hunt_id=10, round_id=5, source_mode="round")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds-meta"}
+        feeder.tag_edges = {5: "feeds"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder]
+            pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
@@ -56,46 +56,47 @@ class TestSelectRollupMembers:
 
     @pytest.mark.asyncio
     async def test_round_mode_excludes_non_matching_edge_type(self):
-        # An aggregates-into edge is NOT a feeds-meta feeder; round mode drops it.
+        # A 'none' edge is NOT a feeds feeder; round mode drops it.
         svc, _gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        rollup = RollupData(id=9, hunt_id=10, round_id=5, source_mode="round")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds-meta"}
+        feeder.tag_edges = {5: "feeds"}
         pooled = make_puzzle(id=3, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "aggregates-into"}
+        pooled.tag_edges = {5: "none"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder, pooled]
+            pdb.get_all_from_tag_group.return_value = [feeder, pooled]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
 
     @pytest.mark.asyncio
     async def test_subtree_mode_returns_branch_solved_puzzles_without_rendering(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        rollup = RollupData(id=9, hunt_id=10, round_id=5, source_mode="subtree")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         child = make_round(id=6)
         child.parent_group_id = 5
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
+        solved.tag_edges = {6: "feeds"}
         with _patched() as (pdb, rdb):
             rdb.get_all.return_value = [meta_round, child]
-            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_explicit_mode_returns_only_aggregates_into_members(self):
+    async def test_explicit_mode_returns_only_none_edge_members(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        rollup = RollupData(id=9, hunt_id=10, round_id=5, source_mode="explicit")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "aggregates-into"}
+        pooled.tag_edges = {5: "none"}
         other = make_puzzle(id=3, name="Feeder", solution="F")
-        other.tag_edges = {5: "feeds-meta"}
+        other.tag_edges = {5: "feeds"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [pooled, other]
+            pdb.get_all_from_tag_group.return_value = [pooled, other]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()
@@ -105,11 +106,11 @@ class TestSelectRollupMembers:
     async def test_falsy_source_mode_defaults_to_round(self):
         # A rollup whose source_mode is empty/falsy is treated as 'round'.
         svc, _gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
-        rollup = RollupData(id=9, hunt_id=10, round_id=5, source_mode="")
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds-meta"}
+        feeder.tag_edges = {5: "feeds"}
         with _patched() as (pdb, _rdb):
-            pdb.get_all_from_round.return_value = [feeder]
+            pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]

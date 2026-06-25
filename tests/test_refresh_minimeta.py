@@ -65,7 +65,7 @@ class TestRefreshMinimeta:
             await svc.refresh_minimeta(_hunt(), minimeta)
         committed = rudb.commit.call_args[0][0]
         assert committed.target_puzzle_id == 3
-        assert committed.round_id is None        # puzzle-keyed, not round-keyed
+        assert committed.tag_group_id is None        # puzzle-keyed, not round-keyed
         assert committed.hunt_id == 10
         assert committed.last_ok == 1
         assert committed.last_error is None

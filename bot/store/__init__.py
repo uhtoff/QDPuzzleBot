@@ -5,11 +5,11 @@ from pathlib import Path
 
 from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
 from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, AdditionalSheetData
-from .round_data import RoundData, _RoundJsonDb, MissingRoundError
+from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError
 from .rollup_data import RollupData, _RollupJsonDb
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .evidence_data import EvidenceData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLRoundJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb
 
 from bot.utils import config
 
@@ -78,7 +78,7 @@ if config.storage == 'mysql':
     mydb.autocommit = True
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
     GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
-    RoundJsonDb = MySQLRoundJsonDb(mydb=mydb)
+    RoundJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
     RollupsJsonDb = MySQLRollupJsonDb(mydb=mydb)

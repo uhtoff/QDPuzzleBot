@@ -1,7 +1,6 @@
 """M3.5: pure channel-adapter helpers, ctx-free."""
 from unittest.mock import MagicMock
 
-import pytest
 
 from bot.core import discord_channels   # <-- does not exist yet → right reason
 

@@ -11,7 +11,7 @@ import pytest
 import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
 from bot.store.puzzle_data import PuzzleData
-from bot.store.round_data import RoundData
+from bot.store.tag_group_data import TagGroupData
 
 
 # Local builders (kept self-contained so this M2 branch doesn't depend on the
@@ -27,11 +27,11 @@ def make_puzzle(id=1, name="Puzzle", solution=None, metapuzzle=0, metameta=0, ta
     return p
 
 
-def make_round(id=1, name="Round", meta_code="RND"):
-    r = RoundData()
+def make_round(id=1, name="Round", group_code="RND"):
+    r = TagGroupData()
     r.id = id
     r.name = name
-    r.meta_code = meta_code
+    r.group_code = group_code
     return r
 
 
@@ -155,8 +155,8 @@ class TestAddMetametapuzzleData:
         calls = _capture_aggregate(cog)
         # Two rounds, one with the old hardcoded-skip meta_code.
         rounds = {
-            10: make_round(id=10, name="Outer Wilds", meta_code="RETAWR"),
-            11: make_round(id=11, name="Fresh Round", meta_code="ABCDEF"),
+            10: make_round(id=10, name="Outer Wilds", group_code="RETAWR"),
+            11: make_round(id=11, name="Fresh Round", group_code="ABCDEF"),
         }
         self._patch_rounds(monkeypatch, rounds)
 
@@ -179,7 +179,7 @@ class TestAddMetametapuzzleData:
     def test_skips_metas_and_multi_tag(self, monkeypatch):
         cog = _cog()
         calls = _capture_aggregate(cog)
-        rounds = {10: make_round(id=10, name="R", meta_code="ZZZ")}
+        rounds = {10: make_round(id=10, name="R", group_code="ZZZ")}
         self._patch_rounds(monkeypatch, rounds)
 
         metameta = make_puzzle(id=1, name="MM", metameta=1)

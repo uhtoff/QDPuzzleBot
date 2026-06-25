@@ -28,11 +28,11 @@ export interface HuntList {
   archived: HuntSummary[];
 }
 
-export interface PuzzleRound {
+export interface PuzzleTagGroup {
   id: number;
   name: string;
-  meta_code: string | null;
-  is_meta_of: boolean;
+  group_code: string | null;
+  is_target_of: boolean;
 }
 
 export interface Activity {
@@ -73,18 +73,18 @@ export interface Puzzle {
   start_time: string | null;
   solve_time: string | null;
   last_activity: Activity | null;
-  rounds: PuzzleRound[];
+  rounds: PuzzleTagGroup[];
   sheets: AdditionalSheet[];
   mini_puzzles: MiniPuzzle[];
 }
 
 export interface BoardGroup {
-  round_id: number;
+  tag_group_id: number;
   name: string;
-  meta_code: string | null;
+  group_code: string | null;
   puzzles: Puzzle[];
-  meta_solution: string | null;
-  meta_solved: boolean;
+  target_solution: string | null;
+  target_solved: boolean;
   num_feeders: number;
   num_solved_feeders: number;
   rollup_stale: boolean;

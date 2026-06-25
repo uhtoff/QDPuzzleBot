@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from bot.store.hunt_data import HuntData
 from bot.store.puzzle_data import PuzzleData
-from bot.store.round_data import RoundData
+from bot.store.tag_group_data import TagGroupData
 
 
 def make_puzzle(
@@ -41,16 +41,16 @@ def make_round(
     id=1,
     name="Test Round",
     hunt_id=10,
-    meta_id=0,
-    meta_code="TROUND",
+    target_puzzle_id=0,
+    group_code="TROUND",
     category_id=999,
 ):
-    r = RoundData()
+    r = TagGroupData()
     r.id = id
     r.name = name
     r.hunt_id = hunt_id
-    r.meta_id = meta_id
-    r.meta_code = meta_code
+    r.target_puzzle_id = target_puzzle_id
+    r.group_code = group_code
     r.category_id = category_id
     return r
 
@@ -96,9 +96,9 @@ def make_puzzle_row(
     }
 
 
-def make_round_ref(id, name, meta_code="RC", is_meta_of=False):
+def make_round_ref(id, name, group_code="RC", is_target_of=False):
     """Build a round reference dict as embedded in a puzzle row."""
-    return {"id": id, "name": name, "meta_code": meta_code, "is_meta_of": is_meta_of}
+    return {"id": id, "name": name, "group_code": group_code, "is_target_of": is_target_of}
 
 
 def make_hunt(

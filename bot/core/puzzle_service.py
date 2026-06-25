@@ -18,7 +18,7 @@ from bot.store import PuzzleJsonDb, RoundJsonDb, HuntJsonDb, GuildSettingsDb, Sh
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
-from bot.store.round_data import RoundData
+from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
@@ -43,6 +43,51 @@ def resolve_puzzle_names(puzzle_ids):
         p = PuzzleJsonDb.get_by_attr(id=pid)
         names[pid] = p.name if p else f"Puzzle {pid}"
     return names
+
+
+def is_fed(tag_group_id: int, puzzles_in_group: list) -> bool:
+    """Return True if any member of the group has a 'feeds' edge to it.
+
+    A group with any feeds-edge member is a 'meta' in the old vocabulary.
+    puzzles_in_group is the list returned by PuzzleJsonDb.get_all_from_tag_group.
+    """
+    return any(
+        p.tag_edges.get(tag_group_id) == "feeds"
+        for p in puzzles_in_group
+    )
+
+
+def is_informed(tag_group_id: int, puzzles_in_group: list) -> bool:
+    """Return True if any member of the group has an 'informs' edge to it.
+
+    A group with any informs-edge member is a 'capstone' in the design vocabulary.
+    """
+    return any(
+        p.tag_edges.get(tag_group_id) == "informs"
+        for p in puzzles_in_group
+    )
+
+
+def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool:
+    """Return True if the group's feeders are themselves meta groups (have targets).
+
+    A group is metameta when its feeding members are target puzzles of other groups
+    — i.e. the group aggregates meta answers, not feeder answers.
+    """
+    target_puzzle_ids = {g.target_puzzle_id for g in all_tag_groups if g.target_puzzle_id}
+    return any(
+        p.tag_edges.get(tag_group.id) == "feeds" and p.id in target_puzzle_ids
+        for p in puzzles_in_group
+    )
+
+
+TYPE_DEFAULTS = {
+    "Round":      {"default_edge": "feeds",   "default_source_mode": "round"},
+    "Metapuzzle": {"default_edge": "feeds",   "default_source_mode": "round"},
+    "Capstone":   {"default_edge": "informs", "default_source_mode": "round"},
+    "Runaround":  {"default_edge": "feeds",   "default_source_mode": "subtree"},
+    "Group":      {"default_edge": "none",    "default_source_mode": "round"},
+}
 
 
 class PuzzleService:
@@ -118,15 +163,15 @@ class PuzzleService:
     # --- !reconcile ---
 
     def _home_category(self, guild, puzzle):
-        """Discord category the puzzle's single channel belongs in = tags[0]'s round.
-        Returns (category_or_None, home_round_or_None)."""
+        """Discord category the puzzle's single channel belongs in = tags[0]'s group.
+        Returns (category_or_None, home_group_or_None)."""
         if not puzzle.tags:
             return None, None
-        home_round = RoundJsonDb.get_by_attr(id=puzzle.tags[0])
-        if home_round is None or not home_round.category_id:
-            return None, home_round
-        category = discord.utils.get(guild.categories, id=home_round.category_id)
-        return category, home_round
+        home_group = RoundJsonDb.get_by_attr(id=puzzle.tags[0])
+        if home_group is None or not home_group.category_id:
+            return None, home_group
+        category = discord.utils.get(guild.categories, id=home_group.category_id)
+        return category, home_group
 
     async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply):
         """Make the puzzle's Discord channel match the DB. Returns the list of
@@ -139,7 +184,7 @@ class PuzzleService:
         if puzzle.parent_puzzle_id is not None:
             return []
         actions = []
-        category, home_round = self._home_category(guild, puzzle)
+        category, home_group = self._home_category(guild, puzzle)
         want_name = clean_name(puzzle.name)
 
         # 1. Stored id resolves to a live channel: fix category/name drift only.
@@ -187,7 +232,7 @@ class PuzzleService:
             PuzzleJsonDb.commit(puzzle)
             if created and self.notifier is not None:
                 await self.notifier.welcome(
-                    guild, hunt, hunt_round=home_round, puzzle=puzzle, channel=text_channel,
+                    guild, hunt, tag_group=home_group, puzzle=puzzle, channel=text_channel,
                 )
         return actions
 
@@ -232,12 +277,12 @@ class PuzzleService:
                 report.add_failure(puzzle.name, error)
 
         rounds = RoundJsonDb.get_all(hunt.id)
-        for hunt_round in rounds:
-            if hunt_round.category_id and discord.utils.get(
-                    guild.categories, id=hunt_round.category_id) is None:
+        for tag_group in rounds:
+            if tag_group.category_id and discord.utils.get(
+                    guild.categories, id=tag_group.category_id) is None:
                 report.add("round_category_broken",
-                           getattr(hunt_round, "meta_code", None) or str(hunt_round.id),
-                           f"category {hunt_round.category_id} missing")
+                           getattr(tag_group, "group_code", None) or str(tag_group.id),
+                           f"category {tag_group.category_id} missing")
 
         self._collect_orphan_channels(guild, rounds, puzzles, report)
         self._collect_orphan_tabs(hunt, puzzles, report)
@@ -327,49 +372,49 @@ class PuzzleService:
                     failures += 1
         return deleted, failures
 
-    async def refresh_meta(self, hunt, hunt_round):
+    async def refresh_target(self, hunt, tag_group):
         """Rebuild a meta (or meta-meta) roll-up sheet, tracking the outcome on the
-        round's `rollups` record (find-or-create). On success: last_ok=1, error
+        group's `rollups` record (find-or-create). On success: last_ok=1, error
         cleared. On a Sheets error: last_ok=0 + last_error persisted, then RE-RAISES
         so the caller can surface a toast — the durable badge is recorded either way.
 
-        Serialized per round via rollup_lock so only one writer touches a given meta
+        Serialized per group via rollup_lock so only one writer touches a given meta
         sheet at a time; the DB read happens INSIDE the lock so each holder renders
         post-commit state (no lost update against a concurrent !rebuild)."""
-        if hunt is None or hunt_round is None or not hunt_round.meta_id:
+        if hunt is None or tag_group is None or not tag_group.target_puzzle_id:
             return
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             # No sheets in play (tests / cog unloaded): nothing to render or badge.
             return
 
-        async with rollup_lock(hunt_round.id):
-            metapuzzle = PuzzleJsonDb.get_by_attr(id=hunt_round.meta_id)
+        async with rollup_lock(tag_group.id):
+            metapuzzle = PuzzleJsonDb.get_by_attr(id=tag_group.target_puzzle_id)
             if metapuzzle is None:
                 return
-            rollup = self._find_or_create_rollup(hunt_round)
+            rollup = self._find_or_create_rollup(tag_group)
             try:
-                await self._render_rollup(gsheet_cog, hunt_round, rollup, metapuzzle)
+                await self._render_rollup(gsheet_cog, tag_group, rollup, metapuzzle)
                 await self._record_rollup_tab(gsheet_cog, rollup, metapuzzle)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:
                 self._mark_rollup(rollup, ok=False, error=str(exc))
                 raise
 
-    def _find_or_create_rollup(self, hunt_round):
-        """Return the rollup row for this meta round, creating an unsaved one (with
+    def _find_or_create_rollup(self, tag_group):
+        """Return the rollup row for this tag group, creating an unsaved one (with
         the current-meta defaults) if none exists yet. Not committed until
         _mark_rollup writes the refresh outcome."""
-        rollup = RollupsJsonDb.get_by_attr(round_id=hunt_round.id)
+        rollup = RollupsJsonDb.get_by_attr(tag_group_id=tag_group.id)
         if rollup is None:
-            rollup = RollupData(hunt_id=hunt_round.hunt_id, round_id=hunt_round.id)
+            rollup = RollupData(hunt_id=tag_group.hunt_id, tag_group_id=tag_group.id)
         return rollup
 
-    async def set_source_mode(self, hunt, meta_round, mode):
-        """Set the aggregation source_mode for a meta round, then refresh its sheet.
+    async def set_source_mode(self, hunt, target_group, mode):
+        """Set the aggregation source_mode for a tag group, then refresh its sheet.
 
         Validates *mode* against SOURCE_MODES, creates the rollup row if needed,
-        commits the change, then calls refresh_meta.  Raises ValueError for an
+        commits the change, then calls refresh_target.  Raises ValueError for an
         unrecognised mode.  Any refresh failure propagates to the caller.
         """
         from bot.core.constants import SOURCE_MODES
@@ -377,10 +422,10 @@ class PuzzleService:
             raise ValueError(
                 f"source_mode must be one of: {', '.join(SOURCE_MODES)}"
             )
-        rollup = self._find_or_create_rollup(meta_round)
+        rollup = self._find_or_create_rollup(target_group)
         rollup.source_mode = mode
         RollupsJsonDb.commit(rollup)
-        await self.refresh_meta(hunt, meta_round)
+        await self.refresh_target(hunt, target_group)
 
     async def refresh_minimeta(self, hunt, minimeta):
         """Roll a minimeta's mini-puzzles (its parent_puzzle_id children) up onto the
@@ -417,34 +462,34 @@ class PuzzleService:
             rollup = RollupData(hunt_id=hunt.id, target_puzzle_id=minimeta.id)
         return rollup
 
-    async def select_rollup_members(self, hunt_round, rollup) -> list:
+    async def select_rollup_members(self, tag_group, rollup) -> list:
         """Select feeder membership by rollup.source_mode, returning the ordered
         list[PuzzleData] with NO Google-Sheet side-effects.
 
         Falsy/missing source_mode defaults to 'round'. Shared by _render_rollup so
         the sheet writer and any read path agree on membership."""
         mode = rollup.source_mode or "round"
-        feeders = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+        feeders = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
 
         if mode == "subtree":
-            return await self.collect_subtree_puzzles(hunt_round)
+            return await self.collect_subtree_puzzles(tag_group)
         elif mode == "explicit":
             return [
                 p for p in feeders
-                if p.tag_edges.get(hunt_round.id) == "aggregates-into"
+                if p.tag_edges.get(tag_group.id) == "none"
             ]
         else:
-            # 'round' (default): all round members, optionally filtered by edge_type_filter.
-            filt = rollup.edge_type_filter or "feeds-meta"
+            # 'round' (default): all group members, optionally filtered by edge_type_filter.
+            filt = rollup.edge_type_filter or "feeds"
             return [
                 p for p in feeders
-                if p.tag_edges.get(hunt_round.id, "feeds-meta") == filt
+                if p.tag_edges.get(tag_group.id, "feeds") == filt
             ]
 
-    async def _render_rollup(self, gsheet_cog, hunt_round, rollup, metapuzzle):
+    async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):
         """Select feeder membership via select_rollup_members and delegate to the
         existing renderer (add_metapuzzle_data or add_metametapuzzle_data)."""
-        members = await self.select_rollup_members(hunt_round, rollup)
+        members = await self.select_rollup_members(tag_group, rollup)
         mode = rollup.source_mode or "round"
 
         if mode == "subtree":
@@ -466,7 +511,7 @@ class PuzzleService:
         page_id = metapuzzle.google_page_id
         rollup.tab_page_id = int(page_id) if page_id not in (None, "") else None
         # A rollup is keyed by EITHER a round (meta rounds) or a target puzzle (minimetas).
-        ident = rollup.round_id if rollup.round_id else f"puzzle:{rollup.target_puzzle_id}"
+        ident = rollup.tag_group_id if rollup.tag_group_id else f"puzzle:{rollup.target_puzzle_id}"
         if rollup.metadata_id is None and rollup.tab_page_id is not None:
             try:
                 _, rollup.metadata_id = await gsheet_cog.stamp_rollup_metadata(
@@ -476,86 +521,163 @@ class PuzzleService:
                     "refresh_meta: developer-metadata stamp failed for %s "
                     "(non-fatal; google_page_id remains the pointer)", ident)
 
-    async def refresh_metas(self, hunt, rounds):
-        """Refresh several meta rounds with FAILURE ISOLATION: every round is
+    async def refresh_targets(self, hunt, tag_groups):
+        """Refresh several tag groups with FAILURE ISOLATION: every group is
         attempted (a failure on one must not skip the others), each failure is
-        already badged by refresh_meta, and the failed round ids are returned for the
-        caller to surface. None rounds are skipped. This is the shared isolation path
+        already badged by refresh_target, and the failed group ids are returned for the
+        caller to surface. None groups are skipped. This is the shared isolation path
         for solve / retag / the bang solution-edits / !rebuild."""
         failed = []
-        for hunt_round in rounds:
-            if hunt_round is None:
+        for tag_group in tag_groups:
+            if tag_group is None:
                 continue
             try:
-                await self.refresh_meta(hunt, hunt_round)
+                await self.refresh_target(hunt, tag_group)
             except Exception:
-                failed.append(hunt_round.id)
+                failed.append(tag_group.id)
         return failed
 
-    async def move_to_meta(self, guild, puzzle, meta_round):
-        """Retag a puzzle to meta_round (replacing its tags unless it is itself a
-        metapuzzle), move its channel into the meta's category, commit, and refresh
-        the affected metas. The tag mutation always commits; if any meta sheet fails
-        to refresh, each is badged and a SheetRefreshError is raised at the end."""
+    async def tag_with_edge(self, puzzle, group, edge):
+        """Upsert an edge for (puzzle, group) in the DB, then keep in-memory
+        ``puzzle.tags`` + ``puzzle.tag_edges`` in sync.
+
+        Mirrors add_to_meta's path but with typed edges.
+        """
+        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, group.id, edge)
+        if group.id not in puzzle.tags:
+            puzzle.tags.append(group.id)
+        puzzle.tag_edges[group.id] = edge
+        PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if guild is not None and puzzle.channel_id:
+        failed = await self.refresh_targets(hunt, [group])
+        await self.notifier.board_changed(hunt)
+        if failed:
+            raise SheetRefreshError(failed)
+
+    async def tag_edge_only(self, puzzle, group, edge, guild=None):
+        """Tag *puzzle* into *group* with *edge*, removing any other edges
+        of the **same type** (other groups carrying *edge* are swept).
+
+        If ``edge == "feeds"`` and guild is provided, also move the channel
+        to the group's category.  Delegates the actual tagging to
+        :meth:`tag_with_edge`.
+        """
+        # Sweep other groups that carry the same edge type
+        other_groups = [] 
+        for gid, etype in list(puzzle.tag_edges.items()):
+            if etype == edge and gid != group.id:
+                other_group = RoundJsonDb.get_by_attr(id=gid)
+                if other_group is not None:
+                    await self.untag_from(puzzle, other_group, edge=edge)
+                    other_groups.append(other_group)
+
+        # Move channel for feeds edges (backward compat with move_to_meta)
+        if edge == "feeds" and guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            new_category = discord.utils.get(guild.categories, id=meta_round.category_id)
+            new_category = discord.utils.get(guild.categories, id=group.category_id)
             if channel is not None and new_category is not None and channel.category_id != new_category.id:
                 await channel.edit(category=new_category, position=2)
-        if puzzle.is_metapuzzle() is False:
-            puzzle.tags.clear()
-        puzzle.tags.append(meta_round.id)
+
+        await self.tag_with_edge(puzzle, group, edge)
+
+    async def untag_from(self, puzzle, group, edge=None):
+        """Remove *puzzle* from *group*, optionally guarded by edge type.
+
+        When *edge* is provided and the membership edge doesn't match, this is
+        a no-op.  Mirrors remove_from_meta's guard against removing the last
+        tag of a metapuzzle.
+        """
+        # Type guard: if edge specified and current edge differs, no-op
+        if edge is not None and puzzle.tag_edges.get(group.id) != edge:
+            return
+        # Guard against removing the last membership of a metapuzzle
+        if puzzle.is_metapuzzle() and len(puzzle.tags) <= 1:
+            raise ValueError("cannot remove the last tag from a metapuzzle")
+        PuzzleJsonDb.delete_tag(puzzle.id, group.id)
+        if group.id in puzzle.tags:
+            puzzle.tags.remove(group.id)
+        puzzle.tag_edges.pop(group.id, None)
         PuzzleJsonDb.commit(puzzle)
-        affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_metas(hunt, affected)
-        await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
-
-    async def add_to_meta(self, puzzle, meta_round):
-        """Tag a puzzle to an additional meta (idempotent), commit, refresh."""
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        if meta_round.id not in puzzle.tags:
-            puzzle.tags.append(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
-        failed = await self.refresh_metas(hunt, [meta_round])
+        failed = await self.refresh_targets(hunt, [group])
         await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
-    async def remove_from_meta(self, puzzle, meta_round):
-        """Untag a puzzle from a meta (idempotent), commit, refresh affected metas."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if meta_round.id in puzzle.tags:
-            puzzle.tags.remove(meta_round.id)
-            PuzzleJsonDb.commit(puzzle)
-        affected = [meta_round] + [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_metas(hunt, affected)
-        await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
+    async def bulk_re_edge(self, tag_group, new_edge, hunt):
+        """Flip every member of *tag_group* to *new_edge*.
 
-    async def clear_metas(self, puzzle):
-        """Untag a puzzle from ALL metas in one shot (idempotent), commit, refresh
-        every formerly-affected meta. Used by drag-to-Unassigned. Callers must
-        reject metapuzzles before calling — clearing a metapuzzle's tags would
-        orphan its round (mirrors move_to_meta's protection)."""
-        hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-        old_tags = list(puzzle.tags)
-        if old_tags:
-            puzzle.tags.clear()
-            PuzzleJsonDb.commit(puzzle)
-        affected = [RoundJsonDb.get_by_attr(id=t) for t in old_tags]
-        failed = await self.refresh_metas(hunt, affected)
-        await self.notifier.board_changed(hunt)
-        if failed:
-            raise SheetRefreshError(failed)
+        Returns a human-readable summary string, e.g.
+        ``'flipped 3 feeds + 2 none → informs'`` or ``'0 members'``.
+        """
+        members = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+        if not members:
+            return "0 members"
 
-    async def set_parent_group(self, child_round, parent_id):
-        """Nest `child_round` under group `parent_id` (the parent_group_id tree),
+        # Count existing edge types before the flip
+        counter = {}
+        for p in members:
+            current = p.tag_edges.get(tag_group.id, "feeds")
+            counter[current] = counter.get(current, 0) + 1
+
+        PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
+
+        # Build summary string listing only non-zero edge types
+        parts = [f"{v} {k}" for k, v in counter.items() if v]
+        summary = "flipped " + " + ".join(parts) + f" → {new_edge}"
+
+        await self.refresh_target(hunt, tag_group)
+        await self.notifier.board_changed(hunt)
+        return summary
+
+    async def convert_to_type(self, guild, hunt, puzzle, new_type):
+        """Convert *puzzle* into a group of *new_type*.
+
+        If the puzzle is already backed by a group, updates type + source_mode
+        and (unless Runaround) flips members to the default edge.  If not yet
+        grouped, promotes in-place: creates a TagGroupData row, tags the puzzle,
+        sets ``metapuzzle=1``, and commits.
+
+        Returns ``(tag_group, summary_string)``.
+        """
+        tag_group = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+
+        if tag_group is None:
+            # Bare puzzle — promote in-place (no Discord channel creation)
+            tag_group = TagGroupData(
+                name=puzzle.name,
+                hunt_id=hunt.id,
+                category_id=puzzle.channel_id,
+                type=new_type,
+            )
+            RoundJsonDb.commit(tag_group)
+            tag_group.target_puzzle_id = puzzle.id
+            tag_group.group_code = RoundJsonDb.generate_uid("group_code", 6, puzzle.name)
+            RoundJsonDb.commit(tag_group)
+            puzzle.add_tag(tag_group.id)
+            puzzle.metapuzzle = 1
+            PuzzleJsonDb.commit(puzzle)
+        else:
+            # Already grouped — just update type
+            tag_group.type = new_type
+            RoundJsonDb.commit(tag_group)
+
+        # Set source_mode from defaults
+        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
+        await self.set_source_mode(hunt, tag_group, default_sm)
+
+        # Flip edges (unless Runaround or edge is "none")
+        if new_type != "Runaround":
+            default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
+            summary = await self.bulk_re_edge(tag_group, default_edge, hunt)
+        else:
+            summary = "no edge change (runaround)"
+
+        await self.notifier.board_changed(hunt)
+        return tag_group, summary
+
+    async def set_parent_group(self, child_group, parent_id):
+        """Nest `child_group` under group `parent_id` (the parent_group_id tree),
         rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.
 
         Guards group NESTING only. It has nothing to do with the tags/edge_type
@@ -565,18 +687,18 @@ class PuzzleService:
         Pass parent_id=None to clear nesting. Raises ValueError on a self-nest or a
         cycle (the prospective parent is the child or one of its descendants)."""
         if parent_id is None:
-            child_round.parent_group_id = None
-            RoundJsonDb.commit(child_round)
+            child_group.parent_group_id = None
+            RoundJsonDb.commit(child_group)
             return
-        if parent_id == child_round.id:
+        if parent_id == child_group.id:
             raise ValueError("a group cannot be nested under itself")
         # Walk up from the prospective parent; reaching the child means nesting would
         # close a loop. A depth cap backstops a pre-existing broken chain.
         node_id, depth = parent_id, 0
         while node_id is not None:
-            if node_id == child_round.id:
+            if node_id == child_group.id:
                 raise ValueError(
-                    f"nesting round {child_round.id} under {parent_id} would create a cycle")
+                    f"nesting group {child_group.id} under {parent_id} would create a cycle")
             depth += 1
             if depth > 64:
                 raise ValueError("parent_group chain too deep (possible pre-existing cycle)")
@@ -584,25 +706,25 @@ class PuzzleService:
             if node is None:
                 break
             node_id = node.parent_group_id
-        child_round.parent_group_id = parent_id
-        RoundJsonDb.commit(child_round)
+        child_group.parent_group_id = parent_id
+        RoundJsonDb.commit(child_group)
 
-    async def collect_subtree_rounds(self, root_round):
-        """BFS from root_round gathering descendants linked by parent_group_id.
+    async def collect_subtree_groups(self, root_group):
+        """BFS from root_group gathering descendants linked by parent_group_id.
 
-        Returns a list of round objects (including root_round itself). A depth cap
+        Returns a list of group objects (including root_group itself). A depth cap
         of 64 backstops pre-existing broken chains or cycles."""
-        all_rounds = RoundJsonDb.get_all(hunt_id=root_round.hunt_id)
-        # Build a child map: parent_group_id -> [child rounds]
+        all_tag_groups = RoundJsonDb.get_all(hunt_id=root_group.hunt_id)
+        # Build a child map: parent_group_id -> [child groups]
         children_of = {}
-        for r in all_rounds:
+        for r in all_tag_groups:
             pid = r.parent_group_id
             if pid is not None:
                 children_of.setdefault(pid, []).append(r)
 
-        visited = {root_round.id}
-        result = [root_round]
-        queue = [root_round]
+        visited = {root_group.id}
+        result = [root_group]
+        queue = [root_group]
         depth = 0
         while queue and depth <= 64:
             next_queue = []
@@ -616,19 +738,19 @@ class PuzzleService:
             depth += 1
         return result
 
-    async def collect_subtree_puzzles(self, root_round):
-        """Collect all solved puzzles across the subtree rooted at `root_round`.
+    async def collect_subtree_puzzles(self, root_group):
+        """Collect all solved puzzles across the subtree rooted at `root_group`.
 
-        Union of get_all_from_round for each descendant round, deduped by puzzle id,
+        Union of get_all_from_tag_group for each descendant group, deduped by puzzle id,
         keeping only solved puzzles."""
-        rounds = await self.collect_subtree_rounds(root_round)
+        rounds = await self.collect_subtree_groups(root_group)
         seen_ids = set()
         puzzles = []
         for rnd in rounds:
-            if rnd.id == root_round.id:
-                continue  # skip the meta round itself
-            for p in PuzzleJsonDb.get_all_from_round(rnd.id):
-                if p.id not in seen_ids and p.solved:
+            if rnd.id == root_group.id:
+                continue  # skip the meta group itself
+            for p in PuzzleJsonDb.get_all_from_tag_group(rnd.id):
+                if p.id not in seen_ids and p.solved and p.tag_edges.get(rnd.id, "feeds") == "feeds":
                     seen_ids.add(p.id)
                     puzzles.append(p)
         return puzzles
@@ -667,19 +789,19 @@ class PuzzleService:
                     logger.exception("Failed to archive mini-puzzle thread %s on solve", puzzle.channel_id)
 
         # Failure isolation: attempt every meta this puzzle feeds, badge any that
-        # fail, and keep going (one stale sheet must not skip the others, the round
+        # fail, and keep going (one stale sheet must not skip the others, the group
         # solve_time stamp, or the archive below).
         failed = []
         for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
+            target_group = RoundJsonDb.get_by_attr(id=tag)
             try:
-                await self.refresh_meta(hunt, meta_round)
+                await self.refresh_target(hunt, target_group)
             except Exception:
                 failed.append(tag)
-            if meta_round and meta_round.meta_id == puzzle.id:
-                meta_round.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                meta_round.status = "solved"   # M6: a round is solved when its meta is
-                RoundJsonDb.commit(meta_round)
+            if target_group and target_group.target_puzzle_id == puzzle.id:
+                target_group.solve_time = datetime.datetime.now(tz=pytz.UTC)
+                target_group.status = "solved"   # M6: a group is solved when its meta is
+                RoundJsonDb.commit(target_group)
 
         # M8: a solved mini rolls up onto its parent minimeta's own sheet (puzzle-keyed).
         # Best-effort: the badge records staleness; a failure here must not block archive
@@ -725,11 +847,11 @@ class PuzzleService:
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         for tag in puzzle.tags:
             try:
-                meta_round = RoundJsonDb.get_by_attr(id=tag)
-                if meta_round is not None:
-                    await self.refresh_meta(hunt, meta_round)
+                target_group = RoundJsonDb.get_by_attr(id=tag)
+                if target_group is not None:
+                    await self.refresh_target(hunt, target_group)
             except Exception:
-                logger.exception("unsolve: meta refresh failed for round %s", tag)
+                logger.exception("unsolve: meta refresh failed for group %s", tag)
 
         # M8: re-render the parent minimeta's sheet so the unsolved mini's answer clears.
         if puzzle.parent_puzzle_id is not None:
@@ -753,17 +875,17 @@ class PuzzleService:
         # Mirror round-solve undo if this puzzle was a round meta.
         for tag in puzzle.tags:
             round_ = RoundJsonDb.get_by_attr(id=tag)
-            if round_ and round_.meta_id == puzzle.id:
+            if round_ and round_.target_puzzle_id == puzzle.id:
                 round_.solve_time = None
                 round_.status = "active"
                 RoundJsonDb.commit(round_)
 
-    async def convert_to_feeder(self, guild, hunt, puzzle):
-        """Demote a metapuzzle back to an ordinary feeder (ctx-free seam for the
-        !convert_to_feeder bang and the web endpoint).
+    async def convert_to_puzzle(self, guild, hunt, puzzle):
+        """Demote a metapuzzle back to an ordinary puzzle (ctx-free seam for the
+        !convert_to_puzzle bang and the web endpoint).
 
         Deletes the round whose meta this puzzle is — which ORPHANS every feeder
-        tagged to that round (capstone rule) — drops the round id from the puzzle's
+        tagged to that round — drops the round id from the puzzle's
         tags, clears the metapuzzle flag, commits, and reverts the puzzle's sheet
         restructure. Mirrors solve's durability ordering: the DB mutation is
         committed before the sheet revert, so a Sheets failure (which
@@ -773,11 +895,11 @@ class PuzzleService:
         Returns the number of feeders orphaned by the round deletion (every puzzle
         that was tagged to the deleted round, excluding the meta itself)."""
         orphaned = len(self.feeders_orphaned_by_convert(puzzle))
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
-        if meta_round is not None:
-            RoundJsonDb.delete(meta_round.id)
-            if meta_round.id in puzzle.tags:
-                puzzle.tags.remove(meta_round.id)
+        target_group = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        if target_group is not None:
+            RoundJsonDb.delete(target_group.id)
+            if target_group.id in puzzle.tags:
+                puzzle.tags.remove(target_group.id)
         puzzle.metapuzzle = False
         PuzzleJsonDb.commit(puzzle)
 
@@ -790,14 +912,14 @@ class PuzzleService:
 
     def feeders_orphaned_by_convert(self, puzzle):
         """Read-only: the feeders that converting *puzzle* back to a feeder would
-        orphan — every puzzle tagged to its meta round except the meta itself.
+        orphan — every puzzle tagged to its tag group except the meta itself.
         Powers the web convert confirm, which must name the orphan count up front.
-        Returns [] if the puzzle backs no round."""
-        meta_round = RoundJsonDb.get_by_attr(meta_id=puzzle.id)
-        if meta_round is None:
+        Returns [] if the puzzle backs no group."""
+        target_group = RoundJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        if target_group is None:
             return []
         return [
-            p for p in PuzzleJsonDb.get_all_from_round(meta_round.id)
+            p for p in PuzzleJsonDb.get_all_from_tag_group(target_group.id)
             if p.id != puzzle.id
         ]
 
@@ -833,21 +955,21 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
-        meta_rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        target_groups = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         PuzzleJsonDb.delete(puzzle.id)
-        failed = await self.refresh_metas(hunt, meta_rounds)
+        failed = await self.refresh_targets(hunt, target_groups)
         await self._safe_delete_channel(guild, puzzle.channel_id)
         await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
-    async def delete_round(self, guild, hunt, hunt_round):
-        """Delete all puzzles in a round (sheet + DB + Discord channel per puzzle),
-        delete the round's Discord category (including its solved-divider channel),
-        and delete the round DB record. Per-puzzle failures are isolated: one failure
+    async def delete_round(self, guild, hunt, tag_group):
+        """Delete all puzzles in a group (sheet + DB + Discord channel per puzzle),
+        delete the group's Discord category (including its solved-divider channel),
+        and delete the group DB record. Per-puzzle failures are isolated: one failure
         is logged and the run continues. Guild may be None (skips all Discord deletions).
         Returns the list of puzzle names whose Discord channels could not be deleted."""
-        puzzles = PuzzleJsonDb.get_all_from_round(hunt_round.id)
+        puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
         failed_channels = []
         for puzzle in puzzles:
             gsheet_cog = self._gsheet_cog(hunt)
@@ -861,10 +983,10 @@ class PuzzleService:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
 
-        RoundJsonDb.delete(hunt_round.id)
+        RoundJsonDb.delete(tag_group.id)
 
-        if guild is not None and hunt_round.category_id:
-            category = discord.utils.get(guild.categories, id=hunt_round.category_id)
+        if guild is not None and tag_group.category_id:
+            category = discord.utils.get(guild.categories, id=tag_group.category_id)
             if category is not None:
                 for ch in list(category.channels):
                     if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
@@ -876,7 +998,7 @@ class PuzzleService:
                     await category.delete(reason=self._DISCORD_DELETE_REASON)
                 except Exception:
                     logger.exception("delete_round: could not delete category %s",
-                                     hunt_round.category_id)
+                                     tag_group.category_id)
 
         await self.notifier.board_changed(hunt)
         return failed_channels
@@ -894,8 +1016,8 @@ class PuzzleService:
             puzzle.solution = solution
         PuzzleJsonDb.commit(puzzle)
 
-        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.refresh_metas(hunt, rounds)
+        tag_groups = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_targets(hunt, tag_groups)
         await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
@@ -908,8 +1030,8 @@ class PuzzleService:
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
 
-        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.refresh_metas(hunt, rounds)
+        tag_groups = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_targets(hunt, tag_groups)
         await self.notifier.board_changed(hunt)
 
         gsheet_cog = self._gsheet_cog(hunt)
@@ -927,8 +1049,8 @@ class PuzzleService:
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
 
-        rounds = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.refresh_metas(hunt, rounds)
+        tag_groups = [RoundJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
+        failed = await self.refresh_targets(hunt, tag_groups)
         await self.notifier.board_changed(hunt)
 
         gsheet_cog = self._gsheet_cog(hunt)
@@ -1020,16 +1142,15 @@ class PuzzleService:
         if puzzle.is_metapuzzle():
             raise RuntimeError("already_meta")
 
-        new_round = RoundData(
+        new_round = TagGroupData(
             name=puzzle.name,
             hunt_id=hunt.id,
             category_id=puzzle.channel_id,
             type="Metapuzzle",
-            kind="meta",
         )
         RoundJsonDb.commit(new_round)
-        new_round.meta_code = RoundJsonDb.generate_uid("meta_code", 6, puzzle.name)
-        new_round.meta_id = puzzle.id
+        new_round.group_code = RoundJsonDb.generate_uid("group_code", 6, puzzle.name)
+        new_round.target_puzzle_id = puzzle.id
         RoundJsonDb.commit(new_round)
 
         puzzle.add_tag(new_round.id)
@@ -1068,10 +1189,10 @@ class PuzzleService:
         # Refresh metas this puzzle feeds to (same failure-isolation as solve).
         failed = []
         for tag in puzzle.tags:
-            meta_round = RoundJsonDb.get_by_attr(id=tag)
-            if meta_round is not None:
+            target_group = RoundJsonDb.get_by_attr(id=tag)
+            if target_group is not None:
                 try:
-                    await self.refresh_meta(hunt, meta_round)
+                    await self.refresh_target(hunt, target_group)
                 except Exception:
                     failed.append(tag)
 
@@ -1269,7 +1390,7 @@ class PuzzleService:
                 if notifier is not None:
                     await notifier.welcome(
                         guild, hunt,
-                        hunt_round=round_data,
+                        tag_group=round_data,
                         puzzle=new_puzzle,
                         channel=text_channel,
                     )
@@ -1282,25 +1403,25 @@ class PuzzleService:
         # Refresh metas for every tag that was assigned.
         for tag in new_puzzle.tags:
             try:
-                meta_round = RoundJsonDb.get_by_attr(id=tag)
-                if meta_round is not None:
-                    await self.refresh_meta(hunt, meta_round)
+                target_group = RoundJsonDb.get_by_attr(id=tag)
+                if target_group is not None:
+                    await self.refresh_target(hunt, target_group)
             except Exception:
-                logger.exception("create_puzzle: sheet update failed for round %s", tag)
+                logger.exception("create_puzzle: sheet update failed for group %s", tag)
 
         await self.notifier.board_changed(hunt)
         return new_puzzle
 
-    async def create_round(self, guild, hunt, name, notifier=None,
-                           meta_puzzle_name=None, round_type="Metapuzzle", round_kind="meta"):
-        """Create a new metapuzzle/round: category clone + round row + optional meta puzzle.
+    async def create_tag_group(self, guild, hunt, name, notifier=None,
+                               meta_puzzle_name=None, round_type="Metapuzzle"):
+        """Create a new metapuzzle/round: category clone + group row + optional meta puzzle.
 
-        Returns (RoundData, PuzzleData) when ``meta_puzzle_name`` is not False,
-        else (RoundData, None).  Raises RuntimeError("<code>") on recoverable
+        Returns (TagGroupData, PuzzleData) when ``meta_puzzle_name`` is not False,
+        else (TagGroupData, None).  Raises RuntimeError("<code>") on recoverable
         problems; raises the underlying exception otherwise.
-        ``meta_puzzle_name``: name for the meta puzzle. Defaults to round ``name``.
+        ``meta_puzzle_name``: name for the meta puzzle. Defaults to group ``name``.
         Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
-        ``round_type`` / ``round_kind`` let callers specify round classification.
+        ``round_type`` lets callers specify group classification.
         """
         mp_name = meta_puzzle_name if isinstance(meta_puzzle_name, str) else name
         create_meta = meta_puzzle_name is not False
@@ -1336,10 +1457,10 @@ class PuzzleService:
                     channel_type="text", position=500,
                 )
 
-            new_round = RoundData(
+            new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=new_category.id,
-                type=round_type, kind=round_kind,
+                type=round_type,
             )
             RoundJsonDb.commit(new_round)
 
@@ -1348,9 +1469,9 @@ class PuzzleService:
                 puzzle = await self.create_puzzle(
                     guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,
                 )
-                new_round.meta_id = puzzle.id
+                new_round.target_puzzle_id = puzzle.id
 
-            new_round.meta_code = RoundJsonDb.generate_uid('meta_code', 6, name)
+            new_round.group_code = RoundJsonDb.generate_uid('group_code', 6, name)
             RoundJsonDb.commit(new_round)
 
             await self.notifier.board_changed(hunt)
@@ -1572,12 +1693,12 @@ class PuzzleService:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
 
-        # Delete each round's category + DB row
-        hunt_rounds = RoundJsonDb.get_all(hunt.id)
-        for hunt_round in hunt_rounds:
-            RoundJsonDb.delete(hunt_round.id)
-            if guild is not None and hunt_round.category_id:
-                category = discord.utils.get(guild.categories, id=hunt_round.category_id)
+        # Delete each group's category + DB row
+        tag_groups = RoundJsonDb.get_all(hunt.id)
+        for tag_group in tag_groups:
+            RoundJsonDb.delete(tag_group.id)
+            if guild is not None and tag_group.category_id:
+                category = discord.utils.get(guild.categories, id=tag_group.category_id)
                 if category is not None:
                     for ch in list(category.channels):
                         if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
@@ -1588,8 +1709,8 @@ class PuzzleService:
                     try:
                         await category.delete(reason=self._DISCORD_DELETE_REASON)
                     except Exception:
-                        logger.exception("delete_hunt: could not delete round category %s",
-                                         hunt_round.category_id)
+                        logger.exception("delete_hunt: could not delete group category %s",
+                                         tag_group.category_id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)

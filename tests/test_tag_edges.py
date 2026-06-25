@@ -2,11 +2,11 @@
 
 LIVE MySQL (puzzlebot_test). Follows the live-DB convention used by
 test_backfill_consistency.py (`from bot.store import mydb`); these store-layer
-behaviours are not mockable. Each test inserts its own round/puzzle/tag rows
+behaviours are not mockable. Each test inserts its own tag_group/puzzle/tag rows
 (FK-valid) and tears them down in a finally block. The tags table FKs cascade on
-puzzle/round delete, so deleting the parents clears the tag rows.
+puzzle/tag_group delete, so deleting the parents clears the tag rows.
 
-The upsert test relies on migration 005's UNIQUE KEY (round_id, puzzle_id); if
+The upsert test relies on migration 005's UNIQUE KEY (tag_group_id, puzzle_id); if
 005 is not yet applied the writer simply does not exist (Phase 1) — the test then
 fails on the missing seam, which is the right reason.
 """
@@ -15,9 +15,9 @@ from bot.store import PuzzleJsonDb, mydb
 from bot.store.puzzle_data import PuzzleData
 
 
-def _insert_round(hunt_id=10):
+def _insert_tag_group(hunt_id=10):
     cur = mydb.cursor()
-    cur.execute("INSERT INTO rounds (hunt_id) VALUES (%s)", (hunt_id,))
+    cur.execute("INSERT INTO tag_group (hunt_id) VALUES (%s)", (hunt_id,))
     rid = cur.lastrowid
     cur.close()
     mydb.commit()
@@ -33,17 +33,17 @@ def _insert_puzzle(hunt_id=10, name="EdgeTest"):
     return pid
 
 
-def _insert_tag(round_id, puzzle_id, edge_type=None):
+def _insert_tag(tag_group_id, puzzle_id, edge_type=None):
     cur = mydb.cursor()
     if edge_type is None:
         cur.execute(
-            "INSERT INTO tags (round_id, puzzle_id) VALUES (%s, %s)",
-            (round_id, puzzle_id),
+            "INSERT INTO tags (tag_group_id, puzzle_id) VALUES (%s, %s)",
+            (tag_group_id, puzzle_id),
         )
     else:
         cur.execute(
-            "INSERT INTO tags (round_id, puzzle_id, edge_type) VALUES (%s, %s, %s)",
-            (round_id, puzzle_id, edge_type),
+            "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s)",
+            (tag_group_id, puzzle_id, edge_type),
         )
     cur.close()
     mydb.commit()
@@ -56,18 +56,18 @@ def _delete_puzzle(puzzle_id):
     mydb.commit()
 
 
-def _delete_round(round_id):
+def _delete_tag_group(tag_group_id):
     cur = mydb.cursor()
-    cur.execute("DELETE FROM rounds WHERE id = %s", (round_id,))
+    cur.execute("DELETE FROM tag_group WHERE id = %s", (tag_group_id,))
     cur.close()
     mydb.commit()
 
 
-def _tag_rows(round_id, puzzle_id):
+def _tag_rows(tag_group_id, puzzle_id):
     cur = mydb.cursor(dictionary=True)
     cur.execute(
-        "SELECT edge_type FROM tags WHERE round_id = %s AND puzzle_id = %s",
-        (round_id, puzzle_id),
+        "SELECT edge_type FROM tags WHERE tag_group_id = %s AND puzzle_id = %s",
+        (tag_group_id, puzzle_id),
     )
     rows = cur.fetchall()
     cur.close()
@@ -75,38 +75,38 @@ def _tag_rows(round_id, puzzle_id):
 
 
 def test_get_tags_populates_tag_edges():
-    rid_default = _insert_round()
-    rid_aggr = _insert_round()
+    rid_default = _insert_tag_group()
+    rid_aggr = _insert_tag_group()
     pid = _insert_puzzle()
     try:
-        _insert_tag(rid_default, pid)                       # defaults to feeds-meta
-        _insert_tag(rid_aggr, pid, edge_type="aggregates-into")
+        _insert_tag(rid_default, pid)                       # defaults to feeds
+        _insert_tag(rid_aggr, pid, edge_type="none")
 
         puzzle = PuzzleData()
         puzzle.id = pid
         PuzzleJsonDb.get_tags(puzzle)
 
-        # tags is unchanged: still the list of round_ids.
+        # tags is unchanged: still the list of tag_group_ids.
         assert set(puzzle.tags) == {rid_default, rid_aggr}
-        # tag_edges maps each round_id to its edge_type.
-        assert puzzle.tag_edges[rid_default] == "feeds-meta"
-        assert puzzle.tag_edges[rid_aggr] == "aggregates-into"
+        # tag_edges maps each tag_group_id to its edge_type.
+        assert puzzle.tag_edges[rid_default] == "feeds"
+        assert puzzle.tag_edges[rid_aggr] == "none"
     finally:
         _delete_puzzle(pid)
-        _delete_round(rid_default)
-        _delete_round(rid_aggr)
+        _delete_tag_group(rid_default)
+        _delete_tag_group(rid_aggr)
 
 
 def test_tag_puzzle_with_edge_inserts_then_updates():
-    rid = _insert_round()
+    rid = _insert_tag_group()
     pid = _insert_puzzle()
     try:
-        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "aggregates-into")
-        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds-meta")  # update in place
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "none")
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds")  # update in place
 
         rows = _tag_rows(rid, pid)
         assert len(rows) == 1                       # one edge per pair, not duplicated
-        assert rows[0]["edge_type"] == "feeds-meta"  # latest value won
+        assert rows[0]["edge_type"] == "feeds"  # latest value won
     finally:
         _delete_puzzle(pid)
-        _delete_round(rid)
+        _delete_tag_group(rid)

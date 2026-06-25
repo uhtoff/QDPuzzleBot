@@ -240,7 +240,7 @@ def test_reconcile_collects_orphan_channel():
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="1", tags=[10])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
          patch.object(ps.RoundJsonDb, "get_all",
-                      return_value=[SimpleNamespace(id=10, category_id=500, meta_id=None)]), \
+                      return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)]), \
          patch.object(ps.RoundJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
@@ -254,7 +254,7 @@ def test_reconcile_flags_broken_round_category():
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="1", tags=[])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
          patch.object(ps.RoundJsonDb, "get_all",
-                      return_value=[SimpleNamespace(id=10, category_id=500, meta_id=7)]):
+                      return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=7)]):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
     assert any(a.kind == "round_category_broken" for a in report.actions)
 
@@ -407,7 +407,7 @@ def test_apply_twice_is_convergent_for_healthy_hunt():
     p = _puzzle(channel_id=111, channel_name="tide", google_page_id="42", tags=[10])
     with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
          patch.object(ps.RoundJsonDb, "get_all",
-                      return_value=[SimpleNamespace(id=10, category_id=500, meta_id=None)]), \
+                      return_value=[SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)]), \
          patch.object(ps.RoundJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
         report = asyncio.run(svc.reconcile(guild, _hunt(), apply=True))

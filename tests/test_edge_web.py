@@ -1,0 +1,170 @@
+"""Milestone C — Phase 1 failing tests for the web API edge/type parity.
+
+Covers the backward-compatible extensions to the dashboard write-actions:
+
+  POST /api/hunts/<uid>/metas      -> create_tag_group(..., round_type=<type>)
+  POST /api/puzzles/<id>/meta      -> tag_with_edge / tag_edge_only (edge + only)
+  POST /api/puzzles/<id>/convert-to-capstone  (and friends) -> convert_to_type
+
+We build a minimal Quart app registering only ``actions_bp`` (no CSRF guard), patch
+the auth/visibility helpers so the request reaches the view body, and assert which
+service method the view dispatches to. The session proxy in ``bot.web.auth`` is
+patched to a plain dict so ``login_required`` passes without cookie machinery.
+
+Phase 1 expectation: these fail because the views still call the OLD service methods
+(or the new routes are unregistered). Phase 4 wires them up. The fixture is local to
+this file (the parallel runner shards by file).
+"""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from tests.conftest import make_puzzle, make_round
+
+
+# Service methods the views may await — every one must be an AsyncMock so the view
+# body runs to completion regardless of which one the current code path calls.
+_ASYNC_SERVICE_METHODS = [
+    "tag_with_edge", "tag_edge_only", "untag_from",
+    "create_tag_group", "convert_to_type", "convert_to_meta",
+    "convert_to_puzzle", "refresh_unassigned_safe",
+]
+
+
+def _build_cog():
+    cog = MagicMock()
+    svc = cog.service
+    for name in _ASYNC_SERVICE_METHODS:
+        setattr(svc, name, AsyncMock())
+    # create_tag_group returns (TagGroupData, PuzzleData); channel_id=0 so the
+    # create_meta view skips the Discord welcome path.
+    svc.create_tag_group = AsyncMock(return_value=(make_round(id=5), make_puzzle(id=9, channel_id=0)))
+    svc.convert_to_type = AsyncMock(return_value=(make_round(id=5), "flipped 3 feeds → informs"))
+    return cog
+
+
+@pytest.fixture
+def web():
+    from quart import Quart
+    from bot.web.actions import actions_bp
+
+    app = Quart(__name__)
+    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
+    cog = _build_cog()
+    app.bot = MagicMock()
+    app.bot.get_cog.return_value = cog
+    app.bot.get_guild.return_value = MagicMock()
+    app.register_blueprint(actions_bp)
+
+    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+
+    target_group = make_round(id=7, group_code="X", category_id=999)
+    target_group.hunt_id = 10
+    puzzle = make_puzzle(id=5, channel_id=222, metapuzzle=1)
+
+    patches = [
+        patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+        patch("bot.web.actions._visible_hunt_for_puzzle", AsyncMock(return_value=(ctx, None))),
+        patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(ctx, None))),
+        patch("bot.web.actions._organiser_hunt", AsyncMock(return_value=(ctx, None))),
+        patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
+        patch("bot.web.actions._audit", AsyncMock()),
+        patch("bot.store.HuntJsonDb"),
+        patch("bot.store.PuzzleJsonDb"),
+        patch("bot.store.RoundJsonDb"),
+    ]
+    started = [p.start() for p in patches]
+    _hdb, _pdb, _rdb = started[6], started[7], started[8]
+    _pdb.get_by_attr.return_value = puzzle
+    _pdb.check_duplicates_in_hunt.return_value = False
+    _rdb.get_by_attr.return_value = target_group
+    _hdb.get_by_attr.return_value = MagicMock()
+
+    try:
+        yield SimpleNamespace(
+            app=app, client=app.test_client(), cog=cog, svc=cog.service,
+            puzzle=puzzle, target_group=target_group,
+            HuntJsonDb=_hdb, PuzzleJsonDb=_pdb, RoundJsonDb=_rdb,
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+
+def _edge_of(call):
+    """Extract the edge argument from a tag_with_edge/tag_edge_only(puzzle, group, edge, ...) call."""
+    if "edge" in call.kwargs:
+        return call.kwargs["edge"]
+    return call.args[2]
+
+
+# ---------------------------------------------------------------------------
+# Create endpoint — type param
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_meta_default_type(web):
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo"})
+    assert resp.status_code == 200
+    web.svc.create_tag_group.assert_called_once()
+    assert web.svc.create_tag_group.call_args.kwargs.get("round_type") == "Metapuzzle"
+
+
+@pytest.mark.asyncio
+async def test_create_meta_capstone_type(web):
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Capstone"})
+    assert resp.status_code == 200
+    web.svc.create_tag_group.assert_called_once()
+    assert web.svc.create_tag_group.call_args.kwargs.get("round_type") == "Capstone"
+
+
+# ---------------------------------------------------------------------------
+# Membership endpoint — edge + only params
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_retag_default_edge_feeds(web):
+    await web.client.post("/api/puzzles/5/meta", json={"group_code": "X", "mode": "add"})
+    web.svc.tag_with_edge.assert_called_once()
+    assert _edge_of(web.svc.tag_with_edge.call_args) == "feeds"
+
+
+@pytest.mark.asyncio
+async def test_retag_informs_edge(web):
+    await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "edge": "informs"}
+    )
+    web.svc.tag_with_edge.assert_called_once()
+    assert _edge_of(web.svc.tag_with_edge.call_args) == "informs"
+
+
+@pytest.mark.asyncio
+async def test_retag_add_only_true(web):
+    await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "only": True}
+    )
+    web.svc.tag_edge_only.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_retag_mode_move_compat(web):
+    await web.client.post("/api/puzzles/5/meta", json={"group_code": "X", "mode": "move"})
+    web.svc.tag_edge_only.assert_called_once()
+    assert _edge_of(web.svc.tag_edge_only.call_args) == "feeds"
+
+
+# ---------------------------------------------------------------------------
+# Convert endpoints — new routes + summary field
+# ---------------------------------------------------------------------------
+
+def test_convert_to_capstone_endpoint_exists(web):
+    rules = {r.rule for r in web.app.url_map.iter_rules()}
+    assert "/api/puzzles/<int:puzzle_id>/convert-to-capstone" in rules
+
+
+@pytest.mark.asyncio
+async def test_convert_to_capstone_returns_summary(web):
+    resp = await web.client.post("/api/puzzles/5/convert-to-capstone", json={})
+    data = await resp.get_json(silent=True) or {}
+    assert "summary" in data

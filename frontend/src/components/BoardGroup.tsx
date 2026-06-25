@@ -48,7 +48,7 @@ interface Props {
 }
 
 export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
-  const solvedAll = group.meta_solved;
+  const solvedAll = group.target_solved;
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
@@ -58,10 +58,10 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   // Aggregated answers reveal
   const [answersOpened, { open: openAnswers, close }] = useDisclosure(false);
   const clipboard = useClipboard();
-  const isMeta = !!group.meta_code;
-  const answersQuery = useRollupAnswers(group.round_id, answersOpened && isMeta);
+  const isMeta = !!group.group_code;
+  const answersQuery = useRollupAnswers(group.tag_group_id, answersOpened && isMeta);
   // Collect other meta rounds for the nesting dropdown
-  const allMetaRounds = detail.board.filter((g) => g.round_id !== 0 && g.round_id !== group.round_id);
+  const allTargetGroups = detail.board.filter((g) => g.tag_group_id !== 0 && g.tag_group_id !== group.tag_group_id);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const sourceModeMut = useSetSourceMode(detail.hunt.uid);
@@ -70,7 +70,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
 
   function rebuild() {
-    rebuildMut.mutate(group.round_id, {
+    rebuildMut.mutate(group.tag_group_id, {
       onSuccess: (data) =>
         notifications.show(
           data.ok
@@ -82,7 +82,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   function setSourceMode(mode: string) {
-    sourceModeMut.mutate({ roundId: group.round_id, mode: mode as SourceMode }, {
+    sourceModeMut.mutate({ roundId: group.tag_group_id, mode: mode as SourceMode }, {
       onSuccess: (data) =>
         notifications.show(
           data.ok
@@ -95,11 +95,11 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
 
   function applyNesting() {
     const parentId = nestParentId ? Number(nestParentId) : null;
-    nestingMut.mutate({ roundId: group.round_id, parentId }, {
+    nestingMut.mutate({ roundId: group.tag_group_id, parentId }, {
       onSuccess: () => {
         notifications.show({
           message: parentId
-            ? `"${group.name}" nested under "${allMetaRounds.find(g => g.round_id === parentId)?.name || parentId}"`
+            ? `"${group.name}" nested under "${allTargetGroups.find(g => g.tag_group_id === parentId)?.name || parentId}"`
             : `"${group.name}" nesting cleared`,
           color: "green",
         });
@@ -111,7 +111,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   function runDeleteRound() {
-    deleteRoundMut.mutate(group.round_id, {
+    deleteRoundMut.mutate(group.tag_group_id, {
       onSuccess: (data) => {
         if (data.failed_channels && data.failed_channels.length > 0) {
           notifications.show({
@@ -147,7 +147,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   return (
-    <Accordion.Item value={String(group.round_id)}>
+    <Accordion.Item value={String(group.tag_group_id)}>
       <Box style={{ display: "flex", alignItems: "center" }}>
         <Accordion.Control
           style={{ flex: 1 }}
@@ -155,14 +155,14 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         >
           <Group gap="sm">
             <Text fw={600}>{group.name}</Text>
-            {group.meta_code && (
+            {group.group_code && (
               <Badge variant="light" color="grape" size="sm">
-                {group.meta_code}
+                {group.group_code}
               </Badge>
             )}
-            {group.meta_solved && group.meta_solution && (
+            {group.target_solved && group.target_solution && (
               <Badge color="green" variant="filled" size="sm">
-                {group.meta_solution}
+                {group.target_solution}
               </Badge>
             )}
             {group.rollup_stale && (
@@ -195,7 +195,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           </Tooltip>
         )}
         {/* M7 source_mode selector */}
-        {group.round_id !== 0 && editable && isOrganiser && (
+        {group.tag_group_id !== 0 && editable && isOrganiser && (
           <Select
             data={[
               { value: "round", label: "round" },
@@ -211,7 +211,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           />
         )}
         {/* M7 nesting button (only for meta rounds) */}
-        {group.round_id !== 0 && isOrganiser && editable && allMetaRounds.length > 0 && (
+        {group.tag_group_id !== 0 && isOrganiser && editable && allTargetGroups.length > 0 && (
           <Tooltip label="Nest under another meta">
             <ActionIcon
               variant="subtle"
@@ -245,7 +245,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           </Tooltip>
         )}
         {/* Delete round button — organiser only, non-archived, real rounds only */}
-        {group.round_id !== 0 && isOrganiser && editable && (
+        {group.tag_group_id !== 0 && isOrganiser && editable && (
           <Tooltip label="Delete this round and all its puzzles">
             <ActionIcon
               variant="subtle"
@@ -266,7 +266,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         <Table>
           <Table.Tbody>
             {group.puzzles.map((p) => (
-              <Fragment key={`${group.round_id}-${p.id}`}>
+              <Fragment key={`${group.tag_group_id}-${p.id}`}>
               <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                 <Table.Td w={110}>
                   <PuzzleLinks
@@ -335,9 +335,9 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           title={`Nest "${group.name}" under…`}
         >
           <Select
-            data={allMetaRounds.map((g) => ({
-              value: String(g.round_id),
-              label: `${g.name} (${g.meta_code ?? '—'})`,
+            data={allTargetGroups.map((g) => ({
+              value: String(g.tag_group_id),
+              label: `${g.name} (${g.group_code ?? '—'})`,
             }))}
             placeholder="Pick parent round (or leave blank to clear)"
             value={nestParentId}

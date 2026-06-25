@@ -47,10 +47,10 @@ interface MetaOption {
 interface CardProps {
   puzzle: Puzzle;
   dragId: string;
-  columnMetaCode: string | null;
+  columnGroupCode: string | null;
   columnName: string;
   metas: MetaOption[];
-  onRetag: (puzzleId: number, metaCode: string, mode: RetagMode) => void;
+  onRetag: (puzzleId: number, groupCode: string, mode: RetagMode) => void;
   onConvertToFeeder: (puzzle: Puzzle) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
@@ -59,25 +59,25 @@ interface CardProps {
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
-    data: { puzzleId: puzzle.id, sourceMetaCode: columnMetaCode },
+    data: { puzzleId: puzzle.id, sourceGroupCode: columnGroupCode },
   });
   // Pending action for the ConfirmModal (minimeta / convert-to-meta).
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
   // Metas this puzzle is not already in (candidates for "add").
-  const inCodes = new Set(puzzle.rounds.map((r) => r.meta_code).filter(Boolean));
+  const inCodes = new Set(puzzle.rounds.map((r) => r.group_code).filter(Boolean));
   const addable = metas.filter((m) => !inCodes.has(m.code));
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
-  const metaCount = puzzle.rounds.filter((r) => r.meta_code).length;
+  const metaCount = puzzle.rounds.filter((r) => r.group_code).length;
   const multiMeta = !puzzle.is_meta && metaCount > 1;
   // Allow removing from the current column unless this puzzle IS that meta.
-  const here = puzzle.rounds.find((r) => r.meta_code === columnMetaCode);
-  const canRemove = columnMetaCode != null && here != null && !here.is_meta_of;
+  const here = puzzle.rounds.find((r) => r.group_code === columnGroupCode);
+  const canRemove = columnGroupCode != null && here != null && !here.is_target_of;
 
   return (
     <>
@@ -139,7 +139,7 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
             {canRemove && (
               <>
                 <Menu.Divider />
-                <Menu.Item color="red" onClick={() => onRetag(puzzle.id, columnMetaCode!, "remove")}>
+                <Menu.Item color="red" onClick={() => onRetag(puzzle.id, columnGroupCode!, "remove")}>
                   Remove from {columnName}
                 </Menu.Item>
               </>
@@ -229,12 +229,12 @@ function PuzzleCard({ puzzle, dragId, columnMetaCode, columnName, metas, onRetag
 }
 
 function Column({ group, children }: { group: BoardGroup; children: ReactNode }) {
-  // The Unassigned column (meta_code === null) is a drop target too: dropping a
-  // puzzle there clears it from all metas. Its metaCode in the drop data is null.
-  const isUnassigned = group.meta_code == null;
+  // The Unassigned column (group_code === null) is a drop target too: dropping a
+  // puzzle there clears it from all metas. Its groupCode in the drop data is null.
+  const isUnassigned = group.group_code == null;
   const { setNodeRef, isOver } = useDroppable({
-    id: `meta:${group.meta_code}`,
-    data: { metaCode: group.meta_code },
+    id: `meta:${group.group_code}`,
+    data: { groupCode: group.group_code },
   });
   return (
     <Paper
@@ -254,9 +254,9 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
           <Text fw={600} size="sm" lineClamp={1}>
             {group.name}
           </Text>
-          {group.meta_code && (
+          {group.group_code && (
             <Badge size="xs" color="grape" variant="light">
-              {group.meta_code}
+              {group.group_code}
             </Badge>
           )}
         </Group>
@@ -289,19 +289,19 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   // grey out just one card.
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
   // Deferred drag action awaiting confirmation via ConfirmModal.
-  const [dragConfirm, setDragConfirm] = useState<{ title: string; message: string; puzzleId: number; metaCode: string; mode: RetagMode } | null>(null);
+  const [dragConfirm, setDragConfirm] = useState<{ title: string; message: string; puzzleId: number; groupCode: string; mode: RetagMode } | null>(null);
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
 
   const metas: MetaOption[] = detail.board
-    .filter((g) => g.meta_code != null)
-    .map((g) => ({ code: g.meta_code as string, name: g.name }));
+    .filter((g) => g.group_code != null)
+    .map((g) => ({ code: g.group_code as string, name: g.name }));
 
-  const runRetag = (puzzleId: number, metaCode: string, mode: RetagMode) => {
+  const runRetag = (puzzleId: number, groupCode: string, mode: RetagMode) => {
     setPendingIds((s) => new Set(s).add(puzzleId));
     retag.mutate(
-      { puzzleId, metaCode, mode },
+      { puzzleId, metaCode: groupCode, mode },
       {
         onSuccess: (data) => {
           showSheetWarning(data);
@@ -370,15 +370,15 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   function onDragEnd(e: DragEndEvent) {
     setActive(null);
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
-    const sourceMetaCode = e.active.data.current?.sourceMetaCode as string | null | undefined;
+    const sourceGroupCode = e.active.data.current?.sourceGroupCode as string | null | undefined;
     if (!puzzleId || e.over == null) return;
-    const metaCode = e.over.data.current?.metaCode as string | null | undefined;
+    const groupCode = e.over.data.current?.groupCode as string | null | undefined;
     const p = byId.get(puzzleId);
 
-    // Dropped on the Unassigned column (metaCode === null): clear all metas.
-    if (metaCode == null) {
+    // Dropped on the Unassigned column (groupCode === null): clear all metas.
+    if (groupCode == null) {
       if (!p) return;
-      const currentMetas = p.rounds.filter((r) => r.meta_code);
+      const currentMetas = p.rounds.filter((r) => r.group_code);
       if (currentMetas.length === 0) return; // already unassigned — no-op
       if (p.is_meta) {
         notifications.show({ message: "A meta can't be unassigned.", color: "yellow" });
@@ -389,7 +389,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         title: "Remove from all metas",
         message: `Remove "${p.name}" from all metas: ${names}?`,
         puzzleId,
-        metaCode: "",
+        groupCode: "",
         mode: "clear",
       });
       return;
@@ -397,12 +397,12 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
 
     // Skip a no-op drop back onto the puzzle's current meta — otherwise every
     // drop fires a retag that moves the Discord channel (a PATCH /channels write).
-    if (metaCode === sourceMetaCode) return;
+    if (groupCode === sourceGroupCode) return;
     // A plain drag is a "move": the server clears all of this puzzle's meta tags
     // and re-adds only the target, silently detaching it from any other metas.
     // Warn first when that would actually lose memberships.
-    if (p && !p.is_meta && p.rounds.filter((r) => r.meta_code).length > 1) {
-      const lost = p.rounds.filter((r) => r.meta_code && r.meta_code !== metaCode);
+    if (p && !p.is_meta && p.rounds.filter((r) => r.group_code).length > 1) {
+      const lost = p.rounds.filter((r) => r.group_code && r.group_code !== groupCode);
       const names = lost.map((r) => r.name).join(", ");
       setDragConfirm({
         title: "Move puzzle",
@@ -412,12 +412,12 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead. ` +
           `Move it anyway?`,
         puzzleId,
-        metaCode,
+        groupCode,
         mode: "move",
       });
       return;
     }
-    runRetag(puzzleId, metaCode, "move");
+    runRetag(puzzleId, groupCode, "move");
   }
 
   return (
@@ -430,13 +430,13 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         <ScrollArea type="auto" offsetScrollbars>
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
-              <Column key={group.round_id} group={group}>
+              <Column key={group.tag_group_id} group={group}>
                 {group.puzzles.map((p) => (
                   <PuzzleCard
-                    key={`${group.round_id}-${p.id}`}
+                    key={`${group.tag_group_id}-${p.id}`}
                     puzzle={p}
-                    dragId={`${group.round_id}:${p.id}`}
-                    columnMetaCode={group.meta_code}
+                    dragId={`${group.tag_group_id}:${p.id}`}
+                    columnGroupCode={group.group_code}
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
@@ -521,7 +521,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         opened={dragConfirm != null}
         onClose={() => setDragConfirm(null)}
         onConfirm={() => {
-          if (dragConfirm) runRetag(dragConfirm.puzzleId, dragConfirm.metaCode, dragConfirm.mode);
+          if (dragConfirm) runRetag(dragConfirm.puzzleId, dragConfirm.groupCode, dragConfirm.mode);
           setDragConfirm(null);
         }}
         title={dragConfirm?.title ?? ""}

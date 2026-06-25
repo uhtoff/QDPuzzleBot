@@ -49,13 +49,13 @@ class TestMetametaBridge:
     @pytest.mark.asyncio
     async def test_metameta_round_with_subtree_mode_uses_branch_not_hunt_scan(self):
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metameta = make_puzzle(id=1, metapuzzle=1, metameta=1)
-        existing = RollupData(id=9, hunt_id=10, round_id=5, source_mode="subtree")
+        existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
             rdb.get_all.return_value = [meta_round]
-            pdb.get_all_from_round.return_value = []
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = []
+            await svc.refresh_target(_hunt(), meta_round)
         pdb.get_all_from_hunt.assert_not_called()   # no hunt-wide scan post-M7
         gsheet.add_metametapuzzle_data.assert_awaited_once()

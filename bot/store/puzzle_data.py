@@ -47,7 +47,7 @@ class PuzzleData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
     tags: List[int] = field(default_factory=list)
-    tag_edges: Dict[int, str] = field(default_factory=dict)  # M7: round_id -> edge_type
+    tag_edges: Dict[int, str] = field(default_factory=dict)  # M7: tag_group_id -> edge_type
     parent_puzzle_id: Optional[int] = None
 
     @classmethod

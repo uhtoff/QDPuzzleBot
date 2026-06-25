@@ -57,14 +57,15 @@ async def test_solve_emits_board_changed():
     notifier.board_changed.assert_awaited_once_with(hunt)
 
 
-# ---- move_to_meta ----
+# ---- move_to_meta → tag_edge_only ----
 
 @pytest.mark.asyncio
-async def test_move_to_meta_emits_board_changed():
+async def test_tag_edge_only_emits_board_changed():
     notifier = _notifier()
     svc = _svc(notifier)
     hunt = _hunt()
     puzzle = make_puzzle(id=1, hunt_id=10, tags=[5])
+    puzzle.tag_edges = {}
     meta_round = make_round(id=5)
 
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
@@ -72,39 +73,41 @@ async def test_move_to_meta_emits_board_changed():
          patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.move_to_meta(guild=None, puzzle=puzzle, meta_round=meta_round)
+        svc.refresh_targets = AsyncMock(return_value=[])
+        await svc.tag_edge_only(puzzle=puzzle, group=meta_round, edge="feeds", guild=None)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
 
-# ---- add_to_meta ----
+# ---- add_to_meta → tag_with_edge ----
 
 @pytest.mark.asyncio
-async def test_add_to_meta_emits_board_changed():
+async def test_tag_with_edge_emits_board_changed():
     notifier = _notifier()
     svc = _svc(notifier)
     hunt = _hunt()
     puzzle = make_puzzle(id=1, hunt_id=10)
+    puzzle.tag_edges = {}
     meta_round = make_round(id=5)
 
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb"):
         hdb.get_by_attr.return_value = hunt
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.add_to_meta(puzzle=puzzle, meta_round=meta_round)
+        svc.refresh_targets = AsyncMock(return_value=[])
+        await svc.tag_with_edge(puzzle=puzzle, group=meta_round, edge="feeds")
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
 
-# ---- remove_from_meta ----
+# ---- remove_from_meta → untag_from ----
 
 @pytest.mark.asyncio
-async def test_remove_from_meta_emits_board_changed():
+async def test_untag_from_emits_board_changed():
     notifier = _notifier()
     svc = _svc(notifier)
     hunt = _hunt()
     puzzle = make_puzzle(id=1, hunt_id=10, tags=[5])
+    puzzle.tag_edges = {5: "feeds"}
     meta_round = make_round(id=5)
 
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
@@ -112,8 +115,8 @@ async def test_remove_from_meta_emits_board_changed():
          patch("bot.core.puzzle_service.RoundJsonDb") as rdb:
         hdb.get_by_attr.return_value = hunt
         rdb.get_by_attr.return_value = meta_round
-        patch.object(svc, "refresh_metas", AsyncMock(return_value=[]))
-        await svc.remove_from_meta(puzzle=puzzle, meta_round=meta_round)
+        svc.refresh_targets = AsyncMock(return_value=[])
+        await svc.untag_from(puzzle=puzzle, group=meta_round)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
 
@@ -183,7 +186,7 @@ async def test_create_puzzle_emits_board_changed():
 # ---- create_round ----
 
 @pytest.mark.asyncio
-async def test_create_round_emits_board_changed():
+async def test_create_tag_group_emits_board_changed():
     notifier = _notifier()
     bot = MagicMock()
     gsheet = MagicMock()
@@ -210,6 +213,6 @@ async def test_create_round_emits_board_changed():
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
         rdb.generate_uid.return_value = "META01"
-        await svc.create_round(guild, hunt, "New Round")
+        await svc.create_tag_group(guild, hunt, "New Round")
 
     notifier.board_changed.assert_awaited_once_with(hunt)

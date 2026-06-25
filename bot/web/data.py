@@ -127,15 +127,15 @@ async def get_hunt_for_puzzle(puzzle_id):
     )
 
 
-async def get_hunt_for_round(round_id):
-    """The hunt row a round belongs to, for the rollup-rebuild access check."""
+async def get_hunt_for_tag_group(tag_group_id):
+    """The hunt row a tag_group belongs to, for the rollup-rebuild access check."""
     return await fetch_one(
         "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
         "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
         "hunts.archive_google_sheet_id "
-        "FROM hunts JOIN rounds ON rounds.hunt_id = hunts.id "
-        "WHERE rounds.id = %s",
-        (round_id,),
+        "FROM hunts JOIN tag_group ON tag_group.hunt_id = hunts.id "
+        "WHERE tag_group.id = %s",
+        (tag_group_id,),
     )
 
 
@@ -166,12 +166,12 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
         "puzzles.status, puzzles.solved, puzzles.archived, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
         "puzzles.start_time, puzzles.solve_time, "
-        "rounds.id AS round_id, rounds.name AS round_name, "
-        "rounds.meta_id AS round_meta_id, rounds.meta_code AS round_meta_code, "
+        "tag_group.id AS tag_group_id, tag_group.name AS tag_group_name, "
+        "tag_group.target_puzzle_id AS tag_group_target_puzzle_id, tag_group.group_code AS tag_group_group_code, "
         "act.last_human_message_at, act.last_author_name "
         "FROM puzzles "
         "LEFT JOIN tags ON puzzles.id = tags.puzzle_id "
-        "LEFT JOIN rounds ON tags.round_id = rounds.id "
+        "LEFT JOIN tag_group ON tags.tag_group_id = tag_group.id "
         "LEFT JOIN channel_activity act ON act.channel_id = puzzles.channel_id "
         "WHERE puzzles.hunt_id = %s AND puzzles.parent_puzzle_id IS NULL "
         "ORDER BY puzzles.metapuzzle DESC, puzzles.solved ASC, puzzles.id ASC",
@@ -217,14 +217,14 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 "sheets": [],
             }
             puzzles[pid] = puz
-        if row["round_id"] is not None:
-            # A round whose meta_id is this puzzle is the round this puzzle "metas".
+        if row["tag_group_id"] is not None:
+            # A tag_group whose target_puzzle_id is this puzzle is the group this puzzle is the target of.
             puz["rounds"].append(
                 {
-                    "id": row["round_id"],
-                    "name": row["round_name"],
-                    "meta_code": row["round_meta_code"],
-                    "is_meta_of": row["round_meta_id"] == pid,
+                    "id": row["tag_group_id"],
+                    "name": row["tag_group_name"],
+                    "group_code": row["tag_group_group_code"],
+                    "is_target_of": row["tag_group_target_puzzle_id"] == pid,
                 }
             )
 
@@ -271,19 +271,19 @@ def _load_notes(raw):
         return []
 
 
-async def get_rollups_by_round(hunt_id):
-    """Map each meta round in the hunt to its roll-up sheet's freshness, for the
-    dashboard "sheet stale" badge (M5). A round with no rollup row is treated as
+async def get_rollups_by_tag_group(hunt_id):
+    """Map each meta tag_group in the hunt to its roll-up sheet's freshness, for the
+    dashboard "sheet stale" badge (M5). A group with no rollup row is treated as
     not-stale (never refreshed yet, or no sheet). Includes source_mode (M7)."""
     rows = await fetch_all(
-        # round_id IS NOT NULL excludes M8 puzzle-keyed (minimeta) roll-ups, which are
-        # not round badges and would otherwise add a stray None key to this map.
-        "SELECT round_id, last_ok, last_error, source_mode FROM rollups "
-        "WHERE hunt_id = %s AND round_id IS NOT NULL",
+        # tag_group_id IS NOT NULL excludes M8 puzzle-keyed (minimeta) roll-ups, which are
+        # not group badges and would otherwise add a stray None key to this map.
+        "SELECT tag_group_id, last_ok, last_error, source_mode FROM rollups "
+        "WHERE hunt_id = %s AND tag_group_id IS NOT NULL",
         (hunt_id,),
     )
     return {
-        row["round_id"]: {
+        row["tag_group_id"]: {
             "stale": not row["last_ok"],
             "error": row["last_error"],
             "source_mode": row.get("source_mode") or "round",
@@ -292,35 +292,35 @@ async def get_rollups_by_round(hunt_id):
     }
 
 
-def build_board(puzzles, rollups_by_round=None):
-    """Group a flat puzzle list into rounds (metas) for the dashboard board.
+def build_board(puzzles, rollups_by_tag_group=None):
+    """Group a flat puzzle list into tag groups (metas) for the dashboard board.
 
     Returns a list of groups plus an "Unassigned" bucket. Each group reports its
-    meta solution and feeder solve counts, plus whether its roll-up sheet is stale
-    (from rollups_by_round). Puzzles in several rounds appear in each.
+    target solution and feeder solve counts, plus whether its roll-up sheet is stale
+    (from rollups_by_tag_group). Puzzles in several groups appear in each.
     """
-    rollups_by_round = rollups_by_round or {}
+    rollups_by_tag_group = rollups_by_tag_group or {}
     groups = {}
     order = []
 
-    def ensure(round_id, name, meta_code):
-        if round_id not in groups:
-            ru = rollups_by_round.get(round_id, {})
-            groups[round_id] = {
-                "round_id": round_id,
+    def ensure(tag_group_id, name, group_code):
+        if tag_group_id not in groups:
+            ru = rollups_by_tag_group.get(tag_group_id, {})
+            groups[tag_group_id] = {
+                "tag_group_id": tag_group_id,
                 "name": name,
-                "meta_code": meta_code,
+                "group_code": group_code,
                 "puzzles": [],
-                "meta_solution": None,
-                "meta_solved": False,
+                "target_solution": None,
+                "target_solved": False,
                 "num_feeders": 0,
                 "num_solved_feeders": 0,
                 "rollup_stale": bool(ru.get("stale", False)),
                 "rollup_error": ru.get("error"),
                 "source_mode": ru.get("source_mode") or "round",
             }
-            order.append(round_id)
-        return groups[round_id]
+            order.append(tag_group_id)
+        return groups[tag_group_id]
 
     for puz in puzzles:
         if not puz["rounds"]:
@@ -331,11 +331,11 @@ def build_board(puzzles, rollups_by_round=None):
                 grp["num_solved_feeders"] += 1
             continue
         for rnd in puz["rounds"]:
-            grp = ensure(rnd["id"], rnd["name"], rnd["meta_code"])
+            grp = ensure(rnd["id"], rnd["name"], rnd["group_code"])
             grp["puzzles"].append(puz)
-            if rnd["is_meta_of"]:
-                grp["meta_solved"] = puz["solved"]
-                grp["meta_solution"] = puz["solution"]
+            if rnd["is_target_of"]:
+                grp["target_solved"] = puz["solved"]
+                grp["target_solution"] = puz["solution"]
             else:
                 grp["num_feeders"] += 1
                 if puz["solved"]:

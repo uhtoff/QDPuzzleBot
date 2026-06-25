@@ -44,6 +44,6 @@ async def test_web_notifier_board_changed_never_raises_when_publish_fails():
 async def test_web_notifier_other_methods_are_noops():
     from bot.web.notifier import WebNotifier
     n = WebNotifier()
-    assert await n.welcome(guild=None, hunt=None, hunt_round=None, puzzle=None, channel=None) is None
+    assert await n.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) is None
     assert await n.refresh_info(guild=None, hunt=None, puzzle=None) is None
     assert await n.puzzle_solved(guild=None, hunt=None, puzzle=None) is None

@@ -52,13 +52,13 @@ class TestSourceModeRouting:
     async def test_round_mode_calls_add_metapuzzle_data(self):
         # rollup.source_mode == "round" (the default) -> today's path, unchanged.
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
         feeders = [make_puzzle(id=2, name="Feeder", solution="ANS")]
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = feeders
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.return_value = feeders
+            await svc.refresh_target(_hunt(), meta_round)
         gsheet.add_metapuzzle_data.assert_awaited_once_with(metapuzzle, feeders)
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
@@ -67,18 +67,19 @@ class TestSourceModeRouting:
         # rollup.source_mode == "subtree": collect solved puzzles across the
         # parent_group_id branch and render via the metameta (3-col) path.
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
-        existing = RollupData(id=9, hunt_id=10, round_id=5, source_mode="subtree")
+        existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         # child round 6 nested under round 5; its solved feeder is id=2.
-        child = make_round(id=6, meta_id=0)
+        child = make_round(id=6, target_puzzle_id=0)
         child.parent_group_id = 5
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
+        solved.tag_edges = {6: "feeds"}
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metapuzzle
             rdb.get_all.return_value = [meta_round, child]   # RoundJsonDb.get_all(hunt_id)
-            pdb.get_all_from_round.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
-            await svc.refresh_meta(_hunt(), meta_round)
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            await svc.refresh_target(_hunt(), meta_round)
         # the metameta renderer received exactly the branch's solved puzzles
         args = gsheet.add_metametapuzzle_data.await_args
         assert args.args[0] is metapuzzle
@@ -88,20 +89,20 @@ class TestSourceModeRouting:
     @pytest.mark.asyncio
     async def test_explicit_mode_uses_aggregates_into_members(self):
         # rollup.source_mode == "explicit": only puzzles whose edge into THIS round
-        # is 'aggregates-into' are aggregated, rendered via the 2-col pool shape.
+        # is 'none' are aggregated, rendered via the 2-col pool shape.
         svc, gsheet = _svc_with_sheets()
-        meta_round = make_round(id=5, meta_id=1)
+        meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, metapuzzle=1)
-        existing = RollupData(id=9, hunt_id=10, round_id=5, source_mode="explicit")
+        existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "aggregates-into"}
+        pooled.tag_edges = {5: "none"}
         other = make_puzzle(id=3, name="Feeder", solution="F")
-        other.tag_edges = {5: "feeds-meta"}
+        other.tag_edges = {5: "feeds"}
         with _patched(rollup_existing=existing) as (pdb, _h, _r, _ru):
             pdb.get_by_attr.return_value = metapuzzle
-            pdb.get_all_from_round.return_value = [pooled, other]
-            await svc.refresh_meta(_hunt(), meta_round)
-        # Only the aggregates-into member is rendered (pool = name+solution).
+            pdb.get_all_from_tag_group.return_value = [pooled, other]
+            await svc.refresh_target(_hunt(), meta_round)
+        # Only the 'none' edge member is rendered (pool = name+solution).
         gsheet.add_metapuzzle_data.assert_awaited_once()
         args = gsheet.add_metapuzzle_data.await_args
         assert args.args[0] is metapuzzle
