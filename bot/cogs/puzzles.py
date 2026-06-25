@@ -547,17 +547,17 @@ class Puzzles(commands.Cog):
                     + ", ".join(str(f) for f in failed))
         await ctx.send(msg)
 
-    @commands.hybrid_command(name="rebuild_unassigned", description="Rebuild the Unassigned Puzzles tab (organiser only)")
+    @commands.hybrid_command(name="rebuild_unassigned", description="Rebuild the Unassigned Feeders tab (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def rebuild_unassigned(self, ctx, *, show_round: bool = False):
-        """*(Organiser) Reconcile the Unassigned Puzzles sheet tab: !rebuild_unassigned [--round]*"""
+        """*(Organiser) Reconcile the Unassigned Feeders sheet tab: !rebuild_unassigned [--round]*"""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
             return
         try:
             await self.service.refresh_unassigned(hunt, show_round=show_round)
-            await ctx.send(":white_check_mark: Unassigned Puzzles tab reconciled.")
+            await ctx.send(":white_check_mark: Unassigned Feeders tab reconciled.")
         except Exception as exc:
             logger.exception("rebuild_unassigned failed for hunt %s", hunt.id if hunt else "?")
             await ctx.send(f":warning: Failed to reconcile unassigned tab: `{type(exc).__name__}: {exc}`")

@@ -306,7 +306,7 @@ class PuzzleService:
     # Structural tabs that live in the spreadsheet template (or are otherwise
     # not tracked by a page id) and must never be treated as orphan puzzle tabs.
     RESERVED_TAB_TITLES = frozenset({
-        "REFERENCE", "Unassigned Puzzles", "Evidence",
+        "REFERENCE", "Unassigned Feeders", "Unassigned Puzzles", "Evidence",
         "Tab template", "Meta Tab template", "Overview",
     })
 
@@ -1540,7 +1540,7 @@ class PuzzleService:
         if gsheet_cog is None:
             return
 
-        tab_name = "Unassigned Puzzles"
+        tab_name = "Unassigned Feeders"
 
         # Lazy-create tab + table
         dirty = False

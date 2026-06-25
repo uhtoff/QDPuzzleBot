@@ -683,7 +683,7 @@ class GoogleSheets(commands.Cog):
         table_id = page_id
         try:
             body = {"requests": [{"addTable": {"table": {
-                "name": "Unassigned Puzzles",
+                "name": "Unassigned Feeders",
                 "range": {
                     "sheetId": page_id,
                     "startRowIndex": 0,
