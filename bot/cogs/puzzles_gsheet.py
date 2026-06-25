@@ -1086,117 +1086,21 @@ class GoogleSheets(commands.Cog):
     async def apply_unassigned_changes(self, page_id, table_id, appends, updates, prunes):
         """Apply the incremental reconcile to the Unassigned Puzzles tab.
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog). Writes only the
-        bot-owned columns A-D (id, Puzzle, Answer, Length) and NEVER column E
-        (Notes). Reconcile is keyed on the id in column A:
-          * updates  -> rewrite Puzzle/Answer/Length on the existing row
-          * prunes   -> delete the whole row (bottom-first so indices stay valid)
-          * appends  -> add new rows just below the existing data
+        Delegates all heavy lifting to `reconcile_table`, which handles deletes,
+        inserts, and updates against the native Table.
         """
-        spreadsheet_id = self.get_spreadsheet_id()
-        # Resolve the tab name + current index in one metadata read.
-        tab_name = None
-        current_index = None
-        for s in self.sheet_list(spreadsheet_id)["sheets"]:
-            if s["properties"]["sheetId"] == int(page_id):
-                tab_name = s["properties"]["title"]
-                current_index = s["properties"].get("index")
-                break
-        if tab_name is None:
-            return
-        safe_name = tab_name.replace("'", "''")
+        rows = []
+        for row in appends:
+            rows.append([str(v) for v in row])
+        for row in updates:
+            rows.append([str(v) for v in row])
 
-        # Single read of the id column. vals[0] is the header (grid row 0), so a
-        # data row at vals index i sits at 0-based grid row i.
-        val_resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A:A")
-        vals = val_resp.get("values", []) or []
-        id_to_row = {}
-        for i in range(1, len(vals)):
-            cell = vals[i]
-            if not cell:
-                continue
-            try:
-                id_to_row[int(cell[0])] = i
-            except (ValueError, IndexError):
-                continue
-
-        # Pin the tab to the far left, but only when it isn't already first — so a
-        # steady-state reconcile with no row changes issues no Sheets write at all.
-        requests = []
-        if current_index not in (0, None):
-            requests.append({"updateSheetProperties": {
-                "properties": {"sheetId": page_id, "index": 0},
-                "fields": "index",
-            }})
-
-        # Updates: refresh Puzzle/Answer/Length (cols B-D) on the matched row.
-        update_by_id = {row[0]: row for row in updates}
-        for rid, grid_row in id_to_row.items():
-            row = update_by_id.get(rid)
-            if row is None:
-                continue
-            requests.append({"updateCells": {
-                "range": {
-                    "sheetId": page_id,
-                    "startRowIndex": grid_row,
-                    "endRowIndex": grid_row + 1,
-                    "startColumnIndex": 1,
-                    "endColumnIndex": 4,
-                },
-                "fields": "userEnteredValue",
-                "rows": [{"values": [
-                    {"userEnteredValue": {"stringValue": str(row[1])}},
-                    {"userEnteredValue": {"stringValue": str(row[2])}},
-                    self._unassigned_len_cell(row[3]),
-                ]}],
-            }})
-
-        # Prunes: delete whole rows, bottom-first so earlier indices stay valid.
-        prune_rows = sorted(
-            (id_to_row[pid] for pid in prunes if pid in id_to_row),
-            reverse=True,
+        await self.reconcile_table(
+            page_id=page_id,
+            key_count=1,
+            desired_rows=rows,
+            data_col_count=4,  # id, name, answer, length
         )
-        for grid_row in prune_rows:
-            requests.append({"deleteDimension": {
-                "range": {
-                    "sheetId": page_id,
-                    "dimension": "ROWS",
-                    "startIndex": grid_row,
-                    "endIndex": grid_row + 1,
-                },
-            }})
-
-        # Appends: write new rows (cols A-D) below the data. The pruned rows above
-        # are deleted earlier in this same batch, so the new bottom is len(vals)
-        # minus the number of pruned rows.
-        if appends:
-            append_start = len(vals) - len(prune_rows)
-            grid_rows = []
-            for r in appends:
-                grid_rows.append([
-                    {"userEnteredValue": {"numberValue": r[0]}},
-                    {"userEnteredValue": {"stringValue": str(r[1])}},
-                    {"userEnteredValue": {"stringValue": str(r[2])}},
-                    self._unassigned_len_cell(r[3]),
-                ])
-            requests.append({"updateCells": {
-                "range": {
-                    "sheetId": page_id,
-                    "startRowIndex": append_start,
-                    "endRowIndex": append_start + len(grid_rows),
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 4,
-                },
-                "fields": "userEnteredValue",
-                "rows": [{"values": row} for row in grid_rows],
-            }})
-
-        if requests:
-            req = get_sheet().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={"requests": requests},
-            )
-            await execute_with_retry(req, on_retry=self._notify_retry)
 
 async def setup(bot):
     # Comment this out if google-drive-related package are not installed!
