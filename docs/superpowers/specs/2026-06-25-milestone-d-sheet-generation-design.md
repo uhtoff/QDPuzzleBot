@@ -78,19 +78,31 @@ A single code path builds any puzzle tab:
 2. Write the **header** cells (hardcoded layout, see below).
 3. If the puzzle **is a target**, add the **contribution table** (a real native Table).
 
-**Target-ness signal — consume, do not re-derive.** The trigger is the existing
-`puzzle.is_metapuzzle()` (`bot/store/puzzle_data.py:87` → `self.metapuzzle == 1`). This is
-the puzzle-side denormalised mirror of "is the target of some tag_group", deliberately
-**kept** (not dropped like the tag_group-side `kind`; see the schema-changes spec) and
-maintained in lockstep with `tag_group.target_puzzle_id` across every create / convert /
-demote path. D **reads** it; it does not scan tag_groups to re-derive target-ness and does
-not add a new derivation.
+**Target-ness signal — has-target, name-agnostic.** The trigger is **"is this puzzle the
+target of some tag_group?"** Today that is `puzzle.is_metapuzzle()`
+(`bot/store/puzzle_data.py:87` → `self.metapuzzle == 1`); a pending change (see below) may
+replace the `metapuzzle` column with a derived `has_target(puzzle)` helper. **D depends on
+the has-target *concept*, not the column** — it calls whatever the current accessor is and
+does not bake in `metapuzzle`.
 
-Note the flag means **has-target**, *not* "is-fed": a Capstone's or Runaround's target is
-also `metapuzzle == 1`. The contribution table is correct for all of them — its rows
-distinguish `Feeder` / `Information` / `Group` from the edges, so the table renders the right
-content whether the target is fed, informed, or both. D must never read `metapuzzle == 1` as
+The signal means **has-target**, *not* "is-fed". An audit of all readers confirmed
+`metapuzzle` is used purely as has-target everywhere; the fed-vs-informed distinction lives
+entirely in the **edge layer** (`select_rollup_members` filters `tag_edges == "feeds"`;
+membership never gates on `metapuzzle`). So a Capstone's or Runaround's target is equally a
+target. The contribution table is correct for all of them — its rows distinguish
+`Feeder` / `Information` / `Group` from the **edges**, so it renders the right content
+whether the target is fed, informed, or both. D must never read the has-target signal as
 "this is a fed meta".
+
+> **Pending: derive `metapuzzle` (drop the column).** `metapuzzle` is a denormalised cache
+> of `EXISTS(tag_group WHERE target_puzzle_id = p.id)` — the same shape as the `kind` column
+> B dropped, and never a deliberate design keep. An audit found **no reader** relies on it
+> meaning "fed" (all use has-target), so it can be derived behaviour-preservingly. Dropping
+> it is a cross-cutting change (2 raw SQL readers, ~15 `is_metapuzzle()` sites → a
+> `has_target` helper, a drop-column migration, ~10 test files; `metameta` is the identical
+> sibling). Most sites sit in **C's** convert/membership rewrite, so it is best folded into
+> C or done as a dedicated step right after C — **before** D. Sequencing TBD with the owner;
+> D is written name-agnostic so either outcome works.
 
 This replaces `add_new_sheet`'s `duplicateSheet` and **retires** `copy_puzzle`'s
 column-shuffle. **Create and promote become the same routine** — promotion is just "this
