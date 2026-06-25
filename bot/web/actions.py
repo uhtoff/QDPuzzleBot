@@ -679,6 +679,21 @@ async def create_hunt():
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
+    # Post + pin the welcome message in the new hunt channel (parity with !newhunt,
+    # which does this via send_initial_hunt_channel_messages). Best-effort: a failure
+    # here must not fail hunt creation, which already committed.
+    channel = guild.get_channel(new_hunt.channel_id) if new_hunt.channel_id else None
+    if channel is not None:
+        try:
+            from bot.store import GuildSettingsDb
+            guild_data = GuildSettingsDb.get_cached(int(guild_snowflake))
+            msg = await cog.send_initial_hunt_channel_messages(
+                None, channel, hunt=new_hunt, guild_data=guild_data,
+            )
+            await msg.pin()
+        except Exception:
+            logger.exception("create_hunt: failed to send/pin welcome message")
+
     await _audit("create_hunt", hunt_uid=new_hunt.uid)
     return jsonify({"uid": new_hunt.uid})
 
