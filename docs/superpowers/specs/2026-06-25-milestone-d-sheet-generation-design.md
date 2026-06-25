@@ -199,11 +199,15 @@ without any Sheets calls.
 
 ## Data preservation
 
+**One uniform model for every tab.** All tabs — regular puzzles and targets — are generated
+from the **same standard model: 3 frozen header rows, a hidden key column A, header labels at
+column B+**. A target is just "the standard tab **plus** the generated aggregate table"; there
+is no bespoke meta layout. (The legacy live meta tabs with 4 frozen rows / extra header rows
+are **historical** and are NOT reproduced — we generate clean and uniform.)
+
 The preservation seam is **promotion** — a regular puzzle tab gaining a contribution table.
 This **generalizes the existing convert** (`copy_puzzle`), which already shifts a meta's puzzle
-content from column 0 to `FIRST_METAPUZZLE_COLUMN = 2` to free the left columns for the rollup.
-Confirmed against a live meta tab ("Batman - meta"): the rollup sits in the **left columns
-(A-B), below the header**, with the solver grid shifted right — no column hidden today.
+content rightward (`FIRST_METAPUZZLE_COLUMN = 2`) to free the left columns for the rollup.
 
 D's contribution table is 4 columns (key, Type, Source, Content), so promotion frees the left
 **4** columns and hides the key column A. Sequence (all inserts, never sized overwrites):
