@@ -550,15 +550,11 @@ git commit -m "feat(sheets): Unassigned Feeders feeds-only membership test [Mile
 
 ## Task 6: Contribution-table create request (real native Table over the body)
 
-> **⚠ GEOMETRY CORRECTION (from the Task 2 capture) — apply when coding this task:**
-> The captured template keeps **visible labels in A1:A3**, so the parent design's "hidden
-> column A" is wrong. Therefore: (1) the table's header row sits at **row `FROZEN_ROWS` (3),
-> not row 0** — pass `header_row=3`; (2) **do NOT hide column A** — the key column is rendered
-> **greyed and visible** in the table body (rows 4+), consistent with the old rollup that kept
-> column A unhidden. Update the impl (drop the `updateDimensionProperties` hide request; add a
-> grey `repeatCell` on the key column over the table range) and the test (assert
-> `startRowIndex == 3` and **no** hidden-column request). See the spec's "Key-column
-> placement" + "Placement" sections.
+> **Note (from the Task 2 capture):** the header is generated with **labels starting at
+> column B**, leaving **column A free as the hidden key column** (the only things in A today
+> are labels, and every dynamic cell is already ≥ B). The hide-column-A request below is
+> correct. The solver grid is shifted right so the table's columns don't overwrite user data —
+> see Task 9.
 
 **Files:**
 - Modify: `bot/cogs/puzzles_gsheet.py` (new method `_add_contribution_table`)
@@ -943,15 +939,12 @@ git commit -m "feat(sheets): generate puzzle tabs in code (retire duplicateSheet
 
 ## Task 9: Promotion-safe transform (regular tab → target tab)
 
-> **⚠ GEOMETRY CORRECTION (from the Task 2 capture) — apply when coding this task:**
-> The rollup region is **below** the 3 frozen header rows, so promotion inserts **ROWS, not
-> columns**, and the header (rows 1-3, incl. the user-owned flavour cell B2) is **never
-> touched** — there is **NO flavour/progress save+restore step** (delete it). Replace the
-> sequence with: (1) `insertDimension ROWS` at `startIndex = FROZEN_ROWS (3)`, enough rows for
-> the table header + initial body — solver content below rides down intact; (2)
-> `_add_contribution_table(page_id, header_row=3)`. No header reconstruction. Update the test
-> to assert an `insertDimension` with `dimension: "ROWS"` and `startIndex: 3` precedes the
-> `addTable`. See the spec's "Data preservation" section.
+> **Note (confirmed against the live "Batman - meta" tab):** promotion generalizes the existing
+> `copy_puzzle` column-shift (+2 for a meta) to **+4** for the contribution table. Insert 4
+> columns at the left (solver grid shifts right, so `B5` → `F5`, never overwritten), add the
+> table in A-D, hide column A, regenerate the header (labels at B+) and **restore the
+> user-owned flavour cell** that rode the shift. The flavour save/restore IS needed (it's the
+> one piece of user data the shift displaces). See the spec's "Data preservation" section.
 
 **Files:**
 - Modify: `bot/cogs/puzzles_gsheet.py` (new `promote_tab_to_target`; rewire `convert_puzzle_spreadsheet`)

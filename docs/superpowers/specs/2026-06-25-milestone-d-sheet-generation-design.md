@@ -140,13 +140,13 @@ templates.
 One real native Table (`addTable`, range covering the **body**, not just the header) on the
 target's own tab — feeders, informers, and grouped members in a single filterable list.
 
-**Placement (per the captured layout):** the table sits **below the 3 frozen header rows**,
-starting at row 4 (0-based row `FROZEN_ROWS = 3`) — exactly where the old meta rollup lived
-(A5 "Puzzle name"). It does **not** insert columns on the left.
+**Placement:** the table occupies the **left columns A-D**, below the header rows, with the
+solver grid shifted right (see Data preservation) — generalizing the existing meta layout
+(rollup in the left columns, puzzle grid shifted to `FIRST_METAPUZZLE_COLUMN`).
 
 | col | role |
 |---|---|
-| **A** | row key (stable, edge-anchored — see below) |
+| **A** (hidden) | row key (stable, edge-anchored — see below) |
 | **B** `Type` | `Feeder` / `Information` / `Group` — visible, filterable |
 | **C** | source puzzle (hyperlink) |
 | **D** | answer (Feeder) / content (Information) / — (Group) |
@@ -154,15 +154,13 @@ starting at row 4 (0-based row `FROZEN_ROWS = 3`) — exactly where the old meta
 A real Table gives banding, header styling, column types, and genuine interactive filter &
 sort on `Type` for free, built in code.
 
-**Key-column placement — NOT a hidden column A.** The parent design said "hide column A (the
-key)", but the captured header keeps visible labels in A1:A3 ("Puzzle Title:", "Flavor",
-"Progress"), so hiding column A would hide them. Resolution: the key lives in column A *of the
-table body* (rows 4+, consistent with the old layout that put rollup names in column A
-unhidden) and is rendered **greyed, not hidden** — bookkeeping the eye skips but the reconcile
-can read. (If a fully hidden key is wanted later, move it to a trailing table column and hide
-that; deferred — greyed-visible is the v1.)
+**Key-column placement — column A, hidden.** The captured template puts descriptive labels in
+A1:A3, but those are the *only* things in column A — every dynamic cell (`B1`/`I1`/`B3`) is
+already ≥ column B. So the generator writes the header **labels starting at column B**, leaving
+column A free to be the hidden key column (header rows empty, body rows the key). This matches
+the parent design and keeps the bookkeeping key out of sight.
 
-**Row key (column A, table body)** — anchored on the **edge type** (stable; *not* the volatile
+**Row key (column A, hidden)** — anchored on the **edge type** (stable; *not* the volatile
 `tag.id`), so the reconcile survives re-tagging:
 
 | key | `Type` | one row per |
@@ -202,23 +200,27 @@ without any Sheets calls.
 ## Data preservation
 
 The preservation seam is **promotion** — a regular puzzle tab gaining a contribution table.
-The captured layout makes this **simpler than the parent design assumed**: the rollup region
-sits *below* the 3 frozen header rows, so the transform inserts **rows**, not columns, and the
-header (rows 1-3, including the user-owned flavour cell B2) is **never touched** — there is
-**no save/restore step**.
+This **generalizes the existing convert** (`copy_puzzle`), which already shifts a meta's puzzle
+content from column 0 to `FIRST_METAPUZZLE_COLUMN = 2` to free the left columns for the rollup.
+Confirmed against a live meta tab ("Batman - meta"): the rollup sits in the **left columns
+(A-B), below the header**, with the solver grid shifted right — no column hidden today.
 
-Promotion sequence (all inserts, never sized overwrites):
+D's contribution table is 4 columns (key, Type, Source, Content), so promotion frees the left
+**4** columns and hides the key column A. Sequence (all inserts, never sized overwrites):
 
-1. **Insert rows** at row 4 (`insertDimension ROWS` at `startIndex = FROZEN_ROWS`), enough to
-   seat the contribution table's header + initial body. Any solver content that was below the
-   frozen header rides **down**, intact.
-2. **Add the contribution table** (real native Table) into the freed rows starting at row 4.
-3. The header (rows 1-3) and the bot-dynamic cells (B1 name/url, I1 solution, B3 progress) are
-   untouched by a row insert below them — no reconstruction needed.
+1. **Insert columns** at the left equal to the contribution-table width
+   (`insertDimension COLUMNS` at column A) — the solver grid + header shift right intact, so a
+   solver's existing `B5` becomes `F5`, never overwritten.
+2. **Add the contribution table** (real native Table) into the freed left columns A-D.
+3. **Hide column A** (the key column) — now empty in the header rows and the key in the body.
+4. **Regenerate the header**: rewrite the bot-owned cells (name/url, solution, progress) at
+   their `config.puzzle_cell_*` positions and **restore the user-owned flavour cell** (it rode
+   the shift; read-and-restore it to its proper place — the one piece of user data the
+   transform must preserve by hand). Labels are written starting at column B so nothing
+   meaningful lives in the hidden column A.
 
-The solver's working grid is preserved purely by the row insert. **Create is the degenerate
-case** of the same routine — a fresh tab has nothing below the header, so the "insert" is just
-the initial table write at row 4.
+**Create is the degenerate case** — a fresh tab has no solver grid to shift, so the generator
+just writes the header (labels at B+, A free) and adds the table in A-D with A hidden.
 
 Belt + suspenders, as in the parent design:
 - **Suspenders (the guarantee):** insert-based growth — content is pushed down/right, never
