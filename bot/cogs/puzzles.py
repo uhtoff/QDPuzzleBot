@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import _PUZZLE_LOCKS
 from bot.core.errors import SheetRefreshError
+from bot.core.puzzle_service import TYPE_DEFAULTS
 from bot.cogs.ui import ConfirmView
 
 
@@ -1014,68 +1015,81 @@ class Puzzles(commands.Cog):
             count+=1
         return sheet_links
 
-    @commands.hybrid_command(description="Sync all the puzzles in the category to the metapuzzle (organiser only)",aliases=['sync_round'])
+    @commands.command(
+        name="sync",
+        description="Sync all puzzles in the category to the group (organiser only)",
+        aliases=["sync_meta", "sync_feeders", "sync_round"],
+    )
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
-    async def sync_meta(self, ctx):
-        """*(Admin only) Sync all the puzzles in this category to the metapuzzle: !sync_meta*"""
-        puzzle = self.get_puzzle(ctx)
-        if self.get_channel_type(ctx) not in ["Metaless Round","Metapuzzle","Round"]:
+    async def sync(self, ctx):
+        """*(Organiser only) Sync all puzzles in this category to the group: !sync*"""
+        if self.get_channel_type(ctx) not in ["Metaless Round", "Metapuzzle", "Round",
+                                              "Capstone", "Runaround", "Group"]:
             await ctx.send(":x: This does not appear to be a main group channel")
             return
         meta_category = ctx.channel.category
         target_group = RoundJsonDb.get_by_attr(category_id=meta_category.id)
-        old_tags = []
-        if target_group:
-            for channel in meta_category.channels:
-                puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
-                if puzzle:
-                    if puzzle.tags:
-                        old_tags.extend(puzzle.tags.copy())
-                    # Remove puzzle from old groups if not a metapuzzle
-                    if puzzle.is_metapuzzle() is False:
-                        puzzle.tags.clear()
-                    puzzle.tags.append(target_group.id)
-                    PuzzleJsonDb.commit(puzzle)
-            unique_old_tags = list(dict.fromkeys(old_tags))
-            affected = [target_group] + [RoundJsonDb.get_by_attr(id=t) for t in unique_old_tags]
-            failed = await self.service.refresh_targets(self.get_hunt(ctx), affected)
-            if failed:
-                await self._warn_stale_sheets(ctx, SheetRefreshError(failed))
+        if not target_group:
+            await ctx.send(":x: Could not find the group for this category.")
+            return
 
-        await ctx.send(":white_check_mark: All the puzzles in this category have been tagged to the group")
+        default_edge = TYPE_DEFAULTS.get(target_group.type, {}).get("default_edge", "feeds")
+
+        updated = 0
+        errors = []
+        for channel in meta_category.channels:
+            puz = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
+            if puz is None:
+                continue
+            if puz.id == target_group.target_puzzle_id:
+                continue
+            try:
+                await self.service.tag_edge_only(puz, target_group, default_edge, guild=None)
+                updated += 1
+            except Exception as exc:
+                errors.append((puz.name, str(exc)))
+
+        hunt = self.get_hunt(ctx)
+        if hunt is not None:
+            asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
+
+        msg = f":white_check_mark: Synced {updated} puzzle(s) to {target_group.name}"
+        if errors:
+            msg += f" ({len(errors)} failure(s))"
+        await ctx.send(msg)
 
     @commands.hybrid_command(
-        name="add_to_meta",
-        description="Add the puzzle to a metapuzzle",
-        aliases=["add_to_round"],
+        name="feeds",
+        description="Tag this puzzle as a feeder to a group",
+        aliases=["add_to_meta", "add_to_round"],
     )
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
-    async def add_to_meta(self, ctx, meta_code):
-        """*Add the puzzle to a metapuzzle: !add_to_meta <meta_code>*"""
+    async def feeds(self, ctx, meta_code):
+        """*Tag this puzzle as a feeder (feeds edge): !feeds <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
-            await self.service.tag_with_edge(puzzle, target_group)
+            await self.service.tag_with_edge(puzzle, target_group, "feeds")
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
             await ctx.send(
-                f":white_check_mark: This puzzle has been tagged to {target_group.name} and meta sheets are being updated.")
+                f":white_check_mark: This puzzle now feeds {target_group.name}. Meta sheets are being updated.")
         else:
-            await ctx.send(":x: Please send a valid meta code")
+            await ctx.send(":x: Please send a valid group code")
 
     @commands.hybrid_command(
-        name="move_to_meta",
-        description="Assign the puzzle to a metapuzzle",
-        aliases=["move_to_round"],
+        name="feeds_only",
+        description="Assign this puzzle as a feeder, removing other feeder assignments",
+        aliases=["move_to_meta", "move_to_round"],
     )
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
-    async def move_to_meta(self, ctx, meta_code):
-        """*Assign the puzzle to a metapuzzle, this will additionally remove previous assignments and move it to the category: !move_to_meta <meta_code>*"""
+    async def feeds_only(self, ctx, meta_code):
+        """*Assign puzzle as feeder, removing other feeder tags and moving channel: !feeds_only <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1083,128 +1097,120 @@ class Puzzles(commands.Cog):
         target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
         if target_group:
             await ctx.send(
-                f":white_check_mark: This puzzle has been moved to {target_group.name} and meta sheets are being updated.")
+                f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
             await self.service.tag_edge_only(puzzle, target_group, "feeds", self.get_guild(ctx))
             asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
         else:
-            await ctx.send(":x: Please send a valid meta code")
+            await ctx.send(":x: Please send a valid group code")
 
     @commands.hybrid_command(
-        name="remove_from_meta",
-        description="Remove the puzzle from a metapuzzle",
-        aliases=["remove_from_round"],
+        name="remove_from",
+        description="Remove the puzzle from a group",
+        aliases=["remove_from_meta", "remove_from_round"],
     )
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
-    async def remove_from_meta(self, ctx, meta_code):
-        """*Remove the puzzle from a metapuzzle if it has been incorrectly assigned: !remove_from_meta <meta_code>*"""
+    async def remove_from(self, ctx, meta_code):
+        """*Remove the puzzle from a group: !remove_from <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
         target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
         if not target_group:
-            await ctx.send(":x: Please send a valid meta code")
+            await ctx.send(":x: Please send a valid group code")
             return
         if puzzle.id == target_group.target_puzzle_id:
-            await ctx.send(":x: You can't remove a metapuzzle from it's own round!")
+            await ctx.send(":x: You can't remove the target puzzle from its own group!")
             return
-        if target_group:
-            await ctx.send(
-                f":white_check_mark: This puzzle has been removed from {target_group.name} and meta sheets are being updated.")
-            await self.service.untag_from(puzzle, target_group)
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-        else:
-            await ctx.send(":x: Please send a valid meta code")
+        await ctx.send(
+            f":white_check_mark: This puzzle has been removed from {target_group.name}.")
+        await self.service.untag_from(puzzle, target_group)
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
 
     @commands.hybrid_command(
-        name="nest",
-        description="Nest one round under another, or clear nesting (organiser only)",
+        name="informs",
+        description="Tag this puzzle as informing a group (capstone)",
     )
-    @app_commands.autocomplete(child_code=group_code_autocomplete)
-    @commands.has_any_role(*ORGANISER_ROLES)
-    async def nest(self, ctx, child_code: str, parent_code: Optional[str] = None):
-        """*Nest a round under another or clear nesting: !nest <child_code> <parent_code|none>*"""
-        child_group = RoundJsonDb.get_by_attr(group_code=child_code)
-        if not child_group:
-            await ctx.send(":x: Invalid child meta code")
-            return
-        parent_id = None
-        if parent_code is not None and parent_code.lower() != "none":
-            parent_group = RoundJsonDb.get_by_attr(group_code=parent_code)
-            if not parent_group:
-                await ctx.send(":x: Invalid parent meta code")
-                return
-            parent_id = parent_group.id
-        try:
-            await self.service.set_parent_group(child_group, parent_id)
-            label = "cleared" if parent_id is None else f"nested under {parent_group.name}"
-            await ctx.send(f":white_check_mark: {child_group.name} nesting {label}.")
-        except ValueError as exc:
-            await ctx.send(f":x: {exc}")
-
-    @commands.hybrid_command(
-        name="source_mode",
-        description="Set a rollup source mode (organiser only)",
-    )
-    @app_commands.autocomplete(code=group_code_autocomplete)
-    @commands.has_any_role(*ORGANISER_ROLES)
-    async def source_mode(self, ctx, code: str, mode: str):
-        """*Set rollup source mode: !source_mode <meta_code> <round|subtree|explicit>*"""
-        from bot.core.constants import SOURCE_MODES
-        if mode not in SOURCE_MODES:
-            await ctx.send(":x: source_mode must be one of: round, subtree, explicit")
-            return
-        hunt = self.get_hunt(ctx)
-        if hunt is None:
-            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
-            return
-        target_group = RoundJsonDb.get_by_attr(group_code=code)
-        if not target_group or not target_group.target_puzzle_id:
-            await ctx.send(":x: Invalid meta code — must reference a meta round.")
-            return
-        try:
-            await self.service.set_source_mode(hunt, target_group, mode)
-            await ctx.send(f":white_check_mark: {code} source_mode set to '{mode}'.")
-        except SheetRefreshError as exc:
-            await ctx.send(
-                f":warning: Source mode updated but some sheets are stale ({exc}). Use !rebuild to retry.")
-        except Exception as exc:
-            await ctx.send(f":warning: Source mode updated but refresh failed: {exc}")
-
-    @commands.hybrid_command(
-        name="pool",
-        description="Tag this puzzle into the round's aggregation pool (organiser only)",
-    )
-    @commands.has_any_role(*ORGANISER_ROLES)
-    async def pool(self, ctx):
-        """*Tag puzzle with 'none' edge for its meta: !pool (run in a puzzle channel)*"""
+    @app_commands.autocomplete(meta_code=group_code_autocomplete)
+    @with_puzzle_mutex(wait=True)
+    async def informs(self, ctx, meta_code):
+        """*Tag this puzzle as an informer (informs edge): !informs <meta_code>*"""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        hunt = self.get_hunt(ctx)
-        if hunt is None:
-            await ctx.send(":x: I can't tell which hunt this is.")
-            return
-        # Find rounds this puzzle belongs to and tag them with none edge
-        added = False
-        for rid in puzzle.tags:
-            rnd = RoundJsonDb.get_by_attr(id=rid)
-            if rnd and rnd.target_puzzle_id:
-                PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, rid, "none")
-                added = True
-        if not added:
-            await ctx.send(":x: This puzzle is not tagged to any meta round.")
-            return
-        try:
-            await self.service.refresh_targets(hunt, list(RoundJsonDb.get_by_attr(id=rid) for rid in puzzle.tags))
-            await ctx.send(":white_check_mark: Tagged as none (pool member). Sheets updated.")
-        except SheetRefreshError as exc:
+        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        if target_group:
+            await self.service.tag_with_edge(puzzle, target_group, "informs")
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
             await ctx.send(
-                f":warning: Edge set but some sheets are stale ({exc}). Use !rebuild to retry.")
-        except Exception as exc:
-            await ctx.send(f":warning: Edge set but refresh failed: {exc}")
+                f":white_check_mark: This puzzle now informs {target_group.name}. Meta sheets are being updated.")
+        else:
+            await ctx.send(":x: Please send a valid group code")
+
+    @commands.hybrid_command(
+        name="informs_only",
+        description="Assign this puzzle as an informer, removing other informer assignments",
+    )
+    @app_commands.autocomplete(meta_code=group_code_autocomplete)
+    @with_puzzle_mutex(wait=True)
+    async def informs_only(self, ctx, meta_code):
+        """*Assign puzzle as informer, removing other informs tags: !informs_only <meta_code>*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await self.send_not_puzzle_channel(ctx)
+            return
+        puzzle = self.get_puzzle(ctx)
+        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        if target_group:
+            await ctx.send(
+                f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
+            await self.service.tag_edge_only(puzzle, target_group, "informs", guild=None)
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        else:
+            await ctx.send(":x: Please send a valid group code")
+
+    @commands.hybrid_command(
+        name="groups_with",
+        description="Tag this puzzle into a group with 'none' edge (non-contributing)",
+    )
+    @app_commands.autocomplete(meta_code=group_code_autocomplete)
+    @with_puzzle_mutex(wait=True)
+    async def groups_with(self, ctx, meta_code):
+        """*Tag this puzzle into a group (none edge): !groups_with <meta_code>*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await self.send_not_puzzle_channel(ctx)
+            return
+        puzzle = self.get_puzzle(ctx)
+        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        if target_group:
+            await self.service.tag_with_edge(puzzle, target_group, "none")
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+            await ctx.send(
+                f":white_check_mark: This puzzle is now in {target_group.name}.")
+        else:
+            await ctx.send(":x: Please send a valid group code")
+
+    @commands.hybrid_command(
+        name="groups_only_with",
+        description="Assign this puzzle to a group with 'none' edge, removing other none assignments",
+    )
+    @app_commands.autocomplete(meta_code=group_code_autocomplete)
+    @with_puzzle_mutex(wait=True)
+    async def groups_only_with(self, ctx, meta_code):
+        """*Assign puzzle to group with none edge, removing other none tags: !groups_only_with <meta_code>*"""
+        if self.get_channel_type(ctx) == "Hunt":
+            await self.send_not_puzzle_channel(ctx)
+            return
+        puzzle = self.get_puzzle(ctx)
+        target_group = RoundJsonDb.get_by_attr(group_code=meta_code)
+        if target_group:
+            await ctx.send(
+                f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
+            await self.service.tag_edge_only(puzzle, target_group, "none", guild=None)
+            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        else:
+            await ctx.send(":x: Please send a valid group code")
 
     async def _round_impl(self, ctx, round_name, command):
         """Round creation handler — delegates to PuzzleService.create_round.
@@ -1212,6 +1218,9 @@ class Puzzles(commands.Cog):
         The command string determines round type:
           !r / !round       → Round (creates meta puzzle named "name - meta")
           !mp / !metapuzzle → Metapuzzle (creates meta puzzle named "name")
+          !capstone / !cs   → Capstone (creates meta puzzle)
+          !runaround / !ra  → Runaround (creates meta puzzle, source_mode=subtree)
+          !group            → Group (no meta puzzle)
           !roundnometa / !rnm → Metaless Round (no meta puzzle)
         """
         from bot.core.notifier import DiscordNotifier
@@ -1224,6 +1233,11 @@ class Puzzles(commands.Cog):
             "round": ("Round", True, " - meta"),
             "mp": ("Metapuzzle", True, None),
             "metapuzzle": ("Metapuzzle", True, None),
+            "capstone": ("Capstone", True, None),
+            "cs": ("Capstone", True, None),
+            "runaround": ("Runaround", True, None),
+            "ra": ("Runaround", True, None),
+            "group": ("Group", False, None),
             "roundnometa": ("Metaless Round", False, None),
             "rnm": ("Metaless Round", False, None),
         }
@@ -1244,6 +1258,9 @@ class Puzzles(commands.Cog):
                 meta_puzzle_name=meta_puzzle_name,
                 round_type=group_type,
             )
+            # Runaround post-create: set source_mode to subtree
+            if group_type == "Runaround":
+                await self.service.set_source_mode(hunt, new_round, "subtree")
             return new_round, puzzle
         except RuntimeError as exc:
             err_code = str(exc)
@@ -1265,10 +1282,14 @@ class Puzzles(commands.Cog):
                 )
             return  # error already sent, stop further processing
 
-    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm"])
+    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm",
+                               "capstone", "cs", "runaround", "ra", "group"])
     async def round(self, ctx, *, arg):
         """*Create new puzzle round with: !r round-name*
         *Create new metapuzzle category with: !mp metapuzzle-name*
+        *Create a new capstone with: !cs capstone-name*
+        *Create a new runaround with: !ra runaround-name*
+        *Create a new group with: !group group-name*
         *Create a new round without a meta with either !roundnometa round-name or !rnm round-name*"""
 
         if self.get_channel_type(ctx) != "Hunt":
@@ -1305,29 +1326,101 @@ class Puzzles(commands.Cog):
             return
 
         try:
-            tag_group, puzzle = await self.service.convert_to_meta(
-                ctx.guild, self.get_hunt(ctx), puzzle
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, "Metapuzzle"
             )
         except RuntimeError as e:
             await ctx.send(f":x: {e}")
             return
-        # Point the request-scoped cache at the freshly-created round so the
-        # metapuzzle intro embed below (info → send_initial_metapuzzle_channel_messages)
-        # renders the new round, not the stale pre-convert one.
         self.set_tag_group(ctx, tag_group)
-        # Channel rename intentionally omitted: the web dashboard's META label
-        # supersedes the "🧩" name prefix, and renames hit Discord's strict
-        # per-channel rename bucket (2/10min) — toggling convert burned it.
         self.set_channel_type(ctx, "Metapuzzle")
         await self.info(ctx, update=True)
         await ctx.send(
             f":white_check_mark: I've converted this puzzle into a metapuzzle within the category, other puzzles can now be tagged to it using its meta code {tag_group.group_code}."
         )
 
-    @commands.hybrid_command(description="Convert puzzle to feeder", )
+    @commands.hybrid_command(description="Convert puzzle to capstone", )
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
-    async def convert_to_feeder(self, ctx):
+    async def convert_to_capstone(self, ctx):
+        if (puzzle := self.get_puzzle(ctx)) is None:
+            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
+            return
+        elif not puzzle.is_metapuzzle():
+            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a capstone.")
+            return
+
+        try:
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, "Capstone"
+            )
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
+        self.set_tag_group(ctx, tag_group)
+        self.set_channel_type(ctx, "Capstone")
+        await self.info(ctx, update=True)
+        await ctx.send(
+            f":white_check_mark: I've converted this puzzle into a capstone. {summary}"
+        )
+
+    @commands.hybrid_command(description="Convert puzzle to runaround", )
+    @commands.has_any_role(*ADMIN_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def convert_to_runaround(self, ctx):
+        if (puzzle := self.get_puzzle(ctx)) is None:
+            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
+            return
+        elif not puzzle.is_metapuzzle():
+            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a runaround.")
+            return
+
+        try:
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, "Runaround"
+            )
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
+        self.set_tag_group(ctx, tag_group)
+        self.set_channel_type(ctx, "Runaround")
+        await self.info(ctx, update=True)
+        await ctx.send(
+            f":white_check_mark: I've converted this puzzle into a runaround. {summary}"
+        )
+
+    @commands.hybrid_command(description="Convert meta puzzle to group", )
+    @commands.has_any_role(*ADMIN_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def convert_to_group(self, ctx):
+        if (puzzle := self.get_puzzle(ctx)) is None:
+            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
+            return
+        elif not puzzle.is_metapuzzle():
+            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a group.")
+            return
+
+        try:
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, "Group"
+            )
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
+        self.set_tag_group(ctx, tag_group)
+        self.set_channel_type(ctx, "Group")
+        await self.info(ctx, update=True)
+        await ctx.send(
+            f":white_check_mark: I've converted this puzzle into a group. {summary}"
+        )
+
+    @commands.hybrid_command(
+        description="Convert metapuzzle back to feeder",
+        aliases=["convert_to_feeder"],
+    )
+    @commands.has_any_role(*ADMIN_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def convert_to_puzzle(self, ctx):
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
