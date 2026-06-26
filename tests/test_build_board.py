@@ -117,6 +117,50 @@ class TestBuildBoardRollupBadge:
 
 
 # ---------------------------------------------------------------------------
+# build_board — bare (empty) groups
+# ---------------------------------------------------------------------------
+
+class TestBuildBoardBareGroups:
+    def test_empty_group_surfaced_as_drop_target(self):
+        # A group with no tagged puzzles still appears (with an empty puzzle list).
+        all_groups = [{"id": 7, "name": "Bare", "group_code": "B7", "type": "Group"}]
+        board = build_board([], None, all_groups)
+        assert len(board) == 1
+        grp = board[0]
+        assert grp["tag_group_id"] == 7
+        assert grp["name"] == "Bare"
+        assert grp["group_code"] == "B7"
+        assert grp["puzzles"] == []
+        assert grp["num_feeders"] == 0
+
+    def test_empty_group_appended_after_populated_groups(self):
+        r1 = make_round_ref(id=1, name="Alpha", group_code="A1")
+        puz = make_puzzle_row(id=1, name="P1", rounds=[r1])
+        all_groups = [
+            {"id": 1, "name": "Alpha", "group_code": "A1", "type": "Round"},
+            {"id": 9, "name": "Empty", "group_code": "E9", "type": "Group"},
+        ]
+        board = build_board([puz], None, all_groups)
+        # Populated group keeps its (single) puzzle; the bare one is appended.
+        assert [g["name"] for g in board] == ["Alpha", "Empty"]
+        assert board[0]["puzzles"][0]["name"] == "P1"
+        assert board[1]["puzzles"] == []
+
+    def test_codeless_group_skipped(self):
+        # A group with no group_code cannot be a drop target, so it is not added.
+        all_groups = [{"id": 3, "name": "NoCode", "group_code": None, "type": "Group"}]
+        assert build_board([], None, all_groups) == []
+
+    def test_populated_group_not_duplicated_by_all_groups(self):
+        r1 = make_round_ref(id=1, name="Alpha", group_code="A1")
+        puz = make_puzzle_row(id=1, name="P1", rounds=[r1])
+        all_groups = [{"id": 1, "name": "Alpha", "group_code": "A1", "type": "Round"}]
+        board = build_board([puz], None, all_groups)
+        assert len(board) == 1
+        assert board[0]["puzzles"][0]["name"] == "P1"
+
+
+# ---------------------------------------------------------------------------
 # build_board — ordering
 # ---------------------------------------------------------------------------
 

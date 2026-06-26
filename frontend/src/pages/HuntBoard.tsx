@@ -113,13 +113,18 @@ export default function HuntBoard() {
         {data.hunt.can_manage && <CreateControls detail={data} uid={uid!} />}
       </Group>
 
-      {view === "board" && (
-        <Accordion variant="separated" multiple defaultValue={data.board.map((g) => String(g.tag_group_id))}>
-          {data.board.map((g) => (
-            <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
-          ))}
-        </Accordion>
-      )}
+      {view === "board" && (() => {
+        // Bare groups (no puzzles) are drop targets for the Arrange view only —
+        // hide them from the board summary so it isn't cluttered with empties.
+        const boardGroups = data.board.filter((g) => g.puzzles.length > 0);
+        return (
+          <Accordion variant="separated" multiple defaultValue={boardGroups.map((g) => String(g.tag_group_id))}>
+            {boardGroups.map((g) => (
+              <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
+            ))}
+          </Accordion>
+        );
+      })()}
       {view === "all" && (
         <PuzzleTable detail={data} puzzles={allPuzzles} live={live} onOpenNotes={openNotes} />
       )}

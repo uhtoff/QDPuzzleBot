@@ -323,6 +323,19 @@ def _load_notes(raw):
         return []
 
 
+async def get_all_tag_groups(hunt_id):
+    """Every tag_group in the hunt (id, name, group_code, type), so build_board
+    can surface bare groups — ones with no tagged puzzles yet — as drop targets."""
+    rows = await fetch_all(
+        "SELECT id, name, group_code, type FROM tag_group WHERE hunt_id = %s ORDER BY id ASC",
+        (hunt_id,),
+    )
+    return [
+        {"id": r["id"], "name": r["name"], "group_code": r["group_code"], "type": r["type"]}
+        for r in rows
+    ]
+
+
 async def get_rollups_by_tag_group(hunt_id):
     """Map each meta tag_group in the hunt to its roll-up sheet's freshness, for the
     dashboard "sheet stale" badge (M5). A group with no rollup row is treated as
@@ -344,12 +357,17 @@ async def get_rollups_by_tag_group(hunt_id):
     }
 
 
-def build_board(puzzles, rollups_by_tag_group=None):
+def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
     """Group a flat puzzle list into tag groups (metas) for the dashboard board.
 
     Returns a list of groups plus an "Unassigned" bucket. Each group reports its
     target solution and feeder solve counts, plus whether its roll-up sheet is stale
     (from rollups_by_tag_group). Puzzles in several groups appear in each.
+
+    all_groups (every tag_group in the hunt) surfaces bare groups — ones with no
+    tagged puzzles yet — as empty drop targets on the arrange view. Without it
+    build_board only sees groups some puzzle references, so a freshly-created
+    empty group would be invisible and could never receive puzzles.
     """
     rollups_by_tag_group = rollups_by_tag_group or {}
     groups = {}
@@ -392,6 +410,13 @@ def build_board(puzzles, rollups_by_tag_group=None):
                 grp["num_feeders"] += 1
                 if puz["solved"]:
                     grp["num_solved_feeders"] += 1
+
+    # Surface bare groups (no tagged puzzles) as empty drop targets, appended
+    # after the puzzle-populated ones. Only groups with a group_code can be drop
+    # targets on the arrange view, so skip the codeless ones.
+    for g in (all_groups or []):
+        if g.get("group_code"):
+            ensure(g["id"], g["name"], g["group_code"])
 
     return [groups[rid] for rid in order]
 
