@@ -409,6 +409,60 @@ def test_demote_regenerates_plain_header_at_offset_0():
     assert seq.index("unmergeCells") < seq.index("mergeCells")
 
 
+def test_demote_does_not_rename_tab():
+    # demote regenerates the full header (incl. the name hyperlink) itself, so it
+    # must NOT also call update_puzzle_info — its update_tab_name=True renames the
+    # tab to its own name, which get_unique_tab_name then bumps to "Alpha (2)".
+    cog = _cog()
+    _capture_batch(cog)
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["saved"]]}
+
+    cog._values_get = fake_values_get
+    info = []
+
+    async def fake_info(*a, **k):
+        info.append((a, k))
+
+    cog.update_puzzle_info = fake_info
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Alpha"
+    p.url = "http://a"
+    p.google_page_id = 905
+    p.is_target = False
+    asyncio.run(cog.demote_tab_to_puzzle(p))
+    assert info == []
+
+
+def test_promote_to_group_does_not_rename_tab():
+    # promote_tab_to_target already regenerates the header (incl. name), so the
+    # group wrapper must not call update_puzzle_info (which renamed the tab).
+    cog = _cog()
+    promoted = []
+
+    async def fake_promote(p):
+        promoted.append(p)
+
+    cog.promote_tab_to_target = fake_promote
+    info = []
+
+    async def fake_info(*a, **k):
+        info.append((a, k))
+
+    cog.update_puzzle_info = fake_info
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Alpha"
+    p.google_page_id = 905
+    asyncio.run(cog.promote_tab_to_group(p))
+    assert promoted == [p]
+    assert info == []
+
+
 # --- Task 10: render_contribution from the service -------------------------
 
 def test_render_contribution_builds_rows_and_reconciles():

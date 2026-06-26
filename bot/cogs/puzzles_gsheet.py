@@ -546,11 +546,12 @@ class GoogleSheets(commands.Cog):
     async def promote_tab_to_group(self, puzzle_data: PuzzleData):
         """Promote a puzzle's existing tab into a target (group) tab in place.
 
-        Inserts the contribution columns + native Table (preserving the solver's
-        grid via promote_tab_to_target) and refreshes the tab name. Inverse of
-        demote_tab_to_puzzle."""
+        Inserts the contribution columns + native Table and regenerates the header
+        (including the name hyperlink) via promote_tab_to_target. The tab is NOT
+        renamed — the puzzle name is unchanged, and renaming it to its own name
+        makes get_unique_tab_name treat the tab as a collision ("Name (2)").
+        Inverse of demote_tab_to_puzzle."""
         await self.promote_tab_to_target(puzzle_data)
-        await self.update_puzzle_info(puzzle_data, True)
 
     async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData):
         """Demote a target tab back to an ordinary puzzle tab in place — the exact
@@ -561,7 +562,11 @@ class GoogleSheets(commands.Cog):
         columns (the solver grid slides back to column A), then regenerate the
         plain puzzle header at offset 0 and restore the saved values. The header
         is regenerated rather than shifted because promote now lands it at offset
-        1, so the column delete removes it instead of sliding it back."""
+        1, so the column delete removes it instead of sliding it back.
+
+        The regenerated header includes the name hyperlink, so the tab is NOT
+        renamed — renaming it to its own (unchanged) name makes get_unique_tab_name
+        treat the tab as a collision and append "(2)"."""
         from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
@@ -611,8 +616,6 @@ class GoogleSheets(commands.Cog):
                 requests.append(self.update_cell(
                     str(val), row, col, self.STRING_INPUT, page_id))
         await self.batch_update({"requests": requests})
-
-        await self.update_puzzle_info(puzzle_data, True)
 
     # --- Generic roll-up engine (M2) -------------------------------------
     # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.
