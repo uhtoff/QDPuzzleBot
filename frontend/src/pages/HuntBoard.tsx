@@ -100,7 +100,7 @@ export default function HuntBoard() {
           value={view}
           onChange={(v) => setView(v as "board" | "all" | "arrange" | "evidence" | "manage")}
           data={[
-            { label: "By meta", value: "board" },
+            { label: "By group", value: "board" },
             { label: "All puzzles", value: "all" },
             { label: "Evidence", value: "evidence" },
             ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),

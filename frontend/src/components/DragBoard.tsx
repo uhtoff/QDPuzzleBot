@@ -110,9 +110,9 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
               size="xs"
               color="orange"
               variant="light"
-              title={`In ${metaCount} metas — dragging moves it and removes it from the others`}
+              title={`In ${metaCount} groups — dragging moves it and removes it from the others`}
             >
-              {metaCount} metas
+              {metaCount} groups
             </Badge>
           )}
           <Text size="sm" fw={puzzle.is_meta ? 600 : 400} lineClamp={1}>
