@@ -19,7 +19,6 @@ import {
   IconCopy,
   IconRefresh,
   IconTrash,
-  IconTree,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup as BoardGroupType, HuntDetail, Puzzle } from "../types";
@@ -176,23 +175,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               aria-label="Rebuild meta sheet"
             >
               <IconRefresh size={16} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-        {/* M7 nesting button (only for meta rounds) */}
-        {group.tag_group_id !== 0 && isOrganiser && editable && allTargetGroups.length > 0 && (
-          <Tooltip label="Nest under another meta">
-            <ActionIcon
-              variant="subtle"
-              color="grape"
-              mr="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setNestModalOpen(true);
-              }}
-              aria-label="Nest this meta"
-            >
-              <IconTree size={16} />
             </ActionIcon>
           </Tooltip>
         )}

@@ -35,7 +35,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const [puzzleName, setPuzzleName] = useState("");
   const [metaCode, setMetaCode] = useState<string | null>(metaOptions[0]?.value ?? UNASSIGNED);
   const [metaName, setMetaName] = useState("");
-  const [metaType, setMetaType] = useState<MetaType>("Metapuzzle");
+  const [metaType, setMetaType] = useState<MetaType>("Round");
 
   const createPuzzle = useCreatePuzzle(uid);
   const createMeta = useCreateMeta(uid);
@@ -63,7 +63,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
       { name, type: metaType },
       {
         onSuccess: () => {
-          notifySuccess(`Created meta "${name}"`);
+          notifySuccess(`Created group "${name}"`);
           setMetaName("");
           meta.close();
         },
@@ -79,7 +79,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
           New puzzle
         </Button>
         <Button size="xs" variant="light" color="grape" leftSection={<IconPlus size={14} />} onClick={meta.open}>
-          New meta
+          New Group
         </Button>
       </Group>
 
@@ -110,11 +110,11 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
         </Stack>
       </Modal>
 
-      <Modal opened={metaOpen} onClose={meta.close} title="New meta (round)" centered>
+      <Modal opened={metaOpen} onClose={meta.close} title="New group" centered>
         <Stack>
           <TextInput
-            label="Meta name"
-            description="Creates a new category with a metapuzzle channel and Google sheet."
+            label="Group name"
+            description="Creates a new category with a channel and Google sheet."
             value={metaName}
             onChange={(e) => setMetaName(e.currentTarget.value)}
             data-autofocus
@@ -124,7 +124,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             label="Type"
             data={META_TYPES}
             value={metaType}
-            onChange={(v) => setMetaType((v as MetaType) ?? "Metapuzzle")}
+            onChange={(v) => setMetaType((v as MetaType) ?? "Round")}
             allowDeselect={false}
           />
           <Button color="grape" onClick={submitMeta} loading={createMeta.isPending} disabled={!metaName.trim()}>

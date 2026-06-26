@@ -116,7 +116,15 @@ export default function HuntBoard() {
       {view === "board" && (() => {
         // Bare groups (no puzzles) are drop targets for the Arrange view only —
         // hide them from the board summary so it isn't cluttered with empties.
-        const boardGroups = data.board.filter((g) => g.puzzles.length > 0);
+        // Arrange keeps Unassigned Feeders far left; the By-group summary instead
+        // places it below unsolved targets and plain groups but above solved
+        // targets (which sink to the bottom).
+        const withPuzzles = data.board.filter((g) => g.puzzles.length > 0);
+        const unassigned = withPuzzles.filter((g) => g.tag_group_id === 0);
+        const rest = withPuzzles.filter((g) => g.tag_group_id !== 0);
+        const firstSolved = rest.findIndex((g) => g.target_solved);
+        const at = firstSolved === -1 ? rest.length : firstSolved;
+        const boardGroups = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
         return (
           <Accordion variant="separated" multiple defaultValue={boardGroups.map((g) => String(g.tag_group_id))}>
             {boardGroups.map((g) => (
