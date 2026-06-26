@@ -146,4 +146,7 @@ def make_cog(puzzle=None, hunt=None):
     cog.get_puzzle = lambda ctx: puzzle
     cog.get_hunt = lambda ctx: hunt or MagicMock()
     cog.service = MagicMock()
+    # Fire-and-forget async refreshes are wrapped in asyncio.create_task, so they
+    # must return awaitables even when a test doesn't care about them.
+    cog.service.refresh_informs_targets = AsyncMock()
     return cog

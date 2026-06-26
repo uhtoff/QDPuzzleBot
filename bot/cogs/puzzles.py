@@ -977,6 +977,7 @@ class Puzzles(commands.Cog):
             return
         self.service.log_clues(hunt, puzzle, [note.strip()])
         asyncio.create_task(self.service.refresh_evidence(hunt))
+        asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
 
     @commands.command(name="clues")
@@ -994,6 +995,7 @@ class Puzzles(commands.Cog):
             return
         self.service.log_clues(hunt, puzzle, notes)
         asyncio.create_task(self.service.refresh_evidence(hunt))
+        asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
 
     def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):

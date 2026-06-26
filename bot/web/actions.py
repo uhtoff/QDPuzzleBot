@@ -456,6 +456,7 @@ async def log_clue(puzzle_id):
 
         cog.service.log_clues(hunt_obj, puzzle, [note])
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
         await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
 
     return jsonify({"ok": True})
@@ -1636,4 +1637,5 @@ async def update_evidence(item_id):
     hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
     if cog is not None and hunt_obj is not None:
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id})

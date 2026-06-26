@@ -1577,6 +1577,34 @@ class PuzzleService:
             rows,
         )
 
+    async def refresh_informs_targets(self, hunt, puzzle):
+        """Re-render the roll-up for each target this puzzle informs, so a newly
+        logged clue's information surfaces in the target's contribution table.
+        Best-effort: a sheet error on one target is logged, not raised."""
+        for gid, edge in (puzzle.tag_edges or {}).items():
+            if edge != "informs":
+                continue
+            group = TagGroupJsonDb.get_by_attr(id=gid)
+            if group is None or not group.target_puzzle_id:
+                continue
+            try:
+                await self.refresh_target(hunt, group)
+            except Exception:
+                logger.exception("refresh_informs_targets: failed for group %s", gid)
+
+    async def refresh_target_for_puzzle(self, hunt, target_puzzle_id):
+        """Re-render the roll-up whose target is the given puzzle (best-effort).
+        Used after evidence is manually routed to a target."""
+        if not target_puzzle_id:
+            return
+        group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
+        if group is None:
+            return
+        try:
+            await self.refresh_target(hunt, group)
+        except Exception:
+            logger.exception("refresh_target_for_puzzle: failed for puzzle %s", target_puzzle_id)
+
     async def refresh_unassigned(self, hunt, show_round=False):
         """Incremental reconcile of the Unassigned Puzzles tab.
 

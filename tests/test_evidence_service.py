@@ -234,3 +234,56 @@ class TestRefreshEvidence:
 
         # Must not raise
         await svc.refresh_evidence(hunt)
+
+
+class TestRefreshInformsTargets:
+    """PuzzleService.refresh_informs_targets / refresh_target_for_puzzle —
+    re-render the target roll-up after a clue is logged/routed."""
+
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    async def test_refreshes_informed_target(self, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        group = MagicMock(); group.target_puzzle_id = 99
+        TagGroupDb.get_by_attr.return_value = group
+        svc = PuzzleService(MagicMock())
+        svc.refresh_target = AsyncMock()
+        puzzle = make_puzzle(id=5, hunt_id=10)
+        puzzle.tag_edges = {3: "informs"}
+        hunt = make_hunt()
+
+        await svc.refresh_informs_targets(hunt, puzzle)
+
+        svc.refresh_target.assert_awaited_once_with(hunt, group)
+
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    async def test_skips_when_feeds_only(self, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        svc.refresh_target = AsyncMock()
+        puzzle = make_puzzle(id=5, hunt_id=10)
+        puzzle.tag_edges = {3: "feeds"}
+
+        await svc.refresh_informs_targets(make_hunt(), puzzle)
+
+        svc.refresh_target.assert_not_awaited()
+
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    async def test_refresh_target_for_puzzle(self, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        group = MagicMock()
+        TagGroupDb.get_by_attr.return_value = group
+        svc = PuzzleService(MagicMock())
+        svc.refresh_target = AsyncMock()
+        hunt = make_hunt()
+
+        await svc.refresh_target_for_puzzle(hunt, 99)
+
+        TagGroupDb.get_by_attr.assert_called_once_with(target_puzzle_id=99)
+        svc.refresh_target.assert_awaited_once_with(hunt, group)
+
+    async def test_refresh_target_for_puzzle_none_is_noop(self):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        svc.refresh_target = AsyncMock()
+        await svc.refresh_target_for_puzzle(make_hunt(), None)
+        svc.refresh_target.assert_not_awaited()
