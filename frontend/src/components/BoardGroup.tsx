@@ -29,9 +29,7 @@ import {
   useRebuildRollup,
   useRollupAnswers,
   useSetNesting,
-  useSetSourceMode,
   useUpdatePuzzle,
-  type SourceMode,
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
@@ -64,7 +62,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const allTargetGroups = detail.board.filter((g) => g.tag_group_id !== 0 && g.tag_group_id !== group.tag_group_id);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
-  const sourceModeMut = useSetSourceMode(detail.hunt.uid);
   const nestingMut = useSetNesting(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
@@ -76,18 +73,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           data.ok
             ? { message: `Rebuilt "${group.name}" sheet`, color: "green" }
             : { message: data.error || "Rebuild failed", color: "red" }
-        ),
-      onError: notifyError,
-    });
-  }
-
-  function setSourceMode(mode: string) {
-    sourceModeMut.mutate({ roundId: group.tag_group_id, mode: mode as SourceMode }, {
-      onSuccess: (data) =>
-        notifications.show(
-          data.ok
-            ? { message: `"${group.name}" → ${mode}`, color: "green" }
-            : { message: "Failed to update source_mode", color: "red" }
         ),
       onError: notifyError,
     });
@@ -193,22 +178,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               <IconRefresh size={16} />
             </ActionIcon>
           </Tooltip>
-        )}
-        {/* M7 source_mode selector */}
-        {group.tag_group_id !== 0 && editable && isOrganiser && (
-          <Select
-            data={[
-              { value: "round", label: "round" },
-              { value: "subtree", label: "subtree" },
-              { value: "explicit", label: "explicit" },
-            ]}
-            value={group.source_mode ?? "round"}
-            onChange={(v) => setSourceMode(v ?? "round")}
-            mr="sm"
-            size="xs"
-            comboboxProps={{ withinPortal: false }}
-            style={{ minWidth: 80 }}
-          />
         )}
         {/* M7 nesting button (only for meta rounds) */}
         {group.tag_group_id !== 0 && isOrganiser && editable && allTargetGroups.length > 0 && (

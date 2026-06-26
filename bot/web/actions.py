@@ -1374,47 +1374,6 @@ async def rebuild_rollup(tag_group_id):
     return jsonify({"ok": True})
 
 
-# --- Rollup source_mode setter (organiser only) -----------------------------
-
-@actions_bp.route("/rollups/<int:tag_group_id>", methods=["PATCH"])
-@login_required
-async def set_source_mode(tag_group_id):
-    """Set the aggregation source_mode for a meta group, then rebuild its sheet.
-    Body: {"source_mode": "round" | "subtree" | "explicit"}. Organiser-gated."""
-    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
-    if err:
-        return err
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
-    body = await request.get_json(silent=True) or {}
-    mode = (body.get("source_mode") or "").strip()
-    from bot.core.constants import SOURCE_MODES
-    if mode not in SOURCE_MODES:
-        return jsonify({"error": "bad_source_mode", "allowed": SOURCE_MODES}), 400
-
-    from bot.store import HuntJsonDb, TagGroupJsonDb
-
-    target_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
-    if target_group is None:
-        return jsonify({"error": "round_not_found"}), 404
-
-    bot = current_app.bot
-    cog = bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    try:
-        await cog.service.set_source_mode(hunt_obj, target_group, mode)
-    except (discord.RateLimited, discord.HTTPException) as exc:
-        return _discord_error_response(exc)
-    except Exception as exc:
-        logger.exception("set_source_mode: refresh failed for group %s", tag_group_id)
-        return jsonify({"ok": False, "error": str(exc)})
-    return jsonify({"ok": True, "source_mode": mode})
-
-
 # --- Nesting setter (organiser only) ----------------------------------------
 
 @actions_bp.route("/tag_groups/<int:tag_group_id>/nest", methods=["POST"])
