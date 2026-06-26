@@ -151,3 +151,33 @@ async def pick_solved_category(guild, tag_group, dao):
     """Category a just-solved puzzle's channel should move into (split state only)."""
     rows = dao.get_for_group(tag_group.id)
     return await _pick_or_allocate(guild, tag_group, dao, rows, ROLE_SOLVED)
+
+
+# ----------------------------------------------------------------- solve/unsolve moves
+def group_id_for_category(category_id, dao):
+    """The tag_group id owning *category_id* via the join table, or None."""
+    row = dao.get_by_category(category_id)
+    return row.group_id if row is not None else None
+
+
+async def move_channel_to_solved(guild, tag_group, dao, channel):
+    """Split state: move a just-solved channel into a solved category with room.
+    Returns the source category it left (for empty-overflow cleanup), or None."""
+    source = channel.category
+    target = await pick_solved_category(guild, tag_group, dao)
+    if target is None or (source is not None and target.id == source.id):
+        return None
+    async with layout_lock:
+        await channel.edit(category=target)
+    return source
+
+
+async def move_channel_to_unsolved(guild, tag_group, dao, channel):
+    """Split state: move a just-unsolved channel back to an unsolved category."""
+    source = channel.category
+    target = await pick_unsolved_category(guild, tag_group, dao)
+    if target is None or (source is not None and target.id == source.id):
+        return None
+    async with layout_lock:
+        await channel.edit(category=target)
+    return source

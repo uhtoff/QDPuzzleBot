@@ -12,12 +12,13 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb
+    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
+from bot.core import category_layout
 
 logger = logging.getLogger(__name__)
 
@@ -708,13 +709,55 @@ class Puzzles(commands.Cog):
             pass
         elif channel is not None and channel.category is not None:
             try:
-                divider = self.get_solve_divider_position(None, channel.category)
-                if divider is not False:
-                    async with self.position_lock:
-                        await channel.edit(position=divider + 1)
+                tag_group = self._tag_group_for_channel(channel)
+                if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+                    source = await category_layout.move_channel_to_solved(
+                        guild, tag_group, TagGroupCategoryDb, channel,
+                    )
+                    if source is not None and hasattr(category_layout, "cleanup_empty_overflow"):
+                        await category_layout.cleanup_empty_overflow(
+                            guild, tag_group, TagGroupCategoryDb, source,
+                        )
+                else:
+                    # Single (divider) state — unchanged behaviour.
+                    divider = self.get_solve_divider_position(None, channel.category)
+                    if divider is not False:
+                        async with self.position_lock:
+                            await channel.edit(position=divider + 1)
             except Exception:
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
+
+    async def web_post_unsolved(self, guild, hunt, puzzle):
+        """Best-effort: move a just-unsolved channel back to an unsolved category
+        (split state) or above the divider (single state). Never raises."""
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
+        if channel is None or isinstance(channel, discord.Thread) or channel.category is None:
+            return
+        try:
+            tag_group = self._tag_group_for_channel(channel)
+            if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+                await category_layout.move_channel_to_unsolved(
+                    guild, tag_group, TagGroupCategoryDb, channel,
+                )
+            else:
+                divider = self.get_solve_divider_position(None, channel.category)
+                if divider is not False:
+                    async with self.position_lock:
+                        await channel.edit(position=divider)
+        except Exception:
+            logger.exception("web_post_unsolved: failed to reposition channel")
+
+    def _tag_group_for_channel(self, channel):
+        """Resolve the tag_group owning a channel's category — primary category
+        first, then the join table for solved/overflow categories."""
+        if channel.category is None:
+            return None
+        tg = TagGroupJsonDb.get_by_attr(category_id=channel.category.id)
+        if tg is not None:
+            return tg
+        gid = category_layout.group_id_for_category(channel.category.id, TagGroupCategoryDb)
+        return TagGroupJsonDb.get_by_attr(id=gid) if gid else None
 
     def get_first_channel(self, ctx, category):
         return _channels.first_channel_position(category)
@@ -2341,6 +2384,7 @@ class Puzzles(commands.Cog):
             await self.service.unsolve(self.get_guild(ctx), hunt, puzzle)
         except SheetRefreshError as exc:
             sheet_warning = exc
+        await self.web_post_unsolved(self.get_guild(ctx), hunt, puzzle)
 
         await self.move_to_bottom(ctx)
         await self.info(ctx, update=True)

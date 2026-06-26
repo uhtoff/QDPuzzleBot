@@ -177,3 +177,50 @@ async def test_pick_unsolved_allocates_when_all_full():
     # New row written for unsolved seq=1.
     row = dao.commit.call_args.args[0]
     assert (row.role, row.seq, row.category_id) == ("unsolved", 1, 101)
+
+
+def test_group_id_for_category_uses_dao_row():
+    dao = MagicMock()
+    dao.get_by_category.return_value = TagGroupCategoryData(
+        group_id=42, category_id=200, role="solved", seq=0)
+    assert layout.group_id_for_category(200, dao) == 42
+
+
+def test_group_id_for_category_none_when_unknown():
+    dao = MagicMock()
+    dao.get_by_category.return_value = None
+    assert layout.group_id_for_category(999, dao) is None
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_solved_moves_into_solved_category():
+    solved_cat = _cat(200, 6, n_channels=0)
+    guild = MagicMock(); guild.categories = [solved_cat]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=200, role="solved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    source = MagicMock(id=100)
+    channel = MagicMock(); channel.category = source; channel.edit = AsyncMock()
+
+    returned_source = await layout.move_channel_to_solved(guild, tag_group, dao, channel)
+    channel.edit.assert_awaited_once_with(category=solved_cat)
+    assert returned_source is source
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_solved_noop_if_already_there():
+    solved_cat = _cat(200, 6, n_channels=0)
+    guild = MagicMock(); guild.categories = [solved_cat]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=200, role="solved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    channel = MagicMock(); channel.category = solved_cat; channel.edit = AsyncMock()
+
+    returned = await layout.move_channel_to_solved(guild, tag_group, dao, channel)
+    channel.edit.assert_not_awaited()
+    assert returned is None
