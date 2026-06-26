@@ -72,13 +72,15 @@ async def split_group(guild, tag_group, dao):
     not re-cloned.
     """
     if dao.get_for_group(tag_group.id):
-        return  # already split
+        return  # already split (fast path, no lock)
     primary = _category_by_id(guild, tag_group.category_id)
     if primary is None:
         return
-    base = primary.name
-    divider_pos = solve_divider_position(primary)
     async with layout_lock:
+        if dao.get_for_group(tag_group.id):   # re-check under lock — closes TOCTOU
+            return
+        base = primary.name
+        divider_pos = solve_divider_position(primary)
         solved_cat = discord.utils.get(
             guild.categories, name=solved_category_name(base)
         )
