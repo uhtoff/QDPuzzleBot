@@ -30,7 +30,7 @@ data model and tooling.
 - Structured clue fields (suspect / attribute / value Detectives template)
 - Completeness queries ("solved puzzles with no clue logged")
 - `reveals` edge type on `tags` table
-- Never-auto-solve guard on capstone puzzles (no auto-solve logic exists yet)
+- Auto-solve behaviour of any kind (no puzzle is auto-solved today — capstones are not unique in this respect, so there is no capstone-specific guard to add)
 - Meta-matching / orphaned-answers pool (separate feature)
 - Per-capstone evidence boards (can be done by filtering on `target_puzzle_id` in the dashboard)
 
