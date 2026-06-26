@@ -318,3 +318,18 @@ async def test_delete_group_categories_deletes_child_channels():
     for ch in primary.channels:
         ch.delete.assert_awaited_once()
     primary.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_allocate_raises_when_no_category_budget():
+    from bot.core.discord_channels import MAX_CATEGORIES
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)
+    guild = MagicMock()
+    guild.categories = [u0] * MAX_CATEGORIES   # at the ceiling
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    with pytest.raises(RuntimeError, match="no_category_space"):
+        await layout.pick_unsolved_category(guild, tag_group, dao)

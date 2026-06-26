@@ -12,7 +12,7 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, SOLVE_DIVIDER, clean_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_name, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED, TagGroupCategoryData
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,8 @@ async def split_group(guild, tag_group, dao):
 # ----------------------------------------------------------------- placement
 async def _allocate(guild, tag_group, dao, role_rows, role):
     """Create the next numbered category for *role* and record its row."""
+    if len(guild.categories) >= MAX_CATEGORIES:
+        raise RuntimeError("no_category_space")
     next_seq = max((r.seq for r in role_rows), default=-1) + 1
     name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
     template = _category_by_id(guild, tag_group.category_id)
