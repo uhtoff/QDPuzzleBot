@@ -149,32 +149,19 @@ class GoogleSheets(commands.Cog):
 
     # A target tab shifts its header right so column A is free to be the
     # contribution Table's hidden key column (labels land to the right, col A holds
-    # the key). Freshly generated targets shift by TARGET_HEADER_SHIFT (Table at row
-    # 4); targets promoted in place keep the older CONTRIBUTION_WIDTH shift (Table at
-    # row 0, solver grid pushed clear). A feeder tab — and any additional sheet,
-    # which is never a target tab — keeps column A.
+    # the key). Both freshly generated and in-place-promoted targets use the same
+    # geometry — header at TARGET_HEADER_SHIFT, Table at row 4 — so the shift is a
+    # constant. A feeder tab — and any additional sheet, which is never a target
+    # tab — keeps column A.
     TARGET_HEADER_SHIFT = 1
 
     def _header_shift(self, puzzle, page_id):
         """Columns to shift header writes right on `page_id`. Only a target's OWN
-        main tab is shifted; additional sheets (page_id != google_page_id) are not.
-
-        The shift is read from where the contribution Table actually sits, so writes
-        land correctly whether the tab was code-generated (Table at row 4 → shift 1)
-        or promoted in place (Table at row 0 → shift CONTRIBUTION_WIDTH)."""
+        main tab is shifted (by TARGET_HEADER_SHIFT); feeders and additional sheets
+        (page_id != google_page_id) keep column A."""
         if not getattr(puzzle, "is_target", False) or page_id is None \
                 or int(page_id) != int(puzzle.google_page_id or 0):
             return 0
-        try:
-            for s in self.sheet_list()["sheets"]:
-                if s["properties"]["sheetId"] == int(page_id):
-                    tables = s.get("tables", []) or []
-                    if tables:
-                        start = tables[0].get("range", {}).get("startRowIndex", 0)
-                        return self.TARGET_HEADER_SHIFT if start else self.CONTRIBUTION_WIDTH
-                    break
-        except Exception:
-            logger.exception("_header_shift: could not read table position for %s", page_id)
         return self.TARGET_HEADER_SHIFT
 
     # --- Tab formatting (replaces the styling the old template tab carried) -----
@@ -562,18 +549,65 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data, True)
 
     async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData):
-        """Demote a target tab back to an ordinary puzzle tab in place.
+        """Demote a target tab back to an ordinary puzzle tab in place — the exact
+        inverse of promote_tab_to_target.
 
-        Removes the contribution Table and its CONTRIBUTION_WIDTH left columns; the
-        solver grid (which rode the original promote shift) slides back into place,
-        so no content is overwritten. Inverse of promote_tab_to_group."""
+        Save the user flavour + bot progress/solution from the target (offset 1)
+        header, delete the contribution Table and its CONTRIBUTION_WIDTH left
+        columns (the solver grid slides back to column A), then regenerate the
+        plain puzzle header at offset 0 and restore the saved values. The header
+        is regenerated rather than shifted because promote now lands it at offset
+        1, so the column delete removes it instead of sliding it back."""
+        from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
+        spreadsheet_id = self.get_spreadsheet_id()
+        tab_name = self.get_page_name_by_id(page_id)
+        safe_name = tab_name.replace("'", "''") if tab_name else None
+
+        # 1. Save flavour/progress/solution from the current target header (offset 1).
+        saved = {}
+        if safe_name is not None:
+            shift = self.TARGET_HEADER_SHIFT
+            for label, ref in [("flavour", "B2"),
+                               ("progress", config.puzzle_cell_progress),
+                               ("solution", config.puzzle_cell_solution)]:
+                if not ref:
+                    continue
+                row, col = self.get_row(ref), self.get_column(ref)
+                resp = await self._values_get(
+                    spreadsheet_id, f"'{safe_name}'!{self._a1_cell(row, col + shift)}")
+                vals = resp.get("values") or []
+                if vals and vals[0]:
+                    saved[label] = (vals[0][0], row, col)
+
+        # 2. Delete the contribution columns (solver grid slides back to column A).
         await self.batch_update({"requests": [{
             "deleteDimension": {
                 "range": {"sheetId": page_id, "dimension": "COLUMNS",
                           "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
             }
         }]})
+
+        # 3. Wipe + regenerate the plain puzzle header at offset 0, restore values.
+        requests = [
+            {"unmergeCells": {"range": {
+                "sheetId": page_id, "startRowIndex": 0,
+                "endRowIndex": sheet_layout.FROZEN_ROWS}}},
+            {"updateCells": {"range": {
+                "sheetId": page_id, "startRowIndex": 0,
+                "endRowIndex": sheet_layout.FROZEN_ROWS,
+                "startColumnIndex": 0, "endColumnIndex": 26},
+                "fields": "userEnteredValue"}},
+        ]
+        requests += self._puzzle_tab_header_requests(
+            puzzle_data, page_id, 0, is_target=False)
+        for label in ("flavour", "progress", "solution"):
+            if label in saved:
+                val, row, col = saved[label]
+                requests.append(self.update_cell(
+                    str(val), row, col, self.STRING_INPUT, page_id))
+        await self.batch_update({"requests": requests})
+
         await self.update_puzzle_info(puzzle_data, True)
 
     # --- Generic roll-up engine (M2) -------------------------------------
@@ -1001,6 +1035,39 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
+    def _puzzle_tab_header_requests(self, puzzle, page_id, offset, is_target):
+        """batchUpdate requests for a puzzle/target tab's header, shifted right by
+        `offset`: the captured static cells + merges, the dynamic name/url
+        hyperlink (always bot-written, not from the artifact), tab styling
+        (JetBrains Mono, frozen + grey header rows, wide label column at the
+        offset), and bold static labels. Shared by generate_puzzle_tab (fresh
+        tab) and promote_tab_to_target (stamped over an inserted column band) so
+        the two paths produce an identical header geometry."""
+        from bot.cogs import sheet_layout
+        cells, merges = sheet_layout.puzzle_tab_layout(is_target)
+        requests = []
+        for c in cells:
+            requests.append(self.update_cell(
+                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]) + offset,
+                c["type"], page_id))
+        for start_r, end_r, start_c, end_c in merges:
+            requests.append({
+                "mergeCells": {
+                    "range": {"sheetId": page_id,
+                              "startRowIndex": start_r, "endRowIndex": end_r,
+                              "startColumnIndex": start_c + offset,
+                              "endColumnIndex": end_c + offset},
+                    "mergeType": "MERGE_ALL",
+                }})
+        requests.append(self.update_cell(
+            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            self.get_row(config.puzzle_cell_name),
+            self.get_column(config.puzzle_cell_name) + offset,
+            self.FORMULA_INPUT, page_id))
+        requests += self._tab_format_requests(page_id, label_col=offset)
+        requests += self._label_bold_requests(page_id, cells, offset)
+        return requests
+
     async def generate_puzzle_tab(self, puzzle, is_target, index=None):
         """Create a puzzle tab entirely in code (no template duplicateSheet).
 
@@ -1020,35 +1087,10 @@ class GoogleSheets(commands.Cog):
         # contribution Table's hidden key column (labels in B, values in C+).
         offset = self.TARGET_HEADER_SHIFT if is_target else 0
 
-        # Static header cells from the captured layout.
-        cells, merges = sheet_layout.puzzle_tab_layout(is_target)
-        requests = []
-        for c in cells:
-            requests.append(self.update_cell(
-                c["value"], self.get_row(c["a1"]), self.get_column(c["a1"]) + offset,
-                c["type"], page_id))
-        # Merges.
-        for start_r, end_r, start_c, end_c in merges:
-            requests.append({
-                "mergeCells": {
-                    "range": {"sheetId": page_id,
-                              "startRowIndex": start_r, "endRowIndex": end_r,
-                              "startColumnIndex": start_c + offset,
-                              "endColumnIndex": end_c + offset},
-                    "mergeType": "MERGE_ALL",
-                }})
-        # Dynamic name/url hyperlink (always bot-written, not from the artifact).
-        requests.append(self.update_cell(
-            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
-            self.get_row(config.puzzle_cell_name),
-            self.get_column(config.puzzle_cell_name) + offset,
-            self.FORMULA_INPUT, page_id))
-        # Tab styling: JetBrains Mono, frozen + grey header rows, wide label column
-        # (the label column is wherever the labels land — A for a feeder, B for a
-        # target). The solution cell stays grey here; it turns green only on solve.
-        requests += self._tab_format_requests(page_id, label_col=offset)
-        # Bold the static labels (the captured layout flags them; update_cell drops it).
-        requests += self._label_bold_requests(page_id, cells, offset)
+        # Static header (captured cells + merges), dynamic name hyperlink, tab
+        # styling and bold labels — all shifted right by `offset`. Shared with
+        # promote_tab_to_target so a generated and a promoted target end identical.
+        requests = self._puzzle_tab_header_requests(puzzle, page_id, offset, is_target)
         if requests:
             await self.batch_update({"requests": requests})
 
@@ -1072,29 +1114,41 @@ class GoogleSheets(commands.Cog):
     CONTRIBUTION_WIDTH = 4   # cols A-D
 
     async def promote_tab_to_target(self, puzzle):
-        """Transform an existing puzzle tab into a target tab without losing
-        solver data. Insert contribution-width columns at the left (shifting the
-        grid + header right), add the contribution Table into the freed columns,
-        then restore the header. Inserts only — no sized overwrite."""
+        """Transform an existing puzzle tab into a target tab in place, ending in
+        the SAME geometry as a freshly generated target: header at offset 1, the
+        contribution Table at A4.
+
+        Insert CONTRIBUTION_WIDTH blank columns at the left so the solver grid
+        rides clear to the right (cols E+), then unmerge + clear the frozen
+        header rows and re-stamp the canonical target header at offset 1 (the
+        insert pushes the old header to offset 4, whose merges would otherwise
+        collide with the new ones). Finally add the Table at A4. The user's
+        flavour text and the bot-written progress/solution values are preserved
+        across the insert."""
+        from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
         tab_name = self.get_page_name_by_id(page_id)
         if tab_name is None:
             return
         safe_name = tab_name.replace("'", "''")
+        offset = self.TARGET_HEADER_SHIFT
 
-        # 1. Save at-risk header cells (flavour + progress) BEFORE shifting.
-        flavour_ref = "B2"   # user-owned, not in config; captured layout confirms B2
-        progress_ref = config.puzzle_cell_progress  # B3
-        saved_cells = {}
-        for label, ref in [("flavour", flavour_ref), ("progress", progress_ref)]:
-            resp = await self._values_get(
-                spreadsheet_id, f"'{safe_name}'!{ref}")
+        # 1. Save at-risk values BEFORE the insert: flavour is user-owned; progress
+        #    and solution are bot-written but carry solve state worth preserving.
+        preserved = [("flavour", "B2"),                       # captured layout: B2
+                     ("progress", config.puzzle_cell_progress),
+                     ("solution", config.puzzle_cell_solution)]
+        saved = {}
+        for label, ref in preserved:
+            if not ref:
+                continue
+            resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{ref}")
             vals = resp.get("values") or []
             if vals and vals[0]:
-                saved_cells[label] = (vals[0][0], self.get_row(ref), self.get_column(ref))
+                saved[label] = (vals[0][0], self.get_row(ref), self.get_column(ref))
 
-        # 2. Insert contribution-width columns at column A.
+        # 2. Insert contribution-width columns at column A (solver grid -> E+).
         await self.batch_update({"requests": [{
             "insertDimension": {
                 "range": {"sheetId": page_id, "dimension": "COLUMNS",
@@ -1103,24 +1157,29 @@ class GoogleSheets(commands.Cog):
             }
         }]})
 
-        # 3. Add the contribution Table into the freed left columns.
-        await self._add_contribution_table(page_id)
-
-        # 4. Reconstruct the bot-owned header (name/url hyperlink) in its
-        #    post-shift position; restore flavour/progress.
-        requests = [self.update_cell(
-            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
-            self.get_row(config.puzzle_cell_name),
-            self.get_column(config.puzzle_cell_name) + self.CONTRIBUTION_WIDTH,
-            self.FORMULA_INPUT, page_id)]
-        for label in ("flavour", "progress"):
-            if label in saved_cells:
-                val, row, col = saved_cells[label]
+        # 3. Wipe the frozen header rows (unmerge + clear) so the canonical header
+        #    can be stamped without colliding with the one the insert pushed right,
+        #    then stamp the target header at offset 1 and restore the saved values.
+        requests = [
+            {"unmergeCells": {"range": {
+                "sheetId": page_id, "startRowIndex": 0,
+                "endRowIndex": sheet_layout.FROZEN_ROWS}}},
+            {"updateCells": {"range": {
+                "sheetId": page_id, "startRowIndex": 0,
+                "endRowIndex": sheet_layout.FROZEN_ROWS,
+                "startColumnIndex": 0, "endColumnIndex": 26},
+                "fields": "userEnteredValue"}},
+        ]
+        requests += self._puzzle_tab_header_requests(puzzle, page_id, offset, is_target=True)
+        for label in ("flavour", "progress", "solution"):
+            if label in saved:
+                val, row, col = saved[label]
                 requests.append(self.update_cell(
-                    str(val), row, col + self.CONTRIBUTION_WIDTH,
-                    self.STRING_INPUT, page_id))
-        if requests:
-            await self.batch_update({"requests": requests})
+                    str(val), row, col + offset, self.STRING_INPUT, page_id))
+        await self.batch_update({"requests": requests})
+
+        # 4. Add the contribution Table at A4 (below the frozen header).
+        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
 
     # --- Task 10: render contribution table from service -------------------
 

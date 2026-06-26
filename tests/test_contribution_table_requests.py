@@ -11,7 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
+from bot.cogs import sheet_layout
 from bot.store.puzzle_data import PuzzleData
+from bot.utils import config
 
 
 def _cog():
@@ -259,11 +261,95 @@ def test_promote_inserts_columns_before_adding_table():
     assert insert_idx < table_idx
 
 
-def test_demote_removes_contribution_columns():
-    # Inverse of promote: drop the CONTRIBUTION_WIDTH left columns (and the Table
-    # they hold); the solver grid slides back into place.
+def _promote_alpha():
+    """Run promote on a target tab; return the captured batchUpdate bodies."""
     cog = _cog()
     calls = _capture_batch(cog)
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["saved"]]}
+
+    cog._values_get = fake_values_get
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Alpha"
+    p.url = "http://a"
+    p.google_page_id = 905
+    asyncio.run(cog.promote_tab_to_target(p))
+    return cog, calls
+
+
+def _cell_value(r):
+    uev = r["updateCells"]["rows"][0]["values"]["userEnteredValue"]
+    return next(iter(uev.values()))
+
+
+def test_promote_puts_table_at_a4():
+    # End state must match a generated target: Table top-left A4 (col 0, below
+    # the 3 frozen header rows), NOT row 0 inside the header.
+    _cog_, calls = _promote_alpha()
+    add = next(r["addTable"]["table"] for body in calls
+              for r in body["requests"] if "addTable" in r)
+    assert add["range"]["startRowIndex"] == sheet_layout.FROZEN_ROWS  # row 4
+    assert add["range"]["startColumnIndex"] == 0                       # col A
+
+
+def test_promote_regenerates_header_at_offset_1():
+    # Header is regenerated at offset 1 (the generated-target geometry), NOT left
+    # at the CONTRIBUTION_WIDTH offset where the column insert pushed it.
+    cog, calls = _promote_alpha()
+    name_col = cog.get_column(config.puzzle_cell_name) + cog.TARGET_HEADER_SHIFT
+    hyperlinks = [r for body in calls for r in body["requests"]
+                  if "updateCells" in r and "rows" in r["updateCells"]
+                  and isinstance(_cell_value(r), str)
+                  and "HYPERLINK" in _cell_value(r)]
+    assert hyperlinks, "promote must regenerate the name hyperlink"
+    assert hyperlinks[0]["updateCells"]["range"]["startColumnIndex"] == name_col
+    # Title merge (base col 1) lands at offset 1 -> col 2, not col 1+4.
+    merges = [r["mergeCells"]["range"] for body in calls
+              for r in body["requests"] if "mergeCells" in r]
+    assert any(m["startColumnIndex"] == 1 + cog.TARGET_HEADER_SHIFT for m in merges)
+
+
+def test_promote_unmerges_header_before_remerging():
+    # The insert pushes the old header merges right; they must be unmerged before
+    # the canonical offset-1 merges are stamped, or Sheets rejects the overlap.
+    _cog_, calls = _promote_alpha()
+    seq = [k for body in calls for r in body["requests"] for k in r]
+    assert "unmergeCells" in seq, "promote must unmerge the pushed header"
+    assert seq.index("unmergeCells") < seq.index("mergeCells")
+
+
+def test_header_shift_constant_for_target():
+    # Both generated and promoted targets now share one geometry, so _header_shift
+    # returns TARGET_HEADER_SHIFT for a target's own tab regardless of where the
+    # Table sits (old code keyed off the Table's row).
+    cog = _cog()
+    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [
+        {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+    p = PuzzleData()
+    p.id = 1
+    p.is_target = True
+    p.google_page_id = 905
+    assert cog._header_shift(p, 905) == cog.TARGET_HEADER_SHIFT
+    p.is_target = False
+    assert cog._header_shift(p, 905) == 0
+
+
+def _demote_alpha():
+    """Run demote on a target tab; return (cog, captured batchUpdate bodies)."""
+    cog = _cog()
+    calls = _capture_batch(cog)
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["saved"]]}
+
+    cog._values_get = fake_values_get
 
     async def fake_update_info(puzzle, update_tab_name=False, name=None, page_id=None):
         pass
@@ -273,9 +359,17 @@ def test_demote_removes_contribution_columns():
     p = PuzzleData()
     p.id = 1
     p.name = "Alpha"
+    p.url = "http://a"
     p.google_page_id = 905
-
+    p.is_target = False  # convert_to_puzzle clears the flag before demote
     asyncio.run(cog.demote_tab_to_puzzle(p))
+    return cog, calls
+
+
+def test_demote_removes_contribution_columns():
+    # Inverse of promote: drop the CONTRIBUTION_WIDTH left columns (and the Table
+    # they hold); the solver grid slides back into place.
+    cog, calls = _demote_alpha()
 
     deletes = [r["deleteDimension"] for body in calls for r in body["requests"]
                if "deleteDimension" in r]
@@ -285,6 +379,20 @@ def test_demote_removes_contribution_columns():
     assert rng["dimension"] == "COLUMNS"
     assert rng["startIndex"] == 0
     assert rng["endIndex"] == cog.CONTRIBUTION_WIDTH
+
+
+def test_demote_regenerates_plain_header_at_offset_0():
+    # The column delete removes the offset-1 target header, so demote must
+    # regenerate the plain puzzle header at offset 0 (labels back in column A),
+    # unmerging the stale merges first.
+    _cog_, calls = _demote_alpha()
+    titles = [r for body in calls for r in body["requests"]
+              if "updateCells" in r and "rows" in r["updateCells"]
+              and _cell_value(r) == "Puzzle Title:"]
+    assert titles, "demote must regenerate the static header labels"
+    assert titles[0]["updateCells"]["range"]["startColumnIndex"] == 0  # offset 0 -> A
+    seq = [k for body in calls for r in body["requests"] for k in r]
+    assert seq.index("unmergeCells") < seq.index("mergeCells")
 
 
 # --- Task 10: render_contribution from the service -------------------------
