@@ -14,7 +14,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt, make_puzzle
+from bot.core.puzzle_service import default_edge_for_group
+from tests.conftest import make_hunt, make_puzzle, make_round
+
+
+class TestDefaultEdgeForGroup:
+    def test_bare_group_pools_none(self):
+        assert default_edge_for_group(make_round(id=1, target_puzzle_id=0)) == "none"
+
+    def test_meta_feeds(self):
+        g = make_round(id=1, target_puzzle_id=9)
+        g.type = "Metapuzzle"
+        assert default_edge_for_group(g) == "feeds"
+
+    def test_capstone_informs(self):
+        g = make_round(id=1, target_puzzle_id=9)
+        g.type = "Capstone"
+        assert default_edge_for_group(g) == "informs"
+
+    def test_targeted_unknown_type_feeds(self):
+        g = make_round(id=1, target_puzzle_id=9)
+        g.type = ""
+        assert default_edge_for_group(g) == "feeds"
 
 
 def _make_cog_convert():

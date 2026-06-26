@@ -90,6 +90,15 @@ TYPE_DEFAULTS = {
 }
 
 
+def default_edge_for_group(group) -> str:
+    """The edge a newly-added puzzle should get to maintain the group's status quo:
+    a bare group with no target puzzle pools with 'none'; a group whose target is a
+    capstone informs; any other fed meta (meta / metameta / runaround) feeds."""
+    if not group.target_puzzle_id:
+        return "none"
+    return TYPE_DEFAULTS.get(group.type, {}).get("default_edge", "feeds")
+
+
 class PuzzleService:
     def __init__(self, bot, notifier=None):
         self.bot = bot

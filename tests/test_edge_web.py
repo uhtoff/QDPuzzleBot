@@ -59,8 +59,9 @@ def web():
 
     ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
 
-    target_group = make_round(id=7, group_code="X", category_id=999)
+    target_group = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=9)
     target_group.hunt_id = 10
+    target_group.type = "Metapuzzle"
     puzzle = make_puzzle(id=5, channel_id=222, is_target=True)
 
     patches = [
@@ -149,9 +150,33 @@ async def test_retag_add_only_true(web):
 
 @pytest.mark.asyncio
 async def test_retag_mode_move_compat(web):
+    # Move into a fed meta defaults to a feeds edge.
     await web.client.post("/api/puzzles/5/meta", json={"group_code": "X", "mode": "move"})
     web.svc.tag_edge_only.assert_called_once()
     assert _edge_of(web.svc.tag_edge_only.call_args) == "feeds"
+
+
+@pytest.mark.asyncio
+async def test_retag_bare_group_defaults_none(web):
+    # A bare group (no target puzzle) pools the puzzle with a 'none' edge.
+    bare = make_round(id=8, group_code="B", category_id=1)  # target_puzzle_id=0
+    bare.hunt_id = 10
+    web.TagGroupJsonDb.get_by_attr.return_value = bare
+    await web.client.post("/api/puzzles/5/meta", json={"group_code": "B", "mode": "move"})
+    web.svc.tag_edge_only.assert_called_once()
+    assert _edge_of(web.svc.tag_edge_only.call_args) == "none"
+
+
+@pytest.mark.asyncio
+async def test_retag_capstone_defaults_informs(web):
+    # Moving into a capstone informs (no feeds).
+    cap = make_round(id=8, group_code="C", category_id=1, target_puzzle_id=99)
+    cap.hunt_id = 10
+    cap.type = "Capstone"
+    web.TagGroupJsonDb.get_by_attr.return_value = cap
+    await web.client.post("/api/puzzles/5/meta", json={"group_code": "C", "mode": "move"})
+    web.svc.tag_edge_only.assert_called_once()
+    assert _edge_of(web.svc.tag_edge_only.call_args) == "informs"
 
 
 # ---------------------------------------------------------------------------

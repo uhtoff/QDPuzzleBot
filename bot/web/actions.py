@@ -827,17 +827,22 @@ async def retag_puzzle(puzzle_id):
     if mode not in ("move", "add", "remove", "clear"):
         return jsonify({"error": "bad_mode"}), 400
 
-    edge = body.get("edge", "feeds")
-    if edge not in ("feeds", "informs", "none"):
+    explicit_edge = body.get("edge")
+    if explicit_edge is not None and explicit_edge not in ("feeds", "informs", "none"):
         return jsonify({"error": "bad_edge"}), 400
     only = bool(body.get("only", False))
 
     from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
+    from bot.core.puzzle_service import default_edge_for_group
 
     # "clear" unassigns from ALL metas, so it carries no group_code to validate.
     target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
     if mode != "clear" and (target_group is None or target_group.hunt_id != ctx["hunt"]["id"]):
         return jsonify({"error": "bad_group_code"}), 400
+
+    # Default edge maintains the target group's status quo (bare group -> none,
+    # capstone -> informs, fed meta -> feeds); an explicit edge overrides it.
+    edge = explicit_edge or (default_edge_for_group(target_group) if target_group else "feeds")
     # Locks only the puzzle being retagged (keyed on puzzle_id), matching the bang
     # !move_to_meta decorator — a concurrent write to the meta puzzle itself is not
     # serialized against this retag, which is consistent with current behaviour.
@@ -862,8 +867,8 @@ async def retag_puzzle(puzzle_id):
         warning = None
         try:
             if mode == "move":
-                # Backward compat: move → add+only with feeds edge
-                await cog.service.tag_edge_only(puzzle, target_group, "feeds", guild)
+                # move → add+only with the group's default edge (status quo)
+                await cog.service.tag_edge_only(puzzle, target_group, edge, guild)
             elif mode == "add" and only:
                 await cog.service.tag_edge_only(puzzle, target_group, edge, guild)
             elif mode == "add":
