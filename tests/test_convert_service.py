@@ -89,6 +89,29 @@ class TestConvertToType:
         assert tag_group.type == "Metapuzzle"
 
     @pytest.mark.asyncio
+    async def test_promote_in_place_restructures_sheet(self, cog):
+        # A bare puzzle promoted in place must restructure its tab
+        # (promote_tab_to_group: header -> B1, contribution Table -> A4), else the
+        # lazily-created Table hides column A and the header's first column with it.
+        puz = make_puzzle(id=7)
+        gsheet = MagicMock()
+        gsheet.promote_tab_to_group = AsyncMock()
+        cog.bot.get_cog.return_value = gsheet
+        await _run_convert(cog, puz, "Metapuzzle")
+        gsheet.promote_tab_to_group.assert_awaited_once_with(puz)
+
+    @pytest.mark.asyncio
+    async def test_already_grouped_does_not_restructure(self, cog):
+        # Converting the TYPE of an existing group must NOT re-promote the sheet —
+        # the tab is already structured.
+        puz = make_puzzle(id=7)
+        gsheet = MagicMock()
+        gsheet.promote_tab_to_group = AsyncMock()
+        cog.bot.get_cog.return_value = gsheet
+        await _run_convert(cog, puz, "Capstone", existing_group=MagicMock())
+        gsheet.promote_tab_to_group.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_sets_source_mode_round_for_metapuzzle(self, cog):
         puz = make_puzzle(id=7)
         await _run_convert(cog, puz, "Metapuzzle")

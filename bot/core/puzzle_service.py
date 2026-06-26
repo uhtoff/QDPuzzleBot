@@ -658,8 +658,16 @@ class PuzzleService:
             puzzle.add_tag(tag_group.id)
             puzzle.is_target = True
             PuzzleJsonDb.commit(puzzle)
+
+            # Restructure the sheet tab in place (header -> B1, contribution Table
+            # -> A4) BEFORE source_mode/edges render into it. Without this the tab
+            # keeps its offset-0 header and the lazily-created Table hides column A
+            # (and the header's first column with it).
+            gsheet_cog = self._gsheet_cog(hunt)
+            if gsheet_cog is not None:
+                await gsheet_cog.promote_tab_to_group(puzzle)
         else:
-            # Already grouped — just update type
+            # Already grouped — just update type (the tab is already structured).
             tag_group.type = new_type
             TagGroupJsonDb.commit(tag_group)
 
