@@ -10,6 +10,7 @@ import re
 import pytz
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
+from .tag_group_category_data import TagGroupCategoryData
 from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
@@ -192,6 +193,48 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
         cursor.close()
+
+
+class MySQLTagGroupCategoryDb(_MySQLBaseDb):
+    TABLE_NAME = 'tag_group_category'
+
+    def get_for_group(self, group_id):
+        """All category rows for a group, ordered by role then seq."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT * FROM tag_group_category WHERE group_id = %s "
+                "ORDER BY role ASC, seq ASC",
+                (group_id,),
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [TagGroupCategoryData(**row) for row in rows]
+
+    def get_by_category(self, category_id):
+        """The single row owning a category, or None."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT * FROM tag_group_category WHERE category_id = %s LIMIT 1",
+                (category_id,),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return TagGroupCategoryData(**row) if row else None
+
+    def delete_for_group(self, group_id):
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM tag_group_category WHERE group_id = %s", (group_id,)
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
 
 class MySQLAdditionalSheetsDb(_MySQLBaseDb):
     TABLE_NAME = 'additional_sheets'
