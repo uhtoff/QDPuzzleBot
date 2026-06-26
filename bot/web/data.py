@@ -393,13 +393,6 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         return groups[tag_group_id]
 
     for puz in puzzles:
-        if not puz["rounds"]:
-            grp = ensure(0, "Unassigned", None)
-            grp["puzzles"].append(puz)
-            grp["num_feeders"] += 1
-            if puz["solved"]:
-                grp["num_solved_feeders"] += 1
-            continue
         for rnd in puz["rounds"]:
             grp = ensure(rnd["id"], rnd["name"], rnd["group_code"])
             grp["puzzles"].append(puz)
@@ -410,6 +403,18 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
                 grp["num_feeders"] += 1
                 if puz["solved"]:
                     grp["num_solved_feeders"] += 1
+        # Unassigned Feeders bucket: a non-meta puzzle whose answer feeds nothing
+        # (no 'feeds' edge to any meta). It still appears under any group it
+        # informs/pools into, but also surfaces here as needing a feed target.
+        # Target puzzles are excluded; mini-meta feeders are already absent
+        # (get_hunt_puzzles drops puzzles with a parent_puzzle_id).
+        feeds_something = any(rnd["edge_type"] == "feeds" for rnd in puz["rounds"])
+        if not puz["is_meta"] and not feeds_something:
+            grp = ensure(0, "Unassigned", None)
+            grp["puzzles"].append(puz)
+            grp["num_feeders"] += 1
+            if puz["solved"]:
+                grp["num_solved_feeders"] += 1
 
     # Surface bare groups (no tagged puzzles) as empty drop targets, appended
     # after the puzzle-populated ones. Only groups with a group_code can be drop

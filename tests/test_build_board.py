@@ -117,6 +117,54 @@ class TestBuildBoardRollupBadge:
 
 
 # ---------------------------------------------------------------------------
+# build_board — Unassigned Feeders (feeds nothing)
+# ---------------------------------------------------------------------------
+
+def _unassigned(board):
+    return next((g for g in board if g["tag_group_id"] == 0), None)
+
+
+class TestBuildBoardUnassignedFeeders:
+    def test_informs_only_puzzle_in_both_group_and_unassigned(self):
+        # A puzzle that only informs a capstone feeds nothing -> it appears under
+        # the capstone group AND in Unassigned Feeders.
+        r = make_round_ref(id=5, name="Cap", group_code="C5", edge_type="informs")
+        puz = make_puzzle_row(id=2, name="Informer", rounds=[r])
+        board = build_board([puz])
+        cap = next(g for g in board if g["tag_group_id"] == 5)
+        un = _unassigned(board)
+        assert puz in cap["puzzles"]
+        assert un is not None and puz in un["puzzles"]
+
+    def test_none_only_puzzle_is_unassigned(self):
+        r = make_round_ref(id=5, name="Pool", group_code="P5", edge_type="none")
+        puz = make_puzzle_row(id=2, name="Pooled", rounds=[r])
+        board = build_board([puz])
+        assert _unassigned(board) is not None
+
+    def test_feeds_puzzle_not_unassigned(self):
+        r = make_round_ref(id=5, name="Round", group_code="R5", edge_type="feeds")
+        puz = make_puzzle_row(id=2, name="Feeder", rounds=[r])
+        board = build_board([puz])
+        assert _unassigned(board) is None
+
+    def test_meta_target_not_unassigned(self):
+        # A target puzzle is excluded from Unassigned even though it feeds nothing.
+        r = make_round_ref(id=5, name="Round", is_target_of=True)
+        meta = make_puzzle_row(id=3, name="Meta", is_meta=True, rounds=[r])
+        board = build_board([meta])
+        assert _unassigned(board) is None
+
+    def test_feeds_and_informs_puzzle_not_unassigned(self):
+        # Feeds at least one meta -> assigned, even if it also informs another.
+        rf = make_round_ref(id=5, name="Meta", group_code="M5", edge_type="feeds")
+        ri = make_round_ref(id=6, name="Cap", group_code="C6", edge_type="informs")
+        puz = make_puzzle_row(id=2, name="Mixed", rounds=[rf, ri])
+        board = build_board([puz])
+        assert _unassigned(board) is None
+
+
+# ---------------------------------------------------------------------------
 # build_board — bare (empty) groups
 # ---------------------------------------------------------------------------
 
