@@ -1567,7 +1567,6 @@ async def create_mini(puzzle_id):
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await _audit("create_mini", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         # The new mini shows in the PARENT minimeta's pinned mini-list; refresh that
         # pin from the web edge too (the bang !add_mini path calls info(update=True)).
         await cog.web_refresh_info(guild, hunt_obj, minimeta)
@@ -1612,7 +1611,6 @@ async def unsolve_puzzle(puzzle_id):
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
 
         return jsonify({"ok": True})
