@@ -219,7 +219,16 @@ async def delete_group_categories(guild, tag_group, dao):
             if cat is None:
                 continue
             for ch in list(cat.channels):
-                await ch.delete(reason=DELETE_REASON)
-            await cat.delete(reason=DELETE_REASON)
+                try:
+                    await ch.delete(reason=DELETE_REASON)
+                except Exception:
+                    logger.exception(
+                        "delete_group_categories: could not delete channel %s",
+                        getattr(ch, "id", "?"))
+            try:
+                await cat.delete(reason=DELETE_REASON)
+            except Exception:
+                logger.exception(
+                    "delete_group_categories: could not delete category %s", row.category_id)
     dao.delete_for_group(tag_group.id)
     return True
