@@ -840,10 +840,16 @@ class GoogleSheets(commands.Cog):
         Columns: A key (hidden), B Type, C Source, D Content. The table range
         starts at header_row and initially spans the header only; appendCells
         grows it over the body. Returns the native tableId (or page_id sentinel
-        if the Table API is unavailable, matching ensure_unassigned_table)."""
+        if the Table API is unavailable, matching ensure_unassigned_table).
+
+        Table names must be unique within a spreadsheet, so name the Table after
+        its tab (already de-duplicated when the tab was created) rather than a
+        shared literal — otherwise the second target's table create collides."""
         table_id = page_id
+        tab_name = self.get_page_name_by_id(page_id)
+        table_name = tab_name if tab_name is not None else f"Contributions {page_id}"
         body = {"requests": [{"addTable": {"table": {
-            "name": "Contributions",
+            "name": table_name,
             "range": {
                 "sheetId": page_id,
                 "startRowIndex": header_row,

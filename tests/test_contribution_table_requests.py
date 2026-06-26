@@ -54,11 +54,14 @@ def _capture_lowlevel(cog, current_col_a):
 def test_add_contribution_table_covers_header_and_hides_key_col():
     cog = _cog()
     calls = _capture_batch(cog)
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Meta"
 
     table_id = asyncio.run(cog._add_contribution_table(page_id=900))
 
     assert table_id == "TID"
     add = calls[0]["requests"][0]["addTable"]["table"]
+    # Named after the tab (unique per spreadsheet), not a shared literal.
+    assert add["name"] == "Meta"
     assert add["range"]["sheetId"] == 900
     # 4 columns A-D
     assert add["range"]["startColumnIndex"] == 0
@@ -152,6 +155,7 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     cog.create_blank_tab = lambda spreadsheet_id, name: 902
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_unique_tab_name = lambda n: n
+    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Meta"
 
     p = PuzzleData()
     p.id = 1
