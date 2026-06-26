@@ -401,10 +401,12 @@ def test_render_contribution_builds_rows_and_reconciles():
     cog = _cog()
     captured = {}
 
-    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
+    async def fake_reconcile(page_id, desired_rows, data_col_count,
+                             numeric_cols=(), grey_below=False):
         captured["page_id"] = page_id
         captured["rows"] = desired_rows
         captured["cols"] = data_col_count
+        captured["grey_below"] = grey_below
 
     cog.reconcile_table = fake_reconcile
 
@@ -429,6 +431,57 @@ def test_render_contribution_builds_rows_and_reconciles():
     assert captured["cols"] == 4
     # the meta's own row is not a contribution of itself
     assert captured["rows"] == [["feeds:2", "Feeder", "Alpha", "WORD"]]
+    # the contribution table greys its columns below the data (social contract)
+    assert captured["grey_below"] is True
+
+
+def _reconcile_with_table(grey_below):
+    """Drive reconcile_table over a sheet that HAS a native table at A4 (rowCount
+    50), one desired row; return the captured batchUpdate bodies."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
+        "properties": {"sheetId": 900, "title": "Meta",
+                       "gridProperties": {"rowCount": 50}},
+        "tables": [{"tableId": "T", "range": {
+            "startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}]}]}
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["key"]]}  # header only, no existing data rows
+
+    cog._values_get = fake_values_get
+    sent = []
+
+    async def fake_batch(body, archive=False):
+        sent.append(body)
+
+    cog.batch_update = fake_batch
+    asyncio.run(cog.reconcile_table(
+        page_id=900, desired_rows=[["feeds:2", "Feeder", "Alpha", "WORD"]],
+        data_col_count=4, grey_below=grey_below))
+    return sent
+
+
+def _grey_ranges(sent):
+    return [r["repeatCell"]["range"] for body in sent for r in body["requests"]
+            if "repeatCell" in r
+            and "backgroundColor" in r["repeatCell"].get("fields", "")]
+
+
+def test_reconcile_greys_below_table_when_requested():
+    sent = _reconcile_with_table(grey_below=True)
+    greys = _grey_ranges(sent)
+    assert greys, "grey_below must grey the region below the table"
+    rng = greys[0]
+    # below header (row 3) + 1 header + 1 data row = row 5, down to rowCount 50, cols A-D
+    assert rng["startRowIndex"] == 3 + 1 + 1
+    assert rng["endRowIndex"] == 50
+    assert rng["startColumnIndex"] == 0 and rng["endColumnIndex"] == 4
+
+
+def test_reconcile_no_grey_by_default():
+    # The shared reconciler (e.g. the Unassigned tab) must NOT grey below unless asked.
+    assert _grey_ranges(_reconcile_with_table(grey_below=False)) == []
 
 
 # --- Bold static labels (live-test fix #4) ----------------------------------
@@ -531,7 +584,8 @@ def test_render_contribution_creates_missing_table_then_reconciles():
 
     reconciled = []
 
-    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
+                             grey_below=False):
         reconciled.append(page_id)
 
     cog._add_contribution_table = fake_add
@@ -560,7 +614,8 @@ def test_render_contribution_skips_write_when_table_uncreatable():
 
     reconciled = []
 
-    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=()):
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
+                             grey_below=False):
         reconciled.append(page_id)
 
     cog._add_contribution_table = boom

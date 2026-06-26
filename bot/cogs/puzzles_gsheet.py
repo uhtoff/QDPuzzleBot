@@ -168,6 +168,10 @@ class GoogleSheets(commands.Cog):
     HEADER_FONT = "JetBrains Mono"
     HEADER_GREY = {"red": 0.851, "green": 0.851, "blue": 0.851}
     SOLUTION_GREEN = {"red": 0.0, "green": 0.85, "blue": 0.0}   # bright green once solved
+    # Light grey for the "social contract" region below a table — a visual
+    # "bot-managed, don't type here" (not a safety mechanism; the bot grows the
+    # table by insert). See the Milestone D design doc.
+    SOCIAL_GREY = {"red": 0.95, "green": 0.95, "blue": 0.95}
     LABEL_COL_WIDTH = 220   # px — fits "Puzzle Flavor Text:" etc.
 
     def _tab_format_requests(self, page_id, label_col):
@@ -914,7 +918,8 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 7: generalized key-anchored reconciler ----------------------
 
-    async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=()):
+    async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=(),
+                              grey_below=False):
         """Incrementally reconcile the native Table on `page_id` against the FULL
         `desired_rows` (the single source of truth — callers pass the whole desired
         set, not a pre-diff).
@@ -1032,6 +1037,21 @@ class GoogleSheets(commands.Cog):
                 },
                 "fields": "range",
             }}]})
+
+            # Social-contract grey: shade the table's columns below the last data
+            # row down to the bottom of the sheet ("bot-managed, don't type here").
+            # Re-applied every reconcile so it tracks the table as it grows/shrinks
+            # (the Table's own banding paints over the grey within its range).
+            if grey_below:
+                row_count = sheet["properties"].get(
+                    "gridProperties", {}).get("rowCount", end_row)
+                if row_count > end_row:
+                    await self.batch_update({"requests": [{"repeatCell": {
+                        "range": {"sheetId": page_id, "startRowIndex": end_row,
+                                  "endRowIndex": row_count, "startColumnIndex": key_col,
+                                  "endColumnIndex": end_col},
+                        "cell": {"userEnteredFormat": {"backgroundColor": self.SOCIAL_GREY}},
+                        "fields": "userEnteredFormat.backgroundColor"}}]})
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
@@ -1220,6 +1240,7 @@ class GoogleSheets(commands.Cog):
             page_id=target_puzzle.google_page_id,
             desired_rows=rows,
             data_col_count=len(self.CONTRIBUTION_HEADER),
+            grey_below=True,
         )
 
 
