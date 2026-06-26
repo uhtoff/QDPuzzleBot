@@ -505,13 +505,15 @@ class PuzzleService:
         """Render the unified contribution table for tag_group's target.
 
         Selects feeder membership via select_rollup_members and delegates to the
-        cog's render_contribution (contribution_rows -> reconcile_table).
-
-        evidence=[] for now: feeders/group rows are fully correct; informs *content*
-        rows are wired when the evidence accessor is plumbed through (follow-up,
-        see EvidenceJsonDb in bot/store/mysqldb.py)."""
+        cog's render_contribution (contribution_rows -> reconcile_table). Evidence
+        routed to this target (informs content) is fetched and passed through so
+        informs members render one content row per datum."""
         members = await self.select_rollup_members(tag_group, rollup)
-        await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=[])
+        evidence = [
+            {"id": e.id, "source_puzzle_id": e.source_puzzle_id, "content": e.note}
+            for e in EvidenceJsonDb.get_all(rollup.hunt_id, target_puzzle_id=metapuzzle.id)
+        ]
+        await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=evidence)
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
@@ -1519,9 +1521,33 @@ class PuzzleService:
                     logger.exception("create_round: rollback of orphan category failed")
             raise
 
+    def _sole_informs_target(self, puzzle):
+        """The puzzle id this puzzle solely informs (an 'informs' edge to a group
+        with a target), or None if it informs zero or several targets."""
+        targets = []
+        for gid, edge in (puzzle.tag_edges or {}).items():
+            if edge == "informs":
+                group = TagGroupJsonDb.get_by_attr(id=gid)
+                if group is not None and group.target_puzzle_id:
+                    targets.append(group.target_puzzle_id)
+        return targets[0] if len(targets) == 1 else None
+
     def log_clues(self, hunt, puzzle, notes: list) -> list:
-        """Insert one evidence_item per note. Returns list of EvidenceData."""
-        return [EvidenceJsonDb.log(hunt.id, puzzle.id, note) for note in notes]
+        """Insert one evidence_item per note. Returns list of EvidenceData.
+
+        If the source puzzle informs exactly one target, each clue is auto-routed
+        to that informed target (target_puzzle_id) so it surfaces in the target's
+        roll-up contribution table. Zero or several informs targets -> left
+        untargeted for manual routing via the Evidence panel.
+        """
+        target_id = self._sole_informs_target(puzzle)
+        items = []
+        for note in notes:
+            item = EvidenceJsonDb.log(hunt.id, puzzle.id, note)
+            if target_id is not None:
+                item = EvidenceJsonDb.set_target(item.id, target_id) or item
+            items.append(item)
+        return items
 
     async def refresh_evidence(self, hunt):
         """Render the Evidence sheet tab. Creates the tab lazily on first call."""

@@ -48,8 +48,10 @@ def _patched(rollup_existing=None):
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
-         patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
+         patch("bot.core.puzzle_service.RollupsJsonDb") as rudb, \
+         patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
         rudb.get_by_attr.return_value = rollup_existing
+        edb.get_all.return_value = []
         yield pdb, hdb, rdb, rudb
 
 
@@ -80,6 +82,29 @@ class TestRefreshMetaFires:
             metapuzzle, 5, feeders, evidence=[])
         gsheet.add_metapuzzle_data.assert_not_awaited()
         gsheet.add_metametapuzzle_data.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_routed_evidence_passed_as_informs_content(self):
+        # Evidence routed to the target is fetched, mapped (note -> content) and
+        # passed to render_contribution so informs members render content rows.
+        from bot.store.evidence_data import EvidenceData
+        svc, gsheet = _svc_with_sheets()
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        metapuzzle = make_puzzle(id=1, is_target=True)
+        informer = make_puzzle(id=2, name="Informer")
+        informer.tag_edges = {5: "informs"}
+        ev = EvidenceData()
+        ev.id, ev.source_puzzle_id, ev.note = 11, 2, "is blue"
+        with _patched() as (pdb, _h, _r, _ru):
+            pdb.get_by_attr.return_value = metapuzzle
+            pdb.get_all_from_tag_group.return_value = [informer]
+            with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+                edb.get_all.return_value = [ev]
+                await svc.refresh_target(_hunt(), meta_round)
+        gsheet.render_contribution.assert_awaited_once_with(
+            metapuzzle, 5, [informer],
+            evidence=[{"id": 11, "source_puzzle_id": 2, "content": "is blue"}])
+        edb.get_all.assert_called_once_with(10, target_puzzle_id=1)
 
     @pytest.mark.asyncio
     async def test_calls_add_metametapuzzle_data_for_metameta(self):

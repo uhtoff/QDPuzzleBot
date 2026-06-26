@@ -87,6 +87,51 @@ class TestLogClues:
         EvidenceDb.log.assert_not_called()
         assert result == []
 
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    @patch("bot.core.puzzle_service.EvidenceJsonDb")
+    def test_auto_routes_to_sole_informs_target(self, EvidenceDb, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        item = MagicMock(); item.id = 77
+        EvidenceDb.log.return_value = item
+        group = MagicMock(); group.target_puzzle_id = 99
+        TagGroupDb.get_by_attr.return_value = group
+
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=5, hunt_id=10)
+        puzzle.tag_edges = {3: "informs"}
+        svc.log_clues(make_hunt(), puzzle, ["clue"])
+
+        EvidenceDb.set_target.assert_called_once_with(77, 99)
+
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    @patch("bot.core.puzzle_service.EvidenceJsonDb")
+    def test_no_route_when_multiple_informs(self, EvidenceDb, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        EvidenceDb.log.return_value = MagicMock()
+        g1 = MagicMock(); g1.target_puzzle_id = 99
+        g2 = MagicMock(); g2.target_puzzle_id = 100
+        TagGroupDb.get_by_attr.side_effect = lambda id: {3: g1, 4: g2}[id]
+
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=5, hunt_id=10)
+        puzzle.tag_edges = {3: "informs", 4: "informs"}
+        svc.log_clues(make_hunt(), puzzle, ["clue"])
+
+        EvidenceDb.set_target.assert_not_called()
+
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    @patch("bot.core.puzzle_service.EvidenceJsonDb")
+    def test_no_route_when_feeds_only(self, EvidenceDb, TagGroupDb):
+        from bot.core.puzzle_service import PuzzleService
+        EvidenceDb.log.return_value = MagicMock()
+
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=5, hunt_id=10)
+        puzzle.tag_edges = {3: "feeds"}
+        svc.log_clues(make_hunt(), puzzle, ["clue"])
+
+        EvidenceDb.set_target.assert_not_called()
+
 
 class TestRefreshEvidence:
     """PuzzleService.refresh_evidence — sheet tab, lazy create, aggregate_to_tab."""
