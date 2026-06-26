@@ -224,3 +224,45 @@ async def test_move_channel_to_solved_noop_if_already_there():
     returned = await layout.move_channel_to_solved(guild, tag_group, dao, channel)
     channel.edit.assert_not_awaited()
     assert returned is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_deletes_empty_overflow_and_row():
+    overflow = _cat(201, 7, n_channels=0)
+    overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [overflow]
+    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
+    dao = MagicMock(); dao.get_by_category.return_value = row
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
+    overflow.delete.assert_awaited_once()
+    dao.delete.assert_called_once_with(9)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_keeps_primary_seq0():
+    primary = _cat(100, 5, n_channels=0)
+    primary.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [primary]
+    row = TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0)
+    dao = MagicMock(); dao.get_by_category.return_value = row
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.cleanup_empty_overflow(guild, tag_group, dao, primary)
+    primary.delete.assert_not_awaited()
+    dao.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_keeps_nonempty_overflow():
+    overflow = _cat(201, 7, n_channels=3)
+    overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [overflow]
+    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
+    dao = MagicMock(); dao.get_by_category.return_value = row
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
+    overflow.delete.assert_not_awaited()
+    dao.delete.assert_not_called()

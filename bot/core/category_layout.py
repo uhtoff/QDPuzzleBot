@@ -181,3 +181,24 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     async with layout_lock:
         await channel.edit(category=target)
     return source
+
+
+# ----------------------------------------------------------------- cleanup
+async def cleanup_empty_overflow(guild, tag_group, dao, category):
+    """Delete *category* and its join row if it is an OVERFLOW category (seq>=1)
+    that now holds zero puzzle channels. Never touches a primary (seq=0) category
+    and never reverts split→single. Best-effort: logs and swallows Discord errors.
+    """
+    if category is None:
+        return
+    row = dao.get_by_category(category.id)
+    if row is None or row.seq < 1:
+        return
+    if puzzle_count(category) > 0:
+        return
+    try:
+        async with layout_lock:
+            await category.delete(reason=DELETE_REASON)
+        dao.delete(row.id)
+    except Exception:
+        logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)

@@ -714,7 +714,7 @@ class Puzzles(commands.Cog):
                     source = await category_layout.move_channel_to_solved(
                         guild, tag_group, TagGroupCategoryDb, channel,
                     )
-                    if source is not None and hasattr(category_layout, "cleanup_empty_overflow"):
+                    if source is not None:
                         await category_layout.cleanup_empty_overflow(
                             guild, tag_group, TagGroupCategoryDb, source,
                         )
@@ -737,9 +737,13 @@ class Puzzles(commands.Cog):
         try:
             tag_group = self._tag_group_for_channel(channel)
             if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
-                await category_layout.move_channel_to_unsolved(
+                source = await category_layout.move_channel_to_unsolved(
                     guild, tag_group, TagGroupCategoryDb, channel,
                 )
+                if source is not None:
+                    await category_layout.cleanup_empty_overflow(
+                        guild, tag_group, TagGroupCategoryDb, source,
+                    )
             else:
                 divider = self.get_solve_divider_position(None, channel.category)
                 if divider is not False:
