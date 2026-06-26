@@ -78,7 +78,7 @@ def test_add_contribution_table_covers_header_and_hides_key_col():
     assert kinds.index("updateCells") < kinds.index("addTable")
     hdr = next(r["updateCells"] for r in add_body["requests"] if "updateCells" in r)
     names = [next(iter(v["userEnteredValue"].values())) for v in hdr["rows"][0]["values"]]
-    assert names == ["key", "Type", "Source", "Content"]
+    assert names == ["key", "Source", "Type", "Content"]
     assert hdr["range"]["startColumnIndex"] == 0 and hdr["range"]["endColumnIndex"] == 4
     # A hidden-column request is issued (key column hidden)
     hide = [r for body in calls for r in body["requests"]
@@ -497,8 +497,8 @@ def test_render_contribution_builds_rows_and_reconciles():
                                         members=[meta, feeder], evidence=[]))
     assert captured["page_id"] == 900
     assert captured["cols"] == 4
-    # the meta's own row is not a contribution of itself
-    assert captured["rows"] == [["feeds:2", "Feeder", "Alpha", "WORD"]]
+    # the meta's own row is not a contribution of itself; columns key/source/type/content
+    assert captured["rows"] == [["feeds:2", "Alpha", "Feeder", "WORD"]]
     # the contribution table greys its columns below the data (social contract)
     assert captured["grey_below"] is True
 

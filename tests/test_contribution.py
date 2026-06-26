@@ -23,19 +23,19 @@ def _p(id, name, solution=None, tag_edges=None):
 def test_feeds_member_makes_feeder_row():
     feeder = _p(2, "Alpha", solution="WORD", tag_edges={5: "feeds"})
     rows = contribution_rows(tag_group_id=5, members=[feeder], evidence=[])
-    assert rows == [["feeds:2", "Feeder", "Alpha", "WORD"]]
+    assert rows == [["feeds:2", "Alpha", "Feeder", "WORD"]]
 
 
 def test_none_member_makes_group_row_no_answer():
     grp = _p(3, "Beta", solution="X", tag_edges={5: "none"})
     rows = contribution_rows(tag_group_id=5, members=[grp], evidence=[])
-    assert rows == [["none:3", "Group", "Beta", ""]]
+    assert rows == [["none:3", "Beta", "Group", ""]]
 
 
 def test_bare_informs_edge_makes_one_keyless_information_row():
     inf = _p(4, "Gamma", tag_edges={5: "informs"})
     rows = contribution_rows(tag_group_id=5, members=[inf], evidence=[])
-    assert rows == [["informs:4", "Information", "Gamma", ""]]
+    assert rows == [["informs:4", "Gamma", "Information", ""]]
 
 
 def test_informs_with_evidence_makes_one_row_per_datum_and_drops_bare():
@@ -44,24 +44,24 @@ def test_informs_with_evidence_makes_one_row_per_datum_and_drops_bare():
           {"id": 12, "source_puzzle_id": 4, "content": "near water"}]
     rows = contribution_rows(tag_group_id=5, members=[inf], evidence=ev)
     assert rows == [
-        ["informs:4:11", "Information", "Gamma", "is blue"],
-        ["informs:4:12", "Information", "Gamma", "near water"],
+        ["informs:4:11", "Gamma", "Information", "is blue"],
+        ["informs:4:12", "Gamma", "Information", "near water"],
     ]
 
 
 def test_unsolved_feeder_has_blank_answer():
     feeder = _p(2, "Alpha", solution=None, tag_edges={5: "feeds"})
     rows = contribution_rows(tag_group_id=5, members=[feeder], evidence=[])
-    assert rows == [["feeds:2", "Feeder", "Alpha", ""]]
+    assert rows == [["feeds:2", "Alpha", "Feeder", ""]]
 
 
 # --- Task 4: diff_rows is key-generic (string contribution keys) -----------
 
 def test_diff_rows_handles_string_contribution_keys():
     current = ["feeds:2", "informs:4"]                      # already on the sheet
-    desired = [["feeds:2", "Feeder", "Alpha", "WORD"],      # update (key present)
-               ["none:3", "Group", "Beta", ""]]             # append (key new)
+    desired = [["feeds:2", "Alpha", "Feeder", "WORD"],      # update (key present)
+               ["none:3", "Beta", "Group", ""]]             # append (key new)
     appends, updates, prunes = diff_rows(current, desired)
-    assert appends == [["none:3", "Group", "Beta", ""]]
-    assert updates == [["feeds:2", "Feeder", "Alpha", "WORD"]]
+    assert appends == [["none:3", "Beta", "Group", ""]]
+    assert updates == [["feeds:2", "Alpha", "Feeder", "WORD"]]
     assert prunes == ["informs:4"]                          # gone from desired

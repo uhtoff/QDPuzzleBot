@@ -800,7 +800,7 @@ class GoogleSheets(commands.Cog):
     # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
     # (Notes) belongs to solvers and is NEVER written by the reconcile.
     UNASSIGNED_HEADER = ["id", "Puzzle", "Answer", "Length", "Notes"]
-    CONTRIBUTION_HEADER = ["key", "Type", "Source", "Content"]
+    CONTRIBUTION_HEADER = ["key", "Source", "Type", "Content"]
 
     async def ensure_unassigned_table(self, page_id, show_round=False):
         """Prepare the Unassigned Puzzles tab: write the header row and, best
@@ -878,7 +878,7 @@ class GoogleSheets(commands.Cog):
     async def _add_contribution_table(self, page_id, header_row=0):
         """Create the unified contribution native Table on a target's tab.
 
-        Columns: A key (hidden), B Type, C Source, D Content. The table range
+        Columns: A key (hidden), B Source, C Type, D Content. The table range
         starts at header_row and initially spans the header only; appendCells
         grows it over the body. Returns the native tableId (or page_id sentinel
         if the Table API is unavailable, matching ensure_unassigned_table).
