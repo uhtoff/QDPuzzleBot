@@ -479,11 +479,17 @@ class PuzzleService:
                 if p.tag_edges.get(tag_group.id) == "none"
             ]
         else:
-            # 'round' (default): all group members, optionally filtered by edge_type_filter.
-            filt = rollup.edge_type_filter or "feeds"
+            # 'round' (default): the group's contributing feeders. 'feeds' is the
+            # universal column default (migration 012) and means "this round's
+            # feeders" — which, since a Capstone re-edges its feeders
+            # feeds -> informs, is the feeds + informs set. A deliberately
+            # different edge_type_filter narrows to that single edge. 'none'
+            # (pooled) members are excluded — they belong to 'explicit' rollups.
+            filt = rollup.edge_type_filter
+            contributing = ("feeds", "informs") if filt in (None, "", "feeds") else (filt,)
             return [
                 p for p in feeders
-                if p.tag_edges.get(tag_group.id, "feeds") == filt
+                if p.tag_edges.get(tag_group.id, "feeds") in contributing
             ]
 
     async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):

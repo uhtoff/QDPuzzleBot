@@ -10,10 +10,11 @@ import {
   TextInput,
 } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
-import type { HuntDetail, Puzzle } from "../types";
+import type { HuntDetail, Puzzle, PuzzleTagGroup } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import { useUpdatePuzzle } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { MetaBadge } from "./MetaBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
@@ -24,6 +25,23 @@ interface Props {
   puzzles: Puzzle[];
   live: Record<string, LiveActivity>;
   onOpenNotes: (puzzle: Puzzle) => void;
+}
+
+// Debug edge annotation: how this puzzle is tagged into a given group.
+// T = target (this puzzle is the group's meta/capstone answer), F = feeds,
+// I = informs, N = none (pooled), ? = unknown/missing edge.
+const EDGE_CODE: Record<string, string> = { feeds: "F", informs: "I", none: "N" };
+const EDGE_COLOR: Record<string, string> = {
+  T: "grape",
+  F: "blue",
+  I: "teal",
+  N: "gray",
+  "?": "red",
+};
+
+function edgeCode(r: PuzzleTagGroup): string {
+  if (r.is_target_of) return "T";
+  return EDGE_CODE[r.edge_type ?? ""] ?? "?";
 }
 
 function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_type") {
@@ -40,6 +58,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const [priorities, setPriorities] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [hideSolved, setHideSolved] = useState(false);
+  const [debugEdges, setDebugEdges] = useState(false);
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
@@ -111,6 +130,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
           onChange={(e) => setHideSolved(e.currentTarget.checked)}
           mb={8}
         />
+        <Checkbox
+          label="Debug edges"
+          checked={debugEdges}
+          onChange={(e) => setDebugEdges(e.currentTarget.checked)}
+          mb={8}
+        />
         <Text c="dimmed" size="sm" mb={8}>
           {filtered.length} / {puzzles.length}
         </Text>
@@ -144,14 +169,37 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                 </Table.Td>
                 <Table.Td>
                   <Group gap={6} wrap="nowrap">
-                    {p.is_meta && <Badge size="xs" color="grape">META</Badge>}
+                    <MetaBadge puzzle={p} />
                     <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                   </Group>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c="dimmed">
-                    {p.rounds.map((r) => r.name).join(", ") || "—"}
-                  </Text>
+                  {debugEdges ? (
+                    p.rounds.length ? (
+                      <Group gap={4} wrap="wrap">
+                        {p.rounds.map((r) => {
+                          const code = edgeCode(r);
+                          return (
+                            <Badge
+                              key={r.id}
+                              size="xs"
+                              variant="light"
+                              color={EDGE_COLOR[code]}
+                              title={`group ${r.id} (${r.group_type ?? "?"}) · ${r.is_target_of ? "target" : r.edge_type ?? "no edge"}`}
+                            >
+                              {r.name} [{code}]
+                            </Badge>
+                          );
+                        })}
+                      </Group>
+                    ) : (
+                      <Text size="sm" c="dimmed">—</Text>
+                    )
+                  ) : (
+                    <Text size="sm" c="dimmed">
+                      {p.rounds.map((r) => r.name).join(", ") || "—"}
+                    </Text>
+                  )}
                 </Table.Td>
                 <Table.Td>
                   <Text ff="monospace" size="sm">

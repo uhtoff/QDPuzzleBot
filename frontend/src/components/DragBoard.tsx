@@ -40,6 +40,7 @@ import {
 } from "../api";
 import { notifyError, showSheetWarning, statusColor } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
+import { MetaBadge } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 
 interface MetaOption {
@@ -103,7 +104,7 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
     >
       <Group gap={6} wrap="nowrap" justify="space-between">
         <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
-          {puzzle.is_meta && <Badge size="xs" color="grape">META</Badge>}
+          <MetaBadge puzzle={puzzle} />
           {multiMeta && (
             <Badge
               size="xs"
@@ -402,21 +403,30 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
 
   function onConvertToMeta(puzzleId: number) {
     convertToMeta.mutate(puzzleId, {
-      onSuccess: (data) => showSheetWarning(data),
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a metapuzzle.", color: "green" });
+      },
       onError: notifyError,
     });
   }
 
   function onConvertToCapstone(puzzleId: number) {
     convertToCapstone.mutate(puzzleId, {
-      onSuccess: (data) => showSheetWarning(data),
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a capstone.", color: "green" });
+      },
       onError: notifyError,
     });
   }
 
   function onConvertToRunaround(puzzleId: number) {
     convertToRunaround.mutate(puzzleId, {
-      onSuccess: (data) => showSheetWarning(data),
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a runaround.", color: "green" });
+      },
       onError: notifyError,
     });
   }

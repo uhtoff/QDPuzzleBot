@@ -169,6 +169,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
         "puzzles.start_time, puzzles.solve_time, "
         "tag_group.id AS tag_group_id, tag_group.name AS tag_group_name, "
         "tag_group.target_puzzle_id AS tag_group_target_puzzle_id, tag_group.group_code AS tag_group_group_code, "
+        "tag_group.type AS tag_group_type, tags.edge_type AS tag_edge_type, "
         "act.last_human_message_at, act.last_author_name "
         "FROM puzzles "
         "LEFT JOIN tags ON puzzles.id = tags.puzzle_id "
@@ -225,6 +226,8 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     "name": row["tag_group_name"],
                     "group_code": row["tag_group_group_code"],
                     "is_target_of": row["tag_group_target_puzzle_id"] == pid,
+                    "edge_type": row["tag_edge_type"],
+                    "group_type": row["tag_group_type"],
                 }
             )
 
@@ -258,7 +261,56 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 "channel_id": str(m["channel_id"]) if m["channel_id"] else None,
             })
 
-    return list(puzzles.values())
+    puzzle_list = list(puzzles.values())
+    derive_meta_kind(puzzle_list)
+    return puzzle_list
+
+
+def derive_meta_kind(puzzles):
+    """Annotate each puzzle dict in-place with ``meta_kind`` — the single label
+    shown for a target puzzle, derived (not stored on the puzzle) from the feeder
+    edges of the group(s) it is the target of.
+
+    Precedence (highest first) — a target gets exactly one label:
+      - ``runaround``: the group's stored type is Runaround (a specialised meta;
+        it keeps feeds edges, so it is not edge-distinguishable — read the type).
+      - ``metameta``: a meta all of whose feeds-edge feeders are themselves metas.
+      - ``meta``: any feeds-edge feeder (an informs edge alongside feeds stays a meta).
+      - ``capstone``: only informs-edge feeders, no feeds.
+    A target with no qualifying feeders falls back to its stored group type
+    (Capstone -> capstone), else meta. Non-targets get ``None``.
+
+    Mutates and returns ``puzzles`` (a list of the dicts built by get_hunt_puzzles).
+    """
+    is_meta_by_id = {p["id"]: p["is_meta"] for p in puzzles}
+    group_feeders = {}  # tag_group_id -> list[(feeder_puzzle_id, edge_type)]
+    for p in puzzles:
+        for r in p["rounds"]:
+            if not r["is_target_of"]:
+                group_feeders.setdefault(r["id"], []).append((p["id"], r["edge_type"]))
+
+    for p in puzzles:
+        if not p["is_meta"]:
+            p["meta_kind"] = None
+            continue
+        target_groups = [r for r in p["rounds"] if r["is_target_of"]]
+        group_types = {r.get("group_type") for r in target_groups}
+        feeders = [fe for r in target_groups for fe in group_feeders.get(r["id"], [])]
+        feeds_pids = [pid for pid, edge in feeders if edge == "feeds"]
+        has_informs = any(edge == "informs" for _, edge in feeders)
+        if "Runaround" in group_types:
+            p["meta_kind"] = "runaround"
+        elif feeds_pids and all(is_meta_by_id.get(pid) for pid in feeds_pids):
+            p["meta_kind"] = "metameta"
+        elif feeds_pids:
+            p["meta_kind"] = "meta"
+        elif has_informs:
+            p["meta_kind"] = "capstone"
+        elif "Capstone" in group_types:
+            p["meta_kind"] = "capstone"
+        else:
+            p["meta_kind"] = "meta"
+    return puzzles
 
 
 def _load_notes(raw):

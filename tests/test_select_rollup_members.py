@@ -70,6 +70,41 @@ class TestSelectRollupMembers:
         assert [p.id for p in members] == [2]
 
     @pytest.mark.asyncio
+    async def test_round_mode_includes_informs_feeders_for_capstone(self):
+        # A Capstone re-edges its feeders feeds -> informs; round mode must still
+        # list them (else the capstone rollup sheet renders empty).
+        svc, _gsheet = _svc_with_sheets()
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
+        informs = make_puzzle(id=2, name="Informer", solution="ANS")
+        informs.tag_edges = {5: "informs"}
+        pooled = make_puzzle(id=3, name="Pooled", solution="P")
+        pooled.tag_edges = {5: "none"}
+        with _patched() as (pdb, _rdb):
+            pdb.get_all_from_tag_group.return_value = [informs, pooled]
+            members = await svc.select_rollup_members(meta_round, rollup)
+        # informs included, none still excluded
+        assert [p.id for p in members] == [2]
+
+    @pytest.mark.asyncio
+    async def test_round_mode_explicit_edge_filter_narrows_to_one_type(self):
+        # An explicitly-set edge_type_filter still narrows to that single edge.
+        svc, _gsheet = _svc_with_sheets()
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        rollup = RollupData(
+            id=9, hunt_id=10, tag_group_id=5, source_mode="round",
+            edge_type_filter="informs",
+        )
+        feeds = make_puzzle(id=2, name="Feeder", solution="F")
+        feeds.tag_edges = {5: "feeds"}
+        informs = make_puzzle(id=3, name="Informer", solution="I")
+        informs.tag_edges = {5: "informs"}
+        with _patched() as (pdb, _rdb):
+            pdb.get_all_from_tag_group.return_value = [feeds, informs]
+            members = await svc.select_rollup_members(meta_round, rollup)
+        assert [p.id for p in members] == [3]
+
+    @pytest.mark.asyncio
     async def test_subtree_mode_returns_branch_solved_puzzles_without_rendering(self):
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)

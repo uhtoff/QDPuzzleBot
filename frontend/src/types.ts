@@ -33,6 +33,8 @@ export interface PuzzleTagGroup {
   name: string;
   group_code: string | null;
   is_target_of: boolean;
+  edge_type: string | null;
+  group_type: string | null;
 }
 
 export interface Activity {
@@ -62,6 +64,7 @@ export interface Puzzle {
   discord_url: string | null;
   sheet_page: string | null;
   is_meta: boolean;
+  meta_kind: "runaround" | "metameta" | "meta" | "capstone" | null;
   status: string | null;
   solved: boolean;
   archived: boolean;
