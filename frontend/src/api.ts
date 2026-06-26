@@ -460,17 +460,6 @@ export function useRebuildRollup(uid: string) {
   });
 }
 
-export function useSetNesting(uid: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ roundId, parentId }: { roundId: number; parentId: number | null }) =>
-      apiSend<{ ok: boolean }>(`/api/tag_groups/${roundId}/nest`, "POST", {
-        parent_tag_group_id: parentId,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
-  });
-}
-
 export function useRollupAnswers(roundId: number, enabled: boolean) {
   return useQuery({
     queryKey: ["rollup-answers", roundId],

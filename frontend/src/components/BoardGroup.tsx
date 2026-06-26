@@ -7,8 +7,6 @@ import {
   Badge,
   Box,
   Group,
-  Modal,
-  Select,
   Table,
   Text,
   Tooltip,
@@ -27,7 +25,6 @@ import {
   useDeleteRound,
   useRebuildRollup,
   useRollupAnswers,
-  useSetNesting,
   useUpdatePuzzle,
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
@@ -50,18 +47,13 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const isOrganiser = detail.hunt.can_manage;
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
-  const [nestModalOpen, setNestModalOpen] = useState(false);
-  const [nestParentId, setNestParentId] = useState<string|null>(null);
   // Aggregated answers reveal
   const [answersOpened, { open: openAnswers, close }] = useDisclosure(false);
   const clipboard = useClipboard();
   const isMeta = !!group.group_code;
   const answersQuery = useRollupAnswers(group.tag_group_id, answersOpened && isMeta);
-  // Collect other meta rounds for the nesting dropdown
-  const allTargetGroups = detail.board.filter((g) => g.tag_group_id !== 0 && g.tag_group_id !== group.tag_group_id);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
-  const nestingMut = useSetNesting(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
 
@@ -73,23 +65,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             ? { message: `Rebuilt "${group.name}" sheet`, color: "green" }
             : { message: data.error || "Rebuild failed", color: "red" }
         ),
-      onError: notifyError,
-    });
-  }
-
-  function applyNesting() {
-    const parentId = nestParentId ? Number(nestParentId) : null;
-    nestingMut.mutate({ roundId: group.tag_group_id, parentId }, {
-      onSuccess: () => {
-        notifications.show({
-          message: parentId
-            ? `"${group.name}" nested under "${allTargetGroups.find(g => g.tag_group_id === parentId)?.name || parentId}"`
-            : `"${group.name}" nesting cleared`,
-          color: "green",
-        });
-        setNestModalOpen(false);
-        setNestParentId(null);
-      },
       onError: notifyError,
     });
   }
@@ -278,32 +253,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         </Table>
 
         <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
-
-        {/* Nesting modal */}
-        <Modal
-          opened={nestModalOpen}
-          onClose={() => { setNestModalOpen(false); setNestParentId(null); }}
-          title={`Nest "${group.name}" under…`}
-        >
-          <Select
-            data={allTargetGroups.map((g) => ({
-              value: String(g.tag_group_id),
-              label: `${g.name} (${g.group_code ?? '—'})`,
-            }))}
-            placeholder="Pick parent round (or leave blank to clear)"
-            value={nestParentId}
-            onChange={setNestParentId}
-            mr="md"
-          />
-          <Group mt="md" justify="right">
-            <ActionIcon variant="subtle" color="red" onClick={() => { setNestParentId(null); applyNesting(); }}>
-              Clear
-            </ActionIcon>
-            <ActionIcon variant="light" color="green" onClick={applyNesting} disabled={!nestParentId}>
-              Apply
-            </ActionIcon>
-          </Group>
-        </Modal>
 
         {/* M7.5 aggregated answers panel (only for meta rounds) */}
         {isMeta && answersOpened && (
