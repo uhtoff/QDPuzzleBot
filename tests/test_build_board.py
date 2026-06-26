@@ -40,7 +40,7 @@ class TestBuildBoardBasic:
         assert len(board) == 1
         grp = board[0]
         assert grp["tag_group_id"] == 0
-        assert grp["name"] == "Unassigned"
+        assert grp["name"] == "Unassigned Feeders"
         assert grp["puzzles"] == [puz]
         assert grp["num_feeders"] == 1
         assert grp["num_solved_feeders"] == 0
@@ -162,6 +162,22 @@ class TestBuildBoardUnassignedFeeders:
         puz = make_puzzle_row(id=2, name="Mixed", rounds=[rf, ri])
         board = build_board([puz])
         assert _unassigned(board) is None
+
+    def test_column_order_unassigned_meta_capstone_plain(self):
+        # Columns sort: Unassigned Feeders, then metas, then capstones, then
+        # plain groups — classified from all_groups (type + target_puzzle_id).
+        m = make_round_ref(id=1, name="Meta", group_code="M", edge_type="feeds")
+        c = make_round_ref(id=2, name="Cap", group_code="C", edge_type="informs")
+        feeder = make_puzzle_row(id=10, name="F", rounds=[m])
+        informer = make_puzzle_row(id=11, name="I", rounds=[c])
+        orphan = make_puzzle_row(id=12, name="O")  # feeds nothing -> Unassigned
+        all_groups = [
+            {"id": 1, "name": "Meta", "group_code": "M", "type": "Metapuzzle", "target_puzzle_id": 99},
+            {"id": 2, "name": "Cap", "group_code": "C", "type": "Capstone", "target_puzzle_id": 98},
+            {"id": 3, "name": "Plain", "group_code": "G", "type": "Group", "target_puzzle_id": 0},
+        ]
+        board = build_board([feeder, informer, orphan], None, all_groups)
+        assert [g["name"] for g in board] == ["Unassigned Feeders", "Meta", "Cap", "Plain"]
 
 
 # ---------------------------------------------------------------------------

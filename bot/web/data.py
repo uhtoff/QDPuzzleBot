@@ -327,11 +327,15 @@ async def get_all_tag_groups(hunt_id):
     """Every tag_group in the hunt (id, name, group_code, type), so build_board
     can surface bare groups — ones with no tagged puzzles yet — as drop targets."""
     rows = await fetch_all(
-        "SELECT id, name, group_code, type FROM tag_group WHERE hunt_id = %s ORDER BY id ASC",
+        "SELECT id, name, group_code, type, target_puzzle_id "
+        "FROM tag_group WHERE hunt_id = %s ORDER BY id ASC",
         (hunt_id,),
     )
     return [
-        {"id": r["id"], "name": r["name"], "group_code": r["group_code"], "type": r["type"]}
+        {
+            "id": r["id"], "name": r["name"], "group_code": r["group_code"],
+            "type": r["type"], "target_puzzle_id": r["target_puzzle_id"],
+        }
         for r in rows
     ]
 
@@ -370,6 +374,7 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
     empty group would be invisible and could never receive puzzles.
     """
     rollups_by_tag_group = rollups_by_tag_group or {}
+    group_info = {g["id"]: g for g in (all_groups or [])}
     groups = {}
     order = []
 
@@ -410,7 +415,7 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         # (get_hunt_puzzles drops puzzles with a parent_puzzle_id).
         feeds_something = any(rnd["edge_type"] == "feeds" for rnd in puz["rounds"])
         if not puz["is_meta"] and not feeds_something:
-            grp = ensure(0, "Unassigned", None)
+            grp = ensure(0, "Unassigned Feeders", None)
             grp["puzzles"].append(puz)
             grp["num_feeders"] += 1
             if puz["solved"]:
@@ -423,7 +428,20 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         if g.get("group_code"):
             ensure(g["id"], g["name"], g["group_code"])
 
-    return [groups[rid] for rid in order]
+    def _rank(gid):
+        # Column order: Unassigned Feeders, then metas, then capstones, then
+        # plain groups (no target). meta-family = meta / metameta / runaround,
+        # classified from the stored group type + whether it has a target.
+        if gid == 0:
+            return 0
+        info = group_info.get(gid, {})
+        if not info.get("target_puzzle_id"):
+            return 3  # plain group (no target puzzle)
+        if info.get("type") == "Capstone":
+            return 2  # capstone
+        return 1  # meta / metameta / runaround
+
+    return [groups[rid] for rid in sorted(order, key=_rank)]
 
 
 # --- Activity ---------------------------------------------------------------
