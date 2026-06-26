@@ -428,20 +428,45 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         if g.get("group_code"):
             ensure(g["id"], g["name"], g["group_code"])
 
+    # Per-group signals for column ordering, derived from the puzzles: which edge
+    # types feed each group and whether its target is solved. meta-vs-capstone is
+    # edge-derived (a target with any 'feeds' feeder is a meta; informs-only is a
+    # capstone) so it stays correct even when the stored tag_group.type is stale —
+    # the stored type is only a fallback for a target group with no feeders yet.
+    feeder_edges = {}   # gid -> set of feeder edge types
+    target_solved = {}  # gid -> bool
+    for puz in puzzles:
+        for rnd in puz["rounds"]:
+            gid = rnd["id"]
+            if rnd["is_target_of"]:
+                target_solved[gid] = puz["solved"]
+            else:
+                feeder_edges.setdefault(gid, set()).add(rnd["edge_type"])
+
+    def _is_capstone(gid):
+        edges = feeder_edges.get(gid, set())
+        if "feeds" in edges:
+            return False
+        if "informs" in edges:
+            return True
+        return group_info.get(gid, {}).get("type") == "Capstone"
+
     def _rank(gid):
-        # Column order: Unassigned Feeders, then metas, then capstones, then
-        # plain groups (no target). meta-family = meta / metameta / runaround,
-        # classified from the stored group type + whether it has a target.
+        # Column order: Unassigned Feeders, then targets with an UNSOLVED puzzle
+        # (metas then capstones), then plain groups (no target), then targets with
+        # a SOLVED puzzle pushed right (metas then capstones).
         if gid == 0:
             return 0
-        info = group_info.get(gid, {})
-        if not info.get("target_puzzle_id"):
+        has_target = bool(group_info.get(gid, {}).get("target_puzzle_id")) or gid in target_solved
+        if not has_target:
             return 3  # plain group (no target puzzle)
-        if info.get("type") == "Capstone":
-            return 2  # capstone
-        return 1  # meta / metameta / runaround
+        capstone = _is_capstone(gid)
+        if not target_solved.get(gid):
+            return 2 if capstone else 1  # unsolved: meta, then capstone
+        return 5 if capstone else 4      # solved: meta, then capstone
 
-    return [groups[rid] for rid in sorted(order, key=_rank)]
+    # Within a rank, oldest first — group id is auto-increment (creation order).
+    return [groups[rid] for rid in sorted(order, key=lambda gid: (_rank(gid), gid))]
 
 
 # --- Activity ---------------------------------------------------------------

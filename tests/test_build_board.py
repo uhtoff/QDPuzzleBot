@@ -164,8 +164,8 @@ class TestBuildBoardUnassignedFeeders:
         assert _unassigned(board) is None
 
     def test_column_order_unassigned_meta_capstone_plain(self):
-        # Columns sort: Unassigned Feeders, then metas, then capstones, then
-        # plain groups — classified from all_groups (type + target_puzzle_id).
+        # Columns sort: Unassigned Feeders, then unsolved metas, then unsolved
+        # capstones, then plain groups — classified from all_groups + edges.
         m = make_round_ref(id=1, name="Meta", group_code="M", edge_type="feeds")
         c = make_round_ref(id=2, name="Cap", group_code="C", edge_type="informs")
         feeder = make_puzzle_row(id=10, name="F", rounds=[m])
@@ -178,6 +178,37 @@ class TestBuildBoardUnassignedFeeders:
         ]
         board = build_board([feeder, informer, orphan], None, all_groups)
         assert [g["name"] for g in board] == ["Unassigned Feeders", "Meta", "Cap", "Plain"]
+
+    def test_column_order_solved_targets_pushed_right(self):
+        # Full order: Unassigned, unsolved meta, unsolved capstone, plain,
+        # solved meta, solved capstone. meta/capstone derived from feeder edges;
+        # target solved-state from the target puzzle.
+        def meta_group(gid, name, solved, edge):
+            target = make_puzzle_row(
+                id=100 + gid, name=f"{name}-T", is_meta=True, solved=solved,
+                rounds=[make_round_ref(id=gid, name=name, group_code=name, is_target_of=True)],
+            )
+            feeder = make_puzzle_row(
+                id=200 + gid, name=f"{name}-f",
+                rounds=[make_round_ref(id=gid, name=name, group_code=name, edge_type=edge)],
+            )
+            return [target, feeder]
+
+        puzzles = []
+        puzzles += meta_group(1, "UMeta", solved=False, edge="feeds")
+        puzzles += meta_group(2, "UCap", solved=False, edge="informs")
+        puzzles += meta_group(4, "SMeta", solved=True, edge="feeds")
+        puzzles += meta_group(5, "SCap", solved=True, edge="informs")
+        # A plain group (no target) via a pooled 'none' edge.
+        puzzles.append(make_puzzle_row(
+            id=300, name="pooled",
+            rounds=[make_round_ref(id=3, name="Plain", group_code="Plain", edge_type="none")],
+        ))
+        names = [g["name"] for g in build_board(puzzles)]
+        # Unassigned Feeders holds the informers/pooled (feed nothing); then the
+        # ordered targets and the plain group.
+        names = [n for n in names if n != "Unassigned Feeders"]
+        assert names == ["UMeta", "UCap", "Plain", "SMeta", "SCap"]
 
 
 # ---------------------------------------------------------------------------
