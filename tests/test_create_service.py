@@ -169,3 +169,19 @@ async def test_create_round_rolls_back_on_failure():
     rdb.delete.assert_called_once_with(5)
     cleanup_mock.assert_awaited_once()
     new_cat.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_round_uses_layout_teardown_for_split():
+    """A split round routes category teardown through delete_group_categories
+    (deleting all its categories + join rows) instead of the legacy single path."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock(); guild.categories = []
+    round_data = make_round(id=5, category_id=999)
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=True)) as teardown:
+        pdb.get_all_from_tag_group.return_value = []
+        await svc.delete_round(guild, _svc_hunt(), round_data)
+    teardown.assert_awaited_once()

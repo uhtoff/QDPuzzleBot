@@ -266,3 +266,55 @@ async def test_cleanup_keeps_nonempty_overflow():
     await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
     overflow.delete.assert_not_awaited()
     dao.delete.assert_not_called()
+
+
+# ----------------------------------------------------------------- teardown tests
+
+@pytest.mark.asyncio
+async def test_delete_group_categories_removes_all_and_rows():
+    primary = _cat(100, 5, n_channels=0); primary.delete = AsyncMock()
+    solved = _cat(200, 6, n_channels=0); solved.delete = AsyncMock()
+    overflow = _cat(201, 7, n_channels=0); overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [primary, solved, overflow]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=200, role="solved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=201, role="solved", seq=1),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.delete_group_categories(guild, tag_group, dao)
+
+    assert result is True
+    primary.delete.assert_awaited_once()
+    solved.delete.assert_awaited_once()
+    overflow.delete.assert_awaited_once()
+    dao.delete_for_group.assert_called_once_with(5)
+
+
+@pytest.mark.asyncio
+async def test_delete_group_categories_single_state_uses_legacy_only():
+    # No join rows → returns False so the caller runs its legacy single-category path.
+    guild = MagicMock(); guild.categories = []
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    assert await layout.delete_group_categories(guild, tag_group, dao) is False
+
+
+@pytest.mark.asyncio
+async def test_delete_group_categories_deletes_child_channels():
+    primary = _cat(100, 5, n_channels=2); primary.delete = AsyncMock()
+    for ch in primary.channels:
+        ch.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [primary]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.delete_group_categories(guild, tag_group, dao)
+    for ch in primary.channels:
+        ch.delete.assert_awaited_once()
+    primary.delete.assert_awaited_once()

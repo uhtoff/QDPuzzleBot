@@ -202,3 +202,24 @@ async def cleanup_empty_overflow(guild, tag_group, dao, category):
         dao.delete(row.id)
     except Exception:
         logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)
+
+
+# ----------------------------------------------------------------- teardown
+async def delete_group_categories(guild, tag_group, dao):
+    """Split state: delete every category the group owns (channels and all) and
+    drop the join rows. Returns True if it handled deletion, False if the group
+    is in single-category state (caller should run its legacy path).
+    """
+    rows = dao.get_for_group(tag_group.id)
+    if not rows:
+        return False
+    async with layout_lock:
+        for row in rows:
+            cat = _category_by_id(guild, row.category_id)
+            if cat is None:
+                continue
+            for ch in list(cat.channels):
+                await ch.delete(reason=DELETE_REASON)
+            await cat.delete(reason=DELETE_REASON)
+    dao.delete_for_group(tag_group.id)
+    return True
