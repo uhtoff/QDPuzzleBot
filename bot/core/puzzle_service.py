@@ -14,7 +14,8 @@ import discord
 import pytz
 from googleapiclient.errors import HttpError
 
-from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core import category_layout
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -1365,13 +1366,22 @@ class PuzzleService:
         """
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
-        category_id = round_data.category_id if round_data else hunt.category_id
-        category = discord.utils.get(guild.categories, id=category_id) if category_id else None
+        if round_data is not None:
+            # Round puzzles flow through the multi-category layout: this splits the
+            # round and/or allocates an overflow category as needed, so a single
+            # category never hits the 50 cap.
+            category = await category_layout.pick_unsolved_category(
+                guild, round_data, TagGroupCategoryDb,
+            )
+        else:
+            category_id = hunt.category_id
+            category = discord.utils.get(guild.categories, id=category_id) if category_id else None
 
-        # Space checks before we create any Google sheet (avoids orphan sheets).
+        # Guild-wide ceiling still applies (overflow can't conjure channel slots).
         if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
             raise RuntimeError("guild_full")
-        if category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
+        # Hunt category (no round) keeps the simple hard guard.
+        if round_data is None and category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
             raise RuntimeError("category_full")
 
         new_puzzle = PuzzleData(

@@ -46,6 +46,8 @@ async def test_create_puzzle_commits_row_creates_sheet_and_notifies():
     notifier.welcome = AsyncMock()
     round_data = make_round(id=5, category_id=999)
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
@@ -65,6 +67,8 @@ async def test_create_puzzle_orphan_cleanup_on_channel_failure():
     notifier.welcome = AsyncMock()
     round_data = make_round(id=5, category_id=999)
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom"))):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
@@ -73,6 +77,27 @@ async def test_create_puzzle_orphan_cleanup_on_channel_failure():
     gsheet.delete_puzzle_spreadsheet.assert_awaited_once()
     pdb.delete.assert_called_once_with(1)
     notifier.welcome.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_uses_layout_picker_for_round():
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    target_cat = MagicMock(id=777)
+    target_cat.channels = []
+    guild.categories = [target_cat]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    round_data = make_round(id=5, category_id=999)
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=target_cat)) as pick, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(guild, _svc_hunt(), round_data, "Newpuz", is_meta=False, notifier=notifier)
+    pick.assert_awaited_once()
 
 
 @pytest.mark.asyncio

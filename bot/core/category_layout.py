@@ -103,3 +103,49 @@ async def split_group(guild, tag_group, dao):
         dao.commit(TagGroupCategoryData(
             group_id=tag_group.id, category_id=solved_cat.id,
             role=ROLE_SOLVED, seq=0))
+
+
+# ----------------------------------------------------------------- placement
+async def _allocate(guild, tag_group, dao, role_rows, role):
+    """Create the next numbered category for *role* and record its row."""
+    next_seq = max((r.seq for r in role_rows), default=-1) + 1
+    name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
+    template = _category_by_id(guild, tag_group.category_id)
+    async with layout_lock:
+        existing = discord.utils.get(guild.categories, name=name)
+        new_cat = existing or await template.clone(name=name)
+        if existing is None:
+            await new_cat.edit(position=template.position + 1)
+    dao.commit(TagGroupCategoryData(
+        group_id=tag_group.id, category_id=new_cat.id, role=role, seq=next_seq))
+    return new_cat
+
+
+async def _pick_or_allocate(guild, tag_group, dao, rows, role):
+    role_rows = sorted((r for r in rows if r.role == role), key=lambda r: r.seq)
+    for r in role_rows:
+        cat = _category_by_id(guild, r.category_id)
+        if cat is not None and puzzle_count(cat) < CATEGORY_SOFT_LIMIT:
+            return cat
+    return await _allocate(guild, tag_group, dao, role_rows, role)
+
+
+async def pick_unsolved_category(guild, tag_group, dao):
+    """Category a new puzzle should be created in. Splits the group first if a
+    single category would cross the soft limit."""
+    rows = dao.get_for_group(tag_group.id)
+    if not rows:
+        primary = _category_by_id(guild, tag_group.category_id)
+        if primary is None:
+            return None
+        if puzzle_count(primary) + 1 <= CATEGORY_SOFT_LIMIT:
+            return primary
+        await split_group(guild, tag_group, dao)
+        rows = dao.get_for_group(tag_group.id)
+    return await _pick_or_allocate(guild, tag_group, dao, rows, ROLE_UNSOLVED)
+
+
+async def pick_solved_category(guild, tag_group, dao):
+    """Category a just-solved puzzle's channel should move into (split state only)."""
+    rows = dao.get_for_group(tag_group.id)
+    return await _pick_or_allocate(guild, tag_group, dao, rows, ROLE_SOLVED)

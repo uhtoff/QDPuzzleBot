@@ -117,3 +117,63 @@ async def test_split_group_idempotent_when_already_split():
 
     primary.clone.assert_not_called()
     dao.commit.assert_not_called()
+
+
+# ----------------------------------------------------------------- picker/allocation tests
+
+def _cat(cid, position, n_channels, name="round-1"):
+    chans = []
+    for i in range(n_channels):
+        ch = MagicMock(); ch.name = f"p{cid}-{i}"; chans.append(ch)
+    cat = MagicMock(id=cid, position=position)
+    cat.name = name
+    cat.channels = chans
+    cat.edit = AsyncMock()
+    return cat
+
+
+@pytest.mark.asyncio
+async def test_pick_unsolved_single_with_room_returns_primary():
+    primary = _cat(100, 5, n_channels=3)
+    guild = MagicMock(); guild.categories = [primary]
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+    assert result is primary
+    dao.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_pick_unsolved_split_picks_lowest_seq_with_room():
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
+    u1 = _cat(101, 6, n_channels=3)                            # has room
+    guild = MagicMock(); guild.categories = [u0, u1]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=101, role="unsolved", seq=1),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+    assert result is u1
+
+
+@pytest.mark.asyncio
+async def test_pick_unsolved_allocates_when_all_full():
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
+    new_cat = _cat(101, 6, n_channels=0)
+    u0.clone = AsyncMock(return_value=new_cat)
+    guild = MagicMock(); guild.categories = [u0]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+    assert result is new_cat
+    # New row written for unsolved seq=1.
+    row = dao.commit.call_args.args[0]
+    assert (row.role, row.seq, row.category_id) == ("unsolved", 1, 101)
