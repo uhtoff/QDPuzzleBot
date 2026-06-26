@@ -1053,18 +1053,31 @@ class GoogleSheets(commands.Cog):
 
             # Social-contract grey: shade the table's columns below the last data
             # row down to the bottom of the sheet ("bot-managed, don't type here").
-            # Re-applied every reconcile so it tracks the table as it grows/shrinks
-            # (the Table's own banding paints over the grey within its range).
+            # Re-applied every reconcile so it tracks the table as it grows/shrinks.
+            # The data rows themselves have their fill cleared (no fill) first, so
+            # grey left over from a previous, shorter render doesn't show under
+            # newly-added entries. (Clearing = naming backgroundColor in the field
+            # mask but leaving it unset in the cell, which resets it to no fill.)
             if grey_below:
                 row_count = sheet["properties"].get(
                     "gridProperties", {}).get("rowCount", end_row)
+                fmt_reqs = []
+                if end_row > header_row + 1:
+                    fmt_reqs.append({"repeatCell": {
+                        "range": {"sheetId": page_id, "startRowIndex": header_row + 1,
+                                  "endRowIndex": end_row, "startColumnIndex": key_col,
+                                  "endColumnIndex": end_col},
+                        "cell": {"userEnteredFormat": {}},
+                        "fields": "userEnteredFormat.backgroundColor"}})
                 if row_count > end_row:
-                    await self.batch_update({"requests": [{"repeatCell": {
+                    fmt_reqs.append({"repeatCell": {
                         "range": {"sheetId": page_id, "startRowIndex": end_row,
                                   "endRowIndex": row_count, "startColumnIndex": key_col,
                                   "endColumnIndex": end_col},
                         "cell": {"userEnteredFormat": {"backgroundColor": self.SOCIAL_GREY}},
-                        "fields": "userEnteredFormat.backgroundColor"}}]})
+                        "fields": "userEnteredFormat.backgroundColor"}})
+                if fmt_reqs:
+                    await self.batch_update({"requests": fmt_reqs})
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 

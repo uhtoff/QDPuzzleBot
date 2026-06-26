@@ -530,15 +530,28 @@ def _reconcile_with_table(grey_below):
     return sent
 
 
-def _grey_ranges(sent):
+_SOCIAL_GREY = {"red": 0.95, "green": 0.95, "blue": 0.95}
+
+
+def _bg_ranges(sent, color):
     return [r["repeatCell"]["range"] for body in sent for r in body["requests"]
             if "repeatCell" in r
-            and "backgroundColor" in r["repeatCell"].get("fields", "")]
+            and r["repeatCell"]["cell"].get("userEnteredFormat", {})
+                .get("backgroundColor") == color]
+
+
+def _clear_ranges(sent):
+    """repeatCells that CLEAR the background (no fill): backgroundColor named in
+    the field mask but left unset in the cell."""
+    return [r["repeatCell"]["range"] for body in sent for r in body["requests"]
+            if "repeatCell" in r
+            and "backgroundColor" in r["repeatCell"].get("fields", "")
+            and "backgroundColor" not in r["repeatCell"]["cell"].get("userEnteredFormat", {})]
 
 
 def test_reconcile_greys_below_table_when_requested():
     sent = _reconcile_with_table(grey_below=True)
-    greys = _grey_ranges(sent)
+    greys = _bg_ranges(sent, _SOCIAL_GREY)
     assert greys, "grey_below must grey the region below the table"
     rng = greys[0]
     # below header (row 3) + 1 header + 1 data row = row 5, down to rowCount 50, cols A-D
@@ -547,9 +560,23 @@ def test_reconcile_greys_below_table_when_requested():
     assert rng["startColumnIndex"] == 0 and rng["endColumnIndex"] == 4
 
 
+def test_reconcile_clears_grey_under_data_rows():
+    # Rows that now hold data must have their fill cleared (no fill) so leftover
+    # grey from a previous, shorter render doesn't show under newly-added entries.
+    sent = _reconcile_with_table(grey_below=True)
+    clears = _clear_ranges(sent)
+    assert clears, "data rows must have their fill cleared (no fill)"
+    rng = clears[0]
+    assert rng["startRowIndex"] == 3 + 1        # first data row (header_row+1)
+    assert rng["endRowIndex"] == 3 + 1 + 1      # end_row (one data row)
+    assert rng["startColumnIndex"] == 0 and rng["endColumnIndex"] == 4
+
+
 def test_reconcile_no_grey_by_default():
     # The shared reconciler (e.g. the Unassigned tab) must NOT grey below unless asked.
-    assert _grey_ranges(_reconcile_with_table(grey_below=False)) == []
+    sent = _reconcile_with_table(grey_below=False)
+    assert _bg_ranges(sent, _SOCIAL_GREY) == []
+    assert _clear_ranges(sent) == []
 
 
 # --- Bold static labels (live-test fix #4) ----------------------------------
