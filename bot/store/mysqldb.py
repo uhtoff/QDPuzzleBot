@@ -587,13 +587,22 @@ class MySQLGuildSettingsDb():
         data = (channel_id,)
         try:
             cursor.execute(stmt, data)
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
         finally:
             cursor.close()
-        channel_type = None
-        if row:
-            channel_type = row['channel_type']
-        return channel_type
+        # A channel id can legitimately match more than one role: promoting a
+        # puzzle to a metapuzzle reuses its puzzle channel as the group's
+        # category_id, so the union returns both 'Puzzle' and 'Group'. We must
+        # consume the whole result set — leaving rows unread makes cursor.close()
+        # raise mysql.connector "Unread result found", which aborts the command's
+        # before-hook and looks like the bot hanging. Prefer the most specific
+        # role so a command in the puzzle channel routes through the puzzle
+        # branch (which then promotes to the group type via target_puzzle_id).
+        types = {row['channel_type'] for row in rows}
+        for channel_type in ('Puzzle', 'Hunt', 'Group'):
+            if channel_type in types:
+                return channel_type
+        return None
 
     def get(self, guild_id: int) -> GuildSettings:
         cursor = self.mydb.cursor(dictionary=True)
