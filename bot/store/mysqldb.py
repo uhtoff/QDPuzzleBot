@@ -202,9 +202,10 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
         """All category rows for a group, ordered by role then seq."""
         cursor = self.mydb.cursor(dictionary=True)
         try:
+            # unsolved categories first, then solved; each by seq
             cursor.execute(
                 "SELECT * FROM tag_group_category WHERE group_id = %s "
-                "ORDER BY role ASC, seq ASC",
+                "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
                 (group_id,),
             )
             rows = cursor.fetchall()
