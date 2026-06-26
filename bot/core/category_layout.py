@@ -111,13 +111,15 @@ async def _allocate(guild, tag_group, dao, role_rows, role):
     next_seq = max((r.seq for r in role_rows), default=-1) + 1
     name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
     template = _category_by_id(guild, tag_group.category_id)
+    if template is None:
+        raise RuntimeError("primary_category_missing")
     async with layout_lock:
         existing = discord.utils.get(guild.categories, name=name)
         new_cat = existing or await template.clone(name=name)
         if existing is None:
             await new_cat.edit(position=template.position + 1)
-    dao.commit(TagGroupCategoryData(
-        group_id=tag_group.id, category_id=new_cat.id, role=role, seq=next_seq))
+        dao.commit(TagGroupCategoryData(
+            group_id=tag_group.id, category_id=new_cat.id, role=role, seq=next_seq))
     return new_cat
 
 
