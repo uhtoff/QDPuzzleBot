@@ -61,15 +61,25 @@ def test_add_contribution_table_covers_header_and_hides_key_col():
     table_id = asyncio.run(cog._add_contribution_table(page_id=900))
 
     assert table_id == "TID"
-    add = calls[0]["requests"][0]["addTable"]["table"]
+    add = next(r["addTable"]["table"] for body in calls
+               for r in body["requests"] if "addTable" in r)
     # Named after the tab (unique per spreadsheet), not a shared literal.
     assert add["name"] == "Meta"
     assert add["range"]["sheetId"] == 900
     # 4 columns A-D
     assert add["range"]["startColumnIndex"] == 0
     assert add["range"]["endColumnIndex"] == 4
-    cols = [c["columnName"] for c in add["columnProperties"]]
-    assert cols == ["key", "Type", "Source", "Content"]
+    # The header NAMES are written into the header-row cells (A-D) BEFORE the
+    # addTable in the same batch, so the Table anchors to exactly these 4 columns.
+    # (An empty header row + columnProperties let Sheets pad the table with phantom
+    # "Column N" columns and shift our names right — live-test bug.)
+    add_body = next(b for b in calls if any("addTable" in r for r in b["requests"]))
+    kinds = [next(iter(r)) for r in add_body["requests"]]
+    assert kinds.index("updateCells") < kinds.index("addTable")
+    hdr = next(r["updateCells"] for r in add_body["requests"] if "updateCells" in r)
+    names = [next(iter(v["userEnteredValue"].values())) for v in hdr["rows"][0]["values"]]
+    assert names == ["key", "Type", "Source", "Content"]
+    assert hdr["range"]["startColumnIndex"] == 0 and hdr["range"]["endColumnIndex"] == 4
     # A hidden-column request is issued (key column hidden)
     hide = [r for body in calls for r in body["requests"]
             if "updateDimensionProperties" in r]
@@ -283,8 +293,12 @@ def _promote_alpha():
 
 
 def _cell_value(r):
-    uev = r["updateCells"]["rows"][0]["values"]["userEnteredValue"]
-    return next(iter(uev.values()))
+    # update_cell writes a single cell (values is a dict); the contribution header
+    # write uses a list of cells — skip those (return None) so single-cell scans work.
+    values = r["updateCells"]["rows"][0]["values"]
+    if isinstance(values, list):
+        return None
+    return next(iter(values["userEnteredValue"].values()))
 
 
 def test_promote_puts_table_at_a4():

@@ -880,30 +880,40 @@ class GoogleSheets(commands.Cog):
         grows it over the body. Returns the native tableId (or page_id sentinel
         if the Table API is unavailable, matching ensure_unassigned_table).
 
+        The header NAMES are written into the header-row cells (A-D) in the SAME
+        batch, BEFORE the addTable, so the Table anchors to exactly these four
+        populated columns. Creating it with an empty header row + `columnProperties`
+        instead lets Sheets auto-size the Table wider — it pads the front with
+        phantom "Column 1/2/3" columns and pushes our names to D-G (live-test bug).
+
         Table names must be unique within a spreadsheet, so name the Table after
         its tab (already de-duplicated when the tab was created) rather than a
         shared literal — otherwise the second target's table create collides."""
         table_id = page_id
         tab_name = self.get_page_name_by_id(page_id)
         table_name = tab_name if tab_name is not None else f"Contributions {page_id}"
-        body = {"requests": [{"addTable": {"table": {
-            "name": table_name,
-            "range": {
-                "sheetId": page_id,
-                "startRowIndex": header_row,
-                "endRowIndex": header_row + 1,
-                "startColumnIndex": 0,
-                "endColumnIndex": len(self.CONTRIBUTION_HEADER),
-            },
-            "columnProperties": [
-                {"columnIndex": i, "columnName": name}
-                for i, name in enumerate(self.CONTRIBUTION_HEADER)
-            ],
-        }}}]}
+        header_range = {
+            "sheetId": page_id,
+            "startRowIndex": header_row,
+            "endRowIndex": header_row + 1,
+            "startColumnIndex": 0,
+            "endColumnIndex": len(self.CONTRIBUTION_HEADER),
+        }
+        body = {"requests": [
+            {"updateCells": {
+                "range": header_range,
+                "fields": "userEnteredValue",
+                "rows": [{"values": [
+                    {"userEnteredValue": {"stringValue": n}}
+                    for n in self.CONTRIBUTION_HEADER]}],
+            }},
+            {"addTable": {"table": {"name": table_name, "range": header_range}}},
+        ]}
         result = await self.batch_update(body)
         try:
-            table_id = result["replies"][0]["addTable"]["table"]["tableId"]
-        except (KeyError, IndexError, TypeError):
+            add_reply = next(r for r in result.get("replies", []) if "addTable" in r)
+            table_id = add_reply["addTable"]["table"]["tableId"]
+        except (StopIteration, KeyError, TypeError):
             return table_id
         # Hide the key column.
         await self.batch_update({"requests": [{
