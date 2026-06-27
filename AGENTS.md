@@ -84,7 +84,36 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
   bare `pytest` entrypoint doesn't put the repo root on `sys.path` (so `import bot` fails).
 - Always wrap in `timeout` and write to a file (a killed run exits 124; read the log).
 - `bot/store/__init__.py` opens MySQL **at import**, so tests need a reachable DB; a
-  gitignored `config.json` (local `puzzlebot_test`) provides creds.
+  gitignored `config.json` (local `puzzlebot_test`) provides creds. The connection is
+  needed at *import* time only — individual tests patch the DAOs (below) and don't run
+  real queries.
+
+### Test harness
+
+The suite is fast and fully mocked — **no Discord, no live DB queries.** Pin these exact
+shapes (config in `pytest.ini`); don't invent harness machinery.
+
+- **Async:** `pytest.ini` sets `asyncio_mode = auto`, so `async def test_*` runs without a
+  decorator. Await the service call directly; assert with `AsyncMock` methods
+  (`assert_awaited_once()`, `assert_awaited_once_with(...)`, `assert_not_awaited()`).
+- **Factories, not fixtures:** `tests/conftest.py` exports plain helper functions —
+  `make_hunt()`, `make_round()` (a `TagGroupData`), `make_puzzle()`, `make_ctx()`,
+  `make_cog()`. Import and call them; they are **not** pytest fixtures.
+- **Mock Discord by hand:** `MagicMock()` for sync attributes, `AsyncMock()` for awaitables.
+  A guild is `MagicMock()` with `.categories = [...]`; `category.clone`, `channel.edit`,
+  `channel.create_thread`, `guild.create_text_channel` are all `AsyncMock()`. Set
+  `.name`/`.position`/`.id` explicitly (a bare `MagicMock().name` is a Mock, not a string).
+- **Patch DAOs at the *service* import site, not `bot.store`:** e.g.
+  `patch("bot.core.puzzle_service.PuzzleJsonDb")`, `...TagGroupJsonDb`, `...HuntJsonDb`,
+  `...RollupsJsonDb`, `...TagGroupCategoryDb` — because `puzzle_service` imports the names
+  into its own namespace (`bot/store/__init__.py` re-exports them).
+- **Simulate INSERT id assignment:** the real `commit()` sets `obj.id = cursor.lastrowid`;
+  mirror it with `pdb.commit.side_effect = lambda o: setattr(o, "id", 1)`.
+- **Adding a dataclass field** (e.g. `layout_mode`) needs only the field + a SQL migration;
+  the generic `commit()` in `mysqldb.py` serialises every `__dict__` field by name — no
+  DAO code change. (Per the migration→deploy→code rule below, ship the migration first.)
+- Canonical end-to-end examples to mirror: `tests/test_create_service.py` (create/delete via
+  `puzzle_service`) and `tests/test_category_layout.py` (mocked split/move/clone).
 
 ## Linting
 
