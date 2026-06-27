@@ -10,6 +10,7 @@ class TestHuntDataFields:
         h = HuntData()
         assert h.unassigned_sheet_page_id is None
         assert h.unassigned_table_id is None
+        assert h.evidence_table_id is None
 
 
 class TestRefreshUnassigned:
