@@ -1539,8 +1539,14 @@ class PuzzleService:
 
             # --- Forum vs channel layout (non-Group types) ---
             elif hunt.layout_mode == "forum":
+                from bot.core.forum_config import forum_create_kwargs, render_welcome_plaintext
+                kwargs = forum_create_kwargs()
+                kwargs["topic"] = render_welcome_plaintext(
+                    "meta", None, None, hunt  # placeholder — synced later
+                )
                 forum_channel = await guild.create_forum(
                     name=new_category_name, category=ref_category,
+                    **kwargs,
                 )
             else:
                 new_category = await ref_category.clone(name=new_category_name)
