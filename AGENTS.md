@@ -62,9 +62,8 @@ verbs **feeds / informs** for the edges so the noun doesn't collide.
 
 - **`docs/PLANS.md` is the authoritative roadmap** (milestones M0–M11 + improvement
   catalogue). Re-verify its file:line refs against the code before acting — it warns
-  they drift. Delivered so far: M0 (schema+migrations), M1 (test seam), M2
-  (`aggregate_to_tab`), 7 quick wins. **M3** (`bot/core/` service extraction) is in
-  progress; M4 is next on the critical path.
+  they drift. Delivered so far: M0–M10, M3.5, M7.5 (all done). **M9b (capstones/reveal)
+  is next on the critical path.** M11 (feeder-as-thread) is deferred.
 - Don't redo already-shipped hardening listed in PLANS.md Part 3 (Sheets retry/backoff,
   deferred renames, FK cascades, etc.).
 - For substantial tasks, durable handoff state lives under `.ai/active/` (see global

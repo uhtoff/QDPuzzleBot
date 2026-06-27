@@ -173,8 +173,9 @@ The environment variable `$LADDER_SPOT_DATA_DIR` can be used to control the dire
 
 Use `pipenv install --dev` to install dev packages, and in the repo root directory, run
 ```bash
-python -m pytest
+timeout 120 pipenv run python -m pytest --compact
 ```
+Add `--parallel` for multi-file or suite runs.
 
 # Credits
 

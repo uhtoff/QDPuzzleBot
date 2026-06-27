@@ -84,50 +84,33 @@ async def _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle):
         await cog.web_refresh_info(guild, hunt_obj, parent)
 
 
-async def _visible_hunt_for_puzzle(puzzle_id):
-    """Resolve a puzzle's hunt and confirm the user may see it.
+async def _resolve_visible_hunt(lookup_coro, not_found_key):
+    """Shared core: await lookup_coro, check visibility, return (context, None) or (None, err).
 
-    Returns (context, None) on success, or (None, (response, status)) to return.
     context has keys: hunt (row), guild_snowflake.
     """
     user = current_user()
-    hunt = await data.get_hunt_for_puzzle(puzzle_id)
+    hunt = await lookup_coro
     if not hunt:
-        return None, (jsonify({"error": "puzzle_not_found"}), 404)
+        return None, (jsonify({"error": not_found_key}), 404)
     membership, roles_by_guild = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
     if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
         return None, (jsonify({"error": "forbidden"}), 403)
     guild = guilds_map.get(hunt["guild_id"], {})
     return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+
+
+async def _visible_hunt_for_puzzle(puzzle_id):
+    return await _resolve_visible_hunt(data.get_hunt_for_puzzle(puzzle_id), "puzzle_not_found")
 
 
 async def _visible_hunt_by_uid(uid):
-    """Resolve a hunt by uid and confirm the user may see it (same shape as above)."""
-    user = current_user()
-    hunt = await data.get_hunt_by_uid(uid)
-    if not hunt:
-        return None, (jsonify({"error": "hunt_not_found"}), 404)
-    membership, roles_by_guild = await resolve_membership(user["id"])
-    guilds_map = await data.get_guilds_map()
-    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
-        return None, (jsonify({"error": "forbidden"}), 403)
-    guild = guilds_map.get(hunt["guild_id"], {})
-    return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+    return await _resolve_visible_hunt(data.get_hunt_by_uid(uid), "hunt_not_found")
 
 
 async def _visible_hunt_for_tag_group(tag_group_id):
-    """Resolve a tag_group's hunt and confirm the user may see it (same shape as above)."""
-    user = current_user()
-    hunt = await data.get_hunt_for_tag_group(tag_group_id)
-    if not hunt:
-        return None, (jsonify({"error": "round_not_found"}), 404)
-    membership, roles_by_guild = await resolve_membership(user["id"])
-    guilds_map = await data.get_guilds_map()
-    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
-        return None, (jsonify({"error": "forbidden"}), 403)
-    guild = guilds_map.get(hunt["guild_id"], {})
-    return {"hunt": hunt, "guild_snowflake": guild.get("guild_snowflake")}, None
+    return await _resolve_visible_hunt(data.get_hunt_for_tag_group(tag_group_id), "round_not_found")
 
 
 # --- Notes (any member of the hunt's guild) ---------------------------------
