@@ -67,7 +67,7 @@ All convert commands are *slash* hybrids, run in the puzzle's channel, admins/mo
 | `!rename_puzzle` *(slash)* | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. |
 | `!link` *(slash)* | | `url` | puzzle channel | anyone | Set/update the puzzle's hunt URL. |
 | `!status` *(slash)* | | `value` | puzzle channel | anyone | Set status: Unstarted, In Progress, Stuck, Needs Extraction, Solved, Backsolved. |
-| `!type` *(slash)* | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword). |
+| `!type` *(slash)* | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword); the slash form autocompletes from types already used in the hunt. |
 | `!priority` *(slash)* | | `value` | puzzle channel | anyone | Set priority: low, medium, high, very high. |
 | `!info` | | — | any hunt channel | anyone | Re-post/refresh the channel's pinned info message. |
 | `!list_puzzles` *(slash)* | `!list` | — | puzzle/round channel | anyone | List puzzles in the current round with status/solution. |

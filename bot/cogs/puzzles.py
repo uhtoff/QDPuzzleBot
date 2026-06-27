@@ -228,6 +228,34 @@ class Puzzles(commands.Cog):
 
         return choices
 
+    async def puzzle_type_autocomplete(
+            self,
+            interaction: discord.Interaction,
+            current: str,
+    ) -> list[app_commands.Choice[str]]:
+        # puzzle_type is free-form (no fixed vocabulary), so this only *suggests* — the
+        # user can still submit any text. Offer the types already used in this hunt first
+        # (the team's real vocabulary), then common defaults not already present.
+        defaults = ["Crossword", "Logic", "Cryptic", "Wordplay", "Meta",
+                    "Word Search", "Cipher", "Image", "Audio", "Physical"]
+        suggestions = defaults
+        try:
+            category = interaction.channel.category
+            hunt_id = TagGroupJsonDb.get_by_attr(category_id=category.id).hunt_id
+            used = sorted({p.puzzle_type for p in PuzzleJsonDb.get_all_from_hunt(hunt_id) if p.puzzle_type})
+            seen = {t.lower() for t in used}
+            suggestions = used + [d for d in defaults if d.lower() not in seen]
+        except Exception:
+            # Autocomplete must never raise (it just shows nothing useful); fall back to defaults.
+            pass
+
+        current_lc = (current or "").lower()
+        return [
+            app_commands.Choice(name=t[:100], value=t)
+            for t in suggestions
+            if current_lc in t.lower()
+        ][:25]
+
     async def resolve_target_group(self, ctx, meta_code):
         """Resolve `meta_code` to a TagGroupData within the current hunt, or send help and
         return None.
@@ -2256,6 +2284,7 @@ class Puzzles(commands.Cog):
         await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
     @commands.hybrid_command(description="Set this puzzle's type label (e.g. crossword, logic, cryptic)")
+    @app_commands.autocomplete(puzzle_type=puzzle_type_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Set this puzzle's type label (freeform, e.g. crossword, logic, cryptic).*
