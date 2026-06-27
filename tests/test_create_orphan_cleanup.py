@@ -103,13 +103,14 @@ async def test_web_create_tag_group_cleans_up_meta_puzzle_on_late_failure():
         rdb.check_duplicates_in_hunt.return_value = False
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
-        rdb.generate_uid.side_effect = RuntimeError("late failure")
+        rdb.generate_uid.side_effect = RuntimeError("late failure")  # now fails BEFORE create_puzzle (reordered)
         with pytest.raises(RuntimeError):
             await cog.service.create_tag_group(guild, hunt, "New Round")
 
-    # Service rollback deletes round row and cleans up orphan meta puzzle.
+    # generate_uid now runs before create_puzzle → puzzle=None.
+    # Service rollback deletes round row; no orphan to clean.
     rdb.delete.assert_called_once_with(5)
-    cleanup_mock.assert_awaited_once()
+    cleanup_mock.assert_not_awaited()
 
 
 # NOTE: the former test_bang_create_puzzle_cleans_up_on_channel_failure was removed in

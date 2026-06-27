@@ -1519,11 +1519,26 @@ class PuzzleService:
 
         new_category = None
         forum_channel = None
+        group_text_channel = None
         new_round = None
         puzzle = None
+        is_group = round_type in ("Group", "Metaless Round")
         try:
-            # --- Forum vs channel layout ---
-            if hunt.layout_mode == "forum":
+            # --- Group: no forum, no category clone (forum mode) or with clone
+            # (channel mode) — but always a plain text channel for chat. ---
+            if is_group:
+                host_category = ref_category if hunt.layout_mode == "forum" else None
+                if hunt.layout_mode != "forum":
+                    new_category = await ref_category.clone(name=new_category_name)
+                    await new_category.edit(position=ref_category.position + 1)
+                    host_category = new_category
+                group_text_channel, _created_flag = await get_or_create_channel(
+                    guild=guild, category=host_category,
+                    channel_name=new_category_name, channel_type="text",
+                )
+
+            # --- Forum vs channel layout (non-Group types) ---
+            elif hunt.layout_mode == "forum":
                 forum_channel = await guild.create_forum(
                     name=new_category_name, category=ref_category,
                 )
@@ -1536,22 +1551,39 @@ class PuzzleService:
                         channel_type="text", position=500,
                     )
 
-            parent_id = forum_channel.id if hunt.layout_mode == "forum" else new_category.id
+            parent_id = (
+                group_text_channel.id if is_group
+                else (forum_channel.id if hunt.layout_mode == "forum" else new_category.id)
+            )
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=parent_id,
                 type=round_type,
             )
+            # Initial commit so the row has an id (rollback safety).
             TagGroupJsonDb.commit(new_round)
 
+            if is_group:
+                # Group: no meta puzzle — but post a welcome.
+                new_round.group_code = TagGroupJsonDb.generate_uid('group_code', 6, name)
+                TagGroupJsonDb.commit(new_round)
+                if notifier is not None:
+                    await notifier.welcome(
+                        guild, hunt, tag_group=new_round,
+                        puzzle=None, channel=group_text_channel,
+                    )
+                await self.notifier.board_changed(hunt)
+                return new_round, None
+
             # Create the meta puzzle for this round (skip for Metaless variants).
+            # Set group_code before create_puzzle so the welcome fires with a real code.
+            new_round.group_code = TagGroupJsonDb.generate_uid('group_code', 6, name)
             if create_meta:
                 puzzle = await self.create_puzzle(
                     guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,
                 )
                 new_round.target_puzzle_id = puzzle.id
 
-            new_round.group_code = TagGroupJsonDb.generate_uid('group_code', 6, name)
             TagGroupJsonDb.commit(new_round)
 
             await self.notifier.board_changed(hunt)
@@ -1578,6 +1610,11 @@ class PuzzleService:
                     await forum_channel.delete(reason="create_round rollback")
                 except Exception:
                     logger.exception("create_round: rollback of orphan forum failed")
+            if group_text_channel is not None:
+                try:
+                    await group_text_channel.delete(reason="create_round rollback")
+                except Exception:
+                    logger.exception("create_round: rollback of group text channel failed")
             raise
 
     def _sole_informs_target(self, puzzle):

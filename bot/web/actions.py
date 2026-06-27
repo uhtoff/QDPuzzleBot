@@ -1517,9 +1517,15 @@ async def create_meta(uid):
         from bot.core.notifier import DiscordNotifier
         # Mirror the bang path's meta naming: a Round's target puzzle is named
         # "<name> - meta" (other types keep the group name). See _round_impl.
-        meta_puzzle_name = name + " - meta" if group_type == "Round" else name
+        if group_type == "Group":
+            meta_puzzle_name = False
+        elif group_type == "Round":
+            meta_puzzle_name = name + " - meta"
+        else:
+            meta_puzzle_name = name
         new_round, puzzle = await cog.service.create_tag_group(
-            guild, hunt_obj, name, notifier=None,
+            guild, hunt_obj, name,
+            notifier=DiscordNotifier(bot),
             meta_puzzle_name=meta_puzzle_name,
             round_type=group_type,
         )
@@ -1527,21 +1533,11 @@ async def create_meta(uid):
         # set source_mode like the bang path does after creation.
         if group_type == "Runaround":
             await cog.service.set_source_mode(hunt_obj, new_round, "subtree")
-        # Send the meta welcome now that group_code/target_puzzle_id are populated.
-        # get_channel_or_thread also resolves forum threads (get_channel returns None
-        # for threads), so forum-mode hunts get their welcome message too.
-        channel = guild.get_channel_or_thread(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
-        if channel is not None:
-            notifier = DiscordNotifier(bot)
-            try:
-                await notifier.welcome(guild, hunt_obj, new_round, puzzle, channel)
-            except Exception:
-                logger.exception("create_meta: failed to send/pin welcome message")
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    await _audit("create_meta", puzzle_id=puzzle.id, hunt_uid=uid, detail=new_round.group_code)
+    await _audit("create_meta", puzzle_id=getattr(puzzle, "id", None), hunt_uid=uid, detail=new_round.group_code)
     return jsonify({"ok": True, "tag_group_id": new_round.id, "group_code": new_round.group_code})
 
 

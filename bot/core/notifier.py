@@ -115,9 +115,11 @@ class DiscordNotifier(Notifier):
         }
         try:
             handler = (
-                cog.send_initial_metapuzzle_channel_messages
-                if puzzle and puzzle.is_target
-                else cog.send_initial_puzzle_channel_messages
+                cog.send_initial_group_channel_messages
+                if puzzle is None
+                else (cog.send_initial_metapuzzle_channel_messages
+                     if puzzle.is_target
+                     else cog.send_initial_puzzle_channel_messages)
             )
             message = await handler(None, channel, **kwargs)
             await message.pin()

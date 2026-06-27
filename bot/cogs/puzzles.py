@@ -157,7 +157,13 @@ class Puzzles(commands.Cog):
             if channel_type == 'Hunt':
                 hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             if channel_type == 'Group':
-                tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
+                # Forum-mode Group: the text channel's OWN id is the group's category_id.
+                # Channel-mode Group: fallback to category lookup below.
+                tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.id)
+                if tag_group is None:
+                    tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
+                if tag_group:
+                    channel_type = tag_group.type
                 if tag_group:
                     channel_type = tag_group.type
                     hunt = HuntJsonDb.get_by_attr(id=tag_group.hunt_id)
@@ -1492,8 +1498,8 @@ class Puzzles(commands.Cog):
             "runaround": ("Runaround", True, None),
             "ra": ("Runaround", True, None),
             "group": ("Group", False, None),
-            "roundnometa": ("Metaless Round", False, None),
-            "rnm": ("Metaless Round", False, None),
+            "roundnometa": ("Group", False, None),
+            "rnm": ("Group", False, None),
         }
 
         group_type, create_meta, suffix = command_map[command_key]
@@ -2106,8 +2112,8 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embeds=embed_list)
 
-    async def send_initial_metaless_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
-        """Send intro message on a metaless round channel"""
+    async def send_initial_group_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+        """Send intro message on a group/round channel"""
         tag_group = kwargs.get('tag_group', self.get_tag_group(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
         embed = discord.Embed(
@@ -2254,7 +2260,9 @@ class Puzzles(commands.Cog):
         elif self.get_channel_type(ctx) == "Metapuzzle":
             await self.send_initial_metapuzzle_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Metaless Round":
-            await self.send_initial_metaless_round_channel_messages(ctx, ctx.channel, update=update)
+            await self.send_initial_group_channel_messages(ctx, ctx.channel, update=update)
+        elif self.get_channel_type(ctx) == "Group":
+            await self.send_initial_group_channel_messages(ctx, ctx.channel, update=update)
         elif self.get_channel_type(ctx) == "Puzzle":
             await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=update)
         else:

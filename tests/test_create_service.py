@@ -161,13 +161,14 @@ async def test_create_round_rolls_back_on_failure():
         rdb.check_duplicates_in_hunt.return_value = False
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
-        rdb.generate_uid.side_effect = RuntimeError("late failure")  # fails AFTER create_puzzle
+        rdb.generate_uid.side_effect = RuntimeError("late failure")  # fails BEFORE create_puzzle (new order)
         with pytest.raises(RuntimeError):
             await svc.create_tag_group(guild, _svc_hunt(), "New Round", notifier=notifier)
 
-    # Round row deleted, orphan meta puzzle cleaned, cloned category removed.
+    # generate_uid fails before create_puzzle is reached → puzzle=None.
+    # Round row deleted, no orphan to clean, cloned category removed.
     rdb.delete.assert_called_once_with(5)
-    cleanup_mock.assert_awaited_once()
+    cleanup_mock.assert_not_awaited()
     new_cat.delete.assert_awaited_once()
 
 
