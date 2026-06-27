@@ -1071,6 +1071,19 @@ async def convert_to_group(puzzle_id):
     return await handler()
 
 
+@actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-metapuzzle", methods=["POST"])
+@login_required
+async def convert_to_metapuzzle(puzzle_id):
+    """Convert an existing target (capstone/runaround/group) back to a plain
+    Metapuzzle (feeds edge, round source mode).
+
+    Unlike convert-to-meta (which promotes a bare feeder into a new group), this
+    retypes a puzzle that is already a target. Mirrors the !convert_to_metapuzzle
+    bang command."""
+    handler = _convert_to_type_handler(puzzle_id, "Metapuzzle", error_if_not_meta=True)
+    return await handler()
+
+
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-puzzle", methods=["POST"])
 @login_required
 async def convert_to_puzzle(puzzle_id):

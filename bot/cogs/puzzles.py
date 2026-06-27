@@ -1698,6 +1698,37 @@ class Puzzles(commands.Cog):
             f":white_check_mark: I've converted this puzzle into a group. {summary}"
         )
 
+    @commands.hybrid_command(description="Convert meta to a plain metapuzzle", )
+    @commands.has_any_role(*ADMIN_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def convert_to_metapuzzle(self, ctx):
+        """*Convert this meta (capstone/runaround/group) back to a plain metapuzzle.*
+
+        Usage: `!convert_to_metapuzzle`
+        Example: `!convert_to_metapuzzle`
+        Run in a meta puzzle's channel; feeders revert to the 'feeds' edge.
+        Admins/mods only (needs Manage Channels)."""
+        if (puzzle := self.get_puzzle(ctx)) is None:
+            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
+            return
+        elif not puzzle.is_target:
+            await ctx.channel.send(":x: This puzzle is not a meta. Use `!convert_to_meta` to promote a feeder.")
+            return
+
+        try:
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, "Metapuzzle"
+            )
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
+        self.set_tag_group(ctx, tag_group)
+        self.set_channel_type(ctx, "Metapuzzle")
+        await self.info(ctx, update=True)
+        await ctx.send(
+            f":white_check_mark: I've converted this puzzle into a metapuzzle. {summary}"
+        )
+
     @commands.hybrid_command(
         description="Convert metapuzzle back to feeder",
         aliases=["convert_to_feeder"],

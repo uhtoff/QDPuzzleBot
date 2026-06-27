@@ -32,6 +32,7 @@ import {
   useConvertToFeederPreview,
   useConvertToGroup,
   useConvertToMeta,
+  useConvertToMetapuzzle,
   useConvertToRunaround,
   useDeletePuzzle,
   useMakeMinimeta,
@@ -59,6 +60,7 @@ interface CardProps {
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
   onConvertToMeta: (puzzleId: number) => void;
+  onConvertToMetapuzzle: (puzzleId: number) => void;
   onConvertToCapstone: (puzzleId: number) => void;
   onConvertToRunaround: (puzzleId: number) => void;
   onConvertToGroup: (puzzleId: number) => void;
@@ -66,7 +68,7 @@ interface CardProps {
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, onConvertToMetapuzzle, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -75,9 +77,17 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Pending action for the ConfirmModal (minimeta / convert-to-meta).
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
-  // Metas this puzzle is not already in (candidates for "add").
+  // Groups this puzzle is not already in (candidates for "add"). A meta may also
+  // be added to its OWN group so it feeds itself in a loop — that group is in
+  // inCodes (the meta is its target with a 'none' self-edge) but stays addable
+  // until the self-edge is actually feeding.
   const inCodes = new Set(puzzle.rounds.map((r) => r.group_code).filter(Boolean));
-  const addable = metas.filter((m) => !inCodes.has(m.code));
+  const ownTarget = puzzle.rounds.find((r) => r.is_target_of) ?? null;
+  const ownTargetCode = ownTarget?.group_code ?? null;
+  const selfFeeds = ownTarget?.edge_type === "feeds";
+  const addable = metas.filter(
+    (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && !selfFeeds),
+  );
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
   const metaCount = puzzle.rounds.filter((r) => r.group_code).length;
@@ -85,6 +95,10 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Allow removing from the current column unless this puzzle IS that meta.
   const here = puzzle.rounds.find((r) => r.group_code === columnGroupCode);
   const canRemove = columnGroupCode != null && here != null && !here.is_target_of;
+  // The stored type of the group this puzzle is the target of (Metapuzzle /
+  // Capstone / Runaround / Group). Drives the convert menu so it never offers
+  // the type the puzzle already is.
+  const currentType = puzzle.rounds.find((r) => r.is_target_of)?.group_type ?? null;
 
   return (
     <>
@@ -133,13 +147,13 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown onPointerDown={(e) => e.stopPropagation()}>
-            <Menu.Label>Add to meta</Menu.Label>
+            <Menu.Label>Add to group</Menu.Label>
             {addable.length === 0 ? (
-              <Menu.Item disabled>Already in all metas</Menu.Item>
+              <Menu.Item disabled>Already in all groups</Menu.Item>
             ) : (
               addable.map((m) => (
                 <Menu.Item key={m.code} onClick={() => onRetag(puzzle.id, m.code, "add")}>
-                  {m.name}
+                  {m.code === ownTargetCode ? `${m.name} (feed itself)` : m.name}
                 </Menu.Item>
               ))
             )}
@@ -154,42 +168,62 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             {puzzle.is_meta && (
               <>
                 <Menu.Divider />
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to capstone",
-                      message: `Convert "${puzzle.name}" to a capstone?`,
-                      onConfirm: () => onConvertToCapstone(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to capstone
-                </Menu.Item>
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to runaround",
-                      message: `Convert "${puzzle.name}" to a runaround?`,
-                      onConfirm: () => onConvertToRunaround(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to runaround
-                </Menu.Item>
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to group",
-                      message: `Convert "${puzzle.name}" to a group?`,
-                      onConfirm: () => onConvertToGroup(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to group
-                </Menu.Item>
+                {currentType !== "Metapuzzle" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to metapuzzle",
+                        message: `Convert "${puzzle.name}" to a metapuzzle?`,
+                        onConfirm: () => onConvertToMetapuzzle(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to metapuzzle
+                  </Menu.Item>
+                )}
+                {currentType !== "Capstone" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to capstone",
+                        message: `Convert "${puzzle.name}" to a capstone?`,
+                        onConfirm: () => onConvertToCapstone(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to capstone
+                  </Menu.Item>
+                )}
+                {currentType !== "Runaround" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to runaround",
+                        message: `Convert "${puzzle.name}" to a runaround?`,
+                        onConfirm: () => onConvertToRunaround(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to runaround
+                  </Menu.Item>
+                )}
+                {currentType !== "Group" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to group",
+                        message: `Convert "${puzzle.name}" to a group?`,
+                        onConfirm: () => onConvertToGroup(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to group
+                  </Menu.Item>
+                )}
                 <Menu.Item color="red" onClick={() => onConvertToFeeder(puzzle)}>
                   Convert to feeder…
                 </Menu.Item>
@@ -321,6 +355,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const convertToCapstone = useConvertToCapstone(uid);
   const convertToRunaround = useConvertToRunaround(uid);
   const convertToGroup = useConvertToGroup(uid);
+  const convertToMetapuzzle = useConvertToMetapuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
@@ -439,6 +474,16 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     });
   }
 
+  function onConvertToMetapuzzle(puzzleId: number) {
+    convertToMetapuzzle.mutate(puzzleId, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a metapuzzle.", color: "green" });
+      },
+      onError: notifyError,
+    });
+  }
+
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
     setActive(puzzleId ? byId.get(puzzleId) ?? null : null);
@@ -463,8 +508,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       }
       const names = currentMetas.map((r) => r.name).join(", ");
       setDragConfirm({
-        title: "Remove from all metas",
-        message: `Remove "${p.name}" from all metas: ${names}?`,
+        title: "Remove from all groups",
+        message: `Remove "${p.name}" from all groups: ${names}?`,
         puzzleId,
         groupCode: "",
         mode: "clear",
@@ -485,8 +530,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         title: "Move puzzle",
         message:
           `"${p.name}" is also in: ${names}. ` +
-          `Dragging onto a meta MOVES it — it will be removed from those other metas. ` +
-          `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead. ` +
+          `Dragging onto a group MOVES it — it will be removed from those other groups. ` +
+          `To keep it in multiple groups, use the ⋮ menu's "Add to group" instead. ` +
           `Move it anyway?`,
         puzzleId,
         groupCode,
@@ -521,6 +566,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     onDeletePuzzle={setDeleteTarget}
                     onMakeMinimeta={onMakeMinimeta}
                     onConvertToMeta={onConvertToMeta}
+                    onConvertToMetapuzzle={onConvertToMetapuzzle}
                     onConvertToCapstone={onConvertToCapstone}
                     onConvertToRunaround={onConvertToRunaround}
                     onConvertToGroup={onConvertToGroup}
