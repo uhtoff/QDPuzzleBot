@@ -123,6 +123,19 @@ pipenv run ruff check --fix    # apply safe auto-fixes
 - `bot/cogs/puzzles.py` is a ~2,700-line god-cog and a contention magnet; keep edits
   focused and prefer moving logic into `bot/core/`.
 
+## Command reference & help text
+
+- **`docs/commands.md` is the canonical command reference** — every chat command (in
+  `bot/cogs/puzzles.py` + `bot/cogs/utility.py`) with its arguments, run context and
+  permissions. Read it to find the right command or its bang/slash surface.
+- Per-command **help text lives in the docstrings** in `bot/cogs/*.py` and is what
+  `!help <command>` shows in Discord. House style: a one-line summary, then
+  `Usage:` / `Example:` lines, then aliases/permissions. The `!` prefix is hard-coded in
+  examples (discord.py's default help does **not** substitute a `{prefix}` placeholder).
+- **Keep both in sync with the code.** When you add, remove, rename, or change a command's
+  arguments or permissions, update (a) its docstring and (b) the row in `docs/commands.md`;
+  for hybrid/slash commands keep the `description=` consistent with the summary (≤100 chars).
+
 ## Deployment & infrastructure
 
 - **`docs/dashboard.md` is the authoritative deploy/infra reference** for the SPA +
