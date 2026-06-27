@@ -162,8 +162,7 @@ def test_forum_meta_thread_classifies_as_group_type_not_puzzle():
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 (1A): Group general-channel group type + service-owned welcomes.
-# These FAIL until Phase 2 implements the Group path in create_tag_group.
+# Group general-channel group type + service-owned welcomes.
 # ---------------------------------------------------------------------------
 
 

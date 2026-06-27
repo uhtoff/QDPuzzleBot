@@ -1501,8 +1501,8 @@ async def create_meta(uid):
         return jsonify({"error": "empty_name"}), 400
 
     group_type = (body.get("type") or "Metapuzzle").strip()
-    from bot.core.puzzle_service import TYPE_DEFAULTS
-    if group_type not in TYPE_DEFAULTS:
+    from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPE_INPUT_ALIASES
+    if group_type not in TYPE_DEFAULTS and group_type not in GROUP_TYPE_INPUT_ALIASES:
         return jsonify({"error": "bad_type"}), 400
 
     from bot.store import HuntJsonDb
@@ -1523,15 +1523,16 @@ async def create_meta(uid):
             meta_puzzle_name = name + " - meta"
         else:
             meta_puzzle_name = name
+        stored_type = GROUP_TYPE_INPUT_ALIASES.get(group_type, group_type)
         new_round, puzzle = await cog.service.create_tag_group(
             guild, hunt_obj, name,
             notifier=DiscordNotifier(bot),
             meta_puzzle_name=meta_puzzle_name,
-            round_type=group_type,
+            round_type=stored_type,
         )
         # Runaround groups aggregate over their subtree, not just direct feeders;
         # set source_mode like the bang path does after creation.
-        if group_type == "Runaround":
+        if stored_type == "Runaround":
             await cog.service.set_source_mode(hunt_obj, new_round, "subtree")
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400

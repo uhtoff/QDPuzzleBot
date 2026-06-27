@@ -121,12 +121,12 @@ async def test_create_meta_capstone_type(web):
 
 
 @pytest.mark.asyncio
-async def test_create_meta_round_type_adds_meta_suffix(web):
-    # A Round's target puzzle is named "<name> - meta", mirroring the bang path.
+async def test_create_meta_round_alias_stores_metapuzzle_with_suffix(web):
+    # "Round" is a create-time alias: stored as Metapuzzle, meta named "<name> - meta".
     resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Round"})
     assert resp.status_code == 200
     kwargs = web.svc.create_tag_group.call_args.kwargs
-    assert kwargs.get("round_type") == "Round"
+    assert kwargs.get("round_type") == "Metapuzzle"
     assert kwargs.get("meta_puzzle_name") == "Foo - meta"
 
 
