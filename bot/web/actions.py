@@ -157,7 +157,7 @@ async def add_note(puzzle_id):
         attribution = f"{_display_name(current_user())} (web)"
         await cog.service.add_note(hunt_obj, puzzle, text, attribution)
         await _audit("note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        # board push is emitted by the service (notifier.board_changed)
         return jsonify({"notes": puzzle.notes})
 
 
@@ -182,7 +182,7 @@ async def erase_note(puzzle_id, index):
         if not erased:
             return jsonify({"error": "bad_index", "notes": puzzle.notes}), 400
         await _audit("erase_note", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+        # board push is emitted by the service (notifier.board_changed)
         return jsonify({"notes": puzzle.notes})
 
 
@@ -226,7 +226,7 @@ async def update_puzzle(puzzle_id):
 
         if changed:
             await _audit("update_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-            _notify_board(ctx["hunt"]["uid"], ctx.get("guild_snowflake"))
+            # board push is emitted by the service (notifier.board_changed)
             if cog is not None:
                 snowflake = ctx["guild_snowflake"]
                 guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
@@ -490,7 +490,7 @@ async def make_minimeta_puzzle(puzzle_id):
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
-        cog.service.make_minimeta(puzzle)
+        await cog.service.make_minimeta(puzzle)
         await _audit("make_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))

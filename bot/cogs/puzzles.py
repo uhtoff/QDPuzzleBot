@@ -1077,7 +1077,7 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
-        self.service.make_minimeta(puzzle)
+        await self.service.make_minimeta(puzzle)
         await ctx.send(f":white_check_mark: **{puzzle.name}** is now a minimeta cluster. Use `!add_mini` to add mini-puzzles.")
 
     @commands.command()

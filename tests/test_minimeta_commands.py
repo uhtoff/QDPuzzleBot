@@ -20,7 +20,7 @@ class TestMakeMiniMeta:
         puzzle = make_puzzle(id=1)
         cog = make_cog(puzzle)
         ctx = make_ctx()
-        cog.service.make_minimeta = MagicMock()
+        cog.service.make_minimeta = AsyncMock()
 
         await Puzzles.make_minimeta.callback(cog, ctx)
 
