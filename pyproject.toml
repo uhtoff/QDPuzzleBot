@@ -3,8 +3,6 @@
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false
 
-[tool.ruff]
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+# Ruff config lives in ruff.toml (the single source of truth). When a ruff.toml
+# is present Ruff reads it and ignores any [tool.ruff] table here, so keeping
+# settings in both places is misleading — see ruff.toml for the active rules.

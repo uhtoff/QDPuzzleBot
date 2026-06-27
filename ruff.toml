@@ -3,6 +3,7 @@
 # malformed f-strings). The broader style rules (E/W/UP/…) are intentionally NOT
 # enabled yet to keep the first adoption diff reviewable; widen later if desired.
 target-version = "py313"
+line-length = 100
 
 [lint]
 select = ["F"]
