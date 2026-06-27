@@ -302,18 +302,57 @@ passes; full suite green. Commit.
 
 ## Phase 6 — defensive audit + manual smoke (Sonnet)
 
-No new automated test is required up front; this is verification + narrow fixes.
-1. `bot/core/notifier.py` ~:140, ~:242: change `guild.get_channel(puzzle.channel_id)` to
-   `guild.get_channel_or_thread(puzzle.channel_id)` (forum puzzles are threads).
-2. Audit `bot/cogs/puzzles.py` `ctx.channel.category` accesses (~:147, 153, 168, 204, 367, 377,
-   392). **Confirm against discord.py 2.7.1** whether `Thread.category` is safe (it may proxy the
-   parent's category). Only add a `isinstance(ctx.channel, discord.Thread)` guard where a real
-   break/wrong-behaviour is confirmed; if an access is already safe, leave it and note why. If you
-   confirm a break, add a focused test for it before fixing.
-3. Apply migration locally (`pipenv run python migrate.py migrate`), then manually smoke a
+No new automated test is required up front; this is verification + narrow fixes. **First confirm
+the key fact** (step 0), because it determines which accesses break and which don't.
+
+**Step 0 — the `Thread.category` rule (confirm against discord.py 2.7.1 before touching anything).**
+A forum post is a `discord.Thread`; `Thread.category` proxies to the **parent channel's** category.
+Because forum mode puts each round-forum *under the single hunt category*, a puzzle thread's
+`.category` resolves to the **hunt** category — NOT the round. So:
+- Accesses that want the **hunt** category/id → keep working unchanged (thread proxies up). Likely **FINE**.
+- Accesses that want the **round / tag_group** identity → **BREAK**: they get the hunt category, whose
+  id ≠ `tag_group.category_id` (which holds the *forum* id in forum mode). For a thread, the correct
+  resolution is `ctx.channel.parent` (the forum, whose `.id == tag_group.category_id`).
+- Accesses about **category capacity** (the 50-channel cap) → **N/A** in forum mode (threads are
+  uncapped); guard to skip.
+
+1. **`bot/core/notifier.py` ~:140, ~:242** — `guild.get_channel(...)` → `guild.get_channel_or_thread(...)`
+   (forum puzzles are threads). **BREAKS** otherwise (returns None for a thread id).
+
+2. **Central seam — tag_group/channel_type resolution.** The per-message `environment` cache read by
+   `get_tag_group(ctx)` (:250) and `get_channel_type(ctx)` (:236) is **populated** upstream by the
+   `ctx.channel.category` → `TagGroupJsonDb.get_by_attr(category_id=...)` lookup at **~:147, 153, 168**.
+   Make that population forum-aware: for a `Thread`, key the lookup on `ctx.channel.parent.id` (the
+   forum) instead of `ctx.channel.category.id`. Fixing it here repairs every consumer at once. Do the
+   same in `_tag_group_for_channel` (:744) which has the same `channel.category.id` lookup.
+
+3. **Per-command audit of the remaining direct accesses** — decide each by the Step-0 rule, and
+   where a command can't work in forum mode for v1, add an explicit `isinstance(ctx.channel,
+   discord.Thread)` guard that returns a clear "not available for forum hunts yet" message rather
+   than misbehaving silently:
+   - **:204** `channel.category.id` → wants the **hunt** id; thread proxies to hunt category → likely
+     **FINE**, but verify it's not a round lookup.
+   - **:367, 377, 392** category-fullness warnings → **N/A** in forum mode; skip these branches when
+     `Thread` (no 50-cap to warn about).
+   - **:1164** `meta_category = ctx.channel.category` then `get_by_attr(category_id=meta_category.id)`
+     → wants the **round** → **BREAKS**; resolve via `ctx.channel.parent` for threads (or guard).
+   - **:2148** `send_not_puzzle_channel` solved-name check → degraded (won't match) → guard or make
+     forum-aware (low severity).
+   - **:2644, 2672** `archive_round` (`category = ctx.channel.category`; `category.channels`) →
+     fundamentally category-shaped → **BREAKS** for forum rounds. v1: guard with a clear
+     "archive_round isn't supported for forum hunts yet" message; true forum archive is follow-up.
+   - **:2709** cosmetic `round_name = channel.category` fallback → low; prefer `get_tag_group` name.
+   - **:2781** `archive_solved_manually` `hunt_id = ctx.channel.category.id` → wants the **hunt** id →
+     likely **FINE** (thread proxies up); verify.
+
+   For any access you confirm **BREAKS**, add a focused test before fixing (mock `ctx.channel` as a
+   `MagicMock(spec=discord.Thread)` with `.parent.id` set).
+
+4. Apply migration locally (`pipenv run python migrate.py migrate`), then manually smoke a
    `layout_mode='forum'` hunt: create round → create puzzle → solve → unsolve → delete round, and
-   confirm the dashboard board reflects it.
-**Acceptance:** full suite green; manual smoke notes pasted into your report. Commit.
+   confirm the dashboard board reflects it. Note which bang commands you guarded vs. made forum-aware.
+**Acceptance:** full suite green; manual smoke notes + the guarded/forum-aware command list pasted
+into your report. Commit.
 
 ## Verification
 - Per phase: the named filter run passes + full suite green (wrapped in `timeout`, output to file).
