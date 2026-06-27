@@ -508,8 +508,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       }
       const names = currentMetas.map((r) => r.name).join(", ");
       setDragConfirm({
-        title: "Remove from all metas",
-        message: `Remove "${p.name}" from all metas: ${names}?`,
+        title: "Remove from all groups",
+        message: `Remove "${p.name}" from all groups: ${names}?`,
         puzzleId,
         groupCode: "",
         mode: "clear",
