@@ -461,13 +461,22 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, forum]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
-        Add `, Team A` to gate the hunt behind a role. Run in the bot channel.
+        Add `, Team A` to gate the hunt behind a role. Append `, forum` to use a
+        forum-backed layout (a forum channel per round). Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
             return
+
+        # Optional trailing ", forum" token selects the forum-backed layout. Strip it
+        # first so the existing name:url[, role] parsing below is unaffected.
+        layout_mode = "channel"
+        stripped = arg.rstrip()
+        if stripped.lower().endswith(", forum"):
+            arg = stripped[: -len(", forum")]
+            layout_mode = "forum"
 
         role = None
         if ", " in arg:
@@ -476,14 +485,15 @@ class Puzzles(commands.Cog):
             hunt_name, hunt_url = arg.split(":", 1)
             if HuntJsonDb.check_duplicates(hunt_name):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
-            await self.create_hunt(ctx, hunt_name, hunt_url, role)
+            await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode)
             return await ctx.send(
                 f":white_check_mark: I've created a new hunt category and channel for {hunt_name}"
             )
 
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
-    async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None):
+    async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
+                          layout_mode: str = "channel"):
         if await self.check_available_space(ctx, 5, 2) is False:
             return await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
 
@@ -494,6 +504,7 @@ class Puzzles(commands.Cog):
             url=hunt_url,
             start_timestamp=0,
             role_name=role_name,
+            layout_mode=layout_mode,
             guild_id=settings.id if settings else 0,
         )
 

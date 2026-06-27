@@ -628,7 +628,8 @@ async def require_admin(guild_snowflake):
 # --- Hunt create / delete (admin only) ------------------------------------
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
-_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_archive_sheet"}
+_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_archive_sheet",
+                         "layout_mode"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -643,6 +644,8 @@ async def create_hunt():
     extra = set(body.keys()) - _CREATE_HUNT_REQUIRED - _CREATE_HUNT_OPTIONAL
     if extra:
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+    if body.get("layout_mode", "channel") not in ("channel", "forum"):
+        return jsonify({"error": "bad_layout_mode"}), 400
 
     guild_id = body["guild_id"]
     guilds_map = await data.get_guilds_map()

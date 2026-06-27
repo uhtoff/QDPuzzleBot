@@ -25,7 +25,7 @@ disagree, **the code is the source of truth** — fix both.
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!hunt` | `!h` | `name:url[, role]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility. |
+| `!hunt` | `!h` | `name:url[, role][, forum]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility; append `, forum` for forum-backed layout (a forum channel per round). |
 | `!set_to_archive` *(slash)* | | — | Hunt channel | admins/mods | Use a second spreadsheet to hold solved puzzles. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |

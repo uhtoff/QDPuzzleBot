@@ -541,6 +541,7 @@ export interface CreateHuntPayload {
   username?: string;
   password?: string;
   create_archive_sheet?: boolean;
+  layout_mode?: "channel" | "forum";
 }
 
 export function useCreateHunt() {

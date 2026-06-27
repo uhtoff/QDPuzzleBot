@@ -13,6 +13,7 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -62,6 +63,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [createArchiveSheet, setCreateArchiveSheet] = useState(false);
+  const [forumLayout, setForumLayout] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const guildOptions = (guilds ?? []).map((g) => ({
@@ -82,6 +84,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (username.trim()) payload.username = username.trim();
     if (password.trim()) payload.password = password.trim();
     if (createArchiveSheet) payload.create_archive_sheet = true;
+    if (forumLayout) payload.layout_mode = "forum";
 
     createMut.mutate(payload, {
       onSuccess: (data) => {
@@ -155,6 +158,12 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
               label="Shared password"
               value={password}
               onChange={(e) => setPassword(e.currentTarget.value)}
+            />
+            <Switch
+              label="Forum-backed layout"
+              description="Use a forum channel per round (each puzzle is a post) instead of a category per round. Fixed at creation."
+              checked={forumLayout}
+              onChange={(e) => setForumLayout(e.currentTarget.checked)}
             />
           </Stack>
         </Collapse>

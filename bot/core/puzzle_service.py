@@ -1738,12 +1738,20 @@ class PuzzleService:
 
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
-                          create_archive_sheet=False, guild_id=0):
+                          create_archive_sheet=False, layout_mode="channel",
+                          guild_id=0):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
-        Raises RuntimeError("hunt_exists") if the name is already taken.
+        ``layout_mode`` is fixed at creation: "channel" (default) clones a
+        category per round; "forum" creates a forum channel per round. It cannot
+        be changed once the hunt has rounds, so it is set here only.
+
+        Raises RuntimeError("hunt_exists") if the name is already taken, or
+        RuntimeError("bad_layout_mode") for an unrecognised ``layout_mode``.
         Returns the committed HuntData.
         """
+        if layout_mode not in ("channel", "forum"):
+            raise RuntimeError("bad_layout_mode")
         if HuntJsonDb.check_duplicates(name):
             raise RuntimeError("hunt_exists")
 
@@ -1789,6 +1797,7 @@ class PuzzleService:
             url=url,
             uid=HuntJsonDb.generate_uid('uid'),
         )
+        new_hunt.layout_mode = layout_mode
         new_hunt.start_timestamp = start_timestamp
         new_hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
         if username:
