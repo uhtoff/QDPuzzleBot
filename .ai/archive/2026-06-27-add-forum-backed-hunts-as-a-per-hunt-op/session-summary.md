@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-27
-Status: ready for handoff — test(forum): failing tests for forum-backed hunt option @ a2911eb
+Status: in progress — test(forum): drop unused rdb patch binding (F841) @ ba1a8f9
 
 ## Goal
 
