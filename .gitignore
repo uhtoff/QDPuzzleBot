@@ -153,3 +153,4 @@ cardboard*.json
 
 # Pi agent scratch/continue state
 .pi/
+.pi-lsp.json
