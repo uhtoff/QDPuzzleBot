@@ -2297,7 +2297,7 @@ class Puzzles(commands.Cog):
             return
         await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if priority else None)
 
-    @commands.command(aliases=["notes"])
+    @commands.hybrid_command(aliases=["notes"], description="Show this puzzle's notes, or add a note if you pass text")
     @with_puzzle_mutex(wait=True)
     async def note(self, ctx, *, note: Optional[str]):
         """*Show this puzzle's notes, or add a note if you pass text.*
@@ -2313,7 +2313,10 @@ class Puzzles(commands.Cog):
         message = "Showing notes left by users!"
         if note:
             hunt = self.get_hunt(ctx)
-            await self.service.add_note(hunt, self.get_puzzle(ctx), note, ctx.message.jump_url)
+            # Slash invocations have no ctx.message (so no jump_url); attribute to the
+            # author's display name instead, matching the web surface's attribution style.
+            attribution = ctx.message.jump_url if ctx.message else ctx.author.display_name
+            await self.service.add_note(hunt, self.get_puzzle(ctx), note, attribution)
             message = (
                 f"Added a new note! Use `!erase_note {len(self.get_puzzle(ctx).notes)}` to remove the note if needed. "
                 f"Check `!notes` for the current list of notes."
@@ -2340,7 +2343,7 @@ class Puzzles(commands.Cog):
             embed = discord.Embed(description="No notes left yet, use `!note my note here` to leave a note")
             await ctx.send(embed=embed)
 
-    @commands.command(aliases=["delete_note"])
+    @commands.hybrid_command(aliases=["delete_note"], description="Remove one of this puzzle's notes by its number")
     @with_puzzle_mutex(wait=True)
     async def erase_note(self, ctx, note_index: int):
         """*Remove one of this puzzle's notes by its number.*

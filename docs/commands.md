@@ -130,8 +130,8 @@ Run in a puzzle channel.
 
 | Command | Aliases | Arguments | Does |
 |---|---|---|---|
-| `!note` | `!notes` | `[text]` | Show notes, or add one if text is given. |
-| `!erase_note` | `!delete_note` | `note_index` | Remove a note by number (from `!notes`). |
+| `!note` *(slash)* | `!notes` | `[text]` | Show notes, or add one if text is given. |
+| `!erase_note` *(slash)* | `!delete_note` | `note_index` | Remove a note by number (from `!notes`). |
 | `!clue` *(slash)* | | `text` | Log a freeform clue to the evidence sheet. |
 | `!clues` *(slash)* | | `item ... "multi word" ...` | Log several clues at once (quote those with spaces). |
 
