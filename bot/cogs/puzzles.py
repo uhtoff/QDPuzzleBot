@@ -211,10 +211,15 @@ class Puzzles(commands.Cog):
             interaction: discord.Interaction,
             current: str,
     ) -> list[app_commands.Choice[str]]:
-        # Pull valid rounds/metas from DB
+        # Pull valid rounds/metas from DB. Resolve the owning group through the
+        # shared fallback (_tag_group_for_channel handles overflow/solved categories
+        # via the join table, forum threads, and null-category contexts); return []
+        # when the context can't be resolved so the autocomplete never raises.
         channel = interaction.channel
-        hunt_id = TagGroupJsonDb.get_by_attr(category_id = channel.category.id).hunt_id
-        rounds = TagGroupJsonDb.get_all(hunt_id)
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is None:
+            return []
+        rounds = TagGroupJsonDb.get_all(tag_group.hunt_id)
         rounds_sorted = sorted(
             rounds,
             key=lambda r: (
