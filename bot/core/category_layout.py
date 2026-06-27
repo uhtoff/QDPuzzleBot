@@ -48,6 +48,23 @@ def _category_by_id(guild, category_id):
     return discord.utils.get(guild.categories, id=category_id) if category_id else None
 
 
+def primary_category(guild, tag_group):
+    """Resolve *tag_group*'s primary Discord **category**, or ``None``.
+
+    ``tag_group.category_id`` is the group's *home container* id, but the kind of
+    Discord object it points at varies by how the group was created (see
+    :class:`~bot.store.tag_group_data.TagGroupData.category_id`): a real category
+    for a normal channel-layout round/meta, but a forum channel, a group's text
+    channel, or an in-place-converted puzzle channel otherwise.
+
+    This resolves the *primary category* sense: only groups whose home actually
+    *is* a category resolve to one; the other kinds (whose home is some other
+    channel) return ``None``. Use this when you need a category to place/move
+    channels into; read ``tag_group.category_id`` directly for the raw home id.
+    """
+    return _category_by_id(guild, tag_group.category_id)
+
+
 def base_name(guild, tag_group):
     """The group's primary (unsolved seq=0) category name; fall back to the
     cleaned group name if the category has gone missing."""

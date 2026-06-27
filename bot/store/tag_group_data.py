@@ -20,7 +20,17 @@ class TagGroupData:
     name: str = ""
     id: int = 0
     hunt_id: int = 0
-    category_id: int = 0  # tag_group = category channel (nullable in DB for channel-less groups; M7)
+    # The group's "home container" id in Discord — but WHICH kind of object it
+    # points at depends on how the group was created:
+    #   * normal round / meta (channel layout) -> a Discord CATEGORY id
+    #   * forum-layout puzzle                  -> a FORUM CHANNEL id
+    #   * metaless Group                       -> its forum/text channel or category id
+    #   * in-place-converted puzzle            -> the puzzle's own TEXT CHANNEL id
+    # So this is a "group home", not always a category. To resolve it as a Discord
+    # category (for channel placement/moves), use
+    # category_layout.primary_category(guild, tag_group) — it returns None for the
+    # non-category kinds. (Nullable in DB for channel-less groups; M7.)
+    category_id: int = 0
     target_puzzle_id: int = 0
     group_code: str = "0"  # 6-char handle (the DB column is CHAR(6))
     type: str = ""

@@ -712,7 +712,11 @@ class PuzzleService:
         # Move channel for feeds edges (backward compat with move_to_meta)
         if edge == "feeds" and guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            new_category = discord.utils.get(guild.categories, id=group.category_id)
+            # group.category_id is the group's "home container" id, which is only a
+            # real Discord category for channel-layout groups; primary_category
+            # resolves it as a category (None for forum/group/in-place homes — the
+            # move is then skipped, as before).
+            new_category = category_layout.primary_category(guild, group)
             if channel is not None and new_category is not None and channel.category_id != new_category.id:
                 # Position: unsolved above divider, solved below divider, target at position 0
                 from bot.core.discord_channels import solve_divider_position
