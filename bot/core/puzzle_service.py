@@ -25,7 +25,7 @@ from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
-    clean_name, get_or_create_channel, solve_divider_position,
+    clean_name, get_or_create_channel, solve_divider_position, create_forum_post,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
@@ -1487,21 +1487,28 @@ class PuzzleService:
             raise RuntimeError("no_template_category")
 
         new_category = None
+        forum_channel = None
         new_round = None
         puzzle = None
         try:
-            new_category = await ref_category.clone(name=new_category_name)
-            await new_category.edit(position=ref_category.position + 1)
-            from bot.core.discord_channels import SOLVE_DIVIDER, SOLVE_CATEGORY
-            if SOLVE_CATEGORY is False:
-                await get_or_create_channel(
-                    guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
-                    channel_type="text", position=500,
+            # --- Forum vs channel layout ---
+            if hunt.layout_mode == "forum":
+                forum_channel = await guild.create_forum(
+                    name=new_category_name, category=ref_category,
                 )
+            else:
+                new_category = await ref_category.clone(name=new_category_name)
+                await new_category.edit(position=ref_category.position + 1)
+                if SOLVE_CATEGORY is False:
+                    await get_or_create_channel(
+                        guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
+                        channel_type="text", position=500,
+                    )
 
+            parent_id = forum_channel.id if hunt.layout_mode == "forum" else new_category.id
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
-                category_id=new_category.id,
+                category_id=parent_id,
                 type=round_type,
             )
             TagGroupJsonDb.commit(new_round)
@@ -1535,6 +1542,11 @@ class PuzzleService:
                     await new_category.delete(reason="create_round rollback")
                 except Exception:
                     logger.exception("create_round: rollback of orphan category failed")
+            if forum_channel is not None:
+                try:
+                    await forum_channel.delete(reason="create_round rollback")
+                except Exception:
+                    logger.exception("create_round: rollback of orphan forum failed")
             raise
 
     def _sole_informs_target(self, puzzle):
