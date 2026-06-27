@@ -69,6 +69,9 @@ verbs **feeds / informs** for the edges so the noun doesn't collide.
   deferred renames, FK cascades, etc.).
 - For substantial tasks, durable handoff state lives under `.ai/active/` (see global
   instructions); treat `.ai/active/current-spec.md` as authoritative when present.
+- **Handoff model tiers** (used by the `handoff` skill's phase/model split): Phase 1
+  (write all failing tests — test *design*) runs on **Opus 4.8**; Phase 2+ (mechanical
+  implementation) runs on **Sonnet 4.6**. Use this split unless a handoff says otherwise.
 - **Source plans / brainstorm outputs live outside the repo** under
   `~/.claude/plans/*.md` (e.g. the M7 source plan
   `can-we-plan-m7-sparkling-newell.md`). They are *background only* — the in-repo
