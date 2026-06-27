@@ -2013,7 +2013,7 @@ class Puzzles(commands.Cog):
                         name="Metapuzzle commands",
                         value="""
         • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be separated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
         • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
         • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
         """,
@@ -2144,7 +2144,7 @@ class Puzzles(commands.Cog):
         puzzle = kwargs.get("puzzle", self.get_puzzle(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
         embed = discord.Embed(
-            description=f"""Welcome to the puzzle channel for {puzzle.name} in Test!"""
+            description=f"""Welcome to the puzzle channel for {puzzle.name} in {hunt.name}!"""
         )
         embed.add_field(
             name="Overview",
@@ -2156,7 +2156,7 @@ class Puzzles(commands.Cog):
                         value="""
                 • `!p <puzzle-name>` will add a puzzle to this round/meta puzzle.
                 • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-                • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be seperated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
+                • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be separated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
                 • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
                 • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
                 """,

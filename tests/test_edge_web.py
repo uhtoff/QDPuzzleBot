@@ -149,9 +149,9 @@ async def test_create_meta_runaround_sets_subtree_source_mode(web):
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 (1C): Group type + service-owned welcomes. These FAIL until Phase 2
-# wires the route to pass meta_puzzle_name=False for Group and a real notifier
-# for every type (the manual welcome block is deleted).
+# Group type + service-owned welcomes: the route passes meta_puzzle_name=False
+# for Group and a real notifier for every type (the manual welcome block is
+# deleted).
 # ---------------------------------------------------------------------------
 
 
