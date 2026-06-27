@@ -134,29 +134,24 @@ class TestLogClues:
 
 
 class TestRefreshEvidence:
-    """PuzzleService.refresh_evidence — sheet tab, lazy create, aggregate_to_tab."""
+    """PuzzleService.refresh_evidence — native Table via ensure_evidence_table +
+    reconcile_table, lazy tab/table create, hidden id key column."""
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    async def test_creates_tab_lazily_when_none(self, EvidenceDb, PuzzleDb, HuntDb):
+    async def test_creates_tab_and_table_lazily(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         hunt = make_hunt()
         hunt.evidence_sheet_page_id = None
+        hunt.evidence_table_id = None
 
-        item = MagicMock()
-        item.source_puzzle_id = 5
-        item.target_puzzle_id = None
-        item.note = "a clue"
-        item.created_at = datetime.datetime(2026, 6, 23, 12, 0)
-        EvidenceDb.get_all.return_value = [item]
-        PuzzleDb.get_by_attr.return_value = make_puzzle(id=5, name="Feeder Five")
+        EvidenceDb.get_all.return_value = []
 
         gsheet = MagicMock()
-        async def fake_create_blank_tab(spreadsheet_id, name):
-            return 42
-        gsheet.create_blank_tab = fake_create_blank_tab
-        gsheet.aggregate_to_tab = AsyncMock()
+        gsheet.create_blank_tab = AsyncMock(return_value=42)
+        gsheet.ensure_evidence_table = AsyncMock(return_value=7)
+        gsheet.reconcile_table = AsyncMock()
 
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
@@ -165,22 +160,26 @@ class TestRefreshEvidence:
         await svc.refresh_evidence(hunt)
 
         assert hunt.evidence_sheet_page_id == 42
+        assert hunt.evidence_table_id == 7
+        gsheet.ensure_evidence_table.assert_awaited_once_with(42)
         HuntDb.commit.assert_called_once_with(hunt)
-        gsheet.aggregate_to_tab.assert_called_once()
+        gsheet.reconcile_table.assert_awaited_once()
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    async def test_skips_tab_create_when_already_set(self, EvidenceDb, PuzzleDb, HuntDb):
+    async def test_skips_create_when_already_set(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         hunt = make_hunt()
-        hunt.evidence_sheet_page_id = 99  # already exists
+        hunt.evidence_sheet_page_id = 99  # tab already exists
+        hunt.evidence_table_id = 7        # table already exists
 
         EvidenceDb.get_all.return_value = []
 
         gsheet = MagicMock()
         gsheet.create_blank_tab = AsyncMock()
-        gsheet.aggregate_to_tab = AsyncMock()
+        gsheet.ensure_evidence_table = AsyncMock()
+        gsheet.reconcile_table = AsyncMock()
 
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
@@ -189,33 +188,48 @@ class TestRefreshEvidence:
         await svc.refresh_evidence(hunt)
 
         gsheet.create_blank_tab.assert_not_called()
+        gsheet.ensure_evidence_table.assert_not_called()
         HuntDb.commit.assert_not_called()
-        gsheet.aggregate_to_tab.assert_called_once()
+        gsheet.reconcile_table.assert_awaited_once()
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    async def test_aggregate_to_tab_receives_correct_columns(self, EvidenceDb, PuzzleDb, HuntDb):
+    async def test_reconcile_rows_lead_with_id_and_resolved_names(self, EvidenceDb, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         hunt = make_hunt()
         hunt.evidence_sheet_page_id = 99
+        hunt.evidence_table_id = 7
 
-        EvidenceDb.get_all.return_value = []
+        item = MagicMock()
+        item.id = 5
+        item.source_puzzle_id = 1
+        item.target_puzzle_id = 2
+        item.note = "a clue"
+        item.created_at = datetime.datetime(2026, 6, 23, 12, 0)
+        EvidenceDb.get_all.return_value = [item]
+        PuzzleDb.get_by_attr.side_effect = lambda id: {
+            1: make_puzzle(id=1, name="Feeder One"),
+            2: make_puzzle(id=2, name="Meta Two"),
+        }[id]
 
         gsheet = MagicMock()
-        gsheet.aggregate_to_tab = AsyncMock()
-
+        gsheet.reconcile_table = AsyncMock()
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
         svc = PuzzleService(bot)
 
         await svc.refresh_evidence(hunt)
 
-        cols = gsheet.aggregate_to_tab.call_args[0][2]
-        assert "Source Puzzle" in cols
-        assert "Note" in cols
-        assert "Target Puzzle" in cols
-        assert "Logged At" in cols
+        kwargs = gsheet.reconcile_table.call_args.kwargs
+        assert kwargs["page_id"] == 99
+        # 5 bot-owned columns: id, Source Puzzle, Note, Target Puzzle, Logged At.
+        assert kwargs["data_col_count"] == 5
+        # Row leads with the hidden evidence id (the unique reconcile key) then the
+        # resolved source/target puzzle names.
+        assert kwargs["desired_rows"] == [
+            [5, "Feeder One", "a clue", "Meta Two", "2026-06-23 12:00"]
+        ]
 
     @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")

@@ -1799,19 +1799,41 @@ class PuzzleService:
         return items
 
     async def refresh_evidence(self, hunt):
-        """Render the Evidence sheet tab. Creates the tab lazily on first call."""
+        """Render the Evidence sheet tab as a native Table (mirrors Unassigned
+        Feeders). Lazily creates the tab + Table, pins the tab just after Unassigned
+        Feeders, and reconciles rows keyed on the hidden evidence id.
+        """
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return
+
+        # Lazy-create the tab + native Table. ensure_evidence_table pins the tab to
+        # index 1 (after Unassigned Feeders), writes the header and wraps it in a
+        # Table, and returns the table id to persist on the hunt.
+        dirty = False
         if hunt.evidence_sheet_page_id is None:
             page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, "Evidence")
             hunt.evidence_sheet_page_id = page_id
+            dirty = True
+
+        if hunt.evidence_table_id is None:
+            table_id = await gsheet_cog.ensure_evidence_table(hunt.evidence_sheet_page_id)
+            hunt.evidence_table_id = table_id
+            dirty = True
+
+        if dirty:
             HuntJsonDb.commit(hunt)
+
+        # Reconcile the native Table against the full desired set. The hidden id
+        # column (col A) is the reconcile key — evidence item ids are unique, unlike
+        # the Source Puzzle name. Columns: id, Source Puzzle, Note, Target Puzzle,
+        # Logged At.
         items = EvidenceJsonDb.get_all(hunt.id)
         puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
         names = resolve_puzzle_names(puzzle_ids)
         rows = [
             [
+                i.id,
                 names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}"),
                 i.note,
                 names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
@@ -1819,11 +1841,10 @@ class PuzzleService:
             ]
             for i in items
         ]
-        await gsheet_cog.aggregate_to_tab(
-            hunt.google_sheet_id,
-            hunt.evidence_sheet_page_id,
-            ["Source Puzzle", "Note", "Target Puzzle", "Logged At"],
-            rows,
+        await gsheet_cog.reconcile_table(
+            page_id=hunt.evidence_sheet_page_id,
+            desired_rows=rows,
+            data_col_count=5,
         )
 
     async def refresh_informs_targets(self, hunt, puzzle):
