@@ -52,8 +52,13 @@ Both bang/slash and web routes must produce the same result (web/bang parity pri
 
 ## Out of scope
 
-- Membership/move semantics. Forum-mode group membership stays tag-based (Discord cannot
-  reparent a thread into another channel); `!move_to_*` behaviour is unchanged.
+- Membership/move semantics. Forum-mode group membership stays tag-based (DB `tags`
+  table); `!move_to_*` behaviour is unchanged. The Discord API cannot reparent a thread
+  into another channel. **Copy-and-delete is rejected** as a "move": recreating the thread
+  in a target forum loses message history, changes the thread id (breaking the stored
+  `channel_id`, pins, and links), and re-attributes authorship to the bot. So in forum
+  mode a puzzle's *home* thread never moves — group membership is logical/tag-based only,
+  which is exactly what the Phase 3 forum tags surface visually.
 - Renaming/removing the `!roundnometa` / `!rnm` aliases (kept, just repointed to Group).
 - Any change to the meta/round/capstone welcome wording beyond the plain-text render.
 
@@ -75,6 +80,20 @@ Both bang/slash and web routes must produce the same result (web/bang parity pri
   forum-mode deletes the lone text channel referenced by `category_id` (it is a channel,
   not a category — reuse the existing forum `get_channel(...).delete()` shape).
 
+### Welcome posting — single source of truth (the service)
+The service becomes the **only** place welcomes are posted, for every type
+(meta/round/capstone/group). This removes the web route's manual post-after block and
+fixes a latent ordering bug.
+
+- **Ordering fix:** `create_tag_group` currently generates `new_round.group_code`
+  (`puzzle_service.py:1554`) *after* `create_puzzle` (`:1549`) already fired the meta
+  welcome — so the bang meta welcome renders a **blank** `group_code` (the welcome copy
+  embeds `{tag_group.group_code}`). Move `group_code` generation to *before* the
+  `create_meta` block so the service-posted welcome always has it. (`target_puzzle_id`
+  is not needed by the welcome handler, so it can still be set after `create_puzzle`.)
+- After the fix, `create_puzzle` keeps posting the meta welcome (gated on `notifier`),
+  now with a populated `group_code`; the Group path posts the group welcome the same way.
+
 ### Notifier — `welcome` (`bot/core/notifier.py`)
 - Current handler choice keys off `puzzle.is_target`. Add a no-puzzle branch: when
   `puzzle is None` and `tag_group` is a Group → `send_initial_group_channel_messages`.
@@ -94,10 +113,12 @@ Both bang/slash and web routes must produce the same result (web/bang parity pri
   `("Group", False, None)`.
 
 ### Web — `create_meta` (`bot/web/actions.py`)
-- For `group_type == "Group"`: pass `meta_puzzle_name=False` (no meta) and a real
-  `notifier` so the service posts the group welcome. The existing manual-welcome block is
-  guarded by a resolved `puzzle.channel_id`, so it is naturally skipped for Groups.
-- Other types: unchanged (the suffix/runaround parity fix already landed).
+- Pass a real `notifier` to `create_tag_group` for **all** types and **delete the manual
+  post-welcome block** — the service now owns welcome posting (one source of truth).
+- For `group_type == "Group"`: also pass `meta_puzzle_name=False` (no meta); the service
+  posts the group welcome.
+- The suffix/runaround parity fix already landed; this change replaces the
+  `notifier=None` + manual-welcome pattern with `notifier=<DiscordNotifier>`.
 
 ### Tests (Phase 1)
 - `test_forum_layout.py`: Group in forum mode creates a lone text channel (no
