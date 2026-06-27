@@ -1373,18 +1373,24 @@ class PuzzleService:
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
         if round_data is not None:
-            # Round puzzles flow through the multi-category layout: this splits the
-            # round and/or allocates an overflow category as needed, so a single
-            # category never hits the 50 cap.
-            category = await category_layout.pick_unsolved_category(
-                guild, round_data, TagGroupCategoryDb,
-            )
+            if hunt.layout_mode == "forum":
+                # Forum mode: resolve the forum channel from the round's category_id
+                forum_channel = guild.get_channel(round_data.category_id)
+                category = None  # no category layout needed for threads
+            else:
+                # Round puzzles flow through the multi-category layout: this splits the
+                # round and/or allocates an overflow category as needed, so a single
+                # category never hits the 50 cap.
+                category = await category_layout.pick_unsolved_category(
+                    guild, round_data, TagGroupCategoryDb,
+                )
         else:
             category_id = hunt.category_id
             category = discord.utils.get(guild.categories, id=category_id) if category_id else None
 
         # Guild-wide ceiling still applies (overflow can't conjure channel slots).
-        if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
+        # Threads don't count toward the 500 cap.
+        if hunt.layout_mode != "forum" and len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
             raise RuntimeError("guild_full")
         # Hunt category (no round) keeps the simple hard guard.
         if round_data is None and category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
@@ -1415,18 +1421,11 @@ class PuzzleService:
 
         try:
             channel_name = clean_name(new_puzzle.name)
-            text_channel, created = await get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name,
-                channel_type="text",
-            )
-            if created:
-                if category is not None:
-                    divider = solve_divider_position(category)
-                    if divider is not False:
-                        await text_channel.edit(position=divider)
-                new_puzzle.channel_mention = text_channel.mention
-                new_puzzle.channel_id = text_channel.id
-                new_puzzle.channel_name = text_channel.name
+            if hunt.layout_mode == "forum":
+                thread = await create_forum_post(forum_channel, channel_name)
+                new_puzzle.channel_id = thread.id
+                new_puzzle.channel_mention = thread.mention
+                new_puzzle.channel_name = thread.name
                 PuzzleJsonDb.commit(new_puzzle)
                 # Notify (welcome) after channel + DB are committed.
                 if notifier is not None:
@@ -1434,8 +1433,30 @@ class PuzzleService:
                         guild, hunt,
                         tag_group=round_data,
                         puzzle=new_puzzle,
-                        channel=text_channel,
+                        channel=thread,
                     )
+            else:
+                text_channel, created = await get_or_create_channel(
+                    guild=guild, category=category, channel_name=channel_name,
+                    channel_type="text",
+                )
+                if created:
+                    if category is not None:
+                        divider = solve_divider_position(category)
+                        if divider is not False:
+                            await text_channel.edit(position=divider)
+                    new_puzzle.channel_mention = text_channel.mention
+                    new_puzzle.channel_id = text_channel.id
+                    new_puzzle.channel_name = text_channel.name
+                    PuzzleJsonDb.commit(new_puzzle)
+                    # Notify (welcome) after channel + DB are committed.
+                    if notifier is not None:
+                        await notifier.welcome(
+                            guild, hunt,
+                            tag_group=round_data,
+                            puzzle=new_puzzle,
+                            channel=text_channel,
+                        )
         except Exception:
             # Channel create (or post-create work) failed after the sheet + DB row
             # were committed — clean up both so we don't strand an orphan.
