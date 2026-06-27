@@ -396,7 +396,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["h"])
     @commands.has_any_role(*ADMIN_ROLES)
     async def hunt(self, ctx, *, arg):
-        """*(admin) Create a new hunt: !hunt hunt-name:hunt-url"""
+        """*Create a new hunt: its category, general channel and Google sheet.*
+
+        Usage: `!hunt hunt-name:hunt-url[, role-name]`
+        Example: `!hunt mystery-2026:https://hunt.example.com`
+        Add `, Team A` to gate the hunt behind a role. Run in the bot channel.
+        Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
             return
@@ -438,7 +443,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Set the hunt to use a second spreadsheet to hold solved puzzles (admin only)",)
     @commands.has_any_role(*ADMIN_ROLES)
     async def set_to_archive(self, ctx):
-        """*(admin) Set hunt to use a second spreadsheet to hold solved puzzles: !set_to_archive*"""
+        """*Set this hunt to use a second spreadsheet to hold solved puzzles.*
+
+        Usage: `!set_to_archive`
+        Example: `!set_to_archive`
+        Run in the main Hunt channel. Admins/mods only."""
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.send(":x: This command must be done from the main Hunt channel")
             return
@@ -463,7 +472,11 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["p"])
     @with_puzzle_mutex(wait=True)
     async def puzzle(self, ctx, *, arg):
-        """*Create new puzzle channels: !p puzzle-name*
+        """*Create a new puzzle channel and Google sheet in the current round/hunt.*
+
+        Usage: `!puzzle puzzle-name`
+        Example: `!puzzle clueless-crossword`
+        Run in the hunt or round you want the puzzle to belong to. Alias: `!p`
 
         Delegates to PuzzleService.create_puzzle (Phase 5 strangle).
         Bang-edge duplicate check + ctx.send ack stay at this level.
@@ -503,8 +516,13 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Rebuild meta roll-up sheets (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def rebuild(self, ctx):
-        """*(Organiser) Rebuild meta roll-up sheets. In a round/meta channel rebuilds
-        just that round's meta; elsewhere rebuilds every meta in the hunt: !rebuild*"""
+        """*Rebuild meta roll-up sheets from the current puzzle data.*
+
+        In a round/meta channel rebuilds just that round's meta; run anywhere else
+        in the hunt it rebuilds every meta.
+        Usage: `!rebuild`
+        Example: `!rebuild`
+        Organisers/admins only."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
@@ -542,7 +560,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(name="rebuild_unassigned", description="Rebuild the Unassigned Feeders tab (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def rebuild_unassigned(self, ctx, *, show_round: bool = False):
-        """*(Organiser) Reconcile the Unassigned Feeders sheet tab: !rebuild_unassigned [--round]*"""
+        """*Reconcile the hunt's "Unassigned Feeders" sheet tab with current data.*
+
+        Usage: `!rebuild_unassigned [show_round]`
+        Example: `!rebuild_unassigned true`
+        Pass a truthy value (e.g. `true`) to include the round column. Organisers/admins only."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
@@ -614,9 +636,12 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
     @commands.has_any_role(*ORGANISER_ROLES)
     async def reconcile(self, ctx, mode: str = "", scope: str = ""):
-        """*(Organiser) Heal Discord channels + Sheets tabs from the DB.
-        `!reconcile` reports; `!reconcile apply` fixes; `!reconcile apply orphans`
-        also deletes orphans (with confirmation).*"""
+        """*Heal Discord channels and Sheets tabs to match the database.*
+
+        Usage: `!reconcile [apply [orphans]]`
+        Example: `!reconcile` (report only)
+        `!reconcile apply` fixes mismatches; `!reconcile apply orphans` also deletes
+        orphaned channels/tabs (with confirmation). Run in a hunt channel. Organisers/admins only."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
@@ -774,6 +799,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Move the channel to the top of the unsolved section of the category (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_top(self, ctx):
+        """*Move this channel to the top of the category's unsolved section.*
+
+        Usage: `!move_to_top`
+        Example: `!move_to_top`
+        Run in the puzzle channel you want to move. Organisers/admins only."""
         channel = ctx.channel
         if isinstance(channel, discord.Thread):
             # Threads live inside a channel and can't be repositioned within a category.
@@ -786,6 +816,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Move the channel to the bottom of the unsolved section of the category (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_bottom(self, ctx):
+        """*Move this channel to the bottom of the category's unsolved section.*
+
+        Usage: `!move_to_bottom`
+        Example: `!move_to_bottom`
+        Run in the puzzle channel you want to move. Organisers/admins only."""
         channel = ctx.channel
         if isinstance(channel, discord.Thread):
             await ctx.send(":information_source: This is a thread, which can't be repositioned.")
@@ -796,6 +831,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def move_to_solved(self, ctx):
+        """*Move this channel into the category's solved section (mini-puzzle threads are archived).*
+
+        Usage: `!move_to_solved`
+        Example: `!move_to_solved`
+        Run in the puzzle channel you want to move. Organisers/admins only."""
         channel = ctx.channel
         if isinstance(channel, discord.Thread):
             # A mini-puzzle thread can't be repositioned into the solved section;
@@ -813,7 +853,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def list_tags(self, ctx):
-        """*(admin) For troubleshooting only: !list_tags*"""
+        """*List the tag IDs on this puzzle plus all available group tags (troubleshooting).*
+
+        Usage: `!list_tags`
+        Example: `!list_tags`
+        Run in a puzzle channel. Organisers/admins only."""
         puzzle = self.get_puzzle(ctx)
         tag_info = ""
         tags = puzzle.tags.copy()
@@ -842,7 +886,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ORGANISER_ROLES)
     async def add_tag(self, ctx, *, arg):
-        """*(admin) For troubleshooting only: !add_tag tag_id*"""
+        """*Manually add a group tag ID to this puzzle (troubleshooting — prefer !feeds/!informs).*
+
+        Usage: `!add_tag tag_id`
+        Example: `!add_tag 42`
+        Find IDs with `!list_tags`. Run in a puzzle channel. Organisers/admins only."""
         try:
             new_tag = int(arg)
         except ValueError:
@@ -856,7 +904,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def remove_tag(self, ctx, *, arg):
-        """*(admin) For troubleshooting only: !remove_tag tag_id*"""
+        """*Manually remove a group tag ID from this puzzle (troubleshooting — prefer !remove_from).*
+
+        Usage: `!remove_tag tag_id`
+        Example: `!remove_tag 42`
+        Find IDs with `!list_tags`. Run in a puzzle channel. Organisers/admins only."""
         remove_tag = int(arg)
         puzzle = self.get_puzzle(ctx)
         if remove_tag in puzzle.tags:
@@ -866,6 +918,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def add_sheet(self, ctx, *args):
+        """*Add an extra working sheet (tab) to this puzzle.*
+
+        Usage: `!add_sheet sheet-name`
+        Example: `!add_sheet grid attempt 2`
+        Run in a puzzle channel that isn't solved yet. List them with `!list_sheets`."""
         puzzle = self.get_puzzle(ctx)
 
         if puzzle.solved:
@@ -880,7 +937,11 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=['delete_sheet'])
     @with_puzzle_mutex(wait=True)
     async def remove_sheet(self, ctx, number: int):
-        """*Remove an additional sheet by its number (see !list_sheets): !remove_sheet 2*"""
+        """*Remove an additional sheet from this puzzle by its number.*
+
+        Usage: `!remove_sheet number`
+        Example: `!remove_sheet 2`
+        Get the number from `!list_sheets`. Run in a puzzle channel. Alias: `!delete_sheet`."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -893,6 +954,11 @@ class Puzzles(commands.Cog):
 
     @commands.command(aliases=['list_sheets'])
     async def list_additional_sheets(self, ctx):
+        """*List this puzzle's additional sheets with links and their numbers.*
+
+        Usage: `!list_sheets`
+        Example: `!list_sheets`
+        Run in a puzzle channel. Alias: `!list_additional_sheets`. Numbers feed `!remove_sheet`."""
         puzzle = self.get_puzzle(ctx)
         if len(puzzle.additional_sheets) == 0:
             return await ctx.send(':x: No additional sheets found!')
@@ -909,7 +975,11 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     async def make_minimeta(self, ctx):
-        """*Convert this puzzle into a minimeta cluster: !make_minimeta*"""
+        """*Convert this puzzle into a minimeta cluster that holds mini-puzzles.*
+
+        Usage: `!make_minimeta`
+        Example: `!make_minimeta`
+        Run in a puzzle channel, then add minis with `!add_mini`."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -919,7 +989,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def add_mini(self, ctx, *args):
-        """*Add a mini-puzzle (thread + sheet) to this minimeta: !add_mini Name*"""
+        """*Add a mini-puzzle (its own thread + sheet) to this minimeta.*
+
+        Usage: `!add_mini name`
+        Example: `!add_mini hidden word search`
+        Run in the minimeta channel (see `!make_minimeta`)."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -937,7 +1011,11 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     async def list_minis(self, ctx):
-        """*List mini-puzzles for this minimeta: !list_minis*"""
+        """*List the mini-puzzles in this minimeta with their numbers and solve state.*
+
+        Usage: `!list_minis`
+        Example: `!list_minis`
+        Run in the minimeta channel. Numbers feed `!solve_mini` / `!unsolve_mini`."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -975,7 +1053,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def solve_mini(self, ctx, number: int, *args):
-        """*Solve mini-puzzle #N from the minimeta channel: !solve_mini 2 ANSWER*"""
+        """*Record the answer for a numbered mini-puzzle in this minimeta.*
+
+        Usage: `!solve_mini number answer`
+        Example: `!solve_mini 2 BLUE WHALE`
+        Run in the minimeta channel; get the number from `!list_minis`."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -994,7 +1076,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def unsolve_mini(self, ctx, number: int):
-        """*Unsolve mini-puzzle #N from the minimeta channel: !unsolve_mini 2*"""
+        """*Clear the recorded answer for a numbered mini-puzzle in this minimeta.*
+
+        Usage: `!unsolve_mini number`
+        Example: `!unsolve_mini 2`
+        Run in the minimeta channel; get the number from `!list_minis`."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
@@ -1009,7 +1095,11 @@ class Puzzles(commands.Cog):
 
     @commands.command(name="clue")
     async def clue(self, ctx, *, note: str):
-        """*Log a freeform clue from this puzzle channel: !clue "some info"*"""
+        """*Log a freeform clue/observation from this puzzle to the evidence sheet.*
+
+        Usage: `!clue text`
+        Example: `!clue every answer starts with a chemical element`
+        Run in a puzzle channel. For several at once use `!clues`."""
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
         if not note.strip():
@@ -1022,7 +1112,11 @@ class Puzzles(commands.Cog):
 
     @commands.command(name="clues")
     async def clues(self, ctx, *, items: str):
-        """*Batch-log clues: !clues APPLE BANANA "CHERRY BOMB" DURIAN*"""
+        """*Log several clues at once; quote any clue that contains spaces.*
+
+        Usage: `!clues item1 item2 "multi word item" ...`
+        Example: `!clues APPLE BANANA "CHERRY BOMB" DURIAN`
+        Run in a puzzle channel. For a single freeform clue use `!clue`."""
         import shlex
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
@@ -1057,7 +1151,12 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def sync(self, ctx):
-        """*(Organiser only) Sync all puzzles in this category to the group: !sync*"""
+        """*Tag every puzzle in this category to the category's group with its default edge.*
+
+        Usage: `!sync`
+        Example: `!sync`
+        Run in a round/meta/group's main channel. Organisers/admins only.
+        Aliases: `!sync_meta`, `!sync_feeders`, `!sync_round`."""
         if self.get_channel_type(ctx) not in ["Metaless Round", "Metapuzzle", "Round",
                                               "Capstone", "Runaround", "Group"]:
             await ctx.send(":x: This does not appear to be a main group channel")
@@ -1101,7 +1200,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def feeds(self, ctx, meta_code):
-        """*Tag this puzzle as a feeder (feeds edge): !feeds <meta_code>*"""
+        """*Tag this puzzle as a feeder of a group (adds a "feeds" edge), without moving it.*
+
+        Usage: `!feeds meta_code`
+        Example: `!feeds AB12CD`
+        Run in the feeder puzzle's channel; `meta_code` is the target group's 6-char code.
+        Use `!feeds_only` to also move the channel. Aliases: `!add_to_meta`, `!add_to_round`."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1123,7 +1227,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def feeds_only(self, ctx, meta_code):
-        """*Assign puzzle as feeder, removing other feeder tags and moving channel: !feeds_only <meta_code>*"""
+        """*Assign this puzzle as a feeder of a group, removing other feeder tags and moving its channel.*
+
+        Usage: `!feeds_only meta_code`
+        Example: `!feeds_only AB12CD`
+        Run in the feeder puzzle's channel; `meta_code` is the target group's 6-char code.
+        Use `!feeds` to add without moving. Aliases: `!move_to_meta`, `!move_to_round`."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1145,7 +1254,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def remove_from(self, ctx, meta_code):
-        """*Remove the puzzle from a group: !remove_from <meta_code>*"""
+        """*Remove this puzzle from a group, deleting whatever edge tied it there.*
+
+        Usage: `!remove_from meta_code`
+        Example: `!remove_from AB12CD`
+        Run in the puzzle's channel; `meta_code` is the group's 6-char code.
+        Aliases: `!remove_from_meta`, `!remove_from_round`."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1169,7 +1283,13 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def informs(self, ctx, meta_code):
-        """*Tag this puzzle as an informer (informs edge): !informs <meta_code>*"""
+        """*Tag this puzzle as informing a group (adds an "informs" edge), without moving it.*
+
+        Usage: `!informs meta_code`
+        Example: `!informs AB12CD`
+        Run in the puzzle's channel; `meta_code` is the target group's 6-char code.
+        An informer contributes to the meta without being a standard feeder.
+        Use `!informs_only` to also clear other informer tags."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1190,7 +1310,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def informs_only(self, ctx, meta_code):
-        """*Assign puzzle as informer, removing other informs tags: !informs_only <meta_code>*"""
+        """*Assign this puzzle as an informer of a group, removing its other informer tags.*
+
+        Usage: `!informs_only meta_code`
+        Example: `!informs_only AB12CD`
+        Run in the puzzle's channel; `meta_code` is the target group's 6-char code.
+        Use `!informs` to add without clearing others."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1211,7 +1336,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def groups_with(self, ctx, meta_code):
-        """*Tag this puzzle into a group (none edge): !groups_with <meta_code>*"""
+        """*Add this puzzle to a group without contributing to its meta (a "none" edge).*
+
+        Usage: `!groups_with meta_code`
+        Example: `!groups_with AB12CD`
+        Run in the puzzle's channel; `meta_code` is the target group's 6-char code.
+        Use `!groups_only_with` to also clear other "none" tags."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1232,7 +1362,12 @@ class Puzzles(commands.Cog):
     @app_commands.autocomplete(meta_code=group_code_autocomplete)
     @with_puzzle_mutex(wait=True)
     async def groups_only_with(self, ctx, meta_code):
-        """*Assign puzzle to group with none edge, removing other none tags: !groups_only_with <meta_code>*"""
+        """*Assign this puzzle to a group with a non-contributing "none" edge, removing its other "none" tags.*
+
+        Usage: `!groups_only_with meta_code`
+        Example: `!groups_only_with AB12CD`
+        Run in the puzzle's channel; `meta_code` is the target group's 6-char code.
+        Use `!groups_with` to add without clearing others."""
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_not_puzzle_channel(ctx)
             return
@@ -1319,12 +1454,17 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm",
                                "capstone", "cs", "runaround", "ra", "group"])
     async def round(self, ctx, *, arg):
-        """*Create new puzzle round with: !r round-name*
-        *Create new metapuzzle category with: !mp metapuzzle-name*
-        *Create a new capstone with: !cs capstone-name*
-        *Create a new runaround with: !ra runaround-name*
-        *Create a new group with: !group group-name*
-        *Create a new round without a meta with either !roundnometa round-name or !rnm round-name*"""
+        """*Create a new round/group category; the alias you use picks the type.*
+
+        Usage: `!round name` (or one of the type aliases below)
+        Example: `!round the-bog`
+        Run in the main Hunt channel. The created type depends on the alias:
+        • `!r` / `!round name` — a round (also makes a "name - meta" meta puzzle)
+        • `!mp` / `!metapuzzle name` — a metapuzzle
+        • `!cs` / `!capstone name` — a capstone
+        • `!ra` / `!runaround name` — a runaround
+        • `!group name` — a group (no meta puzzle)
+        • `!rnm` / `!roundnometa name` — a round with no meta puzzle"""
 
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.channel.send(":x: This command must be done from the main Hunt channel")
@@ -1352,6 +1492,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_meta(self, ctx):
+        """*Turn this feeder puzzle into a metapuzzle that others can be tagged to.*
+
+        Usage: `!convert_to_meta`
+        Example: `!convert_to_meta`
+        Run in the puzzle's channel. Admins/mods only (needs Manage Channels)."""
         if ( puzzle := self.get_puzzle(ctx) ) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
@@ -1377,6 +1522,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_capstone(self, ctx):
+        """*Convert this meta puzzle into a capstone (final meta).*
+
+        Usage: `!convert_to_capstone`
+        Example: `!convert_to_capstone`
+        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
@@ -1402,6 +1552,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_runaround(self, ctx):
+        """*Convert this meta puzzle into a runaround.*
+
+        Usage: `!convert_to_runaround`
+        Example: `!convert_to_runaround`
+        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
@@ -1427,6 +1582,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_group(self, ctx):
+        """*Convert this meta puzzle into a group (a category with no meta puzzle).*
+
+        Usage: `!convert_to_group`
+        Example: `!convert_to_group`
+        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
@@ -1455,6 +1615,12 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_puzzle(self, ctx):
+        """*Convert this meta puzzle back into an ordinary feeder puzzle.*
+
+        Usage: `!convert_to_puzzle`
+        Example: `!convert_to_puzzle`
+        Run in a meta puzzle's channel; other puzzles can no longer be tagged to it.
+        Admins/mods only (needs Manage Channels). Alias: `!convert_to_feeder`."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
@@ -1501,14 +1667,22 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
-        """*(admin) Show channel settings for debug*"""
+        """*Dump the raw settings for this channel's object (puzzle/round/hunt/guild) as JSON.*
+
+        Usage: `!show_settings`
+        Example: `!show_settings`
+        For debugging. Admins/mods only (needs Manage Channels)."""
         await ctx.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
 
     @commands.hybrid_command(description="Show puzzle settings (admin only)",)
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def show_puzzle_settings(self, ctx):
-        """*(admin) Show channel puzzle settings for debug*"""
+        """*Dump this puzzle's stored fields and values for debugging.*
+
+        Usage: `!show_puzzle_settings`
+        Example: `!show_puzzle_settings`
+        Run in a puzzle channel. Admins/mods only (needs Manage Channels)."""
         if self.get_puzzle(ctx):
             settings = []
             for attr, value in self.get_puzzle(ctx).__dict__.items():
@@ -1535,8 +1709,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def set_login(self, ctx, *, arg):
-        """*Set username and password for hunt*
-        Format username:password"""
+        """*Store the hunt's login username and password (shown on hunt info).*
+
+        Usage: `!set_login username:password`
+        Example: `!set_login team42:hunter2`
+        Run in any channel belonging to the hunt. Admins/mods only."""
         if self.get_channel_type(ctx) == "Guild":
             await ctx.send(":x: This must be sent in a channel related to a hunt")
             return
@@ -1553,7 +1730,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def set_start(self,ctx,timestamp:int):
-        """*Set start time for hunt, only works with a UNIX timestamp*"""
+        """*Set the hunt's start time from a UNIX timestamp (seconds since epoch).*
+
+        Usage: `!set_start timestamp`
+        Example: `!set_start 1767225600`
+        Run in any channel belonging to the hunt. Admins/mods only."""
         if self.get_channel_type(ctx) == "Guild":
             await ctx.send(":x: This must be sent in a channel related to a hunt")
             return
@@ -1567,7 +1748,13 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
-        """*(admin) Update channel/hunt/guild settings: !update_settings key value - can tolerate spaces in value with inverted commas*"""
+        """*Set a single setting field on this channel's object (puzzle/round/hunt/guild).*
+
+        Usage: `!update_settings key value`
+        Example: `!update_settings discord_bot_emoji ":dog:"`
+        Quote a value containing spaces. Inspect available keys with `!show_settings`.
+        Use the `!update_puzzle_settings` alias to target the puzzle in this channel.
+        Admins/mods only (needs Manage Channels)."""
         command = ctx.invoked_with
         if command not in ("update_puzzle_setting", "update_puzzle_settings"):
             settings = self.get_settings(ctx)
@@ -1612,7 +1799,12 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(description="List puzzles",aliases=["list"])
     async def list_puzzles(self, ctx):
-        """*List puzzles in the current Round if invoked in Puzzle or Round channels, or in the entire Hunt if in the Hunt channel*"""
+        """*List the puzzles in the current round with their type, status and solution.*
+
+        Usage: `!list_puzzles`
+        Example: `!list_puzzles`
+        Run in a puzzle or round/meta channel. Alias: `!list`.
+        For a whole-hunt overview, use the dashboard website."""
         all_puzzles = {}
         embed_title = ""
         if self.get_channel_type(ctx) in ["Round","Puzzle","Metaless Round","Metapuzzle"]:
@@ -1964,7 +2156,11 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     async def info(self, ctx, **kwargs):
-        """*Show discord command help for a puzzle channel*"""
+        """*Re-post (or refresh) this channel's pinned info message with links and command tips.*
+
+        Usage: `!info`
+        Example: `!info`
+        Works in hunt, round, meta and puzzle channels; content adapts to the channel type."""
         update = kwargs.get("update", False)
         if self.get_channel_type(ctx) == "Hunt":
             await self.send_initial_hunt_channel_messages(ctx, ctx.channel, update=update)
@@ -1995,7 +2191,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
-        """Rename a puzzle"""
+        """*Rename this puzzle, its channel and its sheet tab.*
+
+        Usage: `!rename_puzzle new name`
+        Example: `!rename_puzzle the actual clueless crossword`
+        Run in the puzzle's channel. Organisers/admins only. Alias: `!rename_meta`."""
         if self.get_puzzle(ctx):
             if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
                 return await ctx.send(
@@ -2015,7 +2215,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def link(self, ctx, *, url: str):
-        """*Update link to puzzle*"""
+        """*Set or update the puzzle's URL (the link to the puzzle on the hunt site).*
+
+        Usage: `!link url`
+        Example: `!link https://hunt.example.com/puzzles/crossword`
+        Run in the puzzle's channel."""
         if self.get_puzzle(ctx):
             puzzle = self.get_puzzle(ctx)
             hunt = self.get_hunt(ctx)
@@ -2037,7 +2241,12 @@ class Puzzles(commands.Cog):
     ])
     @with_puzzle_mutex(wait=True)
     async def status(self, ctx, *, status: str):
-        """*Update puzzle status, one of "unstarted", "in progress", "stuck", "needs extraction", "solved", "backsolved"*"""
+        """*Set this puzzle's working status.*
+
+        Usage: `!status value`
+        Example: `!status stuck`
+        One of: Unstarted, In Progress, Stuck, Needs Extraction, Solved, Backsolved.
+        Run in the puzzle's channel."""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
             await self.send_not_puzzle_channel(ctx)
@@ -2053,7 +2262,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
-        """*Update puzzle type, e.g. "crossword"*"""
+        """*Set this puzzle's type label (freeform, e.g. crossword, logic, cryptic).*
+
+        Usage: `!type puzzle_type`
+        Example: `!type crossword`
+        Run in the puzzle's channel."""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
             await self.send_not_puzzle_channel(ctx)
@@ -2071,7 +2284,11 @@ class Puzzles(commands.Cog):
     ])
     @with_puzzle_mutex(wait=True)
     async def priority(self, ctx, *, priority: str):
-        """*Update puzzle priority, one of "low", "medium", "high", "very high"*"""
+        """*Set this puzzle's priority.*
+
+        Usage: `!priority value`
+        Example: `!priority high`
+        One of: low, medium, high, very high. Run in the puzzle's channel."""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:
             await self.send_not_puzzle_channel(ctx)
@@ -2087,7 +2304,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["notes"])
     @with_puzzle_mutex(wait=True)
     async def note(self, ctx, *, note: Optional[str]):
-        """*Show or add a note about the puzzle*"""
+        """*Show this puzzle's notes, or add a note if you pass text.*
+
+        Usage: `!note [text]`
+        Example: `!note try anagramming the first letters`
+        With no text, lists existing notes. Run in the puzzle's channel.
+        Alias: `!notes`. Remove a note with `!erase_note`."""
         if self.get_puzzle(ctx) is None:
             await self.send_not_puzzle_channel(ctx)
             return
@@ -2125,7 +2347,11 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["delete_note"])
     @with_puzzle_mutex(wait=True)
     async def erase_note(self, ctx, note_index: int):
-        """*Remove a note by index*"""
+        """*Remove one of this puzzle's notes by its number.*
+
+        Usage: `!erase_note note_index`
+        Example: `!erase_note 1`
+        Get the number from `!notes`. Run in the puzzle's channel. Alias: `!delete_note`."""
 
         if self.get_puzzle(ctx) is None:
             await self.send_not_puzzle_channel(ctx)
@@ -2204,7 +2430,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["ps"])
     @with_puzzle_mutex(wait=False)
     async def partial(self, ctx, *args):
-        """*Add a partial solution to the puzzle, will append the answer along with a slash if multiple answers present: !ps PARTIAL SOLUTION*"""
+        """*Record a partial solution without marking the puzzle solved.*
+
+        Usage: `!partial partial answer`
+        Example: `!partial BLUE`
+        Repeated use appends, joining answers with a slash. Run in an unsolved puzzle channel.
+        Alias: `!ps`. Clear partials with `!unsolve`."""
 
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
@@ -2252,7 +2483,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["s"])
     @with_puzzle_mutex(wait=False)
     async def solve(self, ctx, *args):
-        """*Mark puzzle as fully solved and update the sheet with the solution: !s SOLUTION*"""
+        """*Mark this puzzle fully solved, record the answer and move it to the solved section.*
+
+        Usage: `!solve answer`
+        Example: `!solve BLUE WHALE`
+        Run in an unsolved puzzle channel. Alias: `!s`.
+        Fix a typo with `!change_solution`; undo with `!unsolve`."""
 
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
@@ -2266,7 +2502,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["update_solution","update_answer"])
     @with_puzzle_mutex(wait=False)
     async def change_solution(self, ctx, *args):
-        """*Change a previously marked solution, if not solved then solve as usual: !change_solution SOLUTION*"""
+        """*Replace this puzzle's recorded solution (e.g. to fix a typo).*
+
+        Usage: `!change_solution answer`
+        Example: `!change_solution BLUE WHALE`
+        If the puzzle wasn't solved yet it solves it. Run in the puzzle's channel.
+        Aliases: `!update_solution`, `!update_answer`."""
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
@@ -2304,7 +2545,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=["add_to_solution"])
     @with_puzzle_mutex(wait=False)
     async def add_solution(self, ctx, *args):
-        """*Add a solution to a previously solved puzzle, for instance if an additional answer is found, if not solved then add a partial solution: !add_solution SOLUTION*"""
+        """*Add an extra solution to an already-solved puzzle (e.g. a second valid answer).*
+
+        Usage: `!add_solution answer`
+        Example: `!add_solution GREY WHALE`
+        If the puzzle isn't solved yet this records a partial instead. Run in the puzzle's channel.
+        Alias: `!add_to_solution`."""
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
@@ -2339,13 +2585,21 @@ class Puzzles(commands.Cog):
     @commands.command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
     @with_puzzle_mutex(wait=False)
     async def mark_as_complete(self, ctx):
-        """*Mark a puzzle as completed with a tick*"""
+        """*Mark this puzzle solved with a tick (✅) when there's no text answer to record.*
+
+        Usage: `!mark_as_complete`
+        Example: `!mark_as_complete`
+        Run in an unsolved puzzle channel. Aliases: `!mark_as_solved`, `!complete`."""
         await self._solve_impl(ctx, "✅")
 
     @commands.command(aliases=["u"])
     @with_puzzle_mutex(wait=False)
     async def unsolve(self, ctx):
-        """*Mark an accidentally solved puzzle as not solved*"""
+        """*Undo a solve: clear the solution and move the channel back to unsolved.*
+
+        Usage: `!unsolve`
+        Example: `!unsolve`
+        Run in a solved puzzle's channel. Also clears partial solutions. Alias: `!u`."""
 
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
@@ -2381,7 +2635,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def archive_round(self, ctx):
-        """(admin) * Archives round to threads *"""
+        """*Archive this round: copy every channel in the category into threads, then delete the category.*
+
+        Usage: `!archive_round`
+        Example: `!archive_round`
+        Run in a channel of the round to archive. Admins/mods only."""
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
         ignore_channels = []
@@ -2398,7 +2656,12 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def archive_category(self, ctx, archive_to = None, ignore_channels = None, delete_channels = None):
-        """(admin) * Archives category to threads *"""
+        """*Archive every channel in this category into threads on the hunt's general channel.*
+
+        Usage: `!archive_category`
+        Example: `!archive_category`
+        Run in a channel of the category to archive; defaults to archiving into the hunt
+        general channel. Admins/mods only. Usually called via `!archive_round`."""
         if ignore_channels is None:
             ignore_channels = []
         if delete_channels is None:
@@ -2421,7 +2684,12 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def archive_channel(self, ctx, channel = None, archive_to = None):
-        """(admin) * Archives channel to threads *"""
+        """*Archive this channel's messages into a thread, then delete the channel.*
+
+        Usage: `!archive_channel`
+        Example: `!archive_channel`
+        Run in the channel to archive. The destination needs a webhook. Admins/mods only.
+        Usually called via `!archive_round` / `!archive_category`."""
         if channel is None:
             channel = ctx.channel
         if archive_to is None:
@@ -2503,7 +2771,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def archive_solved_manually(self, ctx):
-        """*(admin) Permanently archive solved puzzles*"""
+        """*Tidy the hunt's "solved" category: move busy solved channels back (prefixed "solved-") and delete quiet ones.*
+
+        Usage: `!archive_solved_manually`
+        Example: `!archive_solved_manually`
+        Run in a channel of the hunt. Admins/mods only."""
         guild = ctx.guild
         settings = GuildSettingsDb.get(guild.id)
         hunt_id = ctx.channel.category.id
@@ -2537,7 +2809,11 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=False)
     async def delete_puzzle(self, ctx):
-        """*(admin) Permanently delete a puzzle, its channel and sheet*"""
+        """*Permanently delete this puzzle: its channel and its Google sheet (asks to confirm).*
+
+        Usage: `!delete_puzzle`
+        Example: `!delete_puzzle`
+        Run in the puzzle's channel. Organisers/admins only. Not recoverable."""
         # Wrapper for delete command
         if self.get_channel_type(ctx) != "Puzzle":
             await self.send_not_puzzle_channel(ctx)
@@ -2577,7 +2853,12 @@ class Puzzles(commands.Cog):
     @commands.command(aliases=['delete_metapuzzle','delete_group'])
     @commands.has_any_role(*ORGANISER_ROLES)
     async def delete_round(self, ctx):
-        """*(admin) Permanently delete a group of puzzles - round/metapuzzle etc.*"""
+        """*Permanently delete this round/group: all its puzzles, channels and sheets (asks to confirm).*
+
+        Usage: `!delete_round`
+        Example: `!delete_round`
+        Run in the round/group's main channel. Organisers/admins only. Not recoverable.
+        Aliases: `!delete_metapuzzle`, `!delete_group`."""
         if self.get_channel_type(ctx) not in self.PUZZLE_GROUPS:
             await ctx.send(":x: This command must be done from the main group channel")
             return
@@ -2632,7 +2913,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def delete_hunt(self, ctx):
-        """*(admin) Permanently delete a Hunt*"""
+        """*Permanently delete the ENTIRE hunt: every round, puzzle, channel and sheet (asks to confirm).*
+
+        Usage: `!delete_hunt`
+        Example: `!delete_hunt`
+        Run in the main Hunt channel. Admins/mods only. Not recoverable."""
         if self.get_channel_type(ctx) == "Hunt":
             hunt_channel = ctx.channel
         else:
@@ -2652,7 +2937,11 @@ class Puzzles(commands.Cog):
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
     async def debug_puzzle_channel(self, ctx):
-        """*(admin) See puzzle metadata*"""
+        """*Dump this puzzle's full stored record as JSON (debugging).*
+
+        Usage: `!debug_puzzle_channel`
+        Example: `!debug_puzzle_channel`
+        Run in a puzzle channel. Admins/mods only."""
 
         if self.get_channel_type(ctx) != "Puzzle":
             await self.send_not_puzzle_channel(ctx)
@@ -2675,7 +2964,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Start the reminder loop (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def start_reminders(self, ctx):
-        """*(admin) Start reminder loop*"""
+        """*Start the periodic reminder loop that posts tips in the hunt channel.*
+
+        Usage: `!start_reminders`
+        Example: `!start_reminders`
+        Run in a channel of the hunt. Organisers/admins only. Stop it with `!stop_reminders`."""
         channel = self.get_hunt_channel(ctx)
         self.reminder_index = 0
         self.reminder_loop.start(channel)
@@ -2684,7 +2977,11 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(description="Stop the reminder loop (organisers only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
     async def stop_reminders(self, ctx):
-        """*(admin) Stop reminder loop*"""
+        """*Stop the periodic reminder loop.*
+
+        Usage: `!stop_reminders`
+        Example: `!stop_reminders`
+        Organisers/admins only. Start it with `!start_reminders`."""
         self.reminder_loop.cancel()
         await ctx.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
 
