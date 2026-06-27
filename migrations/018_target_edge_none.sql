@@ -1,4 +1,4 @@
--- 017_target_edge_none.sql
+-- 018_target_edge_none.sql
 -- A target puzzle is a member of its own group but neither feeds nor informs it,
 -- so its self-edge is 'none'. Historically targets inherited the 'feeds' column
 -- default, which made them appear as feeders of themselves and tripped the
