@@ -84,12 +84,17 @@ def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool
 
 
 TYPE_DEFAULTS = {
-    "Round":      {"default_edge": "feeds",   "default_source_mode": "round"},
     "Metapuzzle": {"default_edge": "feeds",   "default_source_mode": "round"},
     "Capstone":   {"default_edge": "informs", "default_source_mode": "round"},
     "Runaround":  {"default_edge": "feeds",   "default_source_mode": "subtree"},
     "Group":      {"default_edge": "none",    "default_source_mode": "round"},
 }
+
+# Stored tag_group.type values.
+GROUP_TYPES = tuple(TYPE_DEFAULTS)
+
+# Create-time input labels mapped to stored types.
+GROUP_TYPE_INPUT_ALIASES = {"Round": "Metapuzzle"}
 
 
 def default_edge_for_group(group) -> str:
@@ -1564,7 +1569,7 @@ class PuzzleService:
         else (TagGroupData, None).  Raises RuntimeError("<code>") on recoverable
         problems; raises the underlying exception otherwise.
         ``meta_puzzle_name``: name for the meta puzzle. Defaults to group ``name``.
-        Pass a string to override it.  Pass ``False`` to skip (Metaless Round).
+        Pass a string to override it.  Pass ``False`` to skip (no meta / Group).
         ``round_type`` lets callers specify group classification.
         """
         mp_name = meta_puzzle_name if isinstance(meta_puzzle_name, str) else name
@@ -1593,7 +1598,7 @@ class PuzzleService:
         group_text_channel = None
         new_round = None
         puzzle = None
-        is_group = round_type in ("Group", "Metaless Round")
+        is_group = round_type == "Group"
         try:
             # --- Group: no forum, no category clone (forum mode) or with clone
             # (channel mode) — but always a plain text channel for chat. ---
