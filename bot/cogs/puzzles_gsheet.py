@@ -325,13 +325,55 @@ class GoogleSheets(commands.Cog):
             }
         }
 
+    def move_sheet_to_index(self, sheet_id, index):
+        """Build a request to move a sheet to an arbitrary index."""
+        return self._sheet_props_request(sheet_id, 'index', index)
+
     def move_sheet_to_start(self, sheet_id = None):
-        return self._sheet_props_request(sheet_id, 'index', self.INITIAL_OFFSET)
+        return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
     def move_sheet_to_end(self, sheet_id = None):
         sheets = self.sheet_list().get('sheets',[])
         new_index = len(sheets) - 1
         return self._sheet_props_request(sheet_id, 'index', new_index)
+
+    def compute_insert_index(self, is_target: bool, puzzles) -> int:
+        """Return the correct tab insertion index for a new puzzle.
+
+        Target puzzles land after the last unsolved-target tab.
+        Regular puzzles land after the last unsolved-regular tab (or the last
+        target, if no regulars exist). Falls back to INITIAL_OFFSET when
+        no unsolved puzzle tabs exist yet.
+        """
+        target_ids = {
+            str(p.google_page_id) for p in puzzles
+            if getattr(p, 'is_target', False) and not p.solved and p.google_page_id
+        }
+        regular_ids = {
+            str(p.google_page_id) for p in puzzles
+            if not getattr(p, 'is_target', False) and not p.solved and p.google_page_id
+        }
+        last_target_idx = None
+        last_regular_idx = None
+        for sheet in self.sheet_list()["sheets"]:
+            props = sheet["properties"]
+            if props.get("hidden"):
+                continue
+            sid = str(props["sheetId"])
+            idx = props["index"]
+            if sid in target_ids:
+                if last_target_idx is None or idx > last_target_idx:
+                    last_target_idx = idx
+            elif sid in regular_ids:
+                if last_regular_idx is None or idx > last_regular_idx:
+                    last_regular_idx = idx
+        if is_target:
+            return (last_target_idx + 1) if last_target_idx is not None else self.INITIAL_OFFSET
+        if last_regular_idx is not None:
+            return last_regular_idx + 1
+        if last_target_idx is not None:
+            return last_target_idx + 1
+        return self.INITIAL_OFFSET
 
     def revert_tab_colour(self, sheet_id):
         return self._sheet_props_request(sheet_id, 'tabColor', None)
@@ -454,11 +496,12 @@ class GoogleSheets(commands.Cog):
         await execute_with_retry(bu_req, on_retry=self._notify_retry)
         return new_sheet_id
 
-    async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None):
+    async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
         if puzzle_data.archived:
             puzzle_data.archived = False
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(False, puzzle_data.google_page_id,
                                                                             puzzle_data.name)
+        move_idx = restore_index if restore_index is not None else self.INITIAL_OFFSET
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
@@ -471,7 +514,7 @@ class GoogleSheets(commands.Cog):
                             self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
-                            self.move_sheet_to_start(sheet.google_page_id),
+                            self.move_sheet_to_index(sheet.google_page_id, move_idx),
                             self.revert_tab_colour(sheet.google_page_id)])
 
         main_offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
@@ -480,7 +523,7 @@ class GoogleSheets(commands.Cog):
                     self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                      self.get_column(config.puzzle_cell_progress) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
                     self._solution_bg_request(puzzle_data, self.HEADER_GREY),   # un-green the solution cell
-                    self.move_sheet_to_start(puzzle_data.google_page_id),
+                    self.move_sheet_to_index(puzzle_data.google_page_id, move_idx),
                     self.revert_tab_colour(puzzle_data.google_page_id)])
         updates = {
             'requests': requests
@@ -569,9 +612,9 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("delete_hunt_spreadsheet: could not delete file %s (may already be gone)", file_id)
 
-    async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+    async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
-        puzzle_index = self.INITIAL_OFFSET
+        puzzle_index = index if index is not None else self.INITIAL_OFFSET
         await self.add_new_puzzle_sheet(puzzle_data, puzzle_index)
         await self.update_puzzle_info(puzzle_data)
 
