@@ -1013,25 +1013,35 @@ class PuzzleService:
         TagGroupJsonDb.delete(tag_group.id)
 
         if guild is not None:
-            # Split rounds own several categories (unsolved/solved/overflow); delete
-            # them all + drop the join rows. delete_group_categories returns False for
-            # single-category rounds, which keep the legacy divider+category teardown.
-            if not await category_layout.delete_group_categories(
-                guild, tag_group, TagGroupCategoryDb
-            ) and tag_group.category_id:
-                category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                if category is not None:
-                    for ch in list(category.channels):
-                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                            try:
-                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                            except Exception:
-                                logger.exception("delete_round: could not delete divider channel")
+            if hunt.layout_mode == "forum":
+                # Forum mode: delete the forum channel (cascades its posts)
+                forum_ch = guild.get_channel(tag_group.category_id)
+                if forum_ch is not None:
                     try:
-                        await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
                     except Exception:
-                        logger.exception("delete_round: could not delete category %s",
+                        logger.exception("delete_round: could not delete forum %s",
                                          tag_group.category_id)
+            else:
+                # Split rounds own several categories (unsolved/solved/overflow); delete
+                # them all + drop the join rows. delete_group_categories returns False for
+                # single-category rounds, which keep the legacy divider+category teardown.
+                if not await category_layout.delete_group_categories(
+                    guild, tag_group, TagGroupCategoryDb
+                ) and tag_group.category_id:
+                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_round: could not delete divider channel")
+                        try:
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_round: could not delete category %s",
+                                             tag_group.category_id)
 
         await self.notifier.board_changed(hunt)
         return failed_channels
@@ -1821,19 +1831,29 @@ class PuzzleService:
         for tag_group in tag_groups:
             TagGroupJsonDb.delete(tag_group.id)
             if guild is not None and tag_group.category_id:
-                category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                if category is not None:
-                    for ch in list(category.channels):
-                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                            try:
-                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                            except Exception:
-                                logger.exception("delete_hunt: could not delete divider channel")
-                    try:
-                        await category.delete(reason=self._DISCORD_DELETE_REASON)
-                    except Exception:
-                        logger.exception("delete_hunt: could not delete group category %s",
-                                         tag_group.category_id)
+                if hunt.layout_mode == "forum":
+                    # Forum mode: category_id holds a forum channel id
+                    forum_ch = guild.get_channel(tag_group.category_id)
+                    if forum_ch is not None:
+                        try:
+                            await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_hunt: could not delete forum %s",
+                                             tag_group.category_id)
+                else:
+                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_hunt: could not delete divider channel")
+                        try:
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_hunt: could not delete group category %s",
+                                             tag_group.category_id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)
