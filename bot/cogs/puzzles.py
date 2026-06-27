@@ -1981,7 +1981,7 @@ class Puzzles(commands.Cog):
                     value="""The following are some useful commands:
         • `!r <round name>` : Create a new round with a metapuzzle channel
         • `!mp <metapuzzle name>` : Create a new metapuzzle
-        • `!rnm <round name>` : Create a round without a metapuzzle channel
+        • `!group <group name>` : Create a group without a metapuzzle channel
         • `!info` : Repeat this message
         • `!set_login username:password` : Set the login details for the hunt if shared
         """,
