@@ -16,8 +16,10 @@ disagree, **the code is the source of truth** — fix both.
   - *Organisers/admins* = the above plus `Organisers`.
   - Commands with no role note are open to everyone.
 - **`meta_code`** is a TagGroup's 6-character group code (shown on the group's pinned
-  info; slash commands autocomplete it). See [AGENTS.md](../AGENTS.md) for the
-  TagGroup / feeds / informs data model.
+  info; slash commands autocomplete it). On the bang path you may also pass the group's
+  **name** (or a unique part of it) — the resolver matches the code, then the name, scoped
+  to the current hunt, and lists candidates when ambiguous. See [AGENTS.md](../AGENTS.md)
+  for the TagGroup / feeds / informs data model.
 
 ## Hunt management
 
@@ -62,10 +64,10 @@ All convert commands are *slash* hybrids, run in the puzzle's channel, admins/mo
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
 | `!puzzle` | `!p` | `name` | hunt/round | anyone | Create a puzzle channel and sheet. |
-| `!rename_puzzle` | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. |
-| `!link` | | `url` | puzzle channel | anyone | Set/update the puzzle's hunt URL. |
+| `!rename_puzzle` *(slash)* | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. |
+| `!link` *(slash)* | | `url` | puzzle channel | anyone | Set/update the puzzle's hunt URL. |
 | `!status` *(slash)* | | `value` | puzzle channel | anyone | Set status: Unstarted, In Progress, Stuck, Needs Extraction, Solved, Backsolved. |
-| `!type` | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword). |
+| `!type` *(slash)* | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword). |
 | `!priority` *(slash)* | | `value` | puzzle channel | anyone | Set priority: low, medium, high, very high. |
 | `!info` | | — | any hunt channel | anyone | Re-post/refresh the channel's pinned info message. |
 | `!list_puzzles` *(slash)* | `!list` | — | puzzle/round channel | anyone | List puzzles in the current round with status/solution. |
@@ -75,12 +77,12 @@ All convert commands are *slash* hybrids, run in the puzzle's channel, admins/mo
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!solve` | `!s` | `answer` | unsolved puzzle | anyone | Mark fully solved, record the answer, move to solved section. |
-| `!partial` | `!ps` | `partial answer` | unsolved puzzle | anyone | Record a partial answer (repeats append, joined with `/`). |
-| `!change_solution` | `!update_solution`, `!update_answer` | `answer` | puzzle channel | anyone | Replace the recorded solution (solves if not yet solved). |
-| `!add_solution` | `!add_to_solution` | `answer` | solved puzzle | anyone | Add an extra valid answer (records a partial if not solved). |
-| `!mark_as_complete` | `!mark_as_solved`, `!complete` | — | unsolved puzzle | anyone | Solve with a ✅ when there's no text answer. |
-| `!unsolve` | `!u` | — | solved puzzle | anyone | Undo a solve; clear solution and partials, move back to unsolved. |
+| `!solve` *(slash)* | `!s` | `answer` | unsolved puzzle | anyone | Mark fully solved, record the answer, move to solved section. |
+| `!partial` *(slash)* | `!ps` | `partial answer` | unsolved puzzle | anyone | Record a partial answer (repeats append, joined with `/`). |
+| `!change_solution` *(slash)* | `!update_solution`, `!update_answer` | `answer` | puzzle channel | anyone | Replace the recorded solution (solves if not yet solved). |
+| `!add_solution` *(slash)* | `!add_to_solution` | `answer` | solved puzzle | anyone | Add an extra valid answer (records a partial if not solved). |
+| `!mark_as_complete` *(slash)* | `!mark_as_solved`, `!complete` | — | unsolved puzzle | anyone | Solve with a ✅ when there's no text answer. |
+| `!unsolve` *(slash)* | `!u` | — | solved puzzle | anyone | Undo a solve; clear solution and partials, move back to unsolved. |
 
 ## Grouping (edges: feeds / informs / none)
 
@@ -130,8 +132,8 @@ Run in a puzzle channel.
 |---|---|---|---|
 | `!note` | `!notes` | `[text]` | Show notes, or add one if text is given. |
 | `!erase_note` | `!delete_note` | `note_index` | Remove a note by number (from `!notes`). |
-| `!clue` | | `text` | Log a freeform clue to the evidence sheet. |
-| `!clues` | | `item ... "multi word" ...` | Log several clues at once (quote those with spaces). |
+| `!clue` *(slash)* | | `text` | Log a freeform clue to the evidence sheet. |
+| `!clues` *(slash)* | | `item ... "multi word" ...` | Log several clues at once (quote those with spaces). |
 
 ## Channel ordering
 

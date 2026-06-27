@@ -1085,7 +1085,7 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
-    @commands.command(name="clue")
+    @commands.hybrid_command(name="clue", description="Log a freeform clue/observation to the evidence sheet")
     async def clue(self, ctx, *, note: str):
         """*Log a freeform clue/observation from this puzzle to the evidence sheet.*
 
@@ -1102,7 +1102,7 @@ class Puzzles(commands.Cog):
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
 
-    @commands.command(name="clues")
+    @commands.hybrid_command(name="clues", description="Log several clues at once (quote any clue with spaces)")
     async def clues(self, ctx, *, items: str):
         """*Log several clues at once; quote any clue that contains spaces.*
 
@@ -2172,7 +2172,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)
 
-    @commands.command(aliases=["rename_meta"])
+    @commands.hybrid_command(aliases=["rename_meta"], description="Rename this puzzle, its channel and its sheet tab")
     @commands.has_any_role(*ORGANISER_ROLES)
     @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
@@ -2208,7 +2208,7 @@ class Puzzles(commands.Cog):
         else:
             await self.send_not_puzzle_channel(ctx)
 
-    @commands.command()
+    @commands.hybrid_command(description="Set or update the puzzle's URL on the hunt site")
     @with_puzzle_mutex(wait=True)
     async def link(self, ctx, *, url: str):
         """*Set or update the puzzle's URL (the link to the puzzle on the hunt site).*
@@ -2255,7 +2255,7 @@ class Puzzles(commands.Cog):
             return
         await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
-    @commands.command()
+    @commands.hybrid_command(description="Set this puzzle's type label (e.g. crossword, logic, cryptic)")
     @with_puzzle_mutex(wait=True)
     async def type(self, ctx, *, puzzle_type: str):
         """*Set this puzzle's type label (freeform, e.g. crossword, logic, cryptic).*
@@ -2423,9 +2423,9 @@ class Puzzles(commands.Cog):
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)
 
-    @commands.command(aliases=["ps"])
+    @commands.hybrid_command(aliases=["ps"], description="Record a partial solution without marking the puzzle solved")
     @with_puzzle_mutex(wait=False)
-    async def partial(self, ctx, *args):
+    async def partial(self, ctx, *, answer: str = ""):
         """*Record a partial solution without marking the puzzle solved.*
 
         Usage: `!partial partial answer`
@@ -2440,7 +2440,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
-        await self._partial_impl(ctx, *args)
+        await self._partial_impl(ctx, *answer.split())
 
 
     async def _solve_impl(self, ctx, *args):
@@ -2476,9 +2476,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":white_check_mark: Sheets all tidied away.")
         asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
-    @commands.command(aliases=["s"])
+    @commands.hybrid_command(aliases=["s"], description="Mark this puzzle solved, record the answer and move it to solved")
     @with_puzzle_mutex(wait=False)
-    async def solve(self, ctx, *args):
+    async def solve(self, ctx, *, solution: str = ""):
         """*Mark this puzzle fully solved, record the answer and move it to the solved section.*
 
         Usage: `!solve answer`
@@ -2492,12 +2492,12 @@ class Puzzles(commands.Cog):
         elif self.get_puzzle(ctx).solved:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
-        await self._solve_impl(ctx, *args)
+        await self._solve_impl(ctx, *solution.split())
 
 
-    @commands.command(aliases=["update_solution","update_answer"])
+    @commands.hybrid_command(aliases=["update_solution","update_answer"], description="Replace this puzzle's recorded solution (e.g. fix a typo)")
     @with_puzzle_mutex(wait=False)
-    async def change_solution(self, ctx, *args):
+    async def change_solution(self, ctx, *, answer: str = ""):
         """*Replace this puzzle's recorded solution (e.g. to fix a typo).*
 
         Usage: `!change_solution answer`
@@ -2508,10 +2508,10 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         elif not self.get_puzzle(ctx).solved:
-            await self._solve_impl(ctx, *args)
+            await self._solve_impl(ctx, *answer.split())
             return
 
-        solution = self._normalize_solution(args)
+        solution = self._normalize_solution(answer.split())
 
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
@@ -2538,9 +2538,9 @@ class Puzzles(commands.Cog):
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)
 
-    @commands.command(aliases=["add_to_solution"])
+    @commands.hybrid_command(aliases=["add_to_solution"], description="Add an extra solution to an already-solved puzzle")
     @with_puzzle_mutex(wait=False)
-    async def add_solution(self, ctx, *args):
+    async def add_solution(self, ctx, *, answer: str = ""):
         """*Add an extra solution to an already-solved puzzle (e.g. a second valid answer).*
 
         Usage: `!add_solution answer`
@@ -2551,10 +2551,10 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         elif not self.get_puzzle(ctx).solved:
-            await self._partial_impl(ctx, *args)
+            await self._partial_impl(ctx, *answer.split())
             return
 
-        solution = self._normalize_solution(args)
+        solution = self._normalize_solution(answer.split())
 
 
         puzzle = self.get_puzzle(ctx)
@@ -2578,7 +2578,7 @@ class Puzzles(commands.Cog):
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)
 
-    @commands.command(name="mark_as_complete", aliases=["mark_as_solved","complete"])
+    @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"], description="Mark this puzzle solved with a tick when there's no text answer")
     @with_puzzle_mutex(wait=False)
     async def mark_as_complete(self, ctx):
         """*Mark this puzzle solved with a tick (✅) when there's no text answer to record.*
@@ -2588,7 +2588,7 @@ class Puzzles(commands.Cog):
         Run in an unsolved puzzle channel. Aliases: `!mark_as_solved`, `!complete`."""
         await self._solve_impl(ctx, "✅")
 
-    @commands.command(aliases=["u"])
+    @commands.hybrid_command(aliases=["u"], description="Undo a solve: clear the solution and move back to unsolved")
     @with_puzzle_mutex(wait=False)
     async def unsolve(self, ctx):
         """*Undo a solve: clear the solution and move the channel back to unsolved.*
