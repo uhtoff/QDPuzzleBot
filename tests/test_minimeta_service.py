@@ -108,22 +108,24 @@ class TestCogBeforeInvokeThread:
 
 
 class TestMakeMinimeta:
+    @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    def test_sets_puzzle_type(self, PuzzleDb):
+    async def test_sets_puzzle_type(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(MagicMock())
         puzzle = make_puzzle(id=1)
         assert puzzle.puzzle_type == ""
-        svc.make_minimeta(puzzle)
+        await svc.make_minimeta(puzzle)
         assert puzzle.puzzle_type == "Minimeta"
         PuzzleDb.commit.assert_called_once_with(puzzle)
 
+    @patch("bot.core.puzzle_service.HuntJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    def test_idempotent(self, PuzzleDb):
+    async def test_idempotent(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(MagicMock())
         puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
-        svc.make_minimeta(puzzle)
+        await svc.make_minimeta(puzzle)
         assert puzzle.puzzle_type == "Minimeta"
         PuzzleDb.commit.assert_called_once()
 

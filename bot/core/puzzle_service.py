@@ -7,7 +7,10 @@ failure. Presentation (embeds, confirmations) and error-tolerance policy stay at
 the edges.
 """
 import asyncio
+import contextvars
 import datetime
+import functools
+import inspect
 import logging
 
 import discord
@@ -33,6 +36,60 @@ from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 
 logger = logging.getLogger(__name__)
+
+
+# Re-entrancy depth for board-push dedupe. A contextvar (not an instance attr) so
+# concurrent operations in separate asyncio tasks each get an independent count.
+_board_push_depth = contextvars.ContextVar("_board_push_depth", default=0)
+
+
+def pushes_board(hunt="hunt", when=None):
+    """Decorator: emit a single ``notifier.board_changed`` after a PuzzleService
+    mutation, instead of every method calling the notifier by hand.
+
+    The board push fires when the wrapped coroutine returns normally OR raises
+    ``SheetRefreshError`` — that error means the mutation *was* applied and only a
+    downstream meta sheet went stale, so the dashboard must still refresh. Any
+    other exception (validation error, rollback) propagates without a push.
+
+    ``hunt`` names the parameter holding the HuntData (default ``"hunt"``), or is a
+    callable ``(bound_args: dict) -> HuntData`` for methods that derive the hunt
+    from a puzzle/group's ``hunt_id``. ``when`` is an optional predicate on the
+    return value — when supplied, the push only fires if it is truthy (e.g.
+    ``erase_note`` skips the push on a no-op index).
+
+    A re-entrancy guard collapses nested decorated calls to one push (the
+    outermost), so e.g. ``create_tag_group`` → ``create_puzzle`` emits one event.
+    """
+    def decorator(fn):
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            token = _board_push_depth.set(_board_push_depth.get() + 1)
+            sheet_error = None
+            try:
+                result = await fn(*args, **kwargs)
+            except SheetRefreshError as exc:
+                # Mutation applied; sheet(s) stale — push, then re-raise below.
+                result, sheet_error = None, exc
+            finally:
+                depth = _board_push_depth.get()
+                _board_push_depth.reset(token)
+            if depth == 1 and (when is None or when(result)):
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+                self = bound.arguments["self"]
+                target = hunt(bound.arguments) if callable(hunt) else bound.arguments.get(hunt)
+                await self.notifier.board_changed(target)
+            if sheet_error is not None:
+                raise sheet_error
+            return result
+
+        wrapper._pushes_board = True
+        return wrapper
+
+    return decorator
 
 
 def resolve_puzzle_names(puzzle_ids):
@@ -610,6 +667,7 @@ class PuzzleService:
                 failed.append(tag_group.id)
         return failed
 
+    @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["puzzle"].hunt_id))
     async def tag_with_edge(self, puzzle, group, edge):
         """Upsert an edge for (puzzle, group) in the DB, then keep in-memory
         ``puzzle.tags`` + ``puzzle.tag_edges`` in sync.
@@ -623,7 +681,6 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
-        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
@@ -653,6 +710,7 @@ class PuzzleService:
 
         await self.tag_with_edge(puzzle, group, edge)
 
+    @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["puzzle"].hunt_id))
     async def untag_from(self, puzzle, group, edge=None):
         """Remove *puzzle* from *group*, optionally guarded by edge type.
 
@@ -673,10 +731,10 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
-        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
     async def bulk_re_edge(self, tag_group, new_edge, hunt):
         """Flip every member of *tag_group* to *new_edge*.
 
@@ -700,9 +758,9 @@ class PuzzleService:
         summary = "flipped " + " + ".join(parts) + f" → {new_edge}"
 
         await self.refresh_target(hunt, tag_group)
-        await self.notifier.board_changed(hunt)
         return summary
 
+    @pushes_board()
     async def convert_to_type(self, guild, hunt, puzzle, new_type):
         """Convert *puzzle* into a group of *new_type*.
 
@@ -754,13 +812,12 @@ class PuzzleService:
         else:
             summary = "no edge change (runaround)"
 
-        await self.notifier.board_changed(hunt)
-
         # Update forum post tags (structural type may have changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
         return tag_group, summary
 
+    @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["child_group"].hunt_id))
     async def set_parent_group(self, child_group, parent_id):
         """Nest `child_group` under group `parent_id` (the parent_group_id tree),
         rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.
@@ -793,7 +850,6 @@ class PuzzleService:
             node_id = node.parent_group_id
         child_group.parent_group_id = parent_id
         TagGroupJsonDb.commit(child_group)
-
     async def collect_subtree_groups(self, root_group):
         """BFS from root_group gathering descendants linked by parent_group_id.
 
@@ -840,6 +896,7 @@ class PuzzleService:
                     puzzles.append(p)
         return puzzles
 
+    @pushes_board()
     async def solve(self, guild, hunt, puzzle, solution):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
         stamp the round solve_time if this is the round's meta, archive the sheet,
@@ -908,8 +965,6 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
-        await self.notifier.board_changed(hunt)
-
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
@@ -917,6 +972,7 @@ class PuzzleService:
             raise SheetRefreshError(failed)
         return True
 
+    @pushes_board()
     async def unsolve(self, guild, hunt, puzzle):
         """Clear a puzzle's solve state and restore its sheet.
 
@@ -972,6 +1028,7 @@ class PuzzleService:
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
+    @pushes_board()
     async def convert_to_puzzle(self, guild, hunt, puzzle):
         """Demote a metapuzzle back to an ordinary puzzle (ctx-free seam for the
         !convert_to_puzzle bang and the web endpoint).
@@ -998,8 +1055,6 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.demote_tab_to_puzzle(puzzle)
-
-        await self.notifier.board_changed(hunt)
         return orphaned
 
     def feeders_orphaned_by_convert(self, puzzle):
@@ -1037,6 +1092,7 @@ class PuzzleService:
             logger.exception("delete: could not delete channel %s", channel_id)
             return False
 
+    @pushes_board()
     async def delete_puzzle(self, guild, hunt, puzzle):
         """Delete a puzzle: sheet tab, DB record, Discord channel, then refresh any
         parent metas. Ctx-free seam for !delete_puzzle and the web endpoint.
@@ -1051,10 +1107,10 @@ class PuzzleService:
         PuzzleJsonDb.delete(puzzle.id)
         failed = await self.refresh_targets(hunt, target_groups)
         await self._safe_delete_channel(guild, puzzle.channel_id)
-        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
     async def delete_round(self, guild, hunt, tag_group):
         """Delete all puzzles in a group (sheet + DB + Discord channel per puzzle),
         delete the group's Discord category (including its solved-divider channel),
@@ -1107,10 +1163,9 @@ class PuzzleService:
                         except Exception:
                             logger.exception("delete_round: could not delete category %s",
                                              tag_group.category_id)
-
-        await self.notifier.board_changed(hunt)
         return failed_channels
 
+    @pushes_board()
     async def add_partial(self, guild, hunt, puzzle, solution):
         """Mark a puzzle as partially solved: set status, append solution,
         commit and refresh metas. Does NOT set solve_time and does NOT push
@@ -1126,10 +1181,10 @@ class PuzzleService:
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed = await self.refresh_targets(hunt, tag_groups)
-        await self.notifier.board_changed(hunt)
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
     async def change_solution(self, guild, hunt, puzzle, solution):
         """Replace the solution on an already-solved puzzle: set new solution,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
@@ -1140,8 +1195,6 @@ class PuzzleService:
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed = await self.refresh_targets(hunt, tag_groups)
-        await self.notifier.board_changed(hunt)
-
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.update_solution(puzzle)
@@ -1149,6 +1202,7 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
     async def add_solution(self, guild, hunt, puzzle, solution):
         """Append a solution to an already-solved puzzle: append with slash,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
@@ -1159,8 +1213,6 @@ class PuzzleService:
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed = await self.refresh_targets(hunt, tag_groups)
-        await self.notifier.board_changed(hunt)
-
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.update_solution(puzzle)
@@ -1168,6 +1220,7 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
     async def update_puzzle_field(self, hunt, puzzle, field, value):
         """Set status, priority, or puzzle_type on *puzzle* and commit.
 
@@ -1188,13 +1241,13 @@ class PuzzleService:
 
         setattr(puzzle, field, value)
         PuzzleJsonDb.commit(puzzle)
-
+    @pushes_board()
     async def add_note(self, hunt, puzzle, text, attribution):
         """Append a note to the puzzle.  Each surface passes its own attribution
         string (e.g. a Discord jump URL or "Alice (web)").  Commits immediately."""
         puzzle.notes.append(f"{text} - {attribution}")
         PuzzleJsonDb.commit(puzzle)
-
+    @pushes_board(when=bool)
     async def erase_note(self, hunt, puzzle, index):
         """Remove the note at 1-based *index*.  Returns True on success, False if
         the index is out of range.  Does NOT commit on failure."""
@@ -1224,6 +1277,7 @@ class PuzzleService:
         SheetsJsonDb.delete(sheet.id)
         puzzle.additional_sheets = [s for s in puzzle.additional_sheets if s.id != sheet.id]
 
+    @pushes_board()
     async def set_puzzle_url(self, guild, hunt, puzzle, url):
         """Set the puzzle URL, commit and push to Google Sheets. Mirrors !link."""
         puzzle.url = url
@@ -1233,13 +1287,13 @@ class PuzzleService:
         if gsheet_cog is not None:
             await gsheet_cog.update_puzzle(puzzle)
 
-        await self.notifier.board_changed(hunt)
-
-    def make_minimeta(self, puzzle):
+    @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["puzzle"].hunt_id))
+    async def make_minimeta(self, puzzle):
         """Mark a puzzle as a minimeta cluster parent. Idempotent."""
         puzzle.puzzle_type = "Minimeta"
         PuzzleJsonDb.commit(puzzle)
 
+    @pushes_board()
     async def convert_to_meta(self, guild, hunt, puzzle):
         """Convert an existing feeder puzzle into a meta.
 
@@ -1269,13 +1323,12 @@ class PuzzleService:
         if gsheet_cog is not None:
             await gsheet_cog.promote_tab_to_group(puzzle)
 
-        await self.notifier.board_changed(hunt)
-
         # Update forum post tags (newly converted to meta).
         await self._update_forum_tags(guild, hunt, puzzle)
 
         return new_round, puzzle
 
+    @pushes_board()
     async def rename_puzzle(self, guild, hunt, puzzle, name):
         """Rename a puzzle: set name/channel_name, commit, refresh metas.
 
@@ -1308,8 +1361,6 @@ class PuzzleService:
                 except Exception:
                     failed.append(tag)
 
-        await self.notifier.board_changed(hunt)
-
         if failed:
             raise SheetRefreshError(failed)
 
@@ -1331,6 +1382,7 @@ class PuzzleService:
             raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
         await self.unsolve(guild, hunt, minis[number - 1])
 
+    @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
 
@@ -1339,7 +1391,7 @@ class PuzzleService:
         the puzzle-keyed refresh_minimeta path (solve/unsolve/create), never onto the
         minimeta's round meta. Auto-sets puzzle_type='Minimeta' on the parent.
         """
-        self.make_minimeta(minimeta)
+        await self.make_minimeta(minimeta)
 
         mini = PuzzleData(
             name=name,
@@ -1383,9 +1435,9 @@ class PuzzleService:
             await self.refresh_minimeta(hunt, minimeta)
         except Exception:
             logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
-
         return mini
 
+    @pushes_board()
     async def add_sheet(self, hunt, puzzle, name):
         """Create an extra working sheet (name optional). Raises
         RuntimeError("solved_no_sheets") if the puzzle is solved. Returns the
@@ -1401,9 +1453,9 @@ class PuzzleService:
             sheet.google_page_id = await gsheet_cog.create_additional_spreadsheet(puzzle, name)
         puzzle.additional_sheets.append(sheet)
         SheetsJsonDb.commit(sheet)
-        await self.notifier.board_changed(hunt)
         return sheet
 
+    @pushes_board()
     async def remove_sheet(self, hunt, puzzle, sheet_id):
         """Remove an additional sheet by id. Raises RuntimeError("sheet_not_found")
         if absent. Does NOT refresh the pinned info — the edge does."""
@@ -1411,8 +1463,6 @@ class PuzzleService:
         if sheet is None:
             raise RuntimeError("sheet_not_found")
         await self._delete_additional_sheet(hunt, puzzle, sheet)
-        await self.notifier.board_changed(hunt)
-
     async def remove_sheet_by_index(self, hunt, puzzle, index):
         """Remove an additional sheet by 1-based index. Raises IndexError if out of bounds.
         Converts the index to a sheet id and delegates to remove_sheet."""
@@ -1441,6 +1491,7 @@ class PuzzleService:
         except Exception:
             logger.exception("orphan cleanup: failed to delete DB row for %s", puzzle)
 
+    @pushes_board()
     async def create_puzzle(self, guild, hunt, round_data, name, is_meta=False, notifier=None):
         """Create a new puzzle: DB row + Google sheet + Discord channel.
 
@@ -1552,10 +1603,9 @@ class PuzzleService:
                     await self.refresh_target(hunt, target_group)
             except Exception:
                 logger.exception("create_puzzle: sheet update failed for group %s", tag)
-
-        await self.notifier.board_changed(hunt)
         return new_puzzle
 
+    @pushes_board()
     async def create_tag_group(self, guild, hunt, name, notifier=None,
                                meta_puzzle_name=None, round_type="Metapuzzle"):
         """Create a new metapuzzle/round: category clone + group row + optional meta puzzle.
@@ -1654,7 +1704,6 @@ class PuzzleService:
                         guild, hunt, tag_group=new_round,
                         puzzle=None, channel=group_text_channel,
                     )
-                await self.notifier.board_changed(hunt)
                 return new_round, None
 
             # Create the meta puzzle for this round (skip for Metaless variants).
@@ -1674,7 +1723,6 @@ class PuzzleService:
                 from bot.core.forum_config import sync_forum_guidelines
                 await sync_forum_guidelines(guild, hunt, new_round, puzzle)
 
-            await self.notifier.board_changed(hunt)
             return new_round, puzzle
         except Exception:
             # Roll back so partial create leaves neither a meta-less round row

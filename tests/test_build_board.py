@@ -71,7 +71,7 @@ class TestBuildBoardBasic:
                                solution="ANSWER", rounds=[rnd])
         board = build_board([meta])
         grp = board[0]
-        # The meta itself is not a feeder
+        # The meta itself is not a feeder — the X/Y count is feeders only.
         assert grp["num_feeders"] == 0
         assert grp["num_solved_feeders"] == 0
         assert grp["target_solved"] is True
