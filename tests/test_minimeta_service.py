@@ -177,7 +177,7 @@ class TestCreateMini:
 
         # Sheet stub
         gsheet = MagicMock()
-        async def fake_create_sheet(p):
+        async def fake_create_sheet(p, **kwargs):
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
         bot = MagicMock()
@@ -220,7 +220,7 @@ class TestCreateMini:
         guild.get_channel.return_value = channel
 
         gsheet = MagicMock()
-        async def fake_create_sheet(p):
+        async def fake_create_sheet(p, **kwargs):
             p.google_page_id = "PAGE7"
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
@@ -260,7 +260,7 @@ class TestCreateMini:
         guild.get_channel.return_value = channel
 
         gsheet = MagicMock()
-        async def fake_create_sheet(p):
+        async def fake_create_sheet(p, **kwargs):
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
         bot = MagicMock()
