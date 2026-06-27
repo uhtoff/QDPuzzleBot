@@ -26,6 +26,7 @@ class HuntData:
     url_sep: str = "-"
     puzzle_prefix: str = "puzzle"
     archived: bool = False
+    layout_mode: str = "channel"
     role_id: int = 0
     start_timestamp: int = 0
     username: str = ""
