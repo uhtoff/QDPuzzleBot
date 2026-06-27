@@ -1073,3 +1073,73 @@ class TestBangUnsolveDelegation:
         # The puzzle data must be passed somewhere in the call
         all_args = list(call_args.args) + list(call_args.kwargs.values())
         assert puz in all_args
+
+
+class TestApplyMoveHelpers:
+    """The shared category-aware move helpers used by BOTH the bang/slash path
+    (move_to_solved/move_to_bottom) and the web path (web_post_*)."""
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.mark.asyncio
+    async def test_apply_solved_move_split_moves_and_cleans(self, cog):
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock()
+        tag_group = MagicMock(id=5)
+        source = MagicMock(id=100)
+
+        cog._tag_group_for_channel = MagicMock(return_value=tag_group)
+        with patch("bot.cogs.puzzles.category_layout") as cl:
+            cl.is_split.return_value = True
+            cl.move_channel_to_solved = AsyncMock(return_value=source)
+            cl.cleanup_empty_overflow = AsyncMock()
+
+            await cog._apply_solved_move(guild, channel)
+
+        cl.move_channel_to_solved.assert_awaited_once()
+        cl.cleanup_empty_overflow.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_apply_unsolved_move_split_moves_and_cleans(self, cog):
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock()
+        tag_group = MagicMock(id=5)
+        source = MagicMock(id=200)
+
+        cog._tag_group_for_channel = MagicMock(return_value=tag_group)
+        with patch("bot.cogs.puzzles.category_layout") as cl:
+            cl.is_split.return_value = True
+            cl.move_channel_to_unsolved = AsyncMock(return_value=source)
+            cl.cleanup_empty_overflow = AsyncMock()
+
+            await cog._apply_unsolved_move(guild, channel)
+
+        cl.move_channel_to_unsolved.assert_awaited_once()
+        cl.cleanup_empty_overflow.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_apply_solved_move_single_uses_divider(self, cog):
+        """SINGLE (unsplit) round: no category move, divider reposition instead."""
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock(); channel.edit = AsyncMock()
+        channel.category = MagicMock()
+        tag_group = MagicMock(id=5)
+
+        cog._tag_group_for_channel = MagicMock(return_value=tag_group)
+        cog.get_solve_divider_position = MagicMock(return_value=3)
+        with patch("bot.cogs.puzzles.category_layout") as cl:
+            cl.is_split.return_value = False
+            cl.move_channel_to_solved = AsyncMock()
+
+            await cog._apply_solved_move(guild, channel)
+
+        cl.move_channel_to_solved.assert_not_awaited()
+        channel.edit.assert_awaited_once_with(position=4)

@@ -1616,6 +1616,7 @@ async def unsolve_puzzle(puzzle_id):
             await cog.service.unsolve(guild, hunt_obj, puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
+        await cog.web_post_unsolved(guild, hunt_obj, puzzle)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
 

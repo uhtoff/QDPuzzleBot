@@ -9,7 +9,7 @@ from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError,
 from .rollup_data import RollupData, _RollupJsonDb
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .evidence_data import EvidenceData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb
 
 from bot.utils import config
 
@@ -79,6 +79,7 @@ if config.storage == 'mysql':
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
     GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
     TagGroupJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
+    TagGroupCategoryDb = MySQLTagGroupCategoryDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
     RollupsJsonDb = MySQLRollupJsonDb(mydb=mydb)

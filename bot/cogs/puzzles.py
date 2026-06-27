@@ -12,12 +12,13 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb, resolve_group
+    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, resolve_group
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
+from bot.core import category_layout
 
 logger = logging.getLogger(__name__)
 
@@ -327,24 +328,15 @@ class Puzzles(commands.Cog):
             return None
         return self.environment[ctx.message.id]['guild'] or None
 
-    def set_guild(self, ctx, guild):
-        self.environment[ctx.message.id]['guild'] = guild
-
     def get_guild_data(self, ctx):
         if ctx is None:
             return None
         return self.environment[ctx.message.id]['guild_data'] or None
 
-    def set_guild_data(self, ctx, guild_data):
-        self.environment[ctx.message.id]['guild_data'] = guild_data
-
     def get_gsheet_cog(self, ctx):
         if ctx is None:
             return None
         return self.environment[ctx.message.id]['gsheet_cog'] or None
-
-    def set_gsheet_cog(self, ctx, gsheet_cog):
-        self.environment[ctx.message.id]['gsheet_cog'] = gsheet_cog
 
     def get_puzzle_sheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
         """Return the active or archive spreadsheet id for a puzzle.
@@ -793,13 +785,70 @@ class Puzzles(commands.Cog):
             pass
         elif channel is not None and channel.category is not None:
             try:
-                divider = self.get_solve_divider_position(None, channel.category)
-                if divider is not False:
-                    async with self.position_lock:
-                        await channel.edit(position=divider + 1)
+                await self._apply_solved_move(guild, channel)
             except Exception:
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
+
+    async def web_post_unsolved(self, guild, hunt, puzzle):
+        """Best-effort: move a just-unsolved channel back to an unsolved category
+        (split state) or above the divider (single state). Never raises."""
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
+        if channel is None or isinstance(channel, discord.Thread) or channel.category is None:
+            return
+        try:
+            await self._apply_unsolved_move(guild, channel)
+        except Exception:
+            logger.exception("web_post_unsolved: failed to reposition channel")
+
+    def _tag_group_for_channel(self, channel):
+        """Resolve the tag_group owning a channel's category — primary category
+        first, then the join table for solved/overflow categories."""
+        if channel.category is None:
+            return None
+        tg = TagGroupJsonDb.get_by_attr(category_id=channel.category.id)
+        if tg is not None:
+            return tg
+        gid = category_layout.group_id_for_category(channel.category.id, TagGroupCategoryDb)
+        return TagGroupJsonDb.get_by_attr(id=gid) if gid else None
+
+    async def _apply_solved_move(self, guild, channel):
+        """Category-aware reposition of a just-solved channel: SPLIT → move into a
+        solved category (+ clean an emptied overflow source); SINGLE → below the
+        divider. Caller guards thread/None. Never raises on its own."""
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+            source = await category_layout.move_channel_to_solved(
+                guild, tag_group, TagGroupCategoryDb, channel,
+            )
+            if source is not None:
+                await category_layout.cleanup_empty_overflow(
+                    guild, tag_group, TagGroupCategoryDb, source,
+                )
+        else:
+            divider = self.get_solve_divider_position(None, channel.category)
+            if divider is not False:
+                async with self.position_lock:
+                    await channel.edit(position=divider + 1)
+
+    async def _apply_unsolved_move(self, guild, channel):
+        """Category-aware reposition of a just-unsolved channel: SPLIT → move back to
+        an unsolved category (+ clean an emptied overflow source); SINGLE → above the
+        divider. Caller guards thread/None. Never raises on its own."""
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+            source = await category_layout.move_channel_to_unsolved(
+                guild, tag_group, TagGroupCategoryDb, channel,
+            )
+            if source is not None:
+                await category_layout.cleanup_empty_overflow(
+                    guild, tag_group, TagGroupCategoryDb, source,
+                )
+        else:
+            divider = self.get_solve_divider_position(None, channel.category)
+            if divider is not False:
+                async with self.position_lock:
+                    await channel.edit(position=divider)
 
     def get_first_channel(self, ctx, category):
         return _channels.first_channel_position(category)
@@ -836,8 +885,7 @@ class Puzzles(commands.Cog):
         if isinstance(channel, discord.Thread):
             await ctx.send(":information_source: This is a thread, which can't be repositioned.")
             return
-        position = self.get_solve_divider_position(ctx, channel.category)
-        await channel.edit(position=position)
+        await self._apply_unsolved_move(self.get_guild(ctx), channel)
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
     @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
@@ -858,17 +906,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":white_check_mark: Mini-puzzle thread archived")
             await channel.edit(archived=True)
             return
-        position = self.get_solve_divider_position(ctx, channel.category)
-        await channel.edit(position=position+1)
+        await self._apply_solved_move(self.get_guild(ctx), channel)
         await ctx.send(":white_check_mark: Channel moved to solved")
 
-
-    def get_tag_from_category(self, category):
-        tag_group = TagGroupJsonDb.get_by_attr(category_id=category.id)
-        if tag_group:
-            return tag_group.id
-        else:
-            return None
 
     @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
     @commands.has_any_role(*ORGANISER_ROLES)
@@ -2225,17 +2265,6 @@ class Puzzles(commands.Cog):
         else:
             await self.send_not_puzzle_channel(ctx)
 
-    async def _update_puzzle_field(self, ctx, field, value):
-        """Set a puzzle attribute and re-render the channel state, or warn if not a puzzle channel."""
-        puzzle = self.get_puzzle(ctx)
-        if puzzle:
-            setattr(puzzle, field, value)
-            await self.send_state(
-                ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if value else None
-            )
-        else:
-            await self.send_not_puzzle_channel(ctx)
-
     @commands.hybrid_command(description="Set or update the puzzle's URL on the hunt site")
     @with_puzzle_mutex(wait=True)
     async def link(self, ctx, *, url: str):
@@ -2870,17 +2899,6 @@ class Puzzles(commands.Cog):
         PuzzleJsonDb.delete(puzzle.id)
         return True
 
-    async def _delete_puzzles(self, ctx, puzzles):
-        """Delete each puzzle's data and its Discord channel. Returns the names
-        of puzzles whose channel could not be deleted (already gone or
-        rate-limited), so callers can report what remains."""
-        failed = []
-        for puzzle in puzzles:
-            await self.delete_puzzle_data(ctx, puzzle)
-            if not await self._safe_delete_channel(self.get_guild(ctx), puzzle.channel_id):
-                failed.append(puzzle.name)
-        return failed
-
     async def _warn_failed_channels(self, channel, failed):
         """Notify `channel` about puzzles whose channels could not be deleted."""
         if failed:
@@ -2888,15 +2906,6 @@ class Puzzles(commands.Cog):
                 ":warning: Could not delete channels for: " + ", ".join(failed)
                 + ". They may already be gone or were rate-limited — re-run to finish."
             )
-
-    async def _delete_round_category(self, ctx, tag_group):
-        """Delete a round's category and its solved-divider channel (if present)."""
-        category = discord.utils.get(self.get_guild(ctx).categories, id=tag_group.category_id)
-        if self.SOLVE_CATEGORY is False:
-            solved_divider = self.get_solved_channel(category)
-            if solved_divider:
-                await solved_divider.delete(reason=self.DELETE_REASON)
-        await category.delete(reason=self.DELETE_REASON)
 
     @commands.command(aliases=['delete_metapuzzle','delete_group'])
     @commands.has_any_role(*ORGANISER_ROLES)
@@ -2926,10 +2935,6 @@ class Puzzles(commands.Cog):
         await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)
-
-    async def delete_round_data(self, tag_group: TagGroupData):
-        TagGroupJsonDb.delete(tag_group.id)
-        return True
 
     async def _confirm_destructive(self, ctx, description):
         """Send a Confirm/Cancel prompt and return True only if the invoker
