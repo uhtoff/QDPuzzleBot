@@ -32,6 +32,7 @@ import {
   useConvertToFeederPreview,
   useConvertToGroup,
   useConvertToMeta,
+  useConvertToMetapuzzle,
   useConvertToRunaround,
   useDeletePuzzle,
   useMakeMinimeta,
@@ -59,6 +60,7 @@ interface CardProps {
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
   onConvertToMeta: (puzzleId: number) => void;
+  onConvertToMetapuzzle: (puzzleId: number) => void;
   onConvertToCapstone: (puzzleId: number) => void;
   onConvertToRunaround: (puzzleId: number) => void;
   onConvertToGroup: (puzzleId: number) => void;
@@ -66,7 +68,7 @@ interface CardProps {
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, onConvertToMetapuzzle, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -85,6 +87,10 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Allow removing from the current column unless this puzzle IS that meta.
   const here = puzzle.rounds.find((r) => r.group_code === columnGroupCode);
   const canRemove = columnGroupCode != null && here != null && !here.is_target_of;
+  // The stored type of the group this puzzle is the target of (Metapuzzle /
+  // Capstone / Runaround / Group). Drives the convert menu so it never offers
+  // the type the puzzle already is.
+  const currentType = puzzle.rounds.find((r) => r.is_target_of)?.group_type ?? null;
 
   return (
     <>
@@ -154,42 +160,62 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             {puzzle.is_meta && (
               <>
                 <Menu.Divider />
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to capstone",
-                      message: `Convert "${puzzle.name}" to a capstone?`,
-                      onConfirm: () => onConvertToCapstone(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to capstone
-                </Menu.Item>
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to runaround",
-                      message: `Convert "${puzzle.name}" to a runaround?`,
-                      onConfirm: () => onConvertToRunaround(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to runaround
-                </Menu.Item>
-                <Menu.Item
-                  color="grape"
-                  onClick={() =>
-                    setPendingAction({
-                      title: "Convert to group",
-                      message: `Convert "${puzzle.name}" to a group?`,
-                      onConfirm: () => onConvertToGroup(puzzle.id),
-                    })
-                  }
-                >
-                  Convert to group
-                </Menu.Item>
+                {currentType !== "Metapuzzle" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to metapuzzle",
+                        message: `Convert "${puzzle.name}" to a metapuzzle?`,
+                        onConfirm: () => onConvertToMetapuzzle(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to metapuzzle
+                  </Menu.Item>
+                )}
+                {currentType !== "Capstone" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to capstone",
+                        message: `Convert "${puzzle.name}" to a capstone?`,
+                        onConfirm: () => onConvertToCapstone(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to capstone
+                  </Menu.Item>
+                )}
+                {currentType !== "Runaround" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to runaround",
+                        message: `Convert "${puzzle.name}" to a runaround?`,
+                        onConfirm: () => onConvertToRunaround(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to runaround
+                  </Menu.Item>
+                )}
+                {currentType !== "Group" && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to group",
+                        message: `Convert "${puzzle.name}" to a group?`,
+                        onConfirm: () => onConvertToGroup(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to group
+                  </Menu.Item>
+                )}
                 <Menu.Item color="red" onClick={() => onConvertToFeeder(puzzle)}>
                   Convert to feeder…
                 </Menu.Item>
@@ -321,6 +347,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const convertToCapstone = useConvertToCapstone(uid);
   const convertToRunaround = useConvertToRunaround(uid);
   const convertToGroup = useConvertToGroup(uid);
+  const convertToMetapuzzle = useConvertToMetapuzzle(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
@@ -439,6 +466,16 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     });
   }
 
+  function onConvertToMetapuzzle(puzzleId: number) {
+    convertToMetapuzzle.mutate(puzzleId, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a metapuzzle.", color: "green" });
+      },
+      onError: notifyError,
+    });
+  }
+
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
     setActive(puzzleId ? byId.get(puzzleId) ?? null : null);
@@ -521,6 +558,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     onDeletePuzzle={setDeleteTarget}
                     onMakeMinimeta={onMakeMinimeta}
                     onConvertToMeta={onConvertToMeta}
+                    onConvertToMetapuzzle={onConvertToMetapuzzle}
                     onConvertToCapstone={onConvertToCapstone}
                     onConvertToRunaround={onConvertToRunaround}
                     onConvertToGroup={onConvertToGroup}

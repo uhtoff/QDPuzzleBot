@@ -400,6 +400,17 @@ export function useConvertToGroup(uid: string) {
   });
 }
 
+export function useConvertToMetapuzzle(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/convert-to-metapuzzle`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useDeletePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({
