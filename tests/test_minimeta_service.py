@@ -66,7 +66,11 @@ class TestCogBeforeInvokeThread:
         GuildDb.get_channel_type.return_value = None  # thread not in GuildSettings
         PuzzleDb.get_by_attr.return_value = mini
         HuntDb.get_by_attr.return_value = hunt
-        RoundDb.get_by_attr.return_value = round_
+        # A mini is a feeder, not a group target: the target_puzzle_id lookup must
+        # miss (so channel_type stays 'Puzzle'); the tag-membership lookup hits.
+        def _round_lookup(**kwargs):
+            return None if kwargs.get("target_puzzle_id") else round_
+        RoundDb.get_by_attr.side_effect = _round_lookup
 
         bot = MagicMock()
         bot.get_cog.return_value = None

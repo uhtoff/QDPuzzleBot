@@ -134,11 +134,18 @@ class Puzzles(commands.Cog):
             if puzzle:
                 channel_type = 'Puzzle'
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-                for tag_id in puzzle.tags:
-                    r = TagGroupJsonDb.get_by_attr(id=tag_id)
-                    if r:
-                        tag_group = r
-                        break
+                # A forum thread can be a group's target (meta/round/capstone): upgrade
+                # the type so !info treats it as a meta, mirroring the category path below.
+                target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+                if target_group:
+                    channel_type = target_group.type
+                    tag_group = target_group
+                else:
+                    for tag_id in puzzle.tags:
+                        r = TagGroupJsonDb.get_by_attr(id=tag_id)
+                        if r:
+                            tag_group = r
+                            break
             else:
                 channel_type = 'Guild'
         else:

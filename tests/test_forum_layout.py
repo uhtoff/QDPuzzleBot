@@ -114,3 +114,48 @@ async def test_delete_round_forum_deletes_forum_channel():
         await svc.delete_round(guild, _forum_hunt(), tag_group)
 
     forum.delete.assert_awaited_once()                     # forum torn down
+
+
+def test_forum_meta_thread_classifies_as_group_type_not_puzzle():
+    """A forum round's target puzzle lives in a thread; cog_before_invoke must
+    upgrade its channel_type to the group's type (so !info treats it as a meta),
+    mirroring the category path. Regression: the thread branch hardcoded 'Puzzle'
+    and never checked target_puzzle_id, so forum metas showed as plain puzzles on
+    both the bang and web routes."""
+    import asyncio
+    import discord
+
+    from bot.cogs.puzzles import Puzzles
+    from tests.conftest import make_hunt, make_puzzle
+
+    meta = make_puzzle(id=5, hunt_id=10, channel_id=777, is_target=True, tags=[1])
+    hunt = make_hunt(id=10)
+    group = make_round(id=1, target_puzzle_id=5)
+    group.type = "Metapuzzle"
+
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 777
+    ctx = MagicMock()
+    ctx.channel = thread
+    ctx.guild.id = 1
+    ctx.message.id = 999
+
+    bot = MagicMock()
+    bot.get_cog.return_value = None
+    cog = Puzzles(bot)
+
+    with patch("bot.cogs.puzzles.GuildSettingsDb") as GuildDb, \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.HuntJsonDb") as HuntDb, \
+         patch("bot.cogs.puzzles.TagGroupJsonDb") as RoundDb:
+        GuildDb.get.return_value = MagicMock()
+        GuildDb.get_channel_type.return_value = None
+        PuzzleDb.get_by_attr.return_value = meta
+        HuntDb.get_by_attr.return_value = hunt
+        RoundDb.get_by_attr.return_value = group   # target_puzzle_id lookup hits
+        asyncio.run(cog.cog_before_invoke(ctx))
+
+    env = cog.environment[999]
+    assert env["channel_type"] == "Metapuzzle"   # upgraded, not 'Puzzle'
+    assert env["tag_group"] is group
+    assert env["puzzle"] is meta
