@@ -77,9 +77,17 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Pending action for the ConfirmModal (minimeta / convert-to-meta).
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
-  // Metas this puzzle is not already in (candidates for "add").
+  // Groups this puzzle is not already in (candidates for "add"). A meta may also
+  // be added to its OWN group so it feeds itself in a loop — that group is in
+  // inCodes (the meta is its target with a 'none' self-edge) but stays addable
+  // until the self-edge is actually feeding.
   const inCodes = new Set(puzzle.rounds.map((r) => r.group_code).filter(Boolean));
-  const addable = metas.filter((m) => !inCodes.has(m.code));
+  const ownTarget = puzzle.rounds.find((r) => r.is_target_of) ?? null;
+  const ownTargetCode = ownTarget?.group_code ?? null;
+  const selfFeeds = ownTarget?.edge_type === "feeds";
+  const addable = metas.filter(
+    (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && !selfFeeds),
+  );
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
   const metaCount = puzzle.rounds.filter((r) => r.group_code).length;
@@ -139,13 +147,13 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown onPointerDown={(e) => e.stopPropagation()}>
-            <Menu.Label>Add to meta</Menu.Label>
+            <Menu.Label>Add to group</Menu.Label>
             {addable.length === 0 ? (
-              <Menu.Item disabled>Already in all metas</Menu.Item>
+              <Menu.Item disabled>Already in all groups</Menu.Item>
             ) : (
               addable.map((m) => (
                 <Menu.Item key={m.code} onClick={() => onRetag(puzzle.id, m.code, "add")}>
-                  {m.name}
+                  {m.code === ownTargetCode ? `${m.name} (feed itself)` : m.name}
                 </Menu.Item>
               ))
             )}
@@ -522,8 +530,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         title: "Move puzzle",
         message:
           `"${p.name}" is also in: ${names}. ` +
-          `Dragging onto a meta MOVES it — it will be removed from those other metas. ` +
-          `To keep it in multiple metas, use the ⋮ menu's "Add to meta" instead. ` +
+          `Dragging onto a group MOVES it — it will be removed from those other groups. ` +
+          `To keep it in multiple groups, use the ⋮ menu's "Add to group" instead. ` +
           `Move it anyway?`,
         puzzleId,
         groupCode,

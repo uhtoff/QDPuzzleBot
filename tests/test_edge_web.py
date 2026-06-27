@@ -222,6 +222,21 @@ async def test_retag_bare_group_defaults_none(web):
 
 
 @pytest.mark.asyncio
+async def test_retag_add_to_self_feeds_loop(web):
+    # A meta may be added to its OWN group so it feeds itself in a loop: the
+    # 'add' path is not blocked when puzzle.id == target_puzzle_id and it tags
+    # with the group's default 'feeds' edge.
+    own = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=5)
+    own.hunt_id = 10
+    own.type = "Metapuzzle"
+    web.TagGroupJsonDb.get_by_attr.return_value = own
+    resp = await web.client.post("/api/puzzles/5/meta", json={"group_code": "X", "mode": "add"})
+    assert resp.status_code == 200
+    web.svc.tag_with_edge.assert_called_once()
+    assert _edge_of(web.svc.tag_with_edge.call_args) == "feeds"
+
+
+@pytest.mark.asyncio
 async def test_retag_capstone_defaults_informs(web):
     # Moving into a capstone informs (no feeds).
     cap = make_round(id=8, group_code="C", category_id=1, target_puzzle_id=99)
