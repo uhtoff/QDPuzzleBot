@@ -1520,7 +1520,9 @@ async def create_meta(uid):
             round_type=group_type,
         )
         # Send the meta welcome now that group_code/target_puzzle_id are populated.
-        channel = guild.get_channel(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
+        # get_channel_or_thread also resolves forum threads (get_channel returns None
+        # for threads), so forum-mode hunts get their welcome message too.
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (puzzle and puzzle.channel_id) else None
         if channel is not None:
             notifier = DiscordNotifier(bot)
             try:
