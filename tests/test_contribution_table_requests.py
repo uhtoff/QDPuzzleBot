@@ -769,6 +769,90 @@ def test_ensure_unassigned_table_pins_tab_to_far_left():
     assert moves[0]["properties"]["index"] == 0
 
 
+# --- Evidence tab: native Table + position after Unassigned Feeders ----------
+
+def _run_ensure_evidence(page_id=800):
+    """Drive ensure_evidence_table over a mocked Sheets API; return
+    (header_updates, clears, batch_bodies)."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_page_name_by_id = lambda pid, spreadsheet_id=None: "Evidence"
+
+    header_updates = []
+    clears = []
+
+    async def fake_values_update(spreadsheet_id, a1, values):
+        header_updates.append((a1, values))
+
+    async def fake_values_clear(spreadsheet_id, a1_range):
+        clears.append(a1_range)
+
+    cog._values_update = fake_values_update
+    cog._values_clear = fake_values_clear
+
+    sheet = MagicMock()
+
+    async def fake_execute(request, on_retry=None):
+        return {"replies": [{"addTable": {"table": {"tableId": "ET"}}}]}
+
+    with patch.object(gsheet_mod, "get_sheet", return_value=sheet), \
+         patch.object(gsheet_mod, "execute_with_retry", side_effect=fake_execute):
+        table_id = asyncio.run(cog.ensure_evidence_table(page_id=page_id))
+
+    bodies = [kw["body"] for _a, kw in sheet.batchUpdate.call_args_list if "body" in kw]
+    return table_id, header_updates, clears, bodies
+
+
+def test_ensure_evidence_table_pins_tab_after_unassigned():
+    """The Evidence tab is created with create_blank_tab (no index), so Sheets
+    appends it last. ensure_evidence_table must move it to index 1 — immediately
+    after Unassigned Feeders (index 0)."""
+    _tid, _hdr, _clr, bodies = _run_ensure_evidence(page_id=800)
+    moves = [r["updateSheetProperties"] for b in bodies for r in b["requests"]
+             if "updateSheetProperties" in r]
+    assert moves, "expected an updateSheetProperties to move the tab"
+    assert moves[0]["properties"]["sheetId"] == 800
+    assert moves[0]["properties"]["index"] == 1
+
+
+def test_ensure_evidence_table_adds_table_and_hides_id_col():
+    """A native Table named 'Evidence' is created spanning the 5 bot-owned columns
+    (id, Source Puzzle, Note, Target Puzzle, Logged At), the header is written to
+    A1, and the bookkeeping id column is hidden."""
+    table_id, header_updates, _clr, bodies = _run_ensure_evidence(page_id=800)
+
+    assert table_id == "ET"
+
+    add = next(r["addTable"]["table"] for b in bodies for r in b["requests"]
+               if "addTable" in r)
+    assert add["name"] == "Evidence"
+    assert add["range"]["sheetId"] == 800
+    assert add["range"]["startColumnIndex"] == 0
+    assert add["range"]["endColumnIndex"] == 5   # 5 columns A-E
+
+    # Header names written to A1 (plain, so data is visible even without the Table).
+    assert header_updates, "expected the header row to be written"
+    a1, values = header_updates[0]
+    assert a1.endswith("!A1")
+    assert values == [["id", "Source Puzzle", "Note", "Target Puzzle", "Logged At"]]
+
+    # The bookkeeping id column (col 0) is hidden.
+    hide = [r["updateDimensionProperties"] for b in bodies for r in b["requests"]
+            if "updateDimensionProperties" in r]
+    assert hide and hide[0]["properties"]["hiddenByUser"] is True
+    assert hide[0]["range"]["startIndex"] == 0 and hide[0]["range"]["endIndex"] == 1
+
+
+def test_ensure_evidence_table_clears_old_flat_render():
+    """One-time migration: the old flat aggregate_to_tab render (header at A5 +
+    rows) is cleared before the native Table is created at A1, so stale rows from
+    the previous renderer don't linger below the Table."""
+    _tid, _hdr, clears, _bodies = _run_ensure_evidence(page_id=800)
+    assert clears, "expected the old evidence render to be cleared"
+    # Whole-tab clear (range is the bare quoted sheet name).
+    assert any("Evidence" in rng for rng in clears)
+
+
 # --- Resilience: transient Sheets 500 must not abort meta creation (#1) ------
 
 def test_generate_puzzle_tab_survives_contribution_table_failure():

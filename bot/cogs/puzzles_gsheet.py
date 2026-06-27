@@ -886,6 +886,9 @@ class GoogleSheets(commands.Cog):
     # (Notes) belongs to solvers and is NEVER written by the reconcile.
     UNASSIGNED_HEADER = ["id", "Puzzle", "Answer", "Length", "Notes"]
     CONTRIBUTION_HEADER = ["key", "Source", "Type", "Content"]
+    # Evidence tab columns — all bot-owned. Column A (id) is the hidden key the
+    # reconcile diffs on (the evidence item id; Source Puzzle names are not unique).
+    EVIDENCE_HEADER = ["id", "Source Puzzle", "Note", "Target Puzzle", "Logged At"]
 
     async def ensure_unassigned_table(self, page_id, show_round=False):
         """Prepare the Unassigned Puzzles tab: write the header row and, best
@@ -956,6 +959,87 @@ class GoogleSheets(commands.Cog):
             )
         except Exception:
             logger.exception("ensure_unassigned_table: native Table styling skipped")
+        return table_id
+
+    async def ensure_evidence_table(self, page_id):
+        """Prepare the Evidence tab: pin it just after Unassigned Feeders, clear any
+        old flat aggregate_to_tab render, write the header, and wrap it in a native
+        Table (hidden id key column). Mirrors ensure_unassigned_table.
+
+        Uses the context-var spreadsheet id (set by _gsheet_cog). Returns the native
+        Table's id (or the page id as a harmless sentinel if the Table API is
+        unavailable). The service guards this behind a null table id, so it runs once
+        per hunt; the data writes do not depend on the native Table succeeding.
+        """
+        spreadsheet_id = self.get_spreadsheet_id()
+        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        if tab_name is None:
+            raise RuntimeError(f"ensure_evidence_table: no tab with page id {page_id}")
+        safe_name = tab_name.replace("'", "''")
+
+        # Pin the Evidence tab to index 1 — immediately after Unassigned Feeders (0).
+        # It is created with create_blank_tab, which sets no index, so Sheets appends
+        # it at the END — move it. Best effort: tab order is cosmetic.
+        try:
+            await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body={
+                    "requests": [self._sheet_props_request(page_id, "index", 1)]}),
+                on_retry=self._notify_retry,
+            )
+        except Exception:
+            logger.exception("ensure_evidence_table: could not move tab after Unassigned Feeders")
+
+        # One-time migration: wipe the old flat aggregate_to_tab render (header at A5
+        # + rows) so the native Table anchored at A1 starts clean and no stale rows
+        # linger below it. Best effort.
+        try:
+            await self._values_clear(spreadsheet_id, f"'{safe_name}'")
+        except Exception:
+            logger.exception("ensure_evidence_table: could not clear old evidence render")
+
+        # Header row, written plainly so data is visible even without the Table, and
+        # so the addTable anchors to populated cells (an empty header row lets Sheets
+        # pad the front with phantom columns — the contribution-table live-test bug).
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [self.EVIDENCE_HEADER])
+
+        table_id = page_id
+        try:
+            body = {"requests": [{"addTable": {"table": {
+                "name": "Evidence",
+                "range": {
+                    "sheetId": page_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(self.EVIDENCE_HEADER),
+                },
+                "columnProperties": [
+                    {"columnIndex": 0, "columnName": "id"},
+                    {"columnIndex": 1, "columnName": "Source Puzzle"},
+                    {"columnIndex": 2, "columnName": "Note"},
+                    {"columnIndex": 3, "columnName": "Target Puzzle"},
+                    {"columnIndex": 4, "columnName": "Logged At"},
+                ],
+            }}}]}
+            result = await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body=body),
+                on_retry=self._notify_retry,
+            )
+            table_id = result["replies"][0]["addTable"]["table"]["tableId"]
+            # Hide the bookkeeping id column.
+            await execute_with_retry(
+                get_sheet().batchUpdate(spreadsheetId=spreadsheet_id, body={"requests": [{
+                    "updateDimensionProperties": {
+                        "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                                  "startIndex": 0, "endIndex": 1},
+                        "properties": {"hiddenByUser": True},
+                        "fields": "hiddenByUser",
+                    }
+                }]}),
+                on_retry=self._notify_retry,
+            )
+        except Exception:
+            logger.exception("ensure_evidence_table: native Table styling skipped")
         return table_id
 
     # --- Task 6: contribution Table create --------------------------------
