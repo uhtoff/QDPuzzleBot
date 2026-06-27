@@ -219,6 +219,41 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredFormat.textFormat.bold"}})
         return reqs
 
+    def _dynamic_bold_requests(self, page_id, offset):
+        """Bold the dynamic header values the bot writes at runtime — the puzzle
+        name and the solution. update_cell writes only userEnteredValue, so
+        bolding the cells here (at tab creation) makes those values render bold
+        and survives later value rewrites. `offset` matches the header shift."""
+        reqs = []
+        for ref in (config.puzzle_cell_name, config.puzzle_cell_solution):
+            row = self.get_row(ref)
+            col = self.get_column(ref) + offset
+            reqs.append({"repeatCell": {
+                "range": {"sheetId": page_id,
+                          "startRowIndex": row, "endRowIndex": row + 1,
+                          "startColumnIndex": col, "endColumnIndex": col + 1},
+                "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                "fields": "userEnteredFormat.textFormat.bold"}})
+        return reqs
+
+    # A thin solid black border, applied to every edge of each header cell.
+    HEADER_BORDER = {"style": "SOLID", "width": 1,
+                     "color": {"red": 0.0, "green": 0.0, "blue": 0.0}}
+    HEADER_LAST_COL = 17   # header content spans cols A..Q (0..16); endIndex 17
+
+    def _header_border_request(self, page_id, offset):
+        """A thin border around every header cell (the frozen rows). The header
+        spans columns A..Q, shifted right by `offset` on a target tab."""
+        from bot.cogs import sheet_layout
+        b = self.HEADER_BORDER
+        return {"updateBorders": {
+            "range": {"sheetId": page_id,
+                      "startRowIndex": 0, "endRowIndex": sheet_layout.FROZEN_ROWS,
+                      "startColumnIndex": offset,
+                      "endColumnIndex": self.HEADER_LAST_COL + offset},
+            "top": b, "bottom": b, "left": b, "right": b,
+            "innerHorizontal": b, "innerVertical": b}}
+
     def _solution_bg_request(self, puzzle, colour):
         """Set the solution cell's background on a puzzle's own tab (green on solve,
         grey on unsolve), honouring the target header shift."""
@@ -347,12 +382,19 @@ class GoogleSheets(commands.Cog):
         await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
 
 
-    async def create_blank_tab(self, spreadsheet_id: str, name: str) -> int:
-        """Add a plain blank tab to a spreadsheet. Returns the new sheet's page id."""
+    async def create_blank_tab(self, spreadsheet_id: str, name: str, index: int = None) -> int:
+        """Add a plain blank tab to a spreadsheet. Returns the new sheet's page id.
+
+        `index` inserts the tab at that 0-based position (e.g. INITIAL_OFFSET, so
+        new puzzles land at the left after the reserved sheets); when omitted,
+        Sheets appends the tab at the end."""
+        props = {"title": name}
+        if index is not None:
+            props["index"] = index
         body = {
             "requests": [{
                 "addSheet": {
-                    "properties": {"title": name}
+                    "properties": props
                 }
             }]
         }
@@ -889,12 +931,18 @@ class GoogleSheets(commands.Cog):
         instead lets Sheets auto-size the Table wider — it pads the front with
         phantom "Column 1/2/3" columns and pushes our names to D-G (live-test bug).
 
-        Table names must be unique within a spreadsheet, so name the Table after
-        its tab (already de-duplicated when the tab was created) rather than a
-        shared literal — otherwise the second target's table create collides."""
+        Table names must be unique within a spreadsheet AND char-safe (Google
+        rejects '-'/apostrophes), so name the Table "Contributions <page_id>":
+        page_id is unique per tab, so no two targets collide, and it sidesteps the
+        round bug where a "X - meta" tab name broke addTable. The name is internal
+        — reconcile_table locates the Table by scanning the page, never by name."""
         table_id = page_id
-        tab_name = self.get_page_name_by_id(page_id)
-        table_name = tab_name if tab_name is not None else f"Contributions {page_id}"
+        # The Table is located by scanning the page's tables (see reconcile_table),
+        # never by name, so the name is internal. Google rejects Table names that
+        # contain '-' or apostrophes (spaces are fine) — and the !round path suffixes
+        # its meta name with " - meta", so a tab-derived name breaks addTable and the
+        # rollup is silently deferred (the round bug). Use a page-unique, char-safe id.
+        table_name = f"Contributions {page_id}"
         header_range = {
             "sheetId": page_id,
             "startRowIndex": header_row,
@@ -1112,6 +1160,8 @@ class GoogleSheets(commands.Cog):
             self.FORMULA_INPUT, page_id))
         requests += self._tab_format_requests(page_id, label_col=offset)
         requests += self._label_bold_requests(page_id, cells, offset)
+        requests += self._dynamic_bold_requests(page_id, offset)
+        requests.append(self._header_border_request(page_id, offset))
         return requests
 
     async def generate_puzzle_tab(self, puzzle, is_target, index=None):
@@ -1125,7 +1175,7 @@ class GoogleSheets(commands.Cog):
 
         spreadsheet_id = self.get_spreadsheet_id()
         name = self.get_unique_tab_name(puzzle.name)
-        _result = self.create_blank_tab(spreadsheet_id, name)
+        _result = self.create_blank_tab(spreadsheet_id, name, index)
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
 
