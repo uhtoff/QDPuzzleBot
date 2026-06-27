@@ -24,7 +24,8 @@ class TagGroupData:
     # points at depends on how the group was created:
     #   * normal round / meta (channel layout) -> a Discord CATEGORY id
     #   * forum-layout puzzle                  -> a FORUM CHANNEL id
-    #   * metaless Group                       -> its forum/text channel or category id
+    #   * metaless Group (channel layout)      -> its cloned Discord CATEGORY id
+    #   * metaless Group (forum layout)        -> its text channel id
     #   * in-place-converted puzzle            -> the puzzle's own TEXT CHANNEL id
     # So this is a "group home", not always a category. To resolve it as a Discord
     # category (for channel placement/moves), use

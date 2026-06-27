@@ -100,6 +100,115 @@ async def test_create_puzzle_uses_layout_picker_for_round():
     pick.assert_awaited_once()
 
 
+@pytest.mark.parametrize("group_type, target_puzzle_id, expected_edge", [
+    ("Metapuzzle", 9, "feeds"),    # feeds the meta target
+    ("Capstone", 9, "informs"),    # informs the capstone target
+    ("Runaround", 9, "feeds"),     # runaround feeds like a meta
+    ("Group", 0, "none"),          # bare group: no target puzzle to feed/inform
+])
+@pytest.mark.asyncio
+async def test_create_puzzle_sets_edge_by_group_type(group_type, target_puzzle_id, expected_edge):
+    """A new puzzle assigned to a group gets the edge that matches the group's
+    type — not an unconditional 'feeds'. Regression: create_puzzle used to only
+    append the tag, leaving the DB default ('feeds') for every group type."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    cat = MagicMock(id=999, channels=[])
+    guild.categories = [cat]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    round_data = make_round(id=5, category_id=999, target_puzzle_id=target_puzzle_id)
+    round_data.type = group_type
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=cat)), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        puzzle = await svc.create_puzzle(
+            guild, _svc_hunt(), round_data, "Newpuz", is_meta=False, notifier=notifier)
+    pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, expected_edge)
+    assert puzzle.tag_edges[5] == expected_edge
+
+
+@pytest.mark.asyncio
+async def test_create_meta_target_gets_none_edge():
+    """A group's own target puzzle (is_meta) is a member but neither feeds nor
+    informs its group, so it is tagged with a 'none' self-edge — not 'feeds'."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    cat = MagicMock(id=999, channels=[])
+    guild.categories = [cat]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    round_data = make_round(id=5, category_id=999, target_puzzle_id=0)
+    round_data.type = "Metapuzzle"
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=cat)), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        puzzle = await svc.create_puzzle(
+            guild, _svc_hunt(), round_data, "TheMeta", is_meta=True, notifier=notifier)
+    pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, "none")
+    assert puzzle.tag_edges[5] == "none"
+
+
+@pytest.mark.asyncio
+async def test_create_unassigned_puzzle_sets_no_edge():
+    """An unassigned puzzle (no round_data) has no group, so no edge is written."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    cat = MagicMock(id=1, channels=[])
+    guild.categories = [cat]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(
+            guild, _svc_hunt(), None, "Newpuz", is_meta=False, notifier=notifier)
+    pdb.tag_puzzle_with_edge.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_group_stores_category_id_not_text_channel():
+    """A channel-mode Group stores its cloned CATEGORY id (so new puzzles land
+    under it), not the group's text-channel id. Regression: create_tag_group
+    stored group_text_channel.id for every Group, breaking category placement."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    ref_cat = MagicMock(id=1, position=0)
+    guild.categories = [ref_cat]
+    new_cat = MagicMock(id=2, channels=[])
+    ref_cat.clone = AsyncMock(return_value=new_cat)
+    new_cat.edit = AsyncMock()
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=333), True))):
+        rdb.check_duplicates_in_hunt.return_value = False
+        pdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        rdb.generate_uid.return_value = "GRP001"
+        new_round, puzzle = await svc.create_tag_group(
+            guild, _svc_hunt(), "New Group",
+            notifier=notifier, meta_puzzle_name=False, round_type="Group")
+
+    assert puzzle is None
+    assert new_round.category_id == new_cat.id   # the cloned category, not text channel 333
+    notifier.welcome.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_create_round_creates_round_and_meta_puzzle():
     svc, gsheet = _service_with_sheets()

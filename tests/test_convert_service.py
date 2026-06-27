@@ -185,6 +185,49 @@ class TestConvertToType:
         cog.service.bulk_re_edge.assert_called_once()
         assert _new_edge_passed(cog.service.bulk_re_edge) == "none"
 
+    @pytest.mark.asyncio
+    async def test_promote_in_place_tags_target_none(self, cog):
+        # A promoted target is a member of its own group but neither feeds nor
+        # informs it — it carries a 'none' self-edge (not the 'feeds' default).
+        puz = make_puzzle(id=7)
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: setattr(r, "id", 42)
+            mrdb.get_by_attr.return_value = None  # bare puzzle: promote in place
+            mrdb.generate_uid.return_value = "GCODE1"
+            mhdb.get_by_attr.return_value = make_hunt()
+            await cog.service.convert_to_type(None, make_hunt(), puz, "Metapuzzle")
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "none")
+
+
+class TestConvertToMeta:
+    """convert_to_meta wraps a feeder in a new round; the new target's self-edge
+    is 'none' (it is the thing fed, not a feeder)."""
+
+    @pytest.mark.asyncio
+    async def test_tags_target_none(self):
+        cog = _make_cog_convert()
+        puz = make_puzzle(id=7)
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service._update_forum_tags = AsyncMock()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: setattr(r, "id", 42)
+            mrdb.generate_uid.return_value = "GCODE1"
+            mhdb.get_by_attr.return_value = make_hunt()
+            _new_round, puzzle = await cog.service.convert_to_meta(None, make_hunt(), puz)
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "none")
+        assert puzzle.tag_edges[42] == "none"
+
 
 class TestConvertToPuzzle:
     """convert_to_feeder is renamed to convert_to_puzzle (body unchanged)."""
