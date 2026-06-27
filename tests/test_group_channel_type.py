@@ -3,10 +3,6 @@
 Mirrors tests/test_minimeta_service.py::TestCogBeforeInvokeThread (plain ``def``,
 ``asyncio.run``, patch the DAOs at the bot.cogs.puzzles import site). Helpers are
 uniquely named + local to this file (the parallel runner shards by file).
-
-These FAIL until Phase 2:
-  - the cog 'Group' branch looks up only by ctx.channel.category.id (not channel.id);
-  - !info has no Group branch and ``send_initial_group_channel_messages`` does not exist.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,37 +80,8 @@ def test_channel_group_classifies_via_category():
     assert cog.environment[999]["channel_type"] == "Group"
 
 
-def test_legacy_metaless_round_type_routes_to_group():
-    # A legacy group row with type == "Metaless Round" still resolves via the new
-    # channel-id lookup (forum-group style).
-    import asyncio
-    from bot.cogs.puzzles import Puzzles
-
-    group = make_round(id=1, category_id=4242)
-    group.type = "Metaless Round"
-    ctx = _grp_text_ctx(channel_id=4242, category_id=1)
-
-    bot = MagicMock(); bot.get_cog.return_value = None
-    cog = Puzzles(bot)
-
-    with patch("bot.cogs.puzzles.GuildSettingsDb") as GuildDb, \
-         patch("bot.cogs.puzzles.PuzzleJsonDb"), \
-         patch("bot.cogs.puzzles.HuntJsonDb") as HuntDb, \
-         patch("bot.cogs.puzzles.TagGroupJsonDb") as RoundDb:
-        GuildDb.get.return_value = MagicMock()
-        GuildDb.get_channel_type.return_value = "Group"
-        HuntDb.get_by_attr.return_value = MagicMock()
-        RoundDb.get_by_attr.side_effect = \
-            lambda **kw: group if kw.get("category_id") == 4242 else None
-        asyncio.run(cog.cog_before_invoke(ctx))
-
-    assert cog.environment[999]["tag_group"].type in ("Group", "Metaless Round")
-
-
 # ---------------------------------------------------------------------------
-# !info dispatch — Group / Metaless Round both route to the group handler.
-# FAILS now: send_initial_group_channel_messages does not exist and !info has no
-# Group branch (Group falls through to the ":x: not a hunt channel" else).
+# !info dispatch — a Group channel routes to the group welcome handler.
 # ---------------------------------------------------------------------------
 
 
@@ -125,22 +92,6 @@ async def test_info_group_calls_group_handler():
     cog = make_cog()
     cog.get_channel_type = lambda ctx: "Group"
     cog.send_initial_group_channel_messages = AsyncMock()
-    cog.send_initial_metaless_round_channel_messages = AsyncMock()
-    ctx = make_ctx()
-
-    await Puzzles.info.callback(cog, ctx)
-
-    cog.send_initial_group_channel_messages.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_info_metaless_round_calls_group_handler():
-    from bot.cogs.puzzles import Puzzles
-
-    cog = make_cog()
-    cog.get_channel_type = lambda ctx: "Metaless Round"
-    cog.send_initial_group_channel_messages = AsyncMock()
-    cog.send_initial_metaless_round_channel_messages = AsyncMock()
     ctx = make_ctx()
 
     await Puzzles.info.callback(cog, ctx)
