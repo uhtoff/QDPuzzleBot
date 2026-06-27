@@ -110,12 +110,12 @@ async def _allocate(guild, tag_group, dao, role_rows, role):
     """Create the next numbered category for *role* and record its row."""
     if len(guild.categories) >= MAX_CATEGORIES:
         raise RuntimeError("no_category_space")
-    next_seq = max((r.seq for r in role_rows), default=-1) + 1
-    name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
     template = _category_by_id(guild, tag_group.category_id)
     if template is None:
         raise RuntimeError("primary_category_missing")
     async with layout_lock:
+        next_seq = max((r.seq for r in role_rows), default=-1) + 1
+        name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
         existing = discord.utils.get(guild.categories, name=name)
         new_cat = existing or await template.clone(name=name)
         if existing is None:

@@ -709,21 +709,7 @@ class Puzzles(commands.Cog):
             pass
         elif channel is not None and channel.category is not None:
             try:
-                tag_group = self._tag_group_for_channel(channel)
-                if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
-                    source = await category_layout.move_channel_to_solved(
-                        guild, tag_group, TagGroupCategoryDb, channel,
-                    )
-                    if source is not None:
-                        await category_layout.cleanup_empty_overflow(
-                            guild, tag_group, TagGroupCategoryDb, source,
-                        )
-                else:
-                    # Single (divider) state — unchanged behaviour.
-                    divider = self.get_solve_divider_position(None, channel.category)
-                    if divider is not False:
-                        async with self.position_lock:
-                            await channel.edit(position=divider + 1)
+                await self._apply_solved_move(guild, channel)
             except Exception:
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
@@ -735,20 +721,7 @@ class Puzzles(commands.Cog):
         if channel is None or isinstance(channel, discord.Thread) or channel.category is None:
             return
         try:
-            tag_group = self._tag_group_for_channel(channel)
-            if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
-                source = await category_layout.move_channel_to_unsolved(
-                    guild, tag_group, TagGroupCategoryDb, channel,
-                )
-                if source is not None:
-                    await category_layout.cleanup_empty_overflow(
-                        guild, tag_group, TagGroupCategoryDb, source,
-                    )
-            else:
-                divider = self.get_solve_divider_position(None, channel.category)
-                if divider is not False:
-                    async with self.position_lock:
-                        await channel.edit(position=divider)
+            await self._apply_unsolved_move(guild, channel)
         except Exception:
             logger.exception("web_post_unsolved: failed to reposition channel")
 
@@ -762,6 +735,44 @@ class Puzzles(commands.Cog):
             return tg
         gid = category_layout.group_id_for_category(channel.category.id, TagGroupCategoryDb)
         return TagGroupJsonDb.get_by_attr(id=gid) if gid else None
+
+    async def _apply_solved_move(self, guild, channel):
+        """Category-aware reposition of a just-solved channel: SPLIT → move into a
+        solved category (+ clean an emptied overflow source); SINGLE → below the
+        divider. Caller guards thread/None. Never raises on its own."""
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+            source = await category_layout.move_channel_to_solved(
+                guild, tag_group, TagGroupCategoryDb, channel,
+            )
+            if source is not None:
+                await category_layout.cleanup_empty_overflow(
+                    guild, tag_group, TagGroupCategoryDb, source,
+                )
+        else:
+            divider = self.get_solve_divider_position(None, channel.category)
+            if divider is not False:
+                async with self.position_lock:
+                    await channel.edit(position=divider + 1)
+
+    async def _apply_unsolved_move(self, guild, channel):
+        """Category-aware reposition of a just-unsolved channel: SPLIT → move back to
+        an unsolved category (+ clean an emptied overflow source); SINGLE → above the
+        divider. Caller guards thread/None. Never raises on its own."""
+        tag_group = self._tag_group_for_channel(channel)
+        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+            source = await category_layout.move_channel_to_unsolved(
+                guild, tag_group, TagGroupCategoryDb, channel,
+            )
+            if source is not None:
+                await category_layout.cleanup_empty_overflow(
+                    guild, tag_group, TagGroupCategoryDb, source,
+                )
+        else:
+            divider = self.get_solve_divider_position(None, channel.category)
+            if divider is not False:
+                async with self.position_lock:
+                    await channel.edit(position=divider)
 
     def get_first_channel(self, ctx, category):
         return _channels.first_channel_position(category)
@@ -788,8 +799,7 @@ class Puzzles(commands.Cog):
         if isinstance(channel, discord.Thread):
             await ctx.send(":information_source: This is a thread, which can't be repositioned.")
             return
-        position = self.get_solve_divider_position(ctx, channel.category)
-        await channel.edit(position=position)
+        await self._apply_unsolved_move(self.get_guild(ctx), channel)
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
     @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
@@ -805,8 +815,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":white_check_mark: Mini-puzzle thread archived")
             await channel.edit(archived=True)
             return
-        position = self.get_solve_divider_position(ctx, channel.category)
-        await channel.edit(position=position+1)
+        await self._apply_solved_move(self.get_guild(ctx), channel)
         await ctx.send(":white_check_mark: Channel moved to solved")
 
 
@@ -2388,7 +2397,6 @@ class Puzzles(commands.Cog):
             await self.service.unsolve(self.get_guild(ctx), hunt, puzzle)
         except SheetRefreshError as exc:
             sheet_warning = exc
-        await self.web_post_unsolved(self.get_guild(ctx), hunt, puzzle)
 
         await self.move_to_bottom(ctx)
         await self.info(ctx, update=True)
