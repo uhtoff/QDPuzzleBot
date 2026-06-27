@@ -712,7 +712,11 @@ class PuzzleService:
         # Move channel for feeds edges (backward compat with move_to_meta)
         if edge == "feeds" and guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            new_category = discord.utils.get(guild.categories, id=group.category_id)
+            # group.category_id is the group's "home container" id, which is only a
+            # real Discord category for channel-layout groups; primary_category
+            # resolves it as a category (None for forum/group/in-place homes — the
+            # move is then skipped, as before).
+            new_category = category_layout.primary_category(guild, group)
             if channel is not None and new_category is not None and channel.category_id != new_category.id:
                 # Position: unsolved above divider, solved below divider, target at position 0
                 from bot.core.discord_channels import solve_divider_position
@@ -762,6 +766,9 @@ class PuzzleService:
         ``'flipped 3 feeds + 2 none → informs'`` or ``'0 members'``.
         """
         members = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+        # The target isn't a feeder — its self-edge stays 'none' and is never
+        # flipped or counted in the sweep.
+        members = [m for m in members if m.id != tag_group.target_puzzle_id]
         if not members:
             return "0 members"
 
@@ -772,6 +779,11 @@ class PuzzleService:
             counter[current] = counter.get(current, 0) + 1
 
         PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
+        # bulk_update flips every row including the target's — re-pin the target to
+        # 'none' so a type conversion can never make a target feed/inform itself.
+        if tag_group.target_puzzle_id:
+            PuzzleJsonDb.tag_puzzle_with_edge(
+                tag_group.target_puzzle_id, tag_group.id, "none")
 
         # Build summary string listing only non-zero edge types
         parts = [f"{v} {k}" for k, v in counter.items() if v]
@@ -808,6 +820,9 @@ class PuzzleService:
             puzzle.add_tag(tag_group.id)
             puzzle.is_target = True
             PuzzleJsonDb.commit(puzzle)
+            # The target's self-edge is 'none' — it is the thing fed, not a feeder.
+            PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, tag_group.id, "none")
+            puzzle.tag_edges[tag_group.id] = "none"
 
             # Restructure the sheet tab in place (header -> B1, contribution Table
             # -> A4) BEFORE source_mode/edges render into it. Without this the tab
@@ -1343,6 +1358,9 @@ class PuzzleService:
         puzzle.add_tag(new_round.id)
         puzzle.is_target = True
         PuzzleJsonDb.commit(puzzle)
+        # The target's self-edge is 'none' — it is the thing fed, not a feeder.
+        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "none")
+        puzzle.tag_edges[new_round.id] = "none"
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1578,6 +1596,17 @@ class PuzzleService:
 
         PuzzleJsonDb.commit(new_puzzle)
 
+        # Persist the membership edge for the assigned group. A bare commit inserts
+        # the tags row with the DB default ('feeds'), so without this every new puzzle
+        # would feed its group regardless of type. A group's own target (is_meta) is a
+        # member of its group but neither feeds nor informs it, so it carries a 'none'
+        # self-edge. A feeder gets the type-matched edge: feeds a meta/runaround,
+        # informs a capstone, 'none' for a bare group (no target to feed or inform).
+        if round_data is not None:
+            edge = "none" if is_meta else default_edge_for_group(round_data)
+            PuzzleJsonDb.tag_puzzle_with_edge(new_puzzle.id, round_data.id, edge)
+            new_puzzle.tag_edges[round_data.id] = edge
+
         try:
             channel_name = clean_name(new_puzzle.name)
             if hunt.layout_mode == "forum":
@@ -1712,10 +1741,21 @@ class PuzzleService:
                         channel_type="text", position=500,
                     )
 
-            parent_id = (
-                group_text_channel.id if is_group
-                else (forum_channel.id if hunt.layout_mode == "forum" else new_category.id)
-            )
+            if is_group:
+                # Forum-mode Group has no cloned category, so it is identified by
+                # its own text channel. Channel-mode Group clones a real category
+                # for its puzzles — store THAT so puzzles assigned to the group
+                # land under it (category_layout resolves category_id against
+                # guild.categories; the cog resolves channel-mode groups via the
+                # channel's parent category — see Puzzles.cog_before_invoke).
+                parent_id = (
+                    group_text_channel.id if hunt.layout_mode == "forum"
+                    else new_category.id
+                )
+            elif hunt.layout_mode == "forum":
+                parent_id = forum_channel.id
+            else:
+                parent_id = new_category.id
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=parent_id,

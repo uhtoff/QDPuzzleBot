@@ -333,3 +333,27 @@ async def test_allocate_raises_when_no_category_budget():
     tag_group = MagicMock(id=5, category_id=100, name="Round 1")
     with pytest.raises(RuntimeError, match="no_category_space"):
         await layout.pick_unsolved_category(guild, tag_group, dao)
+
+
+# --------------------------------------------------------------- primary_category
+def test_primary_category_resolves_category_home():
+    """A channel-layout group's category_id IS a Discord category -> resolved."""
+    cat = MagicMock(id=999)
+    guild = MagicMock(categories=[cat])
+    tag_group = MagicMock(category_id=999)
+    assert layout.primary_category(guild, tag_group) is cat
+
+
+def test_primary_category_none_for_non_category_home():
+    """Forum/group/in-place homes store a non-category channel id, which is not
+    among guild.categories -> None (the caller then skips category placement)."""
+    cat = MagicMock(id=999)
+    guild = MagicMock(categories=[cat])
+    tag_group = MagicMock(category_id=12345)  # a forum/text/puzzle channel id
+    assert layout.primary_category(guild, tag_group) is None
+
+
+def test_primary_category_none_for_unset_home():
+    """A channel-less group (category_id == 0) -> None."""
+    guild = MagicMock(categories=[MagicMock(id=999)])
+    assert layout.primary_category(guild, MagicMock(category_id=0)) is None
