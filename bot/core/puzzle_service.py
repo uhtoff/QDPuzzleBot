@@ -375,7 +375,10 @@ class PuzzleService:
         if not _tab_present(puzzle.google_page_id):
             actions.append(ReconcileAction("tab_create", puzzle.name, "main tab missing"))
             if apply:
-                await gsheet_cog.add_new_puzzle_sheet(puzzle, gsheet_cog.INITIAL_OFFSET)
+                existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+                insert_idx = gsheet_cog.compute_insert_index(
+                    getattr(puzzle, 'is_target', False), existing)
+                await gsheet_cog.add_new_puzzle_sheet(puzzle, insert_idx)
                 await gsheet_cog.update_puzzle_info(puzzle)
                 PuzzleJsonDb.commit(puzzle)
         return actions
@@ -987,7 +990,12 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.restore_puzzle_spreadsheet(puzzle)
+            # Exclude this puzzle from the zone computation: its sheet is still at
+            # the solved end (not yet moved), so including it would anchor the zone
+            # at the wrong position.
+            existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
+            restore_idx = gsheet_cog.compute_insert_index(puzzle.is_target, existing)
+            await gsheet_cog.restore_puzzle_spreadsheet(puzzle, restore_index=restore_idx)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         for tag in puzzle.tags:
@@ -1405,7 +1413,9 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.create_puzzle_spreadsheet(mini)
+            existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+            insert_idx = gsheet_cog.compute_insert_index(False, existing)  # minis are regular
+            await gsheet_cog.create_puzzle_spreadsheet(mini, index=insert_idx)
 
         PuzzleJsonDb.commit(mini)
 
@@ -1545,7 +1555,9 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.create_puzzle_spreadsheet(new_puzzle)
+            existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+            insert_idx = gsheet_cog.compute_insert_index(new_puzzle.is_target, existing)
+            await gsheet_cog.create_puzzle_spreadsheet(new_puzzle, index=insert_idx)
 
         PuzzleJsonDb.commit(new_puzzle)
 
