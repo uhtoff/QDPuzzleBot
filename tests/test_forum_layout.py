@@ -159,3 +159,115 @@ def test_forum_meta_thread_classifies_as_group_type_not_puzzle():
     assert env["channel_type"] == "Metapuzzle"   # upgraded, not 'Puzzle'
     assert env["tag_group"] is group
     assert env["puzzle"] is meta
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (1A): Group general-channel group type + service-owned welcomes.
+# These FAIL until Phase 2 implements the Group path in create_tag_group.
+# ---------------------------------------------------------------------------
+
+
+def _channel_hunt():
+    """Copy of _forum_hunt but channel-mode (category-clone layout)."""
+    h = HuntData()
+    h.id = 10
+    h.google_sheet_id = "S1"
+    h.archive_google_sheet_id = "A1"
+    h.url = None
+    h.category_id = 1
+    h.name = "H"
+    h.layout_mode = "channel"
+    return h
+
+
+@pytest.mark.asyncio
+async def test_group_forum_mode_creates_plain_text_channel_no_forum():
+    svc = _forum_svc()
+    hunt_category = MagicMock(id=1, position=0); hunt_category.name = "H"
+    guild = MagicMock(); guild.categories = [hunt_category]; guild.channels = []
+    guild.create_forum = AsyncMock()                       # must NOT be called for a Group
+    text_channel = MagicMock(id=4242); text_channel.mention = "<#4242>"; text_channel.name = "grp"
+    notifier = MagicMock(); notifier.welcome = AsyncMock()
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(text_channel, True))):
+        rdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        rdb.generate_uid.return_value = "G1"
+        new_round, puzzle = await svc.create_tag_group(
+            guild, _forum_hunt(), "Grp", notifier=notifier,
+            meta_puzzle_name=False, round_type="Group",
+        )
+    guild.create_forum.assert_not_awaited()                 # no forum for a Group
+    assert puzzle is None                                    # no target puzzle
+    pdb.commit.assert_not_called()                           # no PuzzleData
+    assert new_round.category_id == 4242                     # group channel id stored
+    notifier.welcome.assert_awaited_once()                  # group welcome posted
+    # welcome posted for the GROUP (no puzzle):
+    assert notifier.welcome.await_args.kwargs.get("puzzle") is None or \
+           notifier.welcome.await_args.args[3] is None
+
+
+@pytest.mark.asyncio
+async def test_group_channel_mode_clones_category_and_adds_one_channel():
+    svc = _forum_svc()
+    hunt_category = MagicMock(id=1, position=0); hunt_category.name = "H"
+    cloned = MagicMock(id=2, position=1, channels=[], edit=AsyncMock())
+    hunt_category.clone = AsyncMock(return_value=cloned)
+    guild = MagicMock(); guild.categories = [hunt_category]; guild.channels = []
+    guild.create_forum = AsyncMock()                       # must NOT be called for a Group
+    text_channel = MagicMock(id=4242); text_channel.mention = "<#4242>"; text_channel.name = "grp"
+    notifier = MagicMock(); notifier.welcome = AsyncMock()
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(text_channel, True))):
+        rdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        rdb.generate_uid.return_value = "G1"
+        new_round, puzzle = await svc.create_tag_group(
+            guild, _channel_hunt(), "Grp", notifier=notifier,
+            meta_puzzle_name=False, round_type="Group",
+        )
+    hunt_category.clone.assert_awaited_once()                # channel-mode clone used
+    guild.create_forum.assert_not_awaited()                 # no forum for a Group
+    pdb.commit.assert_not_called()                           # no PuzzleData
+    assert puzzle is None
+    notifier.welcome.assert_awaited_once()                  # group welcome posted
+
+
+@pytest.mark.asyncio
+async def test_meta_welcome_has_populated_group_code():
+    # Regression for the ordering bug: group_code must be set BEFORE the welcome fires.
+    svc = _forum_svc()
+    hunt_category = MagicMock(id=1, position=0); hunt_category.name = "H"
+    forum = MagicMock(id=777)
+    guild = MagicMock(); guild.categories = [hunt_category]; guild.channels = []
+    guild.create_forum = AsyncMock(return_value=forum)
+    guild.get_channel = MagicMock(return_value=forum)       # create_puzzle resolves the forum
+    seen = {}
+    notifier = MagicMock()
+
+    async def _cap(*a, **k):
+        tg = k.get("tag_group") or a[2]
+        seen["code"] = tg.group_code
+    notifier.welcome = AsyncMock(side_effect=_cap)
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.create_forum_post",
+               AsyncMock(return_value=MagicMock(id=222, mention="<#222>", name="m"))), \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category", AsyncMock()), \
+         patch("bot.core.puzzle_service.get_or_create_channel", AsyncMock()):
+        rdb.check_duplicates_in_hunt.return_value = False
+        pdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        rdb.generate_uid.return_value = "GC9"
+        await svc.create_tag_group(
+            guild, _forum_hunt(), "M", notifier=notifier,
+            meta_puzzle_name="M", round_type="Metapuzzle",
+        )
+
+    assert seen["code"] == "GC9"        # NOT None/'0' — proves group_code set before welcome

@@ -149,6 +149,32 @@ async def test_create_meta_runaround_sets_subtree_source_mode(web):
 
 
 # ---------------------------------------------------------------------------
+# Phase 1 (1C): Group type + service-owned welcomes. These FAIL until Phase 2
+# wires the route to pass meta_puzzle_name=False for Group and a real notifier
+# for every type (the manual welcome block is deleted).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_meta_group_makes_no_meta(web):
+    web.svc.create_tag_group = AsyncMock(return_value=(make_round(id=5), None))
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Group"})
+    assert resp.status_code == 200
+    kwargs = web.svc.create_tag_group.call_args.kwargs
+    assert kwargs.get("meta_puzzle_name") is False          # no target puzzle
+    assert kwargs.get("round_type") == "Group"
+    assert kwargs.get("notifier") is not None               # service posts the welcome
+
+
+@pytest.mark.asyncio
+async def test_create_meta_passes_notifier_for_all_types(web):
+    # The web route no longer posts welcomes manually — it hands a real notifier to
+    # the service for EVERY type. (Was notifier=None previously.)
+    await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Metapuzzle"})
+    assert web.svc.create_tag_group.call_args.kwargs.get("notifier") is not None
+
+
+# ---------------------------------------------------------------------------
 # Membership endpoint — edge + only params
 # ---------------------------------------------------------------------------
 
