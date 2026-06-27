@@ -58,6 +58,64 @@ class TagGroupData:
         """Return list of TagGroupData objects sorted by start time."""
         return sorted(tag_groups, key=lambda p: p.start_time)
 
+@dataclass
+class GroupMatch:
+    """Outcome of resolving a user-supplied group reference.
+
+    status:
+      "exact"     — matched a group_code; ``group`` is set.
+      "name"      — matched a group name (exact or unique substring); ``group`` is set.
+      "ambiguous" — several groups matched; ``candidates`` lists them, ``group`` is None.
+      "none"      — nothing matched; ``group`` is None, ``candidates`` empty.
+      "empty"     — no input given; ``candidates`` holds the available metas as suggestions.
+    """
+    group: Optional["TagGroupData"]
+    candidates: List["TagGroupData"]
+    status: str
+
+
+def resolve_group(raw, groups) -> GroupMatch:
+    """Resolve a user-supplied group reference to a single TagGroupData.
+
+    ``groups`` is the candidate pool (caller scopes it, e.g. to one hunt). Only metas
+    (a 6-char string ``group_code``) are eligible. Resolution order, all case-insensitive
+    and whitespace-trimmed:
+
+      1. exact ``group_code``
+      2. exact ``name``
+      3. unique substring over ``name``/``group_code``/``id``
+
+    Multiple matches at any step short-circuit to an ``ambiguous`` result so the caller can
+    ask the user to disambiguate rather than silently picking one.
+    """
+    metas = [g for g in groups if isinstance(g.group_code, str) and len(g.group_code) == 6]
+    norm = (raw or "").strip()
+    if not norm:
+        return GroupMatch(None, metas, "empty")
+
+    code = norm.upper()
+    by_code = [g for g in metas if g.group_code.upper() == code]
+    if len(by_code) == 1:
+        return GroupMatch(by_code[0], [], "exact")
+    if len(by_code) > 1:
+        return GroupMatch(None, by_code, "ambiguous")
+
+    low = norm.lower()
+    by_name = [g for g in metas if g.name.lower() == low]
+    if len(by_name) == 1:
+        return GroupMatch(by_name[0], [], "name")
+    if len(by_name) > 1:
+        return GroupMatch(None, by_name, "ambiguous")
+
+    by_sub = [g for g in metas if low in f"{g.name} {g.group_code} {g.id}".lower()]
+    if len(by_sub) == 1:
+        return GroupMatch(by_sub[0], [], "name")
+    if len(by_sub) > 1:
+        return GroupMatch(None, by_sub, "ambiguous")
+
+    return GroupMatch(None, [], "none")
+
+
 class _TagGroupJsonDb:
     def commit(self, tag_group_data):
         pass

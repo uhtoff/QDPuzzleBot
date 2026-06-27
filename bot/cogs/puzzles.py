@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb
+    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb, resolve_group
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -227,6 +227,38 @@ class Puzzles(commands.Cog):
                 break
 
         return choices
+
+    async def resolve_target_group(self, ctx, meta_code):
+        """Resolve `meta_code` to a TagGroupData within the current hunt, or send help and
+        return None.
+
+        Forgiving counterpart to the slash autocomplete for the bang path: trims/normalises
+        input, accepts a group *name* as well as its 6-char code, scopes to the current hunt,
+        and replies with an actionable message (disambiguation list / available groups)
+        instead of a bare ":x: invalid". Used by feeds / informs / groups_with / remove_from."""
+        hunt = self.get_hunt(ctx)
+        groups = TagGroupJsonDb.get_all(hunt.id) if hunt else []
+        match = resolve_group(meta_code, groups)
+        if match.group:
+            return match.group
+
+        def _listing(items):
+            return "\n".join(f"• {g.name} (`{g.group_code}`)" for g in items[:10])
+
+        if match.status == "ambiguous":
+            await ctx.send(
+                f":grey_question: `{meta_code}` matches several groups — be more specific:\n"
+                f"{_listing(match.candidates)}")
+        elif match.status == "empty":
+            await ctx.send(":x: Please supply a group code or name, e.g. `!feeds AB12CD`.")
+        else:  # none
+            metas = [g for g in groups if isinstance(g.group_code, str) and len(g.group_code) == 6]
+            if metas:
+                await ctx.send(
+                    f":x: No group matches `{meta_code}`. Available groups:\n{_listing(metas)}")
+            else:
+                await ctx.send(":x: This hunt has no groups to assign to yet.")
+        return None
 
     def clean_name(self, name):
         """Cleanup name to be appropriate for discord channel."""
@@ -1170,14 +1202,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await self.service.tag_with_edge(puzzle, target_group, "feeds")
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-            await ctx.send(
-                f":white_check_mark: This puzzle now feeds {target_group.name}. Meta sheets are being updated.")
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await self.service.tag_with_edge(puzzle, target_group, "feeds")
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle now feeds {target_group.name}. Meta sheets are being updated.")
 
     @commands.hybrid_command(
         name="feeds_only",
@@ -1197,14 +1228,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await ctx.send(
-                f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
-            await self.service.tag_edge_only(puzzle, target_group, "feeds", self.get_guild(ctx))
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
+        await self.service.tag_edge_only(puzzle, target_group, "feeds", self.get_guild(ctx))
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
 
     @commands.hybrid_command(
         name="remove_from",
@@ -1224,9 +1254,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
+        target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
-            await ctx.send(":x: Please send a valid group code")
             return
         if puzzle.id == target_group.target_puzzle_id:
             await ctx.send(":x: You can't remove the target puzzle from its own group!")
@@ -1254,14 +1283,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await self.service.tag_with_edge(puzzle, target_group, "informs")
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-            await ctx.send(
-                f":white_check_mark: This puzzle now informs {target_group.name}. Meta sheets are being updated.")
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await self.service.tag_with_edge(puzzle, target_group, "informs")
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle now informs {target_group.name}. Meta sheets are being updated.")
 
     @commands.hybrid_command(
         name="informs_only",
@@ -1280,14 +1308,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await ctx.send(
-                f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
-            await self.service.tag_edge_only(puzzle, target_group, "informs", guild=None)
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
+        await self.service.tag_edge_only(puzzle, target_group, "informs", guild=None)
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
 
     @commands.hybrid_command(
         name="groups_with",
@@ -1306,14 +1333,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await self.service.tag_with_edge(puzzle, target_group, "none")
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-            await ctx.send(
-                f":white_check_mark: This puzzle is now in {target_group.name}.")
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await self.service.tag_with_edge(puzzle, target_group, "none")
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle is now in {target_group.name}.")
 
     @commands.hybrid_command(
         name="groups_only_with",
@@ -1332,14 +1358,13 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
-        target_group = TagGroupJsonDb.get_by_attr(group_code=meta_code)
-        if target_group:
-            await ctx.send(
-                f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
-            await self.service.tag_edge_only(puzzle, target_group, "none", guild=None)
-            asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
-        else:
-            await ctx.send(":x: Please send a valid group code")
+        target_group = await self.resolve_target_group(ctx, meta_code)
+        if not target_group:
+            return
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
+        await self.service.tag_edge_only(puzzle, target_group, "none", guild=None)
+        asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
 
     async def _round_impl(self, ctx, round_name, command):
         """Round creation handler — delegates to PuzzleService.create_round.

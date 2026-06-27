@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
 from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, AdditionalSheetData
-from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError
+from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError, resolve_group, GroupMatch
 from .rollup_data import RollupData, _RollupJsonDb
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .evidence_data import EvidenceData
