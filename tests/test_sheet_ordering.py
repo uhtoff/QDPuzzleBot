@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
-from tests.conftest import make_hunt, make_puzzle, make_cog
+from tests.conftest import make_puzzle
 
 
 # ---------------------------------------------------------------------------
