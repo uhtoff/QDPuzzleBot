@@ -714,7 +714,19 @@ class PuzzleService:
             channel = guild.get_channel(puzzle.channel_id)
             new_category = discord.utils.get(guild.categories, id=group.category_id)
             if channel is not None and new_category is not None and channel.category_id != new_category.id:
-                await channel.edit(category=new_category, position=2)
+                # Position: unsolved above divider, solved below divider, target at position 0
+                from bot.core.discord_channels import solve_divider_position
+                divider_pos = solve_divider_position(new_category)
+                if puzzle.solved and divider_pos is not False:
+                    # Place solved puzzles at the end (after the divider)
+                    position = max((ch.position for ch in new_category.channels), default=0) + 1
+                elif divider_pos is not False:
+                    # Place unsolved just above the divider
+                    position = divider_pos - 1
+                else:
+                    # No divider (single-category layout) — place after target (position 2)
+                    position = 2
+                await channel.edit(category=new_category, position=position)
 
         await self.tag_with_edge(puzzle, group, edge)
 

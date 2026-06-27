@@ -352,12 +352,13 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         onSuccess: (data) => {
           showSheetWarning(data);
         },
-        onSettled: () =>
+        onSettled: () => {
           setPendingIds((s) => {
             const next = new Set(s);
             next.delete(puzzleId);
             return next;
-          }),
+          });
+        },
       }
     );
   };
