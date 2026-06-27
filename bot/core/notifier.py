@@ -137,7 +137,7 @@ class DiscordNotifier(Notifier):
         if cog is None:
             return
 
-        channel = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if puzzle.channel_id else None
         if channel is None:
             return
 
@@ -239,7 +239,7 @@ class CompositeNotifier(Notifier):
 # ------------------------------------------------------------------ helpers
 def _post_solved_embed(bot, guild, puzzle):
     """Best-effort direct post of solved embed (no cog needed)."""
-    channel = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
+    channel = guild.get_channel_or_thread(puzzle.channel_id) if puzzle.channel_id else None
     if channel is None:
         return
     from bot.store import GuildSettingsDb

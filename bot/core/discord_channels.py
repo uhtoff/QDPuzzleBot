@@ -29,6 +29,16 @@ def clean_name(name):
     return "-".join(name.lower().split())
 
 
+async def create_forum_post(forum, name, content="\u200b"):
+    """Create a post (thread) in a Discord forum channel.
+
+    Returns the Thread object. Handles discord.py 2.7.1 ThreadWithMessage wrapper.
+    """
+    result = await forum.create_thread(name=name, content=content)
+    # discord.py returns ThreadWithMessage(thread=Thread, message=Message)
+    return result.thread if hasattr(result, 'thread') else result
+
+
 def solve_divider_position(category):
     """Return the position of the SOLVE_DIVIDER channel in *category*, or False."""
     for channel in category.channels:

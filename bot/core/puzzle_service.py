@@ -25,7 +25,7 @@ from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
-    clean_name, get_or_create_channel, solve_divider_position,
+    clean_name, get_or_create_channel, solve_divider_position, create_forum_post,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
@@ -1013,25 +1013,35 @@ class PuzzleService:
         TagGroupJsonDb.delete(tag_group.id)
 
         if guild is not None:
-            # Split rounds own several categories (unsolved/solved/overflow); delete
-            # them all + drop the join rows. delete_group_categories returns False for
-            # single-category rounds, which keep the legacy divider+category teardown.
-            if not await category_layout.delete_group_categories(
-                guild, tag_group, TagGroupCategoryDb
-            ) and tag_group.category_id:
-                category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                if category is not None:
-                    for ch in list(category.channels):
-                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                            try:
-                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                            except Exception:
-                                logger.exception("delete_round: could not delete divider channel")
+            if hunt.layout_mode == "forum":
+                # Forum mode: delete the forum channel (cascades its posts)
+                forum_ch = guild.get_channel(tag_group.category_id)
+                if forum_ch is not None:
                     try:
-                        await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
                     except Exception:
-                        logger.exception("delete_round: could not delete category %s",
+                        logger.exception("delete_round: could not delete forum %s",
                                          tag_group.category_id)
+            else:
+                # Split rounds own several categories (unsolved/solved/overflow); delete
+                # them all + drop the join rows. delete_group_categories returns False for
+                # single-category rounds, which keep the legacy divider+category teardown.
+                if not await category_layout.delete_group_categories(
+                    guild, tag_group, TagGroupCategoryDb
+                ) and tag_group.category_id:
+                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_round: could not delete divider channel")
+                        try:
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_round: could not delete category %s",
+                                             tag_group.category_id)
 
         await self.notifier.board_changed(hunt)
         return failed_channels
@@ -1373,18 +1383,24 @@ class PuzzleService:
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
         if round_data is not None:
-            # Round puzzles flow through the multi-category layout: this splits the
-            # round and/or allocates an overflow category as needed, so a single
-            # category never hits the 50 cap.
-            category = await category_layout.pick_unsolved_category(
-                guild, round_data, TagGroupCategoryDb,
-            )
+            if hunt.layout_mode == "forum":
+                # Forum mode: resolve the forum channel from the round's category_id
+                forum_channel = guild.get_channel(round_data.category_id)
+                category = None  # no category layout needed for threads
+            else:
+                # Round puzzles flow through the multi-category layout: this splits the
+                # round and/or allocates an overflow category as needed, so a single
+                # category never hits the 50 cap.
+                category = await category_layout.pick_unsolved_category(
+                    guild, round_data, TagGroupCategoryDb,
+                )
         else:
             category_id = hunt.category_id
             category = discord.utils.get(guild.categories, id=category_id) if category_id else None
 
         # Guild-wide ceiling still applies (overflow can't conjure channel slots).
-        if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
+        # Threads don't count toward the 500 cap.
+        if hunt.layout_mode != "forum" and len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
             raise RuntimeError("guild_full")
         # Hunt category (no round) keeps the simple hard guard.
         if round_data is None and category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
@@ -1415,18 +1431,11 @@ class PuzzleService:
 
         try:
             channel_name = clean_name(new_puzzle.name)
-            text_channel, created = await get_or_create_channel(
-                guild=guild, category=category, channel_name=channel_name,
-                channel_type="text",
-            )
-            if created:
-                if category is not None:
-                    divider = solve_divider_position(category)
-                    if divider is not False:
-                        await text_channel.edit(position=divider)
-                new_puzzle.channel_mention = text_channel.mention
-                new_puzzle.channel_id = text_channel.id
-                new_puzzle.channel_name = text_channel.name
+            if hunt.layout_mode == "forum":
+                thread = await create_forum_post(forum_channel, channel_name)
+                new_puzzle.channel_id = thread.id
+                new_puzzle.channel_mention = thread.mention
+                new_puzzle.channel_name = thread.name
                 PuzzleJsonDb.commit(new_puzzle)
                 # Notify (welcome) after channel + DB are committed.
                 if notifier is not None:
@@ -1434,8 +1443,30 @@ class PuzzleService:
                         guild, hunt,
                         tag_group=round_data,
                         puzzle=new_puzzle,
-                        channel=text_channel,
+                        channel=thread,
                     )
+            else:
+                text_channel, created = await get_or_create_channel(
+                    guild=guild, category=category, channel_name=channel_name,
+                    channel_type="text",
+                )
+                if created:
+                    if category is not None:
+                        divider = solve_divider_position(category)
+                        if divider is not False:
+                            await text_channel.edit(position=divider)
+                    new_puzzle.channel_mention = text_channel.mention
+                    new_puzzle.channel_id = text_channel.id
+                    new_puzzle.channel_name = text_channel.name
+                    PuzzleJsonDb.commit(new_puzzle)
+                    # Notify (welcome) after channel + DB are committed.
+                    if notifier is not None:
+                        await notifier.welcome(
+                            guild, hunt,
+                            tag_group=round_data,
+                            puzzle=new_puzzle,
+                            channel=text_channel,
+                        )
         except Exception:
             # Channel create (or post-create work) failed after the sheet + DB row
             # were committed — clean up both so we don't strand an orphan.
@@ -1487,21 +1518,28 @@ class PuzzleService:
             raise RuntimeError("no_template_category")
 
         new_category = None
+        forum_channel = None
         new_round = None
         puzzle = None
         try:
-            new_category = await ref_category.clone(name=new_category_name)
-            await new_category.edit(position=ref_category.position + 1)
-            from bot.core.discord_channels import SOLVE_DIVIDER, SOLVE_CATEGORY
-            if SOLVE_CATEGORY is False:
-                await get_or_create_channel(
-                    guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
-                    channel_type="text", position=500,
+            # --- Forum vs channel layout ---
+            if hunt.layout_mode == "forum":
+                forum_channel = await guild.create_forum(
+                    name=new_category_name, category=ref_category,
                 )
+            else:
+                new_category = await ref_category.clone(name=new_category_name)
+                await new_category.edit(position=ref_category.position + 1)
+                if SOLVE_CATEGORY is False:
+                    await get_or_create_channel(
+                        guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
+                        channel_type="text", position=500,
+                    )
 
+            parent_id = forum_channel.id if hunt.layout_mode == "forum" else new_category.id
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
-                category_id=new_category.id,
+                category_id=parent_id,
                 type=round_type,
             )
             TagGroupJsonDb.commit(new_round)
@@ -1535,6 +1573,11 @@ class PuzzleService:
                     await new_category.delete(reason="create_round rollback")
                 except Exception:
                     logger.exception("create_round: rollback of orphan category failed")
+            if forum_channel is not None:
+                try:
+                    await forum_channel.delete(reason="create_round rollback")
+                except Exception:
+                    logger.exception("create_round: rollback of orphan forum failed")
             raise
 
     def _sole_informs_target(self, puzzle):
@@ -1788,19 +1831,29 @@ class PuzzleService:
         for tag_group in tag_groups:
             TagGroupJsonDb.delete(tag_group.id)
             if guild is not None and tag_group.category_id:
-                category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                if category is not None:
-                    for ch in list(category.channels):
-                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                            try:
-                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                            except Exception:
-                                logger.exception("delete_hunt: could not delete divider channel")
-                    try:
-                        await category.delete(reason=self._DISCORD_DELETE_REASON)
-                    except Exception:
-                        logger.exception("delete_hunt: could not delete group category %s",
-                                         tag_group.category_id)
+                if hunt.layout_mode == "forum":
+                    # Forum mode: category_id holds a forum channel id
+                    forum_ch = guild.get_channel(tag_group.category_id)
+                    if forum_ch is not None:
+                        try:
+                            await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_hunt: could not delete forum %s",
+                                             tag_group.category_id)
+                else:
+                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_hunt: could not delete divider channel")
+                        try:
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_hunt: could not delete group category %s",
+                                             tag_group.category_id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)

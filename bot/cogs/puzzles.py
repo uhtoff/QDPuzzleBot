@@ -422,6 +422,9 @@ class Puzzles(commands.Cog):
         return False
 
     async def check_available_space(self, ctx, required_channels = 0, required_categories = 0):
+        # Threads are uncapped (forum mode), always have space
+        if isinstance(ctx.channel, discord.Thread):
+            return True
         space_available = True
         guild = ctx.guild
         channels = len(ctx.channel.category.channels)
@@ -804,6 +807,13 @@ class Puzzles(commands.Cog):
     def _tag_group_for_channel(self, channel):
         """Resolve the tag_group owning a channel's category — primary category
         first, then the join table for solved/overflow categories."""
+        if isinstance(channel, discord.Thread):
+            # Forum puzzle: parent is the forum, whose id == tag_group.category_id
+            parent = channel.parent
+            if parent is None:
+                return None
+            tg = TagGroupJsonDb.get_by_attr(category_id=parent.id)
+            return tg
         if channel.category is None:
             return None
         tg = TagGroupJsonDb.get_by_attr(category_id=channel.category.id)
@@ -1220,6 +1230,10 @@ class Puzzles(commands.Cog):
         if self.get_channel_type(ctx) not in ["Metaless Round", "Metapuzzle", "Round",
                                               "Capstone", "Runaround", "Group"]:
             await ctx.send(":x: This does not appear to be a main group channel")
+            return
+        hunt = self.get_hunt(ctx)
+        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
+            await ctx.send(":x: !sync is not available for forum hunts yet")
             return
         meta_category = ctx.channel.category
         target_group = TagGroupJsonDb.get_by_attr(category_id=meta_category.id)
@@ -2697,6 +2711,10 @@ class Puzzles(commands.Cog):
         Usage: `!archive_round`
         Example: `!archive_round`
         Run in a channel of the round to archive. Admins/mods only."""
+        hunt = self.get_hunt(ctx)
+        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
+            await ctx.send(":x: !archive_round is not available for forum hunts yet")
+            return False
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
         ignore_channels = []
