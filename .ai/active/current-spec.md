@@ -49,9 +49,10 @@ Add **forum-backed hunts** as a per-hunt *option*, selected by a new `HuntData.l
   branches and leaves `category_layout.py` **untouched** (forum mode simply never calls it).
 - Migrating existing channel-backed hunts. Forum mode is opt-in for new hunts only.
 - Buttons/modals on posts. Separate track.
-- **solve()/unsolve()** changes — the solve/unsolve presentation edges (`web_post_solved` :697,
-  `web_post_unsolved` :712 in `bot/cogs/puzzles.py`) **already** early-return on `discord.Thread`,
-  so forum puzzles need no change there. Do not touch them.
+- **solve()/unsolve()** changes — the solve/unsolve presentation edges
+  (`web_post_solved_embed` ~:702, Thread guard ~:722; `web_post_unsolved` ~:733, Thread guard :737
+  in `bot/cogs/puzzles.py`) **already** early-return/skip on `discord.Thread`, so forum puzzles
+  need no change there. Do not touch them.
 
 ## Relevant files
 
@@ -264,7 +265,8 @@ passes; full suite green. Commit.
    `Thread`). Import it into `puzzle_service` (`from bot.core.discord_channels import ...,
    create_forum_post`) so the Phase-1 patch target `bot.core.puzzle_service.create_forum_post`
    resolves.
-2. In `create_tag_group` (~:1485), before the `ref_category.clone(...)` block, branch:
+2. In `create_tag_group` (~:1485, the `ref_category` resolve; clone is at ~:1493), before the
+   `ref_category.clone(...)` block, branch:
    `if hunt.layout_mode == "forum":` resolve
    `hunt_cat = discord.utils.get(guild.categories, id=hunt.category_id)`, create
    `forum = await guild.create_forum(name=new_category_name, category=hunt_cat)`, **skip** the
@@ -293,7 +295,7 @@ delete the forum channel — `forum = guild.get_channel(tag_group.category_id); 
 await forum.delete(reason=self._DISCORD_DELETE_REASON)` (deleting the forum cascades its posts;
 the per-puzzle DB deletes above already ran). The `else` keeps the existing
 `delete_group_categories` + category teardown verbatim. Mirror the same branch in `delete_hunt`
-(~:1791) for the hunt's tag-group categories if it tears them down the same way — **read it first**
+(~:1765) for the hunt's tag-group categories if it tears them down the same way — **read it first**
 and only branch what actually deletes categories.
 **Acceptance:** `pytest tests/test_forum_layout.py::test_delete_round_forum_deletes_forum_channel -q`
 passes; full suite green. Commit.

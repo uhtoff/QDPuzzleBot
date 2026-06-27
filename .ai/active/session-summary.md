@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-06-27
-Status: ready for handoff — refactor(cog): remove dead methods superseded by service layer @ 596dd90
+Status: ready for handoff — Phase 1 (tests); merged main (help-text commits) @ 54559dd, spec line refs re-verified
 
 ## Goal
 
