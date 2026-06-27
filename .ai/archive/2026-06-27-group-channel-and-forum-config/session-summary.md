@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-06-27
-Status: complete — follow-up fixes: wire forum guidelines sync + fix tag precedence (runaround > metameta)
+Status: complete — fix(forum): wire guidelines sync + correct tag precedence @ cb16264 (archived)
 
 ## Goal
 
