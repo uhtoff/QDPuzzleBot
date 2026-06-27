@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-06-27
-Status: ready for handoff — Phase 1 (tests) @ AGENTS tier note 743738c/366cb08
+Status: complete — all phases delivered (tests + Group + forum config + auto-apply tags)
 
 ## Goal
 

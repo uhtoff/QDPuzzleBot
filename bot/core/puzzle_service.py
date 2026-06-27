@@ -30,6 +30,7 @@ from bot.core.discord_channels import (
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
+from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,59 @@ class PuzzleService:
             cog.set_spreadsheet_id(hunt.google_sheet_id)
             cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
         return cog
+
+    # --- forum tag helpers ---
+
+    async def _update_forum_tags(self, guild, hunt, puzzle):
+        """Best-effort: update forum post tags to match desired state.
+
+        Computes metameta/minimeta from the live DB state and applies the
+        correct structural + solved tag(s).  No-op when hunt is not in
+        forum mode or guild/puzzle.channel_id are missing.
+        """
+        try:
+            if getattr(hunt, "layout_mode", None) != "forum":
+                return
+            if guild is None or not getattr(puzzle, "channel_id", 0):
+                return
+
+            thread = guild.get_channel_or_thread(puzzle.channel_id)
+            if thread is None:
+                return
+
+            # Resolve the owning groups; pick the primary (first) for tagging.
+            group_ids = list(getattr(puzzle, "tags", []) or [])
+            primary_group: TagGroupData | None = None
+            if not group_ids:
+                # Unassigned feeder: only "solved" tag can apply
+                desired = set()
+                if getattr(puzzle, "solved", False):
+                    desired.add("solved")
+            else:
+                primary_group = TagGroupJsonDb.get_by_attr(id=group_ids[0])
+                if primary_group is None:
+                    return  # orphaned tag reference
+                all_groups = TagGroupJsonDb.get_all(hunt_id=hunt.id)
+                puzzles_in_group = PuzzleJsonDb.get_all_from_tag_group(primary_group.id)
+                metameta = is_metameta(primary_group, all_groups, puzzles_in_group)
+                minimeta = bool(self.get_minis(puzzle.id))
+                desired = desired_tags_for(primary_group, puzzle,
+                                           metameta=metameta,
+                                           minimeta=minimeta)
+
+            # Resolve the forum channel (parent container of the thread).
+            cid = getattr(thread, "parent_id", None)
+            if cid is None and primary_group is not None:
+                cid = getattr(primary_group, "category_id", None)
+            if cid is None:
+                return
+            forum = guild.get_channel(cid)
+            if forum is None:
+                return
+
+            await apply_forum_tags(thread, forum, desired)
+        except Exception:
+            logger.exception("_update_forum_tags failed for puzzle %s", puzzle.id)
 
     # --- !reconcile ---
 
@@ -701,6 +755,10 @@ class PuzzleService:
             summary = "no edge change (runaround)"
 
         await self.notifier.board_changed(hunt)
+
+        # Update forum post tags (structural type may have changed).
+        await self._update_forum_tags(guild, hunt, puzzle)
+
         return tag_group, summary
 
     async def set_parent_group(self, child_group, parent_id):
@@ -851,6 +909,10 @@ class PuzzleService:
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
         await self.notifier.board_changed(hunt)
+
+        # Update forum post tags (solved status changed).
+        await self._update_forum_tags(guild, hunt, puzzle)
+
         if failed:
             raise SheetRefreshError(failed)
         return True
@@ -906,6 +968,9 @@ class PuzzleService:
                 round_.solve_time = None
                 round_.status = "active"
                 TagGroupJsonDb.commit(round_)
+
+        # Update forum post tags (solved status changed).
+        await self._update_forum_tags(guild, hunt, puzzle)
 
     async def convert_to_puzzle(self, guild, hunt, puzzle):
         """Demote a metapuzzle back to an ordinary puzzle (ctx-free seam for the
@@ -1205,6 +1270,10 @@ class PuzzleService:
             await gsheet_cog.promote_tab_to_group(puzzle)
 
         await self.notifier.board_changed(hunt)
+
+        # Update forum post tags (newly converted to meta).
+        await self._update_forum_tags(guild, hunt, puzzle)
+
         return new_round, puzzle
 
     async def rename_puzzle(self, guild, hunt, puzzle, name):
@@ -1445,6 +1514,8 @@ class PuzzleService:
                         puzzle=new_puzzle,
                         channel=thread,
                     )
+                # Apply forum post tags to the new thread.
+                await self._update_forum_tags(guild, hunt, new_puzzle)
             else:
                 text_channel, created = await get_or_create_channel(
                     guild=guild, category=category, channel_name=channel_name,
