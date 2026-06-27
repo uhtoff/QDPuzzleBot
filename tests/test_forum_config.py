@@ -72,6 +72,36 @@ async def test_create_forum_sets_tags_emoji_and_topic():
     assert isinstance(topic, str) and topic
 
 
+@pytest.mark.asyncio
+async def test_create_forum_syncs_guidelines_after_group_code_set():
+    # The forum is created with a placeholder topic before the row exists; after the
+    # group_code is populated the service must sync the real guidelines onto the forum.
+    svc = _cfg_svc()
+    hunt_category = MagicMock(id=1, position=0); hunt_category.name = "H"
+    forum = MagicMock(id=777); forum.topic = "placeholder"; forum.edit = AsyncMock()
+    guild = MagicMock(); guild.categories = [hunt_category]; guild.channels = []
+    guild.create_forum = AsyncMock(return_value=forum)
+    guild.get_channel.return_value = forum
+    notifier = MagicMock(); notifier.welcome = AsyncMock()
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=333), True))):
+        rdb.check_duplicates_in_hunt.return_value = False
+        pdb.check_duplicates_in_hunt.return_value = False
+        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
+        rdb.generate_uid.return_value = "G1"
+        await svc.create_tag_group(
+            guild, _cfg_forum_hunt(), "New Round", notifier=notifier, meta_puzzle_name=False,
+        )
+
+    forum.edit.assert_awaited()
+    topic = forum.edit.await_args.kwargs.get("topic")
+    assert isinstance(topic, str) and "New Round" in topic
+    assert topic != "placeholder"
+
+
 def test_render_welcome_plaintext_group():
     from bot.core.forum_config import render_welcome_plaintext
 

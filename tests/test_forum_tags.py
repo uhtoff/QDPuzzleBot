@@ -21,6 +21,9 @@ def _grp(type_, target=9):
 _CASES = [
     (_grp("Runaround"), make_puzzle(id=9, is_target=True, solved=True),
      False, False, {"runaround", "solved"}),
+    # Runaround outranks metameta: a runaround group flagged metameta still tags runaround.
+    (_grp("Runaround"), make_puzzle(id=9, is_target=True),
+     True, False, {"runaround"}),
     (_grp("Metapuzzle"), make_puzzle(id=9, is_target=True),
      True, False, {"metameta"}),
     (_grp("Metapuzzle"), make_puzzle(id=9, is_target=True),

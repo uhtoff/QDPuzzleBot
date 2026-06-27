@@ -169,6 +169,11 @@ class DiscordNotifier(Notifier):
         except Exception:
             logger.exception("refresh_info: failed for puzzle %s", puzzle.id)
 
+        # Forum-mode metas keep their guidelines/topic in step with the welcome.
+        if tag_group is not None and getattr(hunt, "layout_mode", None) == "forum":
+            from bot.core.forum_config import sync_forum_guidelines
+            await sync_forum_guidelines(guild, hunt, tag_group, puzzle)
+
     async def puzzle_solved(
         self,
         guild,

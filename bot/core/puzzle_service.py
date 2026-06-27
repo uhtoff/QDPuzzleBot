@@ -1610,10 +1610,15 @@ class PuzzleService:
 
             # --- Forum vs channel layout (non-Group types) ---
             elif hunt.layout_mode == "forum":
+                from types import SimpleNamespace
                 from bot.core.forum_config import forum_create_kwargs, render_welcome_plaintext
                 kwargs = forum_create_kwargs()
+                # Placeholder topic before the row/group_code exist; synced for real
+                # after creation. Carry the name so the fallback isn't a bare "?".
+                placeholder_group = SimpleNamespace(name=name, group_code="", type=round_type)
+                placeholder_kind = "capstone" if round_type == "Capstone" else "meta"
                 kwargs["topic"] = render_welcome_plaintext(
-                    "meta", None, None, hunt  # placeholder — synced later
+                    placeholder_kind, placeholder_group, None, hunt
                 )
                 forum_channel = await guild.create_forum(
                     name=new_category_name, category=ref_category,
@@ -1662,6 +1667,12 @@ class PuzzleService:
                 new_round.target_puzzle_id = puzzle.id
 
             TagGroupJsonDb.commit(new_round)
+
+            # Forum was created with a placeholder topic before the row/group_code
+            # existed — sync the real guidelines now that they're populated.
+            if hunt.layout_mode == "forum":
+                from bot.core.forum_config import sync_forum_guidelines
+                await sync_forum_guidelines(guild, hunt, new_round, puzzle)
 
             await self.notifier.board_changed(hunt)
             return new_round, puzzle

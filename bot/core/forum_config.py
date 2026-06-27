@@ -114,20 +114,25 @@ def desired_tags_for(group, puzzle, *, metameta: bool = False, minimeta: bool = 
         set of tag name strings
     """
     tags = set()
+    gtype = getattr(group, "type", "") if group is not None else ""
+    has_target = bool(
+        group is not None and getattr(group, "target_puzzle_id", 0)
+        and getattr(puzzle, "is_target", False)
+    )
 
-    # Structural tag by precedence
-    if metameta:
-        tags.add("metameta")
-    elif group is not None and getattr(group, "type", "") == "Runaround":
+    # Structural tag by precedence: runaround > metameta > meta > minimeta > capstone.
+    # "meta" is restricted to the meta-bearing types so a Capstone (which also has a
+    # target puzzle) falls through to its own tag rather than being tagged "meta".
+    if gtype == "Runaround":
         tags.add("runaround")
-    elif group is not None and getattr(group, "type", "") == "Capstone":
-        tags.add("capstone")
-    elif (group is not None and getattr(group, "target_puzzle_id", 0) and
-          getattr(puzzle, "is_target", False)):
-        # target puzzle of a meta/round (not Capstone — caught above)
+    elif metameta:
+        tags.add("metameta")
+    elif gtype in ("Round", "Metapuzzle") and has_target:
         tags.add("meta")
     elif minimeta:
         tags.add("minimeta")
+    elif gtype == "Capstone":
+        tags.add("capstone")
 
     if getattr(puzzle, "solved", False):
         tags.add("solved")
