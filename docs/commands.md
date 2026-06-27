@@ -40,10 +40,9 @@ disagree, **the code is the source of truth** — fix both.
 | `!capstone` | `!cs` | `name` | Hunt channel | anyone | Create a capstone. |
 | `!runaround` | `!ra` | `name` | Hunt channel | anyone | Create a runaround. |
 | `!group` | | `name` | Hunt channel | anyone | Create a group (no meta puzzle). |
-| `!roundnometa` | `!rnm` | `name` | Hunt channel | anyone | Create a round with no meta puzzle. |
 | `!delete_round` | `!delete_metapuzzle`, `!delete_group` | — | group's main channel | organisers/admins | Delete a round/group, its puzzles, channels and sheets (confirms). |
 
-> `!round`/`!r`, `!mp`, `!cs`, `!ra`, `!group`, `!rnm` are all aliases of one command;
+> `!round`/`!r`, `!mp`, `!cs`, `!ra`, `!group` are all aliases of one command;
 > the alias you type selects the type created.
 
 ## Converting a puzzle's role

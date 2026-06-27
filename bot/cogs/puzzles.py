@@ -12,7 +12,7 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupData, TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, resolve_group
+    TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, resolve_group
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # dashboard write serializes against the matching bang-command (see M4).
 from bot.core.locks import _PUZZLE_LOCKS
 from bot.core.errors import SheetRefreshError
-from bot.core.puzzle_service import TYPE_DEFAULTS
+from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
 
 
@@ -80,7 +80,6 @@ class Puzzles(commands.Cog):
     SOLVE_CATEGORY = False
     SOLVE_DIVIDER = "———solved———"
     SOLVED_PUZZLES_CATEGORY = "solved"
-    PUZZLE_GROUPS = ["Round","Metapuzzle","Metaless Round"]
     # module-level constants (from bot.core.constants), re-exposed as class attributes
     STATUSES = STATUSES
     PRIORITIES = PRIORITIES
@@ -1251,8 +1250,7 @@ class Puzzles(commands.Cog):
         Example: `!sync`
         Run in a round/meta/group's main channel. Organisers/admins only.
         Aliases: `!sync_meta`, `!sync_feeders`, `!sync_round`."""
-        if self.get_channel_type(ctx) not in ["Metaless Round", "Metapuzzle", "Round",
-                                              "Capstone", "Runaround", "Group"]:
+        if self.get_channel_type(ctx) not in GROUP_TYPES:
             await ctx.send(":x: This does not appear to be a main group channel")
             return
         hunt = self.get_hunt(ctx)
@@ -1476,12 +1474,11 @@ class Puzzles(commands.Cog):
         """Round creation handler — delegates to PuzzleService.create_round.
 
         The command string determines round type:
-          !r / !round       → Round (creates meta puzzle named "name - meta")
+          !r / !round       → Metapuzzle (creates meta puzzle named "name - meta")
           !mp / !metapuzzle → Metapuzzle (creates meta puzzle named "name")
           !capstone / !cs   → Capstone (creates meta puzzle)
           !runaround / !ra  → Runaround (creates meta puzzle, source_mode=subtree)
           !group            → Group (no meta puzzle)
-          !roundnometa / !rnm → Metaless Round (no meta puzzle)
         """
         from bot.core.notifier import DiscordNotifier
 
@@ -1489,8 +1486,8 @@ class Puzzles(commands.Cog):
 
         # command_map: key → (group_type, create_meta_puzzle, meta_name_suffix)
         command_map = {
-            "r": ("Round", True, " - meta"),
-            "round": ("Round", True, " - meta"),
+            "r": ("Metapuzzle", True, " - meta"),
+            "round": ("Metapuzzle", True, " - meta"),
             "mp": ("Metapuzzle", True, None),
             "metapuzzle": ("Metapuzzle", True, None),
             "capstone": ("Capstone", True, None),
@@ -1498,8 +1495,6 @@ class Puzzles(commands.Cog):
             "runaround": ("Runaround", True, None),
             "ra": ("Runaround", True, None),
             "group": ("Group", False, None),
-            "roundnometa": ("Group", False, None),
-            "rnm": ("Group", False, None),
         }
 
         group_type, create_meta, suffix = command_map[command_key]
@@ -1542,7 +1537,7 @@ class Puzzles(commands.Cog):
                 )
             return  # error already sent, stop further processing
 
-    @commands.command(aliases=["r","mp","metapuzzle", "roundnometa", "rnm",
+    @commands.command(aliases=["r","mp","metapuzzle",
                                "capstone", "cs", "runaround", "ra", "group"])
     async def round(self, ctx, *, arg):
         """*Create a new round/group category; the alias you use picks the type.*
@@ -1554,8 +1549,7 @@ class Puzzles(commands.Cog):
         • `!mp` / `!metapuzzle name` — a metapuzzle
         • `!cs` / `!capstone name` — a capstone
         • `!ra` / `!runaround name` — a runaround
-        • `!group name` — a group (no meta puzzle)
-        • `!rnm` / `!roundnometa name` — a round with no meta puzzle"""
+        • `!group name` — a group (no meta puzzle)"""
 
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.channel.send(":x: This command must be done from the main Hunt channel")
@@ -1736,7 +1730,7 @@ class Puzzles(commands.Cog):
         data = None
         if self.get_channel_type(ctx) == "Puzzle":
             data = self.get_puzzle(ctx)
-        elif self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
+        elif self.get_channel_type(ctx) in GROUP_TYPES:
             data = self.get_tag_group(ctx)
         elif self.get_channel_type(ctx) == "Hunt":
             data = self.get_hunt(ctx)
@@ -1747,7 +1741,7 @@ class Puzzles(commands.Cog):
     def save_settings(self, ctx, settings):
         if self.get_channel_type(ctx) == "Puzzle":
             PuzzleJsonDb.commit(settings)
-        elif self.get_channel_type(ctx) in self.PUZZLE_GROUPS:
+        elif self.get_channel_type(ctx) in GROUP_TYPES:
             TagGroupJsonDb.commit(settings)
         elif self.get_channel_type(ctx) == "Hunt":
             HuntJsonDb.commit(settings)
@@ -1898,7 +1892,7 @@ class Puzzles(commands.Cog):
         For a whole-hunt overview, use the dashboard website."""
         all_puzzles = {}
         embed_title = ""
-        if self.get_channel_type(ctx) in ["Round","Puzzle","Metaless Round","Metapuzzle"]:
+        if self.get_channel_type(ctx) in (*GROUP_TYPES, "Puzzle"):
             round_puzzles = PuzzleJsonDb.get_all_from_tag_group(self.get_tag_group(ctx).id)
             all_puzzles[self.get_tag_group(ctx).id] = {
                         'name': self.get_tag_group(ctx).name,
@@ -1987,7 +1981,7 @@ class Puzzles(commands.Cog):
                     value="""The following are some useful commands:
         • `!r <round name>` : Create a new round with a metapuzzle channel
         • `!mp <metapuzzle name>` : Create a new metapuzzle
-        • `!rnm <round name>` : Create a round without a metapuzzle channel
+        • `!group <group name>` : Create a group without a metapuzzle channel
         • `!info` : Repeat this message
         • `!set_login username:password` : Set the login details for the hunt if shared
         """,
@@ -2145,46 +2139,6 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
-    async def send_initial_round_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
-        """Send intro message on a round channel"""
-        tag_group = kwargs.get('tag_group', self.get_tag_group(ctx))
-        hunt = kwargs.get('hunt', self.get_hunt(ctx))
-        puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
-        embed = discord.Embed(
-            description=f"""Welcome to the round channel for {tag_group.name}!"""
-        )
-        embed.add_field(
-            name="Overview",
-            value="This channel is for general discussion of the round and working on the meta, please note the first two column of the sheet are reserved for the puzzle titles and answers and will be overwritten by the bot!",
-            inline=False,
-        )
-        embed.add_field(
-                        name="General Commands",
-                        value=f"""The following may be useful discord commands:
-        • `!p <puzzle-name>` will add a puzzle to this round.
-        • `!list` : List all puzzles in this round.
-        • `!info` will re-post this message.
-        • `!move_to_round {tag_group.group_code}` when used in another puzzle channel will add it to this round and move it to this category.
-        • `!add_to_round {tag_group.group_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!remove_from_round {tag_group.group_code}` when used in another puzzle channel will remove it from this round.
-        • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
-        • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
-        """,
-                        inline=False,
-                    )
-
-        self._add_metapuzzle_command_fields(embed)
-        self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))
-        self._add_puzzle_status_fields(embed, puzzle)
-
-        embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
-
-        if kwargs.get("update", False):
-            channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embeds=embed_list)
-        else:
-            return await channel.send(embeds=embed_list)
-
     async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
         """Send intro message on a puzzle channel"""
         puzzle = kwargs.get("puzzle", self.get_puzzle(ctx))
@@ -2253,17 +2207,14 @@ class Puzzles(commands.Cog):
         Example: `!info`
         Works in hunt, round, meta and puzzle channels; content adapts to the channel type."""
         update = kwargs.get("update", False)
-        if self.get_channel_type(ctx) == "Hunt":
+        ch_type = self.get_channel_type(ctx)
+        if ch_type == "Hunt":
             await self.send_initial_hunt_channel_messages(ctx, ctx.channel, update=update)
-        elif self.get_channel_type(ctx) == "Round":
-            await self.send_initial_round_channel_messages(ctx, ctx.channel, update=update)
-        elif self.get_channel_type(ctx) == "Metapuzzle":
+        elif ch_type in ("Metapuzzle", "Capstone", "Runaround"):
             await self.send_initial_metapuzzle_channel_messages(ctx, ctx.channel, update=update)
-        elif self.get_channel_type(ctx) == "Metaless Round":
+        elif ch_type == "Group":
             await self.send_initial_group_channel_messages(ctx, ctx.channel, update=update)
-        elif self.get_channel_type(ctx) == "Group":
-            await self.send_initial_group_channel_messages(ctx, ctx.channel, update=update)
-        elif self.get_channel_type(ctx) == "Puzzle":
+        elif ch_type == "Puzzle":
             await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=update)
         else:
             await ctx.send(":x: This does not appear to be a hunt channel")
@@ -2960,7 +2911,7 @@ class Puzzles(commands.Cog):
         Example: `!delete_round`
         Run in the round/group's main channel. Organisers/admins only. Not recoverable.
         Aliases: `!delete_metapuzzle`, `!delete_group`."""
-        if self.get_channel_type(ctx) not in self.PUZZLE_GROUPS:
+        if self.get_channel_type(ctx) not in GROUP_TYPES:
             await ctx.send(":x: This command must be done from the main group channel")
             return
 
