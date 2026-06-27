@@ -29,6 +29,7 @@ import {
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { MetaBadge } from "./MetaBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
@@ -132,7 +133,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               </Tooltip>
             )}
             <Text c="dimmed" size="sm">
-              {group.num_solved_feeders}/{group.num_feeders} solved
+              {group.num_solved_feeders}/{group.num_feeders} feeders solved
             </Text>
           </Group>
         </Accordion.Control>
@@ -203,7 +204,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                 </Table.Td>
                 <Table.Td>
                   <Group gap={6}>
-                    {p.is_meta && <Badge size="xs" color="grape">META</Badge>}
+                    <MetaBadge puzzle={p} />
                     <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                   </Group>
                 </Table.Td>
