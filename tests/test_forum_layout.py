@@ -107,7 +107,7 @@ async def test_delete_round_forum_deletes_forum_channel():
     tag_group = make_round(id=5, category_id=777)
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = []       # no puzzles
