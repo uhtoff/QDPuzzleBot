@@ -9,22 +9,26 @@ positive case here; a bare puzzle and a metaless/converted Group (no target) bot
 reduce to the negative case.
 """
 from bot.store import PuzzleJsonDb, mydb
+from tests.conftest import live_hunt_id
 
 
-def _insert_puzzle(hunt_id=10, name="HasTargetTest"):
+def _insert_puzzle(hunt_id=None, name="HasTargetTest"):
     cur = mydb.cursor()
-    cur.execute("INSERT INTO puzzles (hunt_id, name) VALUES (%s, %s)", (hunt_id, name))
+    cur.execute(
+        "INSERT INTO puzzles (hunt_id, name) VALUES (%s, %s)",
+        (hunt_id or live_hunt_id(), name),
+    )
     pid = cur.lastrowid
     cur.close()
     mydb.commit()
     return pid
 
 
-def _insert_tag_group(hunt_id=10, target_puzzle_id=None):
+def _insert_tag_group(hunt_id=None, target_puzzle_id=None):
     cur = mydb.cursor()
     cur.execute(
         "INSERT INTO tag_group (hunt_id, target_puzzle_id) VALUES (%s, %s)",
-        (hunt_id, target_puzzle_id),
+        (hunt_id or live_hunt_id(), target_puzzle_id),
     )
     rid = cur.lastrowid
     cur.close()

@@ -13,20 +13,24 @@ fails on the missing seam, which is the right reason.
 
 from bot.store import PuzzleJsonDb, mydb
 from bot.store.puzzle_data import PuzzleData
+from tests.conftest import live_hunt_id
 
 
-def _insert_tag_group(hunt_id=10):
+def _insert_tag_group(hunt_id=None):
     cur = mydb.cursor()
-    cur.execute("INSERT INTO tag_group (hunt_id) VALUES (%s)", (hunt_id,))
+    cur.execute("INSERT INTO tag_group (hunt_id) VALUES (%s)", (hunt_id or live_hunt_id(),))
     rid = cur.lastrowid
     cur.close()
     mydb.commit()
     return rid
 
 
-def _insert_puzzle(hunt_id=10, name="EdgeTest"):
+def _insert_puzzle(hunt_id=None, name="EdgeTest"):
     cur = mydb.cursor()
-    cur.execute("INSERT INTO puzzles (hunt_id, name) VALUES (%s, %s)", (hunt_id, name))
+    cur.execute(
+        "INSERT INTO puzzles (hunt_id, name) VALUES (%s, %s)",
+        (hunt_id or live_hunt_id(), name),
+    )
     pid = cur.lastrowid
     cur.close()
     mydb.commit()

@@ -14,13 +14,14 @@ This test FAILS before the Task 5 query change: today's membership clause exclud
 any puzzle tagged into a target-bearing group regardless of edge_type, so the
 informs-only and none-only members are wrongly dropped.
 
-Uses the seeded hunt_id=10 (FK to hunts) like the sibling live-DB tests, and
-asserts membership per-puzzle (subset, not exact set) so any other hunt-10 rows in
-puzzlebot_test don't make the assertions brittle.
+Looks up a real hunt id at runtime (FK to hunts) like the sibling live-DB tests,
+and asserts membership per-puzzle (subset, not exact set) so any other rows on that
+hunt in puzzlebot_test don't make the assertions brittle.
 """
 from bot.store import PuzzleJsonDb, mydb
+from tests.conftest import live_hunt_id
 
-HUNT = 10  # seeded hunt row (tag_group.hunt_id FKs hunts(id)); same as sibling tests
+HUNT = live_hunt_id()  # a real hunts row (tag_group.hunt_id FKs hunts(id)); same as sibling tests
 
 
 def _gu_insert_puzzle(name, parent_puzzle_id=None):

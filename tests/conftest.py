@@ -6,6 +6,37 @@ from bot.store.hunt_data import HuntData
 from bot.store.puzzle_data import PuzzleData
 from bot.store.tag_group_data import TagGroupData
 
+_LIVE_HUNT_ID = None
+
+
+def live_hunt_id():
+    """Return the id of a real hunts row for live-DB tests to FK against.
+
+    The store-layer live tests (test_tag_edges, test_is_target_derivation,
+    test_get_unassigned) insert tag_group/puzzle rows whose hunt_id FKs
+    hunts(id). Rather than depend on a fixed seeded hunt id, look one up at
+    runtime; only if the hunts table is empty do we create a throwaway hunt so
+    there is always a valid parent. The result is cached for the test session.
+    """
+    global _LIVE_HUNT_ID
+    if _LIVE_HUNT_ID is not None:
+        return _LIVE_HUNT_ID
+
+    from bot.store import mydb
+
+    cur = mydb.cursor()
+    cur.execute("SELECT id FROM hunts ORDER BY id LIMIT 1")
+    row = cur.fetchone()
+    if row is None:
+        cur.execute("INSERT INTO hunts (name) VALUES (%s)", ("live-test-hunt",))
+        hunt_id = cur.lastrowid
+        mydb.commit()
+    else:
+        hunt_id = row[0]
+    cur.close()
+    _LIVE_HUNT_ID = hunt_id
+    return _LIVE_HUNT_ID
+
 
 def make_puzzle(
     id=1,
