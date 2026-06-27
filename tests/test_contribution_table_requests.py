@@ -63,8 +63,10 @@ def test_add_contribution_table_covers_header_and_hides_key_col():
     assert table_id == "TID"
     add = next(r["addTable"]["table"] for body in calls
                for r in body["requests"] if "addTable" in r)
-    # Named after the tab (unique per spreadsheet), not a shared literal.
-    assert add["name"] == "Meta"
+    # Named with a page-unique, char-safe literal (Google rejects Table names with
+    # '-'/apostrophes, and "X - meta" tabs would break addTable). The Table is
+    # scan-located, never looked up by name.
+    assert add["name"] == "Contributions 900"
     assert add["range"]["sheetId"] == 900
     # 4 columns A-D
     assert add["range"]["startColumnIndex"] == 0
@@ -145,7 +147,7 @@ def test_reconcile_table_numeric_length_and_resizes_table():
 def test_generate_puzzle_tab_writes_header_and_no_table_for_feeder():
     cog = _cog()
     calls = _capture_batch(cog)
-    cog.create_blank_tab = lambda spreadsheet_id, name: 901
+    cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 901
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_unique_tab_name = lambda n: n
 
@@ -164,7 +166,7 @@ def test_generate_puzzle_tab_writes_header_and_no_table_for_feeder():
 def test_generate_puzzle_tab_adds_contribution_table_for_target():
     cog = _cog()
     calls = _capture_batch(cog)
-    cog.create_blank_tab = lambda spreadsheet_id, name: 902
+    cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 902
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_unique_tab_name = lambda n: n
     cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Meta"
@@ -196,7 +198,7 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
 def test_generate_puzzle_tab_formats_tab():
     cog = _cog()
     calls = _capture_batch(cog)
-    cog.create_blank_tab = lambda spreadsheet_id, name: 903
+    cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 903
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_unique_tab_name = lambda n: n
 
@@ -607,6 +609,135 @@ def test_label_cells_emit_bold_format():
     assert 0 in {r["repeatCell"]["range"]["startColumnIndex"] for r in feeder_reqs}
 
 
+def test_dynamic_name_and_solution_cells_emit_bold_format():
+    """The bot writes the puzzle name + solution as dynamic values with update_cell
+    (userEnteredValue only), so their cells must be bolded at tab creation. One
+    bold repeatCell per cell, shifted by the target offset."""
+    from bot.utils import config
+
+    cog = _cog()
+    reqs = cog._dynamic_bold_requests(page_id=901, offset=1)
+    assert len(reqs) == 2
+    cols = set()
+    for r in reqs:
+        rc = r["repeatCell"]
+        assert rc["range"]["sheetId"] == 901
+        assert rc["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
+        assert rc["fields"] == "userEnteredFormat.textFormat.bold"
+        cols.add(rc["range"]["startColumnIndex"])
+    # name (B1 -> col 1) + offset 1 = col 2; solution shifted likewise.
+    assert cog.get_column(config.puzzle_cell_name) + 1 in cols
+    assert cog.get_column(config.puzzle_cell_solution) + 1 in cols
+
+
+def test_header_border_request_outlines_frozen_rows():
+    """The frozen header rows get a thin border on every cell edge, spanning the
+    A..Q header band shifted right by the target offset."""
+    from bot.cogs import sheet_layout
+
+    cog = _cog()
+    r = cog._header_border_request(page_id=902, offset=1)["updateBorders"]
+    assert r["range"]["sheetId"] == 902
+    assert r["range"]["startRowIndex"] == 0
+    assert r["range"]["endRowIndex"] == sheet_layout.FROZEN_ROWS
+    assert r["range"]["startColumnIndex"] == 1                       # offset
+    assert r["range"]["endColumnIndex"] == cog.HEADER_LAST_COL + 1   # band + offset
+    for edge in ("top", "bottom", "left", "right", "innerHorizontal", "innerVertical"):
+        assert r[edge]["style"] == "SOLID"
+
+
+def test_generate_puzzle_tab_emits_bold_values_and_border():
+    """End-to-end: a generated tab's batch carries the dynamic-value bold requests
+    and the header border (alongside the existing label bold + tab styling)."""
+    cog = _cog()
+    calls = _capture_batch(cog)
+    cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_unique_tab_name = lambda n: n
+
+    p = PuzzleData()
+    p.id = 7
+    p.name = "Feeder"
+    p.url = "http://f"
+    p.is_target = False
+
+    asyncio.run(cog.generate_puzzle_tab(p, is_target=False))
+    reqs = [r for body in calls for r in body["requests"]]
+
+    bolds = [r["repeatCell"] for r in reqs if "repeatCell" in r
+             and r["repeatCell"]["cell"]["userEnteredFormat"].get("textFormat", {}).get("bold")]
+    assert bolds, "tab should carry bold textFormat requests"
+    assert any("updateBorders" in r for r in reqs), "tab should carry a header border"
+
+
+def test_create_blank_tab_inserts_at_index():
+    """create_blank_tab plumbs the insert index into addSheet so new puzzle tabs
+    land at the requested position (regression: tabs were appended at the end)."""
+    cog = _cog()
+    captured = {}
+
+    class _Sheet:
+        def batchUpdate(self, spreadsheetId, body):
+            captured["body"] = body
+            return "REQ"
+
+    async def fake_exec(req, on_retry=None):
+        return {"replies": [{"addSheet": {"properties": {"sheetId": 77}}}]}
+
+    with patch.object(gsheet_mod, "get_sheet", lambda: _Sheet()), \
+         patch.object(gsheet_mod, "execute_with_retry", fake_exec):
+        pid = asyncio.run(cog.create_blank_tab("LIVE", "Alpha", index=7))
+    assert pid == 77
+    props = captured["body"]["requests"][0]["addSheet"]["properties"]
+    assert props["index"] == 7
+    assert props["title"] == "Alpha"
+
+
+def test_create_blank_tab_appends_when_no_index():
+    """Omitting the index appends at the end (no `index` key — Sheets default)."""
+    cog = _cog()
+    captured = {}
+
+    class _Sheet:
+        def batchUpdate(self, spreadsheetId, body):
+            captured["body"] = body
+            return "REQ"
+
+    async def fake_exec(req, on_retry=None):
+        return {"replies": [{"addSheet": {"properties": {"sheetId": 88}}}]}
+
+    with patch.object(gsheet_mod, "get_sheet", lambda: _Sheet()), \
+         patch.object(gsheet_mod, "execute_with_retry", fake_exec):
+        asyncio.run(cog.create_blank_tab("LIVE", "Beta"))
+    props = captured["body"]["requests"][0]["addSheet"]["properties"]
+    assert "index" not in props
+
+
+def test_generate_puzzle_tab_passes_index_to_create_blank_tab():
+    """New puzzle tabs are inserted at INITIAL_OFFSET (left, after the reserved
+    sheets); the index must reach create_blank_tab, not be dropped."""
+    cog = _cog()
+    _capture_batch(cog)
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_unique_tab_name = lambda n: n
+    seen = {}
+
+    def fake_blank(spreadsheet_id, name, index=None):
+        seen["index"] = index
+        return 906
+
+    cog.create_blank_tab = fake_blank
+
+    p = PuzzleData()
+    p.id = 5
+    p.name = "Alpha"
+    p.url = "http://x"
+    p.is_target = False
+
+    asyncio.run(cog.generate_puzzle_tab(p, is_target=False, index=cog.INITIAL_OFFSET))
+    assert seen["index"] == cog.INITIAL_OFFSET
+
+
 # --- Unassigned tab far-left position (live-test fix #5) ---------------------
 
 def test_ensure_unassigned_table_pins_tab_to_far_left():
@@ -645,7 +776,7 @@ def test_generate_puzzle_tab_survives_contribution_table_failure():
     creation — generate_puzzle_tab returns the page id; the Table is deferred."""
     cog = _cog()
     _capture_batch(cog)   # header batch succeeds
-    cog.create_blank_tab = lambda spreadsheet_id, name: 904
+    cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_unique_tab_name = lambda n: n
 
