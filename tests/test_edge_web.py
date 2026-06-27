@@ -28,7 +28,7 @@ from tests.conftest import make_puzzle, make_round
 _ASYNC_SERVICE_METHODS = [
     "tag_with_edge", "tag_edge_only", "untag_from",
     "create_tag_group", "convert_to_type", "convert_to_meta",
-    "convert_to_puzzle", "refresh_unassigned_safe",
+    "convert_to_puzzle", "refresh_unassigned_safe", "set_source_mode",
 ]
 
 
@@ -118,6 +118,34 @@ async def test_create_meta_capstone_type(web):
     assert resp.status_code == 200
     web.svc.create_tag_group.assert_called_once()
     assert web.svc.create_tag_group.call_args.kwargs.get("round_type") == "Capstone"
+
+
+@pytest.mark.asyncio
+async def test_create_meta_round_type_adds_meta_suffix(web):
+    # A Round's target puzzle is named "<name> - meta", mirroring the bang path.
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Round"})
+    assert resp.status_code == 200
+    kwargs = web.svc.create_tag_group.call_args.kwargs
+    assert kwargs.get("round_type") == "Round"
+    assert kwargs.get("meta_puzzle_name") == "Foo - meta"
+
+
+@pytest.mark.asyncio
+async def test_create_meta_non_round_keeps_group_name(web):
+    # Non-Round types pass the bare group name (no suffix).
+    await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Metapuzzle"})
+    assert web.svc.create_tag_group.call_args.kwargs.get("meta_puzzle_name") == "Foo"
+
+
+@pytest.mark.asyncio
+async def test_create_meta_runaround_sets_subtree_source_mode(web):
+    # Runaround groups aggregate over their subtree, mirroring the bang path.
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo", "type": "Runaround"})
+    assert resp.status_code == 200
+    web.svc.set_source_mode.assert_awaited_once()
+    args = web.svc.set_source_mode.call_args.args
+    assert args[2] == "subtree"
+    assert args[1] is web.svc.create_tag_group.return_value[0]   # the new round
 
 
 # ---------------------------------------------------------------------------

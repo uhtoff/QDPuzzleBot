@@ -1515,10 +1515,18 @@ async def create_meta(uid):
     guild = bot.get_guild(int(ctx["guild_snowflake"]))
     try:
         from bot.core.notifier import DiscordNotifier
+        # Mirror the bang path's meta naming: a Round's target puzzle is named
+        # "<name> - meta" (other types keep the group name). See _round_impl.
+        meta_puzzle_name = name + " - meta" if group_type == "Round" else name
         new_round, puzzle = await cog.service.create_tag_group(
             guild, hunt_obj, name, notifier=None,
+            meta_puzzle_name=meta_puzzle_name,
             round_type=group_type,
         )
+        # Runaround groups aggregate over their subtree, not just direct feeders;
+        # set source_mode like the bang path does after creation.
+        if group_type == "Runaround":
+            await cog.service.set_source_mode(hunt_obj, new_round, "subtree")
         # Send the meta welcome now that group_code/target_puzzle_id are populated.
         # get_channel_or_thread also resolves forum threads (get_channel returns None
         # for threads), so forum-mode hunts get their welcome message too.
