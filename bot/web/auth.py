@@ -108,6 +108,19 @@ def current_user():
     return session.get("user")
 
 
+def discord_avatar_url(user_id, avatar_hash, size=64):
+    """CDN URL for a user's Discord avatar, or None if they have no custom one.
+
+    Animated avatars (hash prefixed 'a_') are served as .gif. The full integer
+    user_id is used here on the server because a Discord snowflake exceeds JS's
+    safe-integer range — the browser cannot rebuild this URL reliably.
+    """
+    if not avatar_hash:
+        return None
+    ext = "gif" if str(avatar_hash).startswith("a_") else "png"
+    return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size={size}"
+
+
 def login_required(view):
     @functools.wraps(view)
     async def wrapper(*args, **kwargs):
