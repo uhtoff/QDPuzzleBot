@@ -23,7 +23,7 @@ def _hunt():
 
 def _svc_with_sheets():
     gsheet = MagicMock()
-    gsheet.add_metapuzzle_data = AsyncMock()
+    gsheet.render_minimeta_contribution = AsyncMock()
     gsheet.archive_puzzle_spreadsheet = AsyncMock()
     gsheet.restore_puzzle_spreadsheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
@@ -54,7 +54,7 @@ class TestRefreshMinimeta:
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_children.return_value = minis
             await svc.refresh_minimeta(_hunt(), minimeta)
-        gsheet.add_metapuzzle_data.assert_awaited_once_with(minimeta, minis)
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, minis)
 
     @pytest.mark.asyncio
     async def test_creates_puzzle_keyed_rollup_record(self):
@@ -73,7 +73,7 @@ class TestRefreshMinimeta:
     @pytest.mark.asyncio
     async def test_badges_failure_and_reraises(self):
         svc, gsheet = _svc_with_sheets()
-        gsheet.add_metapuzzle_data.side_effect = RuntimeError("sheets down")
+        gsheet.render_minimeta_contribution.side_effect = RuntimeError("sheets down")
         minimeta = make_puzzle(id=3, puzzle_type="Minimeta")
         with _patched() as (pdb, _h, _r, rudb):
             pdb.get_children.return_value = []

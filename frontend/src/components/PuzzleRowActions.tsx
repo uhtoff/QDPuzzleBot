@@ -1,5 +1,5 @@
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
-import { IconCircleCheck, IconNote } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCircleCheck, IconNote } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 
 interface PuzzleRowActionsProps {
@@ -57,6 +57,13 @@ export function PuzzleRowActions({
                 {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
               </Badge>
             </ActionIcon>
+          </Tooltip>
+        )}
+        {p.rollup_stale && (
+          <Tooltip label={p.rollup_error || "This minimeta's sheet is out of date"} multiline maw={320}>
+            <Badge color="red" variant="light" size="sm" leftSection={<IconAlertTriangle size={12} />} style={{ cursor: "default" }}>
+              sheet stale
+            </Badge>
           </Tooltip>
         )}
       </Group>

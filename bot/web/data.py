@@ -264,6 +264,19 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 "channel_id": str(m["channel_id"]) if m["channel_id"] else None,
             })
 
+    # Puzzle-keyed (minimeta) rollups — excluded from get_rollups_by_tag_group since
+    # they are not group badges. Attach stale/error directly to each minimeta puzzle.
+    rollup_rows = await fetch_all(
+        "SELECT target_puzzle_id, last_ok, last_error "
+        "FROM rollups WHERE hunt_id = %s AND target_puzzle_id IS NOT NULL",
+        (hunt_id,),
+    )
+    for r in rollup_rows:
+        puz = puzzles.get(r["target_puzzle_id"])
+        if puz is not None:
+            puz["rollup_stale"] = not r["last_ok"]
+            puz["rollup_error"] = r["last_error"]
+
     puzzle_list = list(puzzles.values())
     derive_meta_kind(puzzle_list)
     return puzzle_list
