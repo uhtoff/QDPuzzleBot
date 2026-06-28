@@ -1,0 +1,78 @@
+# Design: Edit and Delete Clues (Evidence Items)
+
+## Goal
+
+Add the ability to delete and edit the note text of evidence items (clues) in the Evidence panel of the web dashboard.
+
+## In scope
+
+- Delete an evidence item from the Evidence panel
+- Edit the note text of an evidence item inline in the Evidence panel
+
+## Out of scope
+
+- Editing the source puzzle of an evidence item (delete and re-log instead)
+- Edit/delete for puzzle notes in PuzzleDrawer (separate feature)
+- Bang command equivalents (`!clue` has no delete/edit counterpart — web-only)
+
+## Relevant files
+
+- `bot/store/mysqldb.py` — `MySQLEvidenceDb` class
+- `bot/web/actions.py` — PATCH and new DELETE endpoint for `/evidence/<item_id>`
+- `frontend/src/api.ts` — mutation hooks
+- `frontend/src/components/EvidencePanel.tsx` — UI
+
+## Required behaviour
+
+### Backend
+
+**`MySQLEvidenceDb.delete(item_id)`**
+- Deletes the row with the given id from `evidence_items`.
+- No-op if the id does not exist.
+
+**`MySQLEvidenceDb.update_note(item_id, note)`**
+- Updates the `note` column for the given id.
+- Returns the updated `EvidenceData`, or `None` if not found.
+
+**`DELETE /evidence/<item_id>`** (new, in `actions.py`)
+- Requires login. Validates the item exists and belongs to a hunt the caller can see (same visibility check as the existing PATCH).
+- Rejects if the hunt is archived.
+- Calls `EvidenceJsonDb.delete(item_id)`.
+- Fires `cog.service.refresh_evidence(hunt_obj)` as a background task.
+- Returns `{"ok": True}` on success.
+
+**`PATCH /evidence/<item_id>`** (extend existing)
+- Existing behaviour for `target_puzzle_id` is unchanged.
+- If `note` is present in the request body (non-empty string), calls `EvidenceJsonDb.update_note(item_id, note.strip())`.
+- Both fields may be present in the same request; each is applied if present.
+- Fires `refresh_evidence` after any change.
+
+### Frontend
+
+**`useDeleteEvidence(huntUid)`** (new hook in `api.ts`)
+- Calls `DELETE /api/evidence/:id`.
+- On success: invalidates `["evidence", huntUid]`.
+
+**`useEditClueNote(huntUid)`** (new hook in `api.ts`)
+- Calls `PATCH /api/evidence/:id` with `{ note }`.
+- On success: invalidates `["evidence", huntUid]`.
+
+**`EvidenceRow` in `EvidencePanel.tsx`**
+- Note cell: clicking the note text enters edit mode — the text is replaced by a `TextInput` pre-filled with the current note. Enter or blur saves (calls `useEditClueNote`). Escape cancels without saving. While saving, the input is disabled.
+- Delete: a trash `ActionIcon` at the end of the row calls `useDeleteEvidence`. No confirmation step — consistent with the note-erase pattern in PuzzleDrawer.
+- Both actions are hidden (or disabled) when the hunt is archived.
+
+## Constraints
+
+- Archived hunts must not allow edits or deletes (same guard as all other mutating endpoints).
+- `refresh_evidence` is always best-effort / fire-and-forget — a failed Google Sheets sync must not fail the HTTP response.
+- The existing `useUpdateEvidence` hook (for target assignment) is unchanged; the new `useEditClueNote` hook is separate.
+
+## Acceptance criteria
+
+- Clicking a note in the Evidence panel makes it editable inline.
+- Saving (Enter/blur) updates the note in the DB and refreshes the Evidence panel.
+- Escape cancels without changes.
+- The trash icon deletes the row from DB and it disappears from the panel.
+- Both operations update the Evidence Google Sheet tab.
+- Neither operation is available on an archived hunt.
