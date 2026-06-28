@@ -116,7 +116,7 @@ export default function HuntBoard() {
           ]}
           w={360 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.is_admin ? 105 : 0)}
         />
-        {data.hunt.can_manage && <CreateControls detail={data} uid={uid!} />}
+        {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
       </Group>
 
       {view === "board" && (() => {
