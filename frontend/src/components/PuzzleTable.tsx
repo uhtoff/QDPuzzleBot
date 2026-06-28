@@ -4,6 +4,7 @@ import {
   Badge,
   Checkbox,
   Group,
+  Menu,
   MultiSelect,
   Table,
   Text,
@@ -12,7 +13,7 @@ import {
 import { IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle, PuzzleTagGroup } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
-import { useUpdatePuzzle } from "../api";
+import { useRetagPuzzle, useUpdatePuzzle, type EdgeType } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
@@ -40,8 +41,98 @@ const EDGE_COLOR: Record<string, string> = {
 };
 
 function edgeCode(r: PuzzleTagGroup): string {
-  if (r.is_target_of) return "T";
-  return EDGE_CODE[r.edge_type ?? ""] ?? "?";
+  const base = EDGE_CODE[r.edge_type ?? ""] ?? "?";
+  // A target normally carries the 'target' self-edge -> base "T". But a target that
+  // deliberately feeds/informs itself carries a 'feeds'/'informs' self-edge instead;
+  // target-ness then lives only in is_target_of. Surface BOTH facts (e.g. "T+F") so
+  // the self-loop isn't masked — the rollup shows it, debug edges must too.
+  if (r.is_target_of) {
+    return base === "F" || base === "I" ? `T+${base}` : "T";
+  }
+  return base;
+}
+
+function edgeColor(code: string): string {
+  if (code.includes("+")) return "grape"; // a target that self-feeds/informs
+  return EDGE_COLOR[code] ?? "red";
+}
+
+function edgeTitle(r: PuzzleTagGroup): string {
+  if (r.is_target_of) {
+    return r.edge_type === "feeds" || r.edge_type === "informs"
+      ? `target · self-${r.edge_type}`
+      : "target";
+  }
+  return r.edge_type ?? "no edge";
+}
+
+// Edge choices offered in the debug-edges edit menu. A feeder picks how it
+// contributes; a target toggles its own self-feed loop ('target' = no self-feed).
+const FEEDER_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
+  { edge: "feeds", label: "Feeds" },
+  { edge: "informs", label: "Informs" },
+  { edge: "none", label: "None (pooled)" },
+];
+const TARGET_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
+  { edge: "feeds", label: "Self-feeds" },
+  { edge: "informs", label: "Self-informs" },
+  { edge: "target", label: "No self-feed" },
+];
+
+// One debug-edge badge. Read-only unless `editable` (organiser) and the group has a
+// code to retag against; then clicking opens a menu that re-pins this puzzle's edge.
+function EdgeBadge({
+  r,
+  editable,
+  onPick,
+  onRemove,
+}: {
+  r: PuzzleTagGroup;
+  editable: boolean;
+  onPick: (edge: EdgeType) => void;
+  onRemove: () => void;
+}) {
+  const code = edgeCode(r);
+  const badge = (
+    <Badge
+      size="xs"
+      variant="light"
+      color={edgeColor(code)}
+      title={`group ${r.id} (${r.group_type ?? "?"}) · ${edgeTitle(r)}`}
+      style={editable && r.group_code ? { cursor: "pointer" } : undefined}
+    >
+      {r.name} [{code}]
+    </Badge>
+  );
+  if (!editable || !r.group_code) return badge;
+  const opts = r.is_target_of ? TARGET_EDGE_OPTS : FEEDER_EDGE_OPTS;
+  return (
+    <Menu shadow="md" position="bottom-start" withinPortal>
+      <Menu.Target>{badge}</Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{r.name} edge</Menu.Label>
+        {opts.map((o) => (
+          <Menu.Item
+            key={o.edge}
+            disabled={o.edge === (r.edge_type ?? "")}
+            onClick={() => onPick(o.edge)}
+          >
+            {o.label}
+          </Menu.Item>
+        ))}
+        {/* A target can't be removed from its own group (backend rejects it with
+            cannot_remove_own_meta) — only offer removal for feeder memberships. */}
+        {!r.is_target_of && (
+          <>
+            <Menu.Divider />
+            <Menu.Item color="red" onClick={onRemove}>
+              Remove from group
+            </Menu.Item>
+          </>
+        )}
+      </Menu.Dropdown>
+    </Menu>
+  );
 }
 
 function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_type") {
@@ -62,7 +153,11 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
+  const retag = useRetagPuzzle(detail.hunt.uid);
   const editable = !detail.hunt.archived;
+  // Debug edges (and the click-to-edit menu) are organiser-only; can_manage is
+  // already false for archived hunts and matches the backend's require_organiser gate.
+  const canManage = detail.hunt.can_manage;
 
   const statusOptions = useMemo(() => uniqueValues(puzzles, "status"), [puzzles]);
   const priorityOptions = useMemo(() => uniqueValues(puzzles, "priority"), [puzzles]);
@@ -130,12 +225,14 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
           onChange={(e) => setHideSolved(e.currentTarget.checked)}
           mb={8}
         />
-        <Checkbox
-          label="Debug edges"
-          checked={debugEdges}
-          onChange={(e) => setDebugEdges(e.currentTarget.checked)}
-          mb={8}
-        />
+        {canManage && (
+          <Checkbox
+            label="Debug edges"
+            checked={debugEdges}
+            onChange={(e) => setDebugEdges(e.currentTarget.checked)}
+            mb={8}
+          />
+        )}
         <Text c="dimmed" size="sm" mb={8}>
           {filtered.length} / {puzzles.length}
         </Text>
@@ -177,20 +274,28 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   {debugEdges ? (
                     p.rounds.length ? (
                       <Group gap={4} wrap="wrap">
-                        {p.rounds.map((r) => {
-                          const code = edgeCode(r);
-                          return (
-                            <Badge
-                              key={r.id}
-                              size="xs"
-                              variant="light"
-                              color={EDGE_COLOR[code]}
-                              title={`group ${r.id} (${r.group_type ?? "?"}) · ${r.is_target_of ? "target" : r.edge_type ?? "no edge"}`}
-                            >
-                              {r.name} [{code}]
-                            </Badge>
-                          );
-                        })}
+                        {p.rounds.map((r) => (
+                          <EdgeBadge
+                            key={r.id}
+                            r={r}
+                            editable={canManage}
+                            onPick={(edge) =>
+                              retag.mutate({
+                                puzzleId: p.id,
+                                metaCode: r.group_code as string,
+                                mode: "add",
+                                edge,
+                              })
+                            }
+                            onRemove={() =>
+                              retag.mutate({
+                                puzzleId: p.id,
+                                metaCode: r.group_code as string,
+                                mode: "remove",
+                              })
+                            }
+                          />
+                        ))}
                       </Group>
                     ) : (
                       <Text size="sm" c="dimmed">—</Text>

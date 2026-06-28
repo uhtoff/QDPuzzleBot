@@ -318,6 +318,9 @@ export function useCreateMeta(uid: string) {
 }
 
 export type RetagMode = "move" | "add" | "remove" | "clear";
+// User-selectable edge types. 'target' is system-owned but allowed when clearing a
+// target's deliberate self-feed; the backend guards it to the group's own target.
+export type EdgeType = "feeds" | "informs" | "none" | "target";
 
 export function useRetagPuzzle(uid: string) {
   const qc = useQueryClient();
@@ -326,14 +329,17 @@ export function useRetagPuzzle(uid: string) {
       puzzleId,
       metaCode,
       mode,
+      edge,
     }: {
       puzzleId: number;
       metaCode: string;
       mode: RetagMode;
+      edge?: EdgeType;
     }) =>
       apiSend<{ ok: boolean; sheet_warning?: string }>(`/api/puzzles/${puzzleId}/meta`, "POST", {
         group_code: metaCode,
         mode,
+        ...(edge ? { edge } : {}),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });

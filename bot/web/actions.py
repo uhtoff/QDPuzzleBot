@@ -815,7 +815,10 @@ async def retag_puzzle(puzzle_id):
         return jsonify({"error": "bad_mode"}), 400
 
     explicit_edge = body.get("edge")
-    if explicit_edge is not None and explicit_edge not in ("feeds", "informs", "none"):
+    # 'target' is system-assigned and normally not user-selectable, but the dashboard
+    # needs it to turn a deliberate self-feed back OFF (restore the target self-edge,
+    # not 'none' — see commit 2e1c9e9). It is guarded below to the group's own target.
+    if explicit_edge is not None and explicit_edge not in ("feeds", "informs", "none", "target"):
         return jsonify({"error": "bad_edge"}), 400
     only = bool(body.get("only", False))
 
@@ -837,6 +840,12 @@ async def retag_puzzle(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
+        # 'target' is only meaningful as a group's OWN target self-edge (used to clear
+        # a self-feed). Reject it for any ordinary membership so it stays system-owned.
+        if explicit_edge == "target" and (
+            target_group is None or target_group.target_puzzle_id != puzzle.id
+        ):
+            return jsonify({"error": "bad_edge"}), 400
         if mode == "remove" and puzzle.id == target_group.target_puzzle_id:
             return jsonify({"error": "cannot_remove_own_meta"}), 400
         if mode == "clear" and puzzle.is_target:

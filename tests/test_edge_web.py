@@ -237,6 +237,42 @@ async def test_retag_add_to_self_feeds_loop(web):
 
 
 @pytest.mark.asyncio
+async def test_retag_clear_self_feed_restores_target_edge(web):
+    # Turning a target's deliberate self-feed back OFF re-pins its self-edge to the
+    # system 'target' (not 'none'), so it stays distinguishable from pooled feeders.
+    own = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=5)
+    own.hunt_id = 10
+    own.type = "Metapuzzle"
+    web.TagGroupJsonDb.get_by_attr.return_value = own
+    resp = await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "edge": "target"}
+    )
+    assert resp.status_code == 200
+    web.svc.tag_with_edge.assert_called_once()
+    assert _edge_of(web.svc.tag_with_edge.call_args) == "target"
+
+
+@pytest.mark.asyncio
+async def test_retag_target_edge_rejected_for_non_target(web):
+    # 'target' is system-owned: it is only valid on a group's OWN target self-edge.
+    # The default fixture puzzle (id=5) is not the target of group X (target=9).
+    resp = await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "edge": "target"}
+    )
+    assert resp.status_code == 400
+    web.svc.tag_with_edge.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retag_unknown_edge_rejected(web):
+    resp = await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "edge": "bogus"}
+    )
+    assert resp.status_code == 400
+    web.svc.tag_with_edge.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_retag_capstone_defaults_informs(web):
     # Moving into a capstone informs (no feeds).
     cap = make_round(id=8, group_code="C", category_id=1, target_puzzle_id=99)
