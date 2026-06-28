@@ -1663,3 +1663,28 @@ async def update_evidence(item_id):
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
         asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id})
+
+
+@actions_bp.route("/evidence/<int:item_id>", methods=["DELETE"])
+@login_required
+async def delete_evidence(item_id):
+    from bot.store import EvidenceJsonDb, HuntJsonDb
+    old = EvidenceJsonDb.get_by_id(item_id)
+    if old is None:
+        return jsonify({"error": "not found"}), 404
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=old.hunt_id)
+    if hunt_obj is None:
+        return jsonify({"error": "not found"}), 404
+
+    if hunt_obj.archived:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    EvidenceJsonDb.delete(item_id)
+
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is not None:
+        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+
+    await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
+    return jsonify({"ok": True})
