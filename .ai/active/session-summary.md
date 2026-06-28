@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1  (branch: feature/multi-edge-membership)
 Started: 2026-06-28
-Status: ready for handoff — Phase 1 (tests) @ 9637e94 (plan/specs committed on main)
+Status: ready for handoff — test(edges): failing tests for multi-edge membership (Phase 1) @ c442e69
 
 ## Goal
 
@@ -13,9 +13,12 @@ same target, and make the evidence-board link auto-add an `informs` edge that ne
 ## Current status
 
 Design + plan are committed on `main` (specs `243bdb4`, plan `9637e94`) and present in this
-worktree. No implementation has started. Execute `.ai/active/current-spec.md` phase by phase —
-**it is authoritative**. Phase 1 (tests, Opus 4.8) → then Phases 2–10 (implementation, Sonnet 4.6),
-each applying the exact code in `docs/superpowers/plans/2026-06-28-multi-edge-membership.md`.
+worktree. **Phase 1 (tests) is done** — five test files written/converted and committed @ c442e69;
+each fails for the right reason (missing `add_edge`/`has_edge`/`link_informs_for_evidence`,
+set-vs-string assertions, `untag_from` lacking an `edge` kwarg) with no collection errors. Next:
+Phase 2 (Sonnet 4.6) onward. Execute `.ai/active/current-spec.md` phase by phase — **it is
+authoritative**. Phases 2–10 apply the exact code in
+`docs/superpowers/plans/2026-06-28-multi-edge-membership.md`.
 
 ## Context the files don't make obvious
 
