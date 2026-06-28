@@ -1426,6 +1426,36 @@ class GoogleSheets(commands.Cog):
             logger.exception("_ensure_contribution_table: could not create table on %s", page_id)
             return False
 
+    async def render_minimeta_contribution(self, minimeta, members):
+        """Render the contribution table on a minimeta's own tab.
+
+        Synthesizes a 'Feeder' row for each mini-puzzle child, keyed by puzzle id
+        for stable reconciliation. Lazily promotes the tab to target layout (inserts
+        the 4-column contribution area at A–D) if the Table is not yet present —
+        this handles both new minimetas and ones created before this feature."""
+        page_id = minimeta.google_page_id
+        if page_id is None:
+            return
+        spreadsheet_id = self.get_spreadsheet_id()
+        has_table = any(
+            bool(s.get("tables"))
+            for s in self.sheet_list(spreadsheet_id)["sheets"]
+            if s["properties"]["sheetId"] == int(page_id)
+        )
+        if not has_table:
+            await self.promote_tab_to_target(minimeta)
+        rows = [
+            [f"feeds:{m.id}", m.name, "Feeder", m.solution.upper() if m.solution else ""]
+            for m in members
+            if m.id != minimeta.id
+        ]
+        await self.reconcile_table(
+            page_id=page_id,
+            desired_rows=rows,
+            data_col_count=len(self.CONTRIBUTION_HEADER),
+            grey_below=True,
+        )
+
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
         """Render the unified contribution table on the target's tab.
 

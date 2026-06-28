@@ -79,6 +79,8 @@ export interface Puzzle {
   rounds: PuzzleTagGroup[];
   sheets: AdditionalSheet[];
   mini_puzzles: MiniPuzzle[];
+  rollup_stale?: boolean;
+  rollup_error?: string | null;
 }
 
 export interface BoardGroup {

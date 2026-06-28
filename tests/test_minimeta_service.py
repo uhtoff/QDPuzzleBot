@@ -459,3 +459,75 @@ class TestWebDataMinisPayload:
         from bot.web import data
         src = inspect.getsource(data.get_hunt_puzzles)
         assert "mini_puzzles" in src
+
+    def test_rollup_stale_queried_for_minimetas(self):
+        """get_hunt_puzzles must query puzzle-keyed rollups (minimeta stale badges)."""
+        import inspect
+        from bot.web import data
+        src = inspect.getsource(data.get_hunt_puzzles)
+        assert "target_puzzle_id IS NOT NULL" in src
+        assert "rollup_stale" in src
+
+
+class TestRefreshMiniMetaUsesStandardPath:
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.rollup_lock")
+    async def test_calls_render_minimeta_contribution(self, lock_cm, RollupsDb, PuzzleDb):
+        """refresh_minimeta must call render_minimeta_contribution (standard path)."""
+        from unittest.mock import AsyncMock, MagicMock
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=1, hunt_id=10)
+        hunt = make_hunt(id=10)
+        children = [make_puzzle(id=2, parent_puzzle_id=1)]
+        PuzzleDb.get_children.return_value = children
+        RollupsDb.get_by_attr.return_value = None
+
+        gsheet = MagicMock()
+        gsheet.render_minimeta_contribution = AsyncMock()
+        gsheet._record_rollup_tab = AsyncMock()
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+
+        # rollup_lock must be an async context manager
+        from contextlib import asynccontextmanager
+        @asynccontextmanager
+        async def _noop(*a):
+            yield
+        lock_cm.side_effect = _noop
+
+        svc = PuzzleService(bot)
+        await svc.refresh_minimeta(hunt, minimeta)
+
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.rollup_lock")
+    async def test_does_not_call_add_metapuzzle_data(self, lock_cm, RollupsDb, PuzzleDb):
+        """refresh_minimeta must NOT call the old add_metapuzzle_data path."""
+        from unittest.mock import AsyncMock, MagicMock
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=1, hunt_id=10)
+        hunt = make_hunt(id=10)
+        PuzzleDb.get_children.return_value = []
+        RollupsDb.get_by_attr.return_value = None
+
+        gsheet = MagicMock()
+        gsheet.render_minimeta_contribution = AsyncMock()
+        gsheet._record_rollup_tab = AsyncMock()
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+
+        from contextlib import asynccontextmanager
+        @asynccontextmanager
+        async def _noop(*a):
+            yield
+        lock_cm.side_effect = _noop
+
+        svc = PuzzleService(bot)
+        await svc.refresh_minimeta(hunt, minimeta)
+
+        gsheet.add_metapuzzle_data.assert_not_called()
