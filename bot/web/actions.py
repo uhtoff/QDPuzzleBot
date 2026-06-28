@@ -1429,7 +1429,7 @@ async def set_nesting(tag_group_id):
     return jsonify({"ok": True})
 
 
-# --- Create puzzles and metas (organiser only) ------------------------------
+# --- Create puzzles and metas (member-accessible, non-archived hunt required) ---
 
 async def _organiser_hunt(uid):
     """Resolve a visible, non-archived hunt and require organiser. Returns (ctx, err)."""

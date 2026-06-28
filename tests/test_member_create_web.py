@@ -85,3 +85,25 @@ async def test_member_can_create_group(web):
     assert resp.status_code == 200
     data = await resp.get_json()
     assert data["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_rejects_archived_hunt(web):
+    """create_puzzle returns 403 when the hunt is archived."""
+    archived_ctx = {"hunt": {"id": 10, "uid": "U1", "archived": True}, "guild_snowflake": "123"}
+    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(archived_ctx, None))):
+        resp = await web.client.post("/api/hunts/U1/puzzles", json={"name": "My Puzzle"})
+    assert resp.status_code == 403
+    data = await resp.get_json()
+    assert data["error"] == "hunt_archived"
+
+
+@pytest.mark.asyncio
+async def test_create_group_rejects_archived_hunt(web):
+    """create_meta returns 403 when the hunt is archived."""
+    archived_ctx = {"hunt": {"id": 10, "uid": "U1", "archived": True}, "guild_snowflake": "123"}
+    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(archived_ctx, None))):
+        resp = await web.client.post("/api/hunts/U1/metas", json={"name": "My Round"})
+    assert resp.status_code == 403
+    data = await resp.get_json()
+    assert data["error"] == "hunt_archived"
