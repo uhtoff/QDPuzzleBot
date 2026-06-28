@@ -301,3 +301,59 @@ class TestRefreshInformsTargets:
         svc.refresh_target = AsyncMock()
         await svc.refresh_target_for_puzzle(make_hunt(), None)
         svc.refresh_target.assert_not_awaited()
+
+
+class TestMySQLEvidenceDbMethods:
+    """MySQLEvidenceDb.delete and update_note — SQL execution and commit."""
+
+    def _make_db(self):
+        from bot.store.mysqldb import MySQLEvidenceDb
+        from unittest.mock import MagicMock
+        mock_mydb = MagicMock()
+        mock_cursor = MagicMock()
+        mock_mydb.cursor.return_value = mock_cursor
+        db = MySQLEvidenceDb(mydb=mock_mydb)
+        return db, mock_mydb, mock_cursor
+
+    def test_delete_executes_delete_sql_and_commits(self):
+        db, mock_mydb, mock_cursor = self._make_db()
+        db.delete(42)
+        mock_cursor.execute.assert_called_once_with(
+            "DELETE FROM evidence_items WHERE id = %s", (42,)
+        )
+        mock_mydb.commit.assert_called_once()
+        mock_cursor.close.assert_called()
+
+    def test_delete_nonexistent_id_does_not_raise(self):
+        db, mock_mydb, mock_cursor = self._make_db()
+        # Should not raise even if no rows matched
+        db.delete(999)
+        mock_cursor.execute.assert_called_once()
+
+    def test_update_note_executes_update_then_select(self):
+        import datetime
+        from bot.store.evidence_data import EvidenceData
+        db, mock_mydb, mock_cursor = self._make_db()
+        row = {
+            "id": 7, "hunt_id": 10, "source_puzzle_id": 5,
+            "target_puzzle_id": None, "note": "new text",
+            "created_at": datetime.datetime(2026, 6, 28, 12, 0, 0),
+        }
+        mock_cursor.fetchone.return_value = row
+
+        result = db.update_note(7, "new text")
+
+        calls = mock_cursor.execute.call_args_list
+        assert any("UPDATE evidence_items SET note" in str(c) for c in calls)
+        assert any("SELECT * FROM evidence_items WHERE id" in str(c) for c in calls)
+        mock_mydb.commit.assert_called_once()
+        assert isinstance(result, EvidenceData)
+        assert result.note == "new text"
+
+    def test_update_note_returns_none_for_missing_id(self):
+        db, mock_mydb, mock_cursor = self._make_db()
+        mock_cursor.fetchone.return_value = None
+
+        result = db.update_note(999, "text")
+
+        assert result is None

@@ -662,6 +662,30 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
+    def delete(self, item_id: int) -> None:
+        """Delete an evidence item by id. No-op if the id does not exist."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute("DELETE FROM evidence_items WHERE id = %s", (item_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def update_note(self, item_id: int, note: str):
+        """Update the note text for an evidence item. Returns updated EvidenceData or None."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "UPDATE evidence_items SET note = %s WHERE id = %s",
+                (note, item_id),
+            )
+            cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        return EvidenceData.import_dict(row) if row else None
+
 
 class MySQLGuildSettingsDb():
     def __init__(self, dir_path: Path, mydb):
