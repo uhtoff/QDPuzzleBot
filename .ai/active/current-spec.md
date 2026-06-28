@@ -42,6 +42,11 @@ edge that never evicts `feeds`.
 - `PuzzleData.tag_edges`: `Dict[int, str]` → `Dict[int, set]` behind accessor methods.
 - Edge-granular store primitives; service readers/primitives add/remove single edges; pooled
   exclusivity (`none` vs `feeds`/`informs`).
+- `tag_edge_only` (the `!feeds_only` / `!informs_only` / `!groups_only_with` path) strips only the
+  *named* edge type from OTHER groups (per-edge `untag_from(..., edge=...)`), leaving any coexisting
+  edge on those groups intact; it ADDS the edge to the target (keeping the target's other edges).
+  The bang `!remove_tag` (numeric group id) stays whole-membership — per-edge removal is the web
+  debug menu (Phase 10) + `_only`.
 - Contribution table renders feeds + informs rows per member.
 - Board API returns `rounds[].edges` (list) instead of scalar `edge_type`; update all readers.
 - Frontend debug badge renders the edge set; per-edge toggle menu.
@@ -251,8 +256,10 @@ if `tag_with_edge` is dispatched — that is fine; the remove test must fail.)
 
 Apply the conversions in **plan Task 4, Step 3** exactly (the `_service_mocks` `delete_tag_edge`
 stub; every `tag_edges = {gid: "x"}` → `{gid: {"x"}}`; assertions `== "x"` → `== {"x"}`; the
-idempotent test becomes “adds a second edge” asserting `{"feeds","informs"}`; and the two new
-pooled-exclusivity tests).
+idempotent test becomes “adds a second edge” asserting `{"feeds","informs"}`; the two new
+pooled-exclusivity tests; AND the `_only` strip test `test_strips_only_named_edge_leaving_coexisting`
+in `TestTagEdgeOnly`, which locks that `feeds_only` removes only the feeds edge from another group
+and leaves a coexisting informs there).
 Acceptance: `timeout 120 pipenv run python -m pytest tests/test_edge_primitives.py -q > /tmp/t.log 2>&1`
 → FAIL on the set assertions (current code stores a string and replaces the slot).
 

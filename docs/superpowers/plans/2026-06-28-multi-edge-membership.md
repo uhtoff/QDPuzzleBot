@@ -407,6 +407,22 @@ Also add two new tests to `TestTagWithEdge` covering pooled exclusivity (a spec 
         assert puz.tag_edges[5] == {"none"}         # feeds + informs dropped
 ```
 
+Add one test to `TestTagEdgeOnly` covering the multi-edge `_only` strip (the case that only
+exists under multi-edge — `feeds_only` removes just the feeds edge from another group, leaving a
+coexisting informs there):
+```python
+    @pytest.mark.asyncio
+    async def test_strips_only_named_edge_leaving_coexisting(self, cog):
+        puz = make_puzzle(tags=[3]); puz.tag_edges = {3: {"feeds", "informs"}}
+        grp = make_round(id=5)
+        groups = {3: make_round(id=3), 5: grp}
+        with _service_mocks(cog, groups_by_id=groups):
+            await cog.service.tag_edge_only(puz, grp, "feeds", guild=None)
+        assert puz.edges_for(3) == {"informs"}      # feeds stripped, informs kept
+        assert 3 in puz.tags                         # still a member of group 3
+        assert puz.has_edge(5, "feeds")             # target got feeds
+```
+
 - [ ] **Step 4: Run the edge-primitive tests**
 
 Run: `timeout 120 pipenv run python -m pytest tests/test_edge_primitives.py -q > /tmp/t.log 2>&1`
