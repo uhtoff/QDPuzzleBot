@@ -637,6 +637,16 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             cursor.close()
         return [EvidenceData.import_dict(r) for r in rows]
 
+    def get_by_id(self, item_id: int):
+        """Return one EvidenceData by id, or None if missing."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return EvidenceData.import_dict(row) if row else None
+
     def set_target(self, item_id: int, target_puzzle_id):
         """Set or clear target_puzzle_id on an item. Returns updated EvidenceData."""
         cursor = self.mydb.cursor(dictionary=True)

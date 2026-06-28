@@ -1930,6 +1930,34 @@ class PuzzleService:
             except Exception:
                 logger.exception("refresh_informs_targets: failed for group %s", gid)
 
+    async def link_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
+        """Auto-add an 'informs' edge from the source puzzle to the group whose target
+        is target_puzzle_id, so routed evidence renders. Never evicts feeds. Best-effort."""
+        if not (source_puzzle_id and target_puzzle_id):
+            return
+        group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
+        source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+        if group is None or source is None:
+            return
+        if not source.has_edge(group.id, "informs"):
+            await self.tag_with_edge(source, group, "informs")
+
+    async def unlink_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
+        """Remove the auto-added 'informs' edge only if the source has no remaining
+        evidence routed to that target (a manual informs is preserved)."""
+        if not (source_puzzle_id and target_puzzle_id):
+            return
+        remaining = EvidenceJsonDb.get_all(
+            hunt.id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
+        if remaining:
+            return
+        group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
+        source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+        if group is None or source is None:
+            return
+        if source.has_edge(group.id, "informs"):
+            await self.untag_from(source, group, edge="informs")
+
     async def refresh_target_for_puzzle(self, hunt, target_puzzle_id):
         """Re-render the roll-up whose target is the given puzzle (best-effort).
         Used after evidence is manually routed to a target."""
