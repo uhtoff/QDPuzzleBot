@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  Alert,
   AppShell,
   Avatar,
   Burger,
@@ -10,11 +11,12 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconLogout } from "@tabler/icons-react";
+import { IconCheck, IconEye, IconLogout } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { logout } from "../api";
+import { logout, useAdminGuilds } from "../api";
 import type { User } from "../types";
+import { useViewAs, type ViewAs } from "../context/ViewAsContext";
 
 function avatarUrl(user: User) {
   return user.avatar_url ?? undefined;
@@ -26,6 +28,15 @@ export function AppShellLayout({ user, children }: { user: User; children: React
   const queryClient = useQueryClient();
 
   const displayName = user.global_name || user.username || "Solver";
+
+  const { viewAs, setViewAs } = useViewAs();
+  const { data: adminGuilds } = useAdminGuilds();
+  const isAdminSomewhere = (adminGuilds ?? []).length > 0;
+  const VIEW_LABELS: Record<ViewAs, string> = {
+    admin: "Admin (you)",
+    organiser: "Organiser",
+    regular: "Regular user",
+  };
 
   async function onLogout() {
     await logout();
@@ -57,6 +68,23 @@ export function AppShellLayout({ user, children }: { user: User; children: React
               </UnstyledButton>
             </Menu.Target>
             <Menu.Dropdown>
+              {isAdminSomewhere && (
+                <>
+                  <Menu.Label>View as</Menu.Label>
+                  {(["admin", "organiser", "regular"] as ViewAs[]).map((level) => (
+                    <Menu.Item
+                      key={level}
+                      leftSection={
+                        viewAs === level ? <IconCheck size={16} /> : <span style={{ width: 16 }} />
+                      }
+                      onClick={() => setViewAs(level)}
+                    >
+                      {VIEW_LABELS[level]}
+                    </Menu.Item>
+                  ))}
+                  <Menu.Divider />
+                </>
+              )}
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={onLogout}>
                 Log out
               </Menu.Item>
@@ -64,7 +92,21 @@ export function AppShellLayout({ user, children }: { user: User; children: React
           </Menu>
         </Group>
       </AppShell.Header>
-      <AppShell.Main>{children}</AppShell.Main>
+      <AppShell.Main>
+        {viewAs !== "admin" && (
+          <Alert color="orange" mb="md" icon={<IconEye size={16} />} withCloseButton={false}>
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="sm">Viewing as: {VIEW_LABELS[viewAs]}</Text>
+              <UnstyledButton onClick={() => setViewAs("admin")}>
+                <Text size="sm" fw={600} c="orange">
+                  Restore
+                </Text>
+              </UnstyledButton>
+            </Group>
+          </Alert>
+        )}
+        {children}
+      </AppShell.Main>
     </AppShell>
   );
 }
