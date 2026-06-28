@@ -14,7 +14,7 @@ def _target(pid, *, group_id, group_type="Metapuzzle"):
         "id": pid,
         "is_meta": True,
         "rounds": [
-            {"id": group_id, "is_target_of": True, "edge_type": None, "group_type": group_type},
+            {"id": group_id, "is_target_of": True, "edges": [], "group_type": group_type},
         ],
     }
 
@@ -25,7 +25,7 @@ def _feeder(pid, *, group_id, edge_type, is_meta=False):
         "id": pid,
         "is_meta": is_meta,
         "rounds": [
-            {"id": group_id, "is_target_of": False, "edge_type": edge_type, "group_type": "Metapuzzle"},
+            {"id": group_id, "is_target_of": False, "edges": [edge_type], "group_type": "Metapuzzle"},
         ],
     }
 
@@ -66,8 +66,8 @@ def test_all_meta_feeders_is_metameta():
     sub_a = _target(2, group_id=2)
     sub_b = _target(3, group_id=3)
     # sub_a / sub_b feed the metameta's group on feeds edges (and are metas).
-    sub_a["rounds"].append({"id": 1, "is_target_of": False, "edge_type": "feeds", "group_type": "Metapuzzle"})
-    sub_b["rounds"].append({"id": 1, "is_target_of": False, "edge_type": "feeds", "group_type": "Metapuzzle"})
+    sub_a["rounds"].append({"id": 1, "is_target_of": False, "edges": ["feeds"], "group_type": "Metapuzzle"})
+    sub_b["rounds"].append({"id": 1, "is_target_of": False, "edges": ["feeds"], "group_type": "Metapuzzle"})
     assert _kind([metameta, sub_a, sub_b], 1) == "metameta"
 
 
@@ -75,7 +75,7 @@ def test_one_non_meta_feeder_keeps_meta():
     # Not every feeds-feeder is a meta -> plain meta, not metameta.
     meta = _target(1, group_id=1)
     sub = _target(2, group_id=2)
-    sub["rounds"].append({"id": 1, "is_target_of": False, "edge_type": "feeds", "group_type": "Metapuzzle"})
+    sub["rounds"].append({"id": 1, "is_target_of": False, "edges": ["feeds"], "group_type": "Metapuzzle"})
     plain = _feeder(3, group_id=1, edge_type="feeds")
     assert _kind([meta, sub, plain], 1) == "meta"
 
@@ -84,7 +84,7 @@ def test_runaround_type_wins_over_metameta():
     # Runaround (stored type) outranks metameta even when feeders are all metas.
     ra = _target(1, group_id=1, group_type="Runaround")
     sub = _target(2, group_id=2)
-    sub["rounds"].append({"id": 1, "is_target_of": False, "edge_type": "feeds", "group_type": "Metapuzzle"})
+    sub["rounds"].append({"id": 1, "is_target_of": False, "edges": ["feeds"], "group_type": "Metapuzzle"})
     assert _kind([ra, sub], 1) == "runaround"
 
 

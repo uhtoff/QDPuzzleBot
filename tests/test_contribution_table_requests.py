@@ -493,7 +493,7 @@ def test_render_contribution_builds_rows_and_reconciles():
     feeder.id = 2
     feeder.name = "Alpha"
     feeder.solution = "WORD"
-    feeder.tag_edges = {5: "feeds"}
+    feeder.tag_edges = {5: {"feeds"}}
 
     asyncio.run(cog.render_contribution(meta, tag_group_id=5,
                                         members=[meta, feeder], evidence=[]))
@@ -527,7 +527,7 @@ def test_render_contribution_includes_self_feeding_target():
     meta.name = "Meta"
     meta.solution = "LOOP"
     meta.google_page_id = 900
-    meta.tag_edges = {5: "feeds"}  # feeds itself
+    meta.tag_edges = {5: {"feeds"}}  # feeds itself
 
     asyncio.run(cog.render_contribution(meta, tag_group_id=5,
                                         members=[meta], evidence=[]))

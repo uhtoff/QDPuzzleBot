@@ -219,17 +219,20 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
             }
             puzzles[pid] = puz
         if row["tag_group_id"] is not None:
-            # A tag_group whose target_puzzle_id is this puzzle is the group this puzzle is the target of.
-            puz["rounds"].append(
-                {
-                    "id": row["tag_group_id"],
+            gid = row["tag_group_id"]
+            existing = next((r for r in puz["rounds"] if r["id"] == gid), None)
+            if existing is None:
+                existing = {
+                    "id": gid,
                     "name": row["tag_group_name"],
                     "group_code": row["tag_group_group_code"],
                     "is_target_of": row["tag_group_target_puzzle_id"] == pid,
-                    "edge_type": row["tag_edge_type"],
+                    "edges": [],
                     "group_type": row["tag_group_type"],
                 }
-            )
+                puz["rounds"].append(existing)
+            if row["tag_edge_type"] and row["tag_edge_type"] not in existing["edges"]:
+                existing["edges"].append(row["tag_edge_type"])
 
     sheet_rows = await fetch_all(
         "SELECT s.id, s.puzzle_id, s.puzzle_name, s.google_page_id "
@@ -287,7 +290,8 @@ def derive_meta_kind(puzzles):
     for p in puzzles:
         for r in p["rounds"]:
             if not r["is_target_of"]:
-                group_feeders.setdefault(r["id"], []).append((p["id"], r["edge_type"]))
+                for e in r["edges"]:
+                    group_feeders.setdefault(r["id"], []).append((p["id"], e))
 
     for p in puzzles:
         if not p["is_meta"]:
@@ -413,7 +417,7 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         # informs/pools into, but also surfaces here as needing a feed target.
         # Target puzzles are excluded; mini-meta feeders are already absent
         # (get_hunt_puzzles drops puzzles with a parent_puzzle_id).
-        feeds_something = any(rnd["edge_type"] == "feeds" for rnd in puz["rounds"])
+        feeds_something = any("feeds" in rnd["edges"] for rnd in puz["rounds"])
         if not puz["is_meta"] and not feeds_something:
             grp = ensure(0, "Unassigned Feeders", None)
             grp["puzzles"].append(puz)
@@ -441,7 +445,7 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
             if rnd["is_target_of"]:
                 target_solved[gid] = puz["solved"]
             else:
-                feeder_edges.setdefault(gid, set()).add(rnd["edge_type"])
+                feeder_edges.setdefault(gid, set()).update(rnd["edges"])
 
     def _is_capstone(gid):
         edges = feeder_edges.get(gid, set())

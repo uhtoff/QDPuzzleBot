@@ -128,7 +128,7 @@ class TestBuildBoardUnassignedFeeders:
     def test_informs_only_puzzle_in_both_group_and_unassigned(self):
         # A puzzle that only informs a capstone feeds nothing -> it appears under
         # the capstone group AND in Unassigned Feeders.
-        r = make_round_ref(id=5, name="Cap", group_code="C5", edge_type="informs")
+        r = make_round_ref(id=5, name="Cap", group_code="C5", edges=("informs",))
         puz = make_puzzle_row(id=2, name="Informer", rounds=[r])
         board = build_board([puz])
         cap = next(g for g in board if g["tag_group_id"] == 5)
@@ -137,13 +137,13 @@ class TestBuildBoardUnassignedFeeders:
         assert un is not None and puz in un["puzzles"]
 
     def test_none_only_puzzle_is_unassigned(self):
-        r = make_round_ref(id=5, name="Pool", group_code="P5", edge_type="none")
+        r = make_round_ref(id=5, name="Pool", group_code="P5", edges=("none",))
         puz = make_puzzle_row(id=2, name="Pooled", rounds=[r])
         board = build_board([puz])
         assert _unassigned(board) is not None
 
     def test_feeds_puzzle_not_unassigned(self):
-        r = make_round_ref(id=5, name="Round", group_code="R5", edge_type="feeds")
+        r = make_round_ref(id=5, name="Round", group_code="R5", edges=("feeds",))
         puz = make_puzzle_row(id=2, name="Feeder", rounds=[r])
         board = build_board([puz])
         assert _unassigned(board) is None
@@ -157,8 +157,8 @@ class TestBuildBoardUnassignedFeeders:
 
     def test_feeds_and_informs_puzzle_not_unassigned(self):
         # Feeds at least one meta -> assigned, even if it also informs another.
-        rf = make_round_ref(id=5, name="Meta", group_code="M5", edge_type="feeds")
-        ri = make_round_ref(id=6, name="Cap", group_code="C6", edge_type="informs")
+        rf = make_round_ref(id=5, name="Meta", group_code="M5", edges=("feeds",))
+        ri = make_round_ref(id=6, name="Cap", group_code="C6", edges=("informs",))
         puz = make_puzzle_row(id=2, name="Mixed", rounds=[rf, ri])
         board = build_board([puz])
         assert _unassigned(board) is None
@@ -166,8 +166,8 @@ class TestBuildBoardUnassignedFeeders:
     def test_column_order_unassigned_meta_capstone_plain(self):
         # Columns sort: Unassigned Feeders, then unsolved metas, then unsolved
         # capstones, then plain groups — classified from all_groups + edges.
-        m = make_round_ref(id=1, name="Meta", group_code="M", edge_type="feeds")
-        c = make_round_ref(id=2, name="Cap", group_code="C", edge_type="informs")
+        m = make_round_ref(id=1, name="Meta", group_code="M", edges=("feeds",))
+        c = make_round_ref(id=2, name="Cap", group_code="C", edges=("informs",))
         feeder = make_puzzle_row(id=10, name="F", rounds=[m])
         informer = make_puzzle_row(id=11, name="I", rounds=[c])
         orphan = make_puzzle_row(id=12, name="O")  # feeds nothing -> Unassigned
@@ -190,7 +190,7 @@ class TestBuildBoardUnassignedFeeders:
             )
             feeder = make_puzzle_row(
                 id=200 + gid, name=f"{name}-f",
-                rounds=[make_round_ref(id=gid, name=name, group_code=name, edge_type=edge)],
+                rounds=[make_round_ref(id=gid, name=name, group_code=name, edges=(edge,))],
             )
             return [target, feeder]
 
@@ -202,7 +202,7 @@ class TestBuildBoardUnassignedFeeders:
         # A plain group (no target) via a pooled 'none' edge.
         puzzles.append(make_puzzle_row(
             id=300, name="pooled",
-            rounds=[make_round_ref(id=3, name="Plain", group_code="Plain", edge_type="none")],
+            rounds=[make_round_ref(id=3, name="Plain", group_code="Plain", edges=("none",))],
         ))
         names = [g["name"] for g in build_board(puzzles)]
         # Unassigned Feeders holds the informers/pooled (feed nothing); then the
