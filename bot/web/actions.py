@@ -1452,9 +1452,11 @@ async def create_puzzle(uid):
     An empty ``meta_code`` creates an *unassigned* puzzle (no meta tag); the
     channel lands in the hunt category (see PuzzleService.create_puzzle).
     """
-    ctx, err = await _organiser_hunt(uid)
+    ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     group_code = (body.get("group_code") or "").strip()
@@ -1497,9 +1499,11 @@ async def create_puzzle(uid):
 @login_required
 async def create_meta(uid):
     """Create a new metapuzzle/group (category + meta channel), via the bot (like !mp)."""
-    ctx, err = await _organiser_hunt(uid)
+    ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
