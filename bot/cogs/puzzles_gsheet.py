@@ -1437,7 +1437,14 @@ class GoogleSheets(commands.Cog):
         # be made (better an empty tab than contribution data clobbering row 0).
         if not await self._ensure_contribution_table(target_puzzle.google_page_id):
             return
-        contributing = [p for p in members if p.id != target_puzzle.id]
+        # The target's own row is excluded by default — a meta is not a
+        # contribution of itself. But a meta that explicitly feeds/informs itself
+        # (a self-edge loop) IS a contributor and must appear on its own table.
+        contributing = [
+            p for p in members
+            if p.id != target_puzzle.id
+            or p.tag_edges.get(tag_group_id) in ("feeds", "informs")
+        ]
         rows = contribution_rows(tag_group_id, contributing, evidence)
         await self.reconcile_table(
             page_id=target_puzzle.google_page_id,

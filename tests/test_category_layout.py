@@ -145,6 +145,24 @@ async def test_pick_unsolved_single_with_room_returns_primary():
 
 
 @pytest.mark.asyncio
+async def test_pick_unsolved_in_place_group_uses_channel_parent_category():
+    # An in-place-converted group stores its target's CHANNEL id in category_id,
+    # which isn't in guild.categories. New puzzles must land in that channel's
+    # parent category rather than nowhere.
+    parent = _cat(100, 5, n_channels=3)
+    home_channel = MagicMock(id=555)
+    home_channel.category = parent
+    guild = MagicMock()
+    guild.categories = [parent]                 # 555 is NOT a category
+    guild.get_channel.return_value = home_channel
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    tag_group = MagicMock(id=5, category_id=555, name="Meta")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+    assert result is parent
+
+
+@pytest.mark.asyncio
 async def test_pick_unsolved_split_picks_lowest_seq_with_room():
     u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
     u1 = _cat(101, 6, n_channels=3)                            # has room

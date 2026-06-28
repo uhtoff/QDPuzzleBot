@@ -48,6 +48,17 @@ def _category_by_id(guild, category_id):
     return discord.utils.get(guild.categories, id=category_id) if category_id else None
 
 
+def _home_category(guild, tag_group):
+    """The category a group's new puzzles belong in. Normally ``category_id`` IS a
+    category; for an in-place-converted / channel-mode group whose home is a
+    channel (not a category), fall back to that channel's parent category."""
+    primary = _category_by_id(guild, tag_group.category_id)
+    if primary is not None:
+        return primary
+    home = guild.get_channel(tag_group.category_id) if tag_group.category_id else None
+    return getattr(home, "category", None)
+
+
 def primary_category(guild, tag_group):
     """Resolve *tag_group*'s primary Discord **category**, or ``None``.
 
@@ -156,7 +167,7 @@ async def pick_unsolved_category(guild, tag_group, dao):
     single category would cross the soft limit."""
     rows = dao.get_for_group(tag_group.id)
     if not rows:
-        primary = _category_by_id(guild, tag_group.category_id)
+        primary = _home_category(guild, tag_group)
         if primary is None:
             return None
         if puzzle_count(primary) + 1 <= CATEGORY_SOFT_LIMIT:

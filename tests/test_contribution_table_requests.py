@@ -505,6 +505,35 @@ def test_render_contribution_builds_rows_and_reconciles():
     assert captured["grey_below"] is True
 
 
+def test_render_contribution_includes_self_feeding_target():
+    # A meta that feeds itself (self-edge 'feeds') is a contributor to its own
+    # rollup and must appear on its own table.
+    cog = _cog()
+    captured = {}
+
+    async def fake_reconcile(page_id, desired_rows, data_col_count,
+                             numeric_cols=(), grey_below=False):
+        captured["rows"] = desired_rows
+
+    cog.reconcile_table = fake_reconcile
+
+    async def fake_ensure(page_id):
+        return True
+
+    cog._ensure_contribution_table = fake_ensure
+
+    meta = PuzzleData()
+    meta.id = 1
+    meta.name = "Meta"
+    meta.solution = "LOOP"
+    meta.google_page_id = 900
+    meta.tag_edges = {5: "feeds"}  # feeds itself
+
+    asyncio.run(cog.render_contribution(meta, tag_group_id=5,
+                                        members=[meta], evidence=[]))
+    assert captured["rows"] == [["feeds:1", "Meta", "Feeder", "LOOP"]]
+
+
 def _reconcile_with_table(grey_below):
     """Drive reconcile_table over a sheet that HAS a native table at A4 (rowCount
     50), one desired row; return the captured batchUpdate bodies."""
