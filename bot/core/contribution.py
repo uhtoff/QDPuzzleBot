@@ -18,7 +18,9 @@ def contribution_rows(tag_group_id, members, evidence):
     """Build the desired contribution rows for one target group.
 
     members  : PuzzleData list (everything tagged into tag_group_id), each with
-               .tag_edges[tag_group_id] in {"feeds","informs","none"}.
+               .tag_edges[tag_group_id] in {"feeds","informs","none"}. The target's
+               own 'target' self-edge matches no branch below and yields no row (the
+               target heads the table, it is not a contribution of itself).
     evidence : list of dicts {"id","source_puzzle_id","content"} routed to this
                target (may be empty). Used only for informs members.
     Order: members in the given order; informs evidence in the given order.

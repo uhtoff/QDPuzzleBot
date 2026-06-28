@@ -133,7 +133,7 @@ async def test_create_puzzle_sets_edge_by_group_type(group_type, target_puzzle_i
 
 
 @pytest.mark.asyncio
-async def test_create_meta_target_gets_none_edge():
+async def test_create_meta_target_gets_target_edge():
     """A group's own target puzzle (is_meta) is a member but neither feeds nor
     informs its group, so it is tagged with a 'none' self-edge — not 'feeds'."""
     svc, gsheet = _service_with_sheets()
@@ -153,8 +153,8 @@ async def test_create_meta_target_gets_none_edge():
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
         puzzle = await svc.create_puzzle(
             guild, _svc_hunt(), round_data, "TheMeta", is_meta=True, notifier=notifier)
-    pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, "none")
-    assert puzzle.tag_edges[5] == "none"
+    pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, "target")
+    assert puzzle.tag_edges[5] == "target"
 
 
 @pytest.mark.asyncio

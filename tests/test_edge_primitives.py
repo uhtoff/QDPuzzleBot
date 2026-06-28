@@ -277,17 +277,17 @@ class TestBulkReEdge:
             mpdb.bulk_update_edge_type.assert_called_once_with(5, "informs")
 
     @pytest.mark.asyncio
-    async def test_target_self_edge_kept_none(self, cog):
+    async def test_target_self_edge_kept_as_target(self, cog):
         # The target isn't a feeder: it's excluded from the flip count and re-pinned
-        # to 'none' afterwards, so a type conversion never makes it feed/inform itself.
+        # to 'target' afterwards, so a type conversion never makes it feed/inform itself.
         grp = make_round(id=5, target_puzzle_id=7)
         hunt = make_hunt()
         target = make_puzzle(id=7, tags=[5])
-        target.tag_edges = {5: "none"}
+        target.tag_edges = {5: "target"}
         feeder = make_puzzle(id=8, tags=[5])
         feeder.tag_edges = {5: "feeds"}
         with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
             mpdb.get_all_from_tag_group.return_value = [target, feeder]
             summary = await cog.service.bulk_re_edge(grp, "informs", hunt)
         assert summary == "flipped 1 feeds → informs"          # target not counted
-        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "none")  # re-pinned
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")  # re-pinned

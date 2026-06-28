@@ -780,10 +780,10 @@ class PuzzleService:
 
         PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
         # bulk_update flips every row including the target's — re-pin the target to
-        # 'none' so a type conversion can never make a target feed/inform itself.
+        # 'target' so a type conversion can never make a target feed/inform itself.
         if tag_group.target_puzzle_id:
             PuzzleJsonDb.tag_puzzle_with_edge(
-                tag_group.target_puzzle_id, tag_group.id, "none")
+                tag_group.target_puzzle_id, tag_group.id, "target")
 
         # Build summary string listing only non-zero edge types
         parts = [f"{v} {k}" for k, v in counter.items() if v]
@@ -820,9 +820,9 @@ class PuzzleService:
             puzzle.add_tag(tag_group.id)
             puzzle.is_target = True
             PuzzleJsonDb.commit(puzzle)
-            # The target's self-edge is 'none' — it is the thing fed, not a feeder.
-            PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, tag_group.id, "none")
-            puzzle.tag_edges[tag_group.id] = "none"
+            # The target's self-edge is 'target' — it is the thing fed, not a feeder.
+            PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, tag_group.id, "target")
+            puzzle.tag_edges[tag_group.id] = "target"
 
             # Restructure the sheet tab in place (header -> B1, contribution Table
             # -> A4) BEFORE source_mode/edges render into it. Without this the tab
@@ -1358,9 +1358,9 @@ class PuzzleService:
         puzzle.add_tag(new_round.id)
         puzzle.is_target = True
         PuzzleJsonDb.commit(puzzle)
-        # The target's self-edge is 'none' — it is the thing fed, not a feeder.
-        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "none")
-        puzzle.tag_edges[new_round.id] = "none"
+        # The target's self-edge is 'target' — it is the thing fed, not a feeder.
+        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "target")
+        puzzle.tag_edges[new_round.id] = "target"
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1599,11 +1599,11 @@ class PuzzleService:
         # Persist the membership edge for the assigned group. A bare commit inserts
         # the tags row with the DB default ('feeds'), so without this every new puzzle
         # would feed its group regardless of type. A group's own target (is_meta) is a
-        # member of its group but neither feeds nor informs it, so it carries a 'none'
+        # member of its group but neither feeds nor informs it, so it carries a 'target'
         # self-edge. A feeder gets the type-matched edge: feeds a meta/runaround,
         # informs a capstone, 'none' for a bare group (no target to feed or inform).
         if round_data is not None:
-            edge = "none" if is_meta else default_edge_for_group(round_data)
+            edge = "target" if is_meta else default_edge_for_group(round_data)
             PuzzleJsonDb.tag_puzzle_with_edge(new_puzzle.id, round_data.id, edge)
             new_puzzle.tag_edges[round_data.id] = edge
 

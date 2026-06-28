@@ -186,7 +186,7 @@ class TestConvertToType:
         assert _new_edge_passed(cog.service.bulk_re_edge) == "none"
 
     @pytest.mark.asyncio
-    async def test_promote_in_place_tags_target_none(self, cog):
+    async def test_promote_in_place_tags_target_self_edge(self, cog):
         # A promoted target is a member of its own group but neither feeds nor
         # informs it — it carries a 'none' self-edge (not the 'feeds' default).
         puz = make_puzzle(id=7)
@@ -203,15 +203,15 @@ class TestConvertToType:
             mrdb.generate_uid.return_value = "GCODE1"
             mhdb.get_by_attr.return_value = make_hunt()
             await cog.service.convert_to_type(None, make_hunt(), puz, "Metapuzzle")
-        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "none")
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "target")
 
 
 class TestConvertToMeta:
     """convert_to_meta wraps a feeder in a new round; the new target's self-edge
-    is 'none' (it is the thing fed, not a feeder)."""
+    is 'target' (it is the thing fed, not a feeder)."""
 
     @pytest.mark.asyncio
-    async def test_tags_target_none(self):
+    async def test_tags_target_self_edge(self):
         cog = _make_cog_convert()
         puz = make_puzzle(id=7)
         cog.service.notifier = MagicMock()
@@ -225,8 +225,8 @@ class TestConvertToMeta:
             mrdb.generate_uid.return_value = "GCODE1"
             mhdb.get_by_attr.return_value = make_hunt()
             _new_round, puzzle = await cog.service.convert_to_meta(None, make_hunt(), puz)
-        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "none")
-        assert puzzle.tag_edges[42] == "none"
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "target")
+        assert puzzle.tag_edges[42] == "target"
 
 
 class TestConvertToPuzzle:

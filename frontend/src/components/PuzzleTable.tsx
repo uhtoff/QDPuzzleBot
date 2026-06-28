@@ -30,7 +30,7 @@ interface Props {
 // Debug edge annotation: how this puzzle is tagged into a given group.
 // T = target (this puzzle is the group's meta/capstone answer), F = feeds,
 // I = informs, N = none (pooled), ? = unknown/missing edge.
-const EDGE_CODE: Record<string, string> = { feeds: "F", informs: "I", none: "N" };
+const EDGE_CODE: Record<string, string> = { feeds: "F", informs: "I", none: "N", target: "T" };
 const EDGE_COLOR: Record<string, string> = {
   T: "grape",
   F: "blue",

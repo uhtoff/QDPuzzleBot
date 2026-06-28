@@ -1437,9 +1437,13 @@ class GoogleSheets(commands.Cog):
         # be made (better an empty tab than contribution data clobbering row 0).
         if not await self._ensure_contribution_table(target_puzzle.google_page_id):
             return
-        # The target's own row is excluded by default — a meta is not a
-        # contribution of itself. But a meta that explicitly feeds/informs itself
-        # (a self-edge loop) IS a contributor and must appear on its own table.
+        # The target's own row is excluded — a meta is not a contribution of itself.
+        # Its self-edge is 'target', so select_rollup_members already drops it from
+        # every mode (round wants feeds/informs, explicit wants 'none', subtree skips
+        # the meta). This guard is therefore defence-in-depth — and a safety net for any
+        # un-migrated row whose self-edge is still 'none'. The exception: a meta that
+        # explicitly feeds/informs itself (a self-edge loop) IS a contributor and must
+        # appear on its own table, so it is kept.
         contributing = [
             p for p in members
             if p.id != target_puzzle.id

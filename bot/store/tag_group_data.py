@@ -6,10 +6,14 @@ from typing import List, Optional, TypeVar, Type
 
 logger = logging.getLogger(__name__)
 
-# Edge-type vocabulary constants — the three allowed values.
+# Edge-type vocabulary constants — the allowed values.
 EDGE_FEEDS = "feeds"
 EDGE_INFORMS = "informs"
 EDGE_NONE = "none"
+# A target's self-edge: it is a member of its own group but neither feeds nor
+# informs it. Distinct from 'none' (a pooled member) so the target is
+# distinguishable from genuine pooled feeders without an id comparison.
+EDGE_TARGET = "target"
 
 class MissingTagGroupError(RuntimeError):
     pass
