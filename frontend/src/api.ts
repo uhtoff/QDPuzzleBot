@@ -502,6 +502,28 @@ export function useUpdateEvidence(huntUid: string) {
   });
 }
 
+export function useDeleteEvidence(huntUid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: number) =>
+      apiSend<{ ok: boolean }>(`/api/evidence/${itemId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evidence", huntUid] }),
+  });
+}
+
+export function useEditClueNote(huntUid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, note }: { itemId: number; note: string }) =>
+      apiSend<{ id: number; note: string; target_puzzle_id: number | null }>(
+        `/api/evidence/${itemId}`,
+        "PATCH",
+        { note }
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evidence", huntUid] }),
+  });
+}
+
 export interface HuntSettingsPatch {
   url?: string;
   start_timestamp?: number;
