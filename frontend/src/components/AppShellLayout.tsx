@@ -17,8 +17,7 @@ import { logout } from "../api";
 import type { User } from "../types";
 
 function avatarUrl(user: User) {
-  if (!user.avatar) return undefined;
-  return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
+  return user.avatar_url ?? undefined;
 }
 
 export function AppShellLayout({ user, children }: { user: User; children: ReactNode }) {
