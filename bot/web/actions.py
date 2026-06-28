@@ -1642,27 +1642,38 @@ async def unsolve_puzzle(puzzle_id):
 @login_required
 async def update_evidence(item_id):
     from bot.store import EvidenceJsonDb, HuntJsonDb
-    body = await request.get_json()
-    target_puzzle_id = body.get("target_puzzle_id")
+    body = await request.get_json() or {}
     old = EvidenceJsonDb.get_by_id(item_id)
-    old_target = old.target_puzzle_id if old else None
-    item = EvidenceJsonDb.set_target(item_id, target_puzzle_id)
-    if item is None:
+    if old is None:
         return jsonify({"error": "not found"}), 404
-    # Re-render the Evidence sheet so the new Target column value shows (mirrors the
-    # bang refresh). Best-effort: the routing is already persisted.
+
+    item = old
+
+    # Apply note edit if provided
+    note = (body.get("note") or "").strip()
+    if note:
+        item = EvidenceJsonDb.update_note(item_id, note) or item
+
+    # Apply target reassignment if the key is present (value may be None to clear)
     cog = current_app.bot.get_cog("Puzzles")
     hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
+    if "target_puzzle_id" in body:
+        old_target = old.target_puzzle_id
+        target_puzzle_id = body.get("target_puzzle_id")
+        item = EvidenceJsonDb.set_target(item_id, target_puzzle_id) or item
+        if cog is not None and hunt_obj is not None:
+            if item.target_puzzle_id:
+                asyncio.create_task(cog.service.link_informs_for_evidence(
+                    hunt_obj, item.source_puzzle_id, item.target_puzzle_id))
+            if old_target and old_target != item.target_puzzle_id:
+                asyncio.create_task(cog.service.unlink_informs_for_evidence(
+                    hunt_obj, item.source_puzzle_id, old_target))
+            asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
+
     if cog is not None and hunt_obj is not None:
-        if item.target_puzzle_id:
-            asyncio.create_task(cog.service.link_informs_for_evidence(
-                hunt_obj, item.source_puzzle_id, item.target_puzzle_id))
-        if old_target and old_target != item.target_puzzle_id:
-            asyncio.create_task(cog.service.unlink_informs_for_evidence(
-                hunt_obj, item.source_puzzle_id, old_target))
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
-        asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
-    return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id})
+
+    return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
 
 
 @actions_bp.route("/evidence/<int:item_id>", methods=["DELETE"])
