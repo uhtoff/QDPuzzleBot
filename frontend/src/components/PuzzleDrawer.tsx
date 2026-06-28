@@ -17,9 +17,11 @@ import {
 } from "@mantine/core";
 import { IconCircleCheck, IconEdit, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle } from "../types";
+import { notifications } from "@mantine/notifications";
 import {
   useAddNote,
   useAddSheet,
+  useDeletePuzzle,
   useEraseNote,
   useRemoveSheet,
   useRenamePuzzle,
@@ -27,7 +29,8 @@ import {
   useUpdatePuzzle,
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
-import { showSheetWarning } from "../util";
+import { TypedConfirmModal } from "./TypedConfirmModal";
+import { notifyError, showSheetWarning } from "../util";
 
 interface Props {
   puzzle: Puzzle | null;
@@ -56,8 +59,11 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const [linkOpened, { open: openLink, close: closeLink }] = useDisclosure(false);
   const [renameEditing, setRenameEditing] = useState(false);
   const [renameTemp, setRenameTemp] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const canManage = detail.hunt.can_manage;
 
   const add = useAddNote(uid);
+  const deletePuzzleMut = useDeletePuzzle(uid);
   const erase = useEraseNote(uid);
   const update = useUpdatePuzzle(uid);
   const setLink = useSetPuzzleLink(uid);
@@ -77,6 +83,20 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
       { puzzleId: puzzle.id, name: sheetName.trim() },
       { onSuccess: () => setSheetName("") }
     );
+  }
+
+  function runDeletePuzzle() {
+    if (!puzzle) return;
+    const name = puzzle.name;
+    deletePuzzleMut.mutate(puzzle.id, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: `"${name}" permanently deleted.`, color: "green" });
+        setDeleteOpen(false);
+        onClose();
+      },
+      onError: notifyError,
+    });
   }
 
   const sheetBase = puzzle?.archived && detail.hunt.archive_sheet_base_url
@@ -324,7 +344,36 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
             Add note
           </Button>
 
+          {editable && canManage && (
+            <>
+              <Divider />
+              <Button
+                color="red"
+                variant="light"
+                leftSection={<IconTrash size={16} />}
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete puzzle…
+              </Button>
+            </>
+          )}
+
           <SolveModal puzzle={solveOpen ? puzzle : null} uid={uid} onClose={() => setSolveOpen(false)} />
+
+          <TypedConfirmModal
+            opened={deleteOpen}
+            onClose={() => setDeleteOpen(false)}
+            onConfirm={runDeletePuzzle}
+            title={`Delete "${puzzle.name}"`}
+            confirmPhrase={puzzle.name}
+            confirmLabel="Delete puzzle"
+            loading={deletePuzzleMut.isPending}
+          >
+            <Text size="sm" c="red">
+              ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
+              This cannot be undone.
+            </Text>
+          </TypedConfirmModal>
         </Stack>
       )}
     </Drawer>

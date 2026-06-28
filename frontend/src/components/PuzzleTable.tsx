@@ -71,7 +71,7 @@ function edgeTitle(r: PuzzleTagGroup): string {
 const FEEDER_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
   { edge: "feeds", label: "Feeds" },
   { edge: "informs", label: "Informs" },
-  { edge: "none", label: "None (pooled)" },
+  { edge: "none", label: "Group only" },
 ];
 const TARGET_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
   { edge: "feeds", label: "Self-feeds" },
@@ -110,7 +110,7 @@ function EdgeBadge({
     <Menu shadow="md" position="bottom-start" withinPortal>
       <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
-        <Menu.Label>{r.name} edge</Menu.Label>
+        <Menu.Label>{r.name} tag</Menu.Label>
         {opts.map((o) => (
           <Menu.Item
             key={o.edge}
@@ -227,7 +227,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
         />
         {canManage && (
           <Checkbox
-            label="Debug edges"
+            label="Debug tags"
             checked={debugEdges}
             onChange={(e) => setDebugEdges(e.currentTarget.checked)}
             mb={8}
@@ -244,7 +244,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
             <Table.Tr>
               <Table.Th w={110}>Links</Table.Th>
               <Table.Th>Puzzle</Table.Th>
-              <Table.Th>Round</Table.Th>
+              <Table.Th>Group</Table.Th>
               <Table.Th>Solution</Table.Th>
               <Table.Th w={50} ta="right">Len</Table.Th>
               <Table.Th>Status</Table.Th>
