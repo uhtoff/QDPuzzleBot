@@ -64,6 +64,7 @@ def _service_mocks(cog, groups_by_id=None):
         mpdb.commit.side_effect = lambda p: None
         mpdb.tag_puzzle_with_edge.return_value = None
         mpdb.delete_tag.return_value = None
+        mpdb.delete_tag_edge.return_value = None
         mpdb.bulk_update_edge_type.return_value = None
         mrdb.get_by_attr.side_effect = round_get
         mhdb.get_by_attr.return_value = make_hunt()
@@ -95,18 +96,18 @@ class TestTagWithEdge:
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.tag_with_edge(puz, grp, "feeds")
-        assert puz.tag_edges[5] == "feeds"
+        assert puz.tag_edges[5] == {"feeds"}
 
     @pytest.mark.asyncio
-    async def test_idempotent_edge_update(self, cog):
+    async def test_adds_second_edge(self, cog):
         puz = make_puzzle(tags=[])
         puz.tag_edges = {}
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.tag_with_edge(puz, grp, "feeds")
             await cog.service.tag_with_edge(puz, grp, "informs")
-        # Second call updates the edge in place; the group appears once in tags.
-        assert puz.tag_edges[5] == "informs"
+        # Second call ADDS the edge; the group appears once in tags.
+        assert puz.tag_edges[5] == {"feeds", "informs"}
         assert puz.tags.count(5) == 1
 
     @pytest.mark.asyncio
@@ -116,8 +117,24 @@ class TestTagWithEdge:
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.tag_with_edge(puz, grp, "informs")
-        assert puz.tag_edges[5] == "informs"
+        assert puz.tag_edges[5] == {"informs"}
         assert 5 in puz.tags
+
+    @pytest.mark.asyncio
+    async def test_adding_feeds_clears_none(self, cog):
+        puz = make_puzzle(tags=[5]); puz.tag_edges = {5: {"none"}}
+        grp = make_round(id=5)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "feeds")
+        assert puz.tag_edges[5] == {"feeds"}        # none dropped
+
+    @pytest.mark.asyncio
+    async def test_setting_none_clears_contributing(self, cog):
+        puz = make_puzzle(tags=[5]); puz.tag_edges = {5: {"feeds", "informs"}}
+        grp = make_round(id=5)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "none")
+        assert puz.tag_edges[5] == {"none"}         # feeds + informs dropped
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +153,13 @@ class TestTagEdgeOnly:
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.tag_edge_only(puz, grp, "feeds", guild=None)
-        assert puz.tag_edges[5] == "feeds"
+        assert puz.tag_edges[5] == {"feeds"}
         assert 5 in puz.tags
 
     @pytest.mark.asyncio
     async def test_removes_other_same_type_edges(self, cog):
         puz = make_puzzle(tags=[3, 5])
-        puz.tag_edges = {3: "feeds", 5: "feeds"}
+        puz.tag_edges = {3: {"feeds"}, 5: {"feeds"}}
         grp = make_round(id=5)
         groups = {3: make_round(id=3), 5: grp}
         with _service_mocks(cog, groups_by_id=groups):
@@ -153,7 +170,7 @@ class TestTagEdgeOnly:
     @pytest.mark.asyncio
     async def test_leaves_different_type_edges(self, cog):
         puz = make_puzzle(tags=[3, 4])
-        puz.tag_edges = {3: "feeds", 4: "informs"}
+        puz.tag_edges = {3: {"feeds"}, 4: {"informs"}}
         grp = make_round(id=5)
         groups = {3: make_round(id=3), 4: make_round(id=4), 5: grp}
         with _service_mocks(cog, groups_by_id=groups):
@@ -168,7 +185,18 @@ class TestTagEdgeOnly:
         with _service_mocks(cog):
             # guild=None must not attempt any Discord channel relocation.
             await cog.service.tag_edge_only(puz, grp, "feeds", guild=None)
-        assert puz.tag_edges[5] == "feeds"
+        assert puz.tag_edges[5] == {"feeds"}
+
+    @pytest.mark.asyncio
+    async def test_strips_only_named_edge_leaving_coexisting(self, cog):
+        puz = make_puzzle(tags=[3]); puz.tag_edges = {3: {"feeds", "informs"}}
+        grp = make_round(id=5)
+        groups = {3: make_round(id=3), 5: grp}
+        with _service_mocks(cog, groups_by_id=groups):
+            await cog.service.tag_edge_only(puz, grp, "feeds", guild=None)
+        assert puz.edges_for(3) == {"informs"}      # feeds stripped, informs kept
+        assert 3 in puz.tags                         # still a member of group 3
+        assert puz.has_edge(5, "feeds")             # target got feeds
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +211,7 @@ class TestUntagFrom:
     @pytest.mark.asyncio
     async def test_unconditional_remove(self, cog):
         puz = make_puzzle(tags=[5])
-        puz.tag_edges = {5: "feeds"}
+        puz.tag_edges = {5: {"feeds"}}
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.untag_from(puz, grp)
@@ -192,7 +220,7 @@ class TestUntagFrom:
     @pytest.mark.asyncio
     async def test_type_guarded_removes_matching(self, cog):
         puz = make_puzzle(tags=[5])
-        puz.tag_edges = {5: "feeds"}
+        puz.tag_edges = {5: {"feeds"}}
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.untag_from(puz, grp, edge="feeds")
@@ -201,7 +229,7 @@ class TestUntagFrom:
     @pytest.mark.asyncio
     async def test_type_guarded_noop_on_mismatch(self, cog):
         puz = make_puzzle(tags=[5])
-        puz.tag_edges = {5: "informs"}
+        puz.tag_edges = {5: {"informs"}}
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.untag_from(puz, grp, edge="feeds")
@@ -210,7 +238,7 @@ class TestUntagFrom:
     @pytest.mark.asyncio
     async def test_leaves_other_tags(self, cog):
         puz = make_puzzle(tags=[3, 5])
-        puz.tag_edges = {3: "feeds", 5: "feeds"}
+        puz.tag_edges = {3: {"feeds"}, 5: {"feeds"}}
         grp = make_round(id=5)
         with _service_mocks(cog):
             await cog.service.untag_from(puz, grp)
@@ -232,11 +260,11 @@ class TestBulkReEdge:
         members = []
         for _ in range(feeds):
             p = make_puzzle(tags=[group_id])
-            p.tag_edges = {group_id: "feeds"}
+            p.tag_edges = {group_id: {"feeds"}}
             members.append(p)
         for _ in range(none):
             p = make_puzzle(tags=[group_id])
-            p.tag_edges = {group_id: "none"}
+            p.tag_edges = {group_id: {"none"}}
             members.append(p)
         return members
 
@@ -283,9 +311,9 @@ class TestBulkReEdge:
         grp = make_round(id=5, target_puzzle_id=7)
         hunt = make_hunt()
         target = make_puzzle(id=7, tags=[5])
-        target.tag_edges = {5: "target"}
+        target.tag_edges = {5: {"target"}}
         feeder = make_puzzle(id=8, tags=[5])
-        feeder.tag_edges = {5: "feeds"}
+        feeder.tag_edges = {5: {"feeds"}}
         with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
             mpdb.get_all_from_tag_group.return_value = [target, feeder]
             summary = await cog.service.bulk_re_edge(grp, "informs", hunt)

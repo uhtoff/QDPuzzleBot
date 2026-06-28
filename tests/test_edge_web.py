@@ -284,6 +284,32 @@ async def test_retag_capstone_defaults_informs(web):
     assert _edge_of(web.svc.tag_edge_only.call_args) == "informs"
 
 
+@pytest.mark.asyncio
+async def test_retag_add_keeps_existing_edge(web):
+    own = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=0)
+    own.hunt_id = 10
+    web.TagGroupJsonDb.get_by_attr.return_value = own
+    resp = await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "add", "edge": "informs"}
+    )
+    assert resp.status_code == 200
+    web.svc.tag_with_edge.assert_called_once()
+    assert _edge_of(web.svc.tag_with_edge.call_args) == "informs"
+
+
+@pytest.mark.asyncio
+async def test_retag_remove_single_edge(web):
+    own = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=0)
+    own.hunt_id = 10
+    web.TagGroupJsonDb.get_by_attr.return_value = own
+    resp = await web.client.post(
+        "/api/puzzles/5/meta", json={"group_code": "X", "mode": "remove", "edge": "informs"}
+    )
+    assert resp.status_code == 200
+    _, kwargs = web.svc.untag_from.call_args
+    assert kwargs.get("edge") == "informs"
+
+
 # ---------------------------------------------------------------------------
 # Convert endpoints — new routes + summary field
 # ---------------------------------------------------------------------------

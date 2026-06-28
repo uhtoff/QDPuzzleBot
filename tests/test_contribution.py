@@ -21,25 +21,25 @@ def _p(id, name, solution=None, tag_edges=None):
 # --- Task 3: contribution_rows (feeds / informs / none + evidence) ---------
 
 def test_feeds_member_makes_feeder_row():
-    feeder = _p(2, "Alpha", solution="WORD", tag_edges={5: "feeds"})
+    feeder = _p(2, "Alpha", solution="WORD", tag_edges={5: {"feeds"}})
     rows = contribution_rows(tag_group_id=5, members=[feeder], evidence=[])
     assert rows == [["feeds:2", "Alpha", "Feeder", "WORD"]]
 
 
 def test_none_member_makes_group_row_no_answer():
-    grp = _p(3, "Beta", solution="X", tag_edges={5: "none"})
+    grp = _p(3, "Beta", solution="X", tag_edges={5: {"none"}})
     rows = contribution_rows(tag_group_id=5, members=[grp], evidence=[])
     assert rows == [["none:3", "Beta", "Group", ""]]
 
 
 def test_bare_informs_edge_makes_one_keyless_information_row():
-    inf = _p(4, "Gamma", tag_edges={5: "informs"})
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
     rows = contribution_rows(tag_group_id=5, members=[inf], evidence=[])
     assert rows == [["informs:4", "Gamma", "Information", ""]]
 
 
 def test_informs_with_evidence_makes_one_row_per_datum_and_drops_bare():
-    inf = _p(4, "Gamma", tag_edges={5: "informs"})
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
     ev = [{"id": 11, "source_puzzle_id": 4, "content": "is blue"},
           {"id": 12, "source_puzzle_id": 4, "content": "near water"}]
     rows = contribution_rows(tag_group_id=5, members=[inf], evidence=ev)
@@ -50,9 +50,24 @@ def test_informs_with_evidence_makes_one_row_per_datum_and_drops_bare():
 
 
 def test_unsolved_feeder_has_blank_answer():
-    feeder = _p(2, "Alpha", solution=None, tag_edges={5: "feeds"})
+    feeder = _p(2, "Alpha", solution=None, tag_edges={5: {"feeds"}})
     rows = contribution_rows(tag_group_id=5, members=[feeder], evidence=[])
     assert rows == [["feeds:2", "Alpha", "Feeder", ""]]
+
+
+def test_feeds_and_informs_member_emits_both_rows():
+    p = _p(8, "Octo", solution="ANSWER", tag_edges={5: {"feeds", "informs"}})
+    evidence = [{"id": 1, "source_puzzle_id": 8, "content": "a clue"}]
+    rows = contribution_rows(tag_group_id=5, members=[p], evidence=evidence)
+    keys = {r[0] for r in rows}
+    assert "feeds:8" in keys
+    assert "informs:8:1" in keys
+
+
+def test_bare_informs_with_no_evidence_still_renders():
+    p = _p(9, "Nine", tag_edges={5: {"informs"}})
+    rows = contribution_rows(tag_group_id=5, members=[p], evidence=[])
+    assert rows == [["informs:9", "Nine", "Information", ""]]
 
 
 # --- Task 4: diff_rows is key-generic (string contribution keys) -----------
