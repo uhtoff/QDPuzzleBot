@@ -78,7 +78,11 @@ async def me():
     user = session.get("user")
     if not user:
         return jsonify({"authenticated": False}), 401
-    return jsonify({"authenticated": True, "user": user})
+    payload = {
+        **user,
+        "avatar_url": discord_avatar_url(user["id"], user.get("avatar")),
+    }
+    return jsonify({"authenticated": True, "user": payload})
 
 
 async def _exchange_code(code):
