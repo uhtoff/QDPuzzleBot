@@ -1447,7 +1447,7 @@ class GoogleSheets(commands.Cog):
         contributing = [
             p for p in members
             if p.id != target_puzzle.id
-            or p.tag_edges.get(tag_group_id) in ("feeds", "informs")
+            or p.edges_for(tag_group_id) & {"feeds", "informs"}
         ]
         rows = contribution_rows(tag_group_id, contributing, evidence)
         await self.reconcile_table(

@@ -32,12 +32,12 @@ def contribution_rows(tag_group_id, members, evidence):
     # Column order: key (hidden), Source (member name), Type, Content.
     rows = []
     for p in members:
-        edge = p.tag_edges.get(tag_group_id)
-        if edge == "feeds":
+        edges = p.edges_for(tag_group_id)
+        if "feeds" in edges:
             rows.append([f"feeds:{p.id}", p.name, "Feeder", _feeder_answer(p)])
-        elif edge == "none":
+        if "none" in edges:
             rows.append([f"none:{p.id}", p.name, "Group", ""])
-        elif edge == "informs":
+        if "informs" in edges:
             data = ev_by_source.get(p.id, [])
             if not data:
                 rows.append([f"informs:{p.id}", p.name, "Information", ""])
