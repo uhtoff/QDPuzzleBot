@@ -92,25 +92,30 @@ def test_get_tags_populates_tag_edges():
 
         # tags is unchanged: still the list of tag_group_ids.
         assert set(puzzle.tags) == {rid_default, rid_aggr}
-        # tag_edges maps each tag_group_id to its edge_type.
-        assert puzzle.tag_edges[rid_default] == "feeds"
-        assert puzzle.tag_edges[rid_aggr] == "none"
+        # tag_edges maps each tag_group_id to its set of edge_types.
+        assert puzzle.tag_edges[rid_default] == {"feeds"}
+        assert puzzle.tag_edges[rid_aggr] == {"none"}
     finally:
         _delete_puzzle(pid)
         _delete_tag_group(rid_default)
         _delete_tag_group(rid_aggr)
 
 
-def test_tag_puzzle_with_edge_inserts_then_updates():
+def test_tag_puzzle_with_edge_adds_separate_rows_per_edge():
     rid = _insert_tag_group()
     pid = _insert_puzzle()
     try:
         PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "none")
-        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds")  # update in place
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds")  # different edge: new row
 
         rows = _tag_rows(rid, pid)
-        assert len(rows) == 1                       # one edge per pair, not duplicated
-        assert rows[0]["edge_type"] == "feeds"  # latest value won
+        edge_types = {r["edge_type"] for r in rows}
+        assert edge_types == {"none", "feeds"}      # each edge is its own row
+
+        # Calling the same edge twice is still idempotent (ON DUPLICATE KEY UPDATE).
+        PuzzleJsonDb.tag_puzzle_with_edge(pid, rid, "feeds")
+        rows = _tag_rows(rid, pid)
+        assert len(rows) == 2
     finally:
         _delete_puzzle(pid)
         _delete_tag_group(rid)

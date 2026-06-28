@@ -97,8 +97,8 @@ class TestLogClues:
         TagGroupDb.get_by_attr.return_value = group
 
         svc = PuzzleService(MagicMock())
-        puzzle = make_puzzle(id=5, hunt_id=10)
-        puzzle.tag_edges = {3: "informs"}
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
+        puzzle.tag_edges = {3: {"informs"}}
         svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_called_once_with(77, 99)
@@ -113,8 +113,8 @@ class TestLogClues:
         TagGroupDb.get_by_attr.side_effect = lambda id: {3: g1, 4: g2}[id]
 
         svc = PuzzleService(MagicMock())
-        puzzle = make_puzzle(id=5, hunt_id=10)
-        puzzle.tag_edges = {3: "informs", 4: "informs"}
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3, 4])
+        puzzle.tag_edges = {3: {"informs"}, 4: {"informs"}}
         svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_not_called()
@@ -126,8 +126,8 @@ class TestLogClues:
         EvidenceDb.log.return_value = MagicMock()
 
         svc = PuzzleService(MagicMock())
-        puzzle = make_puzzle(id=5, hunt_id=10)
-        puzzle.tag_edges = {3: "feeds"}
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
+        puzzle.tag_edges = {3: {"feeds"}}
         svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_not_called()
@@ -261,8 +261,8 @@ class TestRefreshInformsTargets:
         TagGroupDb.get_by_attr.return_value = group
         svc = PuzzleService(MagicMock())
         svc.refresh_target = AsyncMock()
-        puzzle = make_puzzle(id=5, hunt_id=10)
-        puzzle.tag_edges = {3: "informs"}
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
+        puzzle.tag_edges = {3: {"informs"}}
         hunt = make_hunt()
 
         await svc.refresh_informs_targets(hunt, puzzle)
@@ -274,8 +274,8 @@ class TestRefreshInformsTargets:
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(MagicMock())
         svc.refresh_target = AsyncMock()
-        puzzle = make_puzzle(id=5, hunt_id=10)
-        puzzle.tag_edges = {3: "feeds"}
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
+        puzzle.tag_edges = {3: {"feeds"}}
 
         await svc.refresh_informs_targets(make_hunt(), puzzle)
 

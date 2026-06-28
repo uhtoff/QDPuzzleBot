@@ -111,7 +111,7 @@ def is_fed(tag_group_id: int, puzzles_in_group: list) -> bool:
     puzzles_in_group is the list returned by PuzzleJsonDb.get_all_from_tag_group.
     """
     return any(
-        p.tag_edges.get(tag_group_id) == "feeds"
+        p.has_edge(tag_group_id, "feeds")
         for p in puzzles_in_group
     )
 
@@ -122,7 +122,7 @@ def is_informed(tag_group_id: int, puzzles_in_group: list) -> bool:
     A group with any informs-edge member is a 'capstone' in the design vocabulary.
     """
     return any(
-        p.tag_edges.get(tag_group_id) == "informs"
+        p.has_edge(tag_group_id, "informs")
         for p in puzzles_in_group
     )
 
@@ -135,7 +135,7 @@ def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool
     """
     target_puzzle_ids = {g.target_puzzle_id for g in all_tag_groups if g.target_puzzle_id}
     return any(
-        p.tag_edges.get(tag_group.id) == "feeds" and p.id in target_puzzle_ids
+        p.has_edge(tag_group.id, "feeds") and p.id in target_puzzle_ids
         for p in puzzles_in_group
     )
 
@@ -605,7 +605,7 @@ class PuzzleService:
         elif mode == "explicit":
             return [
                 p for p in feeders
-                if p.tag_edges.get(tag_group.id) == "none"
+                if p.has_edge(tag_group.id, "none")
             ]
         else:
             # 'round' (default): the group's contributing feeders. 'feeds' is the
@@ -618,7 +618,7 @@ class PuzzleService:
             contributing = ("feeds", "informs") if filt in (None, "", "feeds") else (filt,)
             return [
                 p for p in feeders
-                if p.tag_edges.get(tag_group.id, "feeds") in contributing
+                if (p.edges_for(tag_group.id) or {"feeds"}) & set(contributing)
             ]
 
     async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):
@@ -683,14 +683,24 @@ class PuzzleService:
         Mirrors add_to_meta's path but with typed edges.
         """
         PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, group.id, edge)
-        if group.id not in puzzle.tags:
-            puzzle.tags.append(group.id)
-        puzzle.tag_edges[group.id] = edge
+        # Pooled exclusivity: 'none' and contributing edges can't coexist.
+        if edge in ("feeds", "informs"):
+            self._drop_local_edge(puzzle, group, "none")
+        elif edge == "none":
+            for e in ("feeds", "informs"):
+                self._drop_local_edge(puzzle, group, e)
+        puzzle.add_edge(group.id, edge)
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
         if failed:
             raise SheetRefreshError(failed)
+
+    def _drop_local_edge(self, puzzle, group, edge):
+        """Remove one edge in DB + memory (pooled-exclusivity helper)."""
+        if puzzle.has_edge(group.id, edge):
+            PuzzleJsonDb.delete_tag_edge(puzzle.id, group.id, edge)
+            puzzle.remove_edge(group.id, edge)
 
     async def tag_edge_only(self, puzzle, group, edge, guild=None):
         """Tag *puzzle* into *group* with *edge*, removing any other edges
@@ -702,8 +712,8 @@ class PuzzleService:
         """
         # Sweep other groups that carry the same edge type
         other_groups = [] 
-        for gid, etype in list(puzzle.tag_edges.items()):
-            if etype == edge and gid != group.id:
+        for gid in list(puzzle.tags):
+            if gid != group.id and edge in puzzle.edges_for(gid):
                 other_group = TagGroupJsonDb.get_by_attr(id=gid)
                 if other_group is not None:
                     await self.untag_from(puzzle, other_group, edge=edge)
@@ -742,16 +752,20 @@ class PuzzleService:
         a no-op.  Mirrors remove_from_meta's guard against removing the last
         tag of a metapuzzle.
         """
-        # Type guard: if edge specified and current edge differs, no-op
-        if edge is not None and puzzle.tag_edges.get(group.id) != edge:
+        if edge is not None and not puzzle.has_edge(group.id, edge):
             return
-        # Guard against removing the last membership of a metapuzzle
-        if puzzle.is_target and len(puzzle.tags) <= 1:
+        if puzzle.is_target and len(puzzle.tags) <= 1 and (
+            edge is None or puzzle.edges_for(group.id) == {edge}
+        ):
             raise ValueError("cannot remove the last tag from a metapuzzle")
-        PuzzleJsonDb.delete_tag(puzzle.id, group.id)
-        if group.id in puzzle.tags:
-            puzzle.tags.remove(group.id)
-        puzzle.tag_edges.pop(group.id, None)
+        if edge is None:
+            PuzzleJsonDb.delete_tag(puzzle.id, group.id)
+            puzzle.tag_edges.pop(group.id, None)
+            if group.id in puzzle.tags:
+                puzzle.tags.remove(group.id)
+        else:
+            PuzzleJsonDb.delete_tag_edge(puzzle.id, group.id, edge)
+            puzzle.remove_edge(group.id, edge)
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
@@ -775,8 +789,9 @@ class PuzzleService:
         # Count existing edge types before the flip
         counter = {}
         for p in members:
-            current = p.tag_edges.get(tag_group.id, "feeds")
-            counter[current] = counter.get(current, 0) + 1
+            for current in (p.edges_for(tag_group.id) or {"feeds"}):
+                if current in ("feeds", "informs", "none"):
+                    counter[current] = counter.get(current, 0) + 1
 
         PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
         # bulk_update flips every row including the target's — re-pin the target to
@@ -822,7 +837,7 @@ class PuzzleService:
             PuzzleJsonDb.commit(puzzle)
             # The target's self-edge is 'target' — it is the thing fed, not a feeder.
             PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, tag_group.id, "target")
-            puzzle.tag_edges[tag_group.id] = "target"
+            puzzle.add_edge(tag_group.id, "target")
 
             # Restructure the sheet tab in place (header -> B1, contribution Table
             # -> A4) BEFORE source_mode/edges render into it. Without this the tab
@@ -926,7 +941,7 @@ class PuzzleService:
             if rnd.id == root_group.id:
                 continue  # skip the meta group itself
             for p in PuzzleJsonDb.get_all_from_tag_group(rnd.id):
-                if p.id not in seen_ids and p.solved and p.tag_edges.get(rnd.id, "feeds") == "feeds":
+                if p.id not in seen_ids and p.solved and (p.has_edge(rnd.id, "feeds") or not p.edges_for(rnd.id)):
                     seen_ids.add(p.id)
                     puzzles.append(p)
         return puzzles
@@ -1360,7 +1375,7 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         # The target's self-edge is 'target' — it is the thing fed, not a feeder.
         PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "target")
-        puzzle.tag_edges[new_round.id] = "target"
+        puzzle.add_edge(new_round.id, "target")
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1605,7 +1620,7 @@ class PuzzleService:
         if round_data is not None:
             edge = "target" if is_meta else default_edge_for_group(round_data)
             PuzzleJsonDb.tag_puzzle_with_edge(new_puzzle.id, round_data.id, edge)
-            new_puzzle.tag_edges[round_data.id] = edge
+            new_puzzle.add_edge(round_data.id, edge)
 
         try:
             channel_name = clean_name(new_puzzle.name)
@@ -1826,11 +1841,12 @@ class PuzzleService:
         """The puzzle id this puzzle solely informs (an 'informs' edge to a group
         with a target), or None if it informs zero or several targets."""
         targets = []
-        for gid, edge in (puzzle.tag_edges or {}).items():
-            if edge == "informs":
-                group = TagGroupJsonDb.get_by_attr(id=gid)
-                if group is not None and group.target_puzzle_id:
-                    targets.append(group.target_puzzle_id)
+        for gid in list(puzzle.tags):
+            if not puzzle.has_edge(gid, "informs"):
+                continue
+            group = TagGroupJsonDb.get_by_attr(id=gid)
+            if group is not None and group.target_puzzle_id:
+                targets.append(group.target_puzzle_id)
         return targets[0] if len(targets) == 1 else None
 
     def log_clues(self, hunt, puzzle, notes: list) -> list:
@@ -1903,8 +1919,8 @@ class PuzzleService:
         """Re-render the roll-up for each target this puzzle informs, so a newly
         logged clue's information surfaces in the target's contribution table.
         Best-effort: a sheet error on one target is logged, not raised."""
-        for gid, edge in (puzzle.tag_edges or {}).items():
-            if edge != "informs":
+        for gid in list(puzzle.tags):
+            if not puzzle.has_edge(gid, "informs"):
                 continue
             group = TagGroupJsonDb.get_by_attr(id=gid)
             if group is None or not group.target_puzzle_id:

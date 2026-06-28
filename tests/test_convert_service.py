@@ -226,7 +226,7 @@ class TestConvertToMeta:
             mhdb.get_by_attr.return_value = make_hunt()
             _new_round, puzzle = await cog.service.convert_to_meta(None, make_hunt(), puz)
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "target")
-        assert puzzle.tag_edges[42] == "target"
+        assert puzzle.has_edge(42, "target")
 
 
 class TestConvertToPuzzle:

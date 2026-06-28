@@ -92,7 +92,7 @@ class TestRefreshMetaFires:
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, is_target=True)
         informer = make_puzzle(id=2, name="Informer")
-        informer.tag_edges = {5: "informs"}
+        informer.tag_edges = {5: {"informs"}}
         ev = EvidenceData()
         ev.id, ev.source_puzzle_id, ev.note = 11, 2, "is blue"
         with _patched() as (pdb, _h, _r, _ru):
@@ -149,7 +149,7 @@ class TestRefreshMetaFires:
         svc, gsheet = _svc_with_sheets()
         # Feeder tagged to two metas; untagging from one must refresh it.
         puzzle = make_puzzle(id=2, tags=[5, 6])
-        puzzle.tag_edges = {5: "feeds", 6: "feeds"}
+        puzzle.tag_edges = {5: {"feeds"}, 6: {"feeds"}}
         with _patched() as (pdb, hdb, rdb, _ru):
             hdb.get_by_attr.return_value = _hunt()
             rdb.get_by_attr.side_effect = lambda id: make_round(id=id, target_puzzle_id=id)

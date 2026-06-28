@@ -343,7 +343,7 @@ class TestWebUntagFrom:
     @pytest.mark.asyncio
     async def test_removes_round_from_tags(self, cog):
         puz = make_puzzle(tags=[5])
-        puz.tag_edges = {5: "feeds"}
+        puz.tag_edges = {5: {"feeds"}}
         rnd = make_round(id=5)
         await self._run(cog, puz, rnd)
         assert 5 not in puz.tags
@@ -397,7 +397,7 @@ class TestWebTagEdgeOnly:
     @pytest.mark.asyncio
     async def test_feeder_replaces_same_type_edges(self, cog):
         puz = make_puzzle(tags=[3, 4])
-        puz.tag_edges = {3: "feeds", 4: "feeds"}
+        puz.tag_edges = {3: {"feeds"}, 4: {"feeds"}}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 4: make_round(id=4)})
         assert 7 in puz.tags
@@ -406,7 +406,7 @@ class TestWebTagEdgeOnly:
     async def test_preserves_different_type_edges(self, cog):
         # Edge "informs" on group 5 is NOT removed by a feeds-only tag_edge_only.
         puz = make_puzzle(tags=[3, 5])
-        puz.tag_edges = {3: "feeds", 5: "informs"}
+        puz.tag_edges = {3: {"feeds"}, 5: {"informs"}}
         new_rnd = make_round(id=7)
         await self._run(cog, puz, new_rnd, old_rounds_by_id={3: make_round(id=3), 5: make_round(id=5)})
         assert 7 in puz.tags

@@ -129,7 +129,7 @@ async def test_create_puzzle_sets_edge_by_group_type(group_type, target_puzzle_i
         puzzle = await svc.create_puzzle(
             guild, _svc_hunt(), round_data, "Newpuz", is_meta=False, notifier=notifier)
     pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, expected_edge)
-    assert puzzle.tag_edges[5] == expected_edge
+    assert puzzle.has_edge(5, expected_edge)
 
 
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_create_meta_target_gets_target_edge():
         puzzle = await svc.create_puzzle(
             guild, _svc_hunt(), round_data, "TheMeta", is_meta=True, notifier=notifier)
     pdb.tag_puzzle_with_edge.assert_called_once_with(1, 5, "target")
-    assert puzzle.tag_edges[5] == "target"
+    assert puzzle.has_edge(5, "target")
 
 
 @pytest.mark.asyncio

@@ -46,7 +46,7 @@ class TestSelectRollupMembers:
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds"}
+        feeder.tag_edges = {5: {"feeds"}}
         with _patched() as (pdb, _rdb):
             pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
@@ -61,9 +61,9 @@ class TestSelectRollupMembers:
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds"}
+        feeder.tag_edges = {5: {"feeds"}}
         pooled = make_puzzle(id=3, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "none"}
+        pooled.tag_edges = {5: {"none"}}
         with _patched() as (pdb, _rdb):
             pdb.get_all_from_tag_group.return_value = [feeder, pooled]
             members = await svc.select_rollup_members(meta_round, rollup)
@@ -77,9 +77,9 @@ class TestSelectRollupMembers:
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="round")
         informs = make_puzzle(id=2, name="Informer", solution="ANS")
-        informs.tag_edges = {5: "informs"}
+        informs.tag_edges = {5: {"informs"}}
         pooled = make_puzzle(id=3, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "none"}
+        pooled.tag_edges = {5: {"none"}}
         with _patched() as (pdb, _rdb):
             pdb.get_all_from_tag_group.return_value = [informs, pooled]
             members = await svc.select_rollup_members(meta_round, rollup)
@@ -96,9 +96,9 @@ class TestSelectRollupMembers:
             edge_type_filter="informs",
         )
         feeds = make_puzzle(id=2, name="Feeder", solution="F")
-        feeds.tag_edges = {5: "feeds"}
+        feeds.tag_edges = {5: {"feeds"}}
         informs = make_puzzle(id=3, name="Informer", solution="I")
-        informs.tag_edges = {5: "informs"}
+        informs.tag_edges = {5: {"informs"}}
         with _patched() as (pdb, _rdb):
             pdb.get_all_from_tag_group.return_value = [feeds, informs]
             members = await svc.select_rollup_members(meta_round, rollup)
@@ -112,7 +112,7 @@ class TestSelectRollupMembers:
         child = make_round(id=6)
         child.parent_group_id = 5
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
-        solved.tag_edges = {6: "feeds"}
+        solved.tag_edges = {6: {"feeds"}}
         with _patched() as (pdb, rdb):
             rdb.get_all.return_value = [meta_round, child]
             pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
@@ -127,7 +127,7 @@ class TestSelectRollupMembers:
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="explicit")
         pooled = make_puzzle(id=2, name="Pooled", solution="P")
-        pooled.tag_edges = {5: "none"}
+        pooled.tag_edges = {5: {"none"}}
         other = make_puzzle(id=3, name="Feeder", solution="F")
         other.tag_edges = {5: "feeds"}
         with _patched() as (pdb, _rdb):
@@ -144,7 +144,7 @@ class TestSelectRollupMembers:
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="")
         feeder = make_puzzle(id=2, name="Feeder", solution="ANS")
-        feeder.tag_edges = {5: "feeds"}
+        feeder.tag_edges = {5: {"feeds"}}
         with _patched() as (pdb, _rdb):
             pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)

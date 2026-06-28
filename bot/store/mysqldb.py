@@ -344,7 +344,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Retrieve all puzzles from database"""
         puzzle_datas = []
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute("SELECT puzzles.* FROM puzzles LEFT JOIN tags ON puzzles.id = tags.puzzle_id WHERE tags.tag_group_id = %s", (tag_group_id,))
+        cursor.execute(
+            "SELECT puzzles.* FROM puzzles WHERE puzzles.id IN "
+            "(SELECT puzzle_id FROM tags WHERE tag_group_id = %s)",
+            (tag_group_id,),
+        )
         rows = cursor.fetchall()
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
@@ -420,8 +424,10 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall()
         for row in rows:
-            puzzle.tags.append(row['tag_group_id'])
-            puzzle.tag_edges[row['tag_group_id']] = row['edge_type'] or "feeds"
+            gid = row['tag_group_id']
+            if gid not in puzzle.tags:
+                puzzle.tags.append(gid)
+            puzzle.tag_edges.setdefault(gid, set()).add(row['edge_type'] or "feeds")
         cursor.close()
 
     def get_additional_sheets(self, puzzle):
@@ -450,8 +456,9 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
 
     def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):
-        """M7: idempotent upsert of a membership edge with typed edge_type.
-        Relies on migration 005's UNIQUE KEY (tag_group_id, puzzle_id)."""
+        """Add one membership edge (idempotent). With migration 020's
+        UNIQUE (tag_group_id, puzzle_id, edge_type), each edge is its own row, so a
+        puzzle may hold several edges to one group."""
         cursor = self.mydb.cursor()
         try:
             cursor.execute(
@@ -464,7 +471,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         self.mydb.commit()
 
     def delete_tag(self, puzzle_id, tag_group_id):
-        """Delete a single tag membership row."""
+        """Delete all membership edges for the pair (remove whole membership)."""
         cursor = self.mydb.cursor()
         try:
             cursor.execute(
@@ -475,14 +482,44 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
 
-    def bulk_update_edge_type(self, tag_group_id, new_edge):
-        """Update every member of a group to the same edge_type."""
+    def delete_tag_edge(self, puzzle_id, tag_group_id, edge_type):
+        """Delete a single typed edge row (leaves the pair's other edges intact)."""
         cursor = self.mydb.cursor()
         try:
             cursor.execute(
-                "UPDATE tags SET edge_type = %s WHERE tag_group_id = %s",
-                (new_edge, tag_group_id),
+                "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s AND edge_type = %s",
+                (puzzle_id, tag_group_id, edge_type),
             )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def bulk_update_edge_type(self, tag_group_id, new_edge):
+        """Convert members' feeds/informs/none edges to new_edge for a group, without
+        creating duplicate (tag_group_id, puzzle_id, new_edge) rows. The target's
+        'target' self-edge is left untouched here (bulk_re_edge re-pins it)."""
+        cursor = self.mydb.cursor()
+        try:
+            # Puzzles that currently contribute (feeds/informs/none) to this group.
+            cursor.execute(
+                "SELECT DISTINCT puzzle_id FROM tags "
+                "WHERE tag_group_id = %s AND edge_type IN ('feeds','informs','none')",
+                (tag_group_id,),
+            )
+            pids = [r[0] for r in cursor.fetchall()]
+            if pids:
+                placeholders = ",".join(["%s"] * len(pids))
+                cursor.execute(
+                    f"DELETE FROM tags WHERE tag_group_id = %s "
+                    f"AND edge_type IN ('feeds','informs','none') "
+                    f"AND puzzle_id IN ({placeholders})",
+                    (tag_group_id, *pids),
+                )
+                cursor.executemany(
+                    "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s) "
+                    "ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
+                    [(tag_group_id, pid, new_edge) for pid in pids],
+                )
         finally:
             cursor.close()
         self.mydb.commit()
@@ -490,25 +527,27 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def commit(self, puzzle):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.cursor(dictionary=True)
-        select_stmt = "SELECT tag_group_id FROM tags WHERE puzzle_id = %s"
-        cursor.execute(select_stmt, (puzzle.id,))
-        rows = cursor.fetchall()
-        database_tags = []
-        for row in rows:
-            database_tags.append(row['tag_group_id'])
-        tags_to_remove = set(database_tags) - set(puzzle.tags)
-        if len(tags_to_remove) > 0:
-            placeholders = ",".join(["%s"] * len(tags_to_remove))
-            delete_stmt = f"DELETE FROM tags WHERE tag_group_id IN ({placeholders}) AND puzzle_id = %s"
-            cursor.execute(delete_stmt, (*tags_to_remove, puzzle.id))
-        tags_to_add = set(puzzle.tags) - set(database_tags)
-        if len(tags_to_add) > 0:
-            insert_stmt = "INSERT INTO tags (tag_group_id, puzzle_id) VALUES " + \
-                ",".join(["(%s, %s)"] * len(tags_to_add))
-            params = []
-            for tag in tags_to_add:
-                params.extend((tag, puzzle.id))
-            cursor.execute(insert_stmt, params)
+        cursor.execute(
+            "SELECT tag_group_id, edge_type FROM tags WHERE puzzle_id = %s",
+            (puzzle.id,),
+        )
+        db_pairs = {(r['tag_group_id'], r['edge_type']) for r in cursor.fetchall()}
+        mem_pairs = {
+            (gid, edge)
+            for gid, edges in puzzle.tag_edges.items()
+            for edge in edges
+        }
+        for gid, edge in db_pairs - mem_pairs:
+            cursor.execute(
+                "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s AND edge_type = %s",
+                (puzzle.id, gid, edge),
+            )
+        for gid, edge in mem_pairs - db_pairs:
+            cursor.execute(
+                "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
+                (gid, puzzle.id, edge),
+            )
         cursor.close()
         self.mydb.commit()
 
