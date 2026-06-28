@@ -1,11 +1,12 @@
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
-import { IconAlertTriangle, IconCircleCheck, IconNote } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconNote } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 
 interface PuzzleRowActionsProps {
   puzzle: Puzzle;
   editable: boolean;
   onSolve: (puzzle: Puzzle) => void;
+  onUnsolve: (puzzle: Puzzle) => void;
   onOpenNotes: (puzzle: Puzzle) => void;
   onToggleMinis: (id: number) => void;
   /** Width of the <Table.Td> wrapper. Defaults to undefined (auto). */
@@ -15,7 +16,7 @@ interface PuzzleRowActionsProps {
 /**
  * Shared row-actions cell for puzzle tables.
  *
- * Renders a single <Table.Td> containing the solve button, notes indicator,
+ * Renders a single <Table.Td> containing the solve/unsolve button, notes indicator,
  * and (for Minimeta puzzles) a mini-expansion toggle.
  *
  * Place this inside the puzzle's <Table.Tr>. The Minimeta expansion row
@@ -26,6 +27,7 @@ export function PuzzleRowActions({
   puzzle: p,
   editable,
   onSolve,
+  onUnsolve,
   onOpenNotes,
   onToggleMinis,
   tdWidth,
@@ -37,6 +39,13 @@ export function PuzzleRowActions({
           <Tooltip label="Mark solved">
             <ActionIcon variant="subtle" color="green" onClick={() => onSolve(p)} aria-label="Solve">
               <IconCircleCheck size={17} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {editable && p.solved && (
+          <Tooltip label="Mark unsolved">
+            <ActionIcon variant="subtle" color="red" onClick={() => onUnsolve(p)} aria-label="Unsolve">
+              <IconCircleX size={17} />
             </ActionIcon>
           </Tooltip>
         )}

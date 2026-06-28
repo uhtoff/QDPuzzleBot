@@ -25,6 +25,7 @@ import {
   useDeleteRound,
   useRebuildRollup,
   useRollupAnswers,
+  useUnsolvePuzzle,
   useUpdatePuzzle,
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
@@ -54,9 +55,17 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const isMeta = !!group.group_code;
   const answersQuery = useRollupAnswers(group.tag_group_id, answersOpened && isMeta);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
+  const unsolveMut = useUnsolvePuzzle(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
+
+  function handleUnsolve(puzzle: Puzzle) {
+    unsolveMut.mutate(
+      { puzzleId: puzzle.id },
+      { onError: notifyError },
+    );
+  }
 
   function rebuild() {
     rebuildMut.mutate(group.tag_group_id, {
@@ -236,6 +245,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                   puzzle={p}
                   editable={editable}
                   onSolve={setSolvePuzzle}
+                  onUnsolve={handleUnsolve}
                   onOpenNotes={onOpenNotes}
                   onToggleMinis={toggleMinis}
                   tdWidth={76}

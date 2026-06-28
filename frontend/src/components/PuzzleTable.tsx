@@ -13,13 +13,13 @@ import {
 import { IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle, PuzzleTagGroup } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
-import { useRetagPuzzle, useUpdatePuzzle, type EdgeType } from "../api";
+import { useRetagPuzzle, useUnsolvePuzzle, useUpdatePuzzle, type EdgeType } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { answerLength, priorityColor, relativeTime, statusColor } from "../util";
+import { answerLength, notifyError, priorityColor, relativeTime, statusColor } from "../util";
 
 interface Props {
   detail: HuntDetail;
@@ -174,6 +174,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const retag = useRetagPuzzle(detail.hunt.uid);
+  const unsolveMut = useUnsolvePuzzle(detail.hunt.uid);
   const editable = !detail.hunt.archived;
   // Debug edges (and the click-to-edit menu) are organiser-only; can_manage is
   // already false for archived hunts and matches the backend's require_organiser gate.
@@ -197,6 +198,13 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
       return true;
     });
   }, [puzzles, search, statuses, priorities, types, hideSolved]);
+
+  function handleUnsolve(puzzle: Puzzle) {
+    unsolveMut.mutate(
+      { puzzleId: puzzle.id },
+      { onError: notifyError },
+    );
+  }
 
   function activityFor(p: Puzzle): string {
     const liveHit = p.channel_id ? live[p.channel_id] : undefined;
@@ -384,6 +392,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   puzzle={p}
                   editable={editable}
                   onSolve={setSolvePuzzle}
+                  onUnsolve={handleUnsolve}
                   onOpenNotes={onOpenNotes}
                   onToggleMinis={toggleMinis}
                 />
