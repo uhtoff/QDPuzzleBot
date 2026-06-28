@@ -26,11 +26,13 @@ import { ReconcilePanel } from "../components/ReconcilePanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
 import { useActivityFeed } from "../hooks/useActivityFeed";
+import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { Puzzle } from "../types";
 
 export default function HuntBoard() {
   const { uid } = useParams();
-  const { data, isLoading, error } = useHunt(uid);
+  const { data: rawData, isLoading, error } = useHunt(uid);
+  const { viewAs } = useViewAs();
   const qc = useQueryClient();
   const live = useActivityFeed((u) => { if (u === uid) qc.invalidateQueries({ queryKey: ["hunt", uid] }); });
   const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "manage">("board");
@@ -38,11 +40,11 @@ export default function HuntBoard() {
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
   const allPuzzles = useMemo(() => {
-    if (!data) return [];
-    const seen = new Map<number, (typeof data.board)[number]["puzzles"][number]>();
-    data.board.forEach((g) => g.puzzles.forEach((p) => seen.set(p.id, p)));
+    if (!rawData) return [];
+    const seen = new Map<number, (typeof rawData.board)[number]["puzzles"][number]>();
+    rawData.board.forEach((g) => g.puzzles.forEach((p) => seen.set(p.id, p)));
     return Array.from(seen.values());
-  }, [data]);
+  }, [rawData]);
 
   if (isLoading) {
     return (
@@ -51,9 +53,13 @@ export default function HuntBoard() {
       </Center>
     );
   }
-  if (error || !data) {
+  if (error || !rawData) {
     return <Text c="red">Could not load this hunt (you may not have access).</Text>;
   }
+
+  // Apply the Admin "view as" ceiling: overriding can_manage/is_admin here cascades
+  // to every gated child, since they all read detail.hunt.{can_manage,is_admin}.
+  const data = applyViewAs(rawData, viewAs);
 
   const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
   const openNotes = (p: Puzzle) => setNotesPuzzleId(p.id);

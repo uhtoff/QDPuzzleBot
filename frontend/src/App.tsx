@@ -5,6 +5,7 @@ import { AppShellLayout } from "./components/AppShellLayout";
 import Login from "./pages/Login";
 import HuntList from "./pages/HuntList";
 import HuntBoard from "./pages/HuntBoard";
+import { ViewAsProvider } from "./context/ViewAsContext";
 
 export default function App() {
   const me = useMe();
@@ -22,12 +23,14 @@ export default function App() {
   }
 
   return (
-    <AppShellLayout user={me.data}>
-      <Routes>
-        <Route path="/" element={<HuntList />} />
-        <Route path="/hunts/:uid" element={<HuntBoard />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppShellLayout>
+    <ViewAsProvider>
+      <AppShellLayout user={me.data}>
+        <Routes>
+          <Route path="/" element={<HuntList />} />
+          <Route path="/hunts/:uid" element={<HuntBoard />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppShellLayout>
+    </ViewAsProvider>
   );
 }

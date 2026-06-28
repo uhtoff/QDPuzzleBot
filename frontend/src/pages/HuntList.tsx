@@ -23,6 +23,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
 import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
+import { useViewAs } from "../context/ViewAsContext";
 import type { HuntSummary } from "../types";
 
 function HuntCard({ hunt }: { hunt: HuntSummary }) {
@@ -185,9 +186,12 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
 export default function HuntList() {
   const { data, isLoading, error } = useHunts();
   const { data: adminGuilds } = useAdminGuilds();
+  const { viewAs } = useViewAs();
   const [newHuntOpen, setNewHuntOpen] = useState(false);
 
-  const isAdmin = (adminGuilds ?? []).length > 0;
+  // Respect the Admin "view as" ceiling: hide the New hunt button when previewing
+  // as a non-admin.
+  const isAdmin = (adminGuilds ?? []).length > 0 && viewAs === "admin";
 
   if (isLoading) {
     return (

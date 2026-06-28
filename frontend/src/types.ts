@@ -10,6 +10,7 @@ export interface User {
   username: string | null;
   global_name: string | null;
   avatar: string | null;
+  avatar_url: string | null;
 }
 
 export interface HuntSummary {

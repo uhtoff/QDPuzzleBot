@@ -78,7 +78,11 @@ async def me():
     user = session.get("user")
     if not user:
         return jsonify({"authenticated": False}), 401
-    return jsonify({"authenticated": True, "user": user})
+    payload = {
+        **user,
+        "avatar_url": discord_avatar_url(user["id"], user.get("avatar")),
+    }
+    return jsonify({"authenticated": True, "user": payload})
 
 
 async def _exchange_code(code):
@@ -106,6 +110,19 @@ async def _fetch_user(access_token):
 
 def current_user():
     return session.get("user")
+
+
+def discord_avatar_url(user_id, avatar_hash, size=64):
+    """CDN URL for a user's Discord avatar, or None if they have no custom one.
+
+    Animated avatars (hash prefixed 'a_') are served as .gif. The full integer
+    user_id is used here on the server because a Discord snowflake exceeds JS's
+    safe-integer range — the browser cannot rebuild this URL reliably.
+    """
+    if not avatar_hash:
+        return None
+    ext = "gif" if str(avatar_hash).startswith("a_") else "png"
+    return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size={size}"
 
 
 def login_required(view):
