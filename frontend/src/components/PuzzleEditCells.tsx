@@ -162,6 +162,23 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; ui
     if (e.key === "Enter") submit(mode);
   }
 
+  // Solve a puzzle that has no text answer (interactions, etc.): record a tick as
+  // the solution. Mirrors the bot's !mark_as_complete (full solve with "✅").
+  function markComplete() {
+    if (!puzzle || puzzle.solved) return;
+    solve.mutate(
+      { puzzleId: puzzle.id, solution: "✅", mode: "full" },
+      {
+        onSuccess: (data) => {
+          notifications.show({ message: `Marked \"${puzzle.name}\" solved`, color: "green" });
+          showSheetWarning(data);
+          onClose();
+        },
+        onError: notifyError,
+      },
+    );
+  }
+
   // When the puzzle changes, prefill change/add with current solution.
   useEffect(() => {
     if (puzzle?.solution && puzzle.solved) {
@@ -214,6 +231,15 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; ui
                 disabled={!fullText.trim()}
               >
                 Mark complete
+              </Button>
+
+              <Button
+                color="green"
+                variant="outline"
+                onClick={markComplete}
+                loading={solve.isPending}
+              >
+                Mark complete (no answer)
               </Button>
             </Stack>
           ) :

@@ -104,7 +104,7 @@ function EdgeBadge({
     <Menu shadow="md" position="bottom-start" withinPortal>
       <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
-        <Menu.Label>{r.name} edge</Menu.Label>
+        <Menu.Label>{r.name} tag</Menu.Label>
         {r.is_target_of
           ? TARGET_EDGE_OPTS.map((o) => (
               <Menu.Item
@@ -234,7 +234,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
         />
         {canManage && (
           <Checkbox
-            label="Debug edges"
+            label="Debug tags"
             checked={debugEdges}
             onChange={(e) => setDebugEdges(e.currentTarget.checked)}
             mb={8}
@@ -251,7 +251,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
             <Table.Tr>
               <Table.Th w={110}>Links</Table.Th>
               <Table.Th>Puzzle</Table.Th>
-              <Table.Th>Round</Table.Th>
+              <Table.Th>Group</Table.Th>
               <Table.Th>Solution</Table.Th>
               <Table.Th w={50} ta="right">Len</Table.Th>
               <Table.Th>Status</Table.Th>
