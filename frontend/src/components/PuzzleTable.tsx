@@ -115,18 +115,31 @@ function EdgeBadge({
                 {o.label}
               </Menu.Item>
             ))
-          : FEEDER_TOGGLES.map((o) => {
-              const on = r.edges.includes(o.edge);
-              return (
-                <Menu.Item
-                  key={o.edge}
-                  leftSection={on ? "✓" : ""}
-                  onClick={() => (on ? onRemove(o.edge) : onPick(o.edge))}
-                >
-                  {o.label}
-                </Menu.Item>
-              );
-            })}
+          : [
+              ...FEEDER_TOGGLES.map((o) => {
+                const on = r.edges.includes(o.edge);
+                return (
+                  <Menu.Item
+                    key={o.edge}
+                    leftSection={on ? "✓" : ""}
+                    onClick={() => (on ? onRemove(o.edge) : onPick(o.edge))}
+                  >
+                    {o.label}
+                  </Menu.Item>
+                );
+              }),
+              // 'none' is pooled-exclusive with feeds/informs, so it's a mode you
+              // switch to (not a toggle): picking it clears the contributing edges
+              // and leaves the puzzle grouped-only. Switch back by picking Feeds/Informs.
+              <Menu.Item
+                key="none"
+                leftSection={r.edges.includes("none") ? "✓" : ""}
+                disabled={r.edges.includes("none")}
+                onClick={() => onPick("none")}
+              >
+                Group only
+              </Menu.Item>,
+            ]}
         {/* A target can't be removed from its own group (backend rejects it with
             cannot_remove_own_meta) — only offer removal for feeder memberships. */}
         {!r.is_target_of && (
