@@ -45,7 +45,7 @@ class PuzzleData:
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
     tags: List[int] = field(default_factory=list)
-    tag_edges: Dict[int, str] = field(default_factory=dict)  # M7: tag_group_id -> edge_type
+    tag_edges: Dict[int, set] = field(default_factory=dict)  # tag_group_id -> set of edge_type
     is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)
     parent_puzzle_id: Optional[int] = None
 
@@ -84,8 +84,31 @@ class PuzzleData:
         return sorted(puzzles, key=lambda p: p.start_time)
 
     def add_tag(self, tag):
-        self.tags.append(tag)
-        return
+        if tag not in self.tags:
+            self.tags.append(tag)
+
+    def edges_for(self, tag_group_id) -> set:
+        """The set of edge types this puzzle has to a group ({} if not a member)."""
+        return self.tag_edges.get(tag_group_id, set())
+
+    def has_edge(self, tag_group_id, edge) -> bool:
+        return edge in self.tag_edges.get(tag_group_id, set())
+
+    def add_edge(self, tag_group_id, edge):
+        """Add one edge to a group (in-memory), keeping tags + tag_edges in sync."""
+        self.tag_edges.setdefault(tag_group_id, set()).add(edge)
+        self.add_tag(tag_group_id)
+
+    def remove_edge(self, tag_group_id, edge):
+        """Remove one edge; drop the whole membership if no edges remain."""
+        edges = self.tag_edges.get(tag_group_id)
+        if not edges:
+            return
+        edges.discard(edge)
+        if not edges:
+            self.tag_edges.pop(tag_group_id, None)
+            if tag_group_id in self.tags:
+                self.tags.remove(tag_group_id)
 
 class _PuzzleJsonDb:
     def commit(self, puzzle_data):
