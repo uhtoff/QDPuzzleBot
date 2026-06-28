@@ -40,30 +40,26 @@ const EDGE_COLOR: Record<string, string> = {
   "?": "red",
 };
 
-function edgeCode(r: PuzzleTagGroup): string {
-  const base = EDGE_CODE[r.edge_type ?? ""] ?? "?";
-  // A target normally carries the 'target' self-edge -> base "T". But a target that
-  // deliberately feeds/informs itself carries a 'feeds'/'informs' self-edge instead;
-  // target-ness then lives only in is_target_of. Surface BOTH facts (e.g. "T+F") so
-  // the self-loop isn't masked — the rollup shows it, debug edges must too.
-  if (r.is_target_of) {
-    return base === "F" || base === "I" ? `T+${base}` : "T";
-  }
-  return base;
+function edgeCodes(r: PuzzleTagGroup): string[] {
+  const codes = r.edges.map((e) => EDGE_CODE[e] ?? "?");
+  // is_target_of is authoritative for target-ness even if the self-edge self-feeds.
+  if (r.is_target_of && !codes.includes("T")) codes.unshift("T");
+  return codes;
 }
 
-function edgeColor(code: string): string {
-  if (code.includes("+")) return "grape"; // a target that self-feeds/informs
-  return EDGE_COLOR[code] ?? "red";
+function edgeCode(r: PuzzleTagGroup): string {
+  return edgeCodes(r).join("+") || "?";
+}
+
+function edgeColor(r: PuzzleTagGroup): string {
+  const codes = edgeCodes(r);
+  if (codes.length > 1) return "grape";
+  return EDGE_COLOR[codes[0]] ?? "red";
 }
 
 function edgeTitle(r: PuzzleTagGroup): string {
-  if (r.is_target_of) {
-    return r.edge_type === "feeds" || r.edge_type === "informs"
-      ? `target · self-${r.edge_type}`
-      : "target";
-  }
-  return r.edge_type ?? "no edge";
+  const title = r.edges.join(", ") || "no edge";
+  return r.is_target_of ? `target · ${title}` : title;
 }
 
 // Edge choices offered in the debug-edges edit menu. A feeder picks how it
@@ -97,7 +93,7 @@ function EdgeBadge({
     <Badge
       size="xs"
       variant="light"
-      color={edgeColor(code)}
+      color={edgeColor(r)}
       title={`group ${r.id} (${r.group_type ?? "?"}) · ${edgeTitle(r)}`}
       style={editable && r.group_code ? { cursor: "pointer" } : undefined}
     >
@@ -114,7 +110,7 @@ function EdgeBadge({
         {opts.map((o) => (
           <Menu.Item
             key={o.edge}
-            disabled={o.edge === (r.edge_type ?? "")}
+            disabled={r.edges.includes(o.edge)}
             onClick={() => onPick(o.edge)}
           >
             {o.label}

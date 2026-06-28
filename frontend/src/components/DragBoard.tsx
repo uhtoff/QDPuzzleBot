@@ -84,7 +84,7 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   const inCodes = new Set(puzzle.rounds.map((r) => r.group_code).filter(Boolean));
   const ownTarget = puzzle.rounds.find((r) => r.is_target_of) ?? null;
   const ownTargetCode = ownTarget?.group_code ?? null;
-  const selfFeeds = ownTarget?.edge_type === "feeds";
+  const selfFeeds = ownTarget?.edges.includes("feeds") ?? false;
   const addable = metas.filter(
     (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && !selfFeeds),
   );

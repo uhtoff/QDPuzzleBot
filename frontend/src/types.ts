@@ -33,7 +33,7 @@ export interface PuzzleTagGroup {
   name: string;
   group_code: string | null;
   is_target_of: boolean;
-  edge_type: string | null;
+  edges: string[];
   group_type: string | null;
 }
 
