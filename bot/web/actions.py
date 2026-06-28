@@ -1431,18 +1431,6 @@ async def set_nesting(tag_group_id):
 
 # --- Create puzzles and metas (member-accessible, non-archived hunt required) ---
 
-async def _organiser_hunt(uid):
-    """Resolve a visible, non-archived hunt and require organiser. Returns (ctx, err)."""
-    ctx, err = await _visible_hunt_by_uid(uid)
-    if err:
-        return None, err
-    if ctx["hunt"]["archived"]:
-        return None, (jsonify({"error": "hunt_archived"}), 403)
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm:
-        return None, perm
-    return ctx, None
-
 
 @actions_bp.route("/hunts/<uid>/puzzles", methods=["POST"])
 @login_required
