@@ -29,6 +29,7 @@ import {
   useUpdatePuzzle,
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
+import { ConfirmModal } from "./ConfirmModal";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { notifyError, showSheetWarning } from "../util";
 
@@ -60,6 +61,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const [renameEditing, setRenameEditing] = useState(false);
   const [renameTemp, setRenameTemp] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [eraseIndex, setEraseIndex] = useState<number | null>(null);
   const canManage = detail.hunt.can_manage;
 
   const add = useAddNote(uid);
@@ -314,8 +316,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                   <ActionIcon
                     variant="subtle"
                     color="red"
-                    onClick={() => erase.mutate({ puzzleId: puzzle.id, index: i + 1 })}
-                    loading={erase.isPending}
+                    onClick={() => setEraseIndex(i + 1)}
                     aria-label="Delete note"
                   >
                     <IconTrash size={14} />
@@ -357,6 +358,21 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
               </Button>
             </>
           )}
+
+          <ConfirmModal
+            opened={eraseIndex !== null}
+            onClose={() => setEraseIndex(null)}
+            onConfirm={() => {
+              if (eraseIndex !== null) {
+                erase.mutate({ puzzleId: puzzle.id, index: eraseIndex });
+              }
+              setEraseIndex(null);
+            }}
+            title="Delete note"
+            message="Delete this note?"
+            confirmLabel="Delete"
+            confirmColor="red"
+          />
 
           <SolveModal puzzle={solveOpen ? puzzle : null} uid={uid} onClose={() => setSolveOpen(false)} />
 
