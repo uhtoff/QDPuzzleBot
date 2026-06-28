@@ -870,7 +870,7 @@ async def retag_puzzle(puzzle_id):
             elif mode == "add":
                 await cog.service.tag_with_edge(puzzle, target_group, edge)
             elif mode == "remove":
-                await cog.service.untag_from(puzzle, target_group)
+                await cog.service.untag_from(puzzle, target_group, edge=explicit_edge)
             elif mode == "clear":
                 for gid in list(puzzle.tags):
                     g = TagGroupJsonDb.get_by_attr(id=gid)
