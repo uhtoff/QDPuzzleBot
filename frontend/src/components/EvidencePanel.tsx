@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  ActionIcon,
   Box,
   Button,
   Group,
@@ -9,8 +10,10 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
-import { useEvidence, useLogClue, useUpdateEvidence } from "../api";
+import { useDeleteEvidence, useEditClueNote, useEvidence, useLogClue, useUpdateEvidence } from "../api";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface Props {
   uid: string;
@@ -21,10 +24,14 @@ export function EvidencePanel({ uid, detail }: Props) {
   const { data: items = [], isLoading, error } = useEvidence(uid);
   const updateEvidence = useUpdateEvidence(uid);
   const logClue = useLogClue(uid);
+  const deleteEvidence = useDeleteEvidence(uid);
+  const editClueNote = useEditClueNote(uid);
   const [filterSource, setFilterSource] = useState<string | null>(null);
 
   const [cluePuzzleId, setCluePuzzleId] = useState<string | null>(null);
   const [clueNote, setClueNote] = useState("");
+
+  const editable = !detail.hunt.archived;
 
   function submitClue() {
     if (!cluePuzzleId || !clueNote.trim()) return;
@@ -68,25 +75,27 @@ export function EvidencePanel({ uid, detail }: Props) {
         <Text size="xs" c="dimmed">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</Text>
       </Group>
 
-      <Group gap="sm">
-        <Select
-          size="xs"
-          placeholder="Source puzzle …"
-          data={allPuzzles}
-          value={cluePuzzleId ?? ""}
-          onChange={(v) => setCluePuzzleId(v || null)}
-          w={240}
-        />
-        <TextInput
-          size="xs"
-          placeholder="Log a clue…"
-          value={clueNote}
-          onChange={(e) => setClueNote(e.currentTarget.value)}
-          onKeyDown={(e) => e.key === "Enter" && submitClue()}
-          style={{ flex: 1 }}
-        />
-        <Button size="xs" onClick={submitClue} loading={logClue.isPending}>Log clue</Button>
-      </Group>
+      {editable && (
+        <Group gap="sm">
+          <Select
+            size="xs"
+            placeholder="Source puzzle …"
+            data={allPuzzles}
+            value={cluePuzzleId ?? ""}
+            onChange={(v) => setCluePuzzleId(v || null)}
+            w={240}
+          />
+          <TextInput
+            size="xs"
+            placeholder="Log a clue…"
+            value={clueNote}
+            onChange={(e) => setClueNote(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitClue()}
+            style={{ flex: 1 }}
+          />
+          <Button size="xs" onClick={submitClue} loading={logClue.isPending}>Log clue</Button>
+        </Group>
+      )}
 
       {filtered.length === 0 ? (
         <Box p="md">
@@ -100,6 +109,7 @@ export function EvidencePanel({ uid, detail }: Props) {
               <Table.Th>Note</Table.Th>
               <Table.Th>Target Puzzle</Table.Th>
               <Table.Th>Logged At</Table.Th>
+              {editable && <Table.Th w={40} />}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -108,8 +118,15 @@ export function EvidencePanel({ uid, detail }: Props) {
                 key={item.id}
                 item={item}
                 puzzleOptions={allPuzzles}
+                editable={editable}
                 onSetTarget={(targetId) =>
                   updateEvidence.mutate({ itemId: item.id, targetPuzzleId: targetId })
+                }
+                onEditNote={(note) =>
+                  editClueNote.mutate({ itemId: item.id, note })
+                }
+                onDelete={() =>
+                  deleteEvidence.mutate(item.id)
                 }
               />
             ))}
@@ -123,18 +140,68 @@ export function EvidencePanel({ uid, detail }: Props) {
 function EvidenceRow({
   item,
   puzzleOptions,
+  editable,
   onSetTarget,
+  onEditNote,
+  onDelete,
 }: {
   item: EvidenceItem;
   puzzleOptions: { value: string; label: string }[];
+  editable: boolean;
   onSetTarget: (targetId: number | null) => void;
+  onEditNote: (note: string) => void;
+  onDelete: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   const loggedAt = item.created_at ? item.created_at.slice(0, 16).replace("T", " ") : "";
+
+  function startEdit() {
+    setDraft(item.note);
+    setEditing(true);
+  }
+
+  function commitEdit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== item.note) {
+      onEditNote(trimmed);
+    }
+    setEditing(false);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+  }
 
   return (
     <Table.Tr>
       <Table.Td>{item.source_puzzle_name}</Table.Td>
-      <Table.Td>{item.note}</Table.Td>
+      <Table.Td>
+        {editable && editing ? (
+          <TextInput
+            size="xs"
+            value={draft}
+            onChange={(e) => setDraft(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              if (e.key === "Escape") cancelEdit();
+            }}
+            onBlur={commitEdit}
+            autoFocus
+          />
+        ) : (
+          <Text
+            size="sm"
+            style={editable ? { cursor: "pointer" } : undefined}
+            onClick={editable ? startEdit : undefined}
+            title={editable ? "Click to edit" : undefined}
+          >
+            {item.note}
+          </Text>
+        )}
+      </Table.Td>
       <Table.Td>
         <Select
           size="xs"
@@ -145,9 +212,32 @@ function EvidenceRow({
           searchable
           clearable
           w={200}
+          disabled={!editable}
         />
       </Table.Td>
       <Table.Td>{loggedAt}</Table.Td>
+      {editable && (
+        <Table.Td>
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            size="sm"
+            onClick={() => setConfirmOpen(true)}
+            aria-label="Delete clue"
+          >
+            <IconTrash size={14} />
+          </ActionIcon>
+          <ConfirmModal
+            opened={confirmOpen}
+            onClose={() => setConfirmOpen(false)}
+            onConfirm={() => { setConfirmOpen(false); onDelete(); }}
+            title="Delete clue"
+            message="Delete this clue? This cannot be undone."
+            confirmLabel="Delete"
+            confirmColor="red"
+          />
+        </Table.Td>
+      )}
     </Table.Tr>
   );
 }
