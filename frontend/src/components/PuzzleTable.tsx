@@ -64,10 +64,9 @@ function edgeTitle(r: PuzzleTagGroup): string {
 
 // Edge choices offered in the debug-edges edit menu. A feeder picks how it
 // contributes; a target toggles its own self-feed loop ('target' = no self-feed).
-const FEEDER_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
+const FEEDER_TOGGLES: { edge: EdgeType; label: string }[] = [
   { edge: "feeds", label: "Feeds" },
   { edge: "informs", label: "Informs" },
-  { edge: "none", label: "None (pooled)" },
 ];
 const TARGET_EDGE_OPTS: { edge: EdgeType; label: string }[] = [
   { edge: "feeds", label: "Self-feeds" },
@@ -86,7 +85,7 @@ function EdgeBadge({
   r: PuzzleTagGroup;
   editable: boolean;
   onPick: (edge: EdgeType) => void;
-  onRemove: () => void;
+  onRemove: (edge?: EdgeType) => void;
 }) {
   const code = edgeCode(r);
   const badge = (
@@ -101,27 +100,39 @@ function EdgeBadge({
     </Badge>
   );
   if (!editable || !r.group_code) return badge;
-  const opts = r.is_target_of ? TARGET_EDGE_OPTS : FEEDER_EDGE_OPTS;
   return (
     <Menu shadow="md" position="bottom-start" withinPortal>
       <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{r.name} edge</Menu.Label>
-        {opts.map((o) => (
-          <Menu.Item
-            key={o.edge}
-            disabled={r.edges.includes(o.edge)}
-            onClick={() => onPick(o.edge)}
-          >
-            {o.label}
-          </Menu.Item>
-        ))}
+        {r.is_target_of
+          ? TARGET_EDGE_OPTS.map((o) => (
+              <Menu.Item
+                key={o.edge}
+                disabled={r.edges.includes(o.edge)}
+                onClick={() => onPick(o.edge)}
+              >
+                {o.label}
+              </Menu.Item>
+            ))
+          : FEEDER_TOGGLES.map((o) => {
+              const on = r.edges.includes(o.edge);
+              return (
+                <Menu.Item
+                  key={o.edge}
+                  leftSection={on ? "✓" : ""}
+                  onClick={() => (on ? onRemove(o.edge) : onPick(o.edge))}
+                >
+                  {o.label}
+                </Menu.Item>
+              );
+            })}
         {/* A target can't be removed from its own group (backend rejects it with
             cannot_remove_own_meta) — only offer removal for feeder memberships. */}
         {!r.is_target_of && (
           <>
             <Menu.Divider />
-            <Menu.Item color="red" onClick={onRemove}>
+            <Menu.Item color="red" onClick={() => onRemove()}>
               Remove from group
             </Menu.Item>
           </>
@@ -283,11 +294,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                                 edge,
                               })
                             }
-                            onRemove={() =>
+                            onRemove={(edge) =>
                               retag.mutate({
                                 puzzleId: p.id,
                                 metaCode: r.group_code as string,
                                 mode: "remove",
+                                edge,
                               })
                             }
                           />
