@@ -868,8 +868,10 @@ class PuzzleService:
         return tag_group, summary
 
     async def collect_subtree_puzzles(self, root_group):
-        """The solved puzzles a runaround (source_mode='subtree') rolls up: every
-        puzzle reachable by an unbroken chain of 'feeds' edges up to `root_group`.
+        """The puzzles a runaround (source_mode='subtree') rolls up: every puzzle
+        reachable by an unbroken chain of 'feeds' edges up to `root_group`. Solved
+        and unsolved feeders both surface — the sheet shows the full structure and
+        answers fill in as they solve (matching 'round' mode and minimeta render).
 
         Starting at the runaround group, take its direct 'feeds' feeders; whenever a
         feeder is itself a group's target puzzle (a meta / meta-meta), descend into
@@ -896,8 +898,8 @@ class PuzzleService:
                     continue                   # minimeta sub-answers belong to their own sheet only
                 if not (p.has_edge(group.id, "feeds") or not p.edges_for(group.id)):
                     continue                   # follow 'feeds' only — skip informs / none / target
-                if p.solved and p.id not in seen_ids:
-                    seen_ids.add(p.id)
+                if p.id not in seen_ids:
+                    seen_ids.add(p.id)         # collect every feeder; answers fill in as they solve
                     puzzles.append(p)
                 child = group_by_target.get(p.id)
                 if child is not None and child.id not in visited_groups:
