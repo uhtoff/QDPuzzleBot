@@ -40,7 +40,7 @@ import {
   type EdgeType,
   type RetagMode,
 } from "../api";
-import { notifyError, showSheetWarning, statusColor } from "../util";
+import { notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
 import { MetaBadge } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
@@ -570,7 +570,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
               <Column key={group.tag_group_id} group={group}>
-                {group.puzzles.map((p) => (
+                {sortPuzzles(group.puzzles, group.group_code).map((p) => (
                   <PuzzleCard
                     key={`${group.tag_group_id}-${p.id}`}
                     puzzle={p}
