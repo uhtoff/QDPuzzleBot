@@ -68,7 +68,6 @@ def web():
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.actions._visible_hunt_for_puzzle", AsyncMock(return_value=(ctx, None))),
         patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(ctx, None))),
-        patch("bot.web.actions._organiser_hunt", AsyncMock(return_value=(ctx, None))),
         patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
         patch("bot.web.actions._audit", AsyncMock()),
         patch("bot.store.HuntJsonDb"),
@@ -76,7 +75,7 @@ def web():
         patch("bot.store.TagGroupJsonDb"),
     ]
     started = [p.start() for p in patches]
-    _hdb, _pdb, _rdb = started[6], started[7], started[8]
+    _hdb, _pdb, _rdb = started[5], started[6], started[7]
     _pdb.get_by_attr.return_value = puzzle
     _pdb.check_duplicates_in_hunt.return_value = False
     _rdb.get_by_attr.return_value = target_group
