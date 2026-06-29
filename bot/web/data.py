@@ -139,6 +139,18 @@ async def get_hunt_for_tag_group(tag_group_id):
     )
 
 
+async def get_hunt_for_evidence(item_id):
+    """The hunt row an evidence item belongs to, for write-action access checks."""
+    return await fetch_one(
+        "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
+        "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
+        "hunts.archive_google_sheet_id "
+        "FROM hunts JOIN evidence_items ON evidence_items.hunt_id = hunts.id "
+        "WHERE evidence_items.id = %s",
+        (item_id,),
+    )
+
+
 def hunt_to_json(hunt, guilds_map):
     guild = guilds_map.get(hunt["guild_id"], {})
     return {

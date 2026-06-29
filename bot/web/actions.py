@@ -113,6 +113,10 @@ async def _visible_hunt_for_tag_group(tag_group_id):
     return await _resolve_visible_hunt(data.get_hunt_for_tag_group(tag_group_id), "round_not_found")
 
 
+async def _visible_hunt_for_evidence(item_id):
+    return await _resolve_visible_hunt(data.get_hunt_for_evidence(item_id), "not_found")
+
+
 # --- Notes (any member of the hunt's guild) ---------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/notes", methods=["POST"])
@@ -1633,11 +1637,24 @@ async def unsolve_puzzle(puzzle_id):
 @actions_bp.route("/evidence/<int:item_id>", methods=["PATCH"])
 @login_required
 async def update_evidence(item_id):
-    from bot.store import EvidenceJsonDb, HuntJsonDb
+    ctx, err = await _visible_hunt_for_evidence(item_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.store import EvidenceJsonDb, HuntJsonDb, PuzzleJsonDb
     body = await request.get_json() or {}
     old = EvidenceJsonDb.get_by_id(item_id)
     if old is None:
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": "not_found"}), 404
+
+    # A non-null target must belong to the same hunt as the evidence item, so
+    # evidence can't be cross-linked into another hunt's puzzle.
+    if body.get("target_puzzle_id") is not None:
+        target = PuzzleJsonDb.get_by_attr(id=body["target_puzzle_id"])
+        if target is None or target.hunt_id != old.hunt_id:
+            return jsonify({"error": "cross_hunt_target"}), 400
 
     item = old
 
@@ -1671,17 +1688,20 @@ async def update_evidence(item_id):
 @actions_bp.route("/evidence/<int:item_id>", methods=["DELETE"])
 @login_required
 async def delete_evidence(item_id):
+    ctx, err = await _visible_hunt_for_evidence(item_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
     from bot.store import EvidenceJsonDb, HuntJsonDb
     old = EvidenceJsonDb.get_by_id(item_id)
     if old is None:
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": "not_found"}), 404
 
     hunt_obj = HuntJsonDb.get_by_attr(id=old.hunt_id)
     if hunt_obj is None:
-        return jsonify({"error": "not found"}), 404
-
-    if hunt_obj.archived:
-        return jsonify({"error": "hunt_archived"}), 403
+        return jsonify({"error": "not_found"}), 404
 
     EvidenceJsonDb.delete(item_id)
 
