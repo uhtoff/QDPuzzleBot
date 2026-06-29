@@ -459,6 +459,9 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
 
     # Per-group signals for ranking: feeder edge types, which puzzle ids feed
     # each group (for metameta detection), and whether each target is solved.
+    # meta-vs-capstone is edge-derived (any 'feeds' feeder = meta; informs-only
+    # = capstone) so it stays correct even when the stored type is stale —
+    # the stored type is only a fallback for a group with no feeders yet.
     feeder_edges = {}    # gid -> set of feeder edge types
     feeder_pids = {}     # gid -> list[int] of puzzle ids with a "feeds" edge
     target_solved = {}   # gid -> bool
