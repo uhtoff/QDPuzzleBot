@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
-import { useClipboard, useDisclosure } from "@mantine/hooks";
+import { useClipboard, useDisclosure, useMediaQuery } from "@mantine/hooks";
 import {
   Accordion,
   ActionIcon,
@@ -36,6 +36,17 @@ import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 
+const KIND_STRIP_COLOR: Record<string, string> = {
+  runaround: "var(--mantine-color-red-6)",
+  metameta: "var(--mantine-color-violet-6)",
+  capstone: "var(--mantine-color-orange-6)",
+  meta: "var(--mantine-color-grape-6)",
+};
+
+function kindStrip(p: { meta_kind?: string | null }): string | undefined {
+  return p.meta_kind ? KIND_STRIP_COLOR[p.meta_kind] : undefined;
+}
+
 interface Props {
   group: BoardGroupType;
   detail: HuntDetail;
@@ -59,6 +70,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
+  const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
 
   function handleUnsolve(puzzle: Puzzle) {
     unsolveMut.mutate(
@@ -203,61 +215,97 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           <Table.Tbody>
             {sortPuzzles(group.puzzles, group.group_code).map((p) => (
               <Fragment key={`${group.tag_group_id}-${p.id}`}>
-              <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
-                <Table.Td w={110}>
-                  <PuzzleLinks
-                    puzzle={p}
-                    sheetBase={detail.hunt.sheet_base_url}
-                    archiveSheetBase={detail.hunt.archive_sheet_base_url}
-                  />
-                </Table.Td>
-                <Table.Td>
-                  <Group gap={6}>
-                    <MetaBadge puzzle={p} />
-                    <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
-                  </Group>
-                </Table.Td>
-                <Table.Td>
-                  <Text ff="monospace" size="sm">
-                    {p.solution || ""}
-                  </Text>
-                </Table.Td>
-                <Table.Td w={130}>
-                  {editable ? (
-                    <StatusCell
-                      value={p.status}
-                      onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
-                    />
+                <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
+                  {/* Kind strip — both layouts */}
+                  <Table.Td w={4} p={0} style={{ backgroundColor: kindStrip(p) }} />
+                  {isNarrow ? (
+                    <>
+                      {/* Compact layout: links | title+solution | actions */}
+                      <Table.Td w={92}>
+                        <PuzzleLinks
+                          puzzle={p}
+                          sheetBase={detail.hunt.sheet_base_url}
+                          archiveSheetBase={detail.hunt.archive_sheet_base_url}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap={6} wrap="nowrap">
+                          <MetaBadge puzzle={p} />
+                          <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                        </Group>
+                        <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
+                          {p.solution || "—"}
+                        </Text>
+                      </Table.Td>
+                      <PuzzleRowActions
+                        puzzle={p}
+                        editable={editable}
+                        onSolve={setSolvePuzzle}
+                        onUnsolve={handleUnsolve}
+                        onOpenNotes={onOpenNotes}
+                        onToggleMinis={toggleMinis}
+                        tdWidth={80}
+                      />
+                    </>
                   ) : (
-                    p.status && (
-                      <Badge variant="light" color={statusColor(p.status)}>
-                        {p.status}
-                      </Badge>
-                    )
+                    <>
+                      {/* Wide layout: all original columns */}
+                      <Table.Td w={110}>
+                        <PuzzleLinks
+                          puzzle={p}
+                          sheetBase={detail.hunt.sheet_base_url}
+                          archiveSheetBase={detail.hunt.archive_sheet_base_url}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap={6}>
+                          <MetaBadge puzzle={p} />
+                          <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text ff="monospace" size="sm">
+                          {p.solution || ""}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td w={130}>
+                        {editable ? (
+                          <StatusCell
+                            value={p.status}
+                            onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
+                          />
+                        ) : (
+                          p.status && (
+                            <Badge variant="light" color={statusColor(p.status)}>
+                              {p.status}
+                            </Badge>
+                          )
+                        )}
+                      </Table.Td>
+                      <Table.Td w={90}>
+                        <Text size="xs" c="dimmed">
+                          {activityFor(p)}
+                        </Text>
+                      </Table.Td>
+                      <PuzzleRowActions
+                        puzzle={p}
+                        editable={editable}
+                        onSolve={setSolvePuzzle}
+                        onUnsolve={handleUnsolve}
+                        onOpenNotes={onOpenNotes}
+                        onToggleMinis={toggleMinis}
+                        tdWidth={76}
+                      />
+                    </>
                   )}
-                </Table.Td>
-                <Table.Td w={90}>
-                  <Text size="xs" c="dimmed">
-                    {activityFor(p)}
-                  </Text>
-                </Table.Td>
-                <PuzzleRowActions
-                  puzzle={p}
-                  editable={editable}
-                  onSolve={setSolvePuzzle}
-                  onUnsolve={handleUnsolve}
-                  onOpenNotes={onOpenNotes}
-                  onToggleMinis={toggleMinis}
-                  tdWidth={76}
-                />
-              </Table.Tr>
-              {p.puzzle_type === "Minimeta" && expandedMinis.has(p.id) && (
-                <Table.Tr>
-                  <Table.Td colSpan={99} p={0}>
-                    <MiniPuzzlePanel parentId={p.id} minis={p.mini_puzzles} uid={detail.hunt.uid} />
-                  </Table.Td>
                 </Table.Tr>
-              )}
+                {p.puzzle_type === "Minimeta" && expandedMinis.has(p.id) && (
+                  <Table.Tr>
+                    <Table.Td colSpan={99} p={0}>
+                      <MiniPuzzlePanel parentId={p.id} minis={p.mini_puzzles} uid={detail.hunt.uid} />
+                    </Table.Td>
+                  </Table.Tr>
+                )}
               </Fragment>
             ))}
           </Table.Tbody>
