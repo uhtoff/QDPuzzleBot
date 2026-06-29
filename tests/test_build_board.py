@@ -342,3 +342,69 @@ class TestBuildBoardAggregates:
         puz = make_puzzle_row(id=1, name="P", rounds=[r])
         board = build_board([puz])
         assert board[0]["group_code"] == "XYZABC"
+
+
+# ---------------------------------------------------------------------------
+# build_board — sub-kind sort order within meta tier
+# ---------------------------------------------------------------------------
+
+class TestBuildBoardSubKindOrder:
+    """build_board should order groups: runaround < metameta < meta within the
+    unsolved-meta and solved-meta tiers (before and after capstones/plain)."""
+
+    def _grp(self, gid, name, edge, feeder_is_meta=False, solved=False, gtype="Metapuzzle"):
+        """Return (puzzle_list, all_groups_entry) for a group with one target + one feeder."""
+        target = make_puzzle_row(
+            id=100 + gid, name=f"{name}-T", is_meta=True, solved=solved,
+            rounds=[make_round_ref(id=gid, name=name, group_code=name, is_target_of=True)],
+        )
+        feeder = make_puzzle_row(
+            id=200 + gid, name=f"{name}-F", is_meta=feeder_is_meta,
+            rounds=[make_round_ref(id=gid, name=name, group_code=name, edges=(edge,))],
+        )
+        ag = {"id": gid, "name": name, "group_code": name, "type": gtype,
+              "target_puzzle_id": 100 + gid}
+        return [target, feeder], ag
+
+    def test_runaround_before_metameta_before_meta_unsolved(self):
+        puzzles, ags = [], []
+        for gid, name, edge, fim, gtype in [
+            (3, "Meta",      "feeds", False, "Metapuzzle"),
+            (2, "Metameta",  "feeds", True,  "Metapuzzle"),
+            (1, "Runaround", "feeds", False, "Runaround"),
+        ]:
+            p, g = self._grp(gid, name, edge, fim, solved=False, gtype=gtype)
+            puzzles.extend(p); ags.append(g)
+        board = build_board(puzzles, None, ags)
+        names = [g["name"] for g in board if g["tag_group_id"] != 0]
+        assert names == ["Runaround", "Metameta", "Meta"]
+
+    def test_runaround_before_metameta_before_meta_solved(self):
+        puzzles, ags = [], []
+        for gid, name, edge, fim, gtype in [
+            (3, "Meta",      "feeds", False, "Metapuzzle"),
+            (2, "Metameta",  "feeds", True,  "Metapuzzle"),
+            (1, "Runaround", "feeds", False, "Runaround"),
+        ]:
+            p, g = self._grp(gid, name, edge, fim, solved=True, gtype=gtype)
+            puzzles.extend(p); ags.append(g)
+        board = build_board(puzzles, None, ags)
+        names = [g["name"] for g in board if g["tag_group_id"] != 0]
+        assert names == ["Runaround", "Metameta", "Meta"]
+
+    def test_unsolved_sub_kinds_before_solved_sub_kinds(self):
+        puzzles, ags = [], []
+        for gid, name, edge, fim, gtype, solved in [
+            (6, "SMeta",      "feeds", False, "Metapuzzle", True),
+            (5, "SMetameta",  "feeds", True,  "Metapuzzle", True),
+            (4, "SRunaround", "feeds", False, "Runaround",  True),
+            (1, "UMeta",      "feeds", False, "Metapuzzle", False),
+            (2, "UMetameta",  "feeds", True,  "Metapuzzle", False),
+            (3, "URunaround", "feeds", False, "Runaround",  False),
+        ]:
+            p, g = self._grp(gid, name, edge, fim, solved=solved, gtype=gtype)
+            puzzles.extend(p); ags.append(g)
+        board = build_board(puzzles, None, ags)
+        names = [g["name"] for g in board if g["tag_group_id"] != 0]
+        assert names == ["URunaround", "UMetameta", "UMeta",
+                         "SRunaround", "SMetameta", "SMeta"]
