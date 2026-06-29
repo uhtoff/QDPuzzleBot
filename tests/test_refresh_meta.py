@@ -114,15 +114,25 @@ class TestRefreshMetaFires:
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metameta = make_puzzle(id=1, is_target=True)
-        child = make_round(id=6)
-        child.parent_group_id = 5
-        branch_solved = [make_puzzle(id=2, solved=True), make_puzzle(id=3, solved=True)]
+        metameta.add_edge(5, "target")
+        # A nested meta (id=7) feeds the metameta; its two solved feeders are the
+        # branch that should surface.
+        child = make_round(id=6, target_puzzle_id=7)
+        nested_meta = make_puzzle(id=7, solved=False)
+        nested_meta.add_edge(5, "feeds")
+        nested_meta.add_edge(6, "target")
+        p2 = make_puzzle(id=2, solved=True)
+        p2.add_edge(6, "feeds")
+        p3 = make_puzzle(id=3, solved=True)
+        p3.add_edge(6, "feeds")
+        branch_solved = [p2, p3]
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
             rdb.get_all.return_value = [meta_round, child]
-            # The subtree walk queries each child round for puzzles.
-            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: branch_solved}[rid]
+            # The subtree walk queries each group along the 'feeds' chain.
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {
+                5: [metameta, nested_meta], 6: [nested_meta, p2, p3]}.get(rid, [])
             await svc.refresh_target(_hunt(), meta_round)
         # Task 10: subtree membership still branch-walked, but rendered via the
         # unified contribution table (no separate metameta renderer).

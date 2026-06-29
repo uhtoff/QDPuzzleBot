@@ -22,7 +22,7 @@ EXPECTED_PUSH_METHODS = {
     "change_solution", "convert_to_meta", "convert_to_puzzle", "convert_to_type",
     "create_mini", "create_puzzle", "create_tag_group", "delete_puzzle",
     "delete_round", "erase_note", "make_minimeta", "remove_sheet", "rename_puzzle",
-    "set_parent_group", "set_puzzle_url", "solve", "tag_with_edge", "unsolve",
+    "set_puzzle_url", "solve", "tag_with_edge", "unsolve",
     "untag_from", "update_puzzle_field",
 }
 
@@ -335,40 +335,5 @@ async def test_make_minimeta_emits_board_changed():
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
         hdb.get_by_attr.return_value = hunt
         await svc.make_minimeta(puzzle)
-
-    notifier.board_changed.assert_awaited_once_with(hunt)
-
-
-# ---- set_parent_group (nest / clear nesting) ----
-
-@pytest.mark.asyncio
-async def test_set_parent_group_clear_emits_board_changed():
-    notifier = _notifier()
-    svc = _svc(notifier)
-    hunt = _hunt()
-    child = make_round(id=5, hunt_id=10)
-
-    with patch("bot.core.puzzle_service.TagGroupJsonDb"), \
-         patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        hdb.get_by_attr.return_value = hunt
-        await svc.set_parent_group(child, None)
-
-    notifier.board_changed.assert_awaited_once_with(hunt)
-
-
-@pytest.mark.asyncio
-async def test_set_parent_group_nest_emits_board_changed():
-    notifier = _notifier()
-    svc = _svc(notifier)
-    hunt = _hunt()
-    child = make_round(id=5, hunt_id=10)
-    parent = make_round(id=7, hunt_id=10)
-    parent.parent_group_id = None
-
-    with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
-         patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        hdb.get_by_attr.return_value = hunt
-        rdb.get_by_attr.return_value = parent
-        await svc.set_parent_group(child, 7)
 
     notifier.board_changed.assert_awaited_once_with(hunt)

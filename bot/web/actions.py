@@ -1399,47 +1399,6 @@ async def rebuild_rollup(tag_group_id):
     return jsonify({"ok": True})
 
 
-# --- Nesting setter (organiser only) ----------------------------------------
-
-@actions_bp.route("/tag_groups/<int:tag_group_id>/nest", methods=["POST"])
-@login_required
-async def set_nesting(tag_group_id):
-    """Nest a tag group under another, or clear nesting.
-    Body: {"parent_tag_group_id": <id>|null}. Null clears the nesting."""
-    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
-    if err:
-        return err
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
-    body = await request.get_json(silent=True) or {}
-    parent_id = body.get("parent_tag_group_id")  # None/null clears — int nests
-
-    from bot.store import TagGroupJsonDb
-
-    child = TagGroupJsonDb.get_by_attr(id=tag_group_id)
-    if child is None:
-        return jsonify({"error": "round_not_found"}), 404
-
-    # Validate parent exists (and belongs to same hunt) if nesting, not clearing
-    if parent_id is not None:
-        parent = TagGroupJsonDb.get_by_attr(id=parent_id)
-        if parent is None or parent.hunt_id != child.hunt_id:
-            return jsonify({"error": "bad_parent_round"}), 400
-
-    bot = current_app.bot
-    cog = bot.get_cog("Puzzles")
-    if cog is None:
-        return jsonify({"error": "bot_unavailable"}), 503
-
-    try:
-        await cog.service.set_parent_group(child, parent_id)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"ok": True})
-
-
 # --- Create puzzles and metas (member-accessible, non-archived hunt required) ---
 
 

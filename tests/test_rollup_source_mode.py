@@ -70,21 +70,25 @@ class TestSourceModeRouting:
 
     @pytest.mark.asyncio
     async def test_subtree_mode_aggregates_branch_solved_puzzles(self):
-        # rollup.source_mode == "subtree": collect solved puzzles across the
-        # parent_group_id branch and render via the metameta (3-col) path.
+        # rollup.source_mode == "subtree": walk the 'feeds' chain and render via the
+        # metameta (3-col) path. A nested meta (id=7) feeds the runaround; its own
+        # solved feeder (id=2) surfaces.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, is_target=True)
+        metapuzzle.add_edge(5, "target")
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
-        # child round 6 nested under round 5; its solved feeder is id=2.
-        child = make_round(id=6, target_puzzle_id=0)
-        child.parent_group_id = 5
+        child = make_round(id=6, target_puzzle_id=7)
+        nested_meta = make_puzzle(id=7, solved=False)
+        nested_meta.add_edge(5, "feeds")
+        nested_meta.add_edge(6, "target")
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
-        solved.tag_edges = {6: "feeds"}
+        solved.add_edge(6, "feeds")
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metapuzzle
             rdb.get_all.return_value = [meta_round, child]   # TagGroupJsonDb.get_all(hunt_id)
-            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {
+                5: [metapuzzle, nested_meta], 6: [nested_meta, solved]}.get(rid, [])
             await svc.refresh_target(_hunt(), meta_round)
         # render_contribution received exactly the branch's solved puzzles
         gsheet.render_contribution.assert_awaited_once()

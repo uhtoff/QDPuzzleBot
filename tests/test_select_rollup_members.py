@@ -106,16 +106,23 @@ class TestSelectRollupMembers:
 
     @pytest.mark.asyncio
     async def test_subtree_mode_returns_branch_solved_puzzles_without_rendering(self):
+        # subtree walks the 'feeds' chain: a nested meta feeds the runaround, and
+        # that meta's own solved feeder surfaces (the meta itself is unsolved here).
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         rollup = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
-        child = make_round(id=6)
-        child.parent_group_id = 5
+        child = make_round(id=6, target_puzzle_id=7)
+        target = make_puzzle(id=1, solved=False)
+        target.add_edge(5, "target")
+        nested_meta = make_puzzle(id=7, solved=False)
+        nested_meta.add_edge(5, "feeds")          # feeds the runaround
+        nested_meta.add_edge(6, "target")
         solved = make_puzzle(id=2, name="Branch", solved=True, solution="X")
-        solved.tag_edges = {6: {"feeds"}}
+        solved.add_edge(6, "feeds")
         with _patched() as (pdb, rdb):
             rdb.get_all.return_value = [meta_round, child]
-            pdb.get_all_from_tag_group.side_effect = lambda rid: {5: [], 6: [solved]}[rid]
+            pdb.get_all_from_tag_group.side_effect = lambda rid: {
+                5: [target, nested_meta], 6: [nested_meta, solved]}.get(rid, [])
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
         gsheet.add_metapuzzle_data.assert_not_awaited()

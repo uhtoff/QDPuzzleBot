@@ -867,83 +867,42 @@ class PuzzleService:
 
         return tag_group, summary
 
-    @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["child_group"].hunt_id))
-    async def set_parent_group(self, child_group, parent_id):
-        """Nest `child_group` under group `parent_id` (the parent_group_id tree),
-        rejecting containment cycles. M6 substrate — nothing calls this yet; M7 uses it.
-
-        Guards group NESTING only. It has nothing to do with the tags/edge_type
-        answer-feeding graph, so mutual A<->B feeding (and meta-to-meta feeding) is
-        entirely unaffected — only a circular *containment* chain is forbidden.
-
-        Pass parent_id=None to clear nesting. Raises ValueError on a self-nest or a
-        cycle (the prospective parent is the child or one of its descendants)."""
-        if parent_id is None:
-            child_group.parent_group_id = None
-            TagGroupJsonDb.commit(child_group)
-            return
-        if parent_id == child_group.id:
-            raise ValueError("a group cannot be nested under itself")
-        # Walk up from the prospective parent; reaching the child means nesting would
-        # close a loop. A depth cap backstops a pre-existing broken chain.
-        node_id, depth = parent_id, 0
-        while node_id is not None:
-            if node_id == child_group.id:
-                raise ValueError(
-                    f"nesting group {child_group.id} under {parent_id} would create a cycle")
-            depth += 1
-            if depth > 64:
-                raise ValueError("parent_group chain too deep (possible pre-existing cycle)")
-            node = TagGroupJsonDb.get_by_attr(id=node_id)
-            if node is None:
-                break
-            node_id = node.parent_group_id
-        child_group.parent_group_id = parent_id
-        TagGroupJsonDb.commit(child_group)
-    async def collect_subtree_groups(self, root_group):
-        """BFS from root_group gathering descendants linked by parent_group_id.
-
-        Returns a list of group objects (including root_group itself). A depth cap
-        of 64 backstops pre-existing broken chains or cycles."""
-        all_tag_groups = TagGroupJsonDb.get_all(hunt_id=root_group.hunt_id)
-        # Build a child map: parent_group_id -> [child groups]
-        children_of = {}
-        for r in all_tag_groups:
-            pid = r.parent_group_id
-            if pid is not None:
-                children_of.setdefault(pid, []).append(r)
-
-        visited = {root_group.id}
-        result = [root_group]
-        queue = [root_group]
-        depth = 0
-        while queue and depth <= 64:
-            next_queue = []
-            for rnd in queue:
-                for child in children_of.get(rnd.id, []):
-                    if child.id not in visited:
-                        visited.add(child.id)
-                        result.append(child)
-                        next_queue.append(child)
-            queue = next_queue
-            depth += 1
-        return result
-
     async def collect_subtree_puzzles(self, root_group):
-        """Collect all solved puzzles across the subtree rooted at `root_group`.
+        """The solved puzzles a runaround (source_mode='subtree') rolls up: every
+        puzzle reachable by an unbroken chain of 'feeds' edges up to `root_group`.
 
-        Union of get_all_from_tag_group for each descendant group, deduped by puzzle id,
-        keeping only solved puzzles."""
-        rounds = await self.collect_subtree_groups(root_group)
-        seen_ids = set()
+        Starting at the runaround group, take its direct 'feeds' feeders; whenever a
+        feeder is itself a group's target puzzle (a meta / meta-meta), descend into
+        that group's feeders too — that's "the ones below". Only 'feeds' is ever
+        followed: 'informs' (capstone evidence), 'none' (pooled grab-bag) and
+        minimeta sub-answers (parent_puzzle_id children) are never surfaced, and the
+        group's own target — carrying a 'target' self-edge — is excluded for free.
+
+        A 'feeds' edge graph may legitimately contain cycles (mutual meta-to-meta
+        feeding), so a visited-groups set is the cycle guard: each group is walked at
+        most once, which guarantees termination without an arbitrary depth cap.
+        Edgeless membership counts as 'feeds' (migration-012 default), matching the
+        'round'-mode convention in select_rollup_members."""
+        all_groups = TagGroupJsonDb.get_all(hunt_id=root_group.hunt_id)
+        group_by_target = {g.target_puzzle_id: g for g in all_groups if g.target_puzzle_id}
+        seen_ids = set()                       # collected puzzle ids (dedupe output)
+        visited_groups = {root_group.id}       # groups already walked (cycle guard)
         puzzles = []
-        for rnd in rounds:
-            if rnd.id == root_group.id:
-                continue  # skip the meta group itself
-            for p in PuzzleJsonDb.get_all_from_tag_group(rnd.id):
-                if p.id not in seen_ids and p.solved and (p.has_edge(rnd.id, "feeds") or not p.edges_for(rnd.id)):
+        stack = [root_group]
+        while stack:
+            group = stack.pop()
+            for p in PuzzleJsonDb.get_all_from_tag_group(group.id):
+                if p.parent_puzzle_id is not None:
+                    continue                   # minimeta sub-answers belong to their own sheet only
+                if not (p.has_edge(group.id, "feeds") or not p.edges_for(group.id)):
+                    continue                   # follow 'feeds' only — skip informs / none / target
+                if p.solved and p.id not in seen_ids:
                     seen_ids.add(p.id)
                     puzzles.append(p)
+                child = group_by_target.get(p.id)
+                if child is not None and child.id not in visited_groups:
+                    visited_groups.add(child.id)
+                    stack.append(child)        # this feeder is a meta — descend into its feeders
         return puzzles
 
     @pushes_board()

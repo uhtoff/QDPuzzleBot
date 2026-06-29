@@ -1,9 +1,9 @@
 """M7: the puzzles.metameta flag gives way to rollup.source_mode.
 
 After migration 004 a metameta round carries source_mode='subtree'. refresh_meta
-must branch on source_mode (NOT on metapuzzle.metameta), walking the
-parent_group_id branch (get_all + get_all_from_round) rather than the old
-hunt-wide scan (get_all_from_hunt).
+must branch on source_mode (NOT on metapuzzle.metameta), walking the 'feeds' chain
+(get_all + get_all_from_tag_group) rather than the old hunt-wide scan
+(get_all_from_hunt).
 """
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
