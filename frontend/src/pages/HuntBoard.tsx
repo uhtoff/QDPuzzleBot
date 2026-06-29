@@ -132,7 +132,7 @@ export default function HuntBoard() {
         const at = firstSolved === -1 ? rest.length : firstSolved;
         const boardGroups = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
         return (
-          <Accordion variant="separated" multiple defaultValue={boardGroups.map((g) => String(g.tag_group_id))}>
+          <Accordion variant="separated" multiple defaultValue={boardGroups.filter((g) => !g.target_solved).map((g) => String(g.tag_group_id))}>
             {boardGroups.map((g) => (
               <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
             ))}
