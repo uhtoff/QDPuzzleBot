@@ -439,7 +439,8 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
                     grp["num_solved_feeders"] += 1
         # Unassigned Feeders bucket: a non-meta puzzle whose answer feeds nothing
         # (no 'feeds' edge to any meta). It still appears under any group it
-        # informs/pools into, but also surfaces here as needing a feed target.
+        # informs or is a grab-bag ('none') member of, but also surfaces here as
+        # needing a feed target.
         # Target puzzles are excluded; mini-meta feeders are already absent
         # (get_hunt_puzzles drops puzzles with a parent_puzzle_id).
         feeds_something = any("feeds" in rnd["edges"] for rnd in puz["rounds"])

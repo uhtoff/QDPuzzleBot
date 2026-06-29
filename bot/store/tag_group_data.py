@@ -11,8 +11,8 @@ EDGE_FEEDS = "feeds"
 EDGE_INFORMS = "informs"
 EDGE_NONE = "none"
 # A target's self-edge: it is a member of its own group but neither feeds nor
-# informs it. Distinct from 'none' (a pooled member) so the target is
-# distinguishable from genuine pooled feeders without an id comparison.
+# informs it. Distinct from 'none' (a grab-bag member) so the target is
+# distinguishable from genuine 'none'-edge members without an id comparison.
 EDGE_TARGET = "target"
 
 class MissingTagGroupError(RuntimeError):

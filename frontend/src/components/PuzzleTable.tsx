@@ -31,7 +31,7 @@ interface Props {
 
 // Debug edge annotation: how this puzzle is tagged into a given group.
 // T = target (this puzzle is the group's meta/capstone answer), F = feeds,
-// I = informs, N = none (pooled), ? = unknown/missing edge.
+// I = informs, N = none (grab-bag member), ? = unknown/missing edge.
 const EDGE_CODE: Record<string, string> = { feeds: "F", informs: "I", none: "N", target: "T" };
 const EDGE_COLOR: Record<string, string> = {
   T: "grape",
@@ -129,7 +129,7 @@ function EdgeBadge({
                   </Menu.Item>
                 );
               }),
-              // 'none' is pooled-exclusive with feeds/informs, so it's a mode you
+              // 'none' is mutually exclusive with feeds/informs, so it's a mode you
               // switch to (not a toggle): picking it clears the contributing edges
               // and leaves the puzzle grouped-only. Switch back by picking Feeds/Informs.
               <Menu.Item
