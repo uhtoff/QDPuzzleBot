@@ -55,6 +55,22 @@ def test_unsolved_feeder_has_blank_answer():
     assert rows == [["feeds:2", "Alpha", "Feeder", ""]]
 
 
+def test_transitive_subtree_member_with_no_edge_renders_as_feeder():
+    # A runaround ('subtree') member reached via a 'feeds' chain through sub-metas
+    # carries NO edge to THIS group (its feeds edge points at the sub-meta). It is
+    # still a feeder answer and must render as one — otherwise the runaround sheet
+    # shows only its direct feeders.
+    deep = _p(2, "OldTestament", solution="FABRICATION", tag_edges={1396: {"feeds"}})
+    rows = contribution_rows(tag_group_id=1400, members=[deep], evidence=[])
+    assert rows == [["feeds:2", "OldTestament", "Feeder", "FABRICATION"]]
+
+
+def test_transitive_unsolved_subtree_member_renders_blank_feeder():
+    deep = _p(7, "Paul", solution=None, tag_edges={1397: {"feeds"}})
+    rows = contribution_rows(tag_group_id=1400, members=[deep], evidence=[])
+    assert rows == [["feeds:7", "Paul", "Feeder", ""]]
+
+
 def test_feeds_and_informs_member_emits_both_rows():
     p = _p(8, "Octo", solution="ANSWER", tag_edges={5: {"feeds", "informs"}})
     evidence = [{"id": 1, "source_puzzle_id": 8, "content": "a clue"}]

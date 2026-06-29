@@ -33,6 +33,13 @@ def contribution_rows(tag_group_id, members, evidence):
     rows = []
     for p in members:
         edges = p.edges_for(tag_group_id)
+        if not edges:
+            # Transitive subtree member (runaround 'subtree' mode): reached via a
+            # 'feeds' chain through sub-metas, so it carries no edge to THIS group.
+            # The walk only follows 'feeds', so every such member is a feeder answer
+            # — render it as one (blank until it solves).
+            rows.append([f"feeds:{p.id}", p.name, "Feeder", _feeder_answer(p)])
+            continue
         if "feeds" in edges:
             rows.append([f"feeds:{p.id}", p.name, "Feeder", _feeder_answer(p)])
         if "none" in edges:
