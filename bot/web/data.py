@@ -457,13 +457,13 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
         if g.get("group_code"):
             ensure(g["id"], g["name"], g["group_code"])
 
-    # Per-group signals for column ordering, derived from the puzzles: which edge
-    # types feed each group and whether its target is solved. meta-vs-capstone is
-    # edge-derived (a target with any 'feeds' feeder is a meta; informs-only is a
-    # capstone) so it stays correct even when the stored tag_group.type is stale —
-    # the stored type is only a fallback for a target group with no feeders yet.
-    feeder_edges = {}   # gid -> set of feeder edge types
-    target_solved = {}  # gid -> bool
+    # Per-group signals for ranking: feeder edge types, which puzzle ids feed
+    # each group (for metameta detection), and whether each target is solved.
+    feeder_edges = {}    # gid -> set of feeder edge types
+    feeder_pids = {}     # gid -> list[int] of puzzle ids with a "feeds" edge
+    target_solved = {}   # gid -> bool
+    is_meta_by_id = {p["id"]: p["is_meta"] for p in puzzles}
+
     for puz in puzzles:
         for rnd in puz["rounds"]:
             gid = rnd["id"]
@@ -471,6 +471,8 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
                 target_solved[gid] = puz["solved"]
             else:
                 feeder_edges.setdefault(gid, set()).update(rnd["edges"])
+                if "feeds" in rnd["edges"]:
+                    feeder_pids.setdefault(gid, []).append(puz["id"])
 
     def _is_capstone(gid):
         edges = feeder_edges.get(gid, set())
@@ -480,19 +482,37 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
             return True
         return group_info.get(gid, {}).get("type") == "Capstone"
 
+    def _meta_sub_rank(gid):
+        # 0 = runaround (stored type), 1 = metameta (all feeds-feeders are metas),
+        # 2 = regular meta.
+        if group_info.get(gid, {}).get("type") == "Runaround":
+            return 0
+        pids = feeder_pids.get(gid, [])
+        if pids and all(is_meta_by_id.get(pid) for pid in pids):
+            return 1
+        return 2
+
     def _rank(gid):
-        # Column order: Unassigned Feeders, then targets with an UNSOLVED puzzle
-        # (metas then capstones), then plain groups (no target), then targets with
-        # a SOLVED puzzle pushed right (metas then capstones).
+        # Group order:
+        #   0  Unassigned Feeders
+        #   1  unsolved runaround
+        #   2  unsolved metameta
+        #   3  unsolved meta
+        #   4  unsolved capstone
+        #   5  plain (no target)
+        #   6  solved runaround
+        #   7  solved metameta
+        #   8  solved meta
+        #   9  solved capstone
         if gid == 0:
             return 0
         has_target = bool(group_info.get(gid, {}).get("target_puzzle_id")) or gid in target_solved
         if not has_target:
-            return 3  # plain group (no target puzzle)
-        capstone = _is_capstone(gid)
-        if not target_solved.get(gid):
-            return 2 if capstone else 1  # unsolved: meta, then capstone
-        return 5 if capstone else 4      # solved: meta, then capstone
+            return 5
+        if _is_capstone(gid):
+            return 9 if target_solved.get(gid) else 4
+        sub = _meta_sub_rank(gid)
+        return (6 + sub) if target_solved.get(gid) else (1 + sub)
 
     # Within a rank, oldest first — group id is auto-increment (creation order).
     return [groups[rid] for rid in sorted(order, key=lambda gid: (_rank(gid), gid))]
