@@ -69,10 +69,10 @@ class TestSourceModeRouting:
         assert args.kwargs["evidence"] == []
 
     @pytest.mark.asyncio
-    async def test_subtree_mode_aggregates_branch_solved_puzzles(self):
+    async def test_subtree_mode_aggregates_branch_puzzles(self):
         # rollup.source_mode == "subtree": walk the 'feeds' chain and render via the
-        # metameta (3-col) path. A nested meta (id=7) feeds the runaround; its own
-        # solved feeder (id=2) surfaces.
+        # metameta (3-col) path. A nested meta (id=7) feeds the runaround; it and its
+        # own feeder (id=2) surface — both regardless of solved state (id=7 unsolved).
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, is_target=True)
@@ -90,12 +90,12 @@ class TestSourceModeRouting:
             pdb.get_all_from_tag_group.side_effect = lambda rid: {
                 5: [metapuzzle, nested_meta], 6: [nested_meta, solved]}.get(rid, [])
             await svc.refresh_target(_hunt(), meta_round)
-        # render_contribution received exactly the branch's solved puzzles
+        # render_contribution received the whole branch (solved + unsolved)
         gsheet.render_contribution.assert_awaited_once()
         args = gsheet.render_contribution.await_args
         assert args.args[0] is metapuzzle
         assert args.args[1] == 5
-        assert [p.id for p in args.args[2]] == [2]
+        assert sorted(p.id for p in args.args[2]) == [2, 7]
 
     @pytest.mark.asyncio
     async def test_explicit_mode_uses_aggregates_into_members(self):

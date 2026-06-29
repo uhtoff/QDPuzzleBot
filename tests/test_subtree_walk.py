@@ -1,7 +1,7 @@
 """Runaround feeds-walk (collect_subtree_puzzles).
 
-source_mode='subtree' collects every solved puzzle reachable by an unbroken chain
-of 'feeds' edges up to the runaround group. Pure tests with TagGroupJsonDb /
+source_mode='subtree' collects every puzzle (solved or not) reachable by an unbroken
+chain of 'feeds' edges up to the runaround group. Pure tests with TagGroupJsonDb /
 PuzzleJsonDb mocked: TagGroupJsonDb.get_all yields the hunt's groups (for the
 target->group map); PuzzleJsonDb.get_all_from_tag_group yields each group's members.
 
@@ -43,9 +43,11 @@ class TestFeedsWalk:
         assert sorted(p.id for p in puzzles) == [60]
 
     @pytest.mark.asyncio
-    async def test_descends_feeds_chain_into_nested_metas_solved_only(self):
+    async def test_descends_feeds_chain_into_nested_metas_all_states(self):
         # Feed a meta-meta into the runaround -> its answer AND "the ones below"
-        # (its own feeders) come along, transitively, solved-only.
+        # (its own feeders) come along, transitively. All feeders surface
+        # regardless of solved state: the roll-up shows the full structure and
+        # answers fill in as they solve.
         root = make_round(id=1, target_puzzle_id=10)
         group2 = make_round(id=2, target_puzzle_id=60)   # the meta-meta's group
         target = make_puzzle(id=10, solved=True)
@@ -60,7 +62,7 @@ class TestFeedsWalk:
         puzzles = await _walk(
             root, [root, group2],
             {1: [target, mm], 2: [mm, below_ok, below_unsolved]})
-        assert sorted(p.id for p in puzzles) == [60, 70]  # mm + its solved feeder
+        assert sorted(p.id for p in puzzles) == [60, 70, 71]  # mm + both feeders
 
     @pytest.mark.asyncio
     async def test_capstone_answer_surfaces_but_informs_evidence_and_pools_do_not(self):

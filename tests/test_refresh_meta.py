@@ -115,8 +115,8 @@ class TestRefreshMetaFires:
         meta_round = make_round(id=5, target_puzzle_id=1)
         metameta = make_puzzle(id=1, is_target=True)
         metameta.add_edge(5, "target")
-        # A nested meta (id=7) feeds the metameta; its two solved feeders are the
-        # branch that should surface.
+        # A nested meta (id=7) feeds the metameta; the nested meta and its two
+        # feeders are the branch that should surface (solved or not — id=7 unsolved).
         child = make_round(id=6, target_puzzle_id=7)
         nested_meta = make_puzzle(id=7, solved=False)
         nested_meta.add_edge(5, "feeds")
@@ -125,7 +125,7 @@ class TestRefreshMetaFires:
         p2.add_edge(6, "feeds")
         p3 = make_puzzle(id=3, solved=True)
         p3.add_edge(6, "feeds")
-        branch_solved = [p2, p3]
+        branch_members = [nested_meta, p2, p3]
         existing = RollupData(id=9, hunt_id=10, tag_group_id=5, source_mode="subtree")
         with _patched(rollup_existing=existing) as (pdb, _h, rdb, _ru):
             pdb.get_by_attr.return_value = metameta
@@ -137,7 +137,7 @@ class TestRefreshMetaFires:
         # Task 10: subtree membership still branch-walked, but rendered via the
         # unified contribution table (no separate metameta renderer).
         gsheet.render_contribution.assert_awaited_once_with(
-            metameta, 5, branch_solved, evidence=[])
+            metameta, 5, branch_members, evidence=[])
         gsheet.add_metametapuzzle_data.assert_not_awaited()
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
