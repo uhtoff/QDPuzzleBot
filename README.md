@@ -1,13 +1,26 @@
-# Discord Bot for Sloopertroup
-This is a fork of a [bot originally by Ladder Dogs](https://github.com/azjps/ladder_dogs_discord_bot)
+# QDPuzzleBot — Discord Puzzle Hunt Manager
 
-Simple discord bot which manages puzzle channels for puzzle hunts via discord commands, used by a small-to-medium sized team.
+The Discord puzzle-hunt manager used by the **Quarantine Decrypters** team. It creates and
+organises puzzle channels, tracks puzzle/round/meta status, and (optionally) wires each puzzle
+up to a Google Sheet and a web dashboard.
 
-This was initially created from [`cookiecutter-discord.py-postgres`](https://github.com/makupi/cookiecutter-discord.py-postgres). It is built on [discord.py](https://discordpy.readthedocs.io/) and uses [`google-api-python-client`](https://github.com/googleapis/google-api-python-client) for (optional) Google Sheets integration.
+It is a fork of a [bot originally by Ladder Dogs](https://github.com/azjps/ladder_dogs_discord_bot),
+which itself started from [`cookiecutter-discord.py-postgres`](https://github.com/makupi/cookiecutter-discord.py-postgres).
+It is built on [discord.py](https://discordpy.readthedocs.io/) and uses
+[`google-api-python-client`](https://github.com/googleapis/google-api-python-client) for the
+(optional) Google Sheets integration.
 
-**Storage:** puzzle/round/hunt metadata lives in a **MySQL** database (configured via `storage: "mysql"` and the `mysql_username` / `mysql_password` / `database` keys in `config.json`). The original JSON-file / Postgres storage described in earlier versions of this README is no longer used.
+**Storage:** puzzle/round/hunt metadata lives in a **MySQL/MariaDB** database (configured via
+`storage: "mysql"` and the `mysql_username` / `mysql_password` / `database` keys in `config.json`).
+The original JSON-file / Postgres storage described in earlier versions of this README is no longer
+used. Schema is managed by ordered migrations under [`migrations/`](migrations/) (see
+[Database setup](#database-setup)).
 
-**Dashboard (optional):** a React + [Mantine](https://mantine.dev/) single-page app (`frontend/`) talks to an embedded [Quart](https://quart.palletsprojects.com/) API (`bot/web/`) to provide a read/write web view of the board with Discord-OAuth login. It is off by default; enable it under the `web` key in `config.json`.
+**Dashboard (optional):** a React + [Mantine](https://mantine.dev/) single-page app (`frontend/`)
+talks to an embedded [Quart](https://quart.palletsprojects.com/) API (`bot/web/`) to provide a
+read/write web view of the board with Discord-OAuth login. It is off by default; enable it under
+the `web` key in `config.json`. See [Deploying on a Linux server](#deploying-on-a-linux-server)
+for a full production walkthrough.
 
 # Usage
 
@@ -168,6 +181,299 @@ pipenv shell
 python run.py
 ```
 The environment variable `$LADDER_SPOT_DATA_DIR` can be used to control the directory where guild settings and puzzle data are stored.
+
+# Deploying on a Linux server
+
+This section is a complete walkthrough for standing the bot up on a Linux host, including the
+optional web dashboard and **getting Discord OAuth working**. For the dashboard the authoritative,
+deeper reference (serving model, nginx WebSocket details, the live test-site topology) is
+[`docs/dashboard.md`](docs/dashboard.md); this README gives the end-to-end happy path.
+
+## 1. Host prerequisites
+
+Install the system packages. **Debian/Ubuntu:**
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-pip mariadb-server nginx
+pip3 install --user pipenv          # or: sudo apt install pipenv
+sudo apt install -y nodejs npm      # dashboard only: Node.js 18+ to build the SPA
+```
+
+**AlmaLinux / RHEL-family** (`dnf`):
+
+```bash
+sudo dnf install -y git python3 python3-pip mariadb-server nginx
+pip3 install --user pipenv
+sudo dnf module install -y nodejs:20   # dashboard only: Node.js 18+ to build the SPA
+sudo systemctl enable --now mariadb
+```
+
+> **On a Plesk-managed AlmaLinux host**, MariaDB and nginx are **already installed and managed by
+> Plesk** — don't install or hand-configure them. You only need **Python 3 + pipenv** and (for the
+> dashboard) **Node.js**. Create the bot's database through the Plesk **Databases** UI (step 3) and
+> set up the reverse proxy + TLS through Plesk (step 7), not by editing `/etc/nginx` directly.
+> Node.js can come from `dnf` as above or from Plesk's **Node.js** extension.
+
+For the optional dashboard you need **Node.js 18+** to build the SPA (installed above); if your
+distro ships an older Node, use [nodesource](https://github.com/nodesource/distributions).
+
+Clone the repo to wherever the service will live. On Plesk, a tidy choice is under the subscription
+that will host the dashboard subdomain (e.g. `/var/www/vhosts/<domain>/puzzbot`), or any dedicated
+service user's home:
+
+```bash
+git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot puzzbot
+cd puzzbot
+```
+
+## 2. Create the Discord application & bot
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) → **New
+   Application** (or open an existing one).
+2. **Bot** tab → *Add Bot*. Copy the **token** → this becomes `discord_bot_token` in `config.json`.
+3. **Privileged Gateway Intents** — the bot runs with `discord.Intents.all()`, so enable **all
+   three**: *Presence*, *Server Members*, and *Message Content*. (Server Members is required for
+   the dashboard's role-based hunt visibility; Message Content for the `!` bang commands.)
+4. **OAuth2 → URL Generator** to invite the bot: select the `bot` scope and the permissions it
+   needs (Manage Channels, Manage Roles, Send Messages, Read Message History, Manage Messages,
+   and — if you use voice channels — Connect/Move Members). Open the generated URL and add the bot
+   to your server.
+
+## 3. Database
+
+Follow [Database setup](#database-setup) above: create the database + user, put the credentials in
+`config.json`, and run `python migrate.py` to apply every migration. Do this **before** first
+starting the bot.
+
+> **On Plesk:** create the database and user in **Websites & Domains → Databases → Add Database**
+> (pick MySQL/MariaDB, set a user + password) instead of the `CREATE DATABASE`/`CREATE USER` SQL.
+> Put the Plesk-generated database name, user and password into `config.json`. Plesk's DB user
+> connects over `localhost`, which is what the bot uses. Then still run `python migrate.py` from the
+> repo to apply the schema migrations.
+
+## 4. (Dashboard) set up Discord OAuth
+
+The dashboard logs users in with Discord OAuth using only the `identify` scope — it tells the site
+*who* the user is, then the running bot looks up that user's guild membership and team roles from
+its own cache (so the bot must be in the guild with the Server Members intent on). Skip this whole
+step if you are not enabling the dashboard.
+
+1. In the Developer Portal → your application → **OAuth2** → **Redirects**, add the callback URL:
+   ```
+   https://<your-dashboard-hostname>/api/auth/callback
+   ```
+   The redirect **must be HTTPS** (Discord rejects non-HTTPS, except `http://localhost` for local
+   dev). It may be an internal hostname with an internal/self-signed cert — Discord only redirects
+   the user's browser, it never connects to your server, so it never validates the cert.
+2. Copy the **Client ID** and **Client Secret** from the OAuth2 page → these become
+   `oauth_client_id` / `oauth_client_secret` in the `web` block.
+3. Point `oauth_redirect_uri` (config) at the *exact* same URL you registered, and `frontend_url`
+   at the dashboard's base URL. The cert `server_name`, the registered redirect, and these config
+   values must all use the **same hostname**.
+
+## 5. Configure `config.json`
+
+Copy the template and fill it in (see [`config.json.dist`](config.json.dist)):
+
+```bash
+cp config.json.dist config.json
+```
+
+A full dashboard-enabled config looks like:
+
+```jsonc
+{
+  "discord_bot_token": "<bot token from step 2>",
+  "prefix": "!",
+  "storage": "mysql",
+  "database": "puzzlebot",
+  "mysql_username": "puzzlebot",
+  "mysql_password": "<db password>",
+  "web": {
+    "enabled": true,
+    "host": "0.0.0.0",          // 0.0.0.0 if the reverse proxy is on another box; 127.0.0.1 if same-box
+    "port": 8099,
+    "session_secret": "<a long random string>",
+    "oauth_client_id": "<from step 4>",
+    "oauth_client_secret": "<from step 4>",
+    "oauth_redirect_uri": "https://your-host/api/auth/callback",
+    "frontend_url": "https://your-host"
+  }
+}
+```
+
+If you use Google Sheets, also drop the service-account key in `google_secrets.json` (see
+[Setup](#setup)).
+
+## 6. Build the dashboard & start the bot
+
+`./start.sh` builds the SPA (`frontend/dist`) and then starts the bot, which serves both the API
+and the built SPA from one process on `web.port`. A failed frontend build is non-fatal — the bot
+still starts and serves the previous build:
+
+```bash
+pipenv install                  # production deps
+./start.sh                      # foreground; builds frontend then runs the bot
+# Background:   nohup ./start.sh > bot.log 2>&1 &
+# Restart:      ./start.sh --restart
+```
+
+### Running it as a systemd service
+
+For an unattended deployment, prefer a unit over `nohup`. Create
+`/etc/systemd/system/puzzbot.service` (adjust `User` and `WorkingDirectory`):
+
+```ini
+[Unit]
+Description=QDPuzzleBot Discord puzzle-hunt manager
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=puzzbot
+WorkingDirectory=/home/puzzbot/puzzbot
+ExecStart=/home/puzzbot/puzzbot/start.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now puzzbot
+sudo journalctl -u puzzbot -f      # follow logs
+```
+
+## 7. (Dashboard) reverse proxy with nginx + TLS
+
+Quart serves the API and the SPA under one origin, so there is **one upstream and no CORS** — just
+proxy your HTTPS hostname to the bot's `:8099`, including the WebSocket upgrade for the live
+activity feed. Terminate TLS at nginx (Let's Encrypt for a public name, or an internal CA for an
+internal one).
+
+Define the WebSocket upgrade map once, globally:
+
+```nginx
+# /etc/nginx/conf.d/websocket_upgrade.conf
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+```
+
+Then the site (e.g. `/etc/nginx/sites-available/puzzbot`, symlinked into `sites-enabled`):
+
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name your-host;
+
+    ssl_certificate     /etc/letsencrypt/live/your-host/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-host/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8099;   # or the bot box's LAN address:8099
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # The activity WebSocket is idle between messages; the 60s default would
+        # cut it every minute (the SPA reconnects, but this avoids the churn).
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+
+# Optional: redirect plain HTTP to HTTPS
+server {
+    listen 80;
+    server_name your-host;
+    return 301 https://$host$request_uri;
+}
+```
+
+Validate and reload:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+If the bot and nginx are on **different boxes**, set `web.host` to `0.0.0.0`, point `proxy_pass`
+at the bot box's LAN address, and allow `nginx-box → tcp/8099` on the LAN firewall (keep `8099`
+off any external port-forward).
+
+**AlmaLinux / RHEL-family — SELinux.** With SELinux enforcing, nginx is **blocked from making the
+outbound proxy connection** by default and you'll get `502` + an `AVC denied` audit log. Allow it:
+
+```bash
+sudo setsebool -P httpd_can_network_connect 1
+```
+
+### Plesk-managed hosts
+
+Don't hand-edit vhosts on a Plesk box — Plesk owns the nginx config and will overwrite them. Instead:
+
+1. **Create a subdomain** for the dashboard in **Websites & Domains** (e.g.
+   `puzzweb.your-domain.com`). Point `oauth_redirect_uri` / `frontend_url` / the Discord redirect
+   at this hostname.
+2. **Issue TLS** with the **SSL It!** extension (Let's Encrypt) for that subdomain — Plesk handles
+   renewal.
+3. **Turn the docroot into a pure proxy.** Under the subdomain → **Apache & nginx Settings**:
+   - tick **Proxy mode** off-loaded to nginx as needed, and **untick "Smart static files
+     processing"** so nginx doesn't try to serve files from the docroot (Quart serves the SPA).
+   - In **Additional nginx directives**, add the proxy (Plesk drops these into the `server{}` block,
+     so reference a map defined globally — see note):
+     ```nginx
+     location / {
+         proxy_pass http://127.0.0.1:8099;
+         proxy_http_version 1.1;
+
+         proxy_set_header Host              $host;
+         proxy_set_header X-Real-IP         $remote_addr;
+         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+         proxy_set_header X-Forwarded-Proto $scheme;
+
+         proxy_set_header Upgrade    $http_upgrade;
+         proxy_set_header Connection $puzzbot_conn_upgrade;
+
+         proxy_read_timeout 3600s;
+         proxy_send_timeout 3600s;
+     }
+     ```
+4. **Define the WebSocket upgrade map once, globally** (the `map` directive is only valid in
+   `http{}` context, which Plesk's per-domain box is not). Plesk includes `/etc/nginx/conf.d/*.conf`
+   in its `http{}`, so add a file there with a uniquely-named variable to avoid clashing with any
+   Plesk-provided map:
+   ```nginx
+   # /etc/nginx/conf.d/puzzbot_ws.conf
+   map $http_upgrade $puzzbot_conn_upgrade { default upgrade; '' close; }
+   ```
+   Then `sudo nginx -t && sudo systemctl reload nginx`. (Plesk also regenerates config on
+   subscription changes; this `conf.d` file is global and survives that.)
+5. **SELinux** still applies — run the `httpd_can_network_connect` boolean above so Plesk's nginx
+   can reach `127.0.0.1:8099`.
+
+Keep the bot's `web.host` at `127.0.0.1` (same-box) so `:8099` is never exposed directly — only
+Plesk's nginx reaches it.
+
+## 8. Verify
+
+- Bot logs in to Discord and responds to `!help` in the server.
+- Browse to `https://your-host/`, click login → you are bounced to Discord, authorise, and land
+  back on the board.
+- The puzzle list and live activity feed populate (an active hunt is visible to holders of its
+  team role; see [`docs/dashboard.md`](docs/dashboard.md) for the visibility model).
 
 ## Tests
 
