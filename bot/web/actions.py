@@ -677,7 +677,10 @@ async def create_hunt():
     if channel is not None:
         try:
             from bot.store import GuildSettingsDb
-            guild_data = GuildSettingsDb.get_cached(int(guild_snowflake))
+            # Read fresh (not get_cached): get_cached memoises a None miss, so a
+            # guild settings row backfilled after the first lookup would stay
+            # invisible until restart, leaving the Overview link unresolved.
+            guild_data = GuildSettingsDb.get(int(guild_snowflake))
             msg = await cog.send_initial_hunt_channel_messages(
                 None, channel, hunt=new_hunt, guild_data=guild_data,
             )

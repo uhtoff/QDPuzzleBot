@@ -26,3 +26,13 @@ def test_strips_trailing_slash_on_website_url():
 
 def test_falls_back_to_numeric_id_when_no_uid():
     assert _url("https://puzz.example.com", uid="", hid=42) == "https://puzz.example.com/hunts/42"
+
+
+def test_no_guild_data_does_not_raise():
+    """Edge callers (ctx=None) may have no guild settings (e.g. a backfilled row
+    not yet cached). _overview_url must degrade to a relative path instead of
+    raising AttributeError, which would silently kill the whole welcome embed."""
+    cog = Puzzles.__new__(Puzzles)
+    cog.environment = {}
+    hunt = SimpleNamespace(uid="ABC123", id=0)
+    assert cog._overview_url(ctx=None, hunt=hunt, guild_data=None) == "/hunts/ABC123"

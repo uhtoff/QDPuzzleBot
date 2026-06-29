@@ -159,11 +159,15 @@ class DiscordNotifier(Notifier):
                 if puzzle.is_target
                 else cog.send_initial_puzzle_channel_messages
             )
+            from bot.store import GuildSettingsDb
             kwargs = {
                 "hunt": hunt,
                 "tag_group": tag_group,
                 "puzzle": puzzle,
                 "update": True,
+                # ctx is None on this path, so supply guild settings explicitly
+                # (needed by _overview_url) — matching the welcome() handler above.
+                "guild_data": GuildSettingsDb.get(guild.id),
             }
             await handler(None, channel, **kwargs)
         except Exception:
