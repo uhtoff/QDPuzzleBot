@@ -12,18 +12,23 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 # Guard against double-starting: a second instance fights over the Discord token
 # and the web port (8099), and is the usual cause of "can't kill the bot".
-existing=$(pgrep -f "python run.py" || true)
+#
+# Scope the search to the current user (-u). On a shared/split host (e.g. Plesk)
+# another user may run their own bot — a different bot ID, token and port — and a
+# system-wide match would wrongly block us from starting our own instance.
+me=$(id -u)
+existing=$(pgrep -u "$me" -f "python run.py" || true)
 if [ -n "$existing" ]; then
   if [ "${1:-}" = "--restart" ]; then
     echo "[start] Stopping existing bot (PIDs: $existing)..."
     kill $existing 2>/dev/null || true
     for _ in $(seq 1 10); do
-      pgrep -f "python run.py" >/dev/null || break
+      pgrep -u "$me" -f "python run.py" >/dev/null || break
       sleep 1
     done
-    if pgrep -f "python run.py" >/dev/null; then
+    if pgrep -u "$me" -f "python run.py" >/dev/null; then
       echo "[start] Still running; forcing with SIGKILL..."
-      pkill -9 -f "python run.py" || true
+      pkill -9 -u "$me" -f "python run.py" || true
       sleep 1
     fi
   else
