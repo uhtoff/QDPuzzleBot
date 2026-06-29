@@ -37,6 +37,7 @@ import {
   useDeletePuzzle,
   useMakeMinimeta,
   useRetagPuzzle,
+  type EdgeType,
   type RetagMode,
 } from "../api";
 import { notifyError, showSheetWarning, statusColor } from "../util";
@@ -55,7 +56,7 @@ interface CardProps {
   columnGroupCode: string | null;
   columnName: string;
   metas: MetaOption[];
-  onRetag: (puzzleId: number, groupCode: string, mode: RetagMode) => void;
+  onRetag: (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => void;
   onConvertToFeeder: (puzzle: Puzzle) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
@@ -85,8 +86,9 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   const ownTarget = puzzle.rounds.find((r) => r.is_target_of) ?? null;
   const ownTargetCode = ownTarget?.group_code ?? null;
   const selfFeeds = ownTarget?.edges.includes("feeds") ?? false;
+  const selfInforms = ownTarget?.edges.includes("informs") ?? false;
   const addable = metas.filter(
-    (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && !selfFeeds),
+    (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && (!selfFeeds || !selfInforms)),
   );
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
@@ -151,11 +153,26 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             {addable.length === 0 ? (
               <Menu.Item disabled>Already in all groups</Menu.Item>
             ) : (
-              addable.map((m) => (
-                <Menu.Item key={m.code} onClick={() => onRetag(puzzle.id, m.code, "add")}>
-                  {m.code === ownTargetCode ? `${m.name} (feed itself)` : m.name}
-                </Menu.Item>
-              ))
+              addable.map((m) =>
+                m.code === ownTargetCode ? (
+                  <>
+                    {!selfFeeds && (
+                      <Menu.Item key={`${m.code}-feeds`} onClick={() => onRetag(puzzle.id, m.code, "add", "feeds")}>
+                        {m.name} (feeds itself)
+                      </Menu.Item>
+                    )}
+                    {!selfInforms && (
+                      <Menu.Item key={`${m.code}-informs`} onClick={() => onRetag(puzzle.id, m.code, "add", "informs")}>
+                        {m.name} (informs itself)
+                      </Menu.Item>
+                    )}
+                  </>
+                ) : (
+                  <Menu.Item key={m.code} onClick={() => onRetag(puzzle.id, m.code, "add")}>
+                    {m.name}
+                  </Menu.Item>
+                )
+              )
             )}
             {canRemove && (
               <>
@@ -379,10 +396,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     .filter((g) => g.group_code != null)
     .map((g) => ({ code: g.group_code as string, name: g.name }));
 
-  const runRetag = (puzzleId: number, groupCode: string, mode: RetagMode) => {
+  const runRetag = (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => {
     setPendingIds((s) => new Set(s).add(puzzleId));
     retag.mutate(
-      { puzzleId, metaCode: groupCode, mode },
+      { puzzleId, metaCode: groupCode, mode, edge },
       {
         onSuccess: (data) => {
           showSheetWarning(data);
