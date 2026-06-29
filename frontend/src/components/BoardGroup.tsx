@@ -223,7 +223,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                       </Table.Td>
                       <Table.Td>
                         <Group gap={6} wrap="nowrap">
-                          <MetaBadge puzzle={p} />
                           <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                         </Group>
                         <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
