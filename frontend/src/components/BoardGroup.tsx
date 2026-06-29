@@ -34,7 +34,7 @@ import { MetaBadge } from "./MetaBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { notifyError, relativeTime, statusColor } from "../util";
+import { notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 
 interface Props {
   group: BoardGroupType;
@@ -194,7 +194,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
       <Accordion.Panel>
         <Table>
           <Table.Tbody>
-            {group.puzzles.map((p) => (
+            {sortPuzzles(group.puzzles, group.group_code).map((p) => (
               <Fragment key={`${group.tag_group_id}-${p.id}`}>
               <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                 <Table.Td w={110}>

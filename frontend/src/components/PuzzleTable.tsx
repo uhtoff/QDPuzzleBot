@@ -19,7 +19,7 @@ import { MetaBadge } from "./MetaBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { answerLength, priorityColor, relativeTime, statusColor } from "../util";
+import { answerLength, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
 import { useUnsolveConfirm } from "./useUnsolveConfirm";
 
 interface Props {
@@ -187,7 +187,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return puzzles.filter((p) => {
+    const result = puzzles.filter((p) => {
       if (hideSolved && p.solved) return false;
       if (statuses.length && !statuses.includes(p.status || "")) return false;
       if (priorities.length && !priorities.includes(p.priority || "")) return false;
@@ -198,6 +198,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
       }
       return true;
     });
+    return sortPuzzles(result);
   }, [puzzles, search, statuses, priorities, types, hideSolved]);
 
   function activityFor(p: Puzzle): string {
