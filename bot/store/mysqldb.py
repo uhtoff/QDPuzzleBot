@@ -760,3 +760,7 @@ class MySQLGuildSettingsDb():
             settings.id = cursor.lastrowid
         cursor.close()
         self.mydb.commit()
+        # Keep the read cache coherent: a prior get_cached() may have cached a
+        # None (no row yet) or a stale copy, which would otherwise shadow this
+        # freshly-written row until process restart.
+        self.cached_settings[settings.guild_id] = settings
