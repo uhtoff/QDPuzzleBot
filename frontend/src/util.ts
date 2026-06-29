@@ -1,4 +1,5 @@
 import { notifications } from "@mantine/notifications";
+import type { Puzzle } from "./types";
 
 export function notifyError(e: unknown): void {
   const message = e instanceof Error ? e.message : String(e);
@@ -61,4 +62,38 @@ export function statusColor(status: string | null): string {
   if (s.includes("progress") || s.includes("working")) return "yellow";
   if (s.includes("unstarted")) return "gray";
   return "blue";
+}
+
+const PRIORITY_RANK: Record<string, number> = { high: 0, low: 2 };
+const META_KIND_RANK: Record<string, number> = {
+  runaround: 0,
+  metameta: 1,
+  meta: 2,
+  capstone: 3,
+};
+
+function priorityRank(p: Puzzle): number {
+  if (!p.priority) return 3;
+  return PRIORITY_RANK[p.priority.toLowerCase()] ?? 1;
+}
+
+function metaKindRank(p: Puzzle): number {
+  if (!p.meta_kind) return 4;
+  return META_KIND_RANK[p.meta_kind] ?? 4;
+}
+
+export function sortPuzzles(puzzles: Puzzle[], groupCode?: string | null): Puzzle[] {
+  return [...puzzles].sort((a, b) => {
+    if (groupCode != null) {
+      const aT = a.rounds.some((r) => r.group_code === groupCode && r.is_target_of);
+      const bT = b.rounds.some((r) => r.group_code === groupCode && r.is_target_of);
+      if (aT !== bT) return aT ? -1 : 1;
+    }
+    if (a.solved !== b.solved) return a.solved ? 1 : -1;
+    const pd = priorityRank(a) - priorityRank(b);
+    if (pd !== 0) return pd;
+    const md = metaKindRank(a) - metaKindRank(b);
+    if (md !== 0) return md;
+    return a.id - b.id;
+  });
 }
