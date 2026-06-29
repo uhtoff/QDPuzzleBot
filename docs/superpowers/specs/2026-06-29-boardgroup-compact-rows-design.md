@@ -5,12 +5,15 @@
 
 ## Goal
 
-Replace the 6-column puzzle table inside each BoardGroup accordion panel with a compact 3-column layout that works at any viewport width and drops the columns that added width without enough value.
+Make the puzzle rows inside each BoardGroup accordion panel responsive: keep the full 6-column layout on wide viewports (where the real estate is useful), and collapse to a compact 3-column layout on narrow viewports where the current layout breaks.
+
+The kind-coloured left strip is added to **both** layouts.
 
 ## In scope
 
 - `BoardGroup.tsx` — row structure inside `Accordion.Panel`
-- The kind-coloured left strip (new)
+- The kind-coloured left strip (new, both layouts)
+- Responsive switching between wide and compact row layouts
 
 ## Out of scope
 
@@ -19,32 +22,35 @@ Replace the 6-column puzzle table inside each BoardGroup accordion panel with a 
 - `SolveModal`, aggregated answers panel, `MiniPuzzlePanel` expansion row
 - `PuzzleLinks`, `PuzzleRowActions`, `MetaBadge` — reused as-is
 
-## Current layout (6 columns)
+## Wide layout (viewport ≥ sm / 768px) — unchanged columns, strip added
 
-| Links (110px) | Puzzle + MetaBadge | Solution | Status | Activity | Actions (76px) |
+| Strip (4px) | Links (110px) | Puzzle + MetaBadge | Solution | Status | Activity | Actions (76px) |
 
-## New layout (3 columns)
+All existing columns are preserved. The only addition is the 4px kind strip as the first cell.
 
-| Left ~92px | Middle flex | Right ~80px |
-|---|---|---|
-| 3 link icons | Kind strip + title + solution | Solve/unsolve · Notes · Minimeta badge |
+## Compact layout (viewport < sm / 768px) — 3 columns
 
-### Left cell
+| Strip (4px) | Left ~92px | Middle flex | Right ~80px |
+|---|---|---|---|
+| Kind strip | 3 link icons | Title + solution | Solve/unsolve · Notes · Minimeta badge |
 
-`PuzzleLinks` component unchanged — sheet, Discord, puzzle page icon buttons.
-
-### Middle cell
+### Middle cell (compact only)
 
 Two lines:
 
-1. **Title line:** `MetaBadge` (text badge, existing colours) + puzzle name. Bold for meta/capstone kinds.
-2. **Solution line:** monospace solution text in green when solved, dimmed placeholder text when unsolved.
+1. **Title line:** `MetaBadge` text badge + puzzle name (bold for meta kinds).
+2. **Solution line:** monospace solution text, green when solved; dimmed when unsolved.
 
-### Right cell
+### Dropped in compact layout
 
-`PuzzleRowActions` component unchanged — solve ✅ or unsolve ✗ button, notes 📝 button, minimeta count badge (Minimeta puzzles only).
+- **Status** — conveyed by green row background + unsolve button presence
+- **Activity** — dropped to save width
 
-### Kind strip
+### Right cell (compact)
+
+`PuzzleRowActions` unchanged — solve/unsolve button, notes button, minimeta count badge.
+
+## Kind strip (both layouts)
 
 A 4px coloured left border on each `<Table.Tr>`, matching the MetaBadge colour for that puzzle's kind:
 
@@ -56,26 +62,26 @@ A 4px coloured left border on each `<Table.Tr>`, matching the MetaBadge colour f
 | runaround | red | `#c62828` |
 | regular feeder | — | no strip |
 
-The strip is always rendered (all viewport sizes). It is not a responsive variant.
+Implementation: add a zero-padding `<Table.Td>` with fixed `width={4}` and `style={{ backgroundColor: kindColor, padding: 0 }}` as the first cell in every row. `kindColor` is derived from `puzzle.meta_kind` via a lookup matching `MetaBadge`'s colour map. For regular feeders the cell has no background (transparent).
 
-Implementation: add a zero-padding `<Table.Td>` with fixed `width={4}` and `style={{ backgroundColor: kindColor, padding: 0 }}` as the first cell in each row. `kindColor` is derived from `puzzle.meta_kind` via a lookup matching `MetaBadge`'s colour map. For non-meta puzzles the cell has no background.
+## Responsive switching
 
-### Solved state
+Use Mantine's `useMediaQuery` hook with the `sm` breakpoint (`(max-width: 768px)`). When the query matches, render the compact row; otherwise render the wide row. Both share the same `sortPuzzles`, `SolveModal`, and `MiniPuzzlePanel` expansion logic.
 
-The existing `bg={p.solved ? "var(--mantine-color-green-light)" : undefined}` on `<Table.Tr>` is unchanged. The Status column is dropped — solved/unsolved is conveyed by the green row background and the presence of the unsolve button.
+The `MiniPuzzlePanel` expansion row uses `colSpan={99}` in both layouts and is unaffected.
 
-### Dropped columns
+## Solved state
 
-- **Status** — redundant with green row background + unsolve button
-- **Activity** — not worth the column width in this view
+The existing `bg={p.solved ? "var(--mantine-color-green-light)" : undefined}` on `<Table.Tr>` is unchanged in both layouts.
 
 ## Acceptance criteria
 
-- Each puzzle row in a BoardGroup panel has exactly 4 cells: strip · links · title+solution · actions
-- Meta/capstone/metameta/runaround puzzles show a 4px coloured left strip matching their MetaBadge colour
-- Regular feeder puzzles have no strip (transparent/no background on that cell)
-- Solution appears under the title in monospace; green when solved
-- Solved rows retain the green background
-- PuzzleRowActions, PuzzleLinks, MetaBadge are reused without modification
-- MiniPuzzlePanel expansion row (`colSpan={99}`) continues to work
+- Wide viewport (≥768px): all 6 original columns present, plus 4px kind strip as first cell
+- Narrow viewport (<768px): 3-column compact layout (strip · links · title+solution · actions)
+- Meta/capstone/metameta/runaround puzzles show a coloured strip matching their MetaBadge colour in both layouts
+- Regular feeder puzzles have no strip colour in either layout
+- Compact layout: solution appears under the title in monospace; green when solved
+- Solved rows retain the green background in both layouts
+- `PuzzleRowActions`, `PuzzleLinks`, `MetaBadge` reused without modification
+- `MiniPuzzlePanel` expansion row continues to work in both layouts
 - No change to the accordion header or any other component
