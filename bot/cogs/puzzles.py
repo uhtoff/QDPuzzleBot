@@ -2505,7 +2505,8 @@ class Puzzles(commands.Cog):
         """Overview website URL for a hunt (falls back to the numeric id)."""
         if guild_data is None:
             guild_data = self.get_guild_data(ctx)
-        return f"{guild_data.website_url}?uid={hunt.uid or hunt.id}"
+        base = (guild_data.website_url or "").rstrip("/")
+        return f"{base}/hunts/{hunt.uid or hunt.id}"
 
     async def _partial_impl(self, ctx, *args):
         solution = self._normalize_solution(args)
