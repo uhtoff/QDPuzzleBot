@@ -40,7 +40,6 @@ class TagGroupData:
     group_code: str = "0"  # 6-char handle (the DB column is CHAR(6))
     type: str = ""
     status: str = "active"       # active / solved / archived (a tag_group is solved when its target is)
-    parent_group_id: Optional[int] = None  # group-in-group NESTING (dormant; cycle-guarded setter)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
     archive_time: Optional[datetime.datetime] = None
