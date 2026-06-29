@@ -136,3 +136,45 @@ async def test_patch_rejects_target_in_other_hunt(web):
     assert resp.status_code == 400
     assert (await resp.get_json())["error"] == "cross_hunt_target"
     web.edb.set_target.assert_not_called()
+
+
+# --- F3: target contribution rollups stay fresh ------------------------------
+
+@pytest.mark.asyncio
+async def test_note_edit_refreshes_current_target(web):
+    """A note-only edit must refresh the current target's contribution table so
+    the new note text shows there (previously only the Evidence tab refreshed)."""
+    web.item.target_puzzle_id = 42
+
+    resp = await web.client.patch("/api/evidence/5", json={"note": "fresh note"})
+
+    assert resp.status_code == 200
+    web.svc.refresh_target_for_puzzle.assert_any_call(web.hunt_obj, 42)
+
+
+@pytest.mark.asyncio
+async def test_target_change_refreshes_old_and_new(web):
+    """Moving evidence to a new target must refresh BOTH the old target (loses
+    the row) and the new target (gains it)."""
+    web.item.target_puzzle_id = 11  # old target
+    moved = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=22, note="old")
+    web.edb.set_target.return_value = moved
+
+    resp = await web.client.patch("/api/evidence/5", json={"target_puzzle_id": 22})
+
+    assert resp.status_code == 200
+    refreshed = {c.args[1] for c in web.svc.refresh_target_for_puzzle.call_args_list}
+    assert {11, 22} <= refreshed
+
+
+@pytest.mark.asyncio
+async def test_delete_refreshes_old_target_and_unlinks_informs(web):
+    """Deleting routed evidence must refresh the old target and run the same
+    informs cleanup as reassignment (drop auto-added informs when last item gone)."""
+    web.item.target_puzzle_id = 33
+
+    resp = await web.client.delete("/api/evidence/5")
+
+    assert resp.status_code == 200
+    web.svc.refresh_target_for_puzzle.assert_any_call(web.hunt_obj, 33)
+    web.svc.unlink_informs_for_evidence.assert_any_call(web.hunt_obj, 1, 33)

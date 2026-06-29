@@ -1670,7 +1670,8 @@ async def update_evidence(item_id):
     # Apply target reassignment if the key is present (value may be None to clear)
     cog = current_app.bot.get_cog("Puzzles")
     hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
-    if "target_puzzle_id" in body:
+    target_changed = "target_puzzle_id" in body
+    if target_changed:
         old_target = old.target_puzzle_id
         target_puzzle_id = body.get("target_puzzle_id")
         item = EvidenceJsonDb.set_target(item_id, target_puzzle_id) or item
@@ -1681,9 +1682,16 @@ async def update_evidence(item_id):
             if old_target and old_target != item.target_puzzle_id:
                 asyncio.create_task(cog.service.unlink_informs_for_evidence(
                     hunt_obj, item.source_puzzle_id, old_target))
-            asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
+                # The old target loses this contribution row — refresh it too.
+                asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, old_target))
+            if item.target_puzzle_id:
+                asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
 
     if cog is not None and hunt_obj is not None:
+        # A note-only edit must still refresh the current target so the edited
+        # text shows in its contribution table (target unchanged here).
+        if not target_changed and item.target_puzzle_id:
+            asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
 
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
@@ -1711,6 +1719,13 @@ async def delete_evidence(item_id):
 
     cog = current_app.bot.get_cog("Puzzles")
     if cog is not None:
+        if old.target_puzzle_id:
+            # Mirror the reassignment cleanup: drop the auto-added informs edge if
+            # no routed evidence remains, and refresh the (old) target's table.
+            asyncio.create_task(cog.service.unlink_informs_for_evidence(
+                hunt_obj, old.source_puzzle_id, old.target_puzzle_id))
+            asyncio.create_task(cog.service.refresh_target_for_puzzle(
+                hunt_obj, old.target_puzzle_id))
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
 
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
