@@ -774,6 +774,17 @@ class TestWebDeletePuzzle:
         deletes = await self._run(cog, hunt, puz)
         assert ("puzzle", 7) in deletes
 
+    @pytest.mark.asyncio
+    async def test_rejects_target_puzzle_deletion(self, cog, hunt):
+        """A target puzzle (meta/capstone/runaround) must not be deletable as an
+        ordinary puzzle — it would orphan its tag_group.target_puzzle_id. The
+        service guard is the shared seam for both the web route and !delete_puzzle.
+        """
+        rnd = make_round(id=5, target_puzzle_id=7)
+        puz = make_puzzle(id=7, is_target=True, tags=[5])
+        with pytest.raises(ValueError):
+            await self._run(cog, hunt, puz, meta_rounds=[rnd])
+
 
 # ---------------------------------------------------------------------------
 # PuzzleService.delete_round — DB + Discord state mutations

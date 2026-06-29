@@ -345,7 +345,9 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
             Add note
           </Button>
 
-          {editable && canManage && (
+          {/* Target puzzles (meta/capstone/runaround) can't be deleted directly —
+              it would orphan the owning tag group. The server rejects it too. */}
+          {editable && canManage && !puzzle.rounds.some((r) => r.is_target_of) && (
             <>
               <Divider />
               <Button

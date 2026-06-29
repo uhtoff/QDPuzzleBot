@@ -2916,6 +2916,9 @@ class Puzzles(commands.Cog):
             await self.service.delete_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
             await hunt_general_channel.send(
                 f":white_check_mark: Puzzle {puzzle.name} successfully deleted and sheet cleaned up.")
+        except ValueError as exc:
+            # Target puzzles can't be deleted directly (would orphan the tag group).
+            await ctx.send(f":x: {exc}")
         except SheetRefreshError as exc:
             await hunt_general_channel.send(f":warning: Puzzle {puzzle.name} deleted. {exc}")
         except Exception:

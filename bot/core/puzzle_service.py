@@ -1154,7 +1154,14 @@ class PuzzleService:
         Guild may be None (skips channel deletion).
         Raises SheetRefreshError if a parent meta refresh fails (deletion already committed
         and channel already deleted). The bang edge should send warnings to the hunt
-        general channel rather than ctx.send after calling this."""
+        general channel rather than ctx.send after calling this.
+        Raises ValueError if the puzzle is a target (meta/capstone/runaround): deleting
+        it as an ordinary puzzle would orphan its tag_group.target_puzzle_id."""
+        if puzzle.is_target:
+            raise ValueError(
+                "cannot delete a target puzzle; delete its tag group or "
+                "demote the target first"
+            )
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.delete_puzzle_spreadsheet(puzzle)

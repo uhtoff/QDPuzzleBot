@@ -1178,6 +1178,10 @@ async def delete_puzzle(puzzle_id):
         warning = None
         try:
             await cog.service.delete_puzzle(guild, hunt_obj, puzzle)
+        except ValueError:
+            # Target puzzles cannot be deleted as ordinary puzzles (would orphan
+            # the owning tag_group's target_puzzle_id).
+            return jsonify({"error": "cannot_delete_target"}), 400
         except SheetRefreshError as exc:
             warning = str(exc)
         except (discord.RateLimited, discord.HTTPException) as exc:
