@@ -2,7 +2,8 @@ import { useState } from "react";
 import { ActionIcon, Badge, Box, Button, Group, Stack, Text, TextInput, Tooltip } from "@mantine/core";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import type { MiniPuzzle } from "../types";
-import { useCreateMini, useSolvePuzzle, useUnsolvePuzzle } from "../api";
+import { useCreateMini, useSolvePuzzle } from "../api";
+import { useUnsolveConfirm } from "./useUnsolveConfirm";
 
 interface Props {
   parentId: number;
@@ -15,7 +16,7 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
   const [solveInputs, setSolveInputs] = useState<Record<number, string>>({});
   const createMini = useCreateMini(uid);
   const solvePuzzle = useSolvePuzzle(uid);
-  const unsolvePuzzle = useUnsolvePuzzle(uid);
+  const { request: requestUnsolve, modal: unsolveModal } = useUnsolveConfirm(uid);
 
   function setSolveInput(id: number, val: string) {
     setSolveInputs((prev) => ({ ...prev, [id]: val }));
@@ -39,8 +40,7 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
                     size="sm"
                     variant="subtle"
                     color="red"
-                    onClick={() => unsolvePuzzle.mutate({ puzzleId: mini.id })}
-                    loading={unsolvePuzzle.isPending}
+                    onClick={() => requestUnsolve({ id: mini.id, name: mini.name })}
                   >
                     <IconX size={14} />
                   </ActionIcon>
@@ -107,6 +107,7 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
           </Button>
         </Group>
       </Stack>
+      {unsolveModal}
     </Box>
   );
 }

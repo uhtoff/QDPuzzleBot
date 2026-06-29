@@ -1627,11 +1627,13 @@ async def unsolve_puzzle(puzzle_id):
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
+        # Capture before service.unsolve clears it, for the channel message.
+        prev_solution = puzzle.solution
         try:
             await cog.service.unsolve(guild, hunt_obj, puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
-        await cog.web_post_unsolved(guild, hunt_obj, puzzle)
+        await cog.web_post_unsolved(guild, hunt_obj, puzzle, prev_solution)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
 

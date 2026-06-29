@@ -821,16 +821,35 @@ class Puzzles(commands.Cog):
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
-    async def web_post_unsolved(self, guild, hunt, puzzle):
-        """Best-effort: move a just-unsolved channel back to an unsolved category
-        (split state) or above the divider (single state). Never raises."""
+    async def web_post_unsolved(self, guild, hunt, puzzle, prev_solution=""):
+        """Best-effort dashboard-side presentation after service.unsolve: post the
+        UNSOLVED embed in the puzzle channel, move it back to an unsolved category
+        (split state) or above the divider (single state), and refresh the pinned
+        info. Never raises. Mirrors web_post_solved_embed (and the bang !unsolve
+        channel message), since service.unsolve has already cleared the solution
+        the caller passes prev_solution for the message."""
+        # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
+        # is a thread snowflake, also resolves — otherwise the embed is skipped for minis.
         channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
-        if channel is None or isinstance(channel, discord.Thread) or channel.category is None:
-            return
-        try:
-            await self._apply_unsolved_move(guild, channel)
-        except Exception:
-            logger.exception("web_post_unsolved: failed to reposition channel")
+        if channel is not None:
+            guild_data = GuildSettingsDb.get(guild.id)
+            emoji = guild_data.discord_bot_emoji if guild_data else ""
+            solution_txt = f" `{prev_solution}`" if prev_solution else ""
+            embed = discord.Embed(
+                title="PUZZLE UNSOLVED",
+                description=f"{emoji} I've unmarked{solution_txt} as the solution. You'll get 'em next time!",
+            )
+            embed.add_field(name="Follow-up", value="Unsolved from the dashboard. Restoring the sheets…")
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                logger.exception("web_post_unsolved: failed to post unsolved message")
+        if channel is not None and not isinstance(channel, discord.Thread) and channel.category is not None:
+            try:
+                await self._apply_unsolved_move(guild, channel)
+            except Exception:
+                logger.exception("web_post_unsolved: failed to reposition channel")
+        await self.web_refresh_info(guild, hunt, puzzle)
 
     def _tag_group_for_channel(self, channel):
         """Resolve the tag_group owning a channel's category — primary category
