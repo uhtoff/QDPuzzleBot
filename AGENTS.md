@@ -5,6 +5,10 @@ rules still apply (see your global `CLAUDE.md` / `AGENTS.md`); this file adds th
 project specifics and pins the commands/seams. When the two conflict, the user's
 explicit instructions win, then this file, then global defaults.
 
+## Integration branch
+
+Integration branch: `staging` (not `main` — main is intentionally behind).
+
 ## What this is
 
 A Discord puzzle-hunt manager: **Python / discord.py 2.7.1 + MySQL + Google Sheets**,
