@@ -48,4 +48,17 @@ if [ -d frontend ]; then
 fi
 
 echo "[start] Starting bot..."
-exec pipenv run python run.py
+# systemd runs with a minimal PATH that omits user-local bins, so a `pip --user`
+# / pipx pipenv (typically ~/.local/bin) isn't found even though it works in an
+# interactive login shell. Make sure those dirs are on PATH before locating it,
+# and fall back to `python3 -m pipenv` (works when pipenv is installed as a module).
+export PATH="${HOME:-/root}/.local/bin:/usr/local/bin:$PATH"
+if command -v pipenv >/dev/null 2>&1; then
+  exec pipenv run python run.py
+elif python3 -m pipenv --version >/dev/null 2>&1; then
+  exec python3 -m pipenv run python run.py
+else
+  echo "[start] ERROR: pipenv not found on PATH ($PATH) and 'python3 -m pipenv' unavailable." >&2
+  echo "[start] Install it (pip3 install --user pipenv) or set PATH in the systemd unit." >&2
+  exit 127
+fi
