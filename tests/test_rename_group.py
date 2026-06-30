@@ -67,3 +67,69 @@ def test_plan_split_round_renames_all_categories():
     assert (unsolved, "new-round") in plan
     assert (solved, "new-round — solved") in plan
     assert len(plan) == 2
+
+
+from unittest.mock import AsyncMock, patch
+
+from tests.conftest import make_cog, make_ctx, make_hunt, make_puzzle
+
+
+def _rename_cog(channel_type, tag_group, puzzle=None):
+    from bot.cogs.puzzles import Puzzles
+    cog = make_cog()
+    cog.get_channel_type = lambda ctx: channel_type
+    cog.get_tag_group = lambda ctx: tag_group
+    cog.get_puzzle = lambda ctx: puzzle
+    cog.get_hunt = lambda ctx: make_hunt()
+    cog.service.rename_group = AsyncMock()
+    return cog, Puzzles
+
+
+@pytest.mark.asyncio
+async def test_rename_group_from_target_puzzle_channel():
+    grp = make_round(id=7, name="Old", target_puzzle_id=70)
+    puz = make_puzzle(id=70)
+    cog, Puzzles = _rename_cog("Metapuzzle", grp, puz)
+    ctx = make_ctx()
+    ctx.channel.send = AsyncMock()  # success path awaits ctx.channel.send
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
+        rdb.check_duplicates_in_hunt.return_value = False
+        await Puzzles.rename_group.callback(cog, ctx, group_name="New Name")
+    cog.service.rename_group.assert_awaited_once()
+    assert cog.service.rename_group.await_args.args[3] == "New Name"
+
+
+@pytest.mark.asyncio
+async def test_rename_group_from_regular_group_channel():
+    grp = make_round(id=8, name="Old", target_puzzle_id=0)
+    cog, Puzzles = _rename_cog("Group", grp, None)
+    ctx = make_ctx()
+    ctx.channel.send = AsyncMock()  # success path awaits ctx.channel.send
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
+        rdb.check_duplicates_in_hunt.return_value = False
+        await Puzzles.rename_group.callback(cog, ctx, group_name="New Name")
+    cog.service.rename_group.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rename_group_rejects_non_group_channel():
+    grp = make_round(id=9, name="Old", target_puzzle_id=70)
+    puz = make_puzzle(id=99)  # not the target
+    cog, Puzzles = _rename_cog("Puzzle", grp, puz)
+    ctx = make_ctx()
+    await Puzzles.rename_group.callback(cog, ctx, group_name="New Name")
+    cog.service.rename_group.assert_not_awaited()
+    assert ctx.send.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rename_group_rejects_duplicate_name():
+    grp = make_round(id=10, name="Old", target_puzzle_id=70)
+    puz = make_puzzle(id=70)
+    cog, Puzzles = _rename_cog("Metapuzzle", grp, puz)
+    ctx = make_ctx()
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
+        rdb.check_duplicates_in_hunt.return_value = True
+        await Puzzles.rename_group.callback(cog, ctx, group_name="Dupe")
+    cog.service.rename_group.assert_not_awaited()
+    assert ctx.send.await_count == 1

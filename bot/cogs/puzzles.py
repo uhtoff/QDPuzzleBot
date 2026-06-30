@@ -340,6 +340,23 @@ class Puzzles(commands.Cog):
     def set_puzzle(self, ctx, puzzle):
         self.environment[ctx.message.id]['puzzle'] = puzzle
 
+    def _resolve_group_for_rename(self, ctx):
+        """Resolve the group to rename from the current channel, or None.
+
+        Two valid contexts: a regular group's main text channel (channel_type
+        'Group'), or a group's TARGET puzzle channel (the resolved tag_group's
+        target_puzzle_id matches the current puzzle). Feeder/other channels -> None.
+        """
+        tag_group = self.get_tag_group(ctx)
+        if tag_group is None:
+            return None
+        if self.get_channel_type(ctx) == "Group":
+            return tag_group
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is not None and tag_group.target_puzzle_id == puzzle.id:
+            return tag_group
+        return None
+
     def get_guild(self, ctx):
         if ctx is None:
             return None
@@ -2316,6 +2333,32 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":white_check_mark: I've updated the puzzle and channel names")
         else:
             await self.send_not_puzzle_channel(ctx)
+
+    @commands.hybrid_command(aliases=["rename_round", "rename_metapuzzle"],
+                             description="Rename this group, its category and channel")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    async def rename_group(self, ctx, *, group_name: str):
+        """*Rename this group and its Discord category/channel.*
+
+        Usage: `!rename_group new name`
+        Example: `!rename_group the wonderland round`
+        Run from the group's target-puzzle channel, or from a regular group's
+        channel. Organisers/admins only. Aliases: `!rename_round`,
+        `!rename_metapuzzle`. Does NOT rename the target puzzle."""
+        tag_group = self._resolve_group_for_rename(ctx)
+        if tag_group is None:
+            await ctx.send(
+                ":x: Run this from a group's target-puzzle channel, or from a "
+                "regular group's channel.")
+            return
+        if TagGroupJsonDb.check_duplicates_in_hunt(group_name, self.get_hunt(ctx)):
+            await ctx.send(
+                f":exclamation: A group called **{group_name}** already exists in "
+                f"this hunt, please use a different name")
+            return
+        await self.service.rename_group(
+            ctx.guild, self.get_hunt(ctx), tag_group, group_name)
+        await ctx.channel.send(":white_check_mark: I've renamed the group.")
 
     @commands.hybrid_command(description="Set or update the puzzle's URL on the hunt site")
     @with_puzzle_mutex(wait=True)
