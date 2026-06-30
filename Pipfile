@@ -12,10 +12,9 @@ ruff = "*"
 
 [packages]
 "discord.py" = "*"
-"mysql.connector" = "*"
+mysql-connector-python = "*"
 dataclasses-json = "*"
 pytz = "*"
 google-api-python-client = "*"
-mysql = {connector = "*"}
 quart = "*"
 aiohttp = "*"
