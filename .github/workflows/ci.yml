@@ -48,15 +48,6 @@ jobs:
           }
           EOF
 
-      - name: Use mysql_native_password for the test user
-        run: |
-          # The Python mysql.connector in use can't speak MySQL 8.0's default
-          # caching_sha2_password auth plugin; switch the test user so the
-          # bot's store layer can connect at import time. (The mysql CLI used
-          # for migrations supports caching_sha2_password and is unaffected.)
-          mysql -h 127.0.0.1 -u root -ptestpass -e \
-            "ALTER USER 'puzzlebot'@'%' IDENTIFIED WITH mysql_native_password BY 'testpass'; FLUSH PRIVILEGES;"
-
       - name: Apply migrations
         run: |
           if [ -d migrations ] && ls migrations/*.sql 1>/dev/null 2>&1; then
