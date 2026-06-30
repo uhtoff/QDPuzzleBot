@@ -22,6 +22,7 @@ import {
   ScrollArea,
   Stack,
   Text,
+  TextInput,
 } from "@mantine/core";
 import { IconDotsVertical } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -36,6 +37,7 @@ import {
   useConvertToRunaround,
   useDeletePuzzle,
   useMakeMinimeta,
+  useRenameGroup,
   useRetagPuzzle,
   type EdgeType,
   type RetagMode,
@@ -322,10 +324,20 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   );
 }
 
-function Column({ group, children }: { group: BoardGroup; children: ReactNode }) {
+function Column({
+  group,
+  children,
+  onRenameGroup,
+}: {
+  group: BoardGroup;
+  children: ReactNode;
+  onRenameGroup: (tagGroupId: number, name: string) => void;
+}) {
   // The Unassigned column (group_code === null) is a drop target too: dropping a
   // puzzle there clears it from all metas. Its groupCode in the drop data is null.
   const isUnassigned = group.group_code == null;
+  const [editing, setEditing] = useState(false);
+  const [temp, setTemp] = useState("");
   const { setNodeRef, isOver } = useDroppable({
     id: `meta:${group.group_code}`,
     data: { groupCode: group.group_code },
@@ -345,9 +357,42 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
     >
       <Group justify="space-between" mb="xs">
         <Group gap={6}>
-          <Text fw={600} size="sm" lineClamp={1}>
-            {group.name}
-          </Text>
+          {editing ? (
+            <TextInput
+              size="xs"
+              value={temp}
+              onChange={(e) => setTemp(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const newName = temp.trim();
+                  if (newName && newName !== group.name) {
+                    onRenameGroup(group.tag_group_id, newName);
+                  }
+                  setEditing(false);
+                }
+                if (e.key === "Escape") setEditing(false);
+              }}
+              onBlur={() => setEditing(false)}
+              autoFocus
+            />
+          ) : (
+            <Text
+              fw={600}
+              size="sm"
+              lineClamp={1}
+              style={isUnassigned ? undefined : { cursor: "pointer" }}
+              onClick={
+                isUnassigned
+                  ? undefined
+                  : () => {
+                      setEditing(true);
+                      setTemp(group.name);
+                    }
+              }
+            >
+              {group.name}
+            </Text>
+          )}
           {group.group_code && (
             <Badge size="xs" color="grape" variant="light">
               {group.group_code}
@@ -364,6 +409,7 @@ function Column({ group, children }: { group: BoardGroup; children: ReactNode })
 }
 
 export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) {
+  const renameGroup = useRenameGroup(uid);
   const retag = useRetagPuzzle(uid);
   const convert = useConvertToFeeder(uid);
   const deletePuzzleMut = useDeletePuzzle(uid);
@@ -501,6 +547,17 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     });
   }
 
+  function onRenameGroup(tagGroupId: number, name: string) {
+    renameGroup.mutate(
+      { tagGroupId, name },
+      {
+        onSuccess: () =>
+          notifications.show({ message: "Group renamed.", color: "green" }),
+        onError: notifyError,
+      },
+    );
+  }
+
   function onDragStart(e: DragStartEvent) {
     const puzzleId = e.active.data.current?.puzzleId as number | undefined;
     setActive(puzzleId ? byId.get(puzzleId) ?? null : null);
@@ -569,7 +626,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         <ScrollArea type="auto" offsetScrollbars>
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
-              <Column key={group.tag_group_id} group={group}>
+              <Column key={group.tag_group_id} group={group} onRenameGroup={onRenameGroup}>
                 {sortPuzzles(group.puzzles, group.group_code).map((p) => (
                   <PuzzleCard
                     key={`${group.tag_group_id}-${p.id}`}

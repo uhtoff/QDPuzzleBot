@@ -1285,6 +1285,51 @@ async def delete_tag_group(tag_group_id):
     return jsonify(resp)
 
 
+@actions_bp.route("/tag_groups/<int:tag_group_id>/rename", methods=["POST"])
+@login_required
+async def rename_tag_group(tag_group_id):
+    """Rename a tag group + its Discord container(s), via the bot (mirrors
+    !rename_group). GROUP ONLY — never renames the target puzzle. Organiser+ only."""
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    new_name = (body.get("name") or "").strip()
+    if not new_name:
+        return jsonify({"error": "empty_name"}), 400
+
+    from bot.store import HuntJsonDb, TagGroupJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if TagGroupJsonDb.check_duplicates_in_hunt(new_name, hunt_obj):
+        return jsonify({"error": "duplicate_name"}), 400
+
+    tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
+    if tag_group is None:
+        return jsonify({"error": "round_not_found"}), 404
+
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
+    try:
+        await cog.service.rename_group(guild, hunt_obj, tag_group, new_name)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("rename_group", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"tag_group_id={tag_group_id} name={new_name}")
+    return jsonify({"ok": True})
+
+
 # --- Reconcile (organiser only) ----------------------------------------------
 
 @actions_bp.route("/hunts/<uid>/reconcile", methods=["POST"])

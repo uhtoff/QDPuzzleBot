@@ -262,3 +262,48 @@ async def delete_group_categories(guild, tag_group, dao):
                     "delete_group_categories: could not delete category %s", row.category_id)
     dao.delete_for_group(tag_group.id)
     return True
+
+
+# ----------------------------------------------------------------- rename
+def group_rename_plan(guild, tag_group, new_name, dao):
+    """Return the ordered list of ``(discord_object, new_name)`` renames for a
+    group rename — GROUP ONLY.
+
+    Renames every category the group owns (the single primary category, or every
+    split unsolved/solved/overflow category) and, for a metaless Group, its
+    dedicated text channel. NEVER includes the target puzzle's channel. Objects
+    Discord can no longer resolve are skipped. Forum layout (category_id is the
+    text channel) is handled best-effort but is out of active scope.
+    """
+    new_base = clean_name(new_name)
+    old_base = base_name(guild, tag_group)
+    plan = []
+
+    rows = group_categories(tag_group, dao)
+    if rows:
+        for row in rows:
+            cat = _category_by_id(guild, row.category_id)
+            if cat is not None:
+                plan.append((cat, overflow_category_name(new_base, row.role, row.seq)))
+    else:
+        primary = primary_category(guild, tag_group)
+        if primary is not None:
+            plan.append((primary, new_base))
+
+    if not tag_group.has_target:
+        primary = primary_category(guild, tag_group)
+        if primary is not None:
+            # Channel-mode Group: the dedicated text channel lives inside the
+            # category. Match by the Discord-normalized name: a text channel's
+            # name is always clean_name'd, whereas the category keeps its
+            # verbatim name (which can differ on the create-time collision path).
+            ch = discord.utils.get(primary.text_channels, name=clean_name(old_base))
+            if ch is not None:
+                plan.append((ch, new_base))
+        else:
+            # Forum-mode Group: category_id IS the text channel.
+            ch = guild.get_channel(tag_group.category_id)
+            if ch is not None:
+                plan.append((ch, new_base))
+
+    return plan
