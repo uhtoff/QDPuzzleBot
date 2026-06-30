@@ -44,7 +44,11 @@ jobs:
             "storage": "mysql",
             "mysql_username": "puzzlebot",
             "mysql_password": "testpass",
-            "database": "puzzlebot_test"
+            "database": "puzzlebot_test",
+            "puzzle_cell_name": "B1",
+            "puzzle_cell_link": "B1",
+            "puzzle_cell_solution": "I1",
+            "puzzle_cell_progress": "B3"
           }
           EOF
 
