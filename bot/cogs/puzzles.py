@@ -2084,6 +2084,8 @@ class Puzzles(commands.Cog):
                 • `!note <note>` can be used to leave a note about ideas/progress
                 • `!notes` can be used to see the notes that have been left
                 • `!erase_note <note number>` can be used to erase the specified note
+                • `!clue <text>` logs a clue/observation from this puzzle to the hunt's evidence sheet
+                • `!clues item1 item2 "multi word item"` logs several clues at once (quote any with spaces)
                 """,
             inline=False,
         )
@@ -2141,10 +2143,11 @@ class Puzzles(commands.Cog):
         • `!p <puzzle-name>` will add a puzzle to this meta.
         • `!list` : List all puzzles in this meta.
         • `!info` will re-post this message.
-        • `!move_to_meta {tag_group.group_code}` when used in another puzzle channel will add it to this meta and move it to this category.
-        • `!add_to_meta {tag_group.group_code}` when used in another puzzle channel will add it to this meta but not move it (e.g. if a puzzle feeds multiple metas).
-        • `!remove_from_meta {tag_group.group_code}` when used in another puzzle channel will remove it from this meta.
-        • `!sync_meta` (admin_only) when used in this channel will assign all the puzzles in the category to the meta.
+        • `!feeds_only {tag_group.group_code}` when used in another puzzle channel will add it to this meta as a feeder and move it to this category.
+        • `!feeds {tag_group.group_code}` when used in another puzzle channel will add it to this meta as a feeder but not move it (e.g. if a puzzle feeds multiple metas).
+        • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this meta — it contributes to the meta without being a standard feeder (e.g. capstones / cross-references).
+        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this meta.
+        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the meta.
         • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
         """,
                         inline=False,
@@ -2179,10 +2182,11 @@ class Puzzles(commands.Cog):
         • `!p <puzzle-name>` will add a puzzle to this round.
         • `!list` : List all puzzles in this round.
         • `!info` will re-post this message.
-        • `!move_to_round {tag_group.group_code}` when used in another puzzle channel will add it to this round and move it to this category.
-        • `!add_to_round {tag_group.group_code}` when used in another puzzle channel will add it to this round but not move it (e.g. if a puzzle feeds multiple rounds).
-        • `!remove_from_round {tag_group.group_code}` when used in another puzzle channel will remove it from this round.
-        • `!sync_round` (admin only) when used in this channel will assign all the puzzles in the category to the round.
+        • `!feeds_only {tag_group.group_code}` when used in another puzzle channel will add it to this round as a feeder and move it to this category.
+        • `!feeds {tag_group.group_code}` when used in another puzzle channel will add it to this round as a feeder but not move it (e.g. if a puzzle feeds multiple rounds).
+        • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this round — it contributes to the round without being a standard feeder.
+        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this round.
+        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the round.
         """,
                         inline=False,
                     )
@@ -2228,6 +2232,8 @@ class Puzzles(commands.Cog):
                 • `!note <note>` can be used to leave a note about ideas/progress
                 • `!notes` can be used to see the notes that have been left
                 • `!erase_note <note number>` can be used to erase the specified note
+                • `!clue <text>` logs a clue/observation to the hunt's evidence sheet (`!clues` for several at once)
+                • `!feeds <meta_code>` tags this puzzle as a feeder of a meta/round (code is in the meta's pinned message); `!informs <meta_code>` tags it as informing one without being a standard feeder
                 • `!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.
                 """,
             inline=False,
