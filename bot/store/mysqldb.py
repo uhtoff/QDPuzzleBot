@@ -279,13 +279,14 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target']
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta']
 
     def construct_puzzle(self, row):
         puzzle = PuzzleData.import_dict(row)
         self.get_tags(puzzle)
         self.get_additional_sheets(puzzle)
         self.get_is_target(puzzle)
+        self.get_is_minimeta(puzzle)
         return puzzle
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
@@ -453,6 +454,22 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             (puzzle.id,),
         )
         puzzle.is_target = cursor.fetchone() is not None
+        cursor.close()
+
+    def get_is_minimeta(self, puzzle):
+        """Derive is-minimeta: True iff this puzzle has mini-children.
+
+        A minimeta is keyed by parent_puzzle_id (the puzzle-keyed roll-up path),
+        not tag_group.target_puzzle_id, so it is invisible to get_is_target even
+        though its tab is promoted to the same shifted target geometry. Eager-load
+        it here, the single read seam, so is-minimeta reads stay free attribute
+        accesses (e.g. _header_shift needs it to offset solution/progress writes)."""
+        cursor = self.mydb.cursor()
+        cursor.execute(
+            "SELECT 1 FROM puzzles WHERE parent_puzzle_id = %s LIMIT 1",
+            (puzzle.id,),
+        )
+        puzzle.is_minimeta = cursor.fetchone() is not None
         cursor.close()
 
     def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):

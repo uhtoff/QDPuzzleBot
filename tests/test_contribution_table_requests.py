@@ -355,6 +355,24 @@ def test_header_shift_constant_for_target():
     assert cog._header_shift(p, 905) == 0
 
 
+def test_header_shift_applies_to_minimeta():
+    # A minimeta's own tab is promoted to the shifted target geometry but it is
+    # not a tag_group target (is_target stays False), so the shift must key off
+    # is_minimeta too — otherwise solution/progress writes land one column left.
+    cog = _cog()
+    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [
+        {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+    p = PuzzleData()
+    p.id = 1
+    p.is_target = False
+    p.is_minimeta = True
+    p.google_page_id = 905
+    assert cog._header_shift(p, 905) == cog.TARGET_HEADER_SHIFT
+    # A plain feeder (neither target nor minimeta) keeps column A.
+    p.is_minimeta = False
+    assert cog._header_shift(p, 905) == 0
+
+
 def _demote_alpha():
     """Run demote on a target tab; return (cog, captured batchUpdate bodies)."""
     cog = _cog()
