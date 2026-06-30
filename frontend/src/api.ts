@@ -212,6 +212,17 @@ export function useRenamePuzzle(uid: string) {
   });
 }
 
+export function useRenameGroup(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tagGroupId, name }: { tagGroupId: number; name: string }) =>
+      apiSend<{ ok: boolean }>(
+        `/api/tag_groups/${tagGroupId}/rename`, "POST", { name },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 /** Modes for solve-variant actions (mirrors web/actions.py). */
 export type SolveMode = "full" | "partial" | "change" | "add";
 
