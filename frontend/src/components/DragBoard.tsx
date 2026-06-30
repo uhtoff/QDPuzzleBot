@@ -562,7 +562,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   return (
     <Box>
       <Text size="sm" c="dimmed" mb="xs">
-        Drag a puzzle onto a group to reassign it (moves its Discord channel too), or onto Unassigned Feeders to
+        Drag a puzzle onto a group to reassign it (moves its Discord channel too if it is a meta), or onto Unassigned Feeders to
         remove it from all groups. Use the ⋮ menu on a card to add it to an additional group or remove it from just one.
       </Text>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
