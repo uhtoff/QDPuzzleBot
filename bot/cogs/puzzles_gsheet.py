@@ -158,8 +158,13 @@ class GoogleSheets(commands.Cog):
     def _header_shift(self, puzzle, page_id):
         """Columns to shift header writes right on `page_id`. Only a target's OWN
         main tab is shifted (by TARGET_HEADER_SHIFT); feeders and additional sheets
-        (page_id != google_page_id) keep column A."""
-        if not getattr(puzzle, "is_target", False) or page_id is None \
+        (page_id != google_page_id) keep column A. A minimeta's own tab is promoted
+        to the same shifted geometry (its mini-children render onto it) but is not a
+        tag_group target, so it must be caught here too — otherwise solution/progress
+        writes land one column left of the shifted header."""
+        is_shifted_tab = getattr(puzzle, "is_target", False) \
+            or getattr(puzzle, "is_minimeta", False)
+        if not is_shifted_tab or page_id is None \
                 or int(page_id) != int(puzzle.google_page_id or 0):
             return 0
         return self.TARGET_HEADER_SHIFT
