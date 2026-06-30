@@ -294,8 +294,10 @@ def group_rename_plan(guild, tag_group, new_name, dao):
         primary = primary_category(guild, tag_group)
         if primary is not None:
             # Channel-mode Group: the dedicated text channel lives inside the
-            # category, created with the same clean_name as the category.
-            ch = discord.utils.get(primary.text_channels, name=old_base)
+            # category. Match by the Discord-normalized name: a text channel's
+            # name is always clean_name'd, whereas the category keeps its
+            # verbatim name (which can differ on the create-time collision path).
+            ch = discord.utils.get(primary.text_channels, name=clean_name(old_base))
             if ch is not None:
                 plan.append((ch, new_base))
         else:

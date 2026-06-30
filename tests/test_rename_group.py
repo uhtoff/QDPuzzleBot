@@ -53,6 +53,18 @@ def test_plan_metaless_renames_category_and_text_channel():
     assert plan == [(cat, "new-group"), (chan, "new-group")]
 
 
+def test_plan_metaless_matches_text_channel_when_category_name_unnormalized():
+    # Create-time collision path: the category keeps its verbatim, space-padded
+    # name while the text channel is Discord-normalized. The planner must still
+    # find the text channel (matched via clean_name of the category's name).
+    chan = _FakeChan(id=500, name="old-—-other")
+    cat = _FakeCat(id=999, name="old — other", text_channels=[chan])
+    guild = _FakeGuild(categories=[cat])
+    group = make_round(id=20, name="old — other", target_puzzle_id=0, category_id=999)
+    plan = category_layout.group_rename_plan(guild, group, "New Group", _FakeDao())
+    assert plan == [(cat, "new-group"), (chan, "new-group")]
+
+
 def test_plan_split_round_renames_all_categories():
     from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
     unsolved = _FakeCat(id=10, name="old-round")
