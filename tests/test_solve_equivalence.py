@@ -11,7 +11,7 @@ Known divergences from _solve_impl (annotated below) are documented so they
 are visible, not silently inherited into the service layer.
 """
 import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1154,3 +1154,57 @@ class TestApplyMoveHelpers:
 
         cl.move_channel_to_solved.assert_not_awaited()
         channel.edit.assert_awaited_once_with(position=4)
+
+
+class TestRenameGroup:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog()
+
+    @pytest.fixture
+    def hunt(self):
+        return make_hunt()
+
+    async def _run(self, cog, hunt, group, name, guild=None):
+        commits = []
+        with patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb):
+            mock_rdb.commit.side_effect = lambda r: commits.append(("group", r.id))
+            await cog.service.rename_group(guild, hunt, group, name)
+        return commits
+
+    @pytest.mark.asyncio
+    async def test_sets_name(self, cog, hunt):
+        grp = make_round(id=1, name="Old", target_puzzle_id=7)
+        await self._run(cog, hunt, grp, "New Name")
+        assert grp.name == "New Name"
+
+    @pytest.mark.asyncio
+    async def test_commits_group(self, cog, hunt):
+        grp = make_round(id=42, name="Old", target_puzzle_id=7)
+        commits = await self._run(cog, hunt, grp, "New")
+        assert ("group", 42) in commits
+
+    @pytest.mark.asyncio
+    async def test_guild_none_skips_discord(self, cog, hunt):
+        grp = make_round(id=3, name="Old", target_puzzle_id=7)
+        with patch("bot.core.puzzle_service.category_layout") as mock_cl:
+            cog.service.safe_rename = AsyncMock()
+            with patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
+                 patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb):
+                await cog.service.rename_group(None, hunt, grp, "New")
+            mock_cl.group_rename_plan.assert_not_called()
+            cog.service.safe_rename.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_with_guild_renames_each_container(self, cog, hunt):
+        grp = make_round(id=4, name="Old", target_puzzle_id=0)
+        obj_a, obj_b = MagicMock(), MagicMock()
+        guild = MagicMock()
+        cog.service.safe_rename = AsyncMock()
+        with patch("bot.core.puzzle_service.category_layout") as mock_cl, \
+             patch("bot.cogs.puzzles.TagGroupJsonDb") as mock_rdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb", mock_rdb):
+            mock_cl.group_rename_plan.return_value = [(obj_a, "new"), (obj_b, "new")]
+            await cog.service.rename_group(guild, hunt, grp, "New")
+        assert cog.service.safe_rename.await_count == 2

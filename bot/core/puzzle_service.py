@@ -1390,6 +1390,24 @@ class PuzzleService:
         if failed:
             raise SheetRefreshError(failed)
 
+    @pushes_board()
+    async def rename_group(self, guild, hunt, tag_group, name):
+        """Rename a group: rename its Discord container(s) and set tag_group.name.
+
+        GROUP ONLY — never renames the target puzzle, its channel, or its sheet
+        tab. Caller must check for duplicate names before calling. Discord renames
+        are skipped when guild is None (web/test path). Plan is computed from the
+        group's CURRENT name, so it must run before the name is mutated.
+        """
+        if guild is not None:
+            for obj, new_name in category_layout.group_rename_plan(
+                guild, tag_group, name, TagGroupCategoryDb
+            ):
+                await self.safe_rename(obj, new_name)
+
+        tag_group.name = name
+        TagGroupJsonDb.commit(tag_group)
+
     def get_minis(self, minimeta_id):
         """Return ordered list of mini-puzzle PuzzleData for a minimeta."""
         return PuzzleJsonDb.get_children(minimeta_id)
