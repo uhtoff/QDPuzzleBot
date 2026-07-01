@@ -37,6 +37,7 @@ import {
   useConvertToRunaround,
   useDeletePuzzle,
   useMakeMinimeta,
+  useRemoveMinimeta,
   useRenameGroup,
   useRetagPuzzle,
   type EdgeType,
@@ -62,6 +63,7 @@ interface CardProps {
   onConvertToFeeder: (puzzle: Puzzle) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
+  onRemoveMinimeta: (puzzle: Puzzle) => void;
   onConvertToMeta: (puzzleId: number) => void;
   onConvertToMetapuzzle: (puzzleId: number) => void;
   onConvertToCapstone: (puzzleId: number) => void;
@@ -71,7 +73,7 @@ interface CardProps {
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onConvertToMeta, onConvertToMetapuzzle, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, onConvertToMetapuzzle, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -248,7 +250,15 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
                 </Menu.Item>
               </>
             )}
-            {!puzzle.is_meta && !puzzle.solved && (
+            {puzzle.is_minimeta && !puzzle.solved && (
+              <>
+                <Menu.Divider />
+                <Menu.Item color="red" onClick={() => onRemoveMinimeta(puzzle)}>
+                  Remove minimeta status…
+                </Menu.Item>
+              </>
+            )}
+            {!puzzle.is_meta && !puzzle.is_minimeta && !puzzle.solved && (
               <>
                 <Menu.Divider />
                 <Menu.Item
@@ -414,6 +424,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const convert = useConvertToFeeder(uid);
   const deletePuzzleMut = useDeletePuzzle(uid);
   const makeMinimeta = useMakeMinimeta(uid);
+  const removeMinimeta = useRemoveMinimeta(uid);
   const convertToMeta = useConvertToMeta(uid);
   const convertToCapstone = useConvertToCapstone(uid);
   const convertToRunaround = useConvertToRunaround(uid);
@@ -427,6 +438,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const convertPreview = useConvertToFeederPreview(convertTarget?.id ?? null, convertTarget != null);
   // Puzzle awaiting a delete confirm (null = modal closed).
   const [deleteTarget, setDeleteTarget] = useState<Puzzle | null>(null);
+  // Minimeta awaiting a remove-status confirm (null = modal closed).
+  const [removeMinimetaTarget, setRemoveMinimetaTarget] = useState<Puzzle | null>(null);
   const isOrganiser = detail.hunt.can_manage;
   // Track every in-flight retag ourselves: React Query's single mutation only
   // exposes the latest call's variables, so concurrent retags would otherwise
@@ -489,6 +502,19 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         showSheetWarning(data);
         notifications.show({ message: `"${name}" permanently deleted.`, color: "green" });
         setDeleteTarget(null);
+      },
+      onError: notifyError,
+    });
+  }
+
+  function runRemoveMinimeta() {
+    if (!removeMinimetaTarget) return;
+    const name = removeMinimetaTarget.name;
+    removeMinimeta.mutate(removeMinimetaTarget.id, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: `"${name}" is no longer a minimeta.`, color: "green" });
+        setRemoveMinimetaTarget(null);
       },
       onError: notifyError,
     });
@@ -639,6 +665,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     onConvertToFeeder={setConvertTarget}
                     onDeletePuzzle={setDeleteTarget}
                     onMakeMinimeta={onMakeMinimeta}
+                    onRemoveMinimeta={setRemoveMinimetaTarget}
                     onConvertToMeta={onConvertToMeta}
                     onConvertToMetapuzzle={onConvertToMetapuzzle}
                     onConvertToCapstone={onConvertToCapstone}
@@ -714,6 +741,22 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         <Text size="sm" c="red">
           ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
           This cannot be undone.
+        </Text>
+      </TypedConfirmModal>
+
+      <TypedConfirmModal
+        opened={removeMinimetaTarget != null}
+        onClose={() => setRemoveMinimetaTarget(null)}
+        onConfirm={runRemoveMinimeta}
+        title={`Remove minimeta "${removeMinimetaTarget?.name ?? ""}"`}
+        confirmPhrase={removeMinimetaTarget?.name ?? ""}
+        confirmLabel="Remove minimeta"
+        loading={removeMinimeta.isPending}
+      >
+        <Text size="sm" c="red">
+          ⚠️ This deletes every mini-puzzle under &ldquo;{removeMinimetaTarget?.name}&rdquo; —
+          each one&rsquo;s Discord thread and Google sheet tab — and reverts this puzzle to an
+          ordinary puzzle. This cannot be undone.
         </Text>
       </TypedConfirmModal>
 

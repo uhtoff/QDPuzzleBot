@@ -190,6 +190,17 @@ export function useMakeMinimeta(uid: string) {
   });
 }
 
+export function useRemoveMinimeta(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${puzzleId}/remove-minimeta`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useConvertToMeta(uid: string) {
   const qc = useQueryClient();
   return useMutation({
