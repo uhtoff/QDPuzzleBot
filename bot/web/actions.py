@@ -485,6 +485,55 @@ async def make_minimeta_puzzle(puzzle_id):
     return jsonify({"ok": True})
 
 
+# --- Remove minimeta (organiser+) -----------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/remove-minimeta", methods=["POST"])
+@login_required
+async def remove_minimeta_puzzle(puzzle_id):
+    """Revert a minimeta to an ordinary puzzle — delete its minis + rollup table
+    (mirrors !remove_minimeta). Organiser-gated, puzzle-locked, audited, board pushed."""
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            return jsonify({"error": "puzzle_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = current_app.bot
+        cog = bot.get_cog("Puzzles")
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        try:
+            await cog.service.remove_minimeta(guild, hunt_obj, puzzle)
+        except RuntimeError:
+            return jsonify({"error": "not_minimeta"}), 400
+        except SheetRefreshError as exc:
+            await _audit("remove_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            return jsonify({"ok": True, "sheet_warning": str(exc)})
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+
+        await _audit("remove_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        # Best-effort: keep the Unassigned Puzzles tab in sync.
+        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+
+    return jsonify({"ok": True})
+
+
 # --- Convert puzzle to meta (organiser+) ----------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-meta", methods=["POST"])
