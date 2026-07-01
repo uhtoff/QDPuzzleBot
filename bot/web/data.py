@@ -291,6 +291,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
 
     puzzle_list = list(puzzles.values())
     derive_meta_kind(puzzle_list)
+    derive_is_minimeta(puzzle_list)
     return puzzle_list
 
 
@@ -339,6 +340,19 @@ def derive_meta_kind(puzzles):
             p["meta_kind"] = "capstone"
         else:
             p["meta_kind"] = "meta"
+    return puzzles
+
+
+def derive_is_minimeta(puzzles):
+    """Annotate each puzzle dict in-place with ``is_minimeta`` — derived, not stored.
+
+    A puzzle is a minimeta if it owns mini-puzzle children (the authoritative
+    structural signal) OR still carries the legacy ``puzzle_type == 'Minimeta'``
+    marker (covers a freshly-made minimeta with no minis yet). Mirrors the derived
+    ``meta_kind`` pattern so the UI never gates on the user-editable puzzle_type.
+    """
+    for p in puzzles:
+        p["is_minimeta"] = bool(p.get("mini_puzzles")) or p.get("puzzle_type") == "Minimeta"
     return puzzles
 
 
