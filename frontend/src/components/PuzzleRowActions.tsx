@@ -61,7 +61,7 @@ export function PuzzleRowActions({
               variant="light"
               onClick={() => onToggleMinis(p.id)}
               aria-label="Toggle minis"
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", flexShrink: 0 }}
             >
               {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
             </Badge>
