@@ -54,18 +54,17 @@ export function PuzzleRowActions({
             <IconNote size={16} />
           </ActionIcon>
         </Indicator>
-        {p.puzzle_type === "Minimeta" && (
+        {p.is_minimeta && (
           <Tooltip label={`${p.mini_puzzles.filter((m) => m.solved).length}/${p.mini_puzzles.length} minis solved`}>
-            <ActionIcon
-              size="sm"
-              variant="subtle"
+            <Badge
+              color="violet"
+              variant="light"
               onClick={() => onToggleMinis(p.id)}
               aria-label="Toggle minis"
+              style={{ cursor: "pointer" }}
             >
-              <Badge color="violet" variant="light">
-                {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
-              </Badge>
-            </ActionIcon>
+              {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
+            </Badge>
           </Tooltip>
         )}
         {p.rollup_stale && (
