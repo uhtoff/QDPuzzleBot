@@ -87,16 +87,23 @@ rendered onto its own sheet (`refresh_minimeta` → `render_minimeta_contributio
 
 ### Backend service — `remove_minimeta(guild, hunt, puzzle)`
 
-New `@pushes_board()` method in `puzzle_service.py`:
+New `@pushes_board()` method in `puzzle_service.py`. Models on the existing
+`convert_to_puzzle` (`:1047-1074`) demote seam:
 1. Guard: `puzzle.puzzle_type == "Minimeta"` else raise (e.g. `RuntimeError("not_minimeta")`).
 2. For each mini in `self.get_minis(puzzle.id)`: delete it (tab + thread + DB row). Reuse
    the existing `delete_puzzle(guild, hunt, mini)` seam — minis are untagged and not
    targets, so its target-refresh loop is a no-op. Isolate per-mini failures like
    `delete_round` does.
-3. Remove the rollup from the minimeta's own sheet: clear/remove the contribution table on
-   the minimeta's page and delete the `RollupData` row for `target_puzzle_id=puzzle.id`. If
-   no direct "clear table" gsheet seam exists, add a small helper (or render with empty
-   members) — implementation-plan detail.
+3. Revert the minimeta's own sheet: a minimeta tab is promoted to the *same* target layout
+   as a real meta — `render_minimeta_contribution` lazily calls
+   `promote_tab_to_target(minimeta)` (`puzzles_gsheet.py:1450-1451`). So reuse
+   `gsheet_cog.demote_tab_to_puzzle(minimeta)` (`:646`, the inverse of
+   `promote_tab_to_target`) — the exact seam `convert_to_puzzle` uses — to delete the
+   contribution Table + its columns and regenerate the plain puzzle header. **Guard:** only
+   call `demote_tab_to_puzzle` when the tab actually has the contribution Table (mirror the
+   `has_table` scan in `render_minimeta_contribution`); a minimeta made but never rendered
+   has no Table, and demoting it would delete the solver grid. Also delete the puzzle-keyed
+   rollup bookkeeping row `RollupsJsonDb.get_by_attr(target_puzzle_id=puzzle.id)` if present.
 4. `puzzle.puzzle_type = None`; `PuzzleJsonDb.commit(puzzle)`.
 
 ### Web route
@@ -137,7 +144,7 @@ from both the web (typed confirm) and `!remove_minimeta`.
 - `frontend/src/components/MetaBadge.tsx`, `BoardGroup.tsx` (U2)
 - `frontend/src/components/DragBoard.tsx`, `frontend/src/api.ts` (U3 frontend)
 - `bot/core/puzzle_service.py`, `bot/web/actions.py`, `bot/cogs/puzzles.py` (U3 backend)
-- `bot/cogs/puzzles_gsheet.py` (rollup-table teardown, if a new seam is needed)
+- `bot/cogs/puzzles_gsheet.py` (`demote_tab_to_puzzle` — reused for rollup-table teardown, no new seam needed)
 - Tests: `tests/test_minimeta_service.py`, `tests/test_board_push_service.py`,
   `tests/test_minimeta_commands.py`
 
