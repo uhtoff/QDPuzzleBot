@@ -298,6 +298,13 @@ def group_rename_plan(guild, tag_group, new_name, dao):
             # category. Match by the Discord-normalized name: a text channel's
             # name is always clean_channel_name'd, whereas the category keeps its
             # verbatim name (which can differ on the create-time collision path).
+            # KNOWN LIMITATION: old_base is the verbatim (clean_category_name)
+            # category name, capped at 100 chars; the channel was created from
+            # clean_channel_name of the raw name. For a group whose name
+            # slugifies to >100 chars these can differ, so the channel is not
+            # matched and keeps its stale name (cosmetic; id-based lookups are
+            # unaffected). Not worth the collision-path risk to fix for a name
+            # length that cannot occur in practice.
             ch = discord.utils.get(primary.text_channels, name=clean_channel_name(old_base))
             if ch is not None:
                 plan.append((ch, new_chan_name))

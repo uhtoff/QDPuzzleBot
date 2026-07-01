@@ -108,6 +108,29 @@ Keep the refactor and the behaviour change separate:
   this only bites on an interrupted resume. Low risk; flagged, not
   re-architected.
 
+## Known limitations
+
+- **>100-char metaless-group rename (`category_layout.py` `group_rename_plan`
+  text-channel match):** the match re-slugifies the verbatim category name
+  (`clean_channel_name(clean_category_name(name))`), but the channel was created
+  from `clean_channel_name(name)`. The 100-char cap lands on two different-length
+  strings, so for a metaless group whose name slugifies to >100 chars the rename
+  renames the category but not its text channel (stale channel name). Graceful
+  and cosmetic — id-based lookups elsewhere are unaffected — and cannot
+  realistically occur for a puzzle round name. Left as-is: a fix would touch the
+  subtle collision-path match logic (pinned by tests) for an impossible case.
+  If ever needed, match by iterating `primary.text_channels` comparing
+  `clean_channel_name(ch.name)`.
+
+## Related pre-existing issues (out of this feature's scope)
+
+- `puzzle_service.py` hunt-create path names its `-solved` category from the raw
+  `name` rather than `clean_category_name(name)` — a hunt-level inconsistency,
+  unchanged by this feature.
+- The create-time collision lookup (`discord.utils.get(..., name=...)`) matches
+  by the new verbatim name, so it won't find a legacy slug-named category. This
+  is accepted by the design (names cosmetic; objects resolved by id).
+
 ## Out of scope (YAGNI)
 
 - No data migration script (lookup is by id).
