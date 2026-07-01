@@ -41,6 +41,21 @@ def test_clean_channel_name_caps_at_100_chars_without_trailing_hyphen():
     assert not result.endswith("-")
 
 
+def test_clean_category_name_preserves_case_punctuation_emoji():
+    assert discord_channels.clean_category_name("Monster Mash!") == "Monster Mash!"
+    assert discord_channels.clean_category_name("👻 Round A") == "👻 Round A"
+
+
+def test_clean_category_name_collapses_internal_whitespace():
+    assert discord_channels.clean_category_name("  Round   A  ") == "Round A"
+
+
+def test_clean_category_name_caps_at_100_chars():
+    long_name = "A" * 120
+    result = discord_channels.clean_category_name(long_name)
+    assert len(result) == 100
+
+
 def test_solve_divider_position_returns_index_when_present():
     cat = MagicMock()
     ch = MagicMock()

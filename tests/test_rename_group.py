@@ -41,7 +41,7 @@ def test_plan_meta_single_category_renames_only_category():
     guild = _FakeGuild(categories=[cat])
     group = make_round(id=1, name="old round", target_puzzle_id=7, category_id=999)
     plan = category_layout.group_rename_plan(guild, group, "New Round", _FakeDao())
-    assert plan == [(cat, "new-round")]
+    assert plan == [(cat, "New Round")]
 
 
 def test_plan_metaless_renames_category_and_text_channel():
@@ -50,7 +50,7 @@ def test_plan_metaless_renames_category_and_text_channel():
     guild = _FakeGuild(categories=[cat])
     group = make_round(id=2, name="old group", target_puzzle_id=0, category_id=999)
     plan = category_layout.group_rename_plan(guild, group, "New Group", _FakeDao())
-    assert plan == [(cat, "new-group"), (chan, "new-group")]
+    assert plan == [(cat, "New Group"), (chan, "new-group")]
 
 
 def test_plan_metaless_matches_text_channel_when_category_name_unnormalized():
@@ -62,7 +62,7 @@ def test_plan_metaless_matches_text_channel_when_category_name_unnormalized():
     guild = _FakeGuild(categories=[cat])
     group = make_round(id=20, name="old — other", target_puzzle_id=0, category_id=999)
     plan = category_layout.group_rename_plan(guild, group, "New Group", _FakeDao())
-    assert plan == [(cat, "new-group"), (chan, "new-group")]
+    assert plan == [(cat, "New Group"), (chan, "new-group")]
 
 
 def test_plan_split_round_renames_all_categories():
@@ -76,8 +76,8 @@ def test_plan_split_round_renames_all_categories():
         SimpleNamespace(category_id=11, role=ROLE_SOLVED, seq=0),
     ]
     plan = category_layout.group_rename_plan(guild, group, "New Round", _FakeDao(rows))
-    assert (unsolved, "new-round") in plan
-    assert (solved, "new-round — solved") in plan
+    assert (unsolved, "New Round") in plan
+    assert (solved, "New Round — solved") in plan
     assert len(plan) == 2
 
 

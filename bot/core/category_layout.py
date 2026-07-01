@@ -12,7 +12,7 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED, TagGroupCategoryData
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def base_name(guild, tag_group):
     """The group's primary (unsolved seq=0) category name; fall back to the
     cleaned group name if the category has gone missing."""
     primary = _category_by_id(guild, tag_group.category_id)
-    return primary.name if primary is not None else clean_channel_name(tag_group.name)
+    return primary.name if primary is not None else clean_category_name(tag_group.name)
 
 
 # ----------------------------------------------------------------- state
@@ -275,7 +275,8 @@ def group_rename_plan(guild, tag_group, new_name, dao):
     Discord can no longer resolve are skipped. Forum layout (category_id is the
     text channel) is handled best-effort but is out of active scope.
     """
-    new_base = clean_channel_name(new_name)
+    new_cat_base = clean_category_name(new_name)
+    new_chan_name = clean_channel_name(new_name)
     old_base = base_name(guild, tag_group)
     plan = []
 
@@ -284,11 +285,11 @@ def group_rename_plan(guild, tag_group, new_name, dao):
         for row in rows:
             cat = _category_by_id(guild, row.category_id)
             if cat is not None:
-                plan.append((cat, overflow_category_name(new_base, row.role, row.seq)))
+                plan.append((cat, overflow_category_name(new_cat_base, row.role, row.seq)))
     else:
         primary = primary_category(guild, tag_group)
         if primary is not None:
-            plan.append((primary, new_base))
+            plan.append((primary, new_cat_base))
 
     if not tag_group.has_target:
         primary = primary_category(guild, tag_group)
@@ -299,11 +300,11 @@ def group_rename_plan(guild, tag_group, new_name, dao):
             # verbatim name (which can differ on the create-time collision path).
             ch = discord.utils.get(primary.text_channels, name=clean_channel_name(old_base))
             if ch is not None:
-                plan.append((ch, new_base))
+                plan.append((ch, new_chan_name))
         else:
             # Forum-mode Group: category_id IS the text channel.
             ch = guild.get_channel(tag_group.category_id)
             if ch is not None:
-                plan.append((ch, new_base))
+                plan.append((ch, new_chan_name))
 
     return plan

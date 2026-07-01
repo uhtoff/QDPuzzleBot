@@ -32,7 +32,7 @@ DELETE_REASON = "bot-delete"
 
 # ------------------------------------------------------------------ helpers
 def clean_channel_name(name):
-    """Slugify *name* for a Discord channel/category, matching Discord's own
+    """Slugify *name* for a Discord channel, matching Discord's own
     text-channel normalisation.
 
     Lowercase, spaces to hyphens, strip ASCII punctuation except '-'/'_',
@@ -44,6 +44,16 @@ def clean_channel_name(name):
     name = re.sub(r"\s+", "-", name)   # spaces -> hyphens
     name = re.sub(r"-+", "-", name)    # collapse hyphen runs
     return name.strip("-")[:100].rstrip("-")
+
+
+def clean_category_name(name):
+    """Lightly clean *name* for a Discord category, which Discord stores
+    verbatim (only force-uppercased for display). Collapse internal whitespace
+    to single spaces, trim, and cap at Discord's 100-char limit; case,
+    punctuation and emoji are preserved.
+    """
+    name = re.sub(r"\s+", " ", name).strip()
+    return name[:100].strip()
 
 
 async def create_forum_post(forum, name, content="\u200b"):

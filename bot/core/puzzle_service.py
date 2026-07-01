@@ -28,7 +28,7 @@ from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
-    clean_channel_name, get_or_create_channel, solve_divider_position, create_forum_post,
+    clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
@@ -1733,10 +1733,10 @@ class PuzzleService:
         if len(guild.categories) >= MAX_CATEGORIES:
             raise RuntimeError("no_category_space")
 
-        new_category_name = clean_channel_name(name)
+        new_category_name = clean_category_name(name)
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
-            new_category_name = new_category_name + " — " + clean_channel_name(hunt.name)
+            new_category_name = new_category_name + " — " + clean_category_name(hunt.name)
             existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
             raise RuntimeError("category_exists")
@@ -1762,7 +1762,7 @@ class PuzzleService:
                     host_category = new_category
                 group_text_channel, _created_flag = await get_or_create_channel(
                     guild=guild, category=host_category,
-                    channel_name=new_category_name, channel_type="text",
+                    channel_name=clean_channel_name(name), channel_type="text",
                 )
 
             # --- Forum vs channel layout (non-Group types) ---
@@ -2106,7 +2106,7 @@ class PuzzleService:
                 )
 
         # Category is brand-new, so channels are created directly (no get_or_create lookup).
-        category_name = clean_channel_name(name)
+        category_name = clean_category_name(name)
         category = await guild.create_category(
             category_name, position=max(len(guild.categories) - 2, 0)
         )
