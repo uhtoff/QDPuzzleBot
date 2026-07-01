@@ -1121,6 +1121,26 @@ class Puzzles(commands.Cog):
         await ctx.send(f":white_check_mark: **{puzzle.name}** is now a minimeta cluster. Use `!add_mini` to add mini-puzzles.")
 
     @commands.command()
+    async def remove_minimeta(self, ctx):
+        """*Revert this minimeta back to an ordinary puzzle, deleting its mini-puzzles.*
+
+        Usage: `!remove_minimeta`
+        Example: `!remove_minimeta`
+        Run in the minimeta's channel. Deletes every mini-puzzle (thread + sheet) and
+        the rollup table, then clears the Minimeta type."""
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return await self.send_not_puzzle_channel(ctx)
+        try:
+            await self.service.remove_minimeta(ctx.guild, self.get_hunt(ctx), puzzle)
+        except RuntimeError:
+            return await ctx.send(":x: This puzzle is not a minimeta.")
+        await ctx.send(
+            f":white_check_mark: **{puzzle.name}** is no longer a minimeta; its "
+            f"mini-puzzles were removed."
+        )
+
+    @commands.command()
     @with_puzzle_mutex(wait=True)
     async def add_mini(self, ctx, *args):
         """*Add a mini-puzzle (its own thread + sheet) to this minimeta.*

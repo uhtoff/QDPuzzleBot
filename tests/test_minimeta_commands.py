@@ -29,6 +29,34 @@ class TestMakeMiniMeta:
         assert "minimeta" in ctx.send.call_args[0][0].lower()
 
 
+class TestRemoveMiniMeta:
+    @pytest.mark.asyncio
+    async def test_removes_and_confirms(self):
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        hunt = MagicMock()
+        cog = make_cog(puzzle, hunt)
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        cog.service.remove_minimeta.assert_called_once_with(ctx.guild, hunt, puzzle)
+        ctx.send.assert_called_once()
+        assert "minimeta" in ctx.send.call_args[0][0].lower()
+
+    @pytest.mark.asyncio
+    async def test_not_minimeta_reports_error(self):
+        puzzle = make_puzzle(id=1, puzzle_type="Cryptic")
+        cog = make_cog(puzzle, MagicMock())
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock(side_effect=RuntimeError("not_minimeta"))
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        ctx.send.assert_called_once()
+        assert "not a minimeta" in ctx.send.call_args[0][0].lower()
+
+
 class TestListMinis:
     @pytest.mark.asyncio
     async def test_empty_list(self):
