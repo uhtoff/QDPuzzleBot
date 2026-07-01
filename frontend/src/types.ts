@@ -66,6 +66,7 @@ export interface Puzzle {
   sheet_page: string | null;
   is_meta: boolean;
   meta_kind: "runaround" | "metameta" | "meta" | "capstone" | null;
+  is_minimeta: boolean;
   status: string | null;
   solved: boolean;
   archived: boolean;
