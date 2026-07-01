@@ -65,6 +65,19 @@ def test_plan_metaless_matches_text_channel_when_category_name_unnormalized():
     assert plan == [(cat, "New Group"), (chan, "new-group")]
 
 
+def test_plan_metaless_matches_text_channel_after_create_time_category_collision():
+    # Create-time collision appends " — <hunt>" to the CATEGORY name, but the
+    # text channel was created from clean_channel_name(raw group name) with no
+    # suffix. The planner must match the channel via the group's stored name,
+    # not the (suffixed) category name, or the channel keeps its stale name.
+    chan = _FakeChan(id=500, name="group")
+    cat = _FakeCat(id=999, name="Group — MyHunt", text_channels=[chan])
+    guild = _FakeGuild(categories=[cat])
+    group = make_round(id=21, name="Group", target_puzzle_id=0, category_id=999)
+    plan = category_layout.group_rename_plan(guild, group, "New Group", _FakeDao())
+    assert plan == [(cat, "New Group"), (chan, "new-group")]
+
+
 def test_plan_split_round_renames_all_categories():
     from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
     unsolved = _FakeCat(id=10, name="old-round")
@@ -120,6 +133,23 @@ async def test_rename_group_from_regular_group_channel():
     with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
         rdb.check_duplicates_in_hunt.return_value = False
         await Puzzles.rename_group.callback(cog, ctx, group_name="New Name")
+    cog.service.rename_group.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rename_group_excludes_self_from_duplicate_check():
+    # Renaming a group must exclude its own row from the hunt duplicate check,
+    # so an idempotent/punctuation-only rename isn't rejected as a self-clash.
+    grp = make_round(id=7, name="Old", target_puzzle_id=70)
+    puz = make_puzzle(id=70)
+    cog, Puzzles = _rename_cog("Metapuzzle", grp, puz)
+    ctx = make_ctx()
+    ctx.channel.send = AsyncMock()
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as rdb:
+        rdb.check_duplicates_in_hunt.return_value = False
+        await Puzzles.rename_group.callback(cog, ctx, group_name="Old!")
+    rdb.check_duplicates_in_hunt.assert_called_once()
+    assert rdb.check_duplicates_in_hunt.call_args.kwargs.get("exclude_group_id") == 7
     cog.service.rename_group.assert_awaited_once()
 
 

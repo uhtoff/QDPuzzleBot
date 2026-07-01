@@ -1357,7 +1357,8 @@ async def rename_tag_group(tag_group_id):
     from bot.store import HuntJsonDb, TagGroupJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    if TagGroupJsonDb.check_duplicates_in_hunt(new_name, hunt_obj):
+    if TagGroupJsonDb.check_duplicates_in_hunt(
+            new_name, hunt_obj, exclude_group_id=tag_group_id):
         return jsonify({"error": "duplicate_name"}), 400
 
     tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)

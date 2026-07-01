@@ -2371,7 +2371,8 @@ class Puzzles(commands.Cog):
                 ":x: Run this from a group's target-puzzle channel, or from a "
                 "regular group's channel.")
             return
-        if TagGroupJsonDb.check_duplicates_in_hunt(group_name, self.get_hunt(ctx)):
+        if TagGroupJsonDb.check_duplicates_in_hunt(
+                group_name, self.get_hunt(ctx), exclude_group_id=tag_group.id):
             await ctx.send(
                 f":exclamation: A group called **{group_name}** already exists in "
                 f"this hunt, please use a different name")

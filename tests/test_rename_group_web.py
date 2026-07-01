@@ -72,6 +72,14 @@ async def test_rename_group_duplicate_400(web):
 
 
 @pytest.mark.asyncio
+async def test_rename_group_excludes_self_from_duplicate_check(web):
+    resp = await web.client.post("/api/tag_groups/5/rename", json={"name": "Old!"})
+    assert resp.status_code == 200
+    web.rdb.check_duplicates_in_hunt.assert_called_once()
+    assert web.rdb.check_duplicates_in_hunt.call_args.kwargs.get("exclude_group_id") == 5
+
+
+@pytest.mark.asyncio
 async def test_rename_group_archived_403(web):
     web.ctx["hunt"]["archived"] = True
     resp = await web.client.post("/api/tag_groups/5/rename", json={"name": "New"})

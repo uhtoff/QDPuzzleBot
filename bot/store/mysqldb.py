@@ -110,9 +110,17 @@ class _MySQLBaseDb:
 
         return code
 
-    def check_duplicates_in_hunt(self, name, hunt_data: HuntData) -> bool:
+    def check_duplicates_in_hunt(self, name, hunt_data: HuntData, exclude_group_id=None) -> bool:
         cursor = self.mydb.cursor(dictionary=True)
-        cursor.execute(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s LIMIT 1", (name, hunt_data.id,))
+        query = f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s"
+        params = [name, hunt_data.id]
+        if exclude_group_id is not None:
+            # A rename must not clash with the group being renamed (its own row):
+            # adding punctuation/emoji to a name would otherwise look like a duplicate.
+            query += " AND `id` != %s"
+            params.append(exclude_group_id)
+        query += " LIMIT 1"
+        cursor.execute(query, tuple(params))
         found = cursor.fetchone() is not None
         cursor.close()
         return found

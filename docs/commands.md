@@ -40,6 +40,7 @@ disagree, **the code is the source of truth** — fix both.
 | `!capstone` | `!cs` | `name` | Hunt channel | anyone | Create a capstone. |
 | `!runaround` | `!ra` | `name` | Hunt channel | anyone | Create a runaround. |
 | `!group` | | `name` | Hunt channel | anyone | Create a group (no meta puzzle). |
+| `!rename_group` *(slash)* | `!rename_round`, `!rename_metapuzzle` | `new name` | group's target-puzzle or regular group channel | organisers/admins | Rename the group and its Discord category/channel. Does not rename the target puzzle. |
 | `!delete_round` | `!delete_metapuzzle`, `!delete_group` | — | group's main channel | organisers/admins | Delete a round/group, its puzzles, channels and sheets (confirms). |
 
 > `!round`/`!r`, `!mp`, `!cs`, `!ra`, `!group` are all aliases of one command;
@@ -108,6 +109,7 @@ commands in the minimeta's channel; numbers come from `!list_minis`.
 | Command | Arguments | Does |
 |---|---|---|
 | `!make_minimeta` | — | Convert this puzzle into a minimeta cluster. |
+| `!remove_minimeta` | — | Revert a minimeta to an ordinary puzzle, deleting its minis (threads + sheets) and rollup. |
 | `!add_mini` | `name` | Add a mini-puzzle. |
 | `!list_minis` | — | List minis with numbers and solve state. |
 | `!solve_mini` | `number answer` | Record a mini's answer. |

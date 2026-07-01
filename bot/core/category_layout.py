@@ -277,7 +277,6 @@ def group_rename_plan(guild, tag_group, new_name, dao):
     """
     new_cat_base = clean_category_name(new_name)
     new_chan_name = clean_channel_name(new_name)
-    old_base = base_name(guild, tag_group)
     plan = []
 
     rows = group_categories(tag_group, dao)
@@ -295,17 +294,13 @@ def group_rename_plan(guild, tag_group, new_name, dao):
         primary = primary_category(guild, tag_group)
         if primary is not None:
             # Channel-mode Group: the dedicated text channel lives inside the
-            # category. Match by the Discord-normalized name: a text channel's
-            # name is always clean_channel_name'd, whereas the category keeps its
-            # verbatim name (which can differ on the create-time collision path).
-            # KNOWN LIMITATION: old_base is the verbatim (clean_category_name)
-            # category name, capped at 100 chars; the channel was created from
-            # clean_channel_name of the raw name. For a group whose name
-            # slugifies to >100 chars these can differ, so the channel is not
-            # matched and keeps its stale name (cosmetic; id-based lookups are
-            # unaffected). Not worth the collision-path risk to fix for a name
-            # length that cannot occur in practice.
-            ch = discord.utils.get(primary.text_channels, name=clean_channel_name(old_base))
+            # category. Match by the group's stored name — the channel was
+            # created from clean_channel_name(tag_group.name), and every rename
+            # keeps that invariant. Matching off the category name instead breaks
+            # on the create-time collision path, where the category gets a
+            # " — <hunt>" suffix the channel never received.
+            ch = discord.utils.get(
+                primary.text_channels, name=clean_channel_name(tag_group.name))
             if ch is not None:
                 plan.append((ch, new_chan_name))
         else:
