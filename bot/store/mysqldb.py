@@ -386,10 +386,18 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                     puzzles_to_archive.append(puzzle)
         return puzzles_to_archive
 
-    def check_duplicates_in_hunt(self, name, hunt_id) -> bool:
+    def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:
         cursor = self.mydb.cursor(dictionary = True)
-        cursor.execute("SELECT 1 FROM puzzles "
-                       "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s LIMIT 1", (name, discord_channel_slug(name), hunt_id))
+        query = ("SELECT 1 FROM puzzles "
+                 "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
+        params = [name, discord_channel_slug(name), hunt_id]
+        if exclude_puzzle_id is not None:
+            # A rename must not clash with the puzzle being renamed (its own row):
+            # adding punctuation/emoji to a name would otherwise look like a duplicate.
+            query += " AND puzzles.id != %s"
+            params.append(exclude_puzzle_id)
+        query += " LIMIT 1"
+        cursor.execute(query, tuple(params))
         found = cursor.fetchone() is not None
         cursor.close()
         return found

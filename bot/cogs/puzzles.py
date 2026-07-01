@@ -2338,11 +2338,11 @@ class Puzzles(commands.Cog):
         Usage: `!rename_puzzle new name`
         Example: `!rename_puzzle the actual clueless crossword`
         Run in the puzzle's channel. Organisers/admins only. Alias: `!rename_meta`."""
-        if self.get_puzzle(ctx):
-            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id):
+        puzzle = self.get_puzzle(ctx)
+        if puzzle:
+            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id, exclude_puzzle_id=puzzle.id):
                 return await ctx.send(
                     f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
-            puzzle = self.get_puzzle(ctx)
             try:
                 await self.service.rename_puzzle(
                     ctx.guild, self.get_hunt(ctx), puzzle, puzzle_name

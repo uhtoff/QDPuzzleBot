@@ -611,8 +611,9 @@ async def rename_puzzle(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    # Duplicate check — match bang behaviour: reject on clash.
-    if PuzzleJsonDb.check_duplicates_in_hunt(new_name, ctx["hunt"]["id"]):
+    # Duplicate check — match bang behaviour: reject on clash, but exclude the
+    # puzzle being renamed so it never clashes with itself.
+    if PuzzleJsonDb.check_duplicates_in_hunt(new_name, ctx["hunt"]["id"], exclude_puzzle_id=puzzle_id):
         return jsonify({"error": "duplicate_name"}), 400
 
     async with puzzle_lock(puzzle_id):
