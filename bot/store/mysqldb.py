@@ -5,9 +5,9 @@ import json
 import logging
 from pathlib import Path
 from typing import List
-import re
 
 import pytz
+from bot.core.discord_channels import clean_name
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
@@ -18,13 +18,6 @@ from .evidence_data import EvidenceData
 
 logger = logging.getLogger(__name__)
 
-def discord_channel_slug(name):
-    slug = name.lower()
-    slug = re.sub(r'[^a-z0-9\s-]', '', slug)  # remove special characters
-    slug = re.sub(r'\s+', '-', slug)          # replace spaces with hyphens
-    slug = re.sub(r'-+', '-', slug)           # collapse multiple hyphens
-    slug = slug.strip('-')                    # remove leading/trailing hyphens
-    return slug[:100]                         # enforce 100 character limit
 
 class _MySQLBaseDb:
     TABLE_NAME = None
@@ -390,7 +383,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary = True)
         query = ("SELECT 1 FROM puzzles "
                  "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
-        params = [name, discord_channel_slug(name), hunt_id]
+        params = [name, clean_name(name), hunt_id]
         if exclude_puzzle_id is not None:
             # A rename must not clash with the puzzle being renamed (its own row):
             # adding punctuation/emoji to a name would otherwise look like a duplicate.

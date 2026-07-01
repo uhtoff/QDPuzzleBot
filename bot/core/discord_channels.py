@@ -4,11 +4,21 @@ Extracted from bot.cogs.puzzles.Puzzles so the service layer can use them
 without a cog or ctx dependency.
 """
 import logging
+import re
+import string
 
 import discord
 
 
 logger = logging.getLogger(__name__)
+
+# ASCII punctuation Discord strips from text-channel names: everything in
+# string.punctuation except '-' and '_', which Discord keeps. Non-ASCII
+# characters (emoji, em/en dashes, £, accents, styled fonts) are left
+# untouched, matching Discord's real normalisation.
+_STRIP_PUNCT = re.compile(
+    "[" + re.escape("".join(c for c in string.punctuation if c not in "-_")) + "]"
+)
 
 # --- Constants (re-exposed so callers don't reach into the cog) ---
 
@@ -22,11 +32,18 @@ DELETE_REASON = "bot-delete"
 
 # ------------------------------------------------------------------ helpers
 def clean_name(name):
-    """Cleanup name to be appropriate for discord channel."""
-    name = name.strip()
-    if (name[0] == name[-1]) and name.startswith(("'", '"')):
-        name = name[1:-1]
-    return "-".join(name.lower().split())
+    """Slugify *name* for a Discord channel/category, matching Discord's own
+    text-channel normalisation.
+
+    Lowercase, spaces to hyphens, strip ASCII punctuation except '-'/'_',
+    collapse hyphen runs, trim, and cap at Discord's 100-char limit. Non-ASCII
+    characters (emoji, em/en dashes, £, accents) pass through unchanged, so the
+    stored name matches the channel Discord actually creates.
+    """
+    name = _STRIP_PUNCT.sub("", name.strip().lower())
+    name = re.sub(r"\s+", "-", name)   # spaces -> hyphens
+    name = re.sub(r"-+", "-", name)    # collapse hyphen runs
+    return name.strip("-")[:100].rstrip("-")
 
 
 async def create_forum_post(forum, name, content="\u200b"):
