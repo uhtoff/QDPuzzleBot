@@ -1317,6 +1317,51 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
 
     @pushes_board()
+    async def remove_minimeta(self, guild, hunt, puzzle):
+        """Revert a minimeta back to an ordinary puzzle: delete every mini-puzzle
+        child (thread + sheet tab + DB row), strip the rollup contribution Table from
+        the minimeta's own sheet, delete the puzzle-keyed rollup row, and clear the
+        Minimeta type. The inverse of make_minimeta + the minis created by create_mini.
+
+        Guard mirrors the derived is_minimeta (bot/web/data.py): a puzzle qualifies if
+        it owns minis OR still carries the Minimeta type marker; otherwise raises
+        RuntimeError("not_minimeta"). Guild may be None (skips Discord thread deletion).
+        Per-mini failures are isolated (logged, run continues) like delete_round.
+
+        A Sheets failure (in the sheet_list scan or demote) raises before puzzle_type is cleared and committed, so the operation stays retryable — the inverse of convert_to_puzzle's DB-first ordering.
+        """
+        minis = self.get_minis(puzzle.id)
+        if puzzle.puzzle_type != "Minimeta" and not minis:
+            raise RuntimeError("not_minimeta")
+
+        for mini in minis:
+            try:
+                await self.delete_puzzle(guild, hunt, mini)
+            except Exception:
+                logger.exception("remove_minimeta: failed to delete mini %s", mini.id)
+
+        # Revert the minimeta's own tab. render_minimeta_contribution promotes the tab
+        # to target layout, so demote_tab_to_puzzle (the inverse) strips the Table.
+        # Guard on the Table actually existing — a minimeta made but never rendered has
+        # no Table, and demoting it would delete the solver grid.
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None and puzzle.google_page_id:
+            has_table = any(
+                bool(s.get("tables"))
+                for s in gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id())["sheets"]
+                if s["properties"]["sheetId"] == int(puzzle.google_page_id)
+            )
+            if has_table:
+                await gsheet_cog.demote_tab_to_puzzle(puzzle)
+
+        rollup = RollupsJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        if rollup is not None:
+            RollupsJsonDb.delete(rollup.id)
+
+        puzzle.puzzle_type = None
+        PuzzleJsonDb.commit(puzzle)
+
+    @pushes_board()
     async def convert_to_meta(self, guild, hunt, puzzle):
         """Convert an existing feeder puzzle into a meta.
 

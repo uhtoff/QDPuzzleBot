@@ -1,5 +1,5 @@
 """Tests for M8 minimeta cluster service methods."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.store.puzzle_data import PuzzleData
@@ -531,3 +531,114 @@ class TestRefreshMiniMetaUsesStandardPath:
         await svc.refresh_minimeta(hunt, minimeta)
 
         gsheet.add_metapuzzle_data.assert_not_called()
+
+
+class TestRemoveMinimeta:
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_deletes_minis_and_clears_type(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        m1 = make_puzzle(id=2, parent_puzzle_id=1)
+        m2 = make_puzzle(id=3, parent_puzzle_id=1)
+        svc.get_minis = MagicMock(return_value=[m1, m2])
+        svc.delete_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=None)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        assert svc.delete_puzzle.await_count == 2
+        assert minimeta.puzzle_type is None
+        PuzzleDb.commit.assert_called_with(minimeta)
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_raises_when_not_minimeta(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        puzzle = make_puzzle(id=1, puzzle_type="Cryptic")
+        svc.get_minis = MagicMock(return_value=[])
+        with pytest.raises(RuntimeError, match="not_minimeta"):
+            await svc.remove_minimeta(None, make_hunt(), puzzle)
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_deletes_rollup_row_when_present(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        svc.get_minis = MagicMock(return_value=[])
+        svc.delete_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=None)
+        rollup = MagicMock(id=7)
+        RollupDb.get_by_attr.return_value = rollup
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        RollupDb.delete.assert_called_once_with(7)
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_demotes_tab_when_rollup_table_present(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        minimeta.google_page_id = "99"
+        svc.get_minis = MagicMock(return_value=[])
+        svc.delete_puzzle = AsyncMock()
+        gsheet = MagicMock()
+        gsheet.get_spreadsheet_id.return_value = "SS"
+        gsheet.sheet_list.return_value = {
+            "sheets": [{"properties": {"sheetId": 99}, "tables": [{"id": "t"}]}]
+        }
+        gsheet.demote_tab_to_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        gsheet.demote_tab_to_puzzle.assert_awaited_once_with(minimeta)
+        assert minimeta.puzzle_type is None
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_skips_demote_when_no_table(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        minimeta.google_page_id = "99"
+        svc.get_minis = MagicMock(return_value=[])
+        svc.delete_puzzle = AsyncMock()
+        gsheet = MagicMock()
+        gsheet.get_spreadsheet_id.return_value = "SS"
+        gsheet.sheet_list.return_value = {
+            "sheets": [{"properties": {"sheetId": 99}}]
+        }
+        gsheet.demote_tab_to_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        gsheet.demote_tab_to_puzzle.assert_not_awaited()
+        assert minimeta.puzzle_type is None
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_mini_delete_failure_is_isolated(self, PuzzleDb, RollupDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        m1 = make_puzzle(id=2, parent_puzzle_id=1)
+        m2 = make_puzzle(id=3, parent_puzzle_id=1)
+        svc.get_minis = MagicMock(return_value=[m1, m2])
+        svc.delete_puzzle = AsyncMock(side_effect=[RuntimeError("boom"), None])
+        svc._gsheet_cog = MagicMock(return_value=None)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        assert svc.delete_puzzle.await_count == 2
+        assert minimeta.puzzle_type is None
