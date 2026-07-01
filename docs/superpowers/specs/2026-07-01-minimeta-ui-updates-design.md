@@ -16,6 +16,34 @@ dashboard, plus a backend teardown seam and matching bang command.
    "Remove minimeta status", gated behind a typed-name confirmation, which tears down
    the mini puzzles and their sheets and reverts the puzzle to a normal puzzle.
 
+## Update 0 — Derived `is_minimeta` field (foundation for U1–U3)
+
+`puzzle_type` is a free-text, user-editable field (`PuzzleDrawer.tsx:174`,
+`PuzzleTable.tsx:374` both PATCH it), so gating minimeta UI on `puzzle_type === "Minimeta"`
+is fragile: edit the type off a puzzle that still owns minis and the badge/panel/remove
+affordance all vanish while the orphaned mini children remain. Mirror the existing
+`meta_kind` pattern (`bot/web/data.py:297`, derived from structure, never stored) with a
+derived boolean.
+
+**Derivation (hybrid):** `is_minimeta = bool(mini_puzzles) or puzzle_type == "Minimeta"`.
+The structural signal (owns mini children) is authoritative wherever it matters — when minis
+exist, the editable type string is irrelevant. The `puzzle_type` flag only covers the
+freshly-made **empty** minimeta (0 minis), which has nothing to orphan, so its fragility is
+harmless.
+
+- **Backend:** annotate each puzzle dict with `is_minimeta` in `derive_meta_kind` (it
+  already has `mini_puzzles` and `puzzle_type` in scope), or a sibling one-liner pass in
+  `get_hunt_puzzles`.
+- **Frontend type:** add `is_minimeta: boolean` to `Puzzle` in `frontend/src/types.ts`.
+- **Replace all three existing `puzzle_type === "Minimeta"` gates** with `is_minimeta`:
+  `PuzzleRowActions.tsx:57` (U1 toggle badge), `BoardGroup.tsx:294` and
+  `PuzzleTable.tsx:395` (mini-panel render rows).
+- **Service guard** (U3): `remove_minimeta` mirrors the hybrid check —
+  `puzzle.puzzle_type == "Minimeta" or self.get_minis(puzzle.id)` — rather than the type
+  string alone.
+
+U1–U3 below all key off this derived `is_minimeta`, not `puzzle_type`.
+
 ## Update 1 — Make the mini count visible
 
 **Symptom:** the count "isn't showing". **Root cause (to verify during
@@ -42,8 +70,8 @@ toggles the `MiniPuzzlePanel`.
 
 ## Update 2 — MINIMETA badge + kind strip
 
-Minimetas are `puzzle_type === "Minimeta"`; they are **not** `is_meta` and their
-`meta_kind` is `null`, so both the badge and the strip skip them today.
+Minimetas are identified by the derived `is_minimeta` flag (Update 0); they are **not**
+`is_meta` and their `meta_kind` is `null`, so both the badge and the strip skip them today.
 
 **Colour:** lilac = a lighter grape, visually related to META (grape) but distinct.
 Concrete value to use consistently:
@@ -52,16 +80,14 @@ Concrete value to use consistently:
 
 **Badge (`frontend/src/components/MetaBadge.tsx`):**
 - Current guard `if (!puzzle.is_meta) return null;` must not swallow minimetas.
-- Add handling: when `!is_meta && puzzle.puzzle_type === "Minimeta"`, render a
-  `MINIMETA` badge in lilac. Add a `minimeta` entry to `KINDS`
-  (`{ label: "MINIMETA", color: "grape.4" }`) and select it via `puzzle_type` rather than
-  `meta_kind` for this case.
+- Add handling: when `!is_meta && puzzle.is_minimeta`, render a `MINIMETA` badge in lilac.
+  Add a `minimeta` entry to `KINDS` (`{ label: "MINIMETA", color: "grape.4" }`) and select
+  it via the derived `is_minimeta` flag for this case.
 - Appears everywhere `MetaBadge` is used: `BoardGroup`, `PuzzleTable`, `DragBoard`.
 
 **Kind strip (`frontend/src/components/BoardGroup.tsx`, `kindStrip()` ~lines 39-48):**
 - `kindStrip()` keys off `meta_kind` (null for minimeta). Extend it to accept the puzzle
-  and, when `puzzle_type === "Minimeta"` (and no `meta_kind`), return the lilac strip
-  colour.
+  and, when `is_minimeta` (and no `meta_kind`), return the lilac strip colour.
 - The strip currently only exists on By Group (`BoardGroup.tsx:212-213`). All Puzzles has
   no strip today — leave that as-is (out of scope) unless requested.
 
@@ -89,7 +115,8 @@ rendered onto its own sheet (`refresh_minimeta` → `render_minimeta_contributio
 
 New `@pushes_board()` method in `puzzle_service.py`. Models on the existing
 `convert_to_puzzle` (`:1047-1074`) demote seam:
-1. Guard: `puzzle.puzzle_type == "Minimeta"` else raise (e.g. `RuntimeError("not_minimeta")`).
+1. Guard (hybrid, per Update 0): `puzzle.puzzle_type == "Minimeta" or self.get_minis(puzzle.id)`
+   else raise (e.g. `RuntimeError("not_minimeta")`).
 2. For each mini in `self.get_minis(puzzle.id)`: delete it (tab + thread + DB row). Reuse
    the existing `delete_puzzle(guild, hunt, mini)` seam — minis are untagged and not
    targets, so its target-refresh loop is a no-op. Isolate per-mini failures like
@@ -123,10 +150,10 @@ minimeta's channel, resolve the puzzle, confirm, call `service.remove_minimeta`.
 - `frontend/src/api.ts`: add `useRemoveMinimeta(uid)` mirroring `useMakeMinimeta`
   (`:184-188`) → `POST /api/puzzles/${id}/remove-minimeta`.
 - `frontend/src/components/DragBoard.tsx` (menu ~lines 251-279): when
-  `puzzle.puzzle_type === "Minimeta" && !puzzle.solved`, show **"Remove minimeta status"**
-  (red) that opens `TypedConfirmModal` requiring the puzzle name, with a warning it deletes
-  the mini puzzles and their sheets. Otherwise (non-minimeta, `!is_meta && !solved`) keep
-  the existing "Make minimeta" + "Convert to meta" items.
+  `puzzle.is_minimeta && !puzzle.solved`, show **"Remove minimeta status"** (red) that opens
+  `TypedConfirmModal` requiring the puzzle name, with a warning it deletes the mini puzzles
+  and their sheets. Otherwise, when `!puzzle.is_minimeta && !is_meta && !solved`, keep the
+  existing "Make minimeta" + "Convert to meta" items.
 
 **Acceptance:** removing a minimeta deletes all its minis (threads + tabs + rows) and the
 rollup table, reverts `puzzle_type` to normal, updates the board live, and is reachable
@@ -140,6 +167,7 @@ from both the web (typed confirm) and `!remove_minimeta`.
 
 ## Relevant files
 
+- `bot/web/data.py` (`derive_meta_kind` — add `is_minimeta`), `frontend/src/types.ts` (U0)
 - `frontend/src/components/PuzzleRowActions.tsx` (U1)
 - `frontend/src/components/MetaBadge.tsx`, `BoardGroup.tsx` (U2)
 - `frontend/src/components/DragBoard.tsx`, `frontend/src/api.ts` (U3 frontend)
