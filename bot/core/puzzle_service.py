@@ -28,7 +28,7 @@ from bot.core.locks import rollup_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
-    clean_name, get_or_create_channel, solve_divider_position, create_forum_post,
+    clean_channel_name, get_or_create_channel, solve_divider_position, create_forum_post,
     MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
@@ -311,7 +311,7 @@ class PuzzleService:
             return []
         actions = []
         category, home_group = self._home_category(guild, puzzle)
-        want_name = clean_name(puzzle.name)
+        want_name = clean_channel_name(puzzle.name)
 
         # 1. Stored id resolves to a live channel: fix category/name drift only.
         live = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
@@ -1408,7 +1408,7 @@ class PuzzleService:
         (and tests with _no_guild) skip it.
         """
         puzzle.name = name
-        puzzle.channel_name = clean_name(name)
+        puzzle.channel_name = clean_channel_name(name)
 
         # Rename the Discord channel (skip when guild is None — web + test path).
         # Only edit when the normalised name actually changes: adding punctuation
@@ -1505,7 +1505,7 @@ class PuzzleService:
 
         channel = guild.get_channel(minimeta.channel_id)
         thread = await channel.create_thread(
-            name=clean_name(name),
+            name=clean_channel_name(name),
             type=discord.ChannelType.public_thread,
         )
         mini.channel_id = thread.id
@@ -1632,7 +1632,7 @@ class PuzzleService:
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
             hunt_url_base = hunt.url.rstrip("/")
-            p_name = clean_name(name).replace("-", hunt.url_sep)
+            p_name = clean_channel_name(name).replace("-", hunt.url_sep)
             new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
         if round_data is not None:
             new_puzzle.tags.append(round_data.id)
@@ -1657,7 +1657,7 @@ class PuzzleService:
             new_puzzle.add_edge(round_data.id, edge)
 
         try:
-            channel_name = clean_name(new_puzzle.name)
+            channel_name = clean_channel_name(new_puzzle.name)
             if hunt.layout_mode == "forum":
                 thread = await create_forum_post(forum_channel, channel_name)
                 new_puzzle.channel_id = thread.id
@@ -1733,10 +1733,10 @@ class PuzzleService:
         if len(guild.categories) >= MAX_CATEGORIES:
             raise RuntimeError("no_category_space")
 
-        new_category_name = clean_name(name)
+        new_category_name = clean_channel_name(name)
         existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
-            new_category_name = new_category_name + " — " + clean_name(hunt.name)
+            new_category_name = new_category_name + " — " + clean_channel_name(hunt.name)
             existing_category = discord.utils.get(guild.categories, name=new_category_name)
         if existing_category:
             raise RuntimeError("category_exists")
@@ -2106,7 +2106,7 @@ class PuzzleService:
                 )
 
         # Category is brand-new, so channels are created directly (no get_or_create lookup).
-        category_name = clean_name(name)
+        category_name = clean_channel_name(name)
         category = await guild.create_category(
             category_name, position=max(len(guild.categories) - 2, 0)
         )

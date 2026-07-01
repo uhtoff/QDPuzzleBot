@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 import pytz
-from bot.core.discord_channels import clean_name
+from bot.core.discord_channels import clean_channel_name
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
@@ -383,7 +383,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary = True)
         query = ("SELECT 1 FROM puzzles "
                  "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
-        params = [name, clean_name(name), hunt_id]
+        params = [name, clean_channel_name(name), hunt_id]
         if exclude_puzzle_id is not None:
             # A rename must not clash with the puzzle being renamed (its own row):
             # adding punctuation/emoji to a name would otherwise look like a duplicate.

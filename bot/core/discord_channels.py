@@ -31,7 +31,7 @@ DELETE_REASON = "bot-delete"
 
 
 # ------------------------------------------------------------------ helpers
-def clean_name(name):
+def clean_channel_name(name):
     """Slugify *name* for a Discord channel/category, matching Discord's own
     text-channel normalisation.
 

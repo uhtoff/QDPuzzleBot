@@ -56,7 +56,7 @@ def test_plan_metaless_renames_category_and_text_channel():
 def test_plan_metaless_matches_text_channel_when_category_name_unnormalized():
     # Create-time collision path: the category keeps its verbatim, space-padded
     # name while the text channel is Discord-normalized. The planner must still
-    # find the text channel (matched via clean_name of the category's name).
+    # find the text channel (matched via clean_channel_name of the category's name).
     chan = _FakeChan(id=500, name="old-—-other")
     cat = _FakeCat(id=999, name="old — other", text_channels=[chan])
     guild = _FakeGuild(categories=[cat])

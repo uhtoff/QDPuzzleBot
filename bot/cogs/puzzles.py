@@ -306,9 +306,9 @@ class Puzzles(commands.Cog):
                 await ctx.send(":x: This hunt has no groups to assign to yet.")
         return None
 
-    def clean_name(self, name):
+    def clean_channel_name(self, name):
         """Cleanup name to be appropriate for discord channel."""
-        return _channels.clean_name(name)
+        return _channels.clean_channel_name(name)
 
     def get_channel_type(self, ctx):
         return self.environment[ctx.message.id]['channel_type'] or None

@@ -12,7 +12,7 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED, TagGroupCategoryData
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def base_name(guild, tag_group):
     """The group's primary (unsolved seq=0) category name; fall back to the
     cleaned group name if the category has gone missing."""
     primary = _category_by_id(guild, tag_group.category_id)
-    return primary.name if primary is not None else clean_name(tag_group.name)
+    return primary.name if primary is not None else clean_channel_name(tag_group.name)
 
 
 # ----------------------------------------------------------------- state
@@ -275,7 +275,7 @@ def group_rename_plan(guild, tag_group, new_name, dao):
     Discord can no longer resolve are skipped. Forum layout (category_id is the
     text channel) is handled best-effort but is out of active scope.
     """
-    new_base = clean_name(new_name)
+    new_base = clean_channel_name(new_name)
     old_base = base_name(guild, tag_group)
     plan = []
 
@@ -295,9 +295,9 @@ def group_rename_plan(guild, tag_group, new_name, dao):
         if primary is not None:
             # Channel-mode Group: the dedicated text channel lives inside the
             # category. Match by the Discord-normalized name: a text channel's
-            # name is always clean_name'd, whereas the category keeps its
+            # name is always clean_channel_name'd, whereas the category keeps its
             # verbatim name (which can differ on the create-time collision path).
-            ch = discord.utils.get(primary.text_channels, name=clean_name(old_base))
+            ch = discord.utils.get(primary.text_channels, name=clean_channel_name(old_base))
             if ch is not None:
                 plan.append((ch, new_base))
         else:
