@@ -1411,9 +1411,12 @@ class PuzzleService:
         puzzle.channel_name = clean_name(name)
 
         # Rename the Discord channel (skip when guild is None — web + test path).
+        # Only edit when the normalised name actually changes: adding punctuation
+        # Discord strips (e.g. "Monster Mash" -> "Monster Mash!") leaves
+        # channel_name unchanged, and a no-op edit would waste a rename-bucket token.
         if guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            if channel is not None:
+            if channel is not None and channel.name != puzzle.channel_name:
                 await self.safe_rename(channel, puzzle.channel_name)
 
         PuzzleJsonDb.commit(puzzle)
