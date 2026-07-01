@@ -9,15 +9,6 @@ import { notifyError, notifySuccess } from "../util";
 // Sentinel dropdown value for "no meta" — sent to the API as an empty group_code.
 const UNASSIGNED = "__unassigned__";
 
-// Meta/round types the create_meta route accepts (see TYPE_DEFAULTS in puzzle_service.py).
-const META_TYPES: { value: MetaType; label: string }[] = [
-  { value: "Round", label: "Round" },
-  { value: "Metapuzzle", label: "Metapuzzle" },
-  { value: "Capstone", label: "Capstone" },
-  { value: "Runaround", label: "Runaround" },
-  { value: "Group", label: "Group" },
-];
-
 export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: string }) {
   const [puzzleOpen, puzzle] = useDisclosure(false);
   const [metaOpen, meta] = useDisclosure(false);
@@ -30,6 +21,13 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
       { value: UNASSIGNED, label: "Unassigned (no meta)" },
     ],
     [detail.board]
+  );
+
+  // Create-meta type labels come from the API (CREATE_META_TYPES); the
+  // MetaType union is kept purely as a compile-time guard on the payload.
+  const metaTypeOptions = useMemo(
+    () => detail.meta_types.map((t) => ({ value: t, label: t })),
+    [detail.meta_types]
   );
 
   const [puzzleName, setPuzzleName] = useState("");
@@ -122,7 +120,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
           />
           <Select
             label="Type"
-            data={META_TYPES}
+            data={metaTypeOptions}
             value={metaType}
             onChange={(v) => setMetaType((v as MetaType) ?? "Round")}
             allowDeselect={false}

@@ -98,6 +98,7 @@ async def hunt_detail(uid):
     # Archived hunts are read-only even for organisers.
     can_manage = (not hunt["archived"]) and await user_can_manage(current_user()["id"], guild_snowflake)
     admin = await user_can_manage(current_user()["id"], guild_snowflake, roles=ADMIN_ROLES)
+    from bot.core.puzzle_service import CREATE_META_TYPES
     return jsonify({
         "hunt": {
             "uid": hunt["uid"],
@@ -117,6 +118,7 @@ async def hunt_detail(uid):
         },
         "summary": {"total": len(puzzles), "solved": solved},
         "board": board,
+        "meta_types": list(CREATE_META_TYPES),
     })
 
 

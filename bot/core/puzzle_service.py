@@ -153,6 +153,12 @@ GROUP_TYPES = tuple(TYPE_DEFAULTS)
 # Create-time input labels mapped to stored types.
 GROUP_TYPE_INPUT_ALIASES = {"Round": "Metapuzzle"}
 
+# Ordered create-time type labels offered by the create-meta UI — the single
+# source of truth for the dashboard dropdown (exposed via the hunt-detail API).
+# Derived, not hand-listed: input aliases first (e.g. "Round"), then the stored
+# GROUP_TYPES, so a new type or alias surfaces in the dropdown automatically.
+CREATE_META_TYPES = tuple(GROUP_TYPE_INPUT_ALIASES) + GROUP_TYPES
+
 
 def default_edge_for_group(group) -> str:
     """The edge a newly-added puzzle should get to maintain the group's status quo:

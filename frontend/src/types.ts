@@ -117,6 +117,8 @@ export interface HuntDetail {
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];
+  // Ordered create-meta type labels (CREATE_META_TYPES in puzzle_service.py).
+  meta_types: string[];
 }
 
 export interface ActivityEvent {

@@ -324,7 +324,11 @@ export function useCreatePuzzle(uid: string) {
   });
 }
 
-/** Meta/round types accepted by create_meta (mirrors TYPE_DEFAULTS in puzzle_service.py). */
+/**
+ * Meta/round types accepted by create_meta. The dropdown's runtime list comes
+ * from the hunt-detail API (CREATE_META_TYPES in puzzle_service.py); this union
+ * is a compile-time guard on the create-meta payload. Keep them in sync.
+ */
 export type MetaType = "Round" | "Metapuzzle" | "Capstone" | "Runaround" | "Group";
 
 export function useCreateMeta(uid: string) {
