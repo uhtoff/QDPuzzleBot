@@ -1,8 +1,21 @@
 import re
 from typing import Optional
 
+from slugify import slugify
+
 REGEX_DRIVE_ID = re.compile(r"[-\w]{25,}")
 REGEX_DRIVE_URL = re.compile(r".*/d/(?P<id>[-\w]{25,})[^-\w]?.*")
+
+
+def puzzle_url_slug(name: str, sep: str = "-") -> str:
+    """Slugify *name* into a URL path segment for a puzzle's hunt-site link.
+
+    Unlike Discord's ``clean_channel_name`` (which passes non-ASCII through
+    unchanged so the stored name matches the channel Discord creates), this
+    transliterates accents/emoji/em-dashes down to plain ASCII so the URL stays
+    web-safe. *sep* is the hunt's configured word separator (``url_sep``).
+    """
+    return slugify(name, separator=sep)
 
 def spreadsheet_url(sheet_id: str, page_id=None) -> str:
     if sheet_id.startswith("https://"):

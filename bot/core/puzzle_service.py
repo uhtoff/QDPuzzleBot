@@ -1632,7 +1632,7 @@ class PuzzleService:
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
             hunt_url_base = hunt.url.rstrip("/")
-            p_name = clean_channel_name(name).replace("-", hunt.url_sep)
+            p_name = urls.puzzle_url_slug(name, sep=hunt.url_sep)
             new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
         if round_data is not None:
             new_puzzle.tags.append(round_data.id)
