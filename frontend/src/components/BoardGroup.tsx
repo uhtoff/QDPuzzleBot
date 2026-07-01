@@ -41,10 +41,13 @@ const KIND_STRIP_COLOR: Record<string, string> = {
   metameta: "var(--mantine-color-violet-6)",
   capstone: "var(--mantine-color-orange-6)",
   meta: "var(--mantine-color-grape-6)",
+  minimeta: "var(--mantine-color-grape-4)",
 };
 
-function kindStrip(p: { meta_kind?: string | null }): string | undefined {
-  return p.meta_kind ? KIND_STRIP_COLOR[p.meta_kind] : undefined;
+function kindStrip(p: { meta_kind?: string | null; is_minimeta?: boolean }): string | undefined {
+  if (p.meta_kind) return KIND_STRIP_COLOR[p.meta_kind];
+  if (p.is_minimeta) return KIND_STRIP_COLOR.minimeta;
+  return undefined;
 }
 
 interface Props {
