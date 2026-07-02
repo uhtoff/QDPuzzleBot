@@ -410,6 +410,7 @@ async def set_puzzle_link(puzzle_id):
 
         await cog.service.set_puzzle_url(guild, hunt_obj, puzzle, url)
         await _audit("link", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
 
@@ -445,7 +446,7 @@ async def log_clue(puzzle_id):
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
-        cog.service.log_clues(hunt_obj, puzzle, [note])
+        await cog.service.log_clues(hunt_obj, puzzle, [note])
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
         asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
         await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
@@ -777,7 +778,10 @@ async def patch_hunt_settings(uid):
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
 
-    cog.service.update_hunt_settings(hunt_obj, **body)
+    await cog.service.update_hunt_settings(hunt_obj, **body)
+    guild = current_app.bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    if guild is not None:
+        await cog.service.notifier.refresh_info(guild, hunt_obj)
     await _audit("hunt_settings", hunt_uid=uid)
     return jsonify({"ok": True})
 

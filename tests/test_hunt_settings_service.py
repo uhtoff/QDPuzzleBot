@@ -33,44 +33,44 @@ def _settings_service():
     return PuzzleService(bot)
 
 
-def test_update_url_commits_new_value():
+async def test_update_url_commits_new_value():
     svc, hunt = _settings_service(), _settings_hunt()
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        svc.update_hunt_settings(hunt, url="https://new.example/")
+        await svc.update_hunt_settings(hunt, url="https://new.example/")
     assert hunt.url == "https://new.example/"
     hdb.commit.assert_called_once_with(hunt)
 
 
-def test_update_start_timestamp_mirrors_start_time():
+async def test_update_start_timestamp_mirrors_start_time():
     svc, hunt = _settings_service(), _settings_hunt()
     ts = 1_700_000_000
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        svc.update_hunt_settings(hunt, start_timestamp=ts)
+        await svc.update_hunt_settings(hunt, start_timestamp=ts)
     assert hunt.start_timestamp == ts
     assert hunt.start_time == datetime.datetime.fromtimestamp(ts, tz=pytz.UTC)
     hdb.commit.assert_called_once_with(hunt)
 
 
-def test_update_login_sets_both_fields():
+async def test_update_login_sets_both_fields():
     svc, hunt = _settings_service(), _settings_hunt()
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        svc.update_hunt_settings(hunt, username="team", password="secret")
+        await svc.update_hunt_settings(hunt, username="team", password="secret")
     assert (hunt.username, hunt.password) == ("team", "secret")
     hdb.commit.assert_called_once_with(hunt)
 
 
-def test_update_url_building_keys():
+async def test_update_url_building_keys():
     svc, hunt = _settings_service(), _settings_hunt()
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        svc.update_hunt_settings(hunt, url_sep="_", puzzle_prefix="puzzles")
+        await svc.update_hunt_settings(hunt, url_sep="_", puzzle_prefix="puzzles")
     assert (hunt.url_sep, hunt.puzzle_prefix) == ("_", "puzzles")
     hdb.commit.assert_called_once_with(hunt)
 
 
-def test_unprovided_fields_left_untouched():
+async def test_unprovided_fields_left_untouched():
     svc, hunt = _settings_service(), _settings_hunt()
     with patch("bot.core.puzzle_service.HuntJsonDb") as _hdb:
-        svc.update_hunt_settings(hunt, url="https://new.example/")
+        await svc.update_hunt_settings(hunt, url="https://new.example/")
     assert hunt.username == "" and hunt.password == ""
     assert hunt.start_timestamp == 0 and hunt.start_time is None
     assert hunt.url_sep == "-" and hunt.puzzle_prefix == "puzzle"

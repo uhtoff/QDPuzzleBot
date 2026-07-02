@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — Tranche 2 of staging review fixes implemented and tested, about to commit
+Status: in progress — Tranche 3 of staging review fixes implemented and tested, about to commit
 
 ## Goal
 
@@ -17,17 +17,18 @@ Full tranche plan is also saved to project memory:
 
 1. **Tranche 1 (DONE, committed 5747523):** missing channel/None guards in
    bot/cogs/puzzles.py — #9, #10, #11, #13, #14, #16, #18, #19, #21, #23.
-2. **Tranche 2 (DONE this session):** lying success-ack ordering bugs — #17, #74.
-3. **Tranche 3 (next):** web↔Discord pin/board staleness — #63, #65, #66, #67, #68, #85.
-4. **Tranche 4:** Google Sheets correctness bugs in bot/cogs/puzzles_gsheet.py — #24, #25,
-   #26, #47, #48.
+2. **Tranche 2 (DONE, committed 52a5e94):** lying success-ack ordering bugs — #17, #74.
+3. **Tranche 3 (DONE this session):** web↔Discord pin/board staleness — #63, #65, #66,
+   #67, #68, #85.
+4. **Tranche 4 (next):** Google Sheets correctness bugs in bot/cogs/puzzles_gsheet.py —
+   #24, #25, #26, #47, #48.
 
 ## Current status
 
-Tranche 2 fully implemented and verified (`git diff bot/cogs/puzzles.py`, 4 hunks reordering
-ack-after-mutation). Full test suite passes (766 passed,
-`timeout 180 pipenv run python -m pytest tests/ -q`). Not yet committed — review the diff
-and commit before starting tranche 3.
+Tranche 3 fully implemented and verified. Full test suite passes (766 passed,
+`timeout 180 pipenv run python -m pytest tests/ -q`), frontend `tsc --noEmit` clean, `ruff
+check` clean on all touched files. Not yet committed — review the diff and commit before
+starting tranche 4.
 
 Also copied docs/reviews/2026-07-02-staging-full-review.md from `staging` into this
 worktree (untracked) purely for local reference while implementing; either commit it or
@@ -61,20 +62,54 @@ leave it — it's the same content already on `staging`.
   is a pure statement-reorder, no new guard/message text — so it also resolves #74 (the
   duplication finding noting these four had drifted from their siblings) as a side effect.
 
+- #68 (update_hunt_settings has no @pushes_board): converted it from a plain sync method to
+  `async` + `@pushes_board()` — matching the codebase's existing decorator idiom for every
+  other board-visible mutation. Required awaiting it at its 3 call sites (bot/cogs/puzzles.py
+  set_login/set_start, bot/web/actions.py patch_hunt_settings) and converting
+  tests/test_hunt_settings_service.py's 5 test functions to async/await.
+- #65 (DiscordNotifier.refresh_info can't refresh the hunt channel's own pin): extended
+  refresh_info to handle `puzzle=None` as a hunt-level refresh (reuses
+  send_initial_hunt_channel_messages(ctx=None, ..., update=True), mirroring the existing
+  ctx=None puzzle-level refresh pattern). Wired it into !set_login, !set_start, and the web
+  PATCH /hunts/<uid>/settings endpoint (via `cog.service.notifier.refresh_info(guild, hunt)`).
+- #63 (!update_settings bypasses puzzle_service entirely): added a pin refresh
+  (`self.info(ctx, update=True)`, gated on the channel actually having a pin) + a
+  `notifier.board_changed(hunt)` call after the commit, since this escape-hatch command
+  doesn't go through a `@pushes_board`-decorated service method. Did NOT add a web
+  equivalent for guild/round settings — that's a feature gap, not a narrow bug fix, and out
+  of scope for this tranche.
+- #66 (log_clues has no board push; Evidence panel doesn't live-update for other viewers):
+  converted log_clues to async + `@pushes_board()` (same pattern as #68), updated its 3 call
+  sites and tests/test_evidence_commands.py (AsyncMock instead of MagicMock) and
+  tests/test_evidence_service.py (async test functions). Also added a frontend fix:
+  frontend/src/pages/HuntBoard.tsx's WS board-event handler now invalidates
+  `["evidence", uid]` alongside `["hunt", uid]`, so an open Evidence panel picks up clues
+  logged by someone else without a manual refresh.
+- #67 (web POST /puzzles/<id>/link doesn't refresh the pin): added
+  `await cog.web_refresh_info(guild, hunt_obj, puzzle)` after `set_puzzle_url`, matching the
+  sibling update_puzzle/add_sheet/remove_sheet endpoints.
+- #85 (web-dashboard task's exception never observed): added a `task.add_done_callback` in
+  bot/web/__init__.py's start_web that logs (with exc_info) if the background hypercorn task
+  raises, instead of the crash going completely unlogged.
+- Extended tests/test_board_push_service.py's `EXPECTED_PUSH_METHODS` allowlist to include
+  `log_clues` and `update_hunt_settings` (this is a guard-rail test that intentionally fails
+  when a new @pushes_board method appears — it caught both additions correctly, confirming
+  the fix landed).
+
 ## Rejected approaches
 
 None — all findings so far had a clear, narrow fix matching an existing idiom already used
 elsewhere in the same file (`send_not_puzzle_channel`, the
-"I can't tell which hunt this is" message, or the correct sibling's ack-after-mutation
-ordering).
+"I can't tell which hunt this is" message, the correct sibling's ack-after-mutation
+ordering, or the `@pushes_board`/`web_refresh_info` patterns already used by sibling
+service methods and web endpoints).
 
 ## Next steps
 
-1. Review `git diff bot/cogs/puzzles.py` one more time, then commit tranche 2.
-2. Start tranche 3 (#63, #65, #66, #67, #68, #85 — web↔Discord pin/board staleness).
-3. Continue through tranche 4 in a subsequent session, per the plan above / the
-   `staging-review-2026-07-02-tranches` memory.
-4. Do not touch round/hunt deletion code (#29, #30, #32, #42, #45, #54, #55) — working-2's
+1. Review the diff one more time, then commit tranche 3.
+2. Start tranche 4 (#24, #25, #26, #47, #48 — Google Sheets correctness bugs in
+   bot/cogs/puzzles_gsheet.py). This is the last planned tranche.
+3. Do not touch round/hunt deletion code (#29, #30, #32, #42, #45, #54, #55) — working-2's
    scope.
 
 ## Open questions

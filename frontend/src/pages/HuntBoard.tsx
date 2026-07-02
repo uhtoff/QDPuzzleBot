@@ -34,7 +34,12 @@ export default function HuntBoard() {
   const { data: rawData, isLoading, error } = useHunt(uid);
   const { viewAs } = useViewAs();
   const qc = useQueryClient();
-  const live = useActivityFeed((u) => { if (u === uid) qc.invalidateQueries({ queryKey: ["hunt", uid] }); });
+  const live = useActivityFeed((u) => {
+    if (u === uid) {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+      qc.invalidateQueries({ queryKey: ["evidence", uid] });
+    }
+  });
   const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "manage">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
 

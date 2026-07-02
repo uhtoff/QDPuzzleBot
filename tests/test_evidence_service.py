@@ -51,7 +51,7 @@ class TestLogClues:
     """PuzzleService.log_clues — inserts one item per note."""
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_inserts_one_item_per_note(self, EvidenceDb):
+    async def test_inserts_one_item_per_note(self, EvidenceDb):
         from bot.core.puzzle_service import PuzzleService
         item1, item2 = MagicMock(), MagicMock()
         EvidenceDb.log.side_effect = [item1, item2]
@@ -60,7 +60,7 @@ class TestLogClues:
         hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
-        result = svc.log_clues(hunt, puzzle, ["note A", "note B"])
+        result = await svc.log_clues(hunt, puzzle, ["note A", "note B"])
 
         assert EvidenceDb.log.call_count == 2
         EvidenceDb.log.assert_any_call(10, 5, "note A")
@@ -68,28 +68,28 @@ class TestLogClues:
         assert result == [item1, item2]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_single_note(self, EvidenceDb):
+    async def test_single_note(self, EvidenceDb):
         from bot.core.puzzle_service import PuzzleService
         item = MagicMock()
         EvidenceDb.log.return_value = item
 
         svc = PuzzleService(MagicMock())
-        result = svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
+        result = await svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
 
         EvidenceDb.log.assert_called_once_with(10, 3, "solo note")
         assert result == [item]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_empty_list_returns_empty(self, EvidenceDb):
+    async def test_empty_list_returns_empty(self, EvidenceDb):
         from bot.core.puzzle_service import PuzzleService
         svc = PuzzleService(MagicMock())
-        result = svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), [])
+        result = await svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), [])
         EvidenceDb.log.assert_not_called()
         assert result == []
 
     @patch("bot.core.puzzle_service.TagGroupJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_auto_routes_to_sole_informs_target(self, EvidenceDb, TagGroupDb):
+    async def test_auto_routes_to_sole_informs_target(self, EvidenceDb, TagGroupDb):
         from bot.core.puzzle_service import PuzzleService
         item = MagicMock(); item.id = 77
         EvidenceDb.log.return_value = item
@@ -99,13 +99,13 @@ class TestLogClues:
         svc = PuzzleService(MagicMock())
         puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
         puzzle.tag_edges = {3: {"informs"}}
-        svc.log_clues(make_hunt(), puzzle, ["clue"])
+        await svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_called_once_with(77, 99)
 
     @patch("bot.core.puzzle_service.TagGroupJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_no_route_when_multiple_informs(self, EvidenceDb, TagGroupDb):
+    async def test_no_route_when_multiple_informs(self, EvidenceDb, TagGroupDb):
         from bot.core.puzzle_service import PuzzleService
         EvidenceDb.log.return_value = MagicMock()
         g1 = MagicMock(); g1.target_puzzle_id = 99
@@ -115,20 +115,20 @@ class TestLogClues:
         svc = PuzzleService(MagicMock())
         puzzle = make_puzzle(id=5, hunt_id=10, tags=[3, 4])
         puzzle.tag_edges = {3: {"informs"}, 4: {"informs"}}
-        svc.log_clues(make_hunt(), puzzle, ["clue"])
+        await svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_not_called()
 
     @patch("bot.core.puzzle_service.TagGroupJsonDb")
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
-    def test_no_route_when_feeds_only(self, EvidenceDb, TagGroupDb):
+    async def test_no_route_when_feeds_only(self, EvidenceDb, TagGroupDb):
         from bot.core.puzzle_service import PuzzleService
         EvidenceDb.log.return_value = MagicMock()
 
         svc = PuzzleService(MagicMock())
         puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
         puzzle.tag_edges = {3: {"feeds"}}
-        svc.log_clues(make_hunt(), puzzle, ["clue"])
+        await svc.log_clues(make_hunt(), puzzle, ["clue"])
 
         EvidenceDb.set_target.assert_not_called()
 

@@ -1309,7 +1309,7 @@ class Puzzles(commands.Cog):
         if not note.strip():
             await ctx.send(":warning: No clue text provided.")
             return
-        self.service.log_clues(hunt, puzzle, [note.strip()])
+        await self.service.log_clues(hunt, puzzle, [note.strip()])
         asyncio.create_task(self.service.refresh_evidence(hunt))
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
@@ -1340,7 +1340,7 @@ class Puzzles(commands.Cog):
         if not notes:
             await ctx.send(":warning: No items provided.")
             return
-        self.service.log_clues(hunt, puzzle, notes)
+        await self.service.log_clues(hunt, puzzle, notes)
         asyncio.create_task(self.service.refresh_evidence(hunt))
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
@@ -1970,9 +1970,11 @@ class Puzzles(commands.Cog):
 
         if ":" in arg:
             username, password = arg.split(":", 1)
-            self.service.update_hunt_settings(self.get_hunt(ctx), username=username, password=password)
+            hunt = self.get_hunt(ctx)
+            await self.service.update_hunt_settings(hunt, username=username, password=password)
+            await self.service.notifier.refresh_info(ctx.guild, hunt)
             return await ctx.send(
-                f":white_check_mark: I've updated the login details for hunt {self.get_hunt(ctx).name}"
+                f":white_check_mark: I've updated the login details for hunt {hunt.name}"
             )
 
         await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
@@ -1989,9 +1991,11 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This must be sent in a channel related to a hunt")
             return
 
-        self.service.update_hunt_settings(self.get_hunt(ctx), start_timestamp=timestamp)
+        hunt = self.get_hunt(ctx)
+        await self.service.update_hunt_settings(hunt, start_timestamp=timestamp)
+        await self.service.notifier.refresh_info(ctx.guild, hunt)
         return await ctx.send(
-            f":white_check_mark: I've updated the start time for hunt {self.get_hunt(ctx).name}"
+            f":white_check_mark: I've updated the start time for hunt {hunt.name}"
         )
 
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
@@ -2042,6 +2046,17 @@ class Puzzles(commands.Cog):
                 self.save_settings(ctx, settings)
             else:
                 PuzzleJsonDb.commit(settings)
+
+            # This escape-hatch command bypasses puzzle_service, so it must do its
+            # own pin refresh + board push (the proper !status/!type/!priority
+            # paths get both for free via service.update_puzzle_field).
+            ch_type = self.get_channel_type(ctx)
+            if ch_type in ("Hunt", "Metapuzzle", "Capstone", "Runaround", "Group", "Puzzle"):
+                await self.info(ctx, update=True)
+            hunt = self.get_hunt(ctx)
+            if hunt is not None:
+                await self.service.notifier.board_changed(hunt)
+
             await ctx.send(f":white_check_mark: Updated `{setting_key}={value}` from old value: `{old_value}`")
         else:
             await ctx.send(f":exclamation: Unrecognized setting key: `{setting_key}`. Use `!show_settings` for more info.")
