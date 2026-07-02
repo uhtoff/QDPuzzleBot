@@ -2,7 +2,7 @@
 
 ## Git status
 
-Branch: `working-1` (based on `staging`, tip now `1740bab`). Worktree already had
+Branch: `working-1` (based on `staging`, tip now `dfeafc4`). Worktree already had
 `config.json` + `google_secrets.json` present (bootstrap step was a no-op check).
 
 ## Files changed
@@ -29,6 +29,10 @@ Branch: `working-1` (based on `staging`, tip now `1740bab`). Worktree already ha
 - `frontend/src/components/AdminSettingsPanel.tsx` — UTC-offset `Select` for hunt start time
   + offset-arithmetic conversion (#7); replaced render-body derived-state sync with a
   `useEffect` keyed on `uid` so edits survive the dashboard's 30s background poll (#8)
+- `frontend/src/util.ts` — extracted the #7 offset helpers (`browserOffsetMinutes`,
+  `UTC_OFFSET_OPTIONS`, `tsToLocal`, `localToTs`) here so they're shared, not duplicated
+- `frontend/src/pages/HuntList.tsx` — `NewHuntModal`: same UTC-offset picker, applied to
+  the create-hunt start time (user follow-up request, not from the original review)
 
 ## Diff summary
 
@@ -40,6 +44,8 @@ Branch: `working-1` (based on `staging`, tip now `1740bab`). Worktree already ha
 - 0da35ea `fix(web): publish the guild snowflake from board_changed, not the row id (#6)`
 - 2e77ca5 `docs(ai): record Phase 2 (#5, #6) in handoff tracker`
 - 1740bab `fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`
+- acda3db `docs(ai): record Phase 3 (#7, #8) and Q3 resolution in handoff tracker`
+- dfeafc4 `feat(web): add the same UTC-offset picker to the New Hunt modal`
 
 ## Commands run
 
