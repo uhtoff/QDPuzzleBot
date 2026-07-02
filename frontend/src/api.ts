@@ -582,11 +582,11 @@ export function useArchiveHunt(uid: string) {
   });
 }
 
-export function useCreateArchiveSheet(uid: string) {
+export function useCreateSolvedSheet(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiSend<{ ok: boolean; archive_google_sheet_id: string }>(`/api/hunts/${uid}/archive-sheet`, "POST"),
+      apiSend<{ ok: boolean; archive_google_sheet_id: string }>(`/api/hunts/${uid}/solved-sheet`, "POST"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
@@ -607,7 +607,7 @@ export interface CreateHuntPayload {
   role_name?: string;
   username?: string;
   password?: string;
-  create_archive_sheet?: boolean;
+  create_solved_sheet?: boolean;
   layout_mode?: "channel" | "forum";
 }
 

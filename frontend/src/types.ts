@@ -69,7 +69,7 @@ export interface Puzzle {
   is_minimeta: boolean;
   status: string | null;
   solved: boolean;
-  archived: boolean;
+  on_solved_sheet: boolean;
   solution: string | null;
   priority: string | null;
   puzzle_type: string | null;
@@ -106,7 +106,7 @@ export interface HuntDetail {
     archived: boolean;
     guild_snowflake: string | null;
     sheet_base_url: string | null;
-    archive_sheet_base_url: string | null;
+    solved_sheet_base_url: string | null;
     can_manage: boolean;
     is_admin: boolean;
     start_timestamp: number | null;

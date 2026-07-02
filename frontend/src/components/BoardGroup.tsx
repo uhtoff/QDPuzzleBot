@@ -235,7 +235,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         <PuzzleLinks
                           puzzle={p}
                           sheetBase={detail.hunt.sheet_base_url}
-                          archiveSheetBase={detail.hunt.archive_sheet_base_url}
+                          solvedSheetBase={detail.hunt.solved_sheet_base_url}
                         />
                       </Table.Td>
                       <Table.Td {...bandProps}>
@@ -263,7 +263,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         <PuzzleLinks
                           puzzle={p}
                           sheetBase={detail.hunt.sheet_base_url}
-                          archiveSheetBase={detail.hunt.archive_sheet_base_url}
+                          solvedSheetBase={detail.hunt.solved_sheet_base_url}
                         />
                       </Table.Td>
                       <Table.Td {...bandProps}>

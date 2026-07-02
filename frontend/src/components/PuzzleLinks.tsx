@@ -5,11 +5,11 @@ import type { Puzzle } from "../types";
 interface Props {
   puzzle: Puzzle;
   sheetBase: string | null;
-  archiveSheetBase: string | null;
+  solvedSheetBase: string | null;
 }
 
-export function PuzzleLinks({ puzzle, sheetBase, archiveSheetBase }: Props) {
-  const base = puzzle.archived && archiveSheetBase ? archiveSheetBase : sheetBase;
+export function PuzzleLinks({ puzzle, sheetBase, solvedSheetBase }: Props) {
+  const base = puzzle.on_solved_sheet && solvedSheetBase ? solvedSheetBase : sheetBase;
   const sheetUrl = base && puzzle.sheet_page ? `${base}${puzzle.sheet_page}` : null;
 
   return (

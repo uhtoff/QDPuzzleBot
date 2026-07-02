@@ -67,7 +67,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [roleName, setRoleName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [createArchiveSheet, setCreateArchiveSheet] = useState(false);
+  const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
   const [forumLayout, setForumLayout] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -90,7 +90,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (roleName.trim()) payload.role_name = roleName.trim();
     if (username.trim()) payload.username = username.trim();
     if (password.trim()) payload.password = password.trim();
-    if (createArchiveSheet) payload.create_archive_sheet = true;
+    if (createSolvedSheet) payload.create_solved_sheet = true;
     if (forumLayout) payload.layout_mode = "forum";
 
     createMut.mutate(payload, {
@@ -187,9 +187,9 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
         </Collapse>
 
         <Checkbox
-          label="Create archive sheet"
-          checked={createArchiveSheet}
-          onChange={(e) => setCreateArchiveSheet(e.currentTarget.checked)}
+          label="Move solved feeders to their own sheet"
+          checked={createSolvedSheet}
+          onChange={(e) => setCreateSolvedSheet(e.currentTarget.checked)}
         />
 
         <Button onClick={handleSubmit} loading={createMut.isPending} disabled={!canSubmit}>

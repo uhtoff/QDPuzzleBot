@@ -101,7 +101,7 @@ export default function HuntBoard() {
         url={data.hunt.url}
         start_timestamp={data.hunt.start_timestamp}
         sheet_base_url={data.hunt.sheet_base_url}
-        archive_sheet_base_url={data.hunt.archive_sheet_base_url}
+        solved_sheet_base_url={data.hunt.solved_sheet_base_url}
         username={data.hunt.username}
         password={data.hunt.password}
       />
@@ -163,7 +163,7 @@ export default function HuntBoard() {
               url_sep={data.hunt.url_sep}
               puzzle_prefix={data.hunt.puzzle_prefix}
               archived={data.hunt.archived}
-              hasArchiveSheet={!!data.hunt.archive_sheet_base_url}
+              hasSolvedSheet={!!data.hunt.solved_sheet_base_url}
               puzzleCount={data.summary.total}
             />
           )}

@@ -23,7 +23,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
-import { useArchiveHunt, useCreateArchiveSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { useArchiveHunt, useCreateSolvedSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
@@ -36,7 +36,7 @@ interface AdminSettingsPanelProps {
   url_sep: string;
   puzzle_prefix: string;
   archived: boolean;
-  hasArchiveSheet: boolean;
+  hasSolvedSheet: boolean;
   puzzleCount: number;
 }
 
@@ -60,7 +60,7 @@ export function AdminSettingsPanel({
   url_sep,
   puzzle_prefix,
   archived,
-  hasArchiveSheet,
+  hasSolvedSheet,
   puzzleCount,
 }: AdminSettingsPanelProps) {
   const navigate = useNavigate();
@@ -70,7 +70,7 @@ export function AdminSettingsPanel({
 
   const settingsMut = useUpdateHuntSettings(uid);
   const archiveMut = useArchiveHunt(uid);
-  const sheetMut = useCreateArchiveSheet(uid);
+  const sheetMut = useCreateSolvedSheet(uid);
   const deleteMut = useDeleteHunt(uid);
 
   const [values, setValues] = useState<FormValues>(() => {
@@ -168,11 +168,11 @@ export function AdminSettingsPanel({
     });
   }, [archived, archiveMut]);
 
-  const handleCreateArchiveSheet = useCallback(() => {
+  const handleCreateSolvedSheet = useCallback(() => {
     sheetMut.mutate(undefined, {
       onSuccess: () => {
         notifications.show({
-          message: "Archive sheet created.",
+          message: "Solved puzzles sheet created.",
           color: "green",
         });
       },
@@ -306,20 +306,20 @@ export function AdminSettingsPanel({
           </Button>
         </Group>
 
-        {!hasArchiveSheet && (
+        {!hasSolvedSheet && (
           <Button
             size="xs"
             variant="light"
             leftSection={<IconFileSpreadsheet size={14} />}
-            onClick={handleCreateArchiveSheet}
+            onClick={handleCreateSolvedSheet}
             loading={sheetMut.isPending}
           >
-            Create archive sheet
+            Move solved feeders to their own sheet
           </Button>
         )}
 
-        {hasArchiveSheet && (
-          <Text size="sm" c="green">✓ Archive sheet already created.</Text>
+        {hasSolvedSheet && (
+          <Text size="sm" c="green">✓ Solved puzzles sheet already created.</Text>
         )}
       </Stack>
 

@@ -101,8 +101,8 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
     });
   }
 
-  const sheetBase = puzzle?.archived && detail.hunt.archive_sheet_base_url
-    ? detail.hunt.archive_sheet_base_url
+  const sheetBase = puzzle?.on_solved_sheet && detail.hunt.solved_sheet_base_url
+    ? detail.hunt.solved_sheet_base_url
     : detail.hunt.sheet_base_url;
 
   return (
