@@ -1069,6 +1069,11 @@ class PuzzleService:
         target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if target_group is not None:
             TagGroupJsonDb.delete(target_group.id)
+            # Drop every edge to the deleted group (normally just the 'target'
+            # self-edge), not just puzzle.tags — leaving one in tag_edges makes the
+            # next commit's tag-sync try to INSERT a row against the tag_group we
+            # just deleted, failing with an IntegrityError.
+            puzzle.tag_edges.pop(target_group.id, None)
             if target_group.id in puzzle.tags:
                 puzzle.tags.remove(target_group.id)
         puzzle.is_target = False

@@ -662,6 +662,17 @@ class TestWebConvertToPuzzle:
         assert 5 not in puz.tags
 
     @pytest.mark.asyncio
+    async def test_removes_round_from_tag_edges(self, cog, hunt):
+        # #5: leaving the 'target' self-edge in tag_edges after the round is
+        # deleted makes the next PuzzleJsonDb.commit's tag-sync try to INSERT a
+        # row against the now-deleted tag_group, raising an IntegrityError.
+        puz = make_puzzle(id=1, is_target=True, tags=[5])
+        puz.tag_edges = {5: {"target"}}
+        rnd = make_round(id=5, target_puzzle_id=1)
+        await self._run(cog, hunt, puz, meta_round=rnd, round_members=[puz])
+        assert 5 not in puz.tag_edges
+
+    @pytest.mark.asyncio
     async def test_commits_puzzle(self, cog, hunt):
         puz = make_puzzle(id=42, is_target=True, tags=[5])
         rnd = make_round(id=5, target_puzzle_id=42)
