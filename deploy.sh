@@ -6,7 +6,7 @@
 #       ./deploy.sh
 #
 # What it does, in order (privilege-free — no sudo needed for the defaults):
-#   1. sync Python deps        (pipenv install --deploy)
+#   1. sync Python deps        (pipenv sync — installs exactly Pipfile.lock)
 #   2. apply DB migrations      (python migrate.py)   ← golden rule: migrate BEFORE new code runs
 #   3. restart the bot          (see RESTART below)
 #
@@ -52,10 +52,15 @@ else
   exit 127
 fi
 
-echo "[deploy] Syncing Python deps (pipenv install --deploy)..."
-if ! $PIPENV install --deploy; then
-  echo "[deploy] ERROR: pipenv install failed. Is Pipfile.lock in sync with Pipfile?" >&2
-  echo "[deploy]        (run 'pipenv lock' and commit the lockfile if it's stale.)" >&2
+# `pipenv sync` installs EXACTLY what's pinned in Pipfile.lock — reproducible,
+# and (unlike `install --deploy`) it does NOT re-verify the Pipfile-vs-lock
+# hash. That hash check is pipenv-version-sensitive: a host whose pipenv differs
+# from the one that generated the lock rejects an otherwise-valid lock. Re-lock
+# discipline lives with whoever edits Pipfile: run `pipenv lock` and commit the
+# updated Pipfile.lock.
+echo "[deploy] Syncing Python deps from Pipfile.lock (pipenv sync)..."
+if ! $PIPENV sync; then
+  echo "[deploy] ERROR: pipenv sync failed. Is Pipfile.lock committed and valid?" >&2
   exit 1
 fi
 
