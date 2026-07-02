@@ -44,6 +44,7 @@ import {
   type RetagMode,
 } from "../api";
 import { notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
+import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
 import { MetaBadge } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
@@ -81,6 +82,8 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   });
   // Pending action for the ConfirmModal (minimeta / convert-to-meta).
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  // Controls the "Add to group" searchable picker overlay.
+  const [addOpen, setAddOpen] = useState(false);
 
   // Groups this puzzle is not already in (candidates for "add"). A meta may also
   // be added to its OWN group so it feeds itself in a loop — that group is in
@@ -153,30 +156,10 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown onPointerDown={(e) => e.stopPropagation()}>
-            <Menu.Label>Add to group</Menu.Label>
             {addable.length === 0 ? (
               <Menu.Item disabled>Already in all groups</Menu.Item>
             ) : (
-              addable.map((m) =>
-                m.code === ownTargetCode ? (
-                  <>
-                    {!selfFeeds && (
-                      <Menu.Item key={`${m.code}-feeds`} onClick={() => onRetag(puzzle.id, m.code, "add", "feeds")}>
-                        {m.name} (feeds itself)
-                      </Menu.Item>
-                    )}
-                    {!selfInforms && (
-                      <Menu.Item key={`${m.code}-informs`} onClick={() => onRetag(puzzle.id, m.code, "add", "informs")}>
-                        {m.name} (informs itself)
-                      </Menu.Item>
-                    )}
-                  </>
-                ) : (
-                  <Menu.Item key={m.code} onClick={() => onRetag(puzzle.id, m.code, "add")}>
-                    {m.name}
-                  </Menu.Item>
-                )
-              )
+              <Menu.Item onClick={() => setAddOpen(true)}>Add to group…</Menu.Item>
             )}
             {canRemove && (
               <>
@@ -316,6 +299,18 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
         </Group>
       )}
     </Card>
+    {addable.length > 0 && (
+      <AddToGroupPicker
+        opened={addOpen}
+        onClose={() => setAddOpen(false)}
+        puzzleId={puzzle.id}
+        items={addable}
+        ownTargetCode={ownTargetCode}
+        selfFeeds={selfFeeds}
+        selfInforms={selfInforms}
+        onRetag={onRetag}
+      />
+    )}
     {pendingAction && (
       <ConfirmModal
         opened={pendingAction != null}
