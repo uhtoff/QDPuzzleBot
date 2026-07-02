@@ -159,6 +159,11 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 12. [MEDIUM] `bot/cogs/puzzles.py:1135`
 
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). Both bang commands now call
+`self.info(ctx, update=True)`; both web endpoints now call
+`cog.web_refresh_info`.
+
 !remove_minimeta and !make_minimeta never refresh the pinned info message (no self.info(ctx, update=True)), unlike !add_mini/!solve_mini/!unsolve_mini; the web endpoints (make-minimeta / remove-minimeta in bot/web/actions.py) have the same gap, never calling cog.web_refresh_info. After remove_minimeta the pinned embed keeps showing the mini list with links to deleted threads and Type "Minimeta" until some other pin-refreshing command runs.
 
 **Failure scenario:** After `!remove_minimeta`, the pinned info embed (which renders the mini list via create_mini_list at line 2146) still shows the numbered list of now-deleted mini-puzzles with links to dead threads until some other command happens to refresh it; !make_minimeta likewise leaves the pin without the new minimeta state.
@@ -180,6 +185,11 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 **Failure scenario:** `!clues DON'T PANIC "SECOND CLUE"`: shlex.split raises ValueError('No closing quotation'), which is unhandled, so the user gets ':exclamation: Something went wrong' and no clue is logged; nothing tells them the apostrophe was the problem.
 
 ### 15. [MEDIUM] `bot/cogs/puzzles.py:1331`
+
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). `!sync` now also walks every category
+recorded for the group in `TagGroupCategoryDb` (solved/overflow), not just the
+primary category.
 
 !sync (alias !sync_round) iterates only the group's primary category (ctx.channel.category.channels, bot/cogs/puzzles.py:1331) and never consults TagGroupCategoryDb/category_layout.group_categories, so in a split round any untagged puzzles that were moved into the "— solved" or overflow categories are silently skipped while the command replies ":white_check_mark: Synced N puzzle(s)" with no warning.
 
@@ -596,6 +606,12 @@ README.md:69 documents a `!p puzzle-round-name: puzzle-name` colon syntax for cr
 **Failure scenario:** A user in the bot channel types `!p the-bog: clueless-crossword` expecting the puzzle to land in the-bog; instead the bot treats the full string `the-bog: clueless-crossword` as the puzzle name (round taken from the current channel's context), creating a mis-named puzzle/sheet in the wrong place.
 
 ### 70. [MEDIUM] `bot/cogs/puzzles.py:2311`
+
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). The welcome now names the channel kind
+correctly (capstone/runaround/meta) and, for capstones, leads with `!informs`
+and warns against `!feeds_only`/`!feeds`. Both `!info` and the web
+pin-refresh path share this one function, so the fix covers both entrypoints.
 
 Capstone and Runaround channels get the generic metapuzzle pinned welcome on both entrypoints — bang !info (bot/cogs/puzzles.py:2311-2312) and web refresh/welcome (bot/core/notifier.py:120, :158 route on puzzle.is_target with no capstone case) — so the pin says "Welcome to the meta channel for ..." and leads with `!feeds_only`/`!feeds` hints, which are the wrong edge for a capstone whose members should use `!informs`; a solver following the top hint tags a feeds edge (and `!feeds_only` also moves their channel), silently shifting the capstone toward meta semantics and its sheet rollup toward an answer list.
 
