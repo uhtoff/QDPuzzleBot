@@ -306,6 +306,16 @@ delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle 
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
+**Status: FIXED** in `ad90908` (`fix(puzzles): stop status/backsolved from being
+set outside solve/unsolve (#31)`, branch `working-1`). Implemented the other way
+round from the original finding's framing (which suggested running solve
+machinery when status is manually set to "Solved"): `update_puzzle_field` now
+refuses to set or clear "solved"/"backsolved" at all — those labels are owned
+by `solve()`/`unsolve()` — except toggling between the two on an
+already-solved puzzle. The dashboard's status picker (`PuzzleEditCells.tsx`)
+mirrors this: it only offers Solved/Backsolved once solved, and only the
+non-solved statuses beforehand.
+
 update_puzzle_field validates status against STATUSES, which includes "solved" and "backsolved" (bot/core/constants.py:13-14), and then only does setattr + commit (bot/core/puzzle_service.py:1272-1273) — none of the solve machinery in service.solve (puzzle_service.py:917-991: solved=True, solve_time, meta/group rollup refresh, sheet archive) runs. Both entrypoints expose "Solved"/"Backsolved" as pickable values (bang !status choices at bot/cogs/puzzles.py:2403-2410 → service call at 2425; web status dropdown STATUS_OPTIONS at frontend/src/components/PuzzleEditCells.tsx:25-26 → PATCH handler at bot/web/actions.py:209), so a user can label a puzzle Solved while puzzle.solved stays False: the dashboard hide-solved filter (frontend/src/components/PuzzleTable.tsx:191, keyed on p.solved) still shows it, meta sheet rollups and the group solved-derivation (puzzle_service.py:955-963) never fire, and the sheet is never archived.
 
 **Failure scenario:** !status solved (puzzles.py:2425) or web PATCH status='solved' (actions.py:209): puzzle.status becomes 'solved' but solved=False, no solve_time, no meta rollup refresh, no sheet archive; the dashboard's hide-solved filter (keyed on p.solved) still shows it, metas never receive its answer, and the group solved-derivation never fires.
