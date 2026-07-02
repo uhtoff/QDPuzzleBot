@@ -299,11 +299,13 @@ async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel()
 
 
 @pytest.mark.asyncio
-async def test_full_delete_forum_mode_unaffected_by_foreign_target_protection():
+async def test_full_delete_forum_mode_protects_foreign_target_puzzle():
     """Forum-layout rounds always full-delete regardless of keep_puzzles (no
-    relocation story for threads) — a forum round containing a foreign
-    tag group's target puzzle must still delete it outright, exactly like
-    before the #30 fix, not attempt (and silently fail) a relocation."""
+    relocation story for threads), but must still protect a member puzzle
+    that is a DIFFERENT tag group's target — deleting it would orphan that
+    nested group's target_puzzle_id, same as the non-forum full-delete path
+    (review #30). Since a forum thread has no relocation equivalent, the
+    protected puzzle's thread is simply left alone: not deleted, not moved."""
     svc = _svc()
     hunt = make_hunt(category_id=500, layout_mode="forum")
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
@@ -312,8 +314,9 @@ async def test_full_delete_forum_mode_unaffected_by_foreign_target_protection():
         id=3, name="Nested Meta", is_target=True, channel_id=903, tags=[5])
 
     forum_ch = MagicMock(id=100); forum_ch.delete = AsyncMock()
+    nested_ch = MagicMock(id=903); nested_ch.edit = AsyncMock(); nested_ch.delete = AsyncMock()
     guild = MagicMock()
-    guild.get_channel = MagicMock(side_effect=lambda cid: {100: forum_ch}.get(cid))
+    guild.get_channel = MagicMock(side_effect=lambda cid: {100: forum_ch, 903: nested_ch}.get(cid))
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -325,9 +328,10 @@ async def test_full_delete_forum_mode_unaffected_by_foreign_target_protection():
 
         failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
 
-    pdb.delete.assert_called_once_with(3)             # deleted outright, not protected
-    safe_delete.assert_awaited_once_with(guild, 903)  # attempted its own channel delete
-    forum_ch.delete.assert_awaited_once()              # forum channel itself torn down
+    pdb.delete.assert_not_called()             # nested meta target: protected, not deleted
+    safe_delete.assert_not_awaited()           # its thread's own delete never attempted
+    nested_ch.edit.assert_not_awaited()        # no relocation attempted (no equivalent for threads)
+    forum_ch.delete.assert_awaited_once()      # forum channel itself still torn down
     assert failed == []
 
 

@@ -1198,12 +1198,16 @@ class PuzzleService:
         do the full delete regardless of keep_puzzles — forum threads have no
         "move to the general category" equivalent.
 
-        Full delete (keep_puzzles=False, non-forum) still protects any member
-        puzzle that is a DIFFERENT tag group's target (relocated instead of
-        deleted, same as narrow mode) and refreshes every other tag group fed
-        by a deleted puzzle, so neither path can orphan a nested meta's
-        target_puzzle_id or leave a stale contribution row on an unrelated
-        meta's sheet.
+        Full delete (keep_puzzles=False, or forum layout regardless of
+        keep_puzzles) still protects any member puzzle that is a DIFFERENT tag
+        group's target — deleting it would orphan the nested group's
+        target_puzzle_id, the same case delete_puzzle forbids outright — and
+        refreshes every other tag group fed by a deleted puzzle, so neither
+        path can orphan a nested meta's target_puzzle_id or leave a stale
+        contribution row on an unrelated meta's sheet. Non-forum layouts
+        relocate the protected puzzle's channel out of the round category
+        (below); forum threads have no relocation equivalent, so a protected
+        puzzle's thread is simply left in place, untouched.
         """
         narrow = keep_puzzles and hunt.layout_mode != "forum"
         is_forum = hunt.layout_mode == "forum"
@@ -1217,18 +1221,14 @@ class PuzzleService:
             )
             to_delete = [target_puzzle] if target_puzzle else []
             to_keep = [p for p in all_puzzles if p is not target_puzzle]
-        elif is_forum:
-            # Forum rounds always full-delete regardless of keep_puzzles (no
-            # relocation story for threads) — unaffected by the foreign-target
-            # protection below, which relies on relocating protected puzzles.
-            to_delete = all_puzzles
-            to_keep = []
         else:
             # A member puzzle that is itself a DIFFERENT tag group's target (a
             # nested meta whose target puzzle also happens to feed this round)
             # must never be deleted here: that would orphan the nested group's
             # target_puzzle_id, the same case delete_puzzle forbids outright.
             # Only this round's own target (if any) is fair game for full delete.
+            # Applies to forum layout too (which always takes this branch,
+            # since keep_puzzles never yields narrow=True for forum).
             to_delete = [
                 p for p in all_puzzles
                 if not p.is_target or p.id == tag_group.target_puzzle_id
@@ -1264,7 +1264,7 @@ class PuzzleService:
                     "member puzzles of group %s", failed_refresh, tag_group.id)
 
         relocation_failed_channel_ids = set()
-        if to_keep and guild is not None:
+        if to_keep and guild is not None and not is_forum:
             owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
             owned_category_ids |= {
                 row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
@@ -2318,6 +2318,13 @@ class PuzzleService:
             new_hunt.archive_google_sheet_id = archive_google_sheet_id
 
         HuntJsonDb.commit(new_hunt)
+        if self.notifier is not None:
+            # Not @pushes_board: there is no pre-existing hunt to bind the
+            # decorator's `hunt` parameter to (this call creates it) — push
+            # manually now that new_hunt exists, so connected dashboards can
+            # invalidate their hunt list instead of waiting on a reload
+            # (review #54).
+            await self.notifier.board_changed(new_hunt)
         return new_hunt
 
     @pushes_board()
