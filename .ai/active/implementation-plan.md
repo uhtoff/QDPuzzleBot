@@ -13,7 +13,7 @@ record the commit hash next to it. `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] **#8**  AdminSettingsPanel.tsx:88 — render-phase sync uneditable/wipe   — commit: 1740bab
 - [x] **#2**  puzzles_gsheet.py:513 — restore dead move-back + wrong sheet    — commit: 3c4042a
 - [x] **#4**  puzzle_service.py:1012 — unsolve commit ordering (web loses)    — commit: 3c4042a
-- [ ] **#62** actions.py:361 — web solve modes skip embed + pin refresh       — commit: ____
+- [x] **#62** actions.py:361 — web solve modes skip embed + pin refresh       — commit: 25154f0
 
 ## Progress protocol (per finding)
 

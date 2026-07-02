@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — fix(gsheet): unsolve archive-spreadsheet desync (#2, #4) @ 3c4042a
+Status: in progress — fix(web): post embed + refresh pin for partial/change/add solves (#62) @ 25154f0
 
 ## Goal
 
@@ -13,9 +13,10 @@ in impact order, marking each off and discussing design questions as we go. Full
 
 ## Current status
 
-Phases 1-4 complete (8 of 9 findings landed): #1, #3, #5, #6, #7, #8, #2, #4. Backend suite
-green (753 passed) as of #2/#4. Phase 5 (#62, web solve parity) is next — no blocking open
-questions.
+All 5 phases complete and committed (9 of 9 findings landed): #1, #3, #5, #6, #7, #8, #2, #4,
+#62. Backend suite green (757 passed). `ruff check .` clean across the whole repo (task-level
+verification step from `implementation-plan.md`). All in-scope work is done; remaining items
+are process/wrap-up only (see Next steps).
 
 ## Final decisions
 
@@ -89,6 +90,22 @@ questions.
   `TestUnsolveService::test_commits_after_sheet_restore`
   (`tests/test_minimeta_service.py`); both verified red against the pre-fix code (reverted
   via `git stash`, reran, confirmed failure, restored).
+- #62 fix: `bot/web/actions.py`'s `solve_puzzle` route only posted a Discord embed +
+  refreshed the pinned info for `mode == "full"`; the `partial`/`change`/`add` modes ran the
+  service mutation (DB + sheet correctly updated) but left the puzzle channel silent and the
+  pin showing the OLD solution — a user-visible wrong answer, and a violation of the
+  bang/web parity principle ([[web-dashboard-command-parity]]). Added
+  `Puzzles.web_post_solution_update_embed(guild, hunt, puzzle, mode)` mirroring the three
+  bang embeds (`Partially SOLVED!` / `PUZZLE SOLUTION UPDATED!` / `EXTRA PUZZLE SOLUTION
+  ADDED!`) and calling `web_refresh_info`; wired into the route's `else` branch alongside the
+  existing full-solve path. Deliberately does NOT reposition the channel (unlike
+  `web_post_solved_embed`/`web_post_unsolved`) since these three modes don't change solved
+  state, and does NOT call `_refresh_parent_minimeta_pin` — only `solve()`/`unsolve()` touch
+  minimeta rollup state (no bang equivalent exists for partial/change/add either). Added
+  `tests/test_web_solution_update_message.py` (4 tests: one per mode + a mini-thread case),
+  following the existing `test_web_unsolve_message.py` pattern of unit-testing the cog method
+  directly rather than the Quart route (no existing route-level tests for this endpoint to
+  extend, and that's the established depth for this code path).
 
 ## Rejected approaches
 
@@ -106,7 +123,13 @@ questions.
 
 ## Next steps
 
-1. Phase 5: #62 (`actions.py:361`, web solve modes skip embed + pin refresh).
+All 9 findings are implemented, tested, and committed. Full suite (757 passed) and
+`ruff check .` (repo-wide) both green. Remaining before closing the task:
+1. Decide Q6 (annotate the source review doc with FIXED-in-hash notes, or leave the plan
+   checklist as the sole tracker) and Q5 (fold in adjacent MEDIUM/LOWs — default was
+   opportunistic/off, and none were folded in).
+2. Ask the user whether to archive `.ai/active/` under
+   `.ai/archive/2026-07-02-staging-high-findings/` now that the task is done.
 
 ## Open questions
 
