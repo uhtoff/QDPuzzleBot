@@ -31,10 +31,14 @@ All landed:
 - Tranche 3 (`17afadf`): web↔Discord pin/board staleness — #63, #65, #66, #67, #68, #85.
 - Tranche 4 (`be0ae05`): Google Sheets correctness bugs — #25, #26, #47, #48.
 
-**#24** (event-loop-blocking Sheets calls) was scoped out of tranche 4 deliberately: the real
-fix requires converting 6 sync helper methods to async across ~30 call sites in two source
-files plus two test files, a much larger/riskier change than a single-function fix. Left
-outstanding as its own follow-up task.
+**#24** (event-loop-blocking Sheets calls) was scoped out of tranche 4 deliberately (the real
+fix required converting 6 sync helper methods to async across ~30 call sites in two source
+files plus two test files, a much larger/riskier change than a single-function fix) and left as
+its own follow-up task. That follow-up is now done: `sheet_list` and 6 related helpers (plus a
+7th, `get_puzzle_sheet_index`, sharing the same defect) in `bot/cogs/puzzles_gsheet.py` are async,
+routed through the existing `execute_with_retry` helper instead of the event-loop-blocking
+`execute_sync`; every call site across `bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`
+now awaits them (commits `8319a31`, `494a91f`, `f8fcfe9`, `fdb4cfb`).
 
 Round/hunt-deletion-scoped findings (#29, #30, #32, #42, #45, #54, #55) were excluded from
 every tranche above by design — that area was being worked in parallel in `working-2`
@@ -243,15 +247,16 @@ archive_solved_manually is doubly broken: bot/cogs/puzzles.py:2961 reads setting
 
 ### 24. [MEDIUM] `bot/cogs/puzzles_gsheet.py:90`
 
-**Status: DEFERRED** (2026-07-02, branch `working-1`). Considered as part of tranche 4 alongside
-#25/#26/#47/#48, but scoped out at the user's request: the real fix requires converting 6 sync
-helper methods (`sheet_list`, `get_unique_tab_name`, `get_page_id_by_name`, `get_page_name_by_id`,
-`move_sheet_to_end`, `compute_insert_index`) from sync to async, rippling to ~30 call sites across
-`bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`, plus two test files
-(`tests/test_sheet_list_guard.py`, `tests/test_sheet_ordering.py`) that call them synchronously
-today. A couple of call sites (`move_sheet_to_end` used inline inside a request-list literal)
-can't just get an `await` — the surrounding code needs restructuring. Left as its own standalone
-follow-up task, not fixed here.
+**Status: FIXED** in `8319a31`, `494a91f`, `f8fcfe9`, `fdb4cfb` (async conversion of `sheet_list`
+and its helpers, plus a 7th method — `get_puzzle_sheet_index` — sharing the same defect; every
+call site now awaits them via `execute_with_retry`), branch `working-1`. Originally deferred out
+of tranche 4 (2026-07-02) alongside #25/#26/#47/#48 at the user's request: the real fix requires
+converting 6 sync helper methods (`sheet_list`, `get_unique_tab_name`, `get_page_id_by_name`,
+`get_page_name_by_id`, `move_sheet_to_end`, `compute_insert_index`) from sync to async, rippling
+to ~30 call sites across `bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`, plus two
+test files (`tests/test_sheet_list_guard.py`, `tests/test_sheet_ordering.py`) that call them
+synchronously today. A couple of call sites (`move_sheet_to_end` used inline inside a
+request-list literal) can't just get an `await` — the surrounding code needs restructuring.
 
 sheet_list (bot/cogs/puzzles_gsheet.py:90) calls the blocking execute_sync (network call plus time.sleep backoff up to 60s, serialized behind the module-wide _execute_lock) directly on the bot event loop: it is invoked with no thread offload from async methods reconcile_table (line 1137) and _ensure_contribution_table (line 1422), and via sync helpers get_unique_tab_name (106, plus a second bare execute_sync at 109) called from async add_new_sheet (391), compute_insert_index (363), move_sheet_to_end (341), and get_page_name_by_id (133). Any Sheets 429/5xx during these paths sleeps on the loop, stalling every command, web request, and the gateway heartbeat; even without retries the loop can block on _execute_lock while a worker thread (execute_with_retry) holds it.
 

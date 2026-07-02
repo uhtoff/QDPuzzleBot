@@ -27,6 +27,7 @@ def _svc_with_sheets():
     gsheet.archive_puzzle_spreadsheet = AsyncMock()
     gsheet.restore_puzzle_spreadsheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
+    gsheet.compute_insert_index = AsyncMock(return_value=0)
     bot = MagicMock()
     bot.get_cog.return_value = gsheet
     return PuzzleService(bot), gsheet

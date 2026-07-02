@@ -10,7 +10,7 @@ Stubs the Google seam (get_sheet / execute_sync) in the style of the sibling
 gsheet suites.
 """
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import bot.cogs.puzzles_gsheet as gs
 from bot.cogs.puzzles_gsheet import GoogleSheets
@@ -18,21 +18,21 @@ from bot.cogs.puzzles_gsheet import GoogleSheets
 
 def _cog():
     # Skip __init__ (it builds a real Sheets service); sheet_list only touches the
-    # module-level get_sheet / execute_sync, which we stub.
+    # module-level get_sheet / execute_with_retry, which we stub.
     return GoogleSheets.__new__(GoogleSheets)
 
 
-def test_sheet_list_raises_when_sheets_key_missing():
+async def test_sheet_list_raises_when_sheets_key_missing():
     cog = _cog()
     with patch.object(gs, "get_sheet"), \
-         patch.object(gs, "execute_sync", return_value={}):
+         patch.object(gs, "execute_with_retry", new=AsyncMock(return_value={})):
         with pytest.raises(RuntimeError):
-            cog.sheet_list("SS")
+            await cog.sheet_list("SS")
 
 
-def test_sheet_list_returns_response_when_sheets_present():
+async def test_sheet_list_returns_response_when_sheets_present():
     cog = _cog()
     payload = {"sheets": [{"properties": {"title": "Tide", "sheetId": 1}}]}
     with patch.object(gs, "get_sheet"), \
-         patch.object(gs, "execute_sync", return_value=payload):
-        assert cog.sheet_list("SS") == payload
+         patch.object(gs, "execute_with_retry", new=AsyncMock(return_value=payload)):
+        assert await cog.sheet_list("SS") == payload

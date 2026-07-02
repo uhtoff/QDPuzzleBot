@@ -197,7 +197,9 @@ class TestAddMetametapuzzleData:
 
 class TestAggregateToTab:
     def _capture_values(self, cog, tab_name="My Tab"):
-        cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: tab_name
+        async def fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+            return tab_name
+        cog.get_page_name_by_id = fake_get_page_name_by_id
         recorded = {}
 
         async def fake_clear(spreadsheet_id, a1_range):
@@ -242,6 +244,8 @@ class TestAggregateToTab:
 
     def test_missing_tab_raises(self):
         cog = _cog()
-        cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: None
+        async def fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+            return None
+        cog.get_page_name_by_id = fake_get_page_name_by_id
         with pytest.raises(RuntimeError):
             asyncio.run(cog.aggregate_to_tab("S", 999, ["x"], []))

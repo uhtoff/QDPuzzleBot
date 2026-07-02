@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
-from bot.utils.gsheets import get_sheet, get_drive, execute_sync, execute_with_retry
+from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,11 @@ class GoogleSheets(commands.Cog):
         return await execute_with_retry(req, on_retry=self._notify_retry)
 
 
-    def sheet_list(self, spreadsheet_id = None):
+    async def sheet_list(self, spreadsheet_id = None):
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
-        response = execute_sync(get_sheet().get(spreadsheetId=spreadsheet_id))
+        response = await execute_with_retry(
+            get_sheet().get(spreadsheetId=spreadsheet_id), on_retry=self._notify_retry
+        )
         if "sheets" not in response:
             # A valid spreadsheet always reports at least one sheet, so a response
             # without the key means the read returned bad/empty data (a transient
@@ -107,16 +109,16 @@ class GoogleSheets(commands.Cog):
             )
         return response
 
-    def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
+    async def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
         if spreadsheet_id is None:
             existing = {
                 s["properties"]["title"].casefold()
-                for s in self.sheet_list()["sheets"]
+                for s in (await self.sheet_list())["sheets"]
             }
         else:
-            meta = execute_sync(get_sheet().get(
-                spreadsheetId=spreadsheet_id
-            ))
+            meta = await execute_with_retry(
+                get_sheet().get(spreadsheetId=spreadsheet_id), on_retry=self._notify_retry
+            )
             existing = {
                 s["properties"]["title"].casefold()
                 for s in meta["sheets"]
@@ -132,19 +134,19 @@ class GoogleSheets(commands.Cog):
                 return candidate
             i += 1
 
-    def get_page_id_by_name(self, name):
-        for sheet in self.sheet_list()["sheets"]:
+    async def get_page_id_by_name(self, name):
+        for sheet in (await self.sheet_list())["sheets"]:
             if (sheet['properties']['title']) == name:
                 return sheet['properties']['sheetId']
 
-    def get_page_name_by_id(self, id, spreadsheet_id = None):
-        for sheet in self.sheet_list(spreadsheet_id)["sheets"]:
+    async def get_page_name_by_id(self, id, spreadsheet_id = None):
+        for sheet in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if (sheet['properties']['sheetId']) == int(id):
                 return sheet['properties']['title']
 
-    def get_puzzle_sheet_index(self, puzzle:PuzzleData):
+    async def get_puzzle_sheet_index(self, puzzle:PuzzleData):
         name = puzzle.name
-        for sheet in self.sheet_list()["sheets"]:
+        for sheet in (await self.sheet_list())["sheets"]:
             if (sheet['properties']['title']) == name:
                 return sheet['properties']['index']
         return self.INITIAL_OFFSET
@@ -294,7 +296,7 @@ class GoogleSheets(commands.Cog):
         ]
         if update_tab_name:
             target_spreadsheet_id = self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
-            unique_name = self.get_unique_tab_name(puzzle_name, target_spreadsheet_id)
+            unique_name = await self.get_unique_tab_name(puzzle_name, target_spreadsheet_id)
             requests.append(self.set_sheet_name(unique_name, puzzle.google_page_id))
         updates = {
             'requests': requests
@@ -348,15 +350,15 @@ class GoogleSheets(commands.Cog):
     def move_sheet_to_start(self, sheet_id = None):
         return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
-    def move_sheet_to_end(self, sheet_id = None):
+    async def move_sheet_to_end(self, sheet_id = None):
         # The Sheets API evaluates updateSheetProperties index moves against
         # pre-move positions, so len(sheets) (not len(sheets) - 1) is the index
         # that lands the tab truly last.
-        sheets = self.sheet_list().get('sheets',[])
+        sheets = (await self.sheet_list()).get('sheets',[])
         new_index = len(sheets)
         return self._sheet_props_request(sheet_id, 'index', new_index)
 
-    def compute_insert_index(self, is_target: bool, puzzles) -> int:
+    async def compute_insert_index(self, is_target: bool, puzzles) -> int:
         """Return the correct tab insertion index for a new puzzle.
 
         Target puzzles land after the last unsolved-target tab.
@@ -374,7 +376,7 @@ class GoogleSheets(commands.Cog):
         }
         last_target_idx = None
         last_regular_idx = None
-        for sheet in self.sheet_list()["sheets"]:
+        for sheet in (await self.sheet_list())["sheets"]:
             props = sheet["properties"]
             if props.get("hidden"):
                 continue
@@ -401,8 +403,8 @@ class GoogleSheets(commands.Cog):
         return self._sheet_props_request(sheet_id, 'tabColor', {colour: 1})
 
     async def add_new_sheet(self, name, index=INITIAL_OFFSET, sheet_type=PUZZLE_SHEET):
-        sheet_id = self.get_page_id_by_name(sheet_type)
-        name = self.get_unique_tab_name(name)
+        sheet_id = await self.get_page_id_by_name(sheet_type)
+        name = await self.get_unique_tab_name(name)
         body = {
             'requests': [
                 {
@@ -503,7 +505,7 @@ class GoogleSheets(commands.Cog):
         copied = await execute_with_retry(copy_req, on_retry=self._notify_retry)
         new_sheet_id = copied['sheetId']
         await self.delete_sheet(page, not to_archive)
-        unique_title = self.get_unique_tab_name(tab_name, spreadsheet_to)
+        unique_title = await self.get_unique_tab_name(tab_name, spreadsheet_to)
         bu_req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_to,
             body={
@@ -526,7 +528,7 @@ class GoogleSheets(commands.Cog):
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
                 if self.get_archive_spreadsheet_id() and was_archived:
-                    current_name = self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
+                    current_name = await self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
                     sheet.google_page_id = await self.move_puzzle_spreadsheet(False, sheet.google_page_id, current_name)
                 requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
@@ -564,20 +566,22 @@ class GoogleSheets(commands.Cog):
     async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
         offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
+        main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id)
         requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self._solution_bg_request(puzzle_data, self.SOLUTION_GREEN),
-            self.move_sheet_to_end(puzzle_data.google_page_id),
+            main_move_req,
             self.change_tab_colour('green', puzzle_data.google_page_id)])
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
+                sheet_move_req = await self.move_sheet_to_end(sheet.google_page_id)
                 requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
-                            self.move_sheet_to_end(sheet.google_page_id),
+                            sheet_move_req,
                             self.change_tab_colour('green', sheet.google_page_id)])
         updates = {
             'requests': requests
@@ -585,7 +589,7 @@ class GoogleSheets(commands.Cog):
         await self.batch_update(updates)
         for sheet in puzzle_data.additional_sheets:
             if self.get_archive_spreadsheet_id():
-                current_name = self.get_page_name_by_id(sheet.google_page_id)
+                current_name = await self.get_page_name_by_id(sheet.google_page_id)
                 sheet.google_page_id = await self.move_puzzle_spreadsheet(True, sheet.google_page_id, current_name)
         if puzzle_data.is_target is False and self.get_archive_spreadsheet_id():
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(True, puzzle_data.google_page_id, puzzle_data.name)
@@ -639,7 +643,7 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data)
 
     async def create_additional_spreadsheet(self, puzzle_data: PuzzleData, name = None, puzzle = False):
-        index = self.get_puzzle_sheet_index(puzzle_data)
+        index = await self.get_puzzle_sheet_index(puzzle_data)
         if name:
             sheet_name = f"{name} ({puzzle_data.name})"
         else:
@@ -675,7 +679,7 @@ class GoogleSheets(commands.Cog):
         from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id)
+        tab_name = await self.get_page_name_by_id(page_id)
         safe_name = tab_name.replace("'", "''") if tab_name else None
 
         # 1. Save flavour/progress/solution from the current target header (offset 1).
@@ -852,7 +856,7 @@ class GoogleSheets(commands.Cog):
         roll-up shorter than last time's leaves no stale trailing rows, then writes
         the header + rows in a single values().update.
         """
-        tab_name = self.get_page_name_by_id(tab_page_id, spreadsheet_id)
+        tab_name = await self.get_page_name_by_id(tab_page_id, spreadsheet_id)
         if tab_name is None:
             raise RuntimeError(
                 f"aggregate_to_tab: no tab with page id {tab_page_id} "
@@ -921,7 +925,7 @@ class GoogleSheets(commands.Cog):
         depend on the native Table succeeding.
         """
         spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             raise RuntimeError(f"ensure_unassigned_table: no tab with page id {page_id}")
         safe_name = tab_name.replace("'", "''")
@@ -992,7 +996,7 @@ class GoogleSheets(commands.Cog):
         per hunt; the data writes do not depend on the native Table succeeding.
         """
         spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id, spreadsheet_id)
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             raise RuntimeError(f"ensure_evidence_table: no tab with page id {page_id}")
         safe_name = tab_name.replace("'", "''")
@@ -1157,7 +1161,7 @@ class GoogleSheets(commands.Cog):
         spreadsheet_id = self.get_spreadsheet_id()
 
         sheet = None
-        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+        for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
                 sheet = s
                 break
@@ -1340,7 +1344,7 @@ class GoogleSheets(commands.Cog):
         import inspect as insp
 
         spreadsheet_id = self.get_spreadsheet_id()
-        name = self.get_unique_tab_name(puzzle.name)
+        name = await self.get_unique_tab_name(puzzle.name)
         _result = self.create_blank_tab(spreadsheet_id, name, index)
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
@@ -1390,7 +1394,7 @@ class GoogleSheets(commands.Cog):
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = self.get_page_name_by_id(page_id)
+        tab_name = await self.get_page_name_by_id(page_id)
         if tab_name is None:
             return
         safe_name = tab_name.replace("'", "''")
@@ -1453,7 +1457,7 @@ class GoogleSheets(commands.Cog):
         write rather than letting reconcile_table fall back to row 0 over the header."""
         from bot.cogs import sheet_layout
         spreadsheet_id = self.get_spreadsheet_id()
-        for s in self.sheet_list(spreadsheet_id)["sheets"]:
+        for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
                 if s.get("tables"):
                     return True
@@ -1476,9 +1480,10 @@ class GoogleSheets(commands.Cog):
         if page_id is None:
             return
         spreadsheet_id = self.get_spreadsheet_id()
+        sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
         has_table = any(
             bool(s.get("tables"))
-            for s in self.sheet_list(spreadsheet_id)["sheets"]
+            for s in sheets
             if s["properties"]["sheetId"] == int(page_id)
         )
         if not has_table:
