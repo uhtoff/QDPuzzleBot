@@ -92,12 +92,16 @@ async def test_delete_hunt_deletes_group_chat_channel():
     with patch("bot.core.puzzle_service.HuntJsonDb"), \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)) as delete_group_cats, \
          patch.object(svc, "_gsheet_cog", return_value=gsheet), \
          patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete, \
          patch("bot.core.puzzle_service.category_layout.group_chat_channel",
                return_value=chat_ch):
         pdb.get_all_from_hunt.return_value = []
         rdb.get_all.return_value = [group]
+        tgcdb.get_for_group.return_value = []
         await svc.delete_hunt(guild, hunt)
 
     safe_delete.assert_any_call(guild, 555)
