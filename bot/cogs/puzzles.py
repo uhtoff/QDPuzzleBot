@@ -2143,6 +2143,37 @@ class Puzzles(commands.Cog):
         return await _channels.get_or_create_channel(guild, category, channel_name, channel_type, **kwargs)
 
 
+    async def _refresh_pinned_info(self, channel: discord.TextChannel, *, embed=None, embeds=None):
+        """Edit the bot's own pinned info message in ``channel``, recreating it if missing.
+
+        #20: bang commands used to assume ``(await channel.pins())[-1]`` was always
+        our info message and edited it unconditionally. If a mod unpinned/deleted it
+        (or the pin isn't the bot's own — e.g. some other message got pinned after
+        it, or the channel has >50 pins so [-1] isn't the oldest), that raised
+        IndexError/Forbidden after the DB mutation had already committed. Find our
+        pin by author instead, and re-send + re-pin rather than crash if it's gone.
+        """
+        try:
+            pins = await channel.pins()
+        except discord.Forbidden:
+            logger.exception("_refresh_pinned_info: cannot fetch pins in channel %s", channel.id)
+            pins = []
+        bot_pin = next((m for m in reversed(pins) if m.author.id == self.bot.user.id), None)
+        if bot_pin is not None:
+            try:
+                return await (bot_pin.edit(embeds=embeds) if embeds is not None else bot_pin.edit(embed=embed))
+            except discord.Forbidden:
+                logger.exception(
+                    "_refresh_pinned_info: cannot edit pin %s in channel %s", bot_pin.id, channel.id
+                )
+        try:
+            message = await (channel.send(embeds=embeds) if embeds is not None else channel.send(embed=embed))
+            await message.pin()
+            return message
+        except discord.Forbidden:
+            logger.exception("_refresh_pinned_info: cannot send/pin replacement in channel %s", channel.id)
+            return None
+
     async def send_initial_hunt_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs):
         hunt = kwargs.get('hunt',self.get_hunt(ctx))
         embed = discord.Embed(
@@ -2186,8 +2217,7 @@ class Puzzles(commands.Cog):
                     inline=False,
                 )
         if kwargs.get("update", False):
-            channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embed=embed)
+            return await self._refresh_pinned_info(channel, embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -2319,8 +2349,7 @@ class Puzzles(commands.Cog):
         embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
 
         if kwargs.get("update", False):
-            channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embeds=embed_list)
+            return await self._refresh_pinned_info(channel, embeds=embed_list)
         else:
             return await channel.send(embeds=embed_list)
 
@@ -2353,8 +2382,7 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Overview Website", value=self._overview_url(ctx, hunt, kwargs.get('guild_data')),
                         inline=False)
         if kwargs.get("update", False):
-            channel_pins = await channel.pins()
-            return await channel_pins[-1].edit(embed=embed)
+            return await self._refresh_pinned_info(channel, embed=embed)
         else:
             return await channel.send(embed=embed)
 
@@ -2404,9 +2432,7 @@ class Puzzles(commands.Cog):
         embed_list = self._build_embed_list(ctx=ctx, embed=embed, puzzle=puzzle, hunt=hunt)
 
         if kwargs.get("update",False):
-            channel_pins = await channel.pins()
-            if channel_pins:
-                return await channel_pins[-1].edit(embeds=embed_list)
+            return await self._refresh_pinned_info(channel, embeds=embed_list)
         else:
             return await channel.send(embeds=embed_list)
 

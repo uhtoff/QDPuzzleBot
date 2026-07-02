@@ -250,6 +250,8 @@ feeds_only (bot/cogs/puzzles.py:1399), remove_from (:1428), informs_only (:1479)
 
 ### 20. [MEDIUM] `bot/cogs/puzzles.py:2084`
 
+**Status: FIXED** in `979e6e7` (`fix(puzzles): recover the pinned info message instead of assuming pins()[-1] (#20)`, branch `working-1`). Added `_refresh_pinned_info`, which finds the bot's own pin by author (instead of assuming `[-1]`) and recreates it (send + re-pin) if missing or unpinnable, instead of raising.
+
 The update=True pin-refresh path assumes the bot's info message is always the last element of await channel.pins(): send_initial_hunt/metapuzzle/group_channel_messages do channel_pins[-1].edit() with no empty-pins guard and no check the message is the bot's own, so if a mod unpins/deletes the bot's info pin the next bang command that refreshes (e.g. !solve/!status/!info in a meta channel) raises IndexError or discord.Forbidden after the DB mutation has committed — in _solve_impl this loses the stale-sheet warning and the refresh_unassigned task. The web path is guarded (web_refresh_info never raises) but the ~20 bang call sites are not; only the puzzle variant guards empty pins, and there it silently skips the refresh instead of re-sending. With >50 pins, discord.py 2.7.1 pins() returns only the 50 newest, so [-1] is not the oldest pin and the wrong message is edited.
 
 **Failure scenario:** A mod unpins (or deletes) the bot's pinned info message in a meta channel; the next !solve/!status/!info there either raises IndexError (no pins) or tries to edit whatever message is now oldest-pinned — a user's message, giving 403 Forbidden — so the command tracebacks after the DB mutation (in _solve_impl the sheet warning and refresh_unassigned task are lost). Also asymmetric: only the puzzle variant (line 2285) guards empty pins, and there it silently drops the refresh instead of re-sending; lines 2200 and 2234 have the same unguarded pattern. With >50 pins, awaiting pins() returns only the newest 50, so [-1] is not the oldest pin at all.
@@ -315,6 +317,8 @@ update_puzzle_info's rename path (bot/cogs/puzzles_gsheet.py:286) computes tab-n
 **Failure scenario:** Rename a solved/archived puzzle (rename_puzzle, puzzle_service.py:1432, works on archived puzzles) to a name that already exists as a tab in the archive spreadsheet but not the live one: get_unique_tab_name returns the bare name, the archive batchUpdate fails with 'duplicate sheet name' (non-retryable 400) after the DB rename was committed — sheet tab and DB name permanently diverge. Conversely, a collision that exists only in the live sheet needlessly renames the archive tab to 'Name (2)'.
 
 ### 27. [MEDIUM] `bot/core/puzzle_service.py:802`
+
+**Status: FIXED** in `ba61dfc` (`fix(service): hold member puzzle mutexes during bulk_re_edge (#27)`, branch `working-1`). `bulk_re_edge` now acquires every member's `puzzle_lock` (sorted, deduped) for the duration of the flip; neither caller (bang, no lock; web, target-only lock) already holds a member lock, so this can't deadlock.
 
 bulk_re_edge (bot/core/puzzle_service.py:802) flips member edge rows via raw SQL while holding no per-member puzzle locks (bang !convert_to_capstone holds no lock at all, web holds only the target's lock), so any concurrently in-flight command on a member puzzle that loaded it pre-flip will, at its next PuzzleJsonDb.commit, have the bidirectional tag-sync (bot/store/mysqldb.py:566-576) silently revert that member's edge back to the stale in-memory type.
 
@@ -471,17 +475,23 @@ member; "board" events are checked against `hunt_visible`.
 
 ### 39. [MEDIUM] `frontend/src/components/MiniPuzzlePanel.tsx:58`
 
+**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #41 below (same root cause).
+
 MiniPuzzlePanel fires solvePuzzle.mutate / createMini.mutate with no per-call onError and clears the typed input synchronously (solve: lines 58-59 and 71-72; create-mini: lines 91-92 and 102-103), and neither the hooks nor the QueryClient show an error notification, so a failed mini solve or mini creation silently discards the user's input with no visible error.
 
 **Failure scenario:** User types a mini answer and presses Enter while the hunt was just archived or Discord returns 429: the input is cleared on the spot, the mutation fails, no toast or message appears, and the mini still shows unsolved with the typed answer lost — the user cannot tell whether the solve landed; the same pattern at line 91/102 loses new mini names.
 
 ### 40. [MEDIUM] `frontend/src/components/PuzzleTable.tsx:113`
 
+**Status: FIXED** in `0ff253f` (`fix(service): make a target's self-edge exclusive with feeds/informs (#40)`, branch `working-1`). `tag_with_edge` now drops `target` when adding `feeds`/`informs` on a group's own target, and drops `feeds`/`informs` when re-adding `target`, scoped to `puzzle.id == group.target_puzzle_id`. With that exclusivity restored, `r.edges` only ever contains one of the three at a time, so the existing frontend `disabled={r.edges.includes(o.edge)}` check (no frontend change needed) correctly disables just the active option instead of greying out permanently.
+
 The web "No self-feed" off-switch for a target's deliberate self-feed is doubly broken: (1) frontend/src/components/PuzzleTable.tsx:113 disables the menu item whenever r.edges includes "target", and since enabling a self-feed (AddToGroupPicker "feeds itself" → mode=add, edge=feeds → tag_with_edge) never drops the target self-edge, edges become {target, feeds} and the off-switch is permanently greyed out; (2) even where clickable (legacy self-feeders that migration 019 skipped, whose edges are {feeds} without "target"), the resulting mode=add edge=target call reaches puzzle_service.tag_with_edge (bot/core/puzzle_service.py:691-698), whose exclusivity handling only covers feeds/informs vs none — it adds the "target" row without dropping feeds/informs, so the self-feed persists in rollups and the menu item then greys out. No other web path can remove it: DragBoard hides "Remove" for a group's own target (DragBoard.tsx:111) and the API rejects mode=remove for the own meta (bot/web/actions.py:906-907).
 
 **Failure scenario:** Organiser uses Arrange > 'Add to group… (feeds itself)' to make a meta self-feed (edges become {target, feeds}); later they open All puzzles > Debug tags to undo it, but 'No self-feed' is greyed out (edges include 'target'). Even for legacy pre-migration-019 self-feeding targets where the item is clickable, the backend tag_with_edge (bot/core/puzzle_service.py:691-698) only enforces feeds/informs<->none exclusivity and does not drop feeds/informs when adding 'target', so the retag is a no-op and the meta keeps feeding itself in rollups.
 
 ### 41. [MEDIUM] `frontend/src/components/PuzzleTable.tsx:306`
+
+**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #39 above. Added `onError: notifyError` at each named call site, matching the existing convention (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) rather than introducing new global MutationCache infrastructure.
 
 Multiple mutation call sites fire with no onError handler and the QueryClient (frontend/src/main.tsx:13) defines no MutationCache/global mutation error handler, so failed writes give zero user feedback: debug-edge retags (PuzzleTable.tsx:306, 314), status/priority/type updates (PuzzleTable.tsx:347/361/375, BoardGroup.tsx:270, PuzzleDrawer.tsx:163/169/175), link/sheet/erase-note mutations (PuzzleDrawer.tsx:200-213, 272, 369), and evidence edits (EvidencePanel.tsx:123-129). This is an omission, not a design choice — sibling components (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) consistently pass notifyError per call.
 

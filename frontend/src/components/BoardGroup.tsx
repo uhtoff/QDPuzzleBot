@@ -283,7 +283,9 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                           <StatusCell
                             value={p.status}
                             solved={p.solved}
-                            onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
+                            onChange={(status) =>
+                              updateMut.mutate({ puzzleId: p.id, patch: { status } }, { onError: notifyError })
+                            }
                           />
                         ) : (
                           p.status && (

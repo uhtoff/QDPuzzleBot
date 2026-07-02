@@ -17,6 +17,7 @@ Phase 1 expectation: every test errors with ``AttributeError`` because the metho
 do not exist yet. Phase 2 implements them and turns these green. Helpers are local
 to this file (the parallel runner shards by file).
 """
+import asyncio
 import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -135,6 +136,38 @@ class TestTagWithEdge:
         with _service_mocks(cog):
             await cog.service.tag_with_edge(puz, grp, "none")
         assert puz.tag_edges[5] == {"none"}         # feeds + informs dropped
+
+    @pytest.mark.asyncio
+    async def test_self_feed_on_own_target_drops_target_self_edge(self, cog):
+        """#40: enabling a deliberate self-feed on a group's own target must drop
+        the 'target' self-edge, or the puzzle ends up with both {target, feeds}
+        and the dashboard's 'No self-feed' off-switch reads as already engaged."""
+        puz = make_puzzle(id=7, tags=[5]); puz.tag_edges = {5: {"target"}}
+        grp = make_round(id=5, target_puzzle_id=7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "feeds")
+        assert puz.tag_edges[5] == {"feeds"}        # target dropped, not accumulated
+
+    @pytest.mark.asyncio
+    async def test_no_self_feed_on_own_target_drops_feeds_and_informs(self, cog):
+        """#40: turning a self-feed back off (edge='target') must drop feeds/informs,
+        or the retag is a no-op and the meta keeps feeding itself in rollups."""
+        puz = make_puzzle(id=7, tags=[5]); puz.tag_edges = {5: {"feeds"}}
+        grp = make_round(id=5, target_puzzle_id=7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "target")
+        assert puz.tag_edges[5] == {"target"}       # feeds dropped, not left in place
+
+    @pytest.mark.asyncio
+    async def test_self_feed_exclusivity_does_not_affect_non_target_puzzles(self, cog):
+        """Ordinary feeder membership (puzzle is not the group's own target) must
+        be unaffected by the target/self-feed exclusivity — only feeds/informs vs
+        none applies there."""
+        puz = make_puzzle(id=8, tags=[5]); puz.tag_edges = {5: {"target"}}
+        grp = make_round(id=5, target_puzzle_id=7)  # puzzle 8 is not the target (7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "feeds")
+        assert puz.tag_edges[5] == {"target", "feeds"}  # both kept — not a self-edge case
 
 
 # ---------------------------------------------------------------------------
@@ -319,3 +352,35 @@ class TestBulkReEdge:
             summary = await cog.service.bulk_re_edge(grp, "informs", hunt)
         assert summary == "flipped 1 feeds → informs"          # target not counted
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")  # re-pinned
+
+    @pytest.mark.asyncio
+    async def test_flip_waits_for_in_flight_member_command(self, cog):
+        """#27: bulk_re_edge must hold each member's puzzle mutex across the flip,
+        so a command already in flight on a member (e.g. !solve, which loaded the
+        puzzle pre-flip) cannot commit its stale in-memory edge afterwards and
+        have the bidirectional tag-sync silently revert the conversion."""
+        from bot.core.locks import puzzle_lock
+
+        grp = make_round(id=5)
+        hunt = make_hunt()
+        member = make_puzzle(id=42, tags=[5])
+        member.tag_edges = {5: {"feeds"}}
+
+        order = []
+
+        async def in_flight_command():
+            async with puzzle_lock(42):
+                order.append("solve-start")
+                await asyncio.sleep(0.02)
+                order.append("solve-end")
+
+        with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
+            mpdb.get_all_from_tag_group.return_value = [member]
+            mpdb.bulk_update_edge_type.side_effect = lambda *a, **kw: order.append("flip")
+
+            task = asyncio.create_task(in_flight_command())
+            await asyncio.sleep(0)  # let in_flight_command grab the lock first
+            await cog.service.bulk_re_edge(grp, "informs", hunt)
+            await task
+
+        assert order == ["solve-start", "solve-end", "flip"]

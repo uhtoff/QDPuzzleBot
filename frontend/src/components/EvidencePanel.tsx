@@ -13,6 +13,7 @@ import {
 import { IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
 import { useDeleteEvidence, useEditClueNote, useEvidence, useLogClue, useUpdateEvidence } from "../api";
+import { notifyError } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
 
 interface Props {
@@ -37,7 +38,7 @@ export function EvidencePanel({ uid, detail }: Props) {
     if (!cluePuzzleId || !clueNote.trim()) return;
     logClue.mutate(
       { puzzleId: Number(cluePuzzleId), note: clueNote.trim() },
-      { onSuccess: () => { setCluePuzzleId(null); setClueNote(""); } }
+      { onSuccess: () => { setCluePuzzleId(null); setClueNote(""); }, onError: notifyError }
     );
   }
 
@@ -120,13 +121,13 @@ export function EvidencePanel({ uid, detail }: Props) {
                 puzzleOptions={allPuzzles}
                 editable={editable}
                 onSetTarget={(targetId) =>
-                  updateEvidence.mutate({ itemId: item.id, targetPuzzleId: targetId })
+                  updateEvidence.mutate({ itemId: item.id, targetPuzzleId: targetId }, { onError: notifyError })
                 }
                 onEditNote={(note) =>
-                  editClueNote.mutate({ itemId: item.id, note })
+                  editClueNote.mutate({ itemId: item.id, note }, { onError: notifyError })
                 }
                 onDelete={() =>
-                  deleteEvidence.mutate(item.id)
+                  deleteEvidence.mutate(item.id, { onError: notifyError })
                 }
               />
             ))}
