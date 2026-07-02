@@ -976,8 +976,17 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
-            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            # Failure isolation (matches the meta-refresh loop above): a Sheets
+            # failure here must not skip the second commit, forum-tag update, or
+            # board push below — the solve is already committed as applied, so an
+            # uncaught raise here would incorrectly present it as failed while
+            # leaving the DB out of sync with what did/didn't move to the archive.
+            try:
+                await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            except Exception:
+                logger.exception("solve: failed to archive spreadsheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
@@ -1237,7 +1246,15 @@ class PuzzleService:
         failed = await self.refresh_targets(hunt, tag_groups)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.update_solution(puzzle)
+            # Failure isolation (same reasoning as solve()'s archive call): the
+            # solution change is already committed, so a Sheets failure here must
+            # not swallow any metas already collected in `failed` above, nor skip
+            # the board push that tells the dashboard the mutation applied.
+            try:
+                await gsheet_cog.update_solution(puzzle)
+            except Exception:
+                logger.exception("change_solution: failed to update sheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         if failed:
             raise SheetRefreshError(failed)
@@ -1255,7 +1272,11 @@ class PuzzleService:
         failed = await self.refresh_targets(hunt, tag_groups)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.update_solution(puzzle)
+            try:
+                await gsheet_cog.update_solution(puzzle)
+            except Exception:
+                logger.exception("add_solution: failed to update sheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         if failed:
             raise SheetRefreshError(failed)
