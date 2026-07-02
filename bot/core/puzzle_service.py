@@ -2283,6 +2283,7 @@ class PuzzleService:
         HuntJsonDb.commit(new_hunt)
         return new_hunt
 
+    @pushes_board()
     async def delete_hunt(self, guild, hunt) -> list:
         """Tear down a hunt: puzzles, rounds, spreadsheet files, Discord channels, DB row.
 
