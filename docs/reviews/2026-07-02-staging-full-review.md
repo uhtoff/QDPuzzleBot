@@ -628,6 +628,8 @@ _allocate (bot/core/category_layout.py:145) computes next_seq from role_rows rea
 
 ### 51. [LOW] `bot/core/puzzle_service.py:338`
 
+**Status: FIXED** in `76da5f0` (`fix(reconcile): scope channel relink to the hunt's own categories (#51)`, branch `working-1`). `reconcile()` now collects this hunt's own round/group category ids and threads them into `_reconcile_channel`, which restricts the relink search to channels inside those categories only.
+
 _reconcile_channel's relink step (bot/core/puzzle_service.py:338) searches guild.channels by name with no hunt or category scoping, so when a puzzle's stored channel is gone, !reconcile apply can adopt a same-named channel belonging to another hunt (or another puzzle) in the same guild: it moves that channel into the puzzle's home category (line 344) and rewrites the puzzle's channel_id/name/mention to it (lines 345-348), hijacking the other hunt's live channel while the other hunt's puzzle record still points at the now-relocated channel.
 
 **Failure scenario:** Two hunts each have a puzzle named 'meta'; hunt A's channel is deleted out-of-band, then !reconcile --apply on hunt A finds hunt B's #meta by name, rewrites A's puzzle.channel_id to B's channel and MOVES that channel into A's category (line 344) — hunt B loses its live puzzle channel.
@@ -731,6 +733,8 @@ Drag-retag errors in DragBoard are surfaced only via the shared useRetagPuzzle h
 **Failure scenario:** User drags puzzle A (fails with discord_rate_limited) then immediately drags puzzle B (succeeds): the second mutate resets the hook's error state, the red message under the board never appears (or vanishes instantly), and card A silently snaps back to its old column after the invalidated refetch with no explanation.
 
 ### 61. [LOW] `migrations/000_base_schema.sql:87`
+
+**Status: FIXED** in `49a5398` (`fix(db): widen puzzles.url to varchar(512) (#61)`, branch `working-1`, migration `023_widen_puzzle_url.sql`, applied to the connected test DB). `puzzles.url` widened to varchar(512), matching `hunts.website_url`, for generous headroom over any realistic `hunt.url` + prefix + slug combination.
 
 puzzles.url is varchar(150) while hunts.url is varchar(250) (migrations/000_base_schema.sql:87 vs :51), and create_puzzle composes the puzzle URL as hunt.url + "/" + prefix + "/" + slug (bot/core/puzzle_service.py:1642) with no length validation or truncation anywhere, so a hunt URL of ~130+ chars (legal for its column) yields a composed puzzle URL over 150 chars; under default strict sql_mode the generic INSERT (bot/store/mysqldb.py:63) fails with a data-too-long error — aborting puzzle creation after the Google sheet was already created at line 1650 and before the try/cleanup block at 1665, stranding an orphan sheet (not an orphan Discord channel, which is created only after the commit) — or silently truncates the stored link on lenient servers.
 
@@ -963,6 +967,8 @@ On the cog-unavailable fallback path, _post_solved_embed (bot/core/notifier.py:2
 **Failure scenario:** On the cog-unavailable fallback path, if the send fails (missing permissions, deleted channel) the SOLVED confirmation silently never appears and no log line is written; the unreferenced task can also be GC'd before running.
 
 ### 89. [LOW] `bot/store/__init__.py:35`
+
+**Status: PARTIALLY MITIGATED** in `695dd81` (`fix(store): bound MySQL connect timeout to fail fast on outage (#89)`, branch `working-1`). `MySQLReconnector` now sets an explicit 5s `connect_timeout`, so a down/unreachable host fails fast instead of blocking for the OS socket default (tens of seconds to minutes). This bounds the worst-case per-call stall but does NOT move the write path off the event loop — that would mean wrapping ~100+ synchronous DB call sites across `puzzle_service.py` in `asyncio.to_thread`, matching the activity-writer/web-read precedent, which is a much larger change than this LOW finding warrants on its own. The underlying architectural gap (write path still runs synchronously on the event loop) remains.
 
 MySQLReconnector._ensure (bot/store/__init__.py:32-42) runs a blocking conn.ping(reconnect=True, attempts=2, delay=1) — and on failure a fresh blocking mysql.connector.connect() — before every cursor()/commit()/rollback(); all bang-command and web-write mutations call the store synchronously on the bot event loop via bot/core/puzzle_service.py, so while MySQL is down or restarting each DB touch stalls the loop for multiple seconds (ping retries plus connect timeout), lagging Discord heartbeats and all commands bot-wide. Only the activity writer (bot/cogs/activity.py:95, asyncio.to_thread) and the web read path (bot/web/data.py:66-75) were moved off-loop; the write path was not.
 
