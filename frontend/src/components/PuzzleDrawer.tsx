@@ -160,6 +160,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
               <MetaRow label="Status">
                 <StatusCell
                   value={puzzle.status}
+                  solved={puzzle.solved}
                   onChange={(status) => update.mutate({ puzzleId: puzzle.id, patch: { status } })}
                 />
               </MetaRow>

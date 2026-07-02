@@ -19,21 +19,28 @@ import type { Puzzle } from "../types";
 import { useSolvePuzzle, useUnsolvePuzzle, type SolveMode } from "../api";
 import { notifyError, showSheetWarning, priorityColor, statusColor } from "../util";
 
-const STATUS_OPTIONS = [
-  "Unstarted",
-  "In Progress",
-  "Stuck",
-  "Needs Extraction",
-  "Needs Submission",
-  "Solved",
-  "Backsolved",
-];
+const UNSOLVED_STATUS_OPTIONS = ["Unstarted", "In Progress", "Stuck", "Needs Extraction", "Needs Submission"];
+const SOLVED_STATUS_OPTIONS = ["Solved", "Backsolved"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Very High"];
 
 export type SolveTarget = Pick<Puzzle, "id" | "name" | "solved" | "solution">;
 
-/** Click a status badge to pick a new one. */
-export function StatusCell({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
+/**
+ * Click a status badge to pick a new one. "Solved"/"Backsolved" are owned by
+ * the solve/unsolve machinery, not this field: while solved, only toggling
+ * between them is offered; while unsolved, neither is offered (use the solve
+ * action instead) since the backend now rejects both transitions.
+ */
+export function StatusCell({
+  value,
+  solved,
+  onChange,
+}: {
+  value: string | null;
+  solved: boolean;
+  onChange: (v: string) => void;
+}) {
+  const options = solved ? SOLVED_STATUS_OPTIONS : UNSOLVED_STATUS_OPTIONS;
   return (
     <Menu position="bottom-start" withinPortal shadow="md">
       <Menu.Target>
@@ -42,7 +49,7 @@ export function StatusCell({ value, onChange }: { value: string | null; onChange
         </Badge>
       </Menu.Target>
       <Menu.Dropdown>
-        {STATUS_OPTIONS.map((s) => (
+        {options.map((s) => (
           <Menu.Item key={s} onClick={() => onChange(s)}>
             {s}
           </Menu.Item>

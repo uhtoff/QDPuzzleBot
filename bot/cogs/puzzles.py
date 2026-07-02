@@ -2512,8 +2512,8 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         try:
             await self.service.update_puzzle_field(hunt, puzzle, "status", status)
-        except ValueError:
-            await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
+        except ValueError as exc:
+            await ctx.send(f":exclamation: {exc}")
             return
         await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
