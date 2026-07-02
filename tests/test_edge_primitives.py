@@ -137,6 +137,38 @@ class TestTagWithEdge:
             await cog.service.tag_with_edge(puz, grp, "none")
         assert puz.tag_edges[5] == {"none"}         # feeds + informs dropped
 
+    @pytest.mark.asyncio
+    async def test_self_feed_on_own_target_drops_target_self_edge(self, cog):
+        """#40: enabling a deliberate self-feed on a group's own target must drop
+        the 'target' self-edge, or the puzzle ends up with both {target, feeds}
+        and the dashboard's 'No self-feed' off-switch reads as already engaged."""
+        puz = make_puzzle(id=7, tags=[5]); puz.tag_edges = {5: {"target"}}
+        grp = make_round(id=5, target_puzzle_id=7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "feeds")
+        assert puz.tag_edges[5] == {"feeds"}        # target dropped, not accumulated
+
+    @pytest.mark.asyncio
+    async def test_no_self_feed_on_own_target_drops_feeds_and_informs(self, cog):
+        """#40: turning a self-feed back off (edge='target') must drop feeds/informs,
+        or the retag is a no-op and the meta keeps feeding itself in rollups."""
+        puz = make_puzzle(id=7, tags=[5]); puz.tag_edges = {5: {"feeds"}}
+        grp = make_round(id=5, target_puzzle_id=7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "target")
+        assert puz.tag_edges[5] == {"target"}       # feeds dropped, not left in place
+
+    @pytest.mark.asyncio
+    async def test_self_feed_exclusivity_does_not_affect_non_target_puzzles(self, cog):
+        """Ordinary feeder membership (puzzle is not the group's own target) must
+        be unaffected by the target/self-feed exclusivity — only feeds/informs vs
+        none applies there."""
+        puz = make_puzzle(id=8, tags=[5]); puz.tag_edges = {5: {"target"}}
+        grp = make_round(id=5, target_puzzle_id=7)  # puzzle 8 is not the target (7)
+        with _service_mocks(cog):
+            await cog.service.tag_with_edge(puz, grp, "feeds")
+        assert puz.tag_edges[5] == {"target", "feeds"}  # both kept — not a self-edge case
+
 
 # ---------------------------------------------------------------------------
 # tag_edge_only — set the edge and clear other edges OF THE SAME TYPE

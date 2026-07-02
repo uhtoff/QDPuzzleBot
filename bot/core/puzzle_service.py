@@ -696,6 +696,17 @@ class PuzzleService:
         elif edge == "none":
             for e in ("feeds", "informs"):
                 self._drop_local_edge(puzzle, group, e)
+        # A group's own target self-edge is mutually exclusive with a deliberate
+        # self-feed/self-inform (#40): enabling a self-feed must drop 'target', and
+        # turning the self-feed back off ('target') must drop feeds/informs — else
+        # the puzzle ends up with both edges and the dashboard's "No self-feed"
+        # off-switch can never re-engage (it reads as already on) or is a no-op.
+        if puzzle.id == group.target_puzzle_id:
+            if edge in ("feeds", "informs"):
+                self._drop_local_edge(puzzle, group, "target")
+            elif edge == "target":
+                for e in ("feeds", "informs"):
+                    self._drop_local_edge(puzzle, group, e)
         puzzle.add_edge(group.id, edge)
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
