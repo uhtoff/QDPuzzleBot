@@ -798,9 +798,11 @@ class TestWebDeleteRound:
     def hunt(self):
         return make_hunt()
 
-    async def _run(self, cog, hunt, hunt_round, puzzles=None):
+    async def _run(self, cog, hunt, hunt_round, puzzles=None, keep_puzzles=None):
         """Run service.delete_round with mocked DBs.
-        puzzles = PuzzleJsonDb.get_all_from_round return value."""
+        puzzles = PuzzleJsonDb.get_all_from_tag_group return value.
+        keep_puzzles=None omits the kwarg entirely, exercising the service's
+        own default (True); pass True/False to pin a specific mode."""
         puzzle_deletes = []
         round_deletes = []
         puzzles = puzzles or []
@@ -819,14 +821,15 @@ class TestWebDeleteRound:
             mock_hdb.get_by_attr.return_value = hunt
             mock_gsdb.get.return_value = None
 
-            failed = await cog.service.delete_round(_no_guild(), hunt, hunt_round)
+            kwargs = {} if keep_puzzles is None else {"keep_puzzles": keep_puzzles}
+            failed = await cog.service.delete_round(_no_guild(), hunt, hunt_round, **kwargs)
 
         return puzzle_deletes, round_deletes, failed
 
     @pytest.mark.asyncio
     async def test_deletes_round_db_record(self, cog, hunt):
         rnd = make_round(id=5)
-        _, round_deletes, _ = await self._run(cog, hunt, rnd)
+        _, round_deletes, _ = await self._run(cog, hunt, rnd, keep_puzzles=False)
         assert 5 in round_deletes
 
     @pytest.mark.asyncio
@@ -834,13 +837,13 @@ class TestWebDeleteRound:
         rnd = make_round(id=5)
         p1 = make_puzzle(id=1, tags=[5])
         p2 = make_puzzle(id=2, tags=[5])
-        puzzle_deletes, _, _ = await self._run(cog, hunt, rnd, puzzles=[p1, p2])
+        puzzle_deletes, _, _ = await self._run(cog, hunt, rnd, puzzles=[p1, p2], keep_puzzles=False)
         assert set(puzzle_deletes) == {1, 2}
 
     @pytest.mark.asyncio
     async def test_empty_round_deletes_cleanly(self, cog, hunt):
         rnd = make_round(id=5)
-        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[])
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[], keep_puzzles=False)
         assert puzzle_deletes == []
         assert 5 in round_deletes
         assert failed == []
@@ -850,10 +853,31 @@ class TestWebDeleteRound:
         """Guild=None → no Discord teardown, all DB deletes still happen."""
         rnd = make_round(id=5)
         p = make_puzzle(id=1, channel_id=888, tags=[5])
-        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[p])
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[p], keep_puzzles=False)
         assert 1 in puzzle_deletes
         assert 5 in round_deletes
         assert failed == []
+
+    @pytest.mark.asyncio
+    async def test_default_keeps_feeder_puzzles(self, cog, hunt):
+        """keep_puzzles defaults to True: a target-less round's feeders keep
+        their DB rows (guild=None also skips channel relocation)."""
+        rnd = make_round(id=5, target_puzzle_id=0)
+        p1 = make_puzzle(id=1, tags=[5])
+        p2 = make_puzzle(id=2, tags=[5])
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[p1, p2])
+        assert puzzle_deletes == []
+        assert 5 in round_deletes
+        assert failed == []
+
+    @pytest.mark.asyncio
+    async def test_default_deletes_only_target_puzzle(self, cog, hunt):
+        rnd = make_round(id=5, target_puzzle_id=1)
+        target = make_puzzle(id=1, is_target=True, tags=[5])
+        feeder = make_puzzle(id=2, tags=[5])
+        puzzle_deletes, round_deletes, failed = await self._run(cog, hunt, rnd, puzzles=[target, feeder])
+        assert puzzle_deletes == [1]
+        assert 5 in round_deletes
 
 # ---------------------------------------------------------------------------
 # set_puzzle_url (service) — mirrors !link: puzzle.url = url; commit; gsheet
