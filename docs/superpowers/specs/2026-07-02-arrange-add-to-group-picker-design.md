@@ -52,24 +52,36 @@ scroll-bounded picker. Desktop-first, but touch-capable via a responsive bottom 
 
 ### The picker (one component, responsive)
 
-- **Desktop-first:** a `Popover` anchored near the card/menu, containing:
-  - a `TextInput` pinned at the top, autofocused, filtering the list by group name
-    (case-insensitive substring match on `name`);
-  - a bounded `ScrollArea` (fixed max-height, ~5 rows visible) listing matching groups as
-    full-width clickable rows.
-- **Touch / narrow viewport** (detected via `useMediaQuery`): the *same* picker renders as a
-  bottom sheet — Mantine `Drawer position="bottom"` (or full-screen `Modal`) — with search
-  pinned at top and full-width, finger-sized rows, so the on-screen keyboard slides up
+A single component renders the same inner content (search field + bounded scroll list) inside
+a responsive shell chosen at runtime via `useMediaQuery`:
+
+- **Desktop-first:** a compact centred `Modal` (`size="sm"`). *Rationale:* a `Popover`
+  anchored to a transient menu item is fragile in Mantine (the menu closes on click, and the
+  anchor is gone); a small Modal gives the same focused search-then-pick feel, is robust, and
+  shares one code path with the mobile shell. Still one click to open, type-to-filter, one
+  click to add.
+- **Touch / narrow viewport:** a bottom sheet — Mantine `Drawer position="bottom"` — with
+  search pinned at top and full-width, finger-sized rows, so the on-screen keyboard slides up
   beneath it cleanly.
-- **Selecting a group** calls the existing `onRetag(puzzle.id, code, "add")` — same mutation,
-  one action, then the picker closes.
-- **Self-target special case:** when a listed group's `code === ownTargetCode`, its row(s)
-  carry the existing self-feed / self-inform behaviour (not a plain add), exactly as the
-  current menu items do. The picker preserves whatever action the current code attaches to
-  that case.
-- **No-match state:** if the search text matches no group, show a simple "No groups match"
-  line inside the picker (distinct from the kebab-level "Already in all groups", which the
-  picker never shows because it only opens when `addable` is non-empty).
+
+Inner content (shared by both shells):
+
+- a `TextInput` pinned at the top, autofocused, filtering the visible rows by label
+  (case-insensitive substring match);
+- a bounded `ScrollArea` listing matching rows as full-width clickable buttons.
+
+Behaviour:
+
+- **Selecting a row** calls the existing `onRetag(puzzle.id, code, "add")` (or the edge-typed
+  variant for the self-target case), then closes the picker and clears the search text.
+- **Self-target special case:** when a listed group's `code === ownTargetCode`, it expands to
+  the same one or two rows the current menu produces — "<name> (feeds itself)" →
+  `onRetag(id, code, "add", "feeds")` when `!selfFeeds`, and "<name> (informs itself)" →
+  `onRetag(id, code, "add", "informs")` when `!selfInforms`. All other groups are a single
+  plain-add row. This mirrors the existing `addable` markup exactly.
+- **No-match state:** if the search text matches no row, show a "No groups match" line inside
+  the picker (distinct from the kebab-level "Already in all groups", which the picker never
+  shows because it only opens when `addable` is non-empty).
 
 ## Constraints
 
@@ -82,10 +94,11 @@ scroll-bounded picker. Desktop-first, but touch-capable via a responsive bottom 
 
 1. On a hunt with many groups, opening a card's ⋮ menu shows a short menu: "Add to group…"
    plus the unchanged Remove/convert/minimeta/delete actions — none pushed off-screen.
-2. "Add to group…" opens a picker with a search field; typing narrows the group list;
-   clicking a group adds the puzzle to it (same result as before) and closes the picker.
-3. On a narrow/touch viewport the picker appears as a bottom sheet with large rows and a
-   working on-screen keyboard for search.
+2. "Add to group…" opens the picker (Modal on desktop) with a search field; typing narrows
+   the group list; clicking a group adds the puzzle to it (same result as before) and closes
+   the picker.
+3. On a narrow/touch viewport the picker appears as a bottom-sheet Drawer with large rows and
+   a working on-screen keyboard for search.
 4. When the puzzle is already in every group, the kebab shows a disabled "Already in all
    groups" row and no "Add to group…" entry.
 5. The self-feed / self-inform behaviour for the puzzle's own target group is preserved.
