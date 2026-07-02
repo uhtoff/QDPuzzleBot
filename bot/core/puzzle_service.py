@@ -2197,6 +2197,9 @@ class PuzzleService:
                             logger.exception("delete_hunt: could not delete forum %s",
                                              tag_group.category_id)
                 else:
+                    general_ch = category_layout.group_chat_channel(guild, tag_group)
+                    if general_ch is not None:
+                        await self._safe_delete_channel(guild, general_ch.id)
                     category = discord.utils.get(guild.categories, id=tag_group.category_id)
                     if category is not None:
                         for ch in list(category.channels):

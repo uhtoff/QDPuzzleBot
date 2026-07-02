@@ -72,3 +72,32 @@ async def test_delete_hunt_returns_failed_channels():
         failed = await svc.delete_hunt(guild, hunt)
     # A puzzle whose channel could not be deleted surfaces in the returned list.
     assert "p1" in failed
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_deletes_group_chat_channel():
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    gsheet = MagicMock()
+    gsheet.delete_puzzle_spreadsheet = AsyncMock()
+    gsheet.delete_hunt_spreadsheet = AsyncMock()
+
+    group = MagicMock(id=9, category_id=100)
+    group.has_target = False
+    category = MagicMock(id=100)
+    category.channels = []
+    category.delete = AsyncMock()
+    guild.categories = [category]
+    chat_ch = MagicMock(id=555)
+
+    with patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete, \
+         patch("bot.core.puzzle_service.category_layout.group_chat_channel",
+               return_value=chat_ch):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = [group]
+        await svc.delete_hunt(guild, hunt)
+
+    safe_delete.assert_any_call(guild, 555)
