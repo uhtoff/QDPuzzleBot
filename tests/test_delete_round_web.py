@@ -1,9 +1,15 @@
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tests.conftest import make_hunt, make_round
+
+
+@asynccontextmanager
+async def _noop_lock(_ids):
+    yield
 
 
 @pytest.fixture
@@ -26,6 +32,8 @@ def web():
     rdb.get_by_attr.return_value = make_round(id=5, name="Old")
     hdb = MagicMock()
     hdb.get_by_attr.return_value = make_hunt()
+    pdb = MagicMock()
+    pdb.get_all_from_tag_group.return_value = []
 
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
@@ -34,11 +42,13 @@ def web():
         patch("bot.web.actions._audit", AsyncMock()),
         patch("bot.store.TagGroupJsonDb", rdb),
         patch("bot.store.HuntJsonDb", hdb),
+        patch("bot.store.PuzzleJsonDb", pdb),
+        patch("bot.web.actions.puzzles_lock", _noop_lock),
     ]
     for p in patches:
         p.start()
     try:
-        yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx, rdb=rdb)
+        yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx, rdb=rdb, pdb=pdb)
     finally:
         for p in patches:
             p.stop()
@@ -57,3 +67,16 @@ async def test_delete_round_explicit_all_puzzles(web):
     resp = await web.client.delete("/api/tag_groups/5", json={"keep_puzzles": False})
     assert resp.status_code == 200
     assert web.cog.service.delete_round.await_args.kwargs["keep_puzzles"] is False
+
+
+@pytest.mark.asyncio
+async def test_delete_round_web_locks_member_puzzles(web):
+    web.pdb.get_all_from_tag_group.return_value = [
+        MagicMock(id=1), MagicMock(id=2),
+    ]
+    with patch("bot.web.actions.puzzles_lock") as lock_mock:
+        lock_mock.return_value.__aenter__ = AsyncMock(return_value=None)
+        lock_mock.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = await web.client.delete("/api/tag_groups/5")
+    assert resp.status_code == 200
+    lock_mock.assert_called_once_with([1, 2])

@@ -23,7 +23,7 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.locks import puzzle_lock
+from bot.core.locks import puzzle_lock, puzzles_lock
 from bot.core.errors import SheetRefreshError
 
 logger = logging.getLogger(__name__)
@@ -1271,7 +1271,7 @@ async def delete_hunt(uid):
     if perm:
         return perm
 
-    from bot.store import HuntJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     if hunt_obj is None:
@@ -1284,8 +1284,11 @@ async def delete_hunt(uid):
     snowflake = ctx["guild_snowflake"]
     guild = bot.get_guild(int(snowflake)) if snowflake else None
 
+    member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt_obj.id)]
+
     try:
-        failed = await cog.service.delete_hunt(guild, hunt_obj)
+        async with puzzles_lock(member_puzzle_ids):
+            failed = await cog.service.delete_hunt(guild, hunt_obj)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
@@ -1321,7 +1324,7 @@ async def delete_tag_group(tag_group_id):
     if perm:
         return perm
 
-    from bot.store import HuntJsonDb, TagGroupJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
 
     tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if tag_group is None:
@@ -1338,9 +1341,12 @@ async def delete_tag_group(tag_group_id):
     body = await request.get_json(silent=True) or {}
     keep_puzzles = bool(body.get("keep_puzzles", True))
 
+    member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
+
     try:
-        failed_channels = await cog.service.delete_round(
-            guild, hunt_obj, tag_group, keep_puzzles=keep_puzzles)
+        async with puzzles_lock(member_puzzle_ids):
+            failed_channels = await cog.service.delete_round(
+                guild, hunt_obj, tag_group, keep_puzzles=keep_puzzles)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
