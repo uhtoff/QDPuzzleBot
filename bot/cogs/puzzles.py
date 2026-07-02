@@ -3225,19 +3225,24 @@ class Puzzles(commands.Cog):
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)
 
-    async def _confirm_destructive(self, ctx, description):
+    async def _confirm_destructive(self, ctx, description, *, sheets_deleted=True):
         """Send a Confirm/Cancel prompt and return True only if the invoker
-        confirms. Returns False on cancel or timeout."""
+        confirms. Returns False on cancel or timeout. ``sheets_deleted=False``
+        switches the copy for archiving (which keeps the sheets)."""
         view = ConfirmView(ctx.author.id)
-        embed = discord.Embed(
-            title="⚠️ Confirm deletion",
-            description=description + "\n\n**Google sheets will be permanently deleted (not recoverable).**",
-            color=discord.Color.red(),
-        )
+        if sheets_deleted:
+            title = "⚠️ Confirm deletion"
+            body = description + "\n\n**Google sheets will be permanently deleted (not recoverable).**"
+            timeout_msg = ":hourglass: Confirmation timed out — nothing was deleted."
+        else:
+            title = "⚠️ Confirm archive"
+            body = description
+            timeout_msg = ":hourglass: Confirmation timed out — nothing was archived."
+        embed = discord.Embed(title=title, description=body, color=discord.Color.red())
         view.message = await ctx.send(embed=embed, view=view)
         await view.wait()
         if view.value is None:
-            await ctx.send(":hourglass: Confirmation timed out — nothing was deleted.")
+            await ctx.send(timeout_msg)
         return view.value is True
 
     async def _safe_delete_channel(self, guild, channel_id):
