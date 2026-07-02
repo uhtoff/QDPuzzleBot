@@ -1179,47 +1179,11 @@ async def convert_to_metapuzzle(puzzle_id):
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-puzzle", methods=["POST"])
 @login_required
 async def convert_to_puzzle(puzzle_id):
-    """Demote a metapuzzle back to a regular puzzle. Alias of convert-to-feeder.
-
-    For backward compat the old /convert-to-feeder route is also kept.
-    Mirrors the !convert_to_puzzle bang command."""
-    # Reuse the same logic as convert_to_feeder by calling it through the cog service directly
-    from bot.store import HuntJsonDb, PuzzleJsonDb
-
-    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
-    if err:
-        return err
-    if ctx["hunt"]["archived"]:
-        return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_admin(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
-    async with puzzle_lock(puzzle_id):
-        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-        if puzzle is None:
-            return jsonify({"error": "puzzle_not_found"}), 404
-        if not puzzle.is_target:
-            return jsonify({"error": "not_a_metapuzzle"}), 400
-
-        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
-        cog = bot.get_cog("Puzzles")
-        if cog is None:
-            return jsonify({"error": "bot_unavailable"}), 503
-        snowflake = ctx["guild_snowflake"]
-        guild = bot.get_guild(int(snowflake)) if snowflake else None
-
-        try:
-            await cog.service.convert_to_puzzle(guild, hunt_obj, puzzle)
-        except (discord.RateLimited, discord.HTTPException) as exc:
-            return _discord_error_response(exc)
-        except SheetRefreshError as exc:
-            return jsonify({"ok": True, "sheet_warning": str(exc)})
-
-        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
-        await _audit("convert_to_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        return jsonify({"ok": True})
+    """Demote a metapuzzle back to a regular puzzle. Alias of convert-to-feeder,
+    kept for backward compat. Delegates entirely to convert_to_feeder so the two
+    routes can't drift (HttpError handling, orphaned-feeder count, and the
+    refresh/audit-on-warning behaviour stay identical)."""
+    return await convert_to_feeder(puzzle_id)
 
 
 # --- Delete a puzzle (organiser only) ----------------------------------------
