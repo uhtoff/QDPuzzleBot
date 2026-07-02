@@ -76,14 +76,14 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   function submitNote() {
     const note = text.trim();
     if (!note || !puzzle) return;
-    add.mutate({ puzzleId: puzzle.id, note }, { onSuccess: () => setText("") });
+    add.mutate({ puzzleId: puzzle.id, note }, { onSuccess: () => setText(""), onError: notifyError });
   }
 
   function submitSheet() {
     if (!puzzle) return;
     addSheet.mutate(
       { puzzleId: puzzle.id, name: sheetName.trim() },
-      { onSuccess: () => setSheetName("") }
+      { onSuccess: () => setSheetName(""), onError: notifyError }
     );
   }
 
@@ -161,19 +161,25 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                 <StatusCell
                   value={puzzle.status}
                   solved={puzzle.solved}
-                  onChange={(status) => update.mutate({ puzzleId: puzzle.id, patch: { status } })}
+                  onChange={(status) =>
+                    update.mutate({ puzzleId: puzzle.id, patch: { status } }, { onError: notifyError })
+                  }
                 />
               </MetaRow>
               <MetaRow label="Priority">
                 <PriorityCell
                   value={puzzle.priority}
-                  onChange={(priority) => update.mutate({ puzzleId: puzzle.id, patch: { priority } })}
+                  onChange={(priority) =>
+                    update.mutate({ puzzleId: puzzle.id, patch: { priority } }, { onError: notifyError })
+                  }
                 />
               </MetaRow>
               <MetaRow label="Type">
                 <TypeCell
                   value={puzzle.puzzle_type}
-                  onSave={(puzzle_type) => update.mutate({ puzzleId: puzzle.id, patch: { puzzle_type } })}
+                  onSave={(puzzle_type) =>
+                    update.mutate({ puzzleId: puzzle.id, patch: { puzzle_type } }, { onError: notifyError })
+                  }
                 />
               </MetaRow>
               <MetaRow label="Link">
@@ -200,7 +206,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                         onChange={(e) => setLinkUrl(e.currentTarget.value)}
                         onKeyDown={(e) => e.key === "Enter" && setLink.mutate(
                           { puzzleId: puzzle.id, url: linkUrl.trim() },
-                          { onSuccess: () => closeLink() }
+                          { onSuccess: () => closeLink(), onError: notifyError }
                         )}
                         data-autofocus
                       />
@@ -209,7 +215,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                         onClick={() => {
                           setLink.mutate(
                             { puzzleId: puzzle.id, url: linkUrl.trim() },
-                            { onSuccess: () => closeLink() }
+                            { onSuccess: () => closeLink(), onError: notifyError }
                           );
                         }}
                         loading={setLink.isPending}
@@ -270,7 +276,9 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                     <ActionIcon
                       variant="subtle"
                       color="red"
-                      onClick={() => removeSheet.mutate({ puzzleId: puzzle.id, sheetId: s.id })}
+                      onClick={() =>
+                        removeSheet.mutate({ puzzleId: puzzle.id, sheetId: s.id }, { onError: notifyError })
+                      }
                       loading={removeSheet.isPending}
                       aria-label="Remove sheet"
                     >
@@ -367,7 +375,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
             onClose={() => setEraseIndex(null)}
             onConfirm={() => {
               if (eraseIndex !== null) {
-                erase.mutate({ puzzleId: puzzle.id, index: eraseIndex });
+                erase.mutate({ puzzleId: puzzle.id, index: eraseIndex }, { onError: notifyError });
               }
               setEraseIndex(null);
             }}

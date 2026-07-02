@@ -20,7 +20,7 @@ import { MiniCountBadge } from "./MiniCountBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { answerLength, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
+import { answerLength, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
 
 interface Props {
   detail: HuntDetail;
@@ -307,20 +307,26 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                             r={r}
                             editable={canManage}
                             onPick={(edge) =>
-                              retag.mutate({
-                                puzzleId: p.id,
-                                metaCode: r.group_code as string,
-                                mode: "add",
-                                edge,
-                              })
+                              retag.mutate(
+                                {
+                                  puzzleId: p.id,
+                                  metaCode: r.group_code as string,
+                                  mode: "add",
+                                  edge,
+                                },
+                                { onError: notifyError }
+                              )
                             }
                             onRemove={(edge) =>
-                              retag.mutate({
-                                puzzleId: p.id,
-                                metaCode: r.group_code as string,
-                                mode: "remove",
-                                edge,
-                              })
+                              retag.mutate(
+                                {
+                                  puzzleId: p.id,
+                                  metaCode: r.group_code as string,
+                                  mode: "remove",
+                                  edge,
+                                },
+                                { onError: notifyError }
+                              )
                             }
                           />
                         ))}
@@ -349,7 +355,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     <StatusCell
                       value={p.status}
                       solved={p.solved}
-                      onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
+                      onChange={(status) =>
+                        updateMut.mutate({ puzzleId: p.id, patch: { status } }, { onError: notifyError })
+                      }
                     />
                   ) : p.status ? (
                     <Badge variant="light" color={statusColor(p.status)}>
@@ -363,7 +371,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   {editable ? (
                     <PriorityCell
                       value={p.priority}
-                      onChange={(priority) => updateMut.mutate({ puzzleId: p.id, patch: { priority } })}
+                      onChange={(priority) =>
+                        updateMut.mutate({ puzzleId: p.id, patch: { priority } }, { onError: notifyError })
+                      }
                     />
                   ) : p.priority ? (
                     <Badge variant="dot" color={priorityColor(p.priority)}>
@@ -377,7 +387,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   {editable ? (
                     <TypeCell
                       value={p.puzzle_type}
-                      onSave={(puzzle_type) => updateMut.mutate({ puzzleId: p.id, patch: { puzzle_type } })}
+                      onSave={(puzzle_type) =>
+                        updateMut.mutate({ puzzleId: p.id, patch: { puzzle_type } }, { onError: notifyError })
+                      }
                     />
                   ) : (
                     <Text size="sm">{p.puzzle_type || "—"}</Text>

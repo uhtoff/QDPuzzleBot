@@ -3,6 +3,7 @@ import { ActionIcon, Badge, Box, Button, Group, Stack, Text, TextInput, Tooltip 
 import { IconCheck, IconX } from "@tabler/icons-react";
 import type { MiniPuzzle } from "../types";
 import { useCreateMini, useSolvePuzzle } from "../api";
+import { notifyError } from "../util";
 import { SolveModal } from "./PuzzleEditCells";
 
 interface Props {
@@ -55,8 +56,10 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
                   onChange={(e) => setSolveInput(mini.id, e.currentTarget.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && solveInputs[mini.id]) {
-                      solvePuzzle.mutate({ puzzleId: mini.id, solution: solveInputs[mini.id] });
-                      setSolveInput(mini.id, "");
+                      solvePuzzle.mutate(
+                        { puzzleId: mini.id, solution: solveInputs[mini.id] },
+                        { onSuccess: () => setSolveInput(mini.id, ""), onError: notifyError }
+                      );
                     }
                   }}
                   style={{ width: 160 }}
@@ -68,8 +71,10 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
                     color="green"
                     disabled={!solveInputs[mini.id]}
                     onClick={() => {
-                      solvePuzzle.mutate({ puzzleId: mini.id, solution: solveInputs[mini.id] });
-                      setSolveInput(mini.id, "");
+                      solvePuzzle.mutate(
+                        { puzzleId: mini.id, solution: solveInputs[mini.id] },
+                        { onSuccess: () => setSolveInput(mini.id, ""), onError: notifyError }
+                      );
                     }}
                   >
                     <IconCheck size={14} />
@@ -88,8 +93,10 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
             onChange={(e) => setNewName(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && newName.trim()) {
-                createMini.mutate({ puzzleId: parentId, name: newName.trim() });
-                setNewName("");
+                createMini.mutate(
+                  { puzzleId: parentId, name: newName.trim() },
+                  { onSuccess: () => setNewName(""), onError: notifyError }
+                );
               }
             }}
             style={{ flex: 1 }}
@@ -99,8 +106,10 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
             disabled={!newName.trim()}
             loading={createMini.isPending}
             onClick={() => {
-              createMini.mutate({ puzzleId: parentId, name: newName.trim() });
-              setNewName("");
+              createMini.mutate(
+                { puzzleId: parentId, name: newName.trim() },
+                { onSuccess: () => setNewName(""), onError: notifyError }
+              );
             }}
           >
             Add Mini
