@@ -19,7 +19,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core import category_layout
+from bot.core import category_layout, hunt_archive
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -2466,6 +2466,105 @@ class PuzzleService:
 
         HuntJsonDb.delete(hunt.id)
         return failed_channels
+
+    def _archive_thread_exists(self, dest, thread_name):
+        """True if an active thread with *thread_name* already exists on *dest* —
+        used to make archive_hunt resumable after a partial run."""
+        return any(getattr(t, "name", None) == thread_name for t in getattr(dest, "threads", []))
+
+    async def archive_hunt(self, guild, hunt, invoker, *, on_progress=None):
+        """Condense a whole hunt into threads on its general channel, delete its
+        categories/channels (voice included), rename the surviving channel, and
+        mark the hunt archived. Google Sheets and DB rows are kept.
+
+        Per-channel failures are isolated and collected on the report; one bad
+        channel never aborts the run.
+        """
+        report = hunt_archive.HuntArchiveReport()
+        dest = guild.get_channel(hunt.channel_id)
+        if dest is None:
+            report.failures.append("general-channel-missing")
+            return report
+        webhook = await hunt_archive.ensure_webhook(dest)
+
+        # Every category the hunt owns: main + solved-by-name + each group's categories.
+        category_ids = set()
+        if hunt.category_id:
+            category_ids.add(hunt.category_id)
+        solved = discord.utils.get(
+            guild.categories, name=category_layout.solved_category_name(hunt.name))
+        if solved is not None:
+            category_ids.add(solved.id)
+        for tg in TagGroupJsonDb.get_all(hunt.id):
+            if tg.category_id:
+                category_ids.add(tg.category_id)
+            for row in category_layout.group_categories(tg, TagGroupCategoryDb):
+                if row.category_id:
+                    category_ids.add(row.category_id)
+
+        dest_category_id = dest.category.id if dest.category is not None else None
+        categories = [c for c in
+                      (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
+                      if c is not None]
+        # Process dest's own category last so we never strand the surviving channel.
+        ordered = ([c for c in categories if c.id != dest_category_id] +
+                   [c for c in categories if c.id == dest_category_id])
+
+        total = sum(1 for c in ordered for ch in c.channels if ch.id != dest.id)
+        done = 0
+        for category in ordered:
+            for ch in list(category.channels):
+                if ch.id == dest.id:
+                    continue
+                done += 1
+                try:
+                    if ch.name == self._SOLVE_DIVIDER_NAME:
+                        await self._safe_delete_channel(guild, ch.id)
+                    elif isinstance(ch, discord.TextChannel):
+                        thread_name = hunt_archive.thread_name_for_channel(ch)
+                        if self._archive_thread_exists(dest, thread_name):
+                            # A prior run archived this but failed to delete it — finish that.
+                            await self._safe_delete_channel(guild, ch.id)
+                            report.channels_skipped += 1
+                        else:
+                            r = await hunt_archive.archive_and_delete_channel(
+                                self.bot, dest, webhook, ch, thread_name=thread_name)
+                            report.channels_archived += 1
+                            report.messages_moved += r.messages_moved
+                    else:
+                        await self._safe_delete_channel(guild, ch.id)  # voice / stage / other
+                        report.voice_deleted += 1
+                except Exception:
+                    logger.exception("archive_hunt: failed on channel %s",
+                                     getattr(ch, "name", getattr(ch, "id", "?")))
+                    report.failures.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
+                if on_progress is not None:
+                    await on_progress(done, total, getattr(ch, "name", ""))
+            if category.id != dest_category_id:
+                try:
+                    await category.delete(reason=self._DISCORD_DELETE_REASON)
+                    report.categories_deleted += 1
+                except Exception:
+                    logger.exception("archive_hunt: could not delete category %s", category.id)
+
+        # dest survives alone: detach it and delete its now-empty category.
+        if dest_category_id is not None:
+            try:
+                await dest.edit(category=None)
+                main_cat = discord.utils.get(guild.categories, id=dest_category_id)
+                if main_cat is not None:
+                    await main_cat.delete(reason=self._DISCORD_DELETE_REASON)
+                    report.categories_deleted += 1
+            except Exception:
+                logger.exception("archive_hunt: could not detach/delete main category")
+
+        team = hunt_archive.resolve_team_name(guild, hunt, invoker)
+        report.final_name = hunt_archive.archived_channel_name(hunt, team)
+        await self.safe_rename(dest, report.final_name)
+
+        hunt.archived = True
+        HuntJsonDb.commit(hunt)
+        return report
 
     # -- Hunt settings -------------------------------------------------
 
