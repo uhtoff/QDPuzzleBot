@@ -26,7 +26,7 @@ disagree, **the code is the source of truth** — fix both.
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
 | `!hunt` | `!h` | `name:url[, role][, forum]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility; append `, forum` for forum-backed layout (a forum channel per round). |
-| `!set_to_archive` *(slash)* | | — | Hunt channel | admins/mods | Use a second spreadsheet to hold solved puzzles. |
+| `!use_solved_sheet` *(slash)* | `!set_to_archive` | — | Hunt channel | admins/mods | Use a separate "solved puzzles sheet": solved feeders move there, metas stay on the main sheet. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |
 | `!delete_hunt` | | — | Hunt channel | admins/mods | Permanently delete the whole hunt (confirms). Not recoverable. |
@@ -149,7 +149,12 @@ Run in a puzzle channel.
 
 ## Archiving
 
-Admins/mods.
+Admins/mods. **Channel archiving is bang-only** — copying a Discord channel's history into a
+thread and deleting the channel has **no web-dashboard equivalent, by design**. Don't confuse it
+with two unrelated features that also say "archive": the **solved puzzles sheet** (see
+`!use_solved_sheet` — a second spreadsheet solved feeders move to) and the **hunt archived flag**
+(the dashboard "Archive hunt" action that makes a hunt read-only). Neither of those touches Discord
+channels.
 
 | Command | Where | Does |
 |---|---|---|
