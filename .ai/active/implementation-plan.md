@@ -6,7 +6,7 @@ Single source of truth for progress. Tick the box the moment a finding is commit
 record the commit hash next to it. `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` deferred.
 
 - [x] **#1**  puzzles.py:2917 — archive_channel attachment/embed loss        — commit: b0225d6
-- [ ] **#3**  puzzles_gsheet.py:1202 — reconcile_table row-delete grid loss   — commit: ____
+- [x] **#3**  puzzles_gsheet.py:1202 — reconcile_table row-delete grid loss   — commit: 3ed8ae1
 - [ ] **#5**  puzzle_service.py:1073 — convert_to_puzzle IntegrityError        — commit: ____
 - [ ] **#6**  notifier.py:22 — board_changed snowflake vs row id              — commit: ____
 - [ ] **#7**  AdminSettingsPanel.tsx:75 — hunt start timezone shift           — commit: ____

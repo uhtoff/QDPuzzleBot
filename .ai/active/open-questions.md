@@ -5,16 +5,21 @@ Resolve the blocking ones with the user **before** implementing the associated f
 
 ## Blocking
 
-### Q1 — #3 reconcile_table: how to prune without destroying the grid?
-The bug is `deleteDimension {dimension: ROWS}` deleting the full-width row. Options:
-- (a) Replace prune with a **bounded clear** of only the table's own columns
-  (key_col..end_col) via `updateCells`/`deleteRange` with column bounds, leaving E+ intact —
-  but then stale rows accumulate / the table grows. Need a compaction story.
-- (b) Rewrite the whole table region (bounded to its columns) each reconcile — clear the
-  block, re-write current rows — never deleting sheet rows.
-- (c) Move the contribution table somewhere it can own full rows (bigger change).
-**Decision needed:** which approach. (b) looks least invasive and matches "table owns only
-its columns" intent, but confirm the table has a known max extent to clear.
+### Q1 — #3 reconcile_table: how to prune without destroying the grid? — ANSWERED (2026-07-02)
+The bug is `deleteDimension {dimension: ROWS}` deleting the full-width row. Rejected a plain
+"clear the block and rewrite from the top" (b): if pruned rows are compacted, a row's
+identity can be handed to a different key on the next reconcile, silently misattributing any
+note a user added in a column to the right of the table (nothing is deleted, but it now sits
+next to the wrong puzzle).
+
+**Decision: refined (b)** — never call `deleteDimension`/`insertDimension` on rows at all.
+- Prune: blank only the table's own columns (`key_col`..`key_col+data_col_count`) in place;
+  leave the row where it is.
+- Append: always write after the highest row currently in use; never reuse a blanked row.
+- A row's identity is therefore permanent once assigned — anything a user adds beside the
+  table stays correctly associated. The table only grows over a reconcile's lifetime; the
+  user can manually sort the table's range in Sheets to reclaim blank rows (their call, not
+  silent bot behaviour).
 
 ### Q2 — #2/#4: is an archive spreadsheet used in production? — ANSWERED (2026-07-02)
 **Yes** — archive spreadsheets are used for bigger hunts, so #2/#4 must work correctly.
