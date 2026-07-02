@@ -358,11 +358,21 @@ Evidence created_at is written as naive datetime.utcnow() (bot/store/mysqldb.py:
 
 ### 34. [MEDIUM] `bot/web/actions.py:125`
 
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Both
+endpoints now return `hunt_archived` (403) when the hunt is archived, matching
+every sibling mutation.
+
 add_note (bot/web/actions.py:124) and erase_note (bot/web/actions.py:153) are the only puzzle-mutating web endpoints missing the ctx["hunt"]["archived"] guard (delete_hunt's omission at 1261 is deliberate and commented), so POST /api/puzzles/<id>/notes and DELETE .../notes/<index> succeed on an archived hunt's puzzle — mutating the frozen DB record and emitting a board push — despite api.py declaring archived hunts read-only. (Correction: the service methods only commit notes to the DB; no archive sheet is touched.)
 
 **Failure scenario:** hunt_detail (api.py:98-99) states 'Archived hunts are read-only even for organisers' and returns can_manage=false, and every sibling mutation (update_puzzle:185, add_sheet:233, solve:312, etc.) returns 403 hunt_archived — but POST /api/puzzles/<id>/notes and DELETE .../notes/<index> on an archived hunt's puzzle succeed, mutating the frozen record and (via service.add_note) touching its archive sheet.
 
 ### 35. [MEDIUM] `bot/web/actions.py:712`
+
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`).
+`start_timestamp` is now validated (numeric, in-range for
+`datetime.fromtimestamp`) before any Discord/Sheets resources are created.
 
 create_hunt (bot/web/actions.py:712) passes the unvalidated JSON value body["start_timestamp"] straight to service.create_hunt, where datetime.fromtimestamp (bot/core/puzzle_service.py:2149) runs only after the Discord role/category/channels and Google spreadsheet are created but before HuntJsonDb.commit (2161); a string or null value raises TypeError, which the route's except clauses (actions.py:716-721) do not catch, yielding a 500 with orphaned Discord/Sheets resources and no hunts row.
 
@@ -379,6 +389,12 @@ GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return th
 **Failure scenario:** Any person with a Discord account completes /api/auth/login (no guild-membership requirement anywhere in auth.py) and calls GET /api/guilds: the loop appends every guilds_map entry unless ?admin=1, disclosing all teams' guild names and snowflakes to complete outsiders — a visibility bypass in the multi-team model where even hunts are role-gated per guild.
 
 ### 37. [MEDIUM] `bot/web/api.py:213`
+
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Now guards
+on `hunt["archived"]` and validates every element of `notes` is a string
+before writing any of them (rejecting the whole request instead of a partial
+write).
 
 POST /api/evidence (bot/web/api.py:196-221) lacks the hunt-archived guard that every other web mutation enforces, so any guild member can write evidence rows (and fire a sheet refresh) into a read-only archived hunt; and the per-note write loop at line 213 calls n.strip() on each raw JSON element, so a non-string note (e.g. notes=["ok", 42]) raises AttributeError mid-loop after earlier notes are already committed, returning a 500 with a partial write and no refresh_evidence task. Mitigating: the SPA never calls this POST (clue creation goes through /actions/puzzles/<id>/clues, which is guarded), so it is only reachable by direct authenticated API calls.
 
