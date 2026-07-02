@@ -1208,6 +1208,7 @@ class PuzzleService:
             to_keep = [p for p in all_puzzles if p not in to_delete]
 
         failed_channels = []
+        other_fed_group_ids = set()
         for puzzle in to_delete:
             gsheet_cog = self._gsheet_cog(hunt)
             if gsheet_cog is not None:
@@ -1215,10 +1216,21 @@ class PuzzleService:
                     await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
                 except Exception:
                     logger.exception("delete_round: sheet delete failed for puzzle %s", puzzle.id)
+            other_fed_group_ids.update(tag for tag in puzzle.tags if tag != tag_group.id)
             PuzzleJsonDb.delete(puzzle.id)
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+
+        if other_fed_group_ids:
+            other_target_groups = [
+                TagGroupJsonDb.get_by_attr(id=gid) for gid in other_fed_group_ids
+            ]
+            failed_refresh = await self.refresh_targets(hunt, other_target_groups)
+            if failed_refresh:
+                logger.error(
+                    "delete_round: failed to refresh target groups %s after deleting "
+                    "member puzzles of group %s", failed_refresh, tag_group.id)
 
         relocation_failed_channel_ids = set()
         if to_keep and guild is not None:
