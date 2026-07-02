@@ -20,7 +20,6 @@ import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCell
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
-import { useUnsolveConfirm } from "./useUnsolveConfirm";
 
 interface Props {
   detail: HuntDetail;
@@ -175,7 +174,6 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const retag = useRetagPuzzle(detail.hunt.uid);
-  const { request: requestUnsolve, modal: unsolveModal } = useUnsolveConfirm(detail.hunt.uid);
   const editable = !detail.hunt.archived;
   // Debug edges (and the click-to-edit menu) are organiser-only; can_manage is
   // already false for archived hunts and matches the backend's require_organiser gate.
@@ -387,7 +385,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   puzzle={p}
                   editable={editable}
                   onSolve={setSolvePuzzle}
-                  onUnsolve={(p) => requestUnsolve({ id: p.id, name: p.name })}
+                  onUnsolve={setSolvePuzzle}
                   onOpenNotes={onOpenNotes}
                   onToggleMinis={toggleMinis}
                 />
@@ -409,7 +407,6 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
       </Table.ScrollContainer>
 
       <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
-      {unsolveModal}
     </>
   );
 }

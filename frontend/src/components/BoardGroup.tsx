@@ -28,7 +28,6 @@ import {
   useUpdatePuzzle,
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
-import { useUnsolveConfirm } from "./useUnsolveConfirm";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
@@ -69,7 +68,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const isMeta = !!group.group_code;
   const answersQuery = useRollupAnswers(group.tag_group_id, answersOpened && isMeta);
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
-  const { request: requestUnsolve, modal: unsolveModal } = useUnsolveConfirm(detail.hunt.uid);
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
@@ -236,7 +234,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         puzzle={p}
                         editable={editable}
                         onSolve={setSolvePuzzle}
-                        onUnsolve={(p) => requestUnsolve({ id: p.id, name: p.name })}
+                        onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
                         onToggleMinis={toggleMinis}
                         tdWidth={80}
@@ -286,7 +284,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         puzzle={p}
                         editable={editable}
                         onSolve={setSolvePuzzle}
-                        onUnsolve={(p) => requestUnsolve({ id: p.id, name: p.name })}
+                        onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
                         onToggleMinis={toggleMinis}
                         tdWidth={76}
@@ -363,7 +361,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           This cannot be undone.
         </Text>
       </TypedConfirmModal>
-      {unsolveModal}
     </Accordion.Item>
   );
 }
