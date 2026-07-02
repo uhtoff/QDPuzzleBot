@@ -45,6 +45,10 @@ every tranche above by design — that area was being worked in parallel in `wor
 (see the delete-round scope work merged separately into `staging`). Not evaluated here for
 whether that work incidentally fixed any of them.
 
+**Status update (2026-07-02, branch `working-2`):** #30's remaining forum-layout
+gap and #54's remaining hunt-creation visibility gap were both closed (see each
+finding's own status block below, commits `0ec16d6` and `a2a7b6b`/`0ec16d6`).
+
 No other findings in this document have been actioned.
 
 **Fix-review pass (2026-07-02):** all 47 findings previously marked `FIXED` were re-reviewed
@@ -359,11 +363,24 @@ delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle 
 DIFFERENT tag group's target from deletion (relocating it instead, same as
 narrow mode), so the failure scenario above can no longer happen via either
 `!delete_round` or the web's "Round + all puzzles" option — for channel-layout
-rounds. Forum-layout rounds are intentionally exempt (forum threads have no
-relocation equivalent, and forum layout is a known stale path not receiving
-new investment per project convention): a forum round still full-deletes
-every member puzzle with no protection, so the original failure scenario
-remains reachable there.
+rounds. Forum-layout rounds were intentionally exempt at that point (forum
+threads have no relocation equivalent, and forum layout is a known stale path
+not receiving new investment per project convention): a forum round still
+full-deleted every member puzzle with no protection, so the original failure
+scenario remained reachable there.
+
+**Status: FIXED AND REVIEWED** in `0ec16d6` (`fix(service): protect
+foreign-group targets in forum full-delete (#30)`, branch `working-2`). The
+foreign-target protection is now unconditional (applies to forum layout too,
+which always takes the full-delete branch): a member puzzle that is a
+DIFFERENT tag group's target is excluded from `to_delete` regardless of
+layout mode. Since a forum thread has no relocation equivalent, the
+protected puzzle's thread is simply left alone — not deleted, not moved (the
+existing relocation loop is now skipped for forum via `not is_forum`). Test
+`test_full_delete_forum_mode_unaffected_by_foreign_target_protection`, which
+asserted the old (buggy) behaviour, was rewritten to
+`test_full_delete_forum_mode_protects_foreign_target_puzzle` and now asserts
+the fix.
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
@@ -607,6 +624,25 @@ frontend's `useActivityFeed` only invalidates the `["hunt", uid]` query, never
 `["hunts"]`, so a bang `!hunt` creation would still not appear on an open hunt
 list even with a backend push. Fixing hunt-creation visibility needs a
 frontend query-invalidation change, out of scope for this backend-only fix.
+
+**Status: FIXED AND REVIEWED** in `0ec16d6` (backend push, bundled with the
+unrelated #30 fix in the same file) and `a2a7b6b` (`fix(web): invalidate hunt
+list on any board push, push on hunt create (#54)`, branch `working-2`).
+`create_hunt` now manually calls `self.notifier.board_changed(new_hunt)`
+right after `HuntJsonDb.commit` (guarded on `self.notifier is not None`,
+matching the codebase's existing convention) — it can't use `@pushes_board`
+since the decorator needs a pre-existing `hunt` argument to bind to, and this
+call is the one creating it. On the frontend, `HuntList` now subscribes to
+the activity WebSocket via `useActivityFeed` and invalidates `["hunts"]` on
+any `"board"` event (it can't filter by uid the way `HuntBoard` does, since
+the point is a hunt the list doesn't have yet), so a hunt created via bang
+`!hunt`, the dashboard, or another tab now appears on every open hunt list
+without a manual reload — visibility is still gated by the existing
+`hunt_visible`/team-role WebSocket filter, so a user without the new hunt's
+role does not receive the event. Covered by new tests
+`test_create_hunt_pushes_board_when_notifier_present` and
+`test_create_hunt_no_notifier_does_not_raise` in
+`tests/test_create_hunt_service.py`.
 
 ### 55. [LOW] `bot/store/mysqldb.py:580`
 
