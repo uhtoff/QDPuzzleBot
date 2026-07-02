@@ -185,8 +185,10 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; ui
     );
   }
 
-  // Clear the solution and move the channel back to unsolved. Replaces the old
-  // useUnsolveConfirm dialog — opening this modal is the deliberate step.
+  // Clear the solution and move the channel back to unsolved. Opening this modal
+  // is the deliberate step (no confirm dialog). Close immediately and rely on the
+  // error toast — this matches the prior useUnsolveConfirm behaviour; a failed
+  // unsolve self-corrects on the next query invalidation.
   function unsolvePuzzle() {
     if (!puzzle) return;
     unsolve.mutate({ puzzleId: puzzle.id }, { onError: notifyError });
