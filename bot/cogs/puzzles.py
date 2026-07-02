@@ -3024,7 +3024,11 @@ class Puzzles(commands.Cog):
             channel = ctx.channel
         if archive_to is None:
             archive_to = self.bot.get_channel(self.get_hunt(ctx).channel_id)
-        webhook = await hunt_archive.ensure_webhook(archive_to)
+        try:
+            webhook = await hunt_archive.ensure_webhook(archive_to)
+        except discord.HTTPException as e:
+            await ctx.send(f":x: Couldn't create/find a webhook on {archive_to.mention}: {e}")
+            return False
         thread_name = hunt_archive.thread_name_for_channel(channel)
         await hunt_archive.archive_and_delete_channel(
             ctx.bot, archive_to, webhook, channel, thread_name=thread_name)

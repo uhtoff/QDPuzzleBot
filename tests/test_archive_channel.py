@@ -3,6 +3,7 @@ must be archived, not silently dropped before the source channel is deleted."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from bot.cogs.puzzles import Puzzles
@@ -113,3 +114,34 @@ async def test_skips_message_with_no_content_attachments_or_embeds():
     assert result is True
     webhook.send.assert_not_awaited()
     channel.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_creation_failure_reported_gracefully():
+    """If the destination channel has no webhook and creating one fails (no
+    Manage Webhooks permission, or the 15-webhook cap), archive_channel should
+    report the error and return False rather than letting the exception
+    propagate — matching the old graceful-failure contract."""
+    truly_empty = _make_message(1, content="")
+    channel = _make_channel([truly_empty])
+    moved_message = MagicMock()
+    archive_to, webhook = _make_archive_to(moved_message)
+    archive_to.mention = "#archive"
+    archive_to.webhooks = AsyncMock(return_value=[])
+    archive_to.create_webhook = AsyncMock(
+        side_effect=discord.Forbidden(MagicMock(status=403), "Missing Permissions"))
+
+    cog = make_cog()
+    ctx = make_ctx()
+    ctx.bot.application_id = 999
+
+    with patch("bot.core.hunt_archive.archive_and_delete_channel", new=AsyncMock()) as archive_and_delete:
+        result = await Puzzles.archive_channel.callback(cog, ctx, channel, archive_to)
+
+    assert result is False
+    ctx.send.assert_awaited_once()
+    sent_message = ctx.send.await_args.args[0]
+    assert sent_message.startswith(":x:")
+    assert "#archive" in sent_message
+    archive_and_delete.assert_not_awaited()
+    channel.delete.assert_not_awaited()
