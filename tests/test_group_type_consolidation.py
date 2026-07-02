@@ -122,3 +122,28 @@ async def test_delete_round_bang_locks_member_puzzles():
         await Puzzles.delete_round.callback(cog, ctx)
 
     lock_mock.assert_called_once_with([1, 2])
+
+
+async def test_delete_hunt_bang_locks_member_puzzles():
+    """delete_hunt must hold every member puzzle's lock for the duration of
+    confirm+delete, not just proceed unlocked (review #45)."""
+    from bot.cogs.puzzles import Puzzles
+
+    hunt = make_hunt(channel_id=999)
+    cog = make_cog(hunt=hunt)
+    cog.get_channel_type = lambda ctx: "Hunt"
+    cog._confirm_destructive = AsyncMock(return_value=True)
+    cog.service.delete_hunt = AsyncMock(return_value=[])
+    ctx = make_ctx()
+    ctx.channel = MagicMock(send=AsyncMock())
+    cog.environment = {ctx.message.id: {"puzzle": None, "tag_group": None}}
+    members = [make_puzzle(id=3), make_puzzle(id=1)]
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_hunt.return_value = members
+        lock_mock.return_value.__aenter__ = AsyncMock(return_value=None)
+        lock_mock.return_value.__aexit__ = AsyncMock(return_value=None)
+        await Puzzles.delete_hunt.callback(cog, ctx)
+
+    lock_mock.assert_called_once_with([3, 1])
