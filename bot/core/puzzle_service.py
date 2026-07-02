@@ -1205,7 +1205,8 @@ class PuzzleService:
 
             group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
             if group_chat_ch is not None:
-                await self._safe_delete_channel(guild, group_chat_ch.id)
+                if not await self._safe_delete_channel(guild, group_chat_ch.id):
+                    failed_channels.append(tag_group.name)
 
         TagGroupJsonDb.delete(tag_group.id)
 

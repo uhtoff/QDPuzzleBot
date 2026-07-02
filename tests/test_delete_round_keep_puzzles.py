@@ -166,3 +166,50 @@ async def test_forum_layout_ignores_keep_puzzles_full_deletes():
     pdb.delete.assert_called_once_with(1)     # keep_puzzles=True ignored for forum — full delete
     forum_ch.delete.assert_awaited_once()
     assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket_delete():
+    """Integration coverage for the keep_channel_ids wiring: a puzzle whose
+    channel fails to relocate must survive the real (non-mocked)
+    delete_group_categories blanket per-category delete, while an
+    unprotected channel in the same category is still swept."""
+    from bot.store.tag_group_category_data import TagGroupCategoryData
+
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5])
+    feeder_ch = MagicMock(id=902); feeder_ch.category_id = 100; feeder_ch.edit = AsyncMock()
+    feeder_ch.delete = AsyncMock()
+    stray_ch = MagicMock(id=903); stray_ch.delete = AsyncMock()   # unprotected leftover channel
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [feeder_ch, stray_ch]
+    round_cat.text_channels = []          # no dedicated chat channel
+    round_cat.delete = AsyncMock()
+    general_cat = MagicMock(id=500)
+    general_cat.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]  # full -> relocation fails
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb:
+        pdb.get_all_from_tag_group.return_value = [feeder]
+        tgcdb.get_for_group.return_value = [
+            TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        ]
+
+        failed = await svc.delete_round(guild, hunt, tag_group)
+
+    feeder_ch.edit.assert_not_awaited()
+    feeder_ch.delete.assert_not_called()      # protected via keep_channel_ids
+    stray_ch.delete.assert_awaited_once()     # unprotected channel still swept
+    round_cat.delete.assert_awaited_once()    # category itself still torn down
+    tgcdb.delete_for_group.assert_called_once_with(5)
+    pdb.delete.assert_not_called()            # feeder's DB row untouched
+    assert failed == ["Feeder"]
