@@ -453,7 +453,7 @@ async def log_clue(puzzle_id):
             return jsonify({"error": "bot_unavailable"}), 503
 
         await cog.service.log_clues(hunt_obj, puzzle, [note])
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
         await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
 
@@ -1179,47 +1179,11 @@ async def convert_to_metapuzzle(puzzle_id):
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-puzzle", methods=["POST"])
 @login_required
 async def convert_to_puzzle(puzzle_id):
-    """Demote a metapuzzle back to a regular puzzle. Alias of convert-to-feeder.
-
-    For backward compat the old /convert-to-feeder route is also kept.
-    Mirrors the !convert_to_puzzle bang command."""
-    # Reuse the same logic as convert_to_feeder by calling it through the cog service directly
-    from bot.store import HuntJsonDb, PuzzleJsonDb
-
-    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
-    if err:
-        return err
-    if ctx["hunt"]["archived"]:
-        return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_admin(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
-    async with puzzle_lock(puzzle_id):
-        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-        if puzzle is None:
-            return jsonify({"error": "puzzle_not_found"}), 404
-        if not puzzle.is_target:
-            return jsonify({"error": "not_a_metapuzzle"}), 400
-
-        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
-        cog = bot.get_cog("Puzzles")
-        if cog is None:
-            return jsonify({"error": "bot_unavailable"}), 503
-        snowflake = ctx["guild_snowflake"]
-        guild = bot.get_guild(int(snowflake)) if snowflake else None
-
-        try:
-            await cog.service.convert_to_puzzle(guild, hunt_obj, puzzle)
-        except (discord.RateLimited, discord.HTTPException) as exc:
-            return _discord_error_response(exc)
-        except SheetRefreshError as exc:
-            return jsonify({"ok": True, "sheet_warning": str(exc)})
-
-        asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
-        await _audit("convert_to_puzzle", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        return jsonify({"ok": True})
+    """Demote a metapuzzle back to a regular puzzle. Alias of convert-to-feeder,
+    kept for backward compat. Delegates entirely to convert_to_feeder so the two
+    routes can't drift (HttpError handling, orphaned-feeder count, and the
+    refresh/audit-on-warning behaviour stay identical)."""
+    return await convert_to_feeder(puzzle_id)
 
 
 # --- Delete a puzzle (organiser only) ----------------------------------------
@@ -1778,10 +1742,10 @@ async def update_evidence(item_id):
         item = EvidenceJsonDb.set_target(item_id, target_puzzle_id) or item
         if cog is not None and hunt_obj is not None:
             if item.target_puzzle_id:
-                asyncio.create_task(cog.service.link_informs_for_evidence(
+                asyncio.create_task(cog.service.link_informs_for_evidence_safe(
                     hunt_obj, item.source_puzzle_id, item.target_puzzle_id))
             if old_target and old_target != item.target_puzzle_id:
-                asyncio.create_task(cog.service.unlink_informs_for_evidence(
+                asyncio.create_task(cog.service.unlink_informs_for_evidence_safe(
                     hunt_obj, item.source_puzzle_id, old_target))
                 # The old target loses this contribution row — refresh it too.
                 asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, old_target))
@@ -1793,7 +1757,7 @@ async def update_evidence(item_id):
         # text shows in its contribution table (target unchanged here).
         if not target_changed and item.target_puzzle_id:
             asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
 
@@ -1823,11 +1787,11 @@ async def delete_evidence(item_id):
         if old.target_puzzle_id:
             # Mirror the reassignment cleanup: drop the auto-added informs edge if
             # no routed evidence remains, and refresh the (old) target's table.
-            asyncio.create_task(cog.service.unlink_informs_for_evidence(
+            asyncio.create_task(cog.service.unlink_informs_for_evidence_safe(
                 hunt_obj, old.source_puzzle_id, old.target_puzzle_id))
             asyncio.create_task(cog.service.refresh_target_for_puzzle(
                 hunt_obj, old.target_puzzle_id))
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
     return jsonify({"ok": True})

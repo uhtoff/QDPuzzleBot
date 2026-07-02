@@ -64,12 +64,12 @@ This will create a `#puzzleround-name` [category](https://support.discord.com/hc
 along with a `#meta` puzzle text for the round. The `#meta` channels are the place for general discussion about the round,
 as well as discussion about the meta puzzle (if there is more than one meta, creating new puzzle channels would be prudent).
 
-For a new puzzle, one can either post the puzzle via `!puzzle` in the `#bot` channel:
+For a new puzzle, post `!p puzzle-name` in the corresponding round's `#meta` channel to create it in that round, or in the
+`#bot` channel to create it unassigned to any round:
 ```
-!p puzzle-round-name: puzzle-name
+!p puzzle-name
 ```
-Or simply `!p puzzle-name` in the corresponding round's `#meta` channel. This will create a `#puzzle-name` text and voice channel
-where discussion of the puzzle can take place.
+This will create a `#puzzle-name` text and voice channel where discussion of the puzzle can take place.
 
 When the puzzle is solved, post `!solve SOLUTION` in the puzzle's channel. The text channel will automatically get archived (moved
 to the `#solved-puzzles` category) after ~5 minutes, and the voice channel will be deleted. If this is mistakenly entered,

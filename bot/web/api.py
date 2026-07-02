@@ -224,7 +224,7 @@ async def add_evidence():
         cog = current_app.bot.get_cog("Puzzles")
         hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
         if cog is not None and hunt_obj is not None:
-            asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+            asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 

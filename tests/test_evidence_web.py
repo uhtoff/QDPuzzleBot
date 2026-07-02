@@ -33,8 +33,8 @@ def web():
     cog = MagicMock()
     svc = cog.service
     for name in (
-        "link_informs_for_evidence", "unlink_informs_for_evidence",
-        "refresh_target_for_puzzle", "refresh_evidence",
+        "link_informs_for_evidence_safe", "unlink_informs_for_evidence_safe",
+        "refresh_target_for_puzzle", "refresh_evidence_safe",
     ):
         setattr(svc, name, AsyncMock())
     app.bot = MagicMock()
@@ -177,4 +177,4 @@ async def test_delete_refreshes_old_target_and_unlinks_informs(web):
 
     assert resp.status_code == 200
     web.svc.refresh_target_for_puzzle.assert_any_call(web.hunt_obj, 33)
-    web.svc.unlink_informs_for_evidence.assert_any_call(web.hunt_obj, 1, 33)
+    web.svc.unlink_informs_for_evidence_safe.assert_any_call(web.hunt_obj, 1, 33)
