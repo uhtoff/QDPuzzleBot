@@ -569,9 +569,11 @@ on this DB) were purged as part of applying the migration.
 
 **Failure scenario:** Organiser runs `!rebuild` in a puzzle channel that lives in a round's solved/overflow category: TagGroupJsonDb.get_by_attr(category_id=...) returns None (the join table at category_layout.group_id_for_category is never consulted, unlike line 886), target stays None, and the command rebuilds ALL meta sheets — a mass Sheets-quota hit contradicting the docstring's 'rebuilds just that round's meta'.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `!rebuild`'s targeted-mode lookup now
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `!rebuild`'s targeted-mode lookup now
 calls `_tag_group_for_channel` (the overflow/solved-aware helper) instead of the
 primary-category-only `get_by_attr`.
+
+**Reviewer note (2026-07-02):** Verified — `!rebuild`'s targeted lookup now calls `_tag_group_for_channel(ctx.channel)` (bot/cogs/puzzles.py), so an overflow/solved category resolves to its round instead of degrading to a hunt-wide rebuild.
 
 ### 44. [LOW] `bot/cogs/puzzles.py:1022`
 
@@ -579,9 +581,11 @@ primary-category-only `get_by_attr`.
 
 **Failure scenario:** `!add_tag 9999` (a typo'd id, or the same id twice) appends an id with no matching group / a duplicate to puzzle.tags, which cog_after_invoke commits; the puzzle then trips the dangling-id crash in !list_tags (line 999), and because there is no puzzle mutex the write can race a concurrent tagging command on the same puzzle.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `!add_tag` now carries
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `!add_tag` now carries
 `@with_puzzle_mutex(wait=True)` (matching `!remove_tag`) and rejects both a
 nonexistent group id and a duplicate tag before appending.
+
+**Reviewer note (2026-07-02):** Verified — `!add_tag` carries `@with_puzzle_mutex(wait=True)` and rejects both a nonexistent group id and a duplicate tag before appending (bot/cogs/puzzles.py), matching `!remove_tag`.
 
 ### 45. [LOW] `bot/cogs/puzzles.py:3036`
 
@@ -606,11 +610,13 @@ start_reminders (bot/cogs/puzzles.py:3155) calls self.reminder_loop.start(channe
 
 **Failure scenario:** An organiser runs !start_reminders twice (or organisers of two concurrent hunts each run it): the second call raises an unhandled RuntimeError instead of a message, and the second hunt can never get its own reminder loop since the cog holds exactly one tasks.loop bound to the first channel.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `!start_reminders` now cancels an
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `!start_reminders` now cancels an
 already-running loop before restarting it, so a second call redirects the single
 shared loop to the new channel instead of raising an unhandled RuntimeError. The
 underlying one-loop-per-cog design (can't run two hunts' reminders concurrently)
 is unchanged — out of scope for this LOW finding.
+
+**Reviewer note (2026-07-02):** Verified — `!start_reminders` now `self.reminder_loop.cancel()`s a running loop before `.start(channel)` (bot/cogs/puzzles.py), so a second call redirects the loop instead of raising RuntimeError.
 
 ### 47. [LOW] `bot/cogs/puzzles_gsheet.py:295`
 
@@ -634,11 +640,13 @@ add_metapuzzle_data (bot/cogs/puzzles_gsheet.py:855) and add_metametapuzzle_data
 
 **Failure scenario:** Dead-code drift: the live rollup path is render_contribution/reconcile_table, but these A5-anchored aggregate_to_tab writers remain callable and would clobber a target tab's hidden key column A if ever re-wired; and a member whose sole tag references a deleted group makes `round.name` raise AttributeError. Cost is maintenance confusion (tests like test_refresh_meta exist mainly to assert they are NOT called) plus a latent crash if resurrected.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `add_metametapuzzle_data` now
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `add_metametapuzzle_data` now
 guards the `get_by_attr(id=...)` lookup against a deleted group (falls back to
 `"*(deleted round)*"`) instead of dereferencing `.name` on `None`. The
 dead-code/duplication half of this finding (zero production callers) is
 unchanged — out of scope for a null-guard fix.
+
+**Reviewer note (2026-07-02):** Verified — `add_metametapuzzle_data` now reads `round.name if round is not None else "*(deleted round)*"` (bot/cogs/puzzles_gsheet.py), so a member tagging a deleted group no longer AttributeErrors.
 
 ### 50. [LOW] `bot/core/category_layout.py:145`
 
@@ -646,12 +654,14 @@ _allocate (bot/core/category_layout.py:145) computes next_seq from role_rows rea
 
 **Failure scenario:** Two puzzles created near-simultaneously in a round whose unsolved categories are all at the soft limit: both tasks pass the room check, task B enters the lock after A, reuses A's '(2)' category via the name match, and dao.commit inserts a second join row for the same category_id/seq; cleanup_empty_overflow later deletes the category but only one row (line 232), leaving a dangling join row pointing at a deleted category.
 
-**Status: FIXED** in `51ea131`, branch `working-2`. `_allocate` now re-reads
+**Status: FIXED AND REVIEWED** in `51ea131`, branch `working-2`. `_allocate` now re-reads
 `dao.get_for_group(tag_group.id)` (filtered to `role`) under `layout_lock`
 instead of trusting the caller's pre-lock `role_rows` snapshot, matching
 `split_group`'s re-check pattern — two concurrent allocations for the same
 group/role now serialize on the correct `next_seq` instead of racing to the
 same value.
+
+**Reviewer note (2026-07-02):** Verified — `_allocate` re-reads `dao.get_for_group(tag_group.id)` filtered to `role` inside `layout_lock` (bot/core/category_layout.py), matching `split_group`'s re-check, so concurrent allocations serialize on the correct `next_seq`.
 
 ### 51. [LOW] `bot/core/puzzle_service.py:338`
 
@@ -667,7 +677,7 @@ bulk_re_edge's target re-pin (bot/core/puzzle_service.py:805-807) cannot enforce
 
 **Failure scenario:** If the target puzzle carries a feeds/informs row to its own group (added via tag_with_edge/retag, or legacy data), bulk_update_edge_type flips it to new_edge and the re-pin adds 'target' alongside it rather than replacing it; select_rollup_members' contributing filter (line 624-627) then includes the target as its own feeder and the meta's contribution table lists the meta itself as a member.
 
-**Status: FIXED** in `51ea131`, branch `working-2`. `bulk_re_edge` now calls
+**Status: FIXED AND REVIEWED** in `51ea131`, branch `working-2`. `bulk_re_edge` now calls
 `PuzzleJsonDb.delete_tag_edge(target_id, group_id, new_edge)` before re-pinning
 to `'target'`, so the flipped self-row is removed rather than shadowed. Added
 `test_target_own_self_feed_edge_is_removed_not_shadowed` covering the scenario
@@ -675,17 +685,21 @@ the existing test didn't (a target that itself carries a feeds/informs/none
 self-edge before the flip); it still only asserts against the mocked store,
 not real SQL, matching the rest of this test file's pattern.
 
+**Reviewer note (2026-07-02):** Verified — `bulk_re_edge` calls `PuzzleJsonDb.delete_tag_edge(target_id, group_id, new_edge)` before re-pinning to `'target'` (bot/core/puzzle_service.py); the new `test_target_own_self_feed_edge_is_removed_not_shadowed` covers a target carrying its own self-edge (still mock-store, matching the file's pattern).
+
 ### 53. [LOW] `bot/core/puzzle_service.py:1668`
 
 In PuzzleService.create_puzzle, forum_channel is assigned only inside the `round_data is not None` forum branch (bot/core/puzzle_service.py:1608), but the channel-creation step branches on hunt.layout_mode alone (line 1667), so creating an unassigned puzzle (round_data=None via !p from the hunt channel, or web create with empty group_code) in a forum-layout hunt raises UnboundLocalError at line 1668; the except block then deletes the just-created sheet tab and DB row and re-raises, so the round-less create always fails in forum mode (bang path surfaces an unhandled command error, web path a 500).
 
 **Failure scenario:** Creating an unassigned puzzle (!p from the hunt channel, or the web unassigned-create) in a forum-layout hunt: line 1668 raises UnboundLocalError('forum_channel'), the except block deletes the just-created sheet tab and DB row, and the create always fails — the feeders-first workflow is impossible in forum mode.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `create_puzzle` now
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `create_puzzle` now
 initializes `forum_channel = None` up front, and the channel-creation branch
 condition is `hunt.layout_mode == "forum" and round_data is not None` — an
 unassigned puzzle in a forum-layout hunt now falls through to the standard
 text-channel-in-the-hunt-category path instead of raising.
+
+**Reviewer note (2026-07-02):** Verified — `create_puzzle` initializes `forum_channel = None` and gates the forum branch on `hunt.layout_mode == "forum" and round_data is not None` (bot/core/puzzle_service.py), so an unassigned puzzle in a forum hunt falls through to the text-channel path instead of UnboundLocalError.
 
 ### 54. [LOW] `bot/core/puzzle_service.py:2164`
 
@@ -749,9 +763,11 @@ PuzzleData.sort_by_puzzle_start (bot/store/puzzle_data.py:85) sorts on start_tim
 
 **Failure scenario:** A single puzzle row with NULL start_time (legacy data, manual insert, or a future code path that commits before stamping start_time) makes sorted() compare None to a datetime and raise TypeError inside get_all_from_tag_group / get_all — every round listing, rollup refresh and delete_round that touches that group then crashes wholesale instead of skipping the one bad row.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `sort_by_puzzle_start` now
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `sort_by_puzzle_start` now
 sorts a NULL `start_time` as `datetime.min` instead of comparing `None` to a
 `datetime` and raising.
+
+**Reviewer note (2026-07-02):** Verified — `sort_by_puzzle_start` keys NULL `start_time` to `datetime.min` (bot/store/puzzle_data.py), so one bad row no longer raises TypeError across every listing.
 
 ### 57. [LOW] `bot/web/actions.py:806`
 
@@ -759,9 +775,11 @@ post_hunt_archive (bot/web/actions.py:806) passes a dict ({"archived": bool(arch
 
 **Failure scenario:** Every archive/unarchive via the web calls `_audit("hunt_archive", ..., detail={"archived": bool(archived)})`; cursor.execute at actions.py:50-54 raises ProgrammingError ('Failed processing pyformat-parameters') on the dict, _audit swallows it (logging an exception), and web_audit_log permanently lacks any record of who archived which hunt — every other action passes detail as a string.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `post_hunt_archive` now passes
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `post_hunt_archive` now passes
 `detail=f"archived={bool(archived)}"` — a plain string, matching every other
 `_audit` call in the file.
+
+**Reviewer note (2026-07-02):** Verified — `post_hunt_archive` passes `detail=f"archived={bool(archived)}"` (bot/web/actions.py:832), a plain string the pure-Python connector accepts, so archive actions now land in `web_audit_log`.
 
 ### 58. [LOW] `bot/web/actions.py:1757`
 
@@ -769,9 +787,11 @@ PATCH /api/evidence/<id> (update_evidence, bot/web/actions.py:1701-1757) mutates
 
 **Failure scenario:** A user re-targets or rewrites an evidence note via the dashboard; web_audit_log records nothing, so when an organiser later investigates a wrong informs-edge or altered clue text there is no attribution trail, while the matching delete and add paths are audited.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `update_evidence` now calls
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `update_evidence` now calls
 `_audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=...)` before
 returning, matching `delete_evidence`.
+
+**Reviewer note (2026-07-02):** Verified — `update_evidence` calls `_audit("update_evidence", puzzle_id=..., hunt_uid=...)` (bot/web/actions.py:1762), matching `delete_evidence`.
 
 ### 59. [LOW] `bot/web/auth.py:150`
 
@@ -779,7 +799,7 @@ resolve_membership (bot/web/auth.py:146-156) issues a failing Discord REST fetch
 
 **Failure scenario:** With several guilds in the bot and a user who belongs to one, every /api/hunts, hunt_detail, and each write action re-runs resolve_membership → one failing fetch_member REST round-trip per non-member guild per request on the bot's event loop; a dashboard left open polling adds sustained Discord REST traffic and latency, and hunt_detail additionally calls user_can_manage twice (api.py:99-100), each doing another fetch_member.
 
-**Status: FIXED** in `234c836`, branch `working-2`. Both `resolve_membership` and
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. Both `resolve_membership` and
 `resolve_role_names` now route their `fetch_member` fallback through a shared
 `_fetch_member_cached` helper with a 60s negative cache keyed by
 `(guild_id, user_id)`, so a non-member's failing/absent REST round-trip is only
@@ -787,17 +807,21 @@ retried once per minute instead of on every request. Tradeoff: a user who joins
 a guild mid-window can see up to 60s of stale "not a member" until the cache
 entry expires — acceptable for a LOW-severity traffic/latency finding.
 
+**Reviewer note (2026-07-02):** Verified — both `resolve_membership` and `resolve_role_names` route the `fetch_member` fallback through `_fetch_member_cached`, a 60s negative cache keyed by `(guild_id, user_id)` (bot/web/auth.py), so a non-member's failing REST call is retried at most once per minute.
+
 ### 60. [LOW] `frontend/src/components/DragBoard.tsx:692`
 
 Drag-retag errors in DragBoard are surfaced only via the shared useRetagPuzzle hook's retag.isError (frontend/src/components/DragBoard.tsx:692), which React Query resets on every new mutate call; with overlapping retags an earlier failure is cleared/masked by a later call, so the failed card silently snaps back after refetch — pendingIds correctly tracks multiple in-flight cards but errors were not given the same per-call treatment.
 
 **Failure scenario:** User drags puzzle A (fails with discord_rate_limited) then immediately drags puzzle B (succeeds): the second mutate resets the hook's error state, the red message under the board never appears (or vanishes instantly), and card A silently snaps back to its old column after the invalidated refetch with no explanation.
 
-**Status: FIXED** in `234c836`, branch `working-2`. `runRetag` now surfaces
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. `runRetag` now surfaces
 failures via a per-call `notifyError` toast (the same pattern every other
 mutation in this file already uses) instead of the shared `retag.isError`
 block, which is removed. Each drag's failure now gets its own toast regardless
 of what other drags are in flight.
+
+**Reviewer note (2026-07-02):** Verified — `runRetag` passes a per-call `onError: notifyError` on each mutate (frontend/src/components/DragBoard.tsx:466), so an earlier drag's failure toast is no longer reset by a later mutate.
 
 ### 61. [LOW] `migrations/000_base_schema.sql:87`
 
@@ -952,13 +976,15 @@ The nginx reverse-proxy config (websocket upgrade map, the proxy_set_header bloc
 
 **Failure scenario:** A proxy fix — e.g. a changed timeout, a new header, or a WebSocket path change — edited in one doc leaves the other stale, and an operator following the un-updated copy deploys a broken or churn-prone activity feed.
 
-**Status: FIXED (mitigated)** in `51ea131`, branch `working-2`. The three
+**Status: FIXED AND REVIEWED (mitigated)** in `51ea131`, branch `working-2`. The three
 directive blocks (README standalone, README Plesk variant, docs/dashboard.md
 souwester example) are still separate copies — real de-duplication would need
 a shared include mechanism nginx configs across two docs don't have — but each
 now carries an explicit cross-reference note ("update all three together") and
 the one existing wording drift between the two timeout comments was fixed.
 Reduces the risk from silent drift to a documented manual-sync obligation.
+
+**Reviewer note (2026-07-02):** Verified (mitigated) — the README canonical block, the README Plesk variant, and the dashboard.md souwester block each now carry an explicit "update all three together" cross-reference; still three copies (no nginx include mechanism spans two docs), so the residual is a documented manual-sync obligation, not silent drift.
 
 ### 77. [LOW] `bot/cogs/puzzles.py:1670`
 
@@ -1006,11 +1032,13 @@ Deploy instructions are near-duplicated between docs/dashboard.md (steps 1-6 at 
 
 **Failure scenario:** Every future deploy change (new config key, port change, proxy tweak) must be made in two places; the DB-migration step already updated in README but not dashboard.md shows the drift is real, and readers of whichever copy is stale deploy incorrectly.
 
-**Status: FIXED** in `51ea131`, branch `working-2`. docs/dashboard.md's step 2
+**Status: FIXED AND REVIEWED** in `51ea131`, branch `working-2`. docs/dashboard.md's step 2
 now reads `python migrate.py` (with a link to README's Database setup section)
 instead of the stale `mysql <db> < scripts/sql/001_dashboard.sql`, closing the
 concrete drift this finding identified. The broader deploy-instructions
 duplication between the two docs is unchanged — out of scope for this fix.
+
+**Reviewer note (2026-07-02):** Verified — docs/dashboard.md deploy step 2 now runs `python migrate.py` linking to README's Database-setup section (dashboard.md:54-57); the stale `mysql < scripts/sql/001_dashboard.sql` line is gone. Broader deploy-doc duplication is unchanged, as the note scopes.
 
 
 ## 5. Practices (7 findings)
@@ -1053,9 +1081,11 @@ CI's only check step is `pytest -v` (.github/workflows/ci.yml:66-67); no workflo
 
 **Failure scenario:** A change introducing an F821 undefined-name in a rarely-exercised branch passes CI (tests don't reach it) and merges to staging; the bug only fires as a NameError at runtime mid-hunt, exactly the class the F ruleset exists to catch.
 
-**Status: FIXED** in `234c836`, branch `working-2`. CI now runs `ruff check .`
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. CI now runs `ruff check .`
 before `pytest -v`. Fixed one pre-existing F841 (`tests/test_delete_hunt_service.py`)
 that would otherwise have failed the new step on the first run.
+
+**Reviewer note (2026-07-02):** Verified — `.github/workflows/ci.yml` runs a `ruff check .` step (line 66-67) ahead of `pytest -v`; `ruff check .` passes clean on the current tree.
 
 ### 88. [LOW] `bot/core/notifier.py:265`
 
@@ -1079,10 +1109,12 @@ resolve_membership (bot/web/auth.py:149-152) and resolve_role_names (bot/web/aut
 
 **Failure scenario:** During a transient Discord API outage a logged-in team member's fetch_member raises; hunt_visible/require_organiser then return 403 'forbidden' on every hunt and action, and because nothing is logged the operator has no trail explaining why legitimate users were suddenly locked out.
 
-**Status: FIXED** in `234c836`, branch `working-2`. Both fallback paths now go
+**Status: FIXED AND REVIEWED** in `234c836`, branch `working-2`. Both fallback paths now go
 through `_fetch_member_cached`, which logs a warning (with `exc_info=True`) on
 any `fetch_member` failure before treating it as not-a-member — landed together
 with the #59 negative-cache fix since they share the same call site.
+
+**Reviewer note (2026-07-02):** Verified — the `except` in `_fetch_member_cached` logs `logger.warning(..., exc_info=True)` before treating the user as not-a-member (bot/web/auth.py), so a transient Discord outage is now distinguishable from a real non-member in the logs.
 
 
 ## Appendix: refuted findings (reported by a reviewer, rejected on verification)
