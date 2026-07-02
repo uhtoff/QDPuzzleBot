@@ -2519,21 +2519,29 @@ class PuzzleService:
                 done += 1
                 try:
                     if ch.name == self._SOLVE_DIVIDER_NAME:
-                        await self._safe_delete_channel(guild, ch.id)
+                        if not await self._safe_delete_channel(guild, ch.id):
+                            report.failures.append(
+                                getattr(ch, "name", str(getattr(ch, "id", "?"))))
                     elif isinstance(ch, discord.TextChannel):
                         thread_name = hunt_archive.thread_name_for_channel(ch)
                         if self._archive_thread_exists(dest, thread_name):
                             # A prior run archived this but failed to delete it — finish that.
-                            await self._safe_delete_channel(guild, ch.id)
-                            report.channels_skipped += 1
+                            if await self._safe_delete_channel(guild, ch.id):
+                                report.channels_skipped += 1
+                            else:
+                                report.failures.append(
+                                    getattr(ch, "name", str(getattr(ch, "id", "?"))))
                         else:
                             r = await hunt_archive.archive_and_delete_channel(
                                 self.bot, dest, webhook, ch, thread_name=thread_name)
                             report.channels_archived += 1
                             report.messages_moved += r.messages_moved
-                    else:
-                        await self._safe_delete_channel(guild, ch.id)  # voice / stage / other
-                        report.voice_deleted += 1
+                    else:  # voice / stage / other
+                        if await self._safe_delete_channel(guild, ch.id):
+                            report.voice_deleted += 1
+                        else:
+                            report.failures.append(
+                                getattr(ch, "name", str(getattr(ch, "id", "?"))))
                 except Exception:
                     logger.exception("archive_hunt: failed on channel %s",
                                      getattr(ch, "name", getattr(ch, "id", "?")))
@@ -2546,9 +2554,11 @@ class PuzzleService:
                     report.categories_deleted += 1
                 except Exception:
                     logger.exception("archive_hunt: could not delete category %s", category.id)
+                    report.failures.append(getattr(category, "name", str(category.id)))
 
         # dest survives alone: detach it and delete its now-empty category.
         if dest_category_id is not None:
+            main_cat = None
             try:
                 await dest.edit(category=None)
                 main_cat = discord.utils.get(guild.categories, id=dest_category_id)
@@ -2557,6 +2567,7 @@ class PuzzleService:
                     report.categories_deleted += 1
             except Exception:
                 logger.exception("archive_hunt: could not detach/delete main category")
+                report.failures.append(getattr(main_cat, "name", str(dest_category_id)))
 
         team = hunt_archive.resolve_team_name(guild, hunt, invoker)
         report.final_name = hunt_archive.archived_channel_name(hunt, team)

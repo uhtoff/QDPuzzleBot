@@ -123,3 +123,33 @@ async def test_archive_hunt_isolates_a_failing_channel():
 
     assert "text71" in report.failures       # failure recorded, run still completed
     assert hunt.archived is True
+
+
+async def test_archive_hunt_records_failure_when_safe_delete_returns_false():
+    svc, hunt = _service(), _hunt()
+    invoker = MagicMock(); invoker.display_name = "me"
+
+    dest = MagicMock(); dest.id = 60; dest.threads = []; dest.edit = AsyncMock()
+    main_cat = MagicMock(); main_cat.id = 50; main_cat.channels = [dest]; main_cat.delete = AsyncMock()
+    dest.category = main_cat
+    voice = _voice_channel(72)
+    round_cat = MagicMock(); round_cat.id = 70; round_cat.channels = [voice]; round_cat.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [main_cat, round_cat]; guild.get_channel.return_value = dest
+    tg = MagicMock(); tg.id = 3; tg.category_id = 70
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.hunt_archive.PuzzleJsonDb") as pdb, \
+         patch("bot.core.hunt_archive.ensure_webhook", new=AsyncMock(return_value=MagicMock())), \
+         patch.object(svc, "_safe_delete_channel", new=AsyncMock(return_value=False)), \
+         patch.object(svc, "safe_rename", new=AsyncMock()):
+        tgdb.get_all.return_value = [tg]
+        tgcdb.get_for_group.return_value = []
+        pdb.get_by_attr.return_value = None
+        report = await svc.archive_hunt(guild, hunt, invoker)
+
+    # Failed deletion is reported, not silently counted as a success.
+    assert "voice72" in report.failures
+    assert report.voice_deleted == 0
+    assert hunt.archived is True
