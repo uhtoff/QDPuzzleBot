@@ -93,6 +93,31 @@ async def test_archives_attachment_only_and_embed_only_messages():
 
 
 @pytest.mark.asyncio
+async def test_sets_and_commits_archive_time_for_a_tracked_puzzle():
+    """#22: archive_time must be committed, or the DB row never reflects the
+    archive and consumers like get_solved_puzzles_to_archive never see it."""
+    channel = _make_channel([])
+    archive_to, _webhook = _make_archive_to(MagicMock())
+
+    cog = make_cog()
+    cog.get_tag_group = lambda ctx: None
+    ctx = make_ctx()
+    ctx.bot.application_id = 999
+
+    puzzle = MagicMock()
+    puzzle.name = "Test Puzzle"
+    puzzle.archive_time = None
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as puzzle_db:
+        puzzle_db.get_by_attr.return_value = puzzle
+        result = await Puzzles.archive_channel.callback(cog, ctx, channel, archive_to)
+
+    assert result is True
+    assert puzzle.archive_time is not None
+    puzzle_db.commit.assert_called_once_with(puzzle)
+
+
+@pytest.mark.asyncio
 async def test_skips_message_with_no_content_attachments_or_embeds():
     truly_empty = _make_message(1, content="")
     channel = _make_channel([truly_empty])

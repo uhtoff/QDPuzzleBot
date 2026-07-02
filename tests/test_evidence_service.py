@@ -46,6 +46,26 @@ class TestEvidenceData:
         e = EvidenceData.import_dict(row)
         assert e.target_puzzle_id is None
 
+    def test_import_dict_reattaches_utc_tzinfo_to_created_at(self):
+        """#33: created_at is stored naive UTC; import_dict must reattach tzinfo
+        like PuzzleData.import_dict does for every *_time field, or evidence
+        timestamps serialize/compare inconsistently with the rest of the app."""
+        from bot.store.evidence_data import EvidenceData
+        row = {
+            "id": 7, "hunt_id": 10, "source_puzzle_id": 5,
+            "target_puzzle_id": None, "note": "n",
+            "created_at": datetime.datetime(2026, 6, 23, 14, 0, 0),
+        }
+        e = EvidenceData.import_dict(row)
+        assert e.created_at.tzinfo == datetime.timezone.utc
+        assert e.created_at.isoformat() == "2026-06-23T14:00:00+00:00"
+
+    def test_import_dict_handles_null_created_at(self):
+        from bot.store.evidence_data import EvidenceData
+        row = {"id": 1, "hunt_id": 10, "source_puzzle_id": 5, "note": "n", "created_at": None}
+        e = EvidenceData.import_dict(row)
+        assert e.created_at is None
+
 
 class TestLogClues:
     """PuzzleService.log_clues — inserts one item per note."""
@@ -357,3 +377,14 @@ class TestMySQLEvidenceDbMethods:
         result = db.update_note(999, "text")
 
         assert result is None
+
+    def test_log_returns_tz_aware_created_at(self):
+        """#33: the in-memory item log() returns must match what a re-fetch via
+        import_dict would produce, so it serializes consistently either way."""
+        import datetime
+        db, mock_mydb, mock_cursor = self._make_db()
+        mock_cursor.lastrowid = 42
+
+        result = db.log(10, 5, "a clue")
+
+        assert result.created_at.tzinfo == datetime.timezone.utc

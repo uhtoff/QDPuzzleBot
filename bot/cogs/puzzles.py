@@ -4,6 +4,7 @@ import random
 from typing import Any, Optional
 
 import discord
+import pytz
 from discord import app_commands
 from discord.ext import tasks, commands
 from googleapiclient.errors import HttpError
@@ -2969,7 +2970,8 @@ class Puzzles(commands.Cog):
             else:
                 round_name = channel.category
             thread_name = f"{puzzle.name} ({round_name})"
-            puzzle.archive_time = datetime.datetime.now()
+            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            PuzzleJsonDb.commit(puzzle)
         else:
             thread_name = f"{channel.name} ({channel.category.name})"
         if len(thread_name) > 100:
