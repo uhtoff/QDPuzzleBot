@@ -58,6 +58,16 @@ purely cosmetic residuals (e.g. #28's warning-string label, #62's partial-embed 
 review time but not worth doc annotations. The `MOOT` (#88) and `PARTIALLY MITIGATED` (#29, #30)
 findings were left as-is — they were not in the `FIXED` set.
 
+**Deferred hardening pass (do after the remaining findings are fixed):** the two reviewer-note
+residuals above are intentionally NOT actioned yet — batch them into a single hardening pass once
+the outstanding fixes are done, rather than reopening two already-reviewed commits now:
+- **#63** — wrap the added `await self.info(ctx, update=True)` pin refresh in the same best-effort
+  try/except the web-side `web_refresh_info` seam uses, so a hand-broken (pin-less) channel can't
+  raise after the settings already committed.
+- **#38** — flip the `/ws/activity` event filter to default-*deny* for unknown event types (today
+  it defaults open; harmless now since only `activity`/`board`/`ready` exist, but a future
+  hidden-hunt-bearing event type would leak on guild membership alone).
+
 Severity: high = wrong behaviour/data loss a user will plausibly hit; medium = real but
 narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or cleanup.
 
