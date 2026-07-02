@@ -11,8 +11,8 @@ record the commit hash next to it. `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] **#6**  notifier.py:22 — board_changed snowflake vs row id              — commit: 0da35ea
 - [x] **#7**  AdminSettingsPanel.tsx:75 — hunt start timezone shift           — commit: 1740bab
 - [x] **#8**  AdminSettingsPanel.tsx:88 — render-phase sync uneditable/wipe   — commit: 1740bab
-- [ ] **#2**  puzzles_gsheet.py:513 — restore dead move-back + wrong sheet    — commit: ____
-- [ ] **#4**  puzzle_service.py:1012 — unsolve commit ordering (web loses)    — commit: ____
+- [x] **#2**  puzzles_gsheet.py:513 — restore dead move-back + wrong sheet    — commit: 3c4042a
+- [x] **#4**  puzzle_service.py:1012 — unsolve commit ordering (web loses)    — commit: 3c4042a
 - [ ] **#62** actions.py:361 — web solve modes skip embed + pin refresh       — commit: ____
 
 ## Progress protocol (per finding)

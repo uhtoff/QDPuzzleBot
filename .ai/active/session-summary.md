@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8) @ 1740bab
+Status: in progress — fix(gsheet): unsolve archive-spreadsheet desync (#2, #4) @ 3c4042a
 
 ## Goal
 
@@ -13,12 +13,9 @@ in impact order, marking each off and discussing design questions as we go. Full
 
 ## Current status
 
-Phases 1-3 complete (6 of 9 findings landed): #1, #3, #5, #6, #7, #8. Backend suite green
-(751 passed) as of #6; frontend verified via `tsc --noEmit` + `vite build` (both clean) plus
-a standalone Node script confirming the UTC-offset round-trip math — not independently
-browser-tested (no live Quart backend/auth wired up in this worktree, and no frontend test
-runner exists in the repo to add an automated regression test). Phase 4 (#2+#4,
-archive-spreadsheet desync) is next — no blocking open questions.
+Phases 1-4 complete (8 of 9 findings landed): #1, #3, #5, #6, #7, #8, #2, #4. Backend suite
+green (753 passed) as of #2/#4. Phase 5 (#62, web solve parity) is next — no blocking open
+questions.
 
 ## Final decisions
 
@@ -66,6 +63,33 @@ archive-spreadsheet desync) is next — no blocking open questions.
   meant to be web-editable (Save button + mutation already wired up) — no real "read-only
   by design" question remained once the render-body bug was identified.
 
+- #2 fix: `restore_puzzle_spreadsheet`'s additional-sheets move-back was gated on
+  `puzzle_data.solved`, but the only production caller (`unsolve`) already clears
+  `puzzle.solved = False` before calling restore — dead branch. Extra sheets never moved
+  back from the archive, so the unconditional update_cell/move/revert requests for them then
+  targeted the live spreadsheet's batchUpdate with an archive-only sheetId, failing the
+  entire atomic batch (400 "no sheet with id"), including the main tab's own restore. Fixed
+  by capturing `was_archived = puzzle_data.archived` before the main-tab move-back mutates
+  it, and gating the additional-sheets move-back on `was_archived` instead of `.solved` —
+  extra sheets always come back when the puzzle itself was archived (they only ever went to
+  the archive as a side effect of the puzzle being archived, per `archive_puzzle_spreadsheet`
+  moving every additional sheet unconditionally).
+- #4 fix: `unsolve` committed the puzzle (`PuzzleJsonDb.commit`) BEFORE calling
+  `restore_puzzle_spreadsheet`, which is what actually mutates `puzzle.archived`,
+  `puzzle.google_page_id`, and each additional sheet's `google_page_id` (old archive tab is
+  deleted as part of the move). So the commit persisted stale pre-restore values, and no
+  second commit existed after — the bang path only survived by luck (`cog_after_invoke`
+  commits the same ctx object again after the command returns), but the web unsolve endpoint
+  has no such rescue and left the DB with `archived=1` plus a dangling archive sheetId.
+  Reordered to mirror `solve()`: mutate the sheet first (`restore_puzzle_spreadsheet`), then
+  commit the puzzle and every additional sheet (`SheetsJsonDb.commit`) after. Persistence now
+  lives inside the service method itself, not dependent on the caller committing.
+- Added `test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_archived`
+  (`tests/test_sheet_ordering.py`) and
+  `TestUnsolveService::test_commits_after_sheet_restore`
+  (`tests/test_minimeta_service.py`); both verified red against the pre-fix code (reverted
+  via `git stash`, reran, confirmed failure, restored).
+
 ## Rejected approaches
 
 - Fixing in file order or all-at-once — chose impact-ordered tranches instead.
@@ -82,10 +106,7 @@ archive-spreadsheet desync) is next — no blocking open questions.
 
 ## Next steps
 
-1. Phase 4: #2 (`puzzles_gsheet.py:513`, restore_puzzle_spreadsheet dead move-back + wrong
-   spreadsheet batch on unsolve) + #4 (`puzzle_service.py:1012`, unsolve commit ordering) —
-   same code path, fix together. Archive spreadsheets are in scope (Q2 answered yes).
-2. Phase 5: #62 (`actions.py:361`, web solve modes skip embed + pin refresh).
+1. Phase 5: #62 (`actions.py:361`, web solve modes skip embed + pin refresh).
 
 ## Open questions
 
