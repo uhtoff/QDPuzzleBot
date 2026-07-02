@@ -1294,11 +1294,16 @@ async def delete_hunt(uid):
 @actions_bp.route("/tag_groups/<int:tag_group_id>", methods=["DELETE"])
 @login_required
 async def delete_tag_group(tag_group_id):
-    """Permanently delete a tag group: all its puzzle DB records, sheet tabs, Discord
-    channels, the group Discord category, and the group DB record. Per-puzzle
-    failures are isolated. Returns failed_channels (names whose Discord channel
-    could not be deleted) alongside ok:true so the caller can surface what remains.
-    Organiser-gated, audited, board pushed."""
+    """Delete a tag group. Body `keep_puzzles` (default true): keep every
+    member puzzle's DB record/sheet/channel, deleting only the round's own
+    target puzzle (or dedicated chat channel, for a target-less Group round)
+    and relocating kept puzzles' channels into the hunt's general category;
+    pass false to delete every member puzzle's DB record, sheet tab, and
+    Discord channel too. Either way the group's Discord category and DB
+    record are always deleted. Per-puzzle/channel failures are isolated.
+    Returns failed_channels (names whose Discord channel could not be
+    deleted or relocated) alongside ok:true so the caller can surface what
+    remains. Organiser-gated, audited, board pushed."""
     ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
@@ -1322,8 +1327,12 @@ async def delete_tag_group(tag_group_id):
     snowflake = ctx["guild_snowflake"]
     guild = bot.get_guild(int(snowflake)) if snowflake else None
 
+    body = await request.get_json(silent=True) or {}
+    keep_puzzles = bool(body.get("keep_puzzles", True))
+
     try:
-        failed_channels = await cog.service.delete_round(guild, hunt_obj, tag_group)
+        failed_channels = await cog.service.delete_round(
+            guild, hunt_obj, tag_group, keep_puzzles=keep_puzzles)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
