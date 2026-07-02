@@ -551,7 +551,7 @@ async def convert_to_meta(puzzle_id):
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
-    perm = await require_organiser(ctx["guild_snowflake"])
+    perm = await require_admin(ctx["guild_snowflake"])
     if perm is not None:
         return perm
 
@@ -1011,7 +1011,7 @@ async def convert_to_feeder(puzzle_id):
         return err
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_organiser(ctx["guild_snowflake"])
+    perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
 
@@ -1066,7 +1066,7 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
             return err
         if ctx["hunt"]["archived"]:
             return jsonify({"error": "hunt_archived"}), 403
-        perm = await require_organiser(ctx["guild_snowflake"])
+        perm = await require_admin(ctx["guild_snowflake"])
         if perm:
             return perm
 
@@ -1173,7 +1173,7 @@ async def convert_to_puzzle(puzzle_id):
         return err
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_organiser(ctx["guild_snowflake"])
+    perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
 
