@@ -750,6 +750,8 @@ update_hunt_settings (bot/core/puzzle_service.py:2244) is a plain sync method wi
 
 ### 69. [MEDIUM] `README.md:69`
 
+**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). README no longer documents the nonexistent colon syntax; it now says `!p` takes the round from channel context (the round's `#meta` channel vs. `#bot` for unassigned).
+
 README.md:69 documents a `!p puzzle-round-name: puzzle-name` colon syntax for creating a puzzle into a named round from the #bot channel, but the bang command (bot/cogs/puzzles.py:582-594) assigns the raw argument verbatim to puzzle_name with no colon parsing, and the target round is taken solely from the invoking channel's category context (cog_before_invoke environment, puzzles.py:150-195); no colon-splitting code exists anywhere in bot/.
 
 **Failure scenario:** A user in the bot channel types `!p the-bog: clueless-crossword` expecting the puzzle to land in the-bog; instead the bot treats the full string `the-bog: clueless-crossword` as the puzzle name (round taken from the current channel's context), creating a mis-named puzzle/sheet in the wrong place.
@@ -768,17 +770,23 @@ Capstone and Runaround channels get the generic metapuzzle pinned welcome on bot
 
 ### 71. [MEDIUM] `docs/commands.md:54`
 
+**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Added `!convert_to_metapuzzle` to the convert table.
+
 The convert table in docs/commands.md (lines 54-60) omits `!convert_to_metapuzzle` (bot/cogs/puzzles.py:1757-1760), the command that converts a capstone/runaround/group back to a plain metapuzzle (feeders revert to the 'feeds' edge); the command appears nowhere in docs/.
 
 **Failure scenario:** An organiser who accidentally converted a meta to a capstone consults the canonical command reference, finds no reverse operation listed (the table implies convert_to_meta/capstone/runaround/group/puzzle is the complete set), and cannot discover that feeders can be flipped back to the feeds edge.
 
 ### 72. [MEDIUM] `docs/dashboard.md:1`
 
+**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Rewrote the intro to describe the full read/write surface (~36 write routes) and the Architecture list to cover `bot/web/actions.py` and `bot/core/notifier.py` (the finding's `bot/web/notifier.py` path was already stale — the module lives in `bot/core/`), plus the missing `api.py` endpoints (`/guilds`, `/rollups/<id>/answers`, `/evidence`).
+
 docs/dashboard.md is stale: its "Phase 2 (write)" description (lines 5-10) says web writes are only notes/retag/create-puzzles-and-metas, and its architecture list (lines 14-24) omits bot/web/actions.py (38 write routes including solve/unsolve, sheets, clues, minimeta/convert-to-* family, rename, hunt create/settings/archive/delete, meta retag, tag_group delete/rename, reconcile, rollup rebuild, evidence edit/delete) and bot/web/notifier.py entirely, while the api.py bullet (lines 17-18) lists four endpoints but omits /guilds, /rollups/<id>/answers, and /evidence (GET+POST).
 
 **Failure scenario:** A developer reading the architecture doc concludes web writes are limited to notes/retag/create (line 5-8) and that api.py holds four read endpoints, then hunts in the wrong place for the solve/convert/reconcile web paths or re-implements an existing action route, since the doc never mentions actions.py at all.
 
 ### 73. [MEDIUM] `docs/dashboard.md:44`
+
+**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Deploy step 2 now points at `python migrate.py` (linking to the README's "Database setup" section) and explicitly warns against applying `migrations/*.sql` files directly. Note: `scripts/sql/001_dashboard.sql` no longer exists in the repo at all, so the stale instruction was doubly broken.
 
 docs/dashboard.md line 44 (deploy step 2) still instructs applying the dashboard schema by piping the stale copy scripts/sql/001_dashboard.sql directly into mysql, but the repo has since moved to a ledgered migration runner (migrations/000-021 applied via `python migrate.py`, as README.md 135-172 documents); following it applies 001 outside the schema_migrations ledger, so a later `python migrate.py` re-applies 001 and errors on the already-existing table, and the operator is never pointed at migrations 002-021.
 
