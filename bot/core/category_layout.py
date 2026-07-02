@@ -12,7 +12,7 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED, TagGroupCategoryData
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,23 @@ def primary_category(guild, tag_group):
     channels into; read ``tag_group.category_id`` directly for the raw home id.
     """
     return _category_by_id(guild, tag_group.category_id)
+
+
+def group_chat_channel(guild, tag_group):
+    """The dedicated text channel for a target-less (Group-type) round's
+    primary category, or None if the group has a target, its primary category
+    can't be resolved (forum mode, or missing), or no channel matches. Same
+    lookup group_rename_plan uses for its own rename step: the channel was
+    created from clean_channel_name(tag_group.name) and every rename keeps
+    that invariant, so matching by name (not by category name, which can gain
+    a create-time collision suffix the channel never receives) is required.
+    """
+    if tag_group.has_target:
+        return None
+    primary = primary_category(guild, tag_group)
+    if primary is None:
+        return None
+    return discord.utils.get(primary.text_channels, name=clean_channel_name(tag_group.name))
 
 
 def base_name(guild, tag_group):
@@ -213,6 +230,35 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     return source
 
 
+async def move_channel_to_general(guild, general_category_id, channel, solved):
+    """Move *channel* into the hunt's general category (``general_category_id``)
+    — used by delete_round's keep_puzzles mode to relocate a kept puzzle's
+    channel out of a round category that's about to be deleted. Positioned
+    like tag_edge_only's channel-move: unsolved just above the solved
+    divider, solved after it. Returns True if moved, False if there's no
+    general category, it's full, or the move failed (caller should treat
+    that puzzle's channel as needing manual attention)."""
+    general = _category_by_id(guild, general_category_id)
+    if general is None or len(general.channels) >= MAX_CHANNELS_PER_CATEGORY:
+        return False
+    divider_pos = solve_divider_position(general)
+    if divider_pos is not False:
+        position = (
+            max((ch.position for ch in general.channels), default=0) + 1
+            if solved else divider_pos - 1
+        )
+    else:
+        position = max((ch.position for ch in general.channels), default=-1) + 1
+    try:
+        async with layout_lock:
+            await channel.edit(category=general, position=position)
+    except (discord.RateLimited, discord.HTTPException):
+        logger.exception("move_channel_to_general: could not move channel %s",
+                         getattr(channel, "id", "?"))
+        return False
+    return True
+
+
 # ----------------------------------------------------------------- cleanup
 async def cleanup_empty_overflow(guild, tag_group, dao, category):
     """Delete *category* and its join row if it is an OVERFLOW category (seq>=1)
@@ -235,10 +281,12 @@ async def cleanup_empty_overflow(guild, tag_group, dao, category):
 
 
 # ----------------------------------------------------------------- teardown
-async def delete_group_categories(guild, tag_group, dao):
-    """Split state: delete every category the group owns (channels and all) and
-    drop the join rows. Returns True if it handled deletion, False if the group
-    is in single-category state (caller should run its legacy path).
+async def delete_group_categories(guild, tag_group, dao, keep_channel_ids=frozenset()):
+    """Split state: delete every category the group owns (channels and all,
+    except any channel id in *keep_channel_ids* — left in place, since
+    Discord doesn't cascade-delete children when their category goes) and
+    drop the join rows. Returns True if it handled deletion, False if the
+    group is in single-category state (caller should run its legacy path).
     """
     rows = dao.get_for_group(tag_group.id)
     if not rows:
@@ -249,6 +297,8 @@ async def delete_group_categories(guild, tag_group, dao):
             if cat is None:
                 continue
             for ch in list(cat.channels):
+                if ch.id in keep_channel_ids:
+                    continue
                 try:
                     await ch.delete(reason=DELETE_REASON)
                 except Exception:
