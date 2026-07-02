@@ -346,6 +346,10 @@ create_hunt (bot/web/actions.py:712) passes the unvalidated JSON value body["sta
 
 ### 36. [MEDIUM] `bot/web/api.py:40`
 
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). `list_guilds` now filters to guilds
+the user is actually a member of before building the response.
+
 GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return the guilds the current user belongs to"): the loop over guilds_map at line 39 never checks membership (resolve_membership is imported but not called here), so every guild row — name, snowflake, and per-guild admin flag — is returned to any logged-in session unless ?admin=1. Combined with OAuth login being open to any Discord account (bot/web/auth.py uses only the "identify" scope with no membership gate in login/callback), a complete outsider can enumerate all teams' guild names and snowflakes. Hunt data itself stays protected (list_hunts and _load_visible_hunt apply hunt_visible), so this is an information-disclosure gap, not a hunt-visibility bypass.
 
 **Failure scenario:** Any person with a Discord account completes /api/auth/login (no guild-membership requirement anywhere in auth.py) and calls GET /api/guilds: the loop appends every guilds_map entry unless ?admin=1, disclosing all teams' guild names and snowflakes to complete outsiders — a visibility bypass in the multi-team model where even hunts are role-gated per guild.
@@ -357,6 +361,11 @@ POST /api/evidence (bot/web/api.py:196-221) lacks the hunt-archived guard that e
 **Failure scenario:** 1) Any team member POSTs evidence for a puzzle in an archived hunt: _load_visible_hunt passes (archived hunts are visible to all guild members) and there is no `hunt["archived"]` check, so rows are written and a sheet refresh task fired against a read-only hunt. 2) A request with notes=["ok", 42] logs "ok" via EvidenceJsonDb.log, then `n.strip()` raises AttributeError on 42 → 500 returned while the first note is already persisted and no refresh_evidence task is scheduled.
 
 ### 38. [MEDIUM] `bot/web/api.py:254`
+
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). "activity" events are now checked
+against the live Discord channel permission overwrites for the requesting
+member; "board" events are checked against `hunt_visible`.
 
 /ws/activity (bot/web/api.py:254) filters events only by guild membership, not the per-hunt team-role visibility model that every REST endpoint enforces via hunt_visible, so guild members without a hunt's team role still receive live activity events (channel_id, author display name, timestamp) for that hidden hunt's channels and board events carrying the hidden hunt's uid.
 
@@ -683,6 +692,14 @@ The web-dashboard task's exception is never observed: start_web (bot/web/__init_
 **Failure scenario:** Another process holds config.web_port when the bot starts; hypercorn's bind fails inside the task, the bot keeps running normally, discord.log shows only 'Starting web dashboard', and the operator discovers the dashboard is down hours later with no error anywhere.
 
 ### 86. [MEDIUM] `bot/web/actions.py:1060`
+
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). All six convert-to-* endpoints now
+gate on `require_admin` (ADMIN_ROLES) instead of `require_organiser`, matching
+the bang commands' role requirement. (The bang commands additionally require
+the Discord `manage_channels` permission, which has no clean web equivalent —
+these are hunt-wide actions, not scoped to a specific channel the invoker is
+in — so this fix closes the role-list gap, not the permission-check gap.)
 
 All web convert endpoints (convert-to-meta at bot/web/actions.py:549, the shared _convert_to_type_handler at :1061 used by convert-to-capstone/runaround/group/metapuzzle, convert-to-feeder at :1006, and convert-to-puzzle at :1168) gate on require_organiser (ORGANISER_ROLES = ADMIN_ROLES + 'Organisers') with no Discord-permission check, while every equivalent bang command requires the stricter ADMIN_ROLES plus manage_channels — so an Organisers-only user is refused the bang command but can perform the identical conversion from the dashboard.
 
