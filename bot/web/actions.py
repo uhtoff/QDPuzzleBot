@@ -486,6 +486,9 @@ async def make_minimeta_puzzle(puzzle_id):
         await _audit("make_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+        snowflake = ctx["guild_snowflake"]
+        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
 
     return jsonify({"ok": True})
 
@@ -528,11 +531,13 @@ async def remove_minimeta_puzzle(puzzle_id):
             return jsonify({"error": "not_minimeta"}), 400
         except SheetRefreshError as exc:
             await _audit("remove_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+            await cog.web_refresh_info(guild, hunt_obj, puzzle)
             return jsonify({"ok": True, "sheet_warning": str(exc)})
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
 
         await _audit("remove_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        await cog.web_refresh_info(guild, hunt_obj, puzzle)
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
 

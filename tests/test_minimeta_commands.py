@@ -18,7 +18,7 @@ class TestMakeMiniMeta:
     @pytest.mark.asyncio
     async def test_sets_puzzle_type_and_confirms(self):
         puzzle = make_puzzle(id=1)
-        cog = make_cog(puzzle)
+        cog = _make_cog_with_info(puzzle)
         ctx = make_ctx()
         cog.service.make_minimeta = AsyncMock()
 
@@ -28,13 +28,25 @@ class TestMakeMiniMeta:
         ctx.send.assert_called_once()
         assert "minimeta" in ctx.send.call_args[0][0].lower()
 
+    @pytest.mark.asyncio
+    async def test_refreshes_pinned_info(self):
+        """#12: the pin must refresh, or it keeps showing the pre-minimeta state."""
+        puzzle = make_puzzle(id=1)
+        cog = _make_cog_with_info(puzzle)
+        ctx = make_ctx()
+        cog.service.make_minimeta = AsyncMock()
+
+        await Puzzles.make_minimeta.callback(cog, ctx)
+
+        cog.info.assert_awaited_once_with(ctx, update=True)
+
 
 class TestRemoveMiniMeta:
     @pytest.mark.asyncio
     async def test_removes_and_confirms(self):
         puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
         hunt = MagicMock()
-        cog = make_cog(puzzle, hunt)
+        cog = _make_cog_with_info(puzzle, hunt)
         ctx = make_ctx()
         cog.service.remove_minimeta = AsyncMock()
 
@@ -45,9 +57,21 @@ class TestRemoveMiniMeta:
         assert "minimeta" in ctx.send.call_args[0][0].lower()
 
     @pytest.mark.asyncio
+    async def test_refreshes_pinned_info(self):
+        """#12: the pin must refresh, or it keeps showing dead mini links/Type."""
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(puzzle, MagicMock())
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        cog.info.assert_awaited_once_with(ctx, update=True)
+
+    @pytest.mark.asyncio
     async def test_not_minimeta_reports_error(self):
         puzzle = make_puzzle(id=1, puzzle_type="Cryptic")
-        cog = make_cog(puzzle, MagicMock())
+        cog = _make_cog_with_info(puzzle, MagicMock())
         ctx = make_ctx()
         cog.service.remove_minimeta = AsyncMock(side_effect=RuntimeError("not_minimeta"))
 
@@ -55,6 +79,7 @@ class TestRemoveMiniMeta:
 
         ctx.send.assert_called_once()
         assert "not a minimeta" in ctx.send.call_args[0][0].lower()
+        cog.info.assert_not_awaited()
 
 
 class TestListMinis:
