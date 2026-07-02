@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — refactor: dedupe the solved embed and change/add-solution tails (#79, #80) @ 4ec4444
+Status: in progress — refactor: remove dead puzzle_solved notifier path @ 32ef6fc
 
 ## Goal
 
@@ -19,8 +19,11 @@ sharing code with the HIGHs just fixed) — see "Folded in" section of
 All 9 HIGH findings landed and committed: #1, #3, #5, #6, #7, #8, #2, #4, #62. Also folded
 in #28 (MEDIUM, own-sheet failure isolation in solve/change_solution/add_solution) and
 #79+#80 (LOW, dedupe the solved embed formula + the change/add-solution bang command tail).
-Backend suite green (766 passed). `ruff check .` clean across the whole repo. All in-scope
-work is done; remaining items are process/wrap-up only (see Next steps).
+While working #79, found and removed a dead code path the review hadn't flagged as
+unreachable (see Final decisions). Backend suite green (766 passed throughout — the dead
+code removal deleted its own test coverage 1:1, no net count change). `ruff check .` clean
+across the whole repo. All in-scope work is done; remaining items are process/wrap-up only
+(see Next steps).
 
 ## Final decisions
 
@@ -131,13 +134,23 @@ work is done; remaining items are process/wrap-up only (see Next steps).
   review's own note). Merged `change_solution`/`add_solution`'s near-identical ~30-line bang
   command tails into one `_change_or_add_solution_impl(ctx, answer, mode=...)`, and added the
   Follow-up field `add_solution`'s embed had been missing (the divergence #80 flagged as a
-  sign the copies were already drifting). Noted but did NOT touch: `DiscordNotifier.puzzle_solved`
-  / `Notifier.puzzle_solved` / `WebNotifier.puzzle_solved` / `CompositeNotifier.puzzle_solved`
-  appear to be dead code (grepped — nothing outside notifier.py calls `.puzzle_solved(`; the
-  live push path is `board_changed`, Phase B) — left alone since removing an interface method
-  is a bigger, separate change outside #79's scope and not requested. Added
-  `tests/test_change_add_solution_impl.py` (6 tests); verified red via `git stash` (import
-  error — `build_solved_embed` didn't exist).
+  sign the copies were already drifting). Added `tests/test_change_add_solution_impl.py`
+  (6 tests); verified red via `git stash` (import error — `build_solved_embed` didn't exist).
+- Dead-code follow-up (user asked to clean it up after the #79/#80 summary flagged it):
+  `DiscordNotifier.puzzle_solved` / `Notifier.puzzle_solved` / `WebNotifier.puzzle_solved` /
+  `CompositeNotifier.puzzle_solved` and the `_post_solved_embed` cog-unavailable fallback were
+  never called from anywhere outside `notifier.py` (grepped `.puzzle_solved(` across the whole
+  repo) — the live SOLVED-embed push is `Puzzles.web_post_solved_embed`, called directly by
+  `bot/web/actions.py` and the bang `!solve` command, never through the `Notifier` interface;
+  the live push path is `board_changed` (Phase B). The 2026-07-02 review flagged this exact
+  fallback's duplication (#79) and a fire-and-forget bug in it (#88, unaddressed — moot now
+  the code is gone) but never identified the whole path as unreachable — that was found
+  independently via grep, not in the review. Removed the method from the interface and all
+  four implementations, plus `_post_solved_embed` itself (`build_solved_embed` stays — still
+  used by the two live callers). Updated `tests/test_notifier.py`, `test_web_notifier.py`,
+  `test_board_push_service.py` to drop the now-removed method's assertions/fixture lines; no
+  new tests needed (removing dead code needs no new coverage). Verified: 766 passed
+  throughout (removing the dead path's own coverage was a wash).
 
 ## Rejected approaches
 
@@ -155,15 +168,11 @@ work is done; remaining items are process/wrap-up only (see Next steps).
 
 ## Next steps
 
-All 9 HIGH findings plus the folded-in #28/#79/#80 are implemented, tested, and committed.
-Full suite (766 passed) and `ruff check .` (repo-wide) both green. Remaining before closing
-the task:
+All 9 HIGH findings, the folded-in #28/#79/#80, and the dead `puzzle_solved` cleanup are
+implemented, tested, and committed. Full suite (766 passed) and `ruff check .` (repo-wide)
+both green. Remaining before closing the task:
 1. Decide Q6 (annotate the source review doc with FIXED-in-hash notes, or leave the plan
    checklist as the sole tracker).
-2. Optional follow-up noticed but out of scope: `DiscordNotifier.puzzle_solved` and its
-   `Notifier`/`WebNotifier`/`CompositeNotifier` counterparts plus `_post_solved_embed` look
-   like dead code (superseded by the `board_changed` push) — worth a deletion pass if the
-   user wants it, not done here since it wasn't asked for.
 3. Ask the user whether to archive `.ai/active/` under
    `.ai/archive/2026-07-02-staging-high-findings/` now that the task is done.
 

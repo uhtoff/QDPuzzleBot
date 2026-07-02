@@ -20,6 +20,9 @@ record the commit hash next to it. `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] **#28** puzzle_service.py:979 — post-commit-raise swallows board push   — commit: 5435deb
 - [x] **#79** puzzles.py:2642 — solved embed copied in 3 places (LOW)         — commit: 4ec4444
 - [x] **#80** puzzles.py:2678 — change/add_solution duplicate tail (LOW)      — commit: 4ec4444
+- [x] not a numbered finding — dead `Notifier.puzzle_solved` path (found      — commit: 32ef6fc
+      while working #79; removed the whole interface method + all 4 impls +
+      `_post_solved_embed`, since nothing outside notifier.py called it)
 
 ## Progress protocol (per finding)
 
