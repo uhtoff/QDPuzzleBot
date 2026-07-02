@@ -329,3 +329,49 @@ async def test_full_delete_forum_mode_unaffected_by_foreign_target_protection():
     safe_delete.assert_awaited_once_with(guild, 903)  # attempted its own channel delete
     forum_ch.delete.assert_awaited_once()              # forum channel itself torn down
     assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_full_delete_refreshes_other_fed_targets():
+    """keep_puzzles=False deletes a feeder puzzle that also feeds ANOTHER
+    round's meta; that other meta's target must be refreshed so its
+    contribution table doesn't keep a stale row for the deleted puzzle
+    (review #29)."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+    other_group = make_round(id=9, category_id=200, target_puzzle_id=0)
+
+    # Feeder is tagged into both this round (5, being deleted) and another
+    # round (9, NOT being deleted) — deleting it must refresh group 9.
+    feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 9])
+    feeder_ch = MagicMock(id=902); feeder_ch.delete = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [feeder_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.categories = [round_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "refresh_targets", AsyncMock(return_value=[])) as refresh_mock, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [feeder]
+        tgcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.side_effect = lambda id: other_group if id == 9 else tag_group
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=False)
+
+    refresh_mock.assert_awaited_once()
+    refreshed_ids = {g.id for g in refresh_mock.await_args.args[1]}
+    assert refreshed_ids == {9}          # group 5 (being deleted) is excluded
+    assert failed == []
