@@ -18,6 +18,28 @@ delete-round flow (`BoardGroup.tsx` → `DELETE /api/tag_groups/<id>` →
    deleted — currently there's no such path since delete always removes
    every member.
 
+A fourth, pre-existing bug surfaced while validating this design against live
+behavior (reported 2026-07-02): a target-less `Group`-type round's dedicated
+chat channel (created in `create_tag_group`'s `is_group` branch,
+`puzzle_service.py:1758-1770`) is never explicitly deleted by either
+`delete_round` or `delete_hunt`. Both only explicitly delete the named
+solve-divider channel (which a `Group` round doesn't even have) before
+deleting the category; Discord does not cascade-delete child channels when
+their parent category is deleted, so the chat channel survives as an
+orphaned, uncategorized channel. This is being fixed as part of this work
+(item 4 below) since it shares the exact category-teardown code paths this
+design already touches.
+
+A second live report — `!delete_round` rejecting with ":x: This command must
+be done from the main group channel" when run from a freshly-created Group's
+own chat channel — was investigated but NOT reproduced: the channel-type
+resolution in `cog_before_invoke` (`bot/cogs/puzzles.py:148-166`) was traced
+and exercised in an isolated test with the same call shape, and it correctly
+resolves to `"Group"` for a channel-mode Group's chat channel. Root cause is
+still open pending live diagnostic data (the `Channel type: ...` console log
+line, or `!info` output, from the affected channel) and is NOT part of this
+plan — it needs its own investigation once that data is available.
+
 Scope: channel/category-layout rounds only. Forum-layout rounds keep today's
 behavior (delete the forum channel, cascading its posts) — forum layout is
 already being left to go stale in this project (see project memory), and
@@ -72,6 +94,14 @@ For a split round (`tag_group_category` rows present), gather member
 channels across ALL of the round's categories (unsolved + solved +
 overflow), not just the primary one.
 
+### 4. Fix: always delete a Group round's dedicated chat channel
+
+Independent of `keep_puzzles`, both `delete_round` and `delete_hunt` gain an
+explicit lookup-and-delete of a target-less round's chat channel (by the same
+name-in-primary-category match `category_layout.group_rename_plan` already
+uses for its rename step) before the category itself is deleted. This closes
+the orphaned-channel bug regardless of which delete mode is used.
+
 ## API / data flow changes
 
 - `DELETE /api/tag_groups/<id>` (`bot/web/actions.py`) gains a JSON body
@@ -106,4 +136,7 @@ overflow), not just the primary one.
 - No changes to forum-layout round deletion.
 - No changes to `!delete_round` bang UX (only its call site's explicit
   `keep_puzzles=False` argument, to keep behavior identical).
-- No change to `delete_hunt` or `delete_puzzle`.
+- No change to `delete_puzzle`.
+- No change to `delete_hunt` beyond the chat-channel-deletion fix (item 4).
+- No fix for the "must be done from the main group channel" rejection —
+  tracked separately, pending live diagnostic data.
