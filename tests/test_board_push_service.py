@@ -20,9 +20,9 @@ from tests.conftest import make_puzzle, make_round
 EXPECTED_PUSH_METHODS = {
     "add_note", "add_partial", "add_sheet", "add_solution", "bulk_re_edge",
     "change_solution", "convert_to_meta", "convert_to_puzzle", "convert_to_type",
-    "create_mini", "create_puzzle", "create_tag_group", "delete_puzzle",
-    "delete_round", "erase_note", "log_clues", "make_minimeta", "remove_minimeta",
-    "remove_sheet", "rename_group", "rename_puzzle",
+    "create_mini", "create_puzzle", "create_tag_group", "delete_hunt",
+    "delete_puzzle", "delete_round", "erase_note", "log_clues", "make_minimeta",
+    "remove_minimeta", "remove_sheet", "rename_group", "rename_puzzle",
     "set_puzzle_url", "solve", "tag_with_edge", "unsolve",
     "untag_from", "update_hunt_settings", "update_puzzle_field",
 }
@@ -335,5 +335,23 @@ async def test_make_minimeta_emits_board_changed():
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
         hdb.get_by_attr.return_value = hunt
         await svc.make_minimeta(puzzle)
+
+    notifier.board_changed.assert_awaited_once_with(hunt)
+
+
+# ---- delete_hunt ----
+
+@pytest.mark.asyncio
+async def test_delete_hunt_emits_board_changed():
+    notifier = _notifier()
+    svc = _svc(notifier)
+    hunt = _hunt()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb"):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = []
+        await svc.delete_hunt(guild=None, hunt=hunt)
 
     notifier.board_changed.assert_awaited_once_with(hunt)
