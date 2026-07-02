@@ -84,3 +84,73 @@ async def ensure_webhook(channel) -> discord.Webhook:
     if hooks:
         return hooks[0]
     return await channel.create_webhook(name="Archiver")
+
+
+async def _gather_messages(source):
+    """Every message in *source* and its active + archived threads, oldest first."""
+    messages = []
+    async for m in source.history(limit=None, oldest_first=True):
+        messages.append(m)
+    for thread in source.threads:
+        async for m in thread.history(limit=None, oldest_first=True):
+            messages.append(m)
+    async for archived in source.archived_threads():
+        async for m in archived.history(limit=None, oldest_first=True):
+            messages.append(m)
+    return sorted(messages, key=lambda m: m.created_at)
+
+
+async def archive_channel_to_thread(bot, dest, webhook, source, *, thread_name) -> ChannelArchiveResult:
+    """Copy *source*'s human history into a new thread on *dest*. Archive only,
+    no delete. Skips the bot's own messages, `!command` messages, and empty
+    messages; drops reactions; never pings; never hangs on a stuck download."""
+    result = ChannelArchiveResult()
+    placeholder = await dest.send(content=f"Archive of channel {source.name}", silent=True)
+    thread = await dest.create_thread(name=thread_name, message=placeholder)
+    result.thread = thread
+    bot_id = bot.application_id
+    for message in await _gather_messages(source):
+        if not message:
+            continue
+        author = message.author
+        if author.id == bot_id:
+            continue
+        content = message.content
+        if content and content[0] == "!" and content[:3] != "!s ":
+            continue
+        files = []
+        for a in message.attachments:
+            try:
+                files.append(await asyncio.wait_for(a.to_file(use_cached=True), timeout=ATTACH_TIMEOUT))
+            except Exception as e:  # timeout / aiohttp / HTTP — skip the file, keep the message
+                result.attachment_failures += 1
+                logger.warning("Skipping attachment %r while archiving: %s", getattr(a, "filename", "?"), e)
+        if not content and not files and not message.embeds:
+            result.messages_skipped += 1
+            continue
+        avatar_url = getattr(author.avatar, "url", None)
+        try:
+            await webhook.send(
+                content=content,
+                username=author.display_name,
+                avatar_url=avatar_url,
+                files=files,
+                embeds=message.embeds,
+                thread=thread,
+                wait=True,
+                silent=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            result.messages_moved += 1
+        except discord.HTTPException as e:
+            result.messages_skipped += 1
+            logger.warning("Skipping message from %s while archiving: %s", author.display_name, e)
+        await asyncio.sleep(SEND_DELAY)
+    return result
+
+
+async def archive_and_delete_channel(bot, dest, webhook, source, *, thread_name) -> ChannelArchiveResult:
+    """archive_channel_to_thread, then delete *source* on success."""
+    result = await archive_channel_to_thread(bot, dest, webhook, source, thread_name=thread_name)
+    await source.delete(reason=DELETE_REASON)
+    return result
