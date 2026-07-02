@@ -49,7 +49,13 @@ whether that work incidentally fixed any of them.
 gap and #54's remaining hunt-creation visibility gap were both closed (see each
 finding's own status block below, commits `0ec16d6` and `a2a7b6b`/`0ec16d6`).
 
-No other findings in this document have been actioned.
+Each finding's own `**Status:**` block below is the authoritative record of what has
+been actioned — this header narrative covers the main tranches but not every later
+post-merge fix (e.g. the separately-reviewed batch #20/#27/#39/#40/#41 and the post-merge
+pass on #51/#61/#77/#78/#81/#82/#89/#90 are recorded only in their own blocks). As of the
+latest pass every finding is closed (`FIXED AND REVIEWED`, or `MOOT`/WONTFIX-by-design)
+except **#89**, which remains `PARTIALLY MITIGATED` (MySQL fail-fast added; moving the DB
+write path off the event loop deferred).
 
 **Fix-review pass (2026-07-02):** every landed fix has been re-reviewed against its actual commit
 diff — one reviewer per fix commit, checking that the diff genuinely closes the finding's failure
@@ -60,8 +66,11 @@ fixed" wording (#29, #30, #32, #42, #45, #54, #55); (4) the two follow-on commit
 last scoped gaps — #30's forum-layout exemption (`0ec16d6`) and #54's create_hunt hunt-list
 visibility (`a2a7b6b`), each reviewed once merged. **All passed** — no fix was found broken.
 
-Every reviewed finding is now **`FIXED AND REVIEWED`** (fully fixed and verified) — there is no
-longer a live `PARTIALLY FIXED AND REVIEWED` or `PARTIALLY MITIGATED` status in the doc. #30 and
+As of that fix-review pass, every reviewed finding was **`FIXED AND REVIEWED`** (fully fixed and
+verified), with no live `PARTIALLY FIXED AND REVIEWED` or `PARTIALLY MITIGATED` status. (A later
+post-merge pass — commit `a85ff00`, findings #51/#61/#77/#78/#81/#82/#89/#90 — subsequently added
+one remaining **`PARTIALLY MITIGATED`** finding, **#89** (MySQL event-loop write path), and the
+`(mitigated)`/`(guard gap only)` residual variants on #76/#82; see those blocks.) #30 and
 #54 landed in stages (partial fix → gap-closing follow-up); their blocks preserve that history as
 "Earlier partial mitigation" / "Earlier partial fix" notes above the final `FIXED AND REVIEWED`
 status, with the interim states (`ad26791`, `985dca8`+`6014b5e`, `e49856f`) recorded for
