@@ -2043,7 +2043,17 @@ class Puzzles(commands.Cog):
             # paths get both for free via service.update_puzzle_field).
             ch_type = self.get_channel_type(ctx)
             if ch_type in ("Hunt", "Metapuzzle", "Capstone", "Runaround", "Group", "Puzzle"):
-                await self.info(ctx, update=True)
+                # Best-effort, mirroring the web-side web_refresh_info seam: a
+                # hand-broken channel with no pinned info message would otherwise
+                # raise IndexError here (channel_pins[-1]) after the settings
+                # already committed above, leaving the user with an error and no ack.
+                try:
+                    await self.info(ctx, update=True)
+                except Exception:
+                    logger.exception(
+                        "update_settings: failed to refresh pinned info after setting %s",
+                        setting_key,
+                    )
             hunt = self.get_hunt(ctx)
             if hunt is not None:
                 await self.service.notifier.board_changed(hunt)

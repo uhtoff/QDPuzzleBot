@@ -298,7 +298,10 @@ async def ws_activity():
             # Guild membership only proves the user belongs to the guild; per-hunt
             # team-role visibility (hunt_visible) is a finer-grained gate that
             # membership alone does not enforce — check it per event type.
-            visible = True
+            # Default-deny: an unrecognised event type (e.g. a future type that may
+            # carry hidden-hunt data) is dropped rather than sent on guild
+            # membership alone. The directly-sent "ready" event bypasses this loop.
+            visible = False
             if event.get("type") == "activity":
                 visible = await _activity_event_visible(event, user["id"], event["guild_id"])
             elif event.get("type") == "board":
