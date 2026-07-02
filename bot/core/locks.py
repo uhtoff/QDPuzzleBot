@@ -12,7 +12,7 @@ lock can call the service without deadlocking.
 """
 import asyncio
 from collections import defaultdict
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 # One asyncio.Lock per puzzle id.
 _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
@@ -29,6 +29,22 @@ async def puzzle_lock(puzzle_id):
     """Hold the per-puzzle lock for the duration of the block, waiting if another
     holder (bang-command or web action) currently has it."""
     async with _PUZZLE_LOCKS[puzzle_id]:
+        yield
+
+
+@asynccontextmanager
+async def puzzles_lock(puzzle_ids):
+    """Hold EVERY listed puzzle's lock for the duration of the block (M10, #45):
+    round/hunt teardown needs to serialize against a concurrent solve/retag on ANY
+    of its member puzzles, not just one. Acquired in sorted order so two
+    overlapping multi-puzzle holders (e.g. two round deletions sharing a puzzle)
+    can't deadlock each other; a single-puzzle holder (puzzle_lock/
+    with_puzzle_mutex) never blocks waiting on a second lock, so it can't join a
+    cycle either. Waits if any lock is currently held; de-dupes ids so a puzzle
+    listed twice is only locked once (asyncio.Lock is not reentrant)."""
+    async with AsyncExitStack() as stack:
+        for puzzle_id in sorted(set(puzzle_ids)):
+            await stack.enter_async_context(_PUZZLE_LOCKS[puzzle_id])
         yield
 
 
