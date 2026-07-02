@@ -12,7 +12,15 @@ were deduplicated to 90. The three most consequential high-severity findings wer
 additionally hand-verified. Known-intentional quirks (stale forum layout, manual hunt-role
 seam, tag/edge wording, vestigial pool wording) were excluded by construction.
 
-**Totals: 8 high, 49 medium, 33 low.** No code was changed.
+**Totals: 8 high, 49 medium, 33 low** (the summary undercounts by one — #62 is also HIGH,
+making 9). No code was changed at review time.
+
+**Implementation status (2026-07-02, branch `working-1` → merged to `staging` in `8442c15`):**
+all 9 HIGH findings (#1, #2, #3, #4, #5, #6, #7, #8, #62) are fixed. Three adjacent
+MEDIUM/LOW findings were folded in at the user's request: #28 (fixed), #79 (fixed, and
+surfaced/removed an additional dead-code path not itself listed as a finding), #80 (fixed).
+#88 is moot as a side effect of the #79 fix (the vulnerable code was deleted). See each
+finding below for its commit. No other findings in this document have been actioned.
 
 Severity: high = wrong behaviour/data loss a user will plausibly hit; medium = real but
 narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or cleanup.
@@ -22,6 +30,8 @@ narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or clea
 
 ### 1. [HIGH] `bot/cogs/puzzles.py:2917`
 
+**Status: FIXED** in `b0225d6` (`fix(archive): preserve attachment/embed-only messages (#1)`, branch `working-1`, merged to `staging` in `8442c15`).
+
 archive_channel's per-message loop gates all archiving (attachment download, webhook re-send, reactions) behind `if content:` at bot/cogs/puzzles.py:2917, so any message with empty text — attachment-only posts (pasted screenshots) and embed-only messages — is silently dropped from the archive thread, and the source channel is then permanently deleted at line 2946, losing those attachments irrecoverably.
 
 **Failure scenario:** A solver posts an image of the puzzle grid with no text; !archive_round archives the channel and deletes it — the `if content:` guard at line 2917 never reaches the attachment-download code, so the image is permanently lost.
@@ -29,6 +39,8 @@ archive_channel's per-message loop gates all archiving (attachment download, web
 **Verification evidence:** bot/cogs/puzzles.py:2916-2917 — `content = message.content` then `if content:` wraps the entire archive block: the attachment-to_file loop (2920-2927), the webhook.send that would carry `files=` and `embeds=` (2930-2931), and reaction copying (2937-2944). A message with attachments but no caption has `message.content == ""`, is falsy, and skips everything; there is no separate attachment-handling path elsewhere in the function or in callers. Line 2946 then does `await channel.delete(reason=self.DELETE_REASON)`, making the loss permanent. Call chain confirmed: !archive_round (2811) → archive_category (2836, calls archive_channel per channel at 2855) → archive_channel (2864). Nothing in the known-intentional quirks list covers this; the attachment try/except at 2922-2927 shows attachments are intended to be preserved, so the guard skipping them is a genuine defect, not a design choice. Screenshot-only posts are routine in puzzle channels, so a user will plausibly hit this — severity high stands.
 
 ### 2. [HIGH] `bot/cogs/puzzles_gsheet.py:513`
+
+**Status: FIXED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #4 below (same code path).
 
 restore_puzzle_spreadsheet gates moving additional sheets back from the archive on `puzzle_data.solved` (bot/cogs/puzzles_gsheet.py:513), but its only production caller, puzzle_service.unsolve, sets `puzzle.solved = False` (puzzle_service.py:1000) before calling it (line 1012), so the move-back branch is dead code; the requests built at lines 516-523 then reference archive-spreadsheet sheet ids in a batchUpdate sent to the LIVE spreadsheet (batch_update default archive=False, line 78-79), so the entire atomic batch — including the main tab's solution/progress clear and reposition — fails with 400 "no sheet with id", and unsolve raises after the DB solve state was already committed.
 
@@ -38,6 +50,8 @@ restore_puzzle_spreadsheet gates moving additional sheets back from the archive 
 
 ### 3. [HIGH] `bot/cogs/puzzles_gsheet.py:1202`
 
+**Status: FIXED** in `3ed8ae1` (`fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3)`, branch `working-1`, merged to `staging` in `8442c15`).
+
 reconcile_table prunes stale contribution rows with deleteDimension over whole sheet ROWS (bot/cogs/puzzles_gsheet.py:1202-1205), deleting the full-width grid row on the target's own tab; any re-key (feeds->informs re-edge, untag, capstone conversion flipping every feeder, evidence deletion) therefore shifts the solver work grid in cols E+ up one row per prune, silently destroying solver data on the very columns promote_tab_to_target reserves for solvers.
 
 **Failure scenario:** Solvers work a meta in F5:Z30 beside the contribution table (rows 5-14). A feeder is untagged, re-edged feeds->informs (key changes from feeds:<pid> to informs:<pid>, i.e. prune+append), or a group is converted to Capstone (bulk_re_edge prunes EVERY feeder row). Each prune deletes the entire grid row, so the solvers' grid rows shift up and one row of their work is lost per prune — silent data loss on the tab the design explicitly reserves cols E+ for solvers (see promote_tab_to_target docstring and the SOCIAL_GREY shading that covers only the table's own columns).
@@ -45,6 +59,8 @@ reconcile_table prunes stale contribution rows with deleteDimension over whole s
 **Verification evidence:** bot/cogs/puzzles_gsheet.py:1202-1205 — prune uses {"deleteDimension": {"range": {"sheetId", "dimension": "ROWS", startIndex, endIndex}}}, which the Sheets API applies across the entire sheet width (no column bound), unlike the column-bounded updateCells used for updates (1194-1200) and appends (1209-1215). bot/cogs/puzzles_gsheet.py:1349-1350 — promote_tab_to_target docstring: columns are inserted "so the solver grid rides clear to the right (cols E+)", i.e. solvers are expected to work in E+ of the same rows. 1252-1258 — SOCIAL_GREY shading is bounded to key_col..end_col only, signalling E+ as solver-safe. bot/core/contribution.py:41-54 — row keys embed the edge type (feeds:<id>, informs:<id>, none:<id>, informs:<id>:<evidence_id>), so an edge flip or evidence deletion re-keys the row and diff_rows yields a prune; capstone conversion flips every feeder feeds->informs, producing N simultaneous prunes. Callers render_contribution (1488-1493) and render_minimeta_contribution (1457-1462) both run this on the target's own tab. No mitigation found: no deleteRange with column bounds, no preservation/read-back of E+ cells, and this is not among the known-intentional quirks.
 
 ### 4. [HIGH] `bot/core/puzzle_service.py:1012`
+
+**Status: FIXED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #2 above (same code path — the review's own "minor correction" already noted the overlap).
 
 unsolve (bot/core/puzzle_service.py:1003) commits the puzzle BEFORE restore_puzzle_spreadsheet (line 1012) and never commits after, so the restored google_page_id/archived=False (mutated in puzzles_gsheet.py:505-508, where the old archive tab is deleted) are lost for any caller without its own post-commit. The bang !unsolve path is accidentally rescued by cog_after_invoke (bot/cogs/puzzles.py:197-200), which commits the same ctx puzzle object — but the web unsolve endpoint (bot/web/actions.py:1691) has no commit at all, and !unsolve_mini commits the ctx minimeta, not the mutated mini. After a web unsolve of an archived puzzle, the DB keeps archived=1 plus a deleted archive sheetId; any later sheet write that re-reads the puzzle (e.g. re-solve → archive_puzzle_spreadsheet) targets a nonexistent sheetId and fails with a Sheets 400, desyncing the puzzle's sheet until manual repair. (Minor correction: additional_sheets page ids are not actually re-mutated during unsolve because the line-513 move is gated on puzzle_data.solved, already cleared at line 1000 — a separate latent bug.)
 
@@ -54,6 +70,8 @@ unsolve (bot/core/puzzle_service.py:1003) commits the puzzle BEFORE restore_puzz
 
 ### 5. [HIGH] `bot/core/puzzle_service.py:1073`
 
+**Status: FIXED** in `26e8e3f` (`fix(puzzle_service): clear tag_edges on convert_to_puzzle demote (#5)`, branch `working-1`, merged to `staging` in `8442c15`).
+
 convert_to_puzzle (bot/core/puzzle_service.py:1069-1075) removes the deleted group's id from puzzle.tags but never touches puzzle.tag_edges, so the meta's 'target' self-edge survives in memory; the immediately following PuzzleJsonDb.commit tag-sync (bot/store/mysqldb.py:571-576) computes mem_pairs - db_pairs = {(deleted_gid, 'target')} and INSERTs a tags row whose tag_group_id FK (ON DELETE CASCADE, migrations/000_base_schema.sql:118, repointed by 011_taggroup_rename.sql) references the just-deleted group — raising IntegrityError after the group deletion is committed and before demote_tab_to_puzzle runs, for both the bang and web demote paths.
 
 **Failure scenario:** !convert_to_puzzle (or the web demote) on any meta: TagGroupJsonDb.delete removes the group and its tags rows, then PuzzleJsonDb.commit(puzzle) computes mem_pairs-db_pairs = {(dead_gid,'target')} and inserts it — the tags.RoundID FK (migrations/000_base_schema.sql:118, ON DELETE CASCADE) rejects it with IntegrityError, so the command errors AFTER the group is deleted and BEFORE demote_tab_to_puzzle runs (sheet stays in group layout, no board push). Tests mock PuzzleJsonDb so this is never exercised against real commit semantics.
@@ -61,6 +79,8 @@ convert_to_puzzle (bot/core/puzzle_service.py:1069-1075) removes the deleted gro
 **Verification evidence:** Confirmed by direct code reading. (1) Every meta carries a 'target' self-edge in tag_edges: set on convert_to_meta at bot/core/puzzle_service.py:1396-1397, on re-edge at :845-846, backfilled at :1661, and loaded from DB rows at bot/store/mysqldb.py:440. (2) convert_to_puzzle at bot/core/puzzle_service.py:1071-1073 calls TagGroupJsonDb.delete(target_group.id) then only `puzzle.tags.remove(target_group.id)` — it does NOT call puzzle.remove_edge (bot/store/puzzle_data.py:103-112 is the helper that keeps tags+tag_edges in sync), so tag_edges retains {deleted_gid: {'target'}}. (3) TagGroupJsonDb.delete removes the group row and its tags rows (bot/store/mysqldb.py:192-196). (4) PuzzleJsonDb.commit (bot/store/mysqldb.py:553-578) then builds mem_pairs from puzzle.tag_edges (:561-565); db_pairs no longer contains the pair, so :571-576 INSERTs (deleted_gid, puzzle.id, 'target') into tags. (5) tags.tag_group_id has an FK to tag_group(id) — original constraint RoundID at migrations/000_base_schema.sql:118, auto-repointed by migrations/011_taggroup_rename.sql (RENAME TABLE rounds→tag_group, CHANGE COLUMN round_id→tag_group_id at :7,:16) — so the INSERT hits errno 1452 IntegrityError. (6) Ordering: super().commit inside PuzzleJsonDb.commit issues mydb.commit() (bot/store/mysqldb.py:66) before the tag-sync, so the group deletion and puzzle-row update are durably committed, then the exception propagates before the sheet revert at bot/core/puzzle_service.py:1077-1079. Both entrypoints (bang !convert_to_puzzle and the web demote) converge on this one service method, so both fail. Refutation attempts failed: no other code clears tag_edges on this path, and the FK was not dropped by any later migration (checked migrations/005, 018, 019, 020). The only correction to the original claim: the finding's cited FK name/line is the pre-rename `RoundID` on column round_id; after migration 011 the live column is tag_group_id — cosmetic, the constraint still exists and cascades/rejects identically. Line anchor 1073 is accurate.
 
 ### 6. [HIGH] `bot/web/notifier.py:22`
+
+**Status: FIXED** in `0da35ea` (`fix(web): publish the guild snowflake from board_changed, not the row id (#6)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 WebNotifier.board_changed (bot/web/notifier.py:22) publishes guild_id as hunt.guild_id, which is the guilds-table row id (hunts are created with guild_id=settings.id, the auto-inc row id, distinct from the snowflake), but ws_activity (bot/web/api.py:254) filters events against a membership set of Discord guild snowflakes — so every board event routed through the service's @pushes_board → CompositeNotifier → WebNotifier path is silently dropped for all WebSocket clients. This covers all bang-command mutations AND nearly all web mutations (actions.py now relies on the service push everywhere except the single remaining _notify_board call at actions.py:1494), so live board invalidation effectively never reaches the dashboard.
 
@@ -70,6 +90,8 @@ WebNotifier.board_changed (bot/web/notifier.py:22) publishes guild_id as hunt.gu
 
 ### 7. [HIGH] `frontend/src/components/AdminSettingsPanel.tsx:75`
 
+**Status: FIXED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #8 below (the fixes interact — both touch how `start_local` is derived/synced). Chose a UTC-offset picker (not full IANA timezones) per user decision.
+
 frontend/src/components/AdminSettingsPanel.tsx round-trips the hunt start time through mismatched timezones: line 75 renders the default with toISOString().slice(0,16) (UTC wall time) into a datetime-local input, while handleSave (line 107) parses values.start_local with new Date(), which ECMAScript interprets as LOCAL time for the offset-less "YYYY-MM-DDTHH:mm" form. For any user not in UTC, the displayed start time is wrong by their offset, and every Save that touches any field silently PATCHes start_timestamp shifted by -offset (e.g. -3600 for UTC+1), compounding on repeated saves.
 
 **Failure scenario:** A user in UTC+1 changes only the shared password and presses Save: values.start_local equals the untouched UTC-rendered default, handleSave parses it as local time, gets ts = start_timestamp - 3600 != start_timestamp, and silently includes the shifted start_timestamp in the PATCH — every save moves the hunt start one hour earlier (compounding on repeated saves), and the displayed start time is wrong by the offset to begin with.
@@ -77,6 +99,8 @@ frontend/src/components/AdminSettingsPanel.tsx round-trips the hunt start time t
 **Verification evidence:** frontend/src/components/AdminSettingsPanel.tsx:73-76 — startLocalDefault = new Date(start_timestamp*1000).toISOString().slice(0,16): a UTC wall-clock string fed to a datetime-local input (line 208-214), which browsers treat as local time, so the display is off by the user's UTC offset. frontend/src/components/AdminSettingsPanel.tsx:106-110 — handleSave does ts = Math.round(new Date(values.start_local).getTime()/1000); per ES spec, date-time strings without a timezone offset are parsed as LOCAL time, so for an untouched field ts = start_timestamp - utcOffsetSeconds. Since ts !== start_timestamp whenever the offset is nonzero, patch.start_timestamp is included on EVERY save even when the user only edited e.g. the password (the claimed scenario is exact). The backend applies it unconditionally: bot/web/actions.py:775 cog.service.update_hunt_settings(hunt_obj, **body) with start_timestamp in _SETTINGS_KEYS (line 747). Compounding: after save the refetched hunt yields a new startLocalDefault and the sync block at lines 88-97 overwrites values.start_local, so the next save shifts by the offset again. No mitigating code found (no getTimezoneOffset usage anywhere in the file; no other timezone handling in frontend/src/api.ts for this field). Only users whose local timezone is exactly UTC are unaffected, so this is wrong behaviour a real user will plausibly hit — high severity confirmed.
 
 ### 8. [HIGH] `frontend/src/components/AdminSettingsPanel.tsx:88`
+
+**Status: FIXED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #7 above.
 
 The render-phase sync in frontend/src/components/AdminSettingsPanel.tsx:88 compares local form state to incoming props (values.url !== url || values.start_local !== startLocalDefault) instead of comparing previous props to current props, so every keystroke in Website URL or Start time triggers setValues() back to the server values on the very next render — those two fields are uneditable from the web and Save can never change url/start_timestamp. Whenever the condition does fire (any user edit to those fields, or a server-side url/start change arriving via useHunt's refetch), it also resets username, password, url_sep, and puzzle_prefix, silently discarding any in-progress edits to those fields.
 
@@ -199,6 +223,8 @@ bulk_re_edge (bot/core/puzzle_service.py:802) flips member edge rows via raw SQL
 **Failure scenario:** !convert_to_capstone on group G (flips member P feeds→informs in DB) races with an in-flight !solve of P (P's mutex held, P loaded with 'feeds' before the flip): solve's commit at line 982 computes db_pairs={(G,'informs')} vs mem_pairs={(G,'feeds')}, DELETEs the informs row and re-INSERTs feeds — the type conversion is undone for P with no error anywhere.
 
 ### 28. [MEDIUM] `bot/core/puzzle_service.py:979`
+
+**Status: FIXED** in `5435deb` (`fix(service): isolate own-sheet failures in solve/change/add (#28)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in after the HIGH findings landed, at the user's request.
 
 In solve(), a plain Sheets failure (HttpError) from archive_puzzle_spreadsheet at bot/core/puzzle_service.py:979 propagates after the solve is already committed (line 939): @pushes_board treats any non-SheetRefreshError as "mutation not applied", so no board_changed WebSocket push fires on either the bang or web path and dashboard clients keep showing the puzzle unsolved; the second commit (line 982: archive_time, moved additional-sheet page ids) and forum-tag update are skipped. On the bang path _solve_impl (bot/cogs/puzzles.py:2630) aborts before the solved embed/channel move/pin update and on_command_error (puzzles.py:431) tells the user their change "may not have been saved" even though the DB says solved; the web path (bot/web/actions.py:353-355) does message correctly but still misses the board push. Same post-commit-raise pattern in change_solution/add_solution (lines 1229/1247), where it additionally swallows the pending SheetRefreshError meta badging.
 
@@ -407,6 +433,8 @@ puzzles.url is varchar(150) while hunts.url is varchar(250) (migrations/000_base
 
 ### 62. [HIGH] `bot/web/actions.py:361`
 
+**Status: FIXED** in `25154f0` (`fix(web): post embed + refresh pin for partial/change/add solves (#62)`, branch `working-1`, merged to `staging` in `8442c15`).
+
 Web solve modes 'partial', 'change' and 'add' perform the service mutation but skip both the puzzle-channel announcement embed and the pinned-info refresh that the bang equivalents always do: bot/web/actions.py:359-362 gates web_post_solved_embed (which itself ends with web_refresh_info) behind mode == "full" only, so after a dashboard 'change' the Discord pin keeps displaying the OLD solution and no update is announced in the channel.
 
 **Failure scenario:** A user fixes a typo via the dashboard (mode 'change'): bang !change_solution posts a 'PUZZLE SOLUTION UPDATED!' embed and edits the pin (puzzles.py:2718-2721), but the web path posts nothing and the pinned info keeps showing the OLD solution, so solvers in the Discord channel act on a wrong answer; dashboard partials are similarly invisible in the channel.
@@ -517,11 +545,15 @@ The 'Puzzle commands' embed field is duplicated between _add_metapuzzle_command_
 
 ### 79. [LOW] `bot/cogs/puzzles.py:2642`
 
+**Status: FIXED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Extracted a shared `bot.core.notifier.build_solved_embed` formula. While fixing this, also found and removed (`32ef6fc`) the `Notifier.puzzle_solved` interface method and its four implementations, plus `_post_solved_embed` — none of it was reachable from anywhere outside `notifier.py`; this also makes #88 below moot (the vulnerable code no longer exists).
+
 The 'PUZZLE SOLVED!' embed is built in three places — _solve_impl (bot/cogs/puzzles.py:2642), web_post_solved_embed (bot/cogs/puzzles.py:821), and the cog-unavailable fallback _post_solved_embed (bot/core/notifier.py:261) — so any wording/emoji change must be made up to three times; the notifier fallback additionally sends via get_event_loop().create_task without awaiting (notifier.py:266) and will silently rot. Note: the bang-vs-web Follow-up wording difference is at least partly intentional (dashboard-specific copy, mirrored by web_post_unsolved), so 'already-divergent' overstates drift there.
 
 **Failure scenario:** A wording/emoji/field change to the solve announcement must be made three times; the bang and dashboard solve messages have already drifted, and the notifier fallback copy additionally fires via get_event_loop().create_task without awaiting, so it silently rots as the other two evolve.
 
 ### 80. [LOW] `bot/cogs/puzzles.py:2678`
+
+**Status: FIXED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Merged into one `_change_or_add_solution_impl`; also added the Follow-up field `add_solution`'s embed was missing.
 
 change_solution (bot/cogs/puzzles.py:2678-2717) and add_solution (2721-2757) duplicate a near-identical ~30-line tail — not-a-puzzle guard, unsolved fallback (to _solve_impl / _partial_impl respectively), _normalize_solution, empty-solution check, service call, SheetRefreshError capture, celebration embed, self.info(ctx, update=True), and _warn_stale_sheets — differing only in the service method, embed title, and the fallback impl; the copies have already drifted in that add_solution's embed omits the Follow-up field that change_solution (2710-2713), _solve_impl (2644-2647) and _partial_impl (2595-2598) all include.
 
@@ -573,6 +605,8 @@ CI's only check step is `pytest -v` (.github/workflows/ci.yml:66-67); no workflo
 **Failure scenario:** A change introducing an F821 undefined-name in a rarely-exercised branch passes CI (tests don't reach it) and merges to staging; the bug only fires as a NameError at runtime mid-hunt, exactly the class the F ruleset exists to catch.
 
 ### 88. [LOW] `bot/core/notifier.py:265`
+
+**Status: MOOT** as of `32ef6fc` (`refactor: remove dead puzzle_solved notifier path`, branch `working-1`, merged to `staging` in `8442c15`). Not fixed directly — while fixing #79, this whole fallback path (`_post_solved_embed`, called only from the dead `DiscordNotifier.puzzle_solved`) was found to be unreachable from anywhere outside `notifier.py` and deleted, so the fire-and-forget bug described here no longer has any code to apply to.
 
 On the cog-unavailable fallback path, _post_solved_embed (bot/core/notifier.py:265) schedules channel.send via asyncio.get_event_loop().create_task without holding a task reference, awaiting, or catching exceptions — so a failed SOLVED post (missing perms, deleted channel) is silently lost with no log line, unlike welcome/refresh_info/the normal puzzle_solved path which all await and logger.exception.
 
