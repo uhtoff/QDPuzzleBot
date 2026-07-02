@@ -24,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { useArchiveHunt, useCreateArchiveSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
   uid: string;
@@ -47,40 +48,6 @@ interface FormValues {
   password: string;
   url_sep: string;
   puzzle_prefix: string;
-}
-
-/** The browser's current UTC offset in minutes east of UTC (e.g. UTC+2 -> 120). */
-function browserOffsetMinutes(): number {
-  return -new Date().getTimezoneOffset();
-}
-
-/** Format a UTC offset in minutes as "UTC+02:00" / "UTC-05:30". */
-function formatOffset(minutes: number): string {
-  const sign = minutes < 0 ? "-" : "+";
-  const abs = Math.abs(minutes);
-  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
-  const mm = String(abs % 60).padStart(2, "0");
-  return `UTC${sign}${hh}:${mm}`;
-}
-
-const UTC_OFFSET_OPTIONS = Array.from({ length: 53 }, (_, i) => {
-  const minutes = -720 + i * 30; // UTC-12:00 .. UTC+14:00, half-hour steps
-  return { value: String(minutes), label: formatOffset(minutes) };
-});
-
-/** Render a stored UTC timestamp as a datetime-local wall-clock string in `offsetMinutes`. */
-function tsToLocal(ts: number | null, offsetMinutes: number): string {
-  if (ts == null || ts <= 0) return "";
-  return new Date(ts * 1000 + offsetMinutes * 60000).toISOString().slice(0, 16);
-}
-
-/** Parse a datetime-local wall-clock string (expressed in offsetMinutes) to a UTC timestamp. */
-function localToTs(local: string, offsetMinutes: number): number | null {
-  const [datePart, timePart] = local.split("T");
-  if (!datePart || !timePart) return null;
-  const [y, m, d] = datePart.split("-").map(Number);
-  const [hh, mm] = timePart.split(":").map(Number);
-  return Math.round((Date.UTC(y, m - 1, d, hh, mm) - offsetMinutes * 60000) / 1000);
 }
 
 export function AdminSettingsPanel({

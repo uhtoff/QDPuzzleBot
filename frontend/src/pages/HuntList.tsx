@@ -25,6 +25,7 @@ import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
 import { useViewAs } from "../context/ViewAsContext";
 import type { HuntSummary } from "../types";
+import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs } from "../util";
 
 function HuntCard({ hunt }: { hunt: HuntSummary }) {
   return (
@@ -60,6 +61,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [startLocal, setStartLocal] = useState("");
+  const [startOffsetMinutes, setStartOffsetMinutes] = useState(browserOffsetMinutes);
   const [roleName, setRoleName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -74,12 +76,14 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
 
   const handleSubmit = () => {
     if (!guildId || !name.trim() || !url.trim() || !startLocal) return;
+    const startTimestamp = localToTs(startLocal, startOffsetMinutes);
+    if (startTimestamp == null) return;
 
     const payload: CreateHuntPayload = {
       guild_id: Number(guildId),
       name: name.trim(),
       url: url.trim(),
-      start_timestamp: Math.round(new Date(startLocal).getTime() / 1000),
+      start_timestamp: startTimestamp,
     };
     if (roleName.trim()) payload.role_name = roleName.trim();
     if (username.trim()) payload.username = username.trim();
@@ -126,13 +130,24 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           onChange={(e) => setUrl(e.currentTarget.value)}
           required
         />
-        <TextInput
-          type="datetime-local"
-          label="Start time"
-          value={startLocal}
-          onChange={(e) => setStartLocal(e.currentTarget.value)}
-          required
-        />
+        <Group align="flex-end" gap="sm" wrap="nowrap">
+          <TextInput
+            type="datetime-local"
+            label="Start time"
+            value={startLocal}
+            onChange={(e) => setStartLocal(e.currentTarget.value)}
+            required
+            style={{ flex: 1 }}
+          />
+          <Select
+            label="Timezone"
+            data={UTC_OFFSET_OPTIONS}
+            value={String(startOffsetMinutes)}
+            onChange={(val) => val != null && setStartOffsetMinutes(Number(val))}
+            allowDeselect={false}
+            w={140}
+          />
+        </Group>
 
         <Divider />
 
