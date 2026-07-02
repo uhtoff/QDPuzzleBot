@@ -8,6 +8,7 @@ the edges.
 """
 import asyncio
 import contextvars
+from contextlib import AsyncExitStack
 import datetime
 import functools
 import inspect
@@ -24,7 +25,7 @@ from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
-from bot.core.locks import rollup_lock
+from bot.core.locks import rollup_lock, puzzle_lock
 from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
@@ -799,12 +800,21 @@ class PuzzleService:
                 if current in ("feeds", "informs", "none"):
                     counter[current] = counter.get(current, 0) + 1
 
-        PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
-        # bulk_update flips every row including the target's — re-pin the target to
-        # 'target' so a type conversion can never make a target feed/inform itself.
-        if tag_group.target_puzzle_id:
-            PuzzleJsonDb.tag_puzzle_with_edge(
-                tag_group.target_puzzle_id, tag_group.id, "target")
+        # Hold every member's puzzle mutex for the flip. Without this, a command
+        # already in flight on a member (e.g. !solve, loaded pre-flip) can commit
+        # after bulk_update_edge_type runs; its bidirectional tag-sync then diffs
+        # against its stale in-memory edge and silently reverts the flip for that
+        # member (#27). Sorted for a consistent lock order across callers.
+        async with AsyncExitStack() as stack:
+            for member_id in sorted({m.id for m in members}):
+                await stack.enter_async_context(puzzle_lock(member_id))
+
+            PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
+            # bulk_update flips every row including the target's — re-pin the target to
+            # 'target' so a type conversion can never make a target feed/inform itself.
+            if tag_group.target_puzzle_id:
+                PuzzleJsonDb.tag_puzzle_with_edge(
+                    tag_group.target_puzzle_id, tag_group.id, "target")
 
         # Build summary string listing only non-zero edge types
         parts = [f"{v} {k}" for k, v in counter.items() if v]

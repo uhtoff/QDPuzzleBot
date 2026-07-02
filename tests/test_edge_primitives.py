@@ -17,6 +17,7 @@ Phase 1 expectation: every test errors with ``AttributeError`` because the metho
 do not exist yet. Phase 2 implements them and turns these green. Helpers are local
 to this file (the parallel runner shards by file).
 """
+import asyncio
 import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -319,3 +320,35 @@ class TestBulkReEdge:
             summary = await cog.service.bulk_re_edge(grp, "informs", hunt)
         assert summary == "flipped 1 feeds → informs"          # target not counted
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")  # re-pinned
+
+    @pytest.mark.asyncio
+    async def test_flip_waits_for_in_flight_member_command(self, cog):
+        """#27: bulk_re_edge must hold each member's puzzle mutex across the flip,
+        so a command already in flight on a member (e.g. !solve, which loaded the
+        puzzle pre-flip) cannot commit its stale in-memory edge afterwards and
+        have the bidirectional tag-sync silently revert the conversion."""
+        from bot.core.locks import puzzle_lock
+
+        grp = make_round(id=5)
+        hunt = make_hunt()
+        member = make_puzzle(id=42, tags=[5])
+        member.tag_edges = {5: {"feeds"}}
+
+        order = []
+
+        async def in_flight_command():
+            async with puzzle_lock(42):
+                order.append("solve-start")
+                await asyncio.sleep(0.02)
+                order.append("solve-end")
+
+        with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
+            mpdb.get_all_from_tag_group.return_value = [member]
+            mpdb.bulk_update_edge_type.side_effect = lambda *a, **kw: order.append("flip")
+
+            task = asyncio.create_task(in_flight_command())
+            await asyncio.sleep(0)  # let in_flight_command grab the lock first
+            await cog.service.bulk_re_edge(grp, "informs", hunt)
+            await task
+
+        assert order == ["solve-start", "solve-end", "flip"]
