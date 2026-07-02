@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — fix(web): publish the guild snowflake from board_changed, not the row id (#6) @ 0da35ea
+Status: in progress — fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8) @ 1740bab
 
 ## Goal
 
@@ -13,9 +13,12 @@ in impact order, marking each off and discussing design questions as we go. Full
 
 ## Current status
 
-Phase 1 and Phase 2 complete (4 of 9 findings landed): #1, #3, #5, #6. Full suite green
-(751 passed) after #6. Phase 3 (#7+#8, AdminSettingsPanel.tsx) is next and needs Q3
-(timezone + editability semantics) discussed with the user first.
+Phases 1-3 complete (6 of 9 findings landed): #1, #3, #5, #6, #7, #8. Backend suite green
+(751 passed) as of #6; frontend verified via `tsc --noEmit` + `vite build` (both clean) plus
+a standalone Node script confirming the UTC-offset round-trip math — not independently
+browser-tested (no live Quart backend/auth wired up in this worktree, and no frontend test
+runner exists in the repo to add an automated regression test). Phase 4 (#2+#4,
+archive-spreadsheet desync) is next — no blocking open questions.
 
 ## Final decisions
 
@@ -50,6 +53,18 @@ Phase 1 and Phase 2 complete (4 of 9 findings landed): #1, #3, #5, #6. Full suit
   pass-through behaviour; rewrote it to mock `get_guilds_map` and assert the resolved
   snowflake, plus added a case for an unknown guild row (→ `guild_id: None`, matching
   `_board_event`'s convention).
+- #7/#8 fix (Q3 resolved): a UTC-offset `Select` (UTC-12:00..UTC+14:00, half-hour steps,
+  default = browser offset) next to the Start-time field — user confirmed a coarse UTC
+  offset is fine, no need for a full IANA timezone library/dependency. Display and parse
+  both go through explicit offset arithmetic so they always agree (the bug was
+  `toISOString()` for display vs. browser-implicit `new Date(str)` for parsing). Root cause
+  of #8 was doing "sync form from parent" as an if-check + `setValues` in the render body
+  (not an effect) — it fired on every render, including the one caused by the user's own
+  keystroke, immediately reverting the edit; also wiped username/password on the 30s
+  background poll. Replaced with a `useEffect` that only re-syncs when `uid` changes (i.e.
+  switching hunts), not on every refetch of the same hunt. Confirmed url/start were always
+  meant to be web-editable (Save button + mutation already wired up) — no real "read-only
+  by design" question remained once the render-body bug was identified.
 
 ## Rejected approaches
 
@@ -58,16 +73,21 @@ Phase 1 and Phase 2 complete (4 of 9 findings landed): #1, #3, #5, #6. Full suit
   not a bounded delegate-and-forget handoff.
 - #3: plain "clear the table block and rewrite current rows" (original option (b)) — rejected
   because it can misattribute user-added right-of-table columns after compaction (see above).
+- #7: a full IANA-timezone picker (e.g. via a date-fns-tz-style dependency) — user explicitly
+  said a UTC offset is sufficient; kept it dependency-free.
+- #8: per-field "dirty tracking" against a `lastSynced` baseline (resync any prop that
+  changed, but only if the user hasn't locally edited that specific field) — more complex
+  than needed for the stated acceptance criteria; resync-only-on-uid-change is simpler and
+  fully satisfies "a background refetch mid-edit does not wipe in-progress edits."
 
 ## Next steps
 
-1. Discuss Q3 (#7/#8: local-vs-UTC display, and whether URL/start should be web-editable)
-   with the user, then implement #7+#8 together (Phase 3) — they share how `start_local` is
-   derived/synced.
-2. Phase 4 (#2+#4, archive-spreadsheet desync) and Phase 5 (#62, web solve parity) follow
-   per `implementation-plan.md`.
+1. Phase 4: #2 (`puzzles_gsheet.py:513`, restore_puzzle_spreadsheet dead move-back + wrong
+   spreadsheet batch on unsolve) + #4 (`puzzle_service.py:1012`, unsolve commit ordering) —
+   same code path, fix together. Archive spreadsheets are in scope (Q2 answered yes).
+2. Phase 5: #62 (`actions.py:361`, web solve modes skip embed + pin refresh).
 
 ## Open questions
 
-See `open-questions.md`. Q1 and Q2 both answered. Still blocking its phase: Q3 (#7/#8
-timezone + editability). Non-blocking: Q4–Q6. Phase ordering confirmed by user.
+See `open-questions.md`. Q1, Q2, Q3 all answered. Non-blocking: Q4–Q6 (not yet decided, but
+don't block any remaining finding). Phase ordering confirmed by user.

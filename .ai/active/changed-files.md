@@ -2,7 +2,7 @@
 
 ## Git status
 
-Branch: `working-1` (based on `staging`, tip now `0da35ea`). Worktree already had
+Branch: `working-1` (based on `staging`, tip now `1740bab`). Worktree already had
 `config.json` + `google_secrets.json` present (bootstrap step was a no-op check).
 
 ## Files changed
@@ -26,6 +26,9 @@ Branch: `working-1` (based on `staging`, tip now `0da35ea`). Worktree already ha
 - `tests/test_web_notifier.py` — rewrote the board-event test to mock `get_guilds_map` and
   assert the resolved snowflake (the old test asserted the buggy pass-through); added a
   case for an unknown guild row
+- `frontend/src/components/AdminSettingsPanel.tsx` — UTC-offset `Select` for hunt start time
+  + offset-arithmetic conversion (#7); replaced render-body derived-state sync with a
+  `useEffect` keyed on `uid` so edits survive the dashboard's 30s background poll (#8)
 
 ## Diff summary
 
@@ -35,24 +38,32 @@ Branch: `working-1` (based on `staging`, tip now `0da35ea`). Worktree already ha
 - 112fc27 `docs(ai): record #3 fix and Q1 resolution in handoff tracker`
 - 26e8e3f `fix(puzzle_service): clear tag_edges on convert_to_puzzle demote (#5)`
 - 0da35ea `fix(web): publish the guild snowflake from board_changed, not the row id (#6)`
+- 2e77ca5 `docs(ai): record Phase 2 (#5, #6) in handoff tracker`
+- 1740bab `fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`
 
 ## Commands run
 
 - `git branch -d fix-correctness-review` — deleted stale, fully-merged branch (was 973e5f0)
 - `pipenv run python -m pytest --collect-only -q` — 747 tests collected, confirms bootstrap
-- Per-finding: focused pytest on the touched test file, `ruff check` on touched files, then
-  full `pipenv run python -m pytest tests/ -q` — all green after each of #1, #3, #5, #6
+- Per backend finding: focused pytest on the touched test file, `ruff check` on touched
+  files, then full `pipenv run python -m pytest tests/ -q` — all green after each of
+  #1, #3, #5, #6 (final backend count: 751 passed)
 - #5: sanity-checked the new test is a real regression test by stashing the source fix,
   rerunning `-k test_removes_round_from_tag_edges` (failed as expected), then restoring
-- Final full suite: `pipenv run python -m pytest tests/ -q` — 751 passed
+- #7/#8 (frontend, no test runner in this repo): `npx tsc --noEmit` — clean;
+  `npm run build` (tsc + vite build) — clean; standalone Node script round-tripping the
+  UTC-offset conversion at +120/-300/0 minutes — exact
 
 ## Tests run
 
-Full suite green (751 passed) after #6, the latest landed finding.
+Backend: full suite green (751 passed) as of #6.
+Frontend: no test runner exists in this repo; verified via typecheck + build + a manual
+math round-trip script (see above). Not independently browser-tested — no live Quart
+backend/auth available in this worktree to exercise the actual dashboard page.
 
 ## Tests not run
 
-Remaining findings (#7, #8, #2, #4, #62) not yet touched.
+Remaining findings (#2, #4, #62) not yet touched.
 
 ## Current risks
 
@@ -60,5 +71,8 @@ Remaining findings (#7, #8, #2, #4, #62) not yet touched.
   Sheets seam only; not yet verified against a live scratch sheet with real Table semantics
   (per the plan's rollback notes, prefer proving destructive-path fixes on a scratch
   hunt/sheet before trusting them on real data).
+- #7/#8 have not been exercised in a real browser against a live hunt — worth a manual
+  click-through (save with a non-UTC offset, confirm the round-trip; edit a field, wait for
+  a 30s poll, confirm it isn't wiped) before this ships.
 - Several remaining findings are dual-path (bang + web); fixing one path can leave the
   other stale.

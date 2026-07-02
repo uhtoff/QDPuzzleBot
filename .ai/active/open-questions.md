@@ -25,14 +25,15 @@ next to the wrong puzzle).
 **Yes** — archive spreadsheets are used for bigger hunts, so #2/#4 must work correctly.
 Phase 4 stays in scope at its planned position (not deprioritized).
 
-### Q3 — #7/#8: intended timezone + editability semantics for hunt start?
-- Should the datetime-local input show/accept the admin's **local** time (most intuitive)
-  or UTC? Whichever we pick, display and parse must agree (the current bug is that they
-  disagree).
-- #8 currently makes URL/start **uneditable** from the web. Is that intended (URL/start are
-  Discord-only) or should the web be able to edit them? This decides whether we fix the
-  sync to allow editing or deliberately render them read-only.
-**Decision needed:** local-vs-UTC, and editable-vs-read-only for URL/start.
+### Q3 — #7/#8: intended timezone + editability semantics for hunt start? — ANSWERED (2026-07-02)
+- **Timezone:** a UTC-offset picker (not a full IANA timezone dropdown — user confirmed
+  "UTC +/- fine"). Added a `Select` of UTC-12:00..UTC+14:00 in half-hour steps next to the
+  Start time field, defaulting to the browser's current offset. Conversion is manual offset
+  arithmetic (`Date.UTC(...) - offsetMinutes*60000`), no new date library needed.
+- **Editability:** confirmed a bug, not a design choice — url/start were already wired up
+  with onChange + a Save button + `useUpdateHuntSettings`, so the intent was always
+  web-editable. The "uneditable" symptom was the render-body derived-state-sync snapping
+  edits back on every keystroke (see #8 fix below).
 
 ## Non-blocking
 
