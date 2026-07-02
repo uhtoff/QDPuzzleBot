@@ -1000,7 +1000,6 @@ class PuzzleService:
         puzzle.solved = False
         puzzle.solve_time = None
         puzzle.archive_time = None
-        PuzzleJsonDb.commit(puzzle)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1010,6 +1009,13 @@ class PuzzleService:
             existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
             restore_idx = gsheet_cog.compute_insert_index(puzzle.is_target, existing)
             await gsheet_cog.restore_puzzle_spreadsheet(puzzle, restore_index=restore_idx)
+
+        # Commit AFTER the sheet restore (mirrors solve()'s ordering): restore
+        # mutates puzzle.archived/google_page_id and each additional sheet's
+        # google_page_id, so committing first would persist stale/dangling ids.
+        PuzzleJsonDb.commit(puzzle)
+        for sheet in puzzle.additional_sheets:
+            SheetsJsonDb.commit(sheet)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         for tag in puzzle.tags:

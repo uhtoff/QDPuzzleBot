@@ -502,6 +502,7 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
+        was_archived = puzzle_data.archived
         if puzzle_data.archived:
             puzzle_data.archived = False
             puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(False, puzzle_data.google_page_id,
@@ -510,7 +511,7 @@ class GoogleSheets(commands.Cog):
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                if self.get_archive_spreadsheet_id() and puzzle_data.solved:
+                if self.get_archive_spreadsheet_id() and was_archived:
                     current_name = self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
                     sheet.google_page_id = await self.move_puzzle_spreadsheet(False, sheet.google_page_id, current_name)
                 requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
