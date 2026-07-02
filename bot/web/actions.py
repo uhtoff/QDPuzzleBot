@@ -6,9 +6,11 @@ serialized with the bot's own command DB calls. Channel/sheet side-effects reuse
 the bot's cog logic so a web action behaves exactly like the matching ! command.
 """
 import asyncio
+import datetime
 import logging
 
 import discord
+import pytz
 from googleapiclient.errors import HttpError
 from quart import Blueprint, current_app, jsonify, request
 
@@ -125,6 +127,8 @@ async def add_note(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
 
     body = await request.get_json(silent=True) or {}
     text = (body.get("note") or "").strip()
@@ -155,6 +159,8 @@ async def erase_note(puzzle_id, index):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
@@ -693,6 +699,13 @@ async def create_hunt():
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
     if body.get("layout_mode", "channel") not in ("channel", "forum"):
         return jsonify({"error": "bad_layout_mode"}), 400
+    start_timestamp = body["start_timestamp"]
+    if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
+        return jsonify({"error": "bad_start_timestamp"}), 400
+    try:
+        datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
+    except (OverflowError, OSError, ValueError):
+        return jsonify({"error": "bad_start_timestamp"}), 400
 
     guild_id = body["guild_id"]
     guilds_map = await data.get_guilds_map()

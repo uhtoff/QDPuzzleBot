@@ -207,9 +207,13 @@ async def add_evidence():
     notes = body.get("notes", [])
     if not hunt_uid or not source_puzzle_id or not notes:
         return jsonify({"error": "hunt_uid, source_puzzle_id, and notes required"}), 400
+    if not all(isinstance(n, str) for n in notes):
+        return jsonify({"error": "notes must be strings"}), 400
     hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
     if hunt is None:
         return jsonify({"error": "hunt not found"}), guild_or_status
+    if hunt["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
     puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
     if puzzle is None or puzzle.hunt_id != hunt["id"]:
         return jsonify({"error": "puzzle not found in hunt"}), 404
