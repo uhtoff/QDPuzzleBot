@@ -33,6 +33,32 @@ Branch: `working-1` (based on `staging`, tip now `dfeafc4`). Worktree already ha
   `UTC_OFFSET_OPTIONS`, `tsToLocal`, `localToTs`) here so they're shared, not duplicated
 - `frontend/src/pages/HuntList.tsx` — `NewHuntModal`: same UTC-offset picker, applied to
   the create-hunt start time (user follow-up request, not from the original review)
+- `bot/cogs/puzzles_gsheet.py` — `restore_puzzle_spreadsheet`: gate the additional-sheets
+  move-back on the puzzle's captured `was_archived` state, not the already-cleared
+  `.solved` flag (#2)
+- `bot/core/puzzle_service.py` — `unsolve`: commit AFTER `restore_puzzle_spreadsheet`
+  mutates archived/google_page_id, not before (#4); `solve`/`change_solution`/
+  `add_solution`: isolate their own Sheets-write failure the same way meta refreshes
+  already are, so a failure doesn't skip the second commit/forum update/board push (#28)
+- `tests/test_sheet_ordering.py`, `tests/test_minimeta_service.py` — regression tests for
+  #2/#4
+- `tests/test_sheet_failure_isolation.py` — new regression tests for #28
+- `bot/web/actions.py` — `solve_puzzle`: post the mode-appropriate embed + refresh the pin
+  for `partial`/`change`/`add` modes, not just `full` (#62)
+- `bot/cogs/puzzles.py` — new `web_post_solution_update_embed` (#62); merged
+  `change_solution`/`add_solution`'s duplicate bang-command tails into
+  `_change_or_add_solution_impl` and added the Follow-up field `add_solution`'s embed was
+  missing (#80); `_solve_impl`/`web_post_solved_embed` now use the shared
+  `build_solved_embed` formula (#79)
+- `bot/core/notifier.py` — new shared `build_solved_embed` helper (#79); removed the dead
+  `puzzle_solved` interface method, its four implementations, and the `_post_solved_embed`
+  fallback (found while working #79 — never called from outside this module; live push
+  path is `board_changed`)
+- `bot/web/notifier.py` — removed `WebNotifier.puzzle_solved` (dead, see above)
+- `tests/test_web_solution_update_message.py` — new regression tests for #62
+- `tests/test_change_add_solution_impl.py` — new regression tests for #79/#80
+- `tests/test_notifier.py`, `tests/test_web_notifier.py`, `tests/test_board_push_service.py`
+  — dropped assertions/fixture lines referencing the removed `puzzle_solved`
 
 ## Diff summary
 
@@ -46,6 +72,15 @@ Branch: `working-1` (based on `staging`, tip now `dfeafc4`). Worktree already ha
 - 1740bab `fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`
 - acda3db `docs(ai): record Phase 3 (#7, #8) and Q3 resolution in handoff tracker`
 - dfeafc4 `feat(web): add the same UTC-offset picker to the New Hunt modal`
+- 3c4042a `fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`
+- 3b5bb70 `docs(ai): record Phase 4 (#2, #4) landing in handoff tracker`
+- 25154f0 `fix(web): post embed + refresh pin for partial/change/add solves (#62)`
+- 550437d `docs(ai): record Phase 5 (#62) landing — all 9 HIGH findings complete`
+- 5435deb `fix(service): isolate own-sheet failures in solve/change/add (#28)`
+- 4ec4444 `refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`
+- ab4f37b `docs(ai): record folded-in #28, #79, #80 in handoff tracker`
+- 32ef6fc `refactor: remove dead puzzle_solved notifier path`
+- 1183eb8 `docs(ai): record dead puzzle_solved notifier path removal`
 
 ## Commands run
 
@@ -59,17 +94,23 @@ Branch: `working-1` (based on `staging`, tip now `dfeafc4`). Worktree already ha
 - #7/#8 (frontend, no test runner in this repo): `npx tsc --noEmit` — clean;
   `npm run build` (tsc + vite build) — clean; standalone Node script round-tripping the
   UTC-offset conversion at +120/-300/0 minutes — exact
+- #2, #4, #28, #79/#80: each new regression test verified red against the pre-fix source
+  via `git stash push -- <file>` / rerun / confirm failure / `git stash pop`, matching the
+  pattern established for #1/#3/#5
+- `ruff check .` (repo-wide) run clean after every backend finding from #2 onward
 
 ## Tests run
 
-Backend: full suite green (751 passed) as of #6.
+Backend: full suite green throughout, ending at 766 passed (final count after #28/#79/#80
+and the dead-code removal — the removal deleted its own coverage 1:1, no net change).
 Frontend: no test runner exists in this repo; verified via typecheck + build + a manual
 math round-trip script (see above). Not independently browser-tested — no live Quart
 backend/auth available in this worktree to exercise the actual dashboard page.
 
 ## Tests not run
 
-Remaining findings (#2, #4, #62) not yet touched.
+None remaining in scope. All 9 HIGH findings (#1,#3,#5,#6,#7,#8,#2,#4,#62) plus the
+folded-in #28/#79/#80 are implemented and tested.
 
 ## Current risks
 
@@ -80,5 +121,7 @@ Remaining findings (#2, #4, #62) not yet touched.
 - #7/#8 have not been exercised in a real browser against a live hunt — worth a manual
   click-through (save with a non-UTC offset, confirm the round-trip; edit a field, wait for
   a 30s poll, confirm it isn't wiped) before this ships.
-- Several remaining findings are dual-path (bang + web); fixing one path can leave the
-  other stale.
+- Several findings were dual-path (bang + web); each was checked for both entrypoints
+  where applicable.
+- Task complete: not independently browser-tested end-to-end against a live hunt (same
+  constraint noted for #7/#8 above — no live Quart backend/auth in this worktree).
