@@ -36,17 +36,24 @@ the solution…") then calls `useUnsolvePuzzle`.
 - Restructure both branches of `SolveModal` with an "Advanced" collapse.
 - Add an **unsolve** action to the solved branch (`useUnsolvePuzzle`), dropping the separate
   confirm dialog.
-- Reroute the Unsolve control at the two table entry points to open `SolveModal` instead of
-  the confirm modal.
-- Remove `useUnsolveConfirm.tsx` (becomes unused).
+- Generalize `SolveModal`'s `puzzle` prop from `Puzzle` to a minimal target shape
+  (`{ id, name, solved, solution }`) so mini puzzles can use the same modal.
+- Reroute the Unsolve control to open `SolveModal` at all three entry points: `PuzzleTable`,
+  `BoardGroup`, and `MiniPuzzlePanel` (a solved mini's red X opens the solved-branch modal).
+- Remove `useUnsolveConfirm.tsx` (all consumers migrate to the modal).
 
 ## Out of scope
 
-- `PuzzleDrawer` (no unsolve action there today) and `MiniPuzzlePanel` (inline mini solve) —
-  unchanged.
+- `PuzzleDrawer` — has no unsolve action today; unchanged.
+- The **unsolved**-mini inline quick-solve in `MiniPuzzlePanel` (type an answer + check) stays
+  as-is; only the solved-mini unsolve/edit path moves to the modal.
 - The solve/unsolve API endpoints, `useSolvePuzzle`, `useUnsolvePuzzle`, `SolveMode`,
   notifications, `showSheetWarning`, and optimistic cache updates — all unchanged.
 - The `submit(mode)` guards and `markComplete()` logic — unchanged; only their placement moves.
+
+Note: `MiniPuzzle` (`{ id, name, solved, solution, channel_id }`) structurally satisfies the
+generalized prop, and minis are real puzzles server-side (the same `/solve` and `/unsolve`
+endpoints accept a mini's id), so the modal's mutations work unchanged for a mini.
 
 ## Relevant files
 
@@ -106,22 +113,37 @@ Order top-to-bottom:
 - Unsolved: **"Solve — <name>"** (unchanged).
 - Solved: **"<name>"** (drop the "Solve —" prefix, since the primary action is now unsolve).
 
+### Generalized prop type
+
+- `SolveModal` reads only `puzzle.id`, `puzzle.name`, `puzzle.solved`, `puzzle.solution`.
+  Change its prop type from `Puzzle | null` to a minimal exported alias
+  `SolveTarget = Pick<Puzzle, "id" | "name" | "solved" | "solution">` (`SolveTarget | null`).
+  Full `Puzzle` values still satisfy it (existing call sites unchanged), and `MiniPuzzle`
+  satisfies it too.
+
 ### Entry-point rewiring
 
 - `SolveModal` gains `const unsolve = useUnsolvePuzzle(uid);` and performs the unsolve inline
   (with `onError: notifyError`, matching the old hook).
 - In `PuzzleTable.tsx` and `BoardGroup.tsx`: change `onUnsolve` to open the modal —
-  `onUnsolve={(p) => setSolvePuzzle(p)}` (same setter `onSolve` uses). Because the modal
-  branches on `puzzle.solved`, a solved puzzle shows the solved branch automatically.
-- Remove the `useUnsolveConfirm` import, the `const { request, modal } = useUnsolveConfirm(...)`
-  call, and the `{unsolveModal}` render from both files.
+  `onUnsolve={setSolvePuzzle}` (same setter `onSolve` uses). Because the modal branches on
+  `puzzle.solved`, a solved puzzle shows the solved branch automatically.
+- In `MiniPuzzlePanel.tsx`: add a `solveMini` state (`MiniPuzzle | null`), render a
+  `<SolveModal puzzle={solveMini} uid={uid} onClose={() => setSolveMini(null)} />`, and change
+  the solved-mini red-X `onClick` to `setSolveMini(mini)` (replacing the direct
+  `unsolvePuzzle.mutate(...)`). Keep the unsolved-mini inline solve unchanged. Drop the
+  `useUnsolvePuzzle` import from this file if it becomes unused.
+- Remove the `useUnsolveConfirm` import, its hook call, and the `{unsolveModal}` render from
+  all files that used it.
 - Delete `frontend/src/components/useUnsolveConfirm.tsx` (no remaining consumers).
 
 ## Constraints
 
-- No API/mutation/type changes; reuse `useSolvePuzzle` and `useUnsolvePuzzle` as-is.
+- No API/mutation/endpoint/`SolveMode` changes; reuse `useSolvePuzzle` and `useUnsolvePuzzle`
+  as-is. (The only type change is generalizing the `SolveModal` prop, above.)
 - Match the existing Mantine v7 "Advanced" pattern (chevron + bold label + `Collapse`).
-- Keep the diff scoped to the four files above.
+- Keep the diff scoped to `PuzzleEditCells.tsx`, `PuzzleTable.tsx`, `BoardGroup.tsx`,
+  `MiniPuzzlePanel.tsx`, and the deleted `useUnsolveConfirm.tsx`.
 
 ## Acceptance criteria
 
@@ -135,6 +157,9 @@ Order top-to-bottom:
    modal; errors surface via `notifyError`.
 4. All four solve modes (full/partial/change/add) and `markComplete()` behave exactly as before
    — same notifications, sheet warnings, guards, and Enter-to-submit.
-5. `useUnsolveConfirm.tsx` is deleted and no longer imported anywhere; the build passes
+5. Clicking the red X on a **solved mini** opens the same solved-branch modal (Mark unsolved /
+   Change / Add) instead of a one-click unsolve or a confirm dialog; the unsolved-mini inline
+   quick-solve is unchanged.
+6. `useUnsolveConfirm.tsx` is deleted and no longer imported anywhere; the build passes
    (`npm run build`).
-6. The Advanced section defaults to collapsed each time the modal opens.
+7. The Advanced section defaults to collapsed each time the modal opens.
