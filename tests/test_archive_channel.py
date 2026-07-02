@@ -49,6 +49,7 @@ def _make_archive_to(moved_message):
     archive_to.webhooks = AsyncMock(return_value=[webhook])
     archive_to.send = AsyncMock(return_value=MagicMock())
     archive_to.create_thread = AsyncMock(return_value=MagicMock())
+    archive_to.create_webhook = AsyncMock()
     return archive_to, webhook
 
 
@@ -72,7 +73,7 @@ async def test_archives_attachment_only_and_embed_only_messages():
     ctx = make_ctx()
     ctx.bot.application_id = 999
 
-    with patch("bot.cogs.puzzles.PuzzleJsonDb") as puzzle_db:
+    with patch("bot.core.hunt_archive.PuzzleJsonDb") as puzzle_db:
         puzzle_db.get_by_attr.return_value = None
         result = await Puzzles.archive_channel.callback(cog, ctx, channel, archive_to)
 
@@ -89,6 +90,8 @@ async def test_archives_attachment_only_and_embed_only_messages():
     assert second_kwargs["files"] == []
     assert second_kwargs["embeds"] == [embed]
 
+    assert sent_calls[0].kwargs["allowed_mentions"].users is False
+
     channel.delete.assert_awaited_once()
 
 
@@ -103,7 +106,7 @@ async def test_skips_message_with_no_content_attachments_or_embeds():
     ctx = make_ctx()
     ctx.bot.application_id = 999
 
-    with patch("bot.cogs.puzzles.PuzzleJsonDb") as puzzle_db:
+    with patch("bot.core.hunt_archive.PuzzleJsonDb") as puzzle_db:
         puzzle_db.get_by_attr.return_value = None
         result = await Puzzles.archive_channel.callback(cog, ctx, channel, archive_to)
 

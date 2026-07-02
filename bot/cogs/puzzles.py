@@ -3024,80 +3024,10 @@ class Puzzles(commands.Cog):
             channel = ctx.channel
         if archive_to is None:
             archive_to = self.bot.get_channel(self.get_hunt(ctx).channel_id)
-
-        webhook = await archive_to.webhooks()
-        if len(webhook) == 0:
-            await ctx.channel.send(":x: Can't find a webhook in that channel, please create one before archiving")
-            return False
-        thread_message = await archive_to.send(content=f'Archive of channel {channel.name}', silent=True)
-        puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
-        if puzzle:
-            tag_group = self.get_tag_group(ctx)
-            if tag_group:
-                round_name = tag_group.name
-            else:
-                round_name = channel.category
-            thread_name = f"{puzzle.name} ({round_name})"
-            PuzzleJsonDb.commit(puzzle)
-        else:
-            thread_name = f"{channel.name} ({channel.category.name})"
-        if len(thread_name) > 100:
-            thread_name = thread_name[:100]
-        thread = await archive_to.create_thread(name=thread_name, message=thread_message)
-        messages = []
-        # Get all the messages in the channel
-        async for message in channel.history(limit=None, oldest_first=True):
-            messages.append(message)
-        # Get all active threads and iterate for messages
-        active_threads = channel.threads
-        for active_thread in active_threads:
-            async for message in active_thread.history(limit=None, oldest_first=True):
-                messages.append(message)
-        # Get all archived threads and iterate for messages
-        async for archived_thread in channel.archived_threads():
-            async for message in archived_thread.history(limit=None, oldest_first=True):
-                messages.append(message)
-        # Sort the list of messages
-        sorted_messages = sorted(messages, key=lambda x: x.created_at)
-        bot_id = ctx.bot.application_id
-        for message in sorted_messages:
-            if message:
-                author = message.author
-                if author.id == bot_id:
-                    continue
-                content = message.content
-                if content and content[0] == '!' and content[:3] != '!s ':
-                    continue
-                files = []
-                for a in message.attachments:
-                    try:
-                        files.append(await a.to_file(use_cached=True))
-                    except discord.HTTPException as e:
-                        # some attachments/filetypes can't be re-downloaded - skip
-                        # the attachment but keep archiving the rest of the message.
-                        logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
-                if not content and not files and not message.embeds:
-                    # truly nothing to archive (e.g. all attachments failed to download)
-                    continue
-                avatar_url = getattr(author.avatar, 'url', None)
-                try:
-                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
-                                                      embeds=message.embeds, thread=thread, wait=True, silent=True)
-                except discord.HTTPException as e:
-                    # e.g. an attachment too large to re-upload, or content the API
-                    # rejects - skip this message rather than aborting the archive.
-                    logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
-                    continue
-                if message.reactions:
-                    for reaction in message.reactions:
-                        try:
-                            await moved_message.add_reaction(reaction.emoji)
-                        except discord.HTTPException as e:
-                            # e.g. a custom/external emoji the bot can't apply - skip it
-                            # rather than aborting the whole archive.
-                            logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
-                await asyncio.sleep(0.1)
-        await channel.delete(reason=self.DELETE_REASON)
+        webhook = await hunt_archive.ensure_webhook(archive_to)
+        thread_name = hunt_archive.thread_name_for_channel(channel)
+        await hunt_archive.archive_and_delete_channel(
+            ctx.bot, archive_to, webhook, channel, thread_name=thread_name)
         return True
 
     @commands.command()
