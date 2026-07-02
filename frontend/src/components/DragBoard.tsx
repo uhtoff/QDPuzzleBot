@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -97,6 +97,11 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   const addable = metas.filter(
     (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && (!selfFeeds || !selfInforms)),
   );
+  // If a refresh empties the addable set while the picker is open, close it so a
+  // later refresh that restores candidates doesn't spuriously re-open it.
+  useEffect(() => {
+    if (addable.length === 0) setAddOpen(false);
+  }, [addable.length]);
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
   const metaCount = puzzle.rounds.filter((r) => r.group_code).length;
