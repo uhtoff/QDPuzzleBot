@@ -115,10 +115,12 @@ export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: 
 }
 
 /**
- * Modal to mark a puzzle solved or change its solution.
+ * Modal to solve, unsolve, or amend a puzzle's solution.
  *
- * Unsolved puzzles: **Mark partial** and **Mark complete** buttons.
- * Solved puzzles: **Change solution** and **Add solution** buttons.
+ * Unsolved puzzles: primary **Solve** (with an answer), plus **Mark complete
+ * (no answer)** and **Mark partial** under Advanced.
+ * Solved puzzles: primary **Mark unsolved**, plus **Change solution** and
+ * **Add solution** under Advanced.
  */
 export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | null; uid: string; onClose: () => void }) {
   const solve = useSolvePuzzle(uid);
@@ -189,8 +191,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
 
   // Clear the solution and move the channel back to unsolved. Opening this modal
   // is the deliberate step (no confirm dialog). Close immediately and rely on the
-  // error toast — this matches the prior useUnsolveConfirm behaviour; a failed
-  // unsolve self-corrects on the next query invalidation.
+  // error toast; a failed unsolve self-corrects on the next query invalidation.
   function unsolvePuzzle() {
     if (!puzzle) return;
     unsolve.mutate({ puzzleId: puzzle.id }, { onError: notifyError });
