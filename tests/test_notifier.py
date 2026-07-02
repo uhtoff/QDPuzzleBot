@@ -3,8 +3,11 @@
 Method arg shapes pinned against the relocated callers:
   welcome      <- _web_send_welcome(guild, hunt, hunt_round, puzzle, channel)  (:700)
   refresh_info <- web_refresh_info(guild, hunt, puzzle)                        (:708)
-  puzzle_solved<- web_post_solved_embed(guild, hunt, puzzle)                   (:893)
   board_changed<- PuzzleService mutations (Phase B)
+
+(puzzle_solved was removed from the interface: nothing outside notifier.py
+ever called it — the live SOLVED-embed push is Puzzles.web_post_solved_embed,
+called directly by bot/web/actions.py, not through the Notifier interface.)
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,7 +27,6 @@ async def test_null_notifier_methods_are_noops():
     # Each interface method awaits cleanly and returns None.
     assert await n.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) is None
     assert await n.refresh_info(guild=None, hunt=None, puzzle=None) is None
-    assert await n.puzzle_solved(guild=None, hunt=None, puzzle=None) is None
 
 
 def test_null_notifier_implements_interface():
@@ -47,7 +49,6 @@ async def test_composite_notifier_fans_out_each_method_to_all_sinks():
         s = MagicMock()
         s.welcome = AsyncMock()
         s.refresh_info = AsyncMock()
-        s.puzzle_solved = AsyncMock()
         return s
 
     a, b = _sink(), _sink()
@@ -55,12 +56,10 @@ async def test_composite_notifier_fans_out_each_method_to_all_sinks():
 
     await comp.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None)
     await comp.refresh_info(guild=None, hunt=None, puzzle=None)
-    await comp.puzzle_solved(guild=None, hunt=None, puzzle=None)
 
     for s in (a, b):
         s.welcome.assert_awaited_once()
         s.refresh_info.assert_awaited_once()
-        s.puzzle_solved.assert_awaited_once()
 
 
 @pytest.mark.asyncio

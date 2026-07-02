@@ -37,6 +37,3 @@ class WebNotifier(Notifier):
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:
         return None
-
-    async def puzzle_solved(self, guild=None, hunt=None, puzzle=None) -> None:
-        return None

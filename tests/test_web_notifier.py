@@ -70,4 +70,3 @@ async def test_web_notifier_other_methods_are_noops():
     n = WebNotifier()
     assert await n.welcome(guild=None, hunt=None, tag_group=None, puzzle=None, channel=None) is None
     assert await n.refresh_info(guild=None, hunt=None, puzzle=None) is None
-    assert await n.puzzle_solved(guild=None, hunt=None, puzzle=None) is None
