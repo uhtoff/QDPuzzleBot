@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — Tranche 1 of staging review fixes implemented and tested, about to commit
+Status: in progress — Tranche 2 of staging review fixes implemented and tested, about to commit
 
 ## Goal
 
@@ -15,18 +15,19 @@ scope here — working-2 owns that area.
 Full tranche plan is also saved to project memory:
 `staging-review-2026-07-02-tranches` (see MEMORY.md).
 
-1. **Tranche 1 (DONE this session):** missing channel/None guards in bot/cogs/puzzles.py
-   — #9, #10, #11, #13, #14, #16, #18, #19, #21, #23.
-2. **Tranche 2 (next):** lying success-ack ordering bugs — #17, #74.
-3. **Tranche 3:** web↔Discord pin/board staleness — #63, #65, #66, #67, #68, #85.
+1. **Tranche 1 (DONE, committed 5747523):** missing channel/None guards in
+   bot/cogs/puzzles.py — #9, #10, #11, #13, #14, #16, #18, #19, #21, #23.
+2. **Tranche 2 (DONE this session):** lying success-ack ordering bugs — #17, #74.
+3. **Tranche 3 (next):** web↔Discord pin/board staleness — #63, #65, #66, #67, #68, #85.
 4. **Tranche 4:** Google Sheets correctness bugs in bot/cogs/puzzles_gsheet.py — #24, #25,
    #26, #47, #48.
 
 ## Current status
 
-Tranche 1 fully implemented and verified (`git diff bot/cogs/puzzles.py`, +72/-21 lines).
-Full test suite passes (766 passed, `timeout 180 pipenv run python -m pytest tests/ -q`).
-Not yet committed — review the diff and commit before starting tranche 2.
+Tranche 2 fully implemented and verified (`git diff bot/cogs/puzzles.py`, 4 hunks reordering
+ack-after-mutation). Full test suite passes (766 passed,
+`timeout 180 pipenv run python -m pytest tests/ -q`). Not yet committed — review the diff
+and commit before starting tranche 3.
 
 Also copied docs/reviews/2026-07-02-staging-full-review.md from `staging` into this
 worktree (untracked) purely for local reference while implementing; either commit it or
@@ -54,19 +55,24 @@ leave it — it's the same content already on `staging`.
   before `resolve_target_group` is called — this fixes both the group-main-channel crash
   and the misleading "no groups to assign to yet" message in untracked channels.
 
+- #17/#74 (feeds_only, remove_from, informs_only, groups_only_with): reordered each so the
+  service mutation (+ refresh_unassigned_safe task) runs BEFORE the ✅ ctx.send ack, matching
+  the sibling commands (feeds, informs, groups_with) which already ack-after-mutation. This
+  is a pure statement-reorder, no new guard/message text — so it also resolves #74 (the
+  duplication finding noting these four had drifted from their siblings) as a side effect.
+
 ## Rejected approaches
 
-None — all 10 findings had a clear, narrow fix matching an existing idiom already used
+None — all findings so far had a clear, narrow fix matching an existing idiom already used
 elsewhere in the same file (`send_not_puzzle_channel`, the
-"I can't tell which hunt this is" message).
+"I can't tell which hunt this is" message, or the correct sibling's ack-after-mutation
+ordering).
 
 ## Next steps
 
-1. Review `git diff bot/cogs/puzzles.py` one more time, then commit tranche 1 (all 10
-   findings landed together — they're all in the same file/theme, per the user's
-   "sensibly fixed together" framing).
-2. Start tranche 2 (#17 + #74 — lying success-ack ordering).
-3. Continue through tranches 3 and 4 in subsequent sessions, per the plan above / the
+1. Review `git diff bot/cogs/puzzles.py` one more time, then commit tranche 2.
+2. Start tranche 3 (#63, #65, #66, #67, #68, #85 — web↔Discord pin/board staleness).
+3. Continue through tranche 4 in a subsequent session, per the plan above / the
    `staging-review-2026-07-02-tranches` memory.
 4. Do not touch round/hunt deletion code (#29, #30, #32, #42, #45, #54, #55) — working-2's
    scope.

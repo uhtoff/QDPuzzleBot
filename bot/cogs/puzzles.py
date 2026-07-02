@@ -1459,10 +1459,10 @@ class Puzzles(commands.Cog):
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
-        await ctx.send(
-            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
         await self.service.tag_edge_only(puzzle, target_group, "feeds", self.get_guild(ctx))
         asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
 
     @commands.hybrid_command(
         name="remove_from",
@@ -1490,10 +1490,10 @@ class Puzzles(commands.Cog):
         if puzzle.id == target_group.target_puzzle_id:
             await ctx.send(":x: You can't remove the target puzzle from its own group!")
             return
-        await ctx.send(
-            f":white_check_mark: This puzzle has been removed from {target_group.name}.")
         await self.service.untag_from(puzzle, target_group)
         asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle has been removed from {target_group.name}.")
 
     @commands.hybrid_command(
         name="informs",
@@ -1545,10 +1545,10 @@ class Puzzles(commands.Cog):
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
-        await ctx.send(
-            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
         await self.service.tag_edge_only(puzzle, target_group, "informs", guild=None)
         asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}. Meta sheets are being updated.")
 
     @commands.hybrid_command(
         name="groups_with",
@@ -1599,10 +1599,10 @@ class Puzzles(commands.Cog):
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
-        await ctx.send(
-            f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
         await self.service.tag_edge_only(puzzle, target_group, "none", guild=None)
         asyncio.create_task(self.service.refresh_unassigned_safe(self.get_hunt(ctx)))
+        await ctx.send(
+            f":white_check_mark: This puzzle is now assigned to {target_group.name}.")
 
     async def _round_impl(self, ctx, round_name, command):
         """Round creation handler — delegates to PuzzleService.create_round.
