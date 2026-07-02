@@ -49,16 +49,26 @@ No other findings in this document have been actioned.
 
 **Fix-review pass (2026-07-02):** every landed fix has been re-reviewed against its actual commit
 diff — one reviewer per fix commit, checking that the diff genuinely closes the finding's failure
-scenario and is sound code. Done in three waves as fixes landed: (1) the original 47 `FIXED`
+scenario and is sound code. Done in waves as fixes landed: (1) the original 47 `FIXED`
 findings; (2) a second batch of 5 (#20, #27, #39, #40, #41); (3) the round/hunt-deletion section
-that had been worked in parallel on `working-2` and annotated with the "Status update … fully/
-partially fixed" wording instead of a `FIXED` marker (#32, #42, #45, #54, #55). **All passed** —
-no fix was found broken; #54 is a sound *partial* fix (delete_hunt push landed, create_hunt
-deferred to a named frontend change). Findings carrying a low-risk residual have an inline
-`**Reviewer note (2026-07-02):**`; the notable ones are **#63** (pin refresh not try/except-wrapped),
-**#38** (WS event filter default-open for unknown event types), **#20** (pin-recover helper catches
-only `Forbidden`; >50-pins edge case), and **#27**/**#45** (lock helpers held across a confirm
-window / hand-rolled vs the shared `puzzles_lock`). Purely cosmetic residuals (e.g. #28's
+worked in parallel on `working-2` and originally annotated with "Status update … fully/partially
+fixed" wording (#29, #30, #32, #42, #45, #54, #55). **All passed** — no fix was found broken.
+
+Status taxonomy now used: **`FIXED AND REVIEWED`** = fully fixed and verified;
+**`PARTIALLY FIXED AND REVIEWED`** = the landed part is verified but a scoped gap is deferred by
+design (**#30** channel-layout fixed / forum path exempt; **#54** delete_hunt push landed /
+create_hunt deferred to a frontend change). The delete-section findings that had the "Status
+update … fully fixed" wording (#29, #32, #42, #45, #55) were promoted to `FIXED AND REVIEWED` once
+reviewed. #29/#30 also each keep an "Earlier partial mitigation" note recording the interim
+`keep_puzzles`-scope state (`ad26791`) that the later fixes superseded — so there is no longer a
+live `PARTIALLY MITIGATED` status in the doc.
+
+Findings carrying a low-risk residual have an inline `**Reviewer note (2026-07-02):**`; the notable
+ones are **#63** (pin refresh not try/except-wrapped), **#38** (WS event filter default-open for
+unknown event types), **#20** (pin-recover helper catches only `Forbidden`; >50-pins edge case),
+**#27**/**#45** (lock helpers held across a confirm window / hand-rolled vs the shared
+`puzzles_lock`), and **#30** (a puzzle co-targeted by this round and another group would still
+orphan the other group — structurally unusual). Purely cosmetic residuals (e.g. #28's
 warning-string label, #62's partial-embed wording) were noted at review but not annotated.
 
 **Cross-cutting caveat (DB migration):** the delete-cascade fixes (#32, #42, #55) depend on
@@ -66,9 +76,7 @@ warning-string label, #62's partial-embed wording) were noted at review but not 
 it was applied only to the connected test DB. This is standard for the repo's manual-migration
 approach, not a defect in the DDL, but the cascades do nothing until the migration is applied.
 
-The `MOOT` (#88) and `PARTIALLY MITIGATED` (#29, #30) findings were left as-is — #29/#30 document
-still-reachable bugs (the `keep_puzzles=False` full-delete paths), not fixes, so there was nothing
-to review.
+The `MOOT` (#88) finding was left as-is.
 
 **Deferred hardening pass (do after the remaining findings are fixed):** the two reviewer-note
 residuals above are intentionally NOT actioned yet — batch them into a single hardening pass once
@@ -354,13 +362,15 @@ delete_round (bot/core/puzzle_service.py:1143) deletes every puzzle in the group
 
 **Failure scenario:** Puzzle P feeds meta M1 and is also tagged into round R2; !delete_round R2 (bang or web, neither edge refreshes) deletes P from the DB, but M1's contribution table still shows P's row until some unrelated event next re-renders M1 — the meta sheet displays a feeder that no longer exists.
 
-**Status: PARTIALLY MITIGATED** as of `ad26791` (`feat(delete-round): add keep_puzzles scope (default: keep member puzzles)`, branch `working-2`, merged to `staging` in `9c3a428`). `delete_round` gained a `keep_puzzles` scope; the new web default (`keep_puzzles=True`) no longer deletes feeder puzzles at all — it keeps their DB rows and relocates their Discord channels instead — so the exact failure scenario above can no longer happen via the default dashboard delete. The underlying bug is otherwise untouched: `!delete_round` is pinned to `keep_puzzles=False` (`5195931`, to preserve its historical "delete everything" behavior) and the web dashboard still offers an explicit "Round + all puzzles" option that also runs with `keep_puzzles=False` — both paths still delete every member puzzle with no `refresh_targets` call, so the original failure scenario remains fully reachable through either of them.
+**Earlier partial mitigation** (`ad26791` — added the `keep_puzzles` scope, default `keep_puzzles=True`, merged to `staging` in `9c3a428`; superseded by the full fix below). `delete_round` gained a `keep_puzzles` scope; the new web default (`keep_puzzles=True`) no longer deletes feeder puzzles at all — it keeps their DB rows and relocates their Discord channels instead — so the exact failure scenario above can no longer happen via the default dashboard delete. The underlying bug is otherwise untouched: `!delete_round` is pinned to `keep_puzzles=False` (`5195931`, to preserve its historical "delete everything" behavior) and the web dashboard still offers an explicit "Round + all puzzles" option that also runs with `keep_puzzles=False` — both paths still delete every member puzzle with no `refresh_targets` call, so the original failure scenario remains fully reachable through either of them.
 
-**Status update (2026-07-02):** fully fixed. `delete_round`'s full-delete
+**Status: FIXED AND REVIEWED** — fully fixed. `delete_round`'s full-delete
 path (`keep_puzzles=False`) now collects every OTHER tag group fed by a
 deleted member puzzle and calls `refresh_targets` on them after the deletion
 loop, closing the gap described above for both `!delete_round` and the web's
 "Round + all puzzles" option.
+
+**Reviewer note (2026-07-02):** Approved as genuinely fully fixed (`2c70308`, test `cd875f7`). The `other_fed_group_ids` set is populated from `puzzle.tags` BEFORE `PuzzleJsonDb.delete` (reads edges pre-deletion), excludes the round itself (`tag != tag_group.id`), and `refresh_targets` fires after the deletion loop; the logic lives in the shared service method so both `!delete_round` and the web full-delete benefit. It also runs harmlessly in the `keep_puzzles=True` narrow path (only the round's own target is deleted there). No concerns.
 
 ### 30. [MEDIUM] `bot/core/puzzle_service.py:1158`
 
@@ -368,9 +378,10 @@ delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle 
 
 **Failure scenario:** Round R contains meta M's target puzzle P (P feeds R, metameta nesting). !delete_round R deletes P's row and channel; group M survives with target_puzzle_id pointing at a deleted puzzle — refresh_target silently no-ops (metapuzzle None), M's category/channels leak, and M can never be solved or demoted normally.
 
-**Status: PARTIALLY MITIGATED** as of `ad26791` (`feat(delete-round): add keep_puzzles scope (default: keep member puzzles)`, branch `working-2`, merged to `staging` in `9c3a428`). Under the new default (`keep_puzzles=True`), `delete_round` only ever deletes the round's OWN target puzzle (matched by `tag_group.target_puzzle_id`, if set) — a feeder that happens to also be some OTHER nested meta's target, as in the failure scenario above, is now kept rather than deleted, so that scenario can't happen via the default dashboard delete. `keep_puzzles=False` (still used by `!delete_round`, `5195931`, and the web's explicit "Round + all puzzles" option) retains the original no-guard full delete of every member puzzle, so the failure scenario remains fully reachable through either of those paths.
+**Earlier partial mitigation** (`ad26791` — added the `keep_puzzles` scope, default `keep_puzzles=True`, merged to `staging` in `9c3a428`; superseded by the partial fix below). Under the new default (`keep_puzzles=True`), `delete_round` only ever deletes the round's OWN target puzzle (matched by `tag_group.target_puzzle_id`, if set) — a feeder that happens to also be some OTHER nested meta's target, as in the failure scenario above, is now kept rather than deleted, so that scenario can't happen via the default dashboard delete. `keep_puzzles=False` (still used by `!delete_round`, `5195931`, and the web's explicit "Round + all puzzles" option) retains the original no-guard full delete of every member puzzle, so the failure scenario remains fully reachable through either of those paths.
 
-**Status update (2026-07-02):** fixed for non-forum (channel-layout) rounds.
+**Status: PARTIALLY FIXED AND REVIEWED** (`985dca8` + `6014b5e`) — fixed for
+channel-layout rounds; forum path exempt by design.
 `delete_round`'s full-delete path now excludes any member puzzle that is a
 DIFFERENT tag group's target from deletion (relocating it instead, same as
 narrow mode), so the failure scenario above can no longer happen via either
@@ -380,6 +391,8 @@ relocation equivalent, and forum layout is a known stale path not receiving
 new investment per project convention): a forum round still full-deletes
 every member puzzle with no protection, so the original failure scenario
 remains reachable there.
+
+**Reviewer note (2026-07-02):** Approved as a sound partial fix (`985dca8` + `6014b5e`, test `bf1c87b`). The keep-filter `not p.is_target or p.id == tag_group.target_puzzle_id` keeps exactly "a DIFFERENT group's target"; protected puzzles survive (DB row + channel relocated, verified by the test asserting `delete` is never called on them). `6014b5e` correctly re-split the shared teardown guard (`985dca8` had changed `if narrow` → `if to_keep`, which would have skipped chat-channel deletion for an empty target-less Group round — now restored under its own `if narrow` block with a regression test). The forum exemption is a clean, intentional `elif is_forum` branch. Minor theoretical residual (not the reported scenario): a puzzle that is simultaneously THIS round's own target AND another group's target would still be deleted and orphan the other group — structurally unusual, not blocking.
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
@@ -403,7 +416,7 @@ MySQLTagGroupJsonDb.delete (bot/store/mysqldb.py:192) removes the tag_group row 
 
 **Failure scenario:** Delete a hunt (or demote a metapuzzle) whose group had grown into split unsolved/solved/overflow categories: delete_hunt tears down only tag_group.category_id, leaving the extra solved/overflow Discord categories standing, and the stale tag_group_category rows persist forever — get_by_category (mysqldb.py:217) then resolves those still-live category ids to a deleted group id, misrouting later layout/lookup logic (tag_group_category has no FK to tag_group, so nothing cascades).
 
-**Status update (2026-07-02):** fully fixed. `migrations/022_delete_cascades.sql`
+**Status: FIXED AND REVIEWED** — fully fixed. `migrations/022_delete_cascades.sql`
 added a FK from `tag_group_category.group_id` to `tag_group.id` (ON DELETE
 CASCADE), closing the DB-row leak automatically for every delete path,
 present and future. `delete_hunt` was separately updated to route its
@@ -521,7 +534,7 @@ evidence_items has no foreign keys (migrations/009_evidence.sql lines 3-6: hunt_
 
 **Failure scenario:** Delete a puzzle that has evidence logged: its items stay on the hunt's evidence board with a dangling source_puzzle_id, rendered with a blank source name (bot/web/data.py:552 names.get(...) returns "") and un-navigable; delete a hunt and its evidence rows are orphaned permanently, and if hunts.id is ever reused (auto-increment recalculated from MAX(id) after a server restart on older MariaDB) the old hunt's evidence resurfaces on the new hunt.
 
-**Status update (2026-07-02):** fully fixed via
+**Status: FIXED AND REVIEWED** — fully fixed via
 `migrations/022_delete_cascades.sql`, which adds FKs from
 `evidence_items.source_puzzle_id` and `.hunt_id` (ON DELETE CASCADE) and
 `.target_puzzle_id` (ON DELETE SET NULL) to `puzzles`/`hunts`. Every puzzle
@@ -550,7 +563,7 @@ Round/hunt teardown runs without any per-puzzle locking on BOTH edges: !delete_r
 
 **Failure scenario:** While !delete_round is awaiting its 30s confirmation and then deleting channels/sheets, a teammate's !solve (or a dashboard solve, which uses the same per-puzzle locks) on a member puzzle proceeds in parallel — writing to a sheet/DB row mid-deletion, yielding Sheets errors or a re-committed row for a deleted puzzle.
 
-**Status update (2026-07-02):** fully fixed. A new `puzzles_lock(puzzle_ids)`
+**Status: FIXED AND REVIEWED** — fully fixed. A new `puzzles_lock(puzzle_ids)`
 helper (`bot/core/locks.py`) holds every member puzzle's lock — from the same
 shared `_PUZZLE_LOCKS` registry `puzzle_lock`/`with_puzzle_mutex` already use —
 for the duration of confirm-plus-delete, on all four entrypoints: bang
@@ -619,7 +632,7 @@ create_hunt (bot/core/puzzle_service.py:2086) and delete_hunt (:2164) are the on
 
 **Failure scenario:** !delete_hunt from Discord (puzzles.py:3111): every dashboard client watching that hunt keeps rendering the deleted board — no board_changed/WebSocket invalidation ever fires, and subsequent API refetches 404 only after a manual reload; a bang !hunt creation similarly never appears on open hunt lists until reload.
 
-**Status update (2026-07-02):** partially fixed. `delete_hunt` now carries
+**Status: PARTIALLY FIXED AND REVIEWED** (`e49856f`) — partially fixed. `delete_hunt` now carries
 `@pushes_board()`, so a WebSocket `board_changed` event fires on hunt delete
 and connected dashboard clients stop rendering a deleted board immediately
 instead of waiting on the 30s poll or a manual reload. `create_hunt` is
@@ -638,7 +651,7 @@ MySQLPuzzleJsonDb.delete (bot/store/mysqldb.py:580-584) deletes the puzzles row 
 
 **Failure scenario:** Delete a round or hunt containing puzzles with additional sheets: the additional_sheets rows persist forever (unbounded leak); because construct_puzzle eager-loads additional_sheets by puzzle_id on every read, any future reuse of a puzzles.id (auto-increment recalculated after restart on older MariaDB/MySQL<8) attaches the dead puzzle's ghost sheets to a brand-new puzzle, corrupting its solve/sheet handling.
 
-**Status update (2026-07-02):** fully fixed via
+**Status: FIXED AND REVIEWED** — fully fixed via
 `migrations/022_delete_cascades.sql`, which adds a FK from
 `additional_sheets.puzzle_id` to `puzzles.id` (ON DELETE CASCADE). Every
 puzzle delete now cascades its additional sheets automatically at the
