@@ -8,6 +8,7 @@ scope. See the ``site-hunt-visibility`` project note for the visibility model.
 import functools
 import logging
 import secrets
+import time
 from urllib.parse import urlencode
 
 import aiohttp
@@ -134,6 +135,36 @@ def login_required(view):
     return wrapper
 
 
+# Negative-fetch cache: (user_id, guild_id) -> monotonic() timestamp of the last
+# failed/absent fetch_member. Avoids re-issuing a failing REST round-trip for
+# every request from a user in a guild they don't belong to (the dashboard
+# polls hunt_detail every 30s per open tab).
+_NOT_MEMBER_CACHE_TTL = 60
+_not_member_cache = {}
+
+
+async def _fetch_member_cached(guild, user_id):
+    """guild.fetch_member with a short negative cache. Returns the member, or
+    None if absent/unreachable. Logs (but doesn't distinguish) REST failures —
+    they're treated the same as "not a member" for visibility purposes."""
+    key = (guild.id, user_id)
+    last_miss = _not_member_cache.get(key)
+    if last_miss is not None and time.monotonic() - last_miss < _NOT_MEMBER_CACHE_TTL:
+        return None
+    try:
+        member = await guild.fetch_member(user_id)
+    except Exception:
+        logger.warning(
+            "fetch_member failed for user %s in guild %s (treating as not-a-member for %ss)",
+            user_id, guild.id, _NOT_MEMBER_CACHE_TTL, exc_info=True,
+        )
+        _not_member_cache[key] = time.monotonic()
+        return None
+    if member is None:
+        _not_member_cache[key] = time.monotonic()
+    return member
+
+
 async def resolve_membership(user_id):
     """Return (membership, roles_by_guild) for a Discord user from the live bot.
 
@@ -146,10 +177,7 @@ async def resolve_membership(user_id):
     for guild in bot.guilds:
         member = guild.get_member(user_id)
         if member is None:
-            try:
-                member = await guild.fetch_member(user_id)
-            except Exception:
-                member = None
+            member = await _fetch_member_cached(guild, user_id)
         if member is not None:
             membership.add(guild.id)
             roles_by_guild[guild.id] = {role.id for role in member.roles}
@@ -164,10 +192,9 @@ async def resolve_role_names(user_id, guild_snowflake):
         return None
     member = guild.get_member(user_id)
     if member is None:
-        try:
-            member = await guild.fetch_member(user_id)
-        except Exception:
-            return None
+        member = await _fetch_member_cached(guild, user_id)
+    if member is None:
+        return None
     return {role.name for role in member.roles}
 
 

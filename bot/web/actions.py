@@ -829,7 +829,7 @@ async def post_hunt_archive(uid):
 
     hunt_obj.archived = bool(archived)
     HuntJsonDb.commit(hunt_obj)
-    await _audit("hunt_archive", hunt_uid=uid, detail={"archived": bool(archived)})
+    await _audit("hunt_archive", hunt_uid=uid, detail=f"archived={bool(archived)}")
     return jsonify({"ok": True, "archived": bool(archived)})
 
 
@@ -1795,6 +1795,7 @@ async def update_evidence(item_id):
             asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
         asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
 
+    await _audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
 
 

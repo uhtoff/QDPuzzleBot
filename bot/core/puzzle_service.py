@@ -1760,6 +1760,7 @@ class PuzzleService:
         """
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
+        forum_channel = None
         if round_data is not None:
             if hunt.layout_mode == "forum":
                 # Forum mode: resolve the forum channel from the round's category_id
@@ -1822,7 +1823,7 @@ class PuzzleService:
 
         try:
             channel_name = clean_channel_name(new_puzzle.name)
-            if hunt.layout_mode == "forum":
+            if hunt.layout_mode == "forum" and round_data is not None:
                 thread = await create_forum_post(forum_channel, channel_name)
                 new_puzzle.channel_id = thread.id
                 new_puzzle.channel_mention = thread.mention

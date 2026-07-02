@@ -463,6 +463,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         onSuccess: (data) => {
           showSheetWarning(data);
         },
+        onError: notifyError,
         onSettled: () => {
           setPendingIds((s) => {
             const next = new Set(s);
@@ -689,11 +690,6 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
           ) : null}
         </DragOverlay>
       </DndContext>
-      {retag.isError && (
-        <Text c="red" size="sm" mt="xs">
-          {(retag.error as Error).message}
-        </Text>
-      )}
 
       <TypedConfirmModal
         opened={convertTarget != null}
