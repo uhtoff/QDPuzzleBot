@@ -821,9 +821,14 @@ class PuzzleService:
                 await stack.enter_async_context(puzzle_lock(member_id))
 
             PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
-            # bulk_update flips every row including the target's — re-pin the target to
-            # 'target' so a type conversion can never make a target feed/inform itself.
+            # bulk_update_edge_type also flips any feeds/informs/none self-edge the
+            # target itself carries (a legacy row, or one added via the web/bang
+            # self-feed path) to new_edge — that row must be removed, not just
+            # shadowed, or the target ends up with both new_edge and 'target' to
+            # its own group and shows up as its own contributing feeder.
             if tag_group.target_puzzle_id:
+                PuzzleJsonDb.delete_tag_edge(
+                    tag_group.target_puzzle_id, tag_group.id, new_edge)
                 PuzzleJsonDb.tag_puzzle_with_edge(
                     tag_group.target_puzzle_id, tag_group.id, "target")
 
@@ -1760,6 +1765,7 @@ class PuzzleService:
         """
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
+        forum_channel = None
         if round_data is not None:
             if hunt.layout_mode == "forum":
                 # Forum mode: resolve the forum channel from the round's category_id
@@ -1822,7 +1828,7 @@ class PuzzleService:
 
         try:
             channel_name = clean_channel_name(new_puzzle.name)
-            if hunt.layout_mode == "forum":
+            if hunt.layout_mode == "forum" and round_data is not None:
                 thread = await create_forum_post(forum_channel, channel_name)
                 new_puzzle.channel_id = thread.id
                 new_puzzle.channel_mention = thread.mention

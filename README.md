@@ -398,6 +398,11 @@ proxy your HTTPS hostname to the bot's `:8099`, including the WebSocket upgrade 
 activity feed. Terminate TLS at nginx (Let's Encrypt for a public name, or an internal CA for an
 internal one).
 
+This is the canonical proxy block — the Plesk variant below and the souwester
+test-site example in `docs/dashboard.md` are the same directives reshaped for
+their environment. If you change the proxy headers, timeouts, or WebSocket
+upgrade handling, update all three together.
+
 Define the WebSocket upgrade map once, globally:
 
 ```nginx
@@ -464,6 +469,11 @@ sudo setsebool -P httpd_can_network_connect 1
 ### Plesk-managed hosts
 
 Don't hand-edit vhosts on a Plesk box — Plesk owns the nginx config and will overwrite them. Instead:
+
+The proxy block below is the same directives as the standalone-nginx block above
+(and the souwester example in `docs/dashboard.md`) reshaped for where Plesk lets
+you add them — if you change the proxy headers, timeouts, or WebSocket upgrade
+handling, update all three together.
 
 1. **Create a subdomain** for the dashboard in **Websites & Domains** (e.g.
    `puzzweb.your-domain.com`). Point `oauth_redirect_uri` / `frontend_url` / the Discord redirect

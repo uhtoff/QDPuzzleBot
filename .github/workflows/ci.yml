@@ -63,5 +63,8 @@ jobs:
             echo "No migrations found — skipping (M0 not yet merged)"
           fi
 
+      - name: Run ruff
+        run: ruff check .
+
       - name: Run tests
         run: pytest -v

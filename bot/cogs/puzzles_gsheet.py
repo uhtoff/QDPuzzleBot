@@ -895,7 +895,7 @@ class GoogleSheets(commands.Cog):
                 continue
             if round_puzzle.tags:
                 round = TagGroupJsonDb.get_by_attr(id=round_puzzle.tags[0])
-                round_name = round.name
+                round_name = round.name if round is not None else "*(deleted round)*"
             else:
                 round_name = "No Round"
             rows.append([round_name, round_puzzle.name, self._solution_text(round_puzzle)])

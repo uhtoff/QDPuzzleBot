@@ -354,6 +354,26 @@ class TestBulkReEdge:
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")  # re-pinned
 
     @pytest.mark.asyncio
+    async def test_target_own_self_feed_edge_is_removed_not_shadowed(self, cog):
+        """#52: if the target itself carries a feeds/informs/none self-edge to its
+        own group (e.g. via the self-feed loop, legacy 'none' data, or !feeds run
+        in the meta's own channel), bulk_update_edge_type flips that row to
+        new_edge too. The re-pin must remove the flipped new_edge row, not just
+        insert 'target' alongside it — otherwise the target ends up feeding/
+        informing itself after a type conversion."""
+        grp = make_round(id=5, target_puzzle_id=7)
+        hunt = make_hunt()
+        target = make_puzzle(id=7, tags=[5])
+        target.tag_edges = {5: {"target"}}
+        feeder = make_puzzle(id=8, tags=[5])
+        feeder.tag_edges = {5: {"feeds"}}
+        with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
+            mpdb.get_all_from_tag_group.return_value = [target, feeder]
+            await cog.service.bulk_re_edge(grp, "informs", hunt)
+        mpdb.delete_tag_edge.assert_called_once_with(7, 5, "informs")
+        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")
+
+    @pytest.mark.asyncio
     async def test_flip_waits_for_in_flight_member_command(self, cog):
         """#27: bulk_re_edge must hold each member's puzzle mutex across the flip,
         so a command already in flight on a member (e.g. !solve, which loaded the

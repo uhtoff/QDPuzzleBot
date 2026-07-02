@@ -80,9 +80,14 @@ class PuzzleData:
     def sort_by_puzzle_start(cls, puzzles: list) -> list:
         """Return list of PuzzleData objects sorted by puzzle start time
 
-        Sorts puzzles by start_time.
+        Sorts puzzles by start_time. A NULL start_time (legacy/manual data)
+        sorts first rather than raising, so one bad row doesn't crash the
+        whole listing.
         """
-        return sorted(puzzles, key=lambda p: p.start_time)
+        return sorted(
+            puzzles,
+            key=lambda p: p.start_time or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc),
+        )
 
     def add_tag(self, tag):
         if tag not in self.tags:

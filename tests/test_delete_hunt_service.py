@@ -94,7 +94,7 @@ async def test_delete_hunt_deletes_group_chat_channel():
          patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
-               AsyncMock(return_value=False)) as delete_group_cats, \
+               AsyncMock(return_value=False)), \
          patch.object(svc, "_gsheet_cog", return_value=gsheet), \
          patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete, \
          patch("bot.core.puzzle_service.category_layout.group_chat_channel",

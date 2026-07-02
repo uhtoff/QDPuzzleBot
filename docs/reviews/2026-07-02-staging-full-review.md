@@ -569,11 +569,19 @@ on this DB) were purged as part of applying the migration.
 
 **Failure scenario:** Organiser runs `!rebuild` in a puzzle channel that lives in a round's solved/overflow category: TagGroupJsonDb.get_by_attr(category_id=...) returns None (the join table at category_layout.group_id_for_category is never consulted, unlike line 886), target stays None, and the command rebuilds ALL meta sheets — a mass Sheets-quota hit contradicting the docstring's 'rebuilds just that round's meta'.
 
+**Status: FIXED** in `234c836`, branch `working-2`. `!rebuild`'s targeted-mode lookup now
+calls `_tag_group_for_channel` (the overflow/solved-aware helper) instead of the
+primary-category-only `get_by_attr`.
+
 ### 44. [LOW] `bot/cogs/puzzles.py:1022`
 
 !add_tag (bot/cogs/puzzles.py:1021-1035) is the only tag-mutating bang command without @with_puzzle_mutex (its twin !remove_tag at 1038-1050 has it), and it appends any integer — nonexistent group id or duplicate — straight into puzzle.tags, which cog_after_invoke commits; a dangling id then crashes !list_tags at line 999 (get_by_attr returns None → AttributeError on .name) and would poison other tag walks (e.g. refresh_targets at 2564, puzzle_service.py:1135).
 
 **Failure scenario:** `!add_tag 9999` (a typo'd id, or the same id twice) appends an id with no matching group / a duplicate to puzzle.tags, which cog_after_invoke commits; the puzzle then trips the dangling-id crash in !list_tags (line 999), and because there is no puzzle mutex the write can race a concurrent tagging command on the same puzzle.
+
+**Status: FIXED** in `234c836`, branch `working-2`. `!add_tag` now carries
+`@with_puzzle_mutex(wait=True)` (matching `!remove_tag`) and rejects both a
+nonexistent group id and a duplicate tag before appending.
 
 ### 45. [LOW] `bot/cogs/puzzles.py:3036`
 
@@ -598,6 +606,12 @@ start_reminders (bot/cogs/puzzles.py:3155) calls self.reminder_loop.start(channe
 
 **Failure scenario:** An organiser runs !start_reminders twice (or organisers of two concurrent hunts each run it): the second call raises an unhandled RuntimeError instead of a message, and the second hunt can never get its own reminder loop since the cog holds exactly one tasks.loop bound to the first channel.
 
+**Status: FIXED** in `234c836`, branch `working-2`. `!start_reminders` now cancels an
+already-running loop before restarting it, so a second call redirects the single
+shared loop to the new channel instead of raising an unhandled RuntimeError. The
+underlying one-loop-per-cog design (can't run two hunts' reminders concurrently)
+is unchanged — out of scope for this LOW finding.
+
 ### 47. [LOW] `bot/cogs/puzzles_gsheet.py:295`
 
 **Status: FIXED AND REVIEWED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
@@ -619,6 +633,12 @@ move_sheet_to_end (bot/cogs/puzzles_gsheet.py:342) sets index = len(sheets) - 1,
 add_metapuzzle_data (bot/cogs/puzzles_gsheet.py:855) and add_metametapuzzle_data (:868) are legacy A5-anchored aggregate_to_tab renderers with zero production callers — the live rollup path is PuzzleService._render_rollup → gsheet.render_contribution → reconcile_table — and add_metametapuzzle_data dereferences TagGroupJsonDb.get_by_attr(id=...).name (:878-879) without a None check, so a member whose sole tag points at a deleted group would raise AttributeError if the function were ever re-wired.
 
 **Failure scenario:** Dead-code drift: the live rollup path is render_contribution/reconcile_table, but these A5-anchored aggregate_to_tab writers remain callable and would clobber a target tab's hidden key column A if ever re-wired; and a member whose sole tag references a deleted group makes `round.name` raise AttributeError. Cost is maintenance confusion (tests like test_refresh_meta exist mainly to assert they are NOT called) plus a latent crash if resurrected.
+
+**Status: FIXED** in `234c836`, branch `working-2`. `add_metametapuzzle_data` now
+guards the `get_by_attr(id=...)` lookup against a deleted group (falls back to
+`"*(deleted round)*"`) instead of dereferencing `.name` on `None`. The
+dead-code/duplication half of this finding (zero production callers) is
+unchanged — out of scope for a null-guard fix.
 
 ### 50. [LOW] `bot/core/category_layout.py:145`
 
@@ -643,6 +663,12 @@ bulk_re_edge's target re-pin (bot/core/puzzle_service.py:805-807) cannot enforce
 In PuzzleService.create_puzzle, forum_channel is assigned only inside the `round_data is not None` forum branch (bot/core/puzzle_service.py:1608), but the channel-creation step branches on hunt.layout_mode alone (line 1667), so creating an unassigned puzzle (round_data=None via !p from the hunt channel, or web create with empty group_code) in a forum-layout hunt raises UnboundLocalError at line 1668; the except block then deletes the just-created sheet tab and DB row and re-raises, so the round-less create always fails in forum mode (bang path surfaces an unhandled command error, web path a 500).
 
 **Failure scenario:** Creating an unassigned puzzle (!p from the hunt channel, or the web unassigned-create) in a forum-layout hunt: line 1668 raises UnboundLocalError('forum_channel'), the except block deletes the just-created sheet tab and DB row, and the create always fails — the feeders-first workflow is impossible in forum mode.
+
+**Status: FIXED** in `234c836`, branch `working-2`. `create_puzzle` now
+initializes `forum_channel = None` up front, and the channel-creation branch
+condition is `hunt.layout_mode == "forum" and round_data is not None` — an
+unassigned puzzle in a forum-layout hunt now falls through to the standard
+text-channel-in-the-hunt-category path instead of raising.
 
 ### 54. [LOW] `bot/core/puzzle_service.py:2164`
 
@@ -706,11 +732,19 @@ PuzzleData.sort_by_puzzle_start (bot/store/puzzle_data.py:85) sorts on start_tim
 
 **Failure scenario:** A single puzzle row with NULL start_time (legacy data, manual insert, or a future code path that commits before stamping start_time) makes sorted() compare None to a datetime and raise TypeError inside get_all_from_tag_group / get_all — every round listing, rollup refresh and delete_round that touches that group then crashes wholesale instead of skipping the one bad row.
 
+**Status: FIXED** in `234c836`, branch `working-2`. `sort_by_puzzle_start` now
+sorts a NULL `start_time` as `datetime.min` instead of comparing `None` to a
+`datetime` and raising.
+
 ### 57. [LOW] `bot/web/actions.py:806`
 
 post_hunt_archive (bot/web/actions.py:806) passes a dict ({"archived": bool(archived)}) as the `detail` SQL parameter to _audit; the pure-Python mysql-connector (2.2.9, HAVE_CEXT=False) cannot convert a dict, so the INSERT into web_audit_log raises, _audit swallows the exception (logger.exception), and hunt archive/unarchive actions are never recorded in the audit log. The archive itself still succeeds; only the audit row is silently lost.
 
 **Failure scenario:** Every archive/unarchive via the web calls `_audit("hunt_archive", ..., detail={"archived": bool(archived)})`; cursor.execute at actions.py:50-54 raises ProgrammingError ('Failed processing pyformat-parameters') on the dict, _audit swallows it (logging an exception), and web_audit_log permanently lacks any record of who archived which hunt — every other action passes detail as a string.
+
+**Status: FIXED** in `234c836`, branch `working-2`. `post_hunt_archive` now passes
+`detail=f"archived={bool(archived)}"` — a plain string, matching every other
+`_audit` call in the file.
 
 ### 58. [LOW] `bot/web/actions.py:1757`
 
@@ -718,17 +752,35 @@ PATCH /api/evidence/<id> (update_evidence, bot/web/actions.py:1701-1757) mutates
 
 **Failure scenario:** A user re-targets or rewrites an evidence note via the dashboard; web_audit_log records nothing, so when an organiser later investigates a wrong informs-edge or altered clue text there is no attribution trail, while the matching delete and add paths are audited.
 
+**Status: FIXED** in `234c836`, branch `working-2`. `update_evidence` now calls
+`_audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=...)` before
+returning, matching `delete_evidence`.
+
 ### 59. [LOW] `bot/web/auth.py:150`
 
 resolve_membership (bot/web/auth.py:146-156) issues a failing Discord REST fetch_member call for every guild the user is not a member of, on every authenticated request that resolves membership, with no negative caching — and the dashboard polls hunt_detail every 30s, so this is sustained traffic. Minor correction: the two user_can_manage calls in hunt_detail (api.py:99-100) do NOT normally add REST round-trips, because a user who passed hunt_visible is a member of that hunt's guild, so resolve_role_names hits the get_member cache.
 
 **Failure scenario:** With several guilds in the bot and a user who belongs to one, every /api/hunts, hunt_detail, and each write action re-runs resolve_membership → one failing fetch_member REST round-trip per non-member guild per request on the bot's event loop; a dashboard left open polling adds sustained Discord REST traffic and latency, and hunt_detail additionally calls user_can_manage twice (api.py:99-100), each doing another fetch_member.
 
+**Status: FIXED** in `234c836`, branch `working-2`. Both `resolve_membership` and
+`resolve_role_names` now route their `fetch_member` fallback through a shared
+`_fetch_member_cached` helper with a 60s negative cache keyed by
+`(guild_id, user_id)`, so a non-member's failing/absent REST round-trip is only
+retried once per minute instead of on every request. Tradeoff: a user who joins
+a guild mid-window can see up to 60s of stale "not a member" until the cache
+entry expires — acceptable for a LOW-severity traffic/latency finding.
+
 ### 60. [LOW] `frontend/src/components/DragBoard.tsx:692`
 
 Drag-retag errors in DragBoard are surfaced only via the shared useRetagPuzzle hook's retag.isError (frontend/src/components/DragBoard.tsx:692), which React Query resets on every new mutate call; with overlapping retags an earlier failure is cleared/masked by a later call, so the failed card silently snaps back after refetch — pendingIds correctly tracks multiple in-flight cards but errors were not given the same per-call treatment.
 
 **Failure scenario:** User drags puzzle A (fails with discord_rate_limited) then immediately drags puzzle B (succeeds): the second mutate resets the hook's error state, the red message under the board never appears (or vanishes instantly), and card A silently snaps back to its old column after the invalidated refetch with no explanation.
+
+**Status: FIXED** in `234c836`, branch `working-2`. `runRetag` now surfaces
+failures via a per-call `notifyError` toast (the same pattern every other
+mutation in this file already uses) instead of the shared `retag.isError`
+block, which is removed. Each drag's failure now gets its own toast regardless
+of what other drags are in flight.
 
 ### 61. [LOW] `migrations/000_base_schema.sql:87`
 
@@ -956,6 +1008,10 @@ CI's only check step is `pytest -v` (.github/workflows/ci.yml:66-67); no workflo
 
 **Failure scenario:** A change introducing an F821 undefined-name in a rarely-exercised branch passes CI (tests don't reach it) and merges to staging; the bug only fires as a NameError at runtime mid-hunt, exactly the class the F ruleset exists to catch.
 
+**Status: FIXED** in `234c836`, branch `working-2`. CI now runs `ruff check .`
+before `pytest -v`. Fixed one pre-existing F841 (`tests/test_delete_hunt_service.py`)
+that would otherwise have failed the new step on the first run.
+
 ### 88. [LOW] `bot/core/notifier.py:265`
 
 **Status: MOOT** as of `32ef6fc` (`refactor: remove dead puzzle_solved notifier path`, branch `working-1`, merged to `staging` in `8442c15`). Not fixed directly — while fixing #79, this whole fallback path (`_post_solved_embed`, called only from the dead `DiscordNotifier.puzzle_solved`) was found to be unreachable from anywhere outside `notifier.py` and deleted, so the fire-and-forget bug described here no longer has any code to apply to.
@@ -975,6 +1031,11 @@ MySQLReconnector._ensure (bot/store/__init__.py:32-42) runs a blocking conn.ping
 resolve_membership (bot/web/auth.py:149-152) and resolve_role_names (bot/web/auth.py:167-170) catch all fetch_member exceptions with a bare `except Exception` and no logging, so a transient Discord API failure (rate limit, 5xx, timeout) is indistinguishable from "not a member" — but only on the fallback path when the member is absent from the bot's cache, which is rare since the bot runs with Intents.all() and get_member is tried first.
 
 **Failure scenario:** During a transient Discord API outage a logged-in team member's fetch_member raises; hunt_visible/require_organiser then return 403 'forbidden' on every hunt and action, and because nothing is logged the operator has no trail explaining why legitimate users were suddenly locked out.
+
+**Status: FIXED** in `234c836`, branch `working-2`. Both fallback paths now go
+through `_fetch_member_cached`, which logs a warning (with `exc_info=True`) on
+any `fetch_member` failure before treating it as not-a-member — landed together
+with the #59 negative-cache fix since they share the same call site.
 
 
 ## Appendix: refuted findings (reported by a reviewer, rejected on verification)

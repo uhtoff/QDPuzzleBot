@@ -111,7 +111,11 @@ click through once).
 Register `https://puzzweb.home.meldon.net/api/auth/callback` as the Discord
 redirect, and ensure the internal cert's SAN includes `puzzweb.home.meldon.net`.
 
-**nginx on souwester.** Define the WebSocket upgrade map once, globally, in
+**nginx on souwester.** This mirrors the canonical proxy block in
+[README.md § 7](README.md#7-dashboard-reverse-proxy-with-nginx--tls) with this
+site's hostnames filled in — if you change the proxy directives (headers,
+timeouts, WebSocket upgrade), update both copies (and the Plesk variant in
+README.md § 7) together. Define the WebSocket upgrade map once, globally, in
 `http{}` context (so it is reusable and won't clash when you add more sites):
 ```nginx
 # /etc/nginx/conf.d/websocket_upgrade.conf
@@ -140,7 +144,7 @@ server {
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
 
-        # The activity WebSocket is idle between messages; default 60s would
+        # The activity WebSocket is idle between messages; the 60s default would
         # cut it every minute (the SPA reconnects, but this avoids the churn).
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;

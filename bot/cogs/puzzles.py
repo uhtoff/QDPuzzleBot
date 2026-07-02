@@ -651,11 +651,9 @@ class Puzzles(commands.Cog):
             return
         # Targeted: if this channel's category is a meta round, rebuild only that one.
         target = None
-        category = getattr(ctx.channel, "category", None)
-        if category is not None:
-            candidate = TagGroupJsonDb.get_by_attr(category_id=category.id)
-            if candidate is not None and candidate.target_puzzle_id:
-                target = candidate
+        candidate = self._tag_group_for_channel(ctx.channel)
+        if candidate is not None and candidate.target_puzzle_id:
+            target = candidate
         rounds = [target] if target is not None else [
             r for r in TagGroupJsonDb.get_all(hunt.id) if r.target_puzzle_id
         ]
@@ -1068,6 +1066,7 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role(*ORGANISER_ROLES)
+    @with_puzzle_mutex(wait=True)
     async def add_tag(self, ctx, *, arg):
         """*Manually add a group tag ID to this puzzle (troubleshooting — prefer !feeds/!informs).*
 
@@ -1079,7 +1078,13 @@ class Puzzles(commands.Cog):
         except ValueError:
             await ctx.channel.send(":x: Tag id must be a number.")
             return
+        if TagGroupJsonDb.get_by_attr(id=new_tag) is None:
+            await ctx.channel.send(f":x: No tag group with id {new_tag}. Find IDs with `!list_tags`.")
+            return
         puzzle = self.get_puzzle(ctx)
+        if new_tag in puzzle.tags:
+            await ctx.channel.send(f":x: Puzzle already has tag {new_tag}.")
+            return
         puzzle.tags.append(new_tag)
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
@@ -3309,6 +3314,8 @@ class Puzzles(commands.Cog):
         Example: `!start_reminders`
         Run in a channel of the hunt. Organisers/admins only. Stop it with `!stop_reminders`."""
         channel = self.get_hunt_channel(ctx)
+        if self.reminder_loop.is_running():
+            self.reminder_loop.cancel()
         self.reminder_index = 0
         self.reminder_loop.start(channel)
         await ctx.send(":white_check_mark: Reminder loop started.")
