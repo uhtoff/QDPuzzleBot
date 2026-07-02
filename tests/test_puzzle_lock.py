@@ -58,3 +58,53 @@ def test_bang_decorator_and_core_share_one_registry():
     from bot.core import locks
 
     assert puzzles_mod._PUZZLE_LOCKS is locks._PUZZLE_LOCKS
+
+
+@pytest.mark.asyncio
+async def test_puzzles_lock_serializes_against_single_puzzle_holder():
+    """A multi-puzzle holder and a single-puzzle holder sharing one id must not
+    interleave their critical sections (review #45)."""
+    from bot.core.locks import puzzle_lock, puzzles_lock
+
+    order = []
+
+    async def multi_holder(hold):
+        async with puzzles_lock([1, 2, 3]):
+            order.append("multi-start")
+            await asyncio.sleep(hold)
+            order.append("multi-end")
+
+    async def single_holder(hold):
+        async with puzzle_lock(2):
+            order.append("single-start")
+            await asyncio.sleep(hold)
+            order.append("single-end")
+
+    await asyncio.gather(multi_holder(0.02), single_holder(0.0))
+
+    assert order[0].split("-")[0] == order[1].split("-")[0]
+    assert order[2].split("-")[0] == order[3].split("-")[0]
+    assert order[0].split("-")[0] != order[2].split("-")[0]
+
+
+@pytest.mark.asyncio
+async def test_puzzles_lock_dedupes_repeated_ids():
+    """A puzzle id listed twice must only be locked once — acquiring the same
+    (non-reentrant) asyncio.Lock twice in one task would hang forever."""
+    from bot.core.locks import puzzles_lock
+
+    async def holder():
+        async with puzzles_lock([5, 5, 5]):
+            return "ok"
+
+    result = await asyncio.wait_for(holder(), timeout=0.1)
+    assert result == "ok"
+
+
+@pytest.mark.asyncio
+async def test_puzzles_lock_empty_list_is_noop():
+    """No puzzles to lock (e.g. an empty round) must not raise or hang."""
+    from bot.core.locks import puzzles_lock
+
+    async with puzzles_lock([]):
+        pass
