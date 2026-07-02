@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: ready for handoff — all 4 tranches complete, review doc annotated with FIXED status, about to merge to staging and archive
+Status: ready for handoff — docs(review): annotate tranches 1-4 findings as fixed in the staging review @ 8f414dd
 
 ## Goal
 
