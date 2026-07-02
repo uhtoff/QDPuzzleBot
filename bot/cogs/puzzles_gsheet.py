@@ -1129,7 +1129,15 @@ class GoogleSheets(commands.Cog):
         string (esp. "" when unsolved), failing the whole atomic batch.
 
         After writing, resizes the Table to cover its header + all data rows, so the
-        rows are part of the Table (otherwise the header is purely decorative)."""
+        rows are part of the Table (otherwise the header is purely decorative).
+
+        Pruned rows are blanked in place (their table-owned columns only), never
+        deleted: `deleteDimension {dimension: ROWS}` is full-width and would shift
+        any user-added columns to the right of the table on every other row too.
+        A blanked row is never reused for a later append, so a row's identity (and
+        anything a user has added beside it) stays stable across reconciles. This
+        means the table only grows over a reconcile's lifetime; a user can manually
+        sort the table's range in Sheets to reclaim blank rows."""
         from bot.core.unassigned import diff_rows
         spreadsheet_id = self.get_spreadsheet_id()
 
@@ -1198,17 +1206,26 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredValue",
                 "rows": [{"values": _row_cells(row)}],
             }})
-        # Prunes: delete whole rows bottom-first.
-        for grid_row in sorted((key_to_row[k] for k in prunes), reverse=True):
-            requests.append({"deleteDimension": {
-                "range": {"sheetId": page_id, "dimension": "ROWS",
-                          "startIndex": grid_row, "endIndex": grid_row + 1}}})
-        # Appends: write new rows below the current data (after prunes shrink it).
-        if appends:
-            start = len(vals) - len(prunes)
+        # Prunes: blank the table's own columns in place, never delete the row —
+        # deleteDimension ROWS is full-width and would shift any user-added columns
+        # to the right of the table on every other row too.
+        blank_cells = [{} for _ in range(data_col_count)]
+        for grid_row in (key_to_row[k] for k in prunes):
             requests.append({"updateCells": {
-                "range": {"sheetId": page_id, "startRowIndex": start,
-                          "endRowIndex": start + len(appends), "startColumnIndex": key_col,
+                "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                          "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                          "endColumnIndex": key_col + data_col_count},
+                "fields": "userEnteredValue",
+                "rows": [{"values": blank_cells}],
+            }})
+        # Appends: write new rows strictly after the highest row currently in use.
+        # Blanked (pruned) rows are never reused, so a row's identity stays stable.
+        existing_rows = list(key_to_row.values())
+        next_row = (max(existing_rows) + 1) if existing_rows else header_row + 1
+        if appends:
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": next_row,
+                          "endRowIndex": next_row + len(appends), "startColumnIndex": key_col,
                           "endColumnIndex": key_col + data_col_count},
                 "fields": "userEnteredValue",
                 "rows": [{"values": _row_cells(row)} for row in appends],
@@ -1217,9 +1234,11 @@ class GoogleSheets(commands.Cog):
         if requests:
             await self.batch_update({"requests": requests})
 
-        # Grow/shrink the Table so the data rows actually belong to it.
+        # Grow the Table so the data rows actually belong to it. Never shrinks:
+        # blanked prune rows stay part of the table's extent until a user sorts
+        # them out manually.
         if table_id is not None:
-            end_row = header_row + 1 + len(norm_rows)
+            end_row = next_row + len(appends)
             await self.batch_update({"requests": [{"updateTable": {
                 "table": {
                     "tableId": table_id,

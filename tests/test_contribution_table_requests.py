@@ -92,7 +92,7 @@ def test_add_contribution_table_covers_header_and_hides_key_col():
 
 def test_reconcile_table_appends_updates_prunes():
     cog = _cog()
-    # current sheet has feeds:2 (will update) and informs:9 (will prune)
+    # current sheet has feeds:2 (row 1, will update) and informs:9 (row 2, will prune)
     sent = _capture_lowlevel(cog, ["feeds:2", "informs:9"])
     desired = [["feeds:2", "Feeder", "Alpha", "WORD"],   # update
                ["none:3", "Group", "Beta", ""]]          # append
@@ -100,10 +100,21 @@ def test_reconcile_table_appends_updates_prunes():
                                     data_col_count=4))
     flat = [r for body in sent for r in body["requests"]]
     kinds = {k for r in flat for k in r}
-    assert "updateCells" in kinds      # feeds:2 row rewritten
-    assert "deleteDimension" in kinds  # informs:9 pruned
-    # append present (an updateCells writing the new bottom row, or appendCells)
-    assert any("updateCells" in r or "appendCells" in r for r in flat)
+    assert "updateCells" in kinds
+    # Rows are never deleted — deleteDimension would shift any user-added columns
+    # to the right of the table on every other row too.
+    assert "deleteDimension" not in kinds
+    updates = [r["updateCells"] for r in flat if "updateCells" in r]
+    # informs:9 (row 2) is blanked in place, not removed.
+    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    assert prune["rows"][0]["values"] == [{}, {}, {}, {}]
+    # feeds:2 (row 1) is rewritten in place, keeping its row index.
+    update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
+    assert update["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "feeds:2"}}
+    # none:3 is appended strictly after the highest row currently in use (row 2),
+    # never reusing the blanked informs:9 row.
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
+    assert append["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "none:3"}}
 
 
 def test_reconcile_table_numeric_length_and_resizes_table():
