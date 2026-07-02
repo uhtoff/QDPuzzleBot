@@ -821,9 +821,14 @@ class PuzzleService:
                 await stack.enter_async_context(puzzle_lock(member_id))
 
             PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
-            # bulk_update flips every row including the target's — re-pin the target to
-            # 'target' so a type conversion can never make a target feed/inform itself.
+            # bulk_update_edge_type also flips any feeds/informs/none self-edge the
+            # target itself carries (a legacy row, or one added via the web/bang
+            # self-feed path) to new_edge — that row must be removed, not just
+            # shadowed, or the target ends up with both new_edge and 'target' to
+            # its own group and shows up as its own contributing feeder.
             if tag_group.target_puzzle_id:
+                PuzzleJsonDb.delete_tag_edge(
+                    tag_group.target_puzzle_id, tag_group.id, new_edge)
                 PuzzleJsonDb.tag_puzzle_with_edge(
                     tag_group.target_puzzle_id, tag_group.id, "target")
 

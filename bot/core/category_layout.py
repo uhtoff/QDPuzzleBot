@@ -159,6 +159,10 @@ async def _allocate(guild, tag_group, dao, role_rows, role):
     if template is None:
         raise RuntimeError("primary_category_missing")
     async with layout_lock:
+        # Re-read under the lock — closes the TOCTOU where two concurrent
+        # allocations for the same group/role both compute the caller's
+        # pre-lock role_rows and pick the same next_seq.
+        role_rows = [r for r in dao.get_for_group(tag_group.id) if r.role == role]
         next_seq = max((r.seq for r in role_rows), default=-1) + 1
         name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
         existing = discord.utils.get(guild.categories, name=name)
