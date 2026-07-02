@@ -2322,19 +2322,27 @@ class PuzzleService:
                     group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
                     if group_chat_ch is not None:
                         await self._safe_delete_channel(guild, group_chat_ch.id)
-                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                    if category is not None:
-                        for ch in list(category.channels):
-                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                                try:
-                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                                except Exception:
-                                    logger.exception("delete_hunt: could not delete divider channel")
-                        try:
-                            await category.delete(reason=self._DISCORD_DELETE_REASON)
-                        except Exception:
-                            logger.exception("delete_hunt: could not delete group category %s",
-                                             tag_group.category_id)
+                    # Split rounds own several categories (unsolved/solved/overflow);
+                    # delete_group_categories tears down all of them + the DB join
+                    # rows (also FK-cascaded now, but Discord objects still need an
+                    # explicit API call). Returns False for single-category groups,
+                    # which keep the legacy divider+category teardown below.
+                    if not await category_layout.delete_group_categories(
+                        guild, tag_group, TagGroupCategoryDb,
+                    ):
+                        category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                        if category is not None:
+                            for ch in list(category.channels):
+                                if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                    try:
+                                        await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                    except Exception:
+                                        logger.exception("delete_hunt: could not delete divider channel")
+                            try:
+                                await category.delete(reason=self._DISCORD_DELETE_REASON)
+                            except Exception:
+                                logger.exception("delete_hunt: could not delete group category %s",
+                                                 tag_group.category_id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)
