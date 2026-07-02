@@ -856,7 +856,9 @@ update_hunt_settings (bot/core/puzzle_service.py:2244) is a plain sync method wi
 
 ### 69. [MEDIUM] `README.md:69`
 
-**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). README no longer documents the nonexistent colon syntax; it now says `!p` takes the round from channel context (the round's `#meta` channel vs. `#bot` for unassigned).
+**Status: FIXED AND REVIEWED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). README no longer documents the nonexistent colon syntax; it now says `!p` takes the round from channel context (the round's `#meta` channel vs. `#bot` for unassigned).
+
+**Reviewer note (2026-07-02):** Verified in current tree — README.md:67-68 now reads "post `!p puzzle-name` in the corresponding round's `#meta` channel … or in the `#bot` channel to create it unassigned"; no `puzzle-round-name:` colon syntax remains anywhere in README.
 
 README.md:69 documents a `!p puzzle-round-name: puzzle-name` colon syntax for creating a puzzle into a named round from the #bot channel, but the bang command (bot/cogs/puzzles.py:582-594) assigns the raw argument verbatim to puzzle_name with no colon parsing, and the target round is taken solely from the invoking channel's category context (cog_before_invoke environment, puzzles.py:150-195); no colon-splitting code exists anywhere in bot/.
 
@@ -876,7 +878,9 @@ Capstone and Runaround channels get the generic metapuzzle pinned welcome on bot
 
 ### 71. [MEDIUM] `docs/commands.md:54`
 
-**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Added `!convert_to_metapuzzle` to the convert table.
+**Status: FIXED AND REVIEWED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Added `!convert_to_metapuzzle` to the convert table.
+
+**Reviewer note (2026-07-02):** Verified — docs/commands.md:60 now lists `!convert_to_metapuzzle` ("Convert a capstone/runaround/group back into a plain metapuzzle (feeders revert to the `feeds` edge)"), completing the convert family alongside the meta/capstone/runaround/group/puzzle rows.
 
 The convert table in docs/commands.md (lines 54-60) omits `!convert_to_metapuzzle` (bot/cogs/puzzles.py:1757-1760), the command that converts a capstone/runaround/group back to a plain metapuzzle (feeders revert to the 'feeds' edge); the command appears nowhere in docs/.
 
@@ -884,7 +888,9 @@ The convert table in docs/commands.md (lines 54-60) omits `!convert_to_metapuzzl
 
 ### 72. [MEDIUM] `docs/dashboard.md:1`
 
-**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Rewrote the intro to describe the full read/write surface (~36 write routes) and the Architecture list to cover `bot/web/actions.py` and `bot/core/notifier.py` (the finding's `bot/web/notifier.py` path was already stale — the module lives in `bot/core/`), plus the missing `api.py` endpoints (`/guilds`, `/rollups/<id>/answers`, `/evidence`).
+**Status: FIXED AND REVIEWED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Rewrote the intro to describe the full read/write surface (~36 write routes) and the Architecture list to cover `bot/web/actions.py` and `bot/core/notifier.py` (the finding's `bot/web/notifier.py` path was already stale — the module lives in `bot/core/`), plus the missing `api.py` endpoints (`/guilds`, `/rollups/<id>/answers`, `/evidence`).
+
+**Reviewer note (2026-07-02):** Verified — docs/dashboard.md now states "roughly 36 write routes" (line 10), the Architecture list names both `actions.py` (line 25) and `bot/core/notifier.py` (line 31), and the api.py bullet includes `/api/guilds`, `/api/rollups/<id>/answers`, and `/api/evidence (GET+POST)` (lines 22-23).
 
 docs/dashboard.md is stale: its "Phase 2 (write)" description (lines 5-10) says web writes are only notes/retag/create-puzzles-and-metas, and its architecture list (lines 14-24) omits bot/web/actions.py (38 write routes including solve/unsolve, sheets, clues, minimeta/convert-to-* family, rename, hunt create/settings/archive/delete, meta retag, tag_group delete/rename, reconcile, rollup rebuild, evidence edit/delete) and bot/web/notifier.py entirely, while the api.py bullet (lines 17-18) lists four endpoints but omits /guilds, /rollups/<id>/answers, and /evidence (GET+POST).
 
@@ -892,7 +898,9 @@ docs/dashboard.md is stale: its "Phase 2 (write)" description (lines 5-10) says 
 
 ### 73. [MEDIUM] `docs/dashboard.md:44`
 
-**Status: FIXED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Deploy step 2 now points at `python migrate.py` (linking to the README's "Database setup" section) and explicitly warns against applying `migrations/*.sql` files directly. Note: `scripts/sql/001_dashboard.sql` no longer exists in the repo at all, so the stale instruction was doubly broken.
+**Status: FIXED AND REVIEWED** in `4e365ef` (`docs: fix stale command/dashboard docs (#69, #71, #72, #73)`, branch `working-1`). Deploy step 2 now points at `python migrate.py` (linking to the README's "Database setup" section) and explicitly warns against applying `migrations/*.sql` files directly. Note: `scripts/sql/001_dashboard.sql` no longer exists in the repo at all, so the stale instruction was doubly broken.
+
+**Reviewer note (2026-07-02):** Verified — docs/dashboard.md deploy step 2 (lines 54-57) runs `python migrate.py` / `python migrate.py status` and warns that a direct `migrations/*.sql` apply "skips that ledger and desyncs later `migrate.py` runs"; no `scripts/sql/001_dashboard.sql` pipe remains. (The same block was reconfirmed while resolving the working-2 merge; both branches converged on this wording.)
 
 docs/dashboard.md line 44 (deploy step 2) still instructs applying the dashboard schema by piping the stale copy scripts/sql/001_dashboard.sql directly into mysql, but the repo has since moved to a ledgered migration runner (migrations/000-021 applied via `python migrate.py`, as README.md 135-172 documents); following it applies 001 outside the schema_migrations ledger, so a later `python migrate.py` re-applies 001 and errors on the already-existing table, and the operator is never pointed at migrations 002-021.
 
@@ -911,7 +919,9 @@ The feeds/feeds_only/informs/informs_only/groups_with/groups_only_with (plus rem
 
 ### 75. [MEDIUM] `bot/web/actions.py:1153`
 
-**Status: FIXED** in `da89fbc` (`fix(web): dedupe convert-to-puzzle into convert-to-feeder (#75)`, branch `working-1`). `convert_to_puzzle` now delegates entirely to `convert_to_feeder`, so the two routes can no longer drift.
+**Status: FIXED AND REVIEWED** in `da89fbc` (`fix(web): dedupe convert-to-puzzle into convert-to-feeder (#75)`, branch `working-1`). `convert_to_puzzle` now delegates entirely to `convert_to_feeder`, so the two routes can no longer drift.
+
+**Reviewer note (2026-07-02):** Verified — `convert_to_puzzle` (bot/web/actions.py:1181) is now a two-line body that `return await convert_to_feeder(puzzle_id)`, with the route/`@login_required` decorators preserved; the duplicated handler body (HttpError catch, orphaned-feeder count, refresh/audit-on-warning) is gone, so drift is structurally impossible.
 
 convert_to_puzzle (bot/web/actions.py:1153) duplicates the convert_to_feeder handler body instead of delegating, and the copies have drifted: it lacks the HttpError catch (a Sheets HttpError after the already-committed demotion propagates to a 500 while the /convert-to-feeder twin returns ok+sheet_warning), drops the orphaned-feeders count from the response, and its SheetRefreshError branch returns early, skipping refresh_unassigned_safe and the audit record. Correction: the SPA only calls /convert-to-feeder (frontend/src/api.ts:395), so the drift affects backward-compat/external callers of the alias route, not the dashboard.
 
@@ -974,7 +984,9 @@ Deploy instructions are near-duplicated between docs/dashboard.md (steps 1-6 at 
 
 ### 84. [MEDIUM] `bot/core/puzzle_service.py:1909`
 
-**Status: FIXED** in `1a6300e` (`fix(service): wrap evidence background tasks in safe fire-and-forget helpers (#84)`, branch `working-1`). Added `refresh_evidence_safe`, `link_informs_for_evidence_safe`, and `unlink_informs_for_evidence_safe` (matching `refresh_unassigned_safe`'s pattern) and switched every raw `asyncio.create_task` call site to use them.
+**Status: FIXED AND REVIEWED** in `1a6300e` (`fix(service): wrap evidence background tasks in safe fire-and-forget helpers (#84)`, branch `working-1`). Added `refresh_evidence_safe`, `link_informs_for_evidence_safe`, and `unlink_informs_for_evidence_safe` (matching `refresh_unassigned_safe`'s pattern) and switched every raw `asyncio.create_task` call site to use them.
+
+**Reviewer note (2026-07-02):** Verified — all three `_safe` wrappers exist (puzzle_service.py:2123/2178/2190), each try/excepts and `logger.exception`s with the hunt id. All nine `create_task` launch sites now target a `_safe` helper (api.py:227; actions.py:456/1745/1748/1760/1791/1795; puzzles.py:1321/1352); a repo-wide grep finds zero remaining `create_task` on the raw evidence coroutines. The one surviving bare `create_task` (puzzle_service.py:202, `_deferred_rename`) is an unrelated path outside this finding's scope.
 
 refresh_evidence (bot/core/puzzle_service.py:1909) and link/unlink_informs_for_evidence (:1973/:1985) have no internal exception guard yet are launched via bare, unreferenced asyncio.create_task at bot/web/actions.py:445, 1740, 1743, 1755, 1785, 1789, bot/web/api.py:220, and bot/cogs/puzzles.py:1263/1285 — violating the codebase's own safe-wrapper convention (refresh_unassigned_safe docstring, puzzle_service.py:2072-2073: "Use this for every asyncio.create_task(...) trigger") that the sibling helpers refresh_informs_targets (:1968-1971) and refresh_target_for_puzzle (:2009-2012) do follow.
 
