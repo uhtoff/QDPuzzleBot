@@ -3017,7 +3017,7 @@ class Puzzles(commands.Cog):
 
         Usage: `!archive_channel`
         Example: `!archive_channel`
-        Run in the channel to archive. The destination needs a webhook. Admins/mods only.
+        Run in the channel to archive (creates the destination webhook if missing). Admins/mods only.
         Usually called via `!archive_round` / `!archive_category`.
         Bang-only: no web-dashboard equivalent, by design."""
         if channel is None:

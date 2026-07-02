@@ -156,11 +156,15 @@ with two unrelated features that also say "archive": the **solved puzzles sheet*
 (the dashboard "Archive hunt" action that makes a hunt read-only). Neither of those touches Discord
 channels.
 
+Channel archiving auto-creates the destination webhook, does not copy reactions, and
+times out stuck attachment downloads (so a busy channel can't hang the run).
+
 | Command | Where | Does |
 |---|---|---|
+| `!archive_hunt` | any hunt channel | Archive the **whole hunt**: condense every channel into threads here, delete all categories/channels (voice included), rename this channel to `{YYYY-MM} {hunt name} - {team}`, mark the hunt archived. Confirms first, then runs unattended. Sheets kept. |
 | `!archive_round` | round channel | Copy the round's channels into threads, then delete the category. |
 | `!archive_category` | category channel | Archive every channel in the category into threads. Usually via `!archive_round`. |
-| `!archive_channel` | channel | Archive one channel's messages into a thread, then delete it (destination needs a webhook). |
+| `!archive_channel` | channel | Archive one channel's messages into a thread, then delete it (auto-creates the destination webhook if missing). |
 | `!archive_solved_manually` | hunt channel | Tidy the hunt's `solved` category: keep busy channels (prefixed `solved-`), delete quiet ones. |
 
 ## Maintenance & troubleshooting
