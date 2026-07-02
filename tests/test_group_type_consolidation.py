@@ -6,7 +6,7 @@ factories are plain functions. Patch DAOs at the cog import site
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.conftest import make_cog, make_ctx, make_hunt, make_round
+from tests.conftest import make_cog, make_ctx, make_hunt, make_puzzle, make_round
 
 
 # --- Round is a create-time alias of Metapuzzle (keeps " - meta" suffix) -----
@@ -92,3 +92,33 @@ async def test_info_capstone_calls_metapuzzle_handler():
     cog.send_initial_metapuzzle_channel_messages = AsyncMock()
     await Puzzles.info.callback(cog, make_ctx())
     cog.send_initial_metapuzzle_channel_messages.assert_awaited_once()
+
+
+# --- delete_round holds member-puzzle locks for the confirm+delete flow -----
+# (review #45)
+
+async def test_delete_round_bang_locks_member_puzzles():
+    """delete_round must hold every member puzzle's lock for the duration of
+    confirm+delete, not just proceed unlocked (review #45)."""
+    from bot.cogs.puzzles import Puzzles
+
+    tag_group = make_round(id=7)
+    cog = make_cog(hunt=make_hunt(channel_id=999))
+    cog.bot = MagicMock()
+    cog.bot.get_channel.return_value = MagicMock(send=AsyncMock())
+    cog.get_channel_type = lambda ctx: "Group"
+    cog.get_tag_group = lambda ctx: tag_group
+    cog._confirm_destructive = AsyncMock(return_value=True)
+    cog.service.delete_round = AsyncMock(return_value=[])
+    ctx = make_ctx()
+    cog.environment = {ctx.message.id: {"puzzle": None, "tag_group": tag_group}}
+    members = [make_puzzle(id=1), make_puzzle(id=2)]
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_tag_group.return_value = members
+        lock_mock.return_value.__aenter__ = AsyncMock(return_value=None)
+        lock_mock.return_value.__aexit__ = AsyncMock(return_value=None)
+        await Puzzles.delete_round.callback(cog, ctx)
+
+    lock_mock.assert_called_once_with([1, 2])

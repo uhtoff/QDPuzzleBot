@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
 # dashboard write serializes against the matching bang-command (see M4).
-from bot.core.locks import _PUZZLE_LOCKS
+from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock
 from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
@@ -3134,22 +3134,24 @@ class Puzzles(commands.Cog):
             return
 
         tag_group = self.get_tag_group(ctx)
-        n = len(PuzzleJsonDb.get_all_from_tag_group(tag_group.id))
-        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
-            return
+        member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
+        n = len(member_puzzle_ids)
+        async with puzzles_lock(member_puzzle_ids):
+            if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
+                return
 
-        hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
+            hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
-        # keep_puzzles=False pinned explicitly: the service default flipped to True
-        # (keep member puzzles) for the web dashboard's scoped-delete option, but the
-        # bang command's confirm text above still promises "and its {n} puzzle(s)".
-        failed = await self.service.delete_round(
-            ctx.guild, self.get_hunt(ctx), tag_group, keep_puzzles=False)
+            # keep_puzzles=False pinned explicitly: the service default flipped to True
+            # (keep member puzzles) for the web dashboard's scoped-delete option, but the
+            # bang command's confirm text above still promises "and its {n} puzzle(s)".
+            failed = await self.service.delete_round(
+                ctx.guild, self.get_hunt(ctx), tag_group, keep_puzzles=False)
 
-        await hunt_general_channel.send(
-            f":white_check_mark: Round {tag_group.name} successfully deleted.  "
-            f"All puzzle sheets have been deleted.")
-        await self._warn_failed_channels(hunt_general_channel, failed)
+            await hunt_general_channel.send(
+                f":white_check_mark: Round {tag_group.name} successfully deleted.  "
+                f"All puzzle sheets have been deleted.")
+            await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)
 
@@ -3198,11 +3200,13 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This command must be done from the main hunt channel")
             return
         hunt = self.get_hunt(ctx)
-        n = len(PuzzleJsonDb.get_all_from_hunt(hunt.id))
-        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
-            return
-        failed = await self.service.delete_hunt(ctx.guild, hunt)
-        await self._warn_failed_channels(hunt_channel, failed)
+        member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
+        n = len(member_puzzle_ids)
+        async with puzzles_lock(member_puzzle_ids):
+            if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
+                return
+            failed = await self.service.delete_hunt(ctx.guild, hunt)
+            await self._warn_failed_channels(hunt_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)
         self.set_hunt(ctx, None)
