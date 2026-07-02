@@ -282,6 +282,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         {editable ? (
                           <StatusCell
                             value={p.status}
+                            solved={p.solved}
                             onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
                           />
                         ) : (

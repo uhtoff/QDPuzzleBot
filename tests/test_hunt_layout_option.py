@@ -112,3 +112,39 @@ async def test_web_create_hunt_rejects_bad_layout_mode(web):
     resp = await client.post("/api/hunts", json=_body(layout_mode="bogus"))
     assert resp.status_code == 400
     cog.service.create_hunt.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+class TestCreateHuntRejectsBadStartTimestamp:
+    """#35: a malformed start_timestamp must be rejected before any Discord/
+    Sheets resources are created, not raise deep inside service.create_hunt
+    after the role/category/channels/spreadsheet already exist."""
+
+    async def test_rejects_string_timestamp(self, web):
+        app, cog = web
+        client = app.test_client()
+        resp = await client.post("/api/hunts", json=_body(start_timestamp="1720000000"))
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error"] == "bad_start_timestamp"
+        cog.service.create_hunt.assert_not_awaited()
+
+    async def test_rejects_null_timestamp(self, web):
+        app, cog = web
+        client = app.test_client()
+        resp = await client.post("/api/hunts", json=_body(start_timestamp=None))
+        assert resp.status_code == 400
+        cog.service.create_hunt.assert_not_awaited()
+
+    async def test_rejects_out_of_range_timestamp(self, web):
+        app, cog = web
+        client = app.test_client()
+        resp = await client.post("/api/hunts", json=_body(start_timestamp=10**20))
+        assert resp.status_code == 400
+        cog.service.create_hunt.assert_not_awaited()
+
+    async def test_accepts_int_timestamp(self, web):
+        app, cog = web
+        client = app.test_client()
+        resp = await client.post("/api/hunts", json=_body(start_timestamp=1720000000))
+        assert resp.status_code == 200
+        cog.service.create_hunt.assert_awaited_once()

@@ -156,7 +156,9 @@ function EvidenceRow({
   const [draft, setDraft] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const loggedAt = item.created_at ? item.created_at.slice(0, 16).replace("T", " ") : "";
+  // created_at is a UTC-offset ISO string (#33); parse it so the display is in
+  // the viewer's local time, like every other dashboard timestamp.
+  const loggedAt = item.created_at ? new Date(item.created_at).toLocaleString() : "";
 
   function startEdit() {
     setDraft(item.note);

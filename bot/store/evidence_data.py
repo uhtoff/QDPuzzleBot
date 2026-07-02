@@ -18,4 +18,9 @@ class EvidenceData:
         for attr in e.__dict__:
             if attr in row:
                 setattr(e, attr, row[attr])
+        # created_at is stored naive UTC (like every other timestamp column); reattach
+        # tzinfo so downstream serialization/comparisons match the rest of the codebase's
+        # aware datetimes (see PuzzleData.import_dict for the same pattern).
+        if e.created_at is not None:
+            e.created_at = e.created_at.replace(tzinfo=datetime.timezone.utc)
         return e

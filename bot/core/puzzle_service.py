@@ -1339,6 +1339,13 @@ class PuzzleService:
         Validates *field* against the allowed set and validates *value* against
         the known constants for status and priority.  Raises ValueError on bad
         field or bad value.  puzzle_type is free-form (no value validation).
+
+        status is special-cased: "solved"/"backsolved" are labels the solve
+        machinery (solve()/unsolve()) owns, not freeform status values, so this
+        method only allows toggling between them on an already-solved puzzle
+        (solved/backsolved reflect the same solved state, just how it was
+        reached) and refuses to set or clear them any other way — use solve()/
+        unsolve() for that.
         """
         _VALID_FIELDS = {"status", "priority", "puzzle_type"}
         if field not in _VALID_FIELDS:
@@ -1347,6 +1354,14 @@ class PuzzleService:
         if field == "status":
             if value.lower() not in {s.lower() for s in STATUSES}:
                 raise ValueError(f"Invalid status {value!r}; must be one of {STATUSES}")
+            _SOLVED_LABELS = {"solved", "backsolved"}
+            if value.lower() in _SOLVED_LABELS:
+                if not puzzle.solved:
+                    raise ValueError(
+                        f"Status {value!r} can only be set by solving the puzzle, not by !status")
+            elif puzzle.solved:
+                raise ValueError(
+                    "This puzzle is solved; use the unsolve command to change its status")
         elif field == "priority":
             if value.lower() not in {p.lower() for p in PRIORITIES}:
                 raise ValueError(f"Invalid priority {value!r}; must be one of {PRIORITIES}")

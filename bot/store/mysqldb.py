@@ -639,7 +639,9 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         e.hunt_id = hunt_id
         e.source_puzzle_id = source_puzzle_id
         e.note = note
-        e.created_at = now
+        # Match import_dict's tzinfo-reattachment so a freshly-logged item and one
+        # read back from the DB serialize identically (#33).
+        e.created_at = now.replace(tzinfo=datetime.timezone.utc)
         return e
 
     def get_all(self, hunt_id: int, source_puzzle_id=None, target_puzzle_id=None):

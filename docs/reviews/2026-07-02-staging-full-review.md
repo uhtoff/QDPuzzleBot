@@ -159,6 +159,11 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 12. [MEDIUM] `bot/cogs/puzzles.py:1135`
 
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). Both bang commands now call
+`self.info(ctx, update=True)`; both web endpoints now call
+`cog.web_refresh_info`.
+
 !remove_minimeta and !make_minimeta never refresh the pinned info message (no self.info(ctx, update=True)), unlike !add_mini/!solve_mini/!unsolve_mini; the web endpoints (make-minimeta / remove-minimeta in bot/web/actions.py) have the same gap, never calling cog.web_refresh_info. After remove_minimeta the pinned embed keeps showing the mini list with links to deleted threads and Type "Minimeta" until some other pin-refreshing command runs.
 
 **Failure scenario:** After `!remove_minimeta`, the pinned info embed (which renders the mini list via create_mini_list at line 2146) still shows the numbered list of now-deleted mini-puzzles with links to dead threads until some other command happens to refresh it; !make_minimeta likewise leaves the pin without the new minimeta state.
@@ -180,6 +185,11 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 **Failure scenario:** `!clues DON'T PANIC "SECOND CLUE"`: shlex.split raises ValueError('No closing quotation'), which is unhandled, so the user gets ':exclamation: Something went wrong' and no clue is logged; nothing tells them the apostrophe was the problem.
 
 ### 15. [MEDIUM] `bot/cogs/puzzles.py:1331`
+
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). `!sync` now also walks every category
+recorded for the group in `TagGroupCategoryDb` (solved/overflow), not just the
+primary category.
 
 !sync (alias !sync_round) iterates only the group's primary category (ctx.channel.category.channels, bot/cogs/puzzles.py:1331) and never consults TagGroupCategoryDb/category_layout.group_categories, so in a split round any untagged puzzles that were moved into the "— solved" or overflow categories are silently skipped while the command replies ":white_check_mark: Synced N puzzle(s)" with no warning.
 
@@ -232,6 +242,11 @@ mark_as_complete (bot/cogs/puzzles.py:2767) calls _solve_impl directly without t
 **Failure scenario:** Running !complete in the hunt general channel: get_puzzle(ctx) is None (cog_before_invoke sets no puzzle), so _solve_impl passes puzzle=None/hunt=None into service.solve → AttributeError traceback instead of the friendly ':x: not a puzzle channel'. Running !complete in an already-solved channel re-runs the full solve path (re-moves the channel, overwrites the recorded solution with ✅) instead of the ':x: already solved' refusal that !s gives.
 
 ### 22. [MEDIUM] `bot/cogs/puzzles.py:2889`
+
+**Status: FIXED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`). `archive_channel`
+now commits the puzzle after setting `archive_time`, using the same tz-aware
+UTC stamp as the service path.
 
 archive_channel (bot/cogs/puzzles.py:2889) sets archive_time (naive local time, unlike the UTC-aware service path at bot/core/puzzle_service.py:980) on a freshly-fetched PuzzleData instance that is never committed — the function ends by deleting the channel (line 2946) with no PuzzleJsonDb.commit, and cog_after_invoke (lines 197-207) only commits the environment's puzzle, a different instance resolved from ctx.channel. The DB row keeps archive_time=NULL and a dangling channel_id, so consumers like get_solved_puzzles_to_archive (bot/store/mysqldb.py:377) never see these puzzles as archived.
 
@@ -310,6 +325,16 @@ delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle 
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
+**Status: FIXED** in `ad90908` (`fix(puzzles): stop status/backsolved from being
+set outside solve/unsolve (#31)`, branch `working-1`). Implemented the other way
+round from the original finding's framing (which suggested running solve
+machinery when status is manually set to "Solved"): `update_puzzle_field` now
+refuses to set or clear "solved"/"backsolved" at all — those labels are owned
+by `solve()`/`unsolve()` — except toggling between the two on an
+already-solved puzzle. The dashboard's status picker (`PuzzleEditCells.tsx`)
+mirrors this: it only offers Solved/Backsolved once solved, and only the
+non-solved statuses beforehand.
+
 update_puzzle_field validates status against STATUSES, which includes "solved" and "backsolved" (bot/core/constants.py:13-14), and then only does setattr + commit (bot/core/puzzle_service.py:1272-1273) — none of the solve machinery in service.solve (puzzle_service.py:917-991: solved=True, solve_time, meta/group rollup refresh, sheet archive) runs. Both entrypoints expose "Solved"/"Backsolved" as pickable values (bang !status choices at bot/cogs/puzzles.py:2403-2410 → service call at 2425; web status dropdown STATUS_OPTIONS at frontend/src/components/PuzzleEditCells.tsx:25-26 → PATCH handler at bot/web/actions.py:209), so a user can label a puzzle Solved while puzzle.solved stays False: the dashboard hide-solved filter (frontend/src/components/PuzzleTable.tsx:191, keyed on p.solved) still shows it, meta sheet rollups and the group solved-derivation (puzzle_service.py:955-963) never fire, and the sheet is never archived.
 
 **Failure scenario:** !status solved (puzzles.py:2425) or web PATCH status='solved' (actions.py:209): puzzle.status becomes 'solved' but solved=False, no solve_time, no meta rollup refresh, no sheet archive; the dashboard's hide-solved filter (keyed on p.solved) still shows it, metas never receive its answer, and the group solved-derivation never fires.
@@ -322,11 +347,25 @@ MySQLTagGroupJsonDb.delete (bot/store/mysqldb.py:192) removes the tag_group row 
 
 ### 33. [MEDIUM] `bot/store/mysqldb.py:625`
 
+**Status: FIXED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`).
+`EvidenceData.import_dict` and `MySQLEvidenceDb.log()` now both reattach
+`tzinfo=UTC`, matching `PuzzleData.import_dict`'s pattern for every other
+timestamp field. The frontend display bug was a separate fix on top — `f25ba82`
+(`fix(frontend): render evidence timestamps in local time, not raw UTC (#33)`)
+— since EvidencePanel sliced the raw string instead of parsing it, so a UTC
+offset alone wouldn't have changed what was displayed.
+
 Evidence created_at is written as naive datetime.utcnow() (bot/store/mysqldb.py:625) and EvidenceData.import_dict (bot/store/evidence_data.py:16-21) copies DB rows without re-attaching tzinfo=UTC (unlike PuzzleData.import_dict, puzzle_data.py:72), so bot/web/data.py:556 serialises evidence created_at via raw isoformat() with no +00:00 offset while every other web timestamp goes through _iso() (data.py:78-82). The frontend EvidencePanel (frontend/src/components/EvidencePanel.tsx:159) renders the string as-is via slice, so non-UTC users see evidence 'logged at' in bare UTC while other dashboard times are local (e.g. HuntInfoPanel toLocaleString) or correctly offset-parsed (util.ts relativeTime) — shifted by their UTC offset. Any future comparison of EvidenceData.created_at against the codebase's standard aware datetimes raises TypeError.
 
 **Failure scenario:** bot/web/data.py:556 serialises i.created_at.isoformat() with no offset; the EvidencePanel renders it as-is, so a user in any non-UTC timezone sees evidence 'logged at' times shifted by their UTC offset relative to every other dashboard timestamp (activity, solve times, which are UTC-annotated); any future code comparing an EvidenceData.created_at to the codebase's standard aware datetimes raises TypeError (naive vs aware).
 
 ### 34. [MEDIUM] `bot/web/actions.py:125`
+
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Both
+endpoints now return `hunt_archived` (403) when the hunt is archived, matching
+every sibling mutation.
 
 add_note (bot/web/actions.py:124) and erase_note (bot/web/actions.py:153) are the only puzzle-mutating web endpoints missing the ctx["hunt"]["archived"] guard (delete_hunt's omission at 1261 is deliberate and commented), so POST /api/puzzles/<id>/notes and DELETE .../notes/<index> succeed on an archived hunt's puzzle — mutating the frozen DB record and emitting a board push — despite api.py declaring archived hunts read-only. (Correction: the service methods only commit notes to the DB; no archive sheet is touched.)
 
@@ -334,11 +373,20 @@ add_note (bot/web/actions.py:124) and erase_note (bot/web/actions.py:153) are th
 
 ### 35. [MEDIUM] `bot/web/actions.py:712`
 
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`).
+`start_timestamp` is now validated (numeric, in-range for
+`datetime.fromtimestamp`) before any Discord/Sheets resources are created.
+
 create_hunt (bot/web/actions.py:712) passes the unvalidated JSON value body["start_timestamp"] straight to service.create_hunt, where datetime.fromtimestamp (bot/core/puzzle_service.py:2149) runs only after the Discord role/category/channels and Google spreadsheet are created but before HuntJsonDb.commit (2161); a string or null value raises TypeError, which the route's except clauses (actions.py:716-721) do not catch, yielding a 500 with orphaned Discord/Sheets resources and no hunts row.
 
 **Failure scenario:** An admin client sends start_timestamp as a string (e.g. "1720000000" from a form field) or null; the required-keys check at actions.py:678 only verifies presence, service.create_hunt creates the team role, category, #general channel, solved divider and the Google sheet, then `datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)` (puzzle_service.py ~2149) raises TypeError → 500 with all Discord/Sheets artifacts created but no hunts row, requiring manual cleanup (reconcile can't see a hunt that doesn't exist).
 
 ### 36. [MEDIUM] `bot/web/api.py:40`
+
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). `list_guilds` now filters to guilds
+the user is actually a member of before building the response.
 
 GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return the guilds the current user belongs to"): the loop over guilds_map at line 39 never checks membership (resolve_membership is imported but not called here), so every guild row — name, snowflake, and per-guild admin flag — is returned to any logged-in session unless ?admin=1. Combined with OAuth login being open to any Discord account (bot/web/auth.py uses only the "identify" scope with no membership gate in login/callback), a complete outsider can enumerate all teams' guild names and snowflakes. Hunt data itself stays protected (list_hunts and _load_visible_hunt apply hunt_visible), so this is an information-disclosure gap, not a hunt-visibility bypass.
 
@@ -346,11 +394,22 @@ GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return th
 
 ### 37. [MEDIUM] `bot/web/api.py:213`
 
+**Status: FIXED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Now guards
+on `hunt["archived"]` and validates every element of `notes` is a string
+before writing any of them (rejecting the whole request instead of a partial
+write).
+
 POST /api/evidence (bot/web/api.py:196-221) lacks the hunt-archived guard that every other web mutation enforces, so any guild member can write evidence rows (and fire a sheet refresh) into a read-only archived hunt; and the per-note write loop at line 213 calls n.strip() on each raw JSON element, so a non-string note (e.g. notes=["ok", 42]) raises AttributeError mid-loop after earlier notes are already committed, returning a 500 with a partial write and no refresh_evidence task. Mitigating: the SPA never calls this POST (clue creation goes through /actions/puzzles/<id>/clues, which is guarded), so it is only reachable by direct authenticated API calls.
 
 **Failure scenario:** 1) Any team member POSTs evidence for a puzzle in an archived hunt: _load_visible_hunt passes (archived hunts are visible to all guild members) and there is no `hunt["archived"]` check, so rows are written and a sheet refresh task fired against a read-only hunt. 2) A request with notes=["ok", 42] logs "ok" via EvidenceJsonDb.log, then `n.strip()` raises AttributeError on 42 → 500 returned while the first note is already persisted and no refresh_evidence task is scheduled.
 
 ### 38. [MEDIUM] `bot/web/api.py:254`
+
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). "activity" events are now checked
+against the live Discord channel permission overwrites for the requesting
+member; "board" events are checked against `hunt_visible`.
 
 /ws/activity (bot/web/api.py:254) filters events only by guild membership, not the per-hunt team-role visibility model that every REST endpoint enforces via hunt_visible, so guild members without a hunt's team role still receive live activity events (channel_id, author display name, timestamp) for that hidden hunt's channels and board events carrying the hidden hunt's uid.
 
@@ -568,6 +627,12 @@ README.md:69 documents a `!p puzzle-round-name: puzzle-name` colon syntax for cr
 
 ### 70. [MEDIUM] `bot/cogs/puzzles.py:2311`
 
+**Status: FIXED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). The welcome now names the channel kind
+correctly (capstone/runaround/meta) and, for capstones, leads with `!informs`
+and warns against `!feeds_only`/`!feeds`. Both `!info` and the web
+pin-refresh path share this one function, so the fix covers both entrypoints.
+
 Capstone and Runaround channels get the generic metapuzzle pinned welcome on both entrypoints — bang !info (bot/cogs/puzzles.py:2311-2312) and web refresh/welcome (bot/core/notifier.py:120, :158 route on puzzle.is_target with no capstone case) — so the pin says "Welcome to the meta channel for ..." and leads with `!feeds_only`/`!feeds` hints, which are the wrong edge for a capstone whose members should use `!informs`; a solver following the top hint tags a feeds edge (and `!feeds_only` also moves their channel), silently shifting the capstone toward meta semantics and its sheet rollup toward an answer list.
 
 **Failure scenario:** A solver in a capstone channel reads the pinned info (posted at creation and on every !info / web refresh), follows the top hint `!feeds_only <code>` from a feeder channel, and tags a feeds edge into the capstone — since meta vs capstone is derived from incoming edges, this silently changes the group's semantics and rollup rendering.
@@ -677,6 +742,14 @@ The web-dashboard task's exception is never observed: start_web (bot/web/__init_
 **Failure scenario:** Another process holds config.web_port when the bot starts; hypercorn's bind fails inside the task, the bot keeps running normally, discord.log shows only 'Starting web dashboard', and the operator discovers the dashboard is down hours later with no error anywhere.
 
 ### 86. [MEDIUM] `bot/web/actions.py:1060`
+
+**Status: FIXED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). All six convert-to-* endpoints now
+gate on `require_admin` (ADMIN_ROLES) instead of `require_organiser`, matching
+the bang commands' role requirement. (The bang commands additionally require
+the Discord `manage_channels` permission, which has no clean web equivalent —
+these are hunt-wide actions, not scoped to a specific channel the invoker is
+in — so this fix closes the role-list gap, not the permission-check gap.)
 
 All web convert endpoints (convert-to-meta at bot/web/actions.py:549, the shared _convert_to_type_handler at :1061 used by convert-to-capstone/runaround/group/metapuzzle, convert-to-feeder at :1006, and convert-to-puzzle at :1168) gate on require_organiser (ORGANISER_ROLES = ADMIN_ROLES + 'Organisers') with no Discord-permission check, while every equivalent bang command requires the stricter ADMIN_ROLES plus manage_channels — so an Organisers-only user is refused the bang command but can perform the identical conversion from the dashboard.
 
