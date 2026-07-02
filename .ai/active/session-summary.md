@@ -3,20 +3,24 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — fix(web): post embed + refresh pin for partial/change/add solves (#62) @ 25154f0
+Status: in progress — refactor: dedupe the solved embed and change/add-solution tails (#79, #80) @ 4ec4444
 
 ## Goal
 
 Fix the 9 HIGH-severity findings from `docs/reviews/2026-07-02-staging-full-review.md`,
 in impact order, marking each off and discussing design questions as we go. Full spec in
-`current-spec.md`; ordered plan + finding tracker in `implementation-plan.md`.
+`current-spec.md`; ordered plan + finding tracker in `implementation-plan.md`. After all 9
+landed, the user asked to additionally fold in #28/#79/#80 (adjacent MEDIUM/LOW findings
+sharing code with the HIGHs just fixed) — see "Folded in" section of
+`implementation-plan.md`.
 
 ## Current status
 
-All 5 phases complete and committed (9 of 9 findings landed): #1, #3, #5, #6, #7, #8, #2, #4,
-#62. Backend suite green (757 passed). `ruff check .` clean across the whole repo (task-level
-verification step from `implementation-plan.md`). All in-scope work is done; remaining items
-are process/wrap-up only (see Next steps).
+All 9 HIGH findings landed and committed: #1, #3, #5, #6, #7, #8, #2, #4, #62. Also folded
+in #28 (MEDIUM, own-sheet failure isolation in solve/change_solution/add_solution) and
+#79+#80 (LOW, dedupe the solved embed formula + the change/add-solution bang command tail).
+Backend suite green (766 passed). `ruff check .` clean across the whole repo. All in-scope
+work is done; remaining items are process/wrap-up only (see Next steps).
 
 ## Final decisions
 
@@ -107,6 +111,34 @@ are process/wrap-up only (see Next steps).
   directly rather than the Quart route (no existing route-level tests for this endpoint to
   extend, and that's the established depth for this code path).
 
+- #28 fix: `solve()`'s `archive_puzzle_spreadsheet` call and `change_solution`/
+  `add_solution`'s `update_solution` call were the only Sheets writes in these three
+  methods NOT wrapped in the failure-isolation pattern already used for meta refreshes
+  (try/except + append to `failed` + keep going) — an uncaught Sheets error propagated past
+  the second commit, the forum-tag update, and `@pushes_board`'s push, even though the DB
+  mutation was already committed. Wrapped each in the same pattern, appending `puzzle.id` to
+  the existing `failed` list (reusing `SheetRefreshError`'s existing contract rather than
+  inventing a second exception type — its `failed_round_ids` field is only ever used to
+  build a display string, not looked up structurally, so a puzzle id alongside round ids is
+  functionally safe even though the field name is now slightly imprecise). Added
+  `tests/test_sheet_failure_isolation.py` (3 tests); verified red via `git stash` (import
+  works pre-fix — the failure showed as the exception propagating and `board_changed` never
+  being awaited).
+- #79/#80 fix: extracted `bot.core.notifier.build_solved_embed(emoji, puzzle, follow_up)` as
+  the one shared "PUZZLE SOLVED!" title/description formula (was copied in `_solve_impl`,
+  `web_post_solved_embed`, and notifier.py's cog-unavailable fallback); each caller still
+  supplies its own Follow-up text (bang vs. dashboard copy is deliberately different, per the
+  review's own note). Merged `change_solution`/`add_solution`'s near-identical ~30-line bang
+  command tails into one `_change_or_add_solution_impl(ctx, answer, mode=...)`, and added the
+  Follow-up field `add_solution`'s embed had been missing (the divergence #80 flagged as a
+  sign the copies were already drifting). Noted but did NOT touch: `DiscordNotifier.puzzle_solved`
+  / `Notifier.puzzle_solved` / `WebNotifier.puzzle_solved` / `CompositeNotifier.puzzle_solved`
+  appear to be dead code (grepped — nothing outside notifier.py calls `.puzzle_solved(`; the
+  live push path is `board_changed`, Phase B) — left alone since removing an interface method
+  is a bigger, separate change outside #79's scope and not requested. Added
+  `tests/test_change_add_solution_impl.py` (6 tests); verified red via `git stash` (import
+  error — `build_solved_embed` didn't exist).
+
 ## Rejected approaches
 
 - Fixing in file order or all-at-once — chose impact-ordered tranches instead.
@@ -123,12 +155,16 @@ are process/wrap-up only (see Next steps).
 
 ## Next steps
 
-All 9 findings are implemented, tested, and committed. Full suite (757 passed) and
-`ruff check .` (repo-wide) both green. Remaining before closing the task:
+All 9 HIGH findings plus the folded-in #28/#79/#80 are implemented, tested, and committed.
+Full suite (766 passed) and `ruff check .` (repo-wide) both green. Remaining before closing
+the task:
 1. Decide Q6 (annotate the source review doc with FIXED-in-hash notes, or leave the plan
-   checklist as the sole tracker) and Q5 (fold in adjacent MEDIUM/LOWs — default was
-   opportunistic/off, and none were folded in).
-2. Ask the user whether to archive `.ai/active/` under
+   checklist as the sole tracker).
+2. Optional follow-up noticed but out of scope: `DiscordNotifier.puzzle_solved` and its
+   `Notifier`/`WebNotifier`/`CompositeNotifier` counterparts plus `_post_solved_embed` look
+   like dead code (superseded by the `board_changed` push) — worth a deletion pass if the
+   user wants it, not done here since it wasn't asked for.
+3. Ask the user whether to archive `.ai/active/` under
    `.ai/archive/2026-07-02-staging-high-findings/` now that the task is done.
 
 ## Open questions

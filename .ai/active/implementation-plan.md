@@ -15,6 +15,12 @@ record the commit hash next to it. `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] **#4**  puzzle_service.py:1012 — unsolve commit ordering (web loses)    — commit: 3c4042a
 - [x] **#62** actions.py:361 — web solve modes skip embed + pin refresh       — commit: 25154f0
 
+### Folded in (adjacent MEDIUM/LOW, requested after the 9 HIGHs landed)
+
+- [x] **#28** puzzle_service.py:979 — post-commit-raise swallows board push   — commit: 5435deb
+- [x] **#79** puzzles.py:2642 — solved embed copied in 3 places (LOW)         — commit: 4ec4444
+- [x] **#80** puzzles.py:2678 — change/add_solution duplicate tail (LOW)      — commit: 4ec4444
+
 ## Progress protocol (per finding)
 
 Follow this loop for every finding so nothing slips:
