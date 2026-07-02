@@ -417,6 +417,8 @@ member; "board" events are checked against `hunt_visible`.
 
 ### 39. [MEDIUM] `frontend/src/components/MiniPuzzlePanel.tsx:58`
 
+**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #41 below (same root cause).
+
 MiniPuzzlePanel fires solvePuzzle.mutate / createMini.mutate with no per-call onError and clears the typed input synchronously (solve: lines 58-59 and 71-72; create-mini: lines 91-92 and 102-103), and neither the hooks nor the QueryClient show an error notification, so a failed mini solve or mini creation silently discards the user's input with no visible error.
 
 **Failure scenario:** User types a mini answer and presses Enter while the hunt was just archived or Discord returns 429: the input is cleared on the spot, the mutation fails, no toast or message appears, and the mini still shows unsolved with the typed answer lost — the user cannot tell whether the solve landed; the same pattern at line 91/102 loses new mini names.
@@ -428,6 +430,8 @@ The web "No self-feed" off-switch for a target's deliberate self-feed is doubly 
 **Failure scenario:** Organiser uses Arrange > 'Add to group… (feeds itself)' to make a meta self-feed (edges become {target, feeds}); later they open All puzzles > Debug tags to undo it, but 'No self-feed' is greyed out (edges include 'target'). Even for legacy pre-migration-019 self-feeding targets where the item is clickable, the backend tag_with_edge (bot/core/puzzle_service.py:691-698) only enforces feeds/informs<->none exclusivity and does not drop feeds/informs when adding 'target', so the retag is a no-op and the meta keeps feeding itself in rollups.
 
 ### 41. [MEDIUM] `frontend/src/components/PuzzleTable.tsx:306`
+
+**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #39 above. Added `onError: notifyError` at each named call site, matching the existing convention (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) rather than introducing new global MutationCache infrastructure.
 
 Multiple mutation call sites fire with no onError handler and the QueryClient (frontend/src/main.tsx:13) defines no MutationCache/global mutation error handler, so failed writes give zero user feedback: debug-edge retags (PuzzleTable.tsx:306, 314), status/priority/type updates (PuzzleTable.tsx:347/361/375, BoardGroup.tsx:270, PuzzleDrawer.tsx:163/169/175), link/sheet/erase-note mutations (PuzzleDrawer.tsx:200-213, 272, 369), and evidence edits (EvidencePanel.tsx:123-129). This is an omission, not a design choice — sibling components (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) consistently pass notifyError per call.
 
