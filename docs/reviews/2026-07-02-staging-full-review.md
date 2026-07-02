@@ -665,7 +665,9 @@ same value.
 
 ### 51. [LOW] `bot/core/puzzle_service.py:338`
 
-**Status: FIXED** in `76da5f0` (`fix(reconcile): scope channel relink to the hunt's own categories (#51)`, branch `working-1`). `reconcile()` now collects this hunt's own round/group category ids and threads them into `_reconcile_channel`, which restricts the relink search to channels inside those categories only.
+**Status: FIXED AND REVIEWED** in `76da5f0` (`fix(reconcile): scope channel relink to the hunt's own categories (#51)`, branch `working-1`). `reconcile()` now collects this hunt's own round/group category ids and threads them into `_reconcile_channel`, which restricts the relink search to channels inside those categories only.
+
+**Reviewer note (2026-07-02):** Verified — `_reconcile_channel` now takes `hunt_category_ids` and its relink search is `(c for c in guild.channels if getattr(c.category, "id", None) in hunt_category_ids)` (bot/core/puzzle_service.py:346); `reconcile` builds that set from the hunt's own rounds (line 414) and threads it in, so `!reconcile --apply` can no longer adopt a same-named channel from another hunt's category.
 
 _reconcile_channel's relink step (bot/core/puzzle_service.py:338) searches guild.channels by name with no hunt or category scoping, so when a puzzle's stored channel is gone, !reconcile apply can adopt a same-named channel belonging to another hunt (or another puzzle) in the same guild: it moves that channel into the puzzle's home category (line 344) and rewrites the puzzle's channel_id/name/mention to it (lines 345-348), hijacking the other hunt's live channel while the other hunt's puzzle record still points at the now-relocated channel.
 
@@ -825,7 +827,9 @@ of what other drags are in flight.
 
 ### 61. [LOW] `migrations/000_base_schema.sql:87`
 
-**Status: FIXED** in `49a5398` (`fix(db): widen puzzles.url to varchar(512) (#61)`, branch `working-1`, migration `023_widen_puzzle_url.sql`, applied to the connected test DB). `puzzles.url` widened to varchar(512), matching `hunts.website_url`, for generous headroom over any realistic `hunt.url` + prefix + slug combination.
+**Status: FIXED AND REVIEWED** in `49a5398` (`fix(db): widen puzzles.url to varchar(512) (#61)`, branch `working-1`, migration `023_widen_puzzle_url.sql`, applied to the connected test DB). `puzzles.url` widened to varchar(512), matching `hunts.website_url`, for generous headroom over any realistic `hunt.url` + prefix + slug combination.
+
+**Reviewer note (2026-07-02):** Verified — `migrations/023_widen_puzzle_url.sql` runs `MODIFY COLUMN url varchar(512)` (matching `hunts.website_url`), so a composed `hunt.url + prefix + slug` fits with headroom. Applying the migration to a given live DB remains the operator's deploy step, as the status note records.
 
 puzzles.url is varchar(150) while hunts.url is varchar(250) (migrations/000_base_schema.sql:87 vs :51), and create_puzzle composes the puzzle URL as hunt.url + "/" + prefix + "/" + slug (bot/core/puzzle_service.py:1642) with no length validation or truncation anywhere, so a hunt URL of ~130+ chars (legal for its column) yields a composed puzzle URL over 150 chars; under default strict sql_mode the generic INSERT (bot/store/mysqldb.py:63) fails with a data-too-long error — aborting puzzle creation after the Google sheet was already created at line 1650 and before the try/cleanup block at 1665, stranding an orphan sheet (not an orphan Discord channel, which is created only after the commit) — or silently truncates the stored link on lenient servers.
 
@@ -992,7 +996,7 @@ convert_to_meta / convert_to_capstone / convert_to_runaround / convert_to_group 
 
 **Failure scenario:** Any shared fix — e.g. adding the puzzle mutex the other mutating commands carry, or changing the RuntimeError presentation — must be applied five times; the web side already needed a parameterized _convert_to_type_handler for the same operations, showing the shape, so each new group type adds another full copy here.
 
-**Status: FIXED** in `3498c20`, branch `working-2`. All five commands now share
+**Status: FIXED AND REVIEWED** in `3498c20`, branch `working-2`. All five commands now share
 one `_run_convert_to_type` body (mirroring the web side's
 `_convert_to_type_handler`), parameterized by target type, resulting channel
 type, which `is_target` state is valid to convert from, and the wrong-state/
@@ -1000,18 +1004,22 @@ success message text. Message text is unchanged; no `@with_puzzle_mutex` was
 added (none of the five had it before — that was cited as an example of the
 duplication cost, not an existing gap in this finding).
 
+**Reviewer note (2026-07-02):** Verified — `_run_convert_to_type` (bot/cogs/puzzles.py:1732) is the single parameterized body and all five convert commands call it (five call sites, 1769-1843), mirroring the web `_convert_to_type_handler`; message text preserved.
+
 ### 78. [LOW] `bot/cogs/puzzles.py:2261`
 
 The 'Puzzle commands' embed field is duplicated between _add_metapuzzle_command_fields (bot/cogs/puzzles.py:2114-2128) and send_initial_puzzle_channel_messages (bot/cogs/puzzles.py:2261-2277) and has mildly drifted (!clue/!clues collapsed to one line and !info added only in the puzzle copy), so new/renamed commands must be edited in two places; however, the claimed meta-pin gap is overstated — !feeds/!informs/!info/!rename_meta are already listed in the meta pin's General Commands field (lines 2182-2188), so meta-channel solvers are not actually missing tagging commands.
 
 **Failure scenario:** Every new or renamed command needs the help text edited in two embeds; today a solver in a meta channel sees a different (staler) command list than in a puzzle channel, e.g. no mention of !feeds/!informs tagging from the meta pin's shared field.
 
-**Status: FIXED** in `3498c20`, branch `working-2`. Both fields now build from
+**Status: FIXED AND REVIEWED** in `3498c20`, branch `working-2`. Both fields now build from
 shared `_solve_commands_field_value`/`_puzzle_commands_field_value`, parameterized
 by the small per-channel-kind differences (the puzzle pin's leading `!p` line;
 its `!info`/`!feeds`/`!informs`/`!rename_puzzle` extras). Also fixed the one
 concrete drift the finding called out: the meta pin's `!clue`/`!clues` wording
 now matches the puzzle pin's merged one-liner.
+
+**Reviewer note (2026-07-02):** Verified — both pins build their command field from shared `_solve_commands_field_value`/`_puzzle_commands_field_value` (bot/cogs/puzzles.py:2226/2248), and the `!clue`/`!clues` one-liner drift the finding called out is now consistent across the two pins.
 
 ### 79. [LOW] `bot/cogs/puzzles.py:2642`
 
@@ -1035,12 +1043,14 @@ The post-and-pin welcome wrapper flow for the hunt channel is duplicated inline 
 
 **Failure scenario:** A change to welcome/pin semantics (e.g. the pins[-1] edit convention, guild-settings sourcing, or pin error handling) made in DiscordNotifier.welcome never reaches web hunt creation, so web-created and bang-created hunts get different pinned welcomes and the update=True refresh path can edit the wrong message.
 
-**Status: FIXED** in `3498c20`, branch `working-2`. `DiscordNotifier.welcome` now
+**Status: FIXED AND REVIEWED** in `3498c20`, branch `working-2`. `DiscordNotifier.welcome` now
 has a hunt-channel branch (`tag_group=None` and `puzzle=None` dispatches to
 `send_initial_hunt_channel_messages`); both bang `!hunt` and web
 `POST /api/hunts` route their post-and-pin flow through it instead of each
 doing it inline. Added coverage for the new dispatch branch and confirmed the
 existing group-welcome dispatch is unaffected.
+
+**Reviewer note (2026-07-02):** Verified — `DiscordNotifier.welcome` dispatches `tag_group is None and puzzle is None` to `send_initial_hunt_channel_messages` (bot/core/notifier.py:103-104), and both bang `!hunt` and web hunt-create route their post-and-pin flow through it, so the wrapper is no longer triplicated.
 
 ### 82. [LOW] `bot/web/actions.py:1535`
 
@@ -1048,13 +1058,15 @@ The ~15-line handler preamble is genuinely copy-pasted across ~22 handlers in bo
 
 **Failure scenario:** A hunt whose guild row has a NULL guild_snowflake: POST /hunts/<uid>/puzzles or /metas raises TypeError at int(None) and returns a 500, while every other handler degrades to guild=None; each new handler re-copies the block and can drift the same way.
 
-**Status: FIXED (guard gap only)** in `3498c20`, branch `working-2`.
+**Status: FIXED AND REVIEWED (guard gap only)** in `3498c20`, branch `working-2`.
 `create_puzzle` and `create_meta` now guard `int(ctx["guild_snowflake"])` the
 same way as the rest of the file's handlers, closing the one concrete drift
 (TypeError → 500) the finding identified. Added regression tests for both.
 The broader ~15-line-preamble duplication across ~22 handlers is unchanged —
 the finding's own assessment frames that as drift risk, not a distinct
 user-visible failure mode beyond this one guard gap.
+
+**Reviewer note (2026-07-02):** Verified (guard gap only) — `create_puzzle` (bot/web/actions.py:1532) and `create_meta` (:1575) now read `bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None`, matching the file's other handlers; the one concrete TypeError→500 drift is closed. The broader ~22-handler preamble duplication is unchanged, framed by the finding as drift risk only.
 
 ### 83. [LOW] `docs/dashboard.md:34`
 
@@ -1128,6 +1140,8 @@ On the cog-unavailable fallback path, _post_solved_embed (bot/core/notifier.py:2
 ### 89. [LOW] `bot/store/__init__.py:35`
 
 **Status: PARTIALLY MITIGATED** in `695dd81` (`fix(store): bound MySQL connect timeout to fail fast on outage (#89)`, branch `working-1`). `MySQLReconnector` now sets an explicit 5s `connect_timeout`, so a down/unreachable host fails fast instead of blocking for the OS socket default (tens of seconds to minutes). This bounds the worst-case per-call stall but does NOT move the write path off the event loop — that would mean wrapping ~100+ synchronous DB call sites across `puzzle_service.py` in `asyncio.to_thread`, matching the activity-writer/web-read precedent, which is a much larger change than this LOW finding warrants on its own. The underlying architectural gap (write path still runs synchronously on the event loop) remains.
+
+**Reviewer note (2026-07-02):** Verified (mitigation) — `MySQLReconnector` now sets `connect_timeout` (default 5s) via `cfg.setdefault("connect_timeout", self._CONNECT_TIMEOUT_SECONDS)` (bot/store/__init__.py:33), so a down/unreachable host fails fast rather than blocking on the OS socket default. Status kept PARTIALLY MITIGATED: the documented remaining gap — the synchronous write path still runs on the bot event loop — is unchanged and is the DB-write analog of the separately-deferred event-loop work, out of scope for this LOW finding.
 
 MySQLReconnector._ensure (bot/store/__init__.py:32-42) runs a blocking conn.ping(reconnect=True, attempts=2, delay=1) — and on failure a fresh blocking mysql.connector.connect() — before every cursor()/commit()/rollback(); all bang-command and web-write mutations call the store synchronously on the bot event loop via bot/core/puzzle_service.py, so while MySQL is down or restarting each DB touch stalls the loop for multiple seconds (ping retries plus connect timeout), lagging Discord heartbeats and all commands bot-wide. Only the activity writer (bot/cogs/activity.py:95, asyncio.to_thread) and the web read path (bot/web/data.py:66-75) were moved off-loop; the write path was not.
 
