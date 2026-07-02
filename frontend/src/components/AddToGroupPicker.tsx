@@ -77,7 +77,7 @@ export function AddToGroupPicker({
   selfInforms,
   onRetag,
 }: AddToGroupPickerProps) {
-  const isMobile = useMediaQuery("(max-width: 48em)");
+  const isMobile = useMediaQuery("(max-width: 48em)") ?? false;
   const [query, setQuery] = useState("");
 
   const rows = buildRows(items, puzzleId, ownTargetCode, selfFeeds, selfInforms, onRetag);
@@ -100,7 +100,6 @@ export function AddToGroupPicker({
         placeholder="Search groups…"
         value={query}
         onChange={(e) => setQuery(e.currentTarget.value)}
-        autoFocus
         data-autofocus
       />
       <ScrollArea.Autosize mah={260}>
@@ -136,7 +135,7 @@ export function AddToGroupPicker({
     );
   }
   return (
-    <Modal opened={opened} onClose={close} title="Add to group" size="sm">
+    <Modal opened={opened} onClose={close} title="Add to group" size="sm" centered>
       {body}
     </Modal>
   );
