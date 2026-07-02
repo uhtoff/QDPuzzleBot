@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
-from bot.utils.gsheets import get_sheet, get_drive, execute_sync, execute_with_retry
+from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
 logger = logging.getLogger(__name__)
 
