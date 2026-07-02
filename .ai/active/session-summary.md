@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — Tranche 3 of staging review fixes implemented and tested, about to commit
+Status: in progress — Tranche 4 of staging review fixes implemented and tested, about to commit (final planned tranche)
 
 ## Goal
 
@@ -18,17 +18,21 @@ Full tranche plan is also saved to project memory:
 1. **Tranche 1 (DONE, committed 5747523):** missing channel/None guards in
    bot/cogs/puzzles.py — #9, #10, #11, #13, #14, #16, #18, #19, #21, #23.
 2. **Tranche 2 (DONE, committed 52a5e94):** lying success-ack ordering bugs — #17, #74.
-3. **Tranche 3 (DONE this session):** web↔Discord pin/board staleness — #63, #65, #66,
-   #67, #68, #85.
-4. **Tranche 4 (next):** Google Sheets correctness bugs in bot/cogs/puzzles_gsheet.py —
-   #24, #25, #26, #47, #48.
+3. **Tranche 3 (DONE, committed 17afadf):** web↔Discord pin/board staleness — #63, #65,
+   #66, #67, #68, #85.
+4. **Tranche 4 (DONE this session, last planned tranche):** Google Sheets correctness bugs
+   in bot/cogs/puzzles_gsheet.py — #25, #26, #47, #48 (#24 explicitly deferred, see below).
 
 ## Current status
 
-Tranche 3 fully implemented and verified. Full test suite passes (766 passed,
-`timeout 180 pipenv run python -m pytest tests/ -q`), frontend `tsc --noEmit` clean, `ruff
-check` clean on all touched files. Not yet committed — review the diff and commit before
-starting tranche 4.
+Tranche 4 fully implemented and verified. Full test suite passes (766 passed,
+`timeout 180 pipenv run python -m pytest tests/ -q`), `ruff check` clean on
+bot/cogs/puzzles_gsheet.py. Not yet committed — review the diff and commit.
+
+This is the LAST planned tranche. Once committed, all four originally-agreed tranches are
+done. The only known remaining work from the review is #24 (deliberately deferred, see
+Final decisions) and the round/hunt-deletion-scoped findings that were always out of scope
+for working-1 (working-2's turf).
 
 Also copied docs/reviews/2026-07-02-staging-full-review.md from `staging` into this
 worktree (untracked) purely for local reference while implementing; either commit it or
@@ -96,21 +100,60 @@ leave it — it's the same content already on `staging`.
   when a new @pushes_board method appears — it caught both additions correctly, confirming
   the fix landed).
 
+- #25 (unescaped quotes in HYPERLINK formulas): added a module-level `_formula_string()`
+  helper (doubles embedded `"`) and applied it to both HYPERLINK-building sites
+  (`update_puzzle_info` and `_puzzle_tab_header_requests`), escaping both the puzzle name
+  and url.
+- #26 (rename uniqueness checked against wrong spreadsheet): `update_puzzle_info`'s
+  `update_tab_name` branch now passes the correct spreadsheet id — archive when
+  `puzzle.archived`, live otherwise — to `get_unique_tab_name`, instead of always checking
+  the live spreadsheet.
+- #47 (dead `get_puzzle_data()` fallback in `update_cell`): that method never existed
+  anywhere in the codebase, so the `sheet_id is None` fallback always raised a confusing
+  AttributeError instead of ever doing anything useful. Replaced with an explicit
+  `ValueError` explaining the real problem (no sheet_id to write to).
+- #48 (off-by-one in `move_sheet_to_end`): changed `len(sheets) - 1` to `len(sheets)` — the
+  Sheets API evaluates `updateSheetProperties` index moves against pre-move positions, so
+  the true "insert at the end" index is the sheet count, not count-minus-one. No test
+  covered this directly (grep confirms `move_sheet_to_end` has zero test call sites), so
+  this is a source-read fix, not test-driven — full suite stayed green as expected.
+
+## Deferred (explicitly out of scope for this tranche)
+
+**#24** (event-loop-blocking Sheets calls in bot/cogs/puzzles_gsheet.py): the user was
+asked directly (AskUserQuestion) whether to do the full fix or skip it, and chose to skip.
+The real fix requires converting 6 sync helper methods (`sheet_list`, `get_unique_tab_name`,
+`get_page_id_by_name`, `get_page_name_by_id`, `move_sheet_to_end`, `compute_insert_index`)
+from sync to async, which ripples to ~30 call sites across bot/cogs/puzzles_gsheet.py and
+bot/core/puzzle_service.py, plus tests/test_sheet_list_guard.py and
+tests/test_sheet_ordering.py (both call these methods synchronously today). Two call sites
+(`move_sheet_to_end` used inline inside a request-list literal at puzzles_gsheet.py
+lines ~556/566) can't just get an `await` — the surrounding code needs restructuring to
+sequence the awaits before the list is built. This is recorded as its own follow-up in the
+`staging-review-2026-07-02-tranches` memory; treat it as a standalone task if picked up
+later, not a tranche add-on.
+
 ## Rejected approaches
 
-None — all findings so far had a clear, narrow fix matching an existing idiom already used
-elsewhere in the same file (`send_not_puzzle_channel`, the
+None for the landed fixes — all had a clear, narrow fix matching an existing idiom already
+used elsewhere in the same file (`send_not_puzzle_channel`, the
 "I can't tell which hunt this is" message, the correct sibling's ack-after-mutation
 ordering, or the `@pushes_board`/`web_refresh_info` patterns already used by sibling
-service methods and web endpoints).
+service methods and web endpoints). #24's full async-conversion approach was considered and
+explicitly rejected by the user as too large/risky for this tranche (see Deferred above).
 
 ## Next steps
 
-1. Review the diff one more time, then commit tranche 3.
-2. Start tranche 4 (#24, #25, #26, #47, #48 — Google Sheets correctness bugs in
-   bot/cogs/puzzles_gsheet.py). This is the last planned tranche.
-3. Do not touch round/hunt deletion code (#29, #30, #32, #42, #45, #54, #55) — working-2's
-   scope.
+1. Review the diff one more time, then commit tranche 4. This is the last planned tranche —
+   once committed, offer to archive `.ai/active/` per the completion-discipline instructions
+   (the task as originally scoped — "review the doc, pick tranches, work through them" — is
+   done).
+2. If the user wants more review work, the two remaining pools are: #24 (see Deferred above,
+   now its own standalone task) and the round/hunt-deletion-scoped findings (#29, #30, #32,
+   #42, #45, #54, #55 — but confirm with the user first since those were always working-2's
+   turf, not assumed to be picked up here).
+3. Do not touch round/hunt deletion code without explicit confirmation this task now covers
+   it — working-2 may still be using that scope.
 
 ## Open questions
 

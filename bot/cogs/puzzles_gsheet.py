@@ -25,6 +25,14 @@ _current_archive_spreadsheet_id = contextvars.ContextVar("current_archive_spread
 _current_notify_channel = contextvars.ContextVar("current_notify_channel", default=None)
 _notified_flag = contextvars.ContextVar("notified_flag", default=None)
 
+
+def _formula_string(value: str) -> str:
+    """Escape a string for embedding in a Sheets formula argument (double any
+    embedded double quotes), so e.g. a puzzle named The "Best" Puzzle doesn't
+    produce an unparseable =HYPERLINK("url","The "Best" Puzzle") formula."""
+    return (value or "").replace('"', '""')
+
+
 class GoogleSheets(commands.Cog):
     STRING_INPUT = "stringValue"
     FORMULA_INPUT = "formulaValue"
@@ -279,11 +287,14 @@ class GoogleSheets(commands.Cog):
         new_sheet_id = page_id or puzzle.google_page_id
         offset = self._header_shift(puzzle, new_sheet_id)
         requests = [
-            self.update_cell('=HYPERLINK("' + puzzle.url + '","' + puzzle_name + '")', self.get_row(config.puzzle_cell_name),
-                             self.get_column(config.puzzle_cell_name) + offset, self.FORMULA_INPUT, new_sheet_id),
+            self.update_cell(
+                f'=HYPERLINK("{_formula_string(puzzle.url)}","{_formula_string(puzzle_name)}")',
+                self.get_row(config.puzzle_cell_name),
+                self.get_column(config.puzzle_cell_name) + offset, self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
-            unique_name = self.get_unique_tab_name(puzzle_name)
+            target_spreadsheet_id = self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
+            unique_name = self.get_unique_tab_name(puzzle_name, target_spreadsheet_id)
             requests.append(self.set_sheet_name(unique_name, puzzle.google_page_id))
         updates = {
             'requests': requests
@@ -292,7 +303,7 @@ class GoogleSheets(commands.Cog):
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
-            sheet_id = self.get_puzzle_data().google_page_id
+            raise ValueError("update_cell requires a sheet_id (no puzzle tab to write to)")
         body = {
                     'updateCells': {
                         'rows': [
@@ -338,8 +349,11 @@ class GoogleSheets(commands.Cog):
         return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
     def move_sheet_to_end(self, sheet_id = None):
+        # The Sheets API evaluates updateSheetProperties index moves against
+        # pre-move positions, so len(sheets) (not len(sheets) - 1) is the index
+        # that lands the tab truly last.
         sheets = self.sheet_list().get('sheets',[])
-        new_index = len(sheets) - 1
+        new_index = len(sheets)
         return self._sheet_props_request(sheet_id, 'index', new_index)
 
     def compute_insert_index(self, is_target: bool, puzzles) -> int:
@@ -1306,7 +1320,7 @@ class GoogleSheets(commands.Cog):
                     "mergeType": "MERGE_ALL",
                 }})
         requests.append(self.update_cell(
-            f'=HYPERLINK("{puzzle.url}","{puzzle.name}")',
+            f'=HYPERLINK("{_formula_string(puzzle.url)}","{_formula_string(puzzle.name)}")',
             self.get_row(config.puzzle_cell_name),
             self.get_column(config.puzzle_cell_name) + offset,
             self.FORMULA_INPUT, page_id))
