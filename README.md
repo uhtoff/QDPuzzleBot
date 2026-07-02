@@ -352,8 +352,8 @@ sudo journalctl -u puzzbot -f      # follow logs
 
 ### Redeploying with `deploy.sh` (Plesk Git)
 
-[`deploy.sh`](deploy.sh) runs the post-pull steps in the right order: it syncs Python deps
-(`pipenv install --deploy`), applies pending DB migrations (`migrate.py`), then restarts the bot.
+[`deploy.sh`](deploy.sh) runs the post-pull steps in the right order: it syncs Python deps from the
+lockfile (`pipenv sync`), applies pending DB migrations (`migrate.py`), then restarts the bot.
 Migrations run **before** the restart, so a failed migration aborts the deploy and leaves the
 running bot untouched (the migrate→deploy→code golden rule).
 
