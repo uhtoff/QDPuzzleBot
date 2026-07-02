@@ -586,7 +586,7 @@ export function useCreateSolvedSheet(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiSend<{ ok: boolean; archive_google_sheet_id: string }>(`/api/hunts/${uid}/solved-sheet`, "POST"),
+      apiSend<{ ok: boolean; solved_sheet_id: string }>(`/api/hunts/${uid}/solved-sheet`, "POST"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
