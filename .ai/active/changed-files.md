@@ -2,12 +2,12 @@
 
 ## Git status
 
-Branch: `working-1` (based on `staging`, tip now `3ed8ae1`). Worktree already had
+Branch: `working-1` (based on `staging`, tip now `0da35ea`). Worktree already had
 `config.json` + `google_secrets.json` present (bootstrap step was a no-op check).
 
 ## Files changed
 
-- `.ai/active/*.md` — handoff docs (created, then updated as each Phase 1 finding landed)
+- `.ai/active/*.md` — handoff docs (created, then updated as each finding landed)
 - `bot/cogs/puzzles.py` — `archive_channel`: archive on content OR attachments OR embeds,
   not content-only (#1)
 - `tests/test_archive_channel.py` — new regression tests for attachment-only/embed-only
@@ -18,36 +18,41 @@ Branch: `working-1` (based on `staging`, tip now `3ed8ae1`). Worktree already ha
 - `tests/test_contribution_table_requests.py` — updated
   `test_reconcile_table_appends_updates_prunes` to assert blank-in-place + stable append
   position instead of `deleteDimension`
+- `bot/core/puzzle_service.py` — `convert_to_puzzle`: pop the deleted round from
+  `puzzle.tag_edges`, not just `puzzle.tags` (#5)
+- `tests/test_solve_equivalence.py` — new `test_removes_round_from_tag_edges`
+- `bot/web/notifier.py` — `WebNotifier.board_changed`: resolve `hunt.guild_id` (the guilds
+  row id) to the Discord snowflake via `data.get_guilds_map()` before publishing (#6)
+- `tests/test_web_notifier.py` — rewrote the board-event test to mock `get_guilds_map` and
+  assert the resolved snowflake (the old test asserted the buggy pass-through); added a
+  case for an unknown guild row
 
 ## Diff summary
 
-- b0225d6 `fix(archive): preserve attachment/embed-only messages (#1)` — 2 files changed,
-  141 insertions, 27 deletions
-- 5df7fe5 `docs(ai): record #1 fix in handoff tracker` — handoff docs only
-- 3ed8ae1 `fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3)` —
-  2 files changed, 47 insertions, 17 deletions
+- b0225d6 `fix(archive): preserve attachment/embed-only messages (#1)`
+- 5df7fe5 `docs(ai): record #1 fix in handoff tracker`
+- 3ed8ae1 `fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3)`
+- 112fc27 `docs(ai): record #3 fix and Q1 resolution in handoff tracker`
+- 26e8e3f `fix(puzzle_service): clear tag_edges on convert_to_puzzle demote (#5)`
+- 0da35ea `fix(web): publish the guild snowflake from board_changed, not the row id (#6)`
 
 ## Commands run
 
 - `git branch -d fix-correctness-review` — deleted stale, fully-merged branch (was 973e5f0)
 - `pipenv run python -m pytest --collect-only -q` — 747 tests collected, confirms bootstrap
-- `pipenv run python -m pytest tests/test_archive_channel.py -q` — 2 passed
-- `pipenv run python -m pytest tests/ -q -k "archive or puzzles"` — 34 passed
-- `pipenv run ruff check bot/cogs/puzzles.py tests/test_archive_channel.py` — clean
-- `pipenv run python -m pytest tests/ -q` — 749 passed (after #1)
-- `pipenv run python -m pytest tests/test_contribution_table_requests.py -q` — 36 passed
-  (after updating the prune assertion for #3)
-- `pipenv run ruff check bot/cogs/puzzles_gsheet.py tests/test_contribution_table_requests.py`
-  — clean
-- `pipenv run python -m pytest tests/ -q` — 749 passed (after #3)
+- Per-finding: focused pytest on the touched test file, `ruff check` on touched files, then
+  full `pipenv run python -m pytest tests/ -q` — all green after each of #1, #3, #5, #6
+- #5: sanity-checked the new test is a real regression test by stashing the source fix,
+  rerunning `-k test_removes_round_from_tag_edges` (failed as expected), then restoring
+- Final full suite: `pipenv run python -m pytest tests/ -q` — 751 passed
 
 ## Tests run
 
-Full suite green (749 passed) after both #1 and #3.
+Full suite green (751 passed) after #6, the latest landed finding.
 
 ## Tests not run
 
-Remaining findings (#5, #6, #7, #8, #2, #4, #62) not yet touched.
+Remaining findings (#7, #8, #2, #4, #62) not yet touched.
 
 ## Current risks
 

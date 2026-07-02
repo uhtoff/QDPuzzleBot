@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: in progress — fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3) @ 3ed8ae1
+Status: in progress — fix(web): publish the guild snowflake from board_changed, not the row id (#6) @ 0da35ea
 
 ## Goal
 
@@ -13,10 +13,9 @@ in impact order, marking each off and discussing design questions as we go. Full
 
 ## Current status
 
-Phase 1 complete. #1 (archive attachment/embed loss) and #3 (reconcile_table row-delete
-grid loss) are both fixed, tested, and committed. Full suite green (749 passed) after each.
-Phase 2 (#5 convert_to_puzzle IntegrityError, #6 board_changed snowflake) is next — no
-blocking open questions for either.
+Phase 1 and Phase 2 complete (4 of 9 findings landed): #1, #3, #5, #6. Full suite green
+(751 passed) after #6. Phase 3 (#7+#8, AdminSettingsPanel.tsx) is next and needs Q3
+(timezone + editability semantics) discussed with the user first.
 
 ## Final decisions
 
@@ -37,6 +36,20 @@ blocking open questions for either.
   time; a manual sort in Sheets reclaims blank rows — acceptable trade-off, no bot-side
   compaction needed. Updated `tests/test_contribution_table_requests.py`'s
   `test_reconcile_table_appends_updates_prunes` to match (was asserting `deleteDimension`).
+- #5 fix: convert_to_puzzle popped the deleted round from `puzzle.tags` but left it in
+  `puzzle.tag_edges` (the `'target'` self-edge), so the next `PuzzleJsonDb.commit`'s tag-sync
+  tried to INSERT against the deleted tag_group → IntegrityError. Now pops the group from
+  `tag_edges` too. Added `test_removes_round_from_tag_edges`; verified it fails without the
+  fix (reverted the source, reran, confirmed red, restored).
+- #6 fix: `hunt.guild_id` is the `guilds` row id (FK), not the Discord snowflake — the
+  snowflake is `guilds.guild_id` (per `migrations/000_base_schema.sql`). WebNotifier was
+  publishing the row id directly, so `board_changed` events never matched the ws_activity
+  membership filter in `api.py`, silently dropping every live board push (self-heals via the
+  dashboard's 30s poll). Fixed by resolving through `data.get_guilds_map()`, mirroring
+  `actions.py`'s existing `_board_event` helper. The old test asserted the buggy
+  pass-through behaviour; rewrote it to mock `get_guilds_map` and assert the resolved
+  snowflake, plus added a case for an unknown guild row (→ `guild_id: None`, matching
+  `_board_event`'s convention).
 
 ## Rejected approaches
 
@@ -48,12 +61,11 @@ blocking open questions for either.
 
 ## Next steps
 
-1. Phase 2: #5 (`puzzle_service.py:1073`, convert_to_puzzle leaves the `target` self-edge —
-   IntegrityError on every meta demote, bang + web).
-2. Then #6 (`notifier.py:22`, board_changed publishes guilds row id, not the Discord
-   snowflake — confirm where the snowflake is available inside WebNotifier).
-3. Phase 3 (#7+#8) needs Q3 (timezone + editability) discussed first.
-4. Phase 4 (#2+#4) and Phase 5 (#62) follow per `implementation-plan.md`.
+1. Discuss Q3 (#7/#8: local-vs-UTC display, and whether URL/start should be web-editable)
+   with the user, then implement #7+#8 together (Phase 3) — they share how `start_local` is
+   derived/synced.
+2. Phase 4 (#2+#4, archive-spreadsheet desync) and Phase 5 (#62, web solve parity) follow
+   per `implementation-plan.md`.
 
 ## Open questions
 
