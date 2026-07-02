@@ -2914,35 +2914,37 @@ class Puzzles(commands.Cog):
                 if author.id == bot_id:
                     continue
                 content = message.content
-                if content:
-                    if content[0] == '!' and content[:3] != '!s ':
-                        continue
-                    files = []
-                    for a in message.attachments:
-                        try:
-                            files.append(await a.to_file(use_cached=True))
-                        except discord.HTTPException as e:
-                            # some attachments/filetypes can't be re-downloaded - skip
-                            # the attachment but keep archiving the rest of the message.
-                            logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
-                    avatar_url = getattr(author.avatar, 'url', None)
+                if content and content[0] == '!' and content[:3] != '!s ':
+                    continue
+                files = []
+                for a in message.attachments:
                     try:
-                        moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
-                                                          embeds=message.embeds, thread=thread, wait=True, silent=True)
+                        files.append(await a.to_file(use_cached=True))
                     except discord.HTTPException as e:
-                        # e.g. an attachment too large to re-upload, or content the API
-                        # rejects - skip this message rather than aborting the archive.
-                        logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
-                        continue
-                    if message.reactions:
-                        for reaction in message.reactions:
-                            try:
-                                await moved_message.add_reaction(reaction.emoji)
-                            except discord.HTTPException as e:
-                                # e.g. a custom/external emoji the bot can't apply - skip it
-                                # rather than aborting the whole archive.
-                                logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
-                    await asyncio.sleep(0.1)
+                        # some attachments/filetypes can't be re-downloaded - skip
+                        # the attachment but keep archiving the rest of the message.
+                        logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
+                if not content and not files and not message.embeds:
+                    # truly nothing to archive (e.g. all attachments failed to download)
+                    continue
+                avatar_url = getattr(author.avatar, 'url', None)
+                try:
+                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
+                                                      embeds=message.embeds, thread=thread, wait=True, silent=True)
+                except discord.HTTPException as e:
+                    # e.g. an attachment too large to re-upload, or content the API
+                    # rejects - skip this message rather than aborting the archive.
+                    logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
+                    continue
+                if message.reactions:
+                    for reaction in message.reactions:
+                        try:
+                            await moved_message.add_reaction(reaction.emoji)
+                        except discord.HTTPException as e:
+                            # e.g. a custom/external emoji the bot can't apply - skip it
+                            # rather than aborting the whole archive.
+                            logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
+                await asyncio.sleep(0.1)
         await channel.delete(reason=self.DELETE_REASON)
         return True
 
