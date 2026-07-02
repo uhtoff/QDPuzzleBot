@@ -433,6 +433,15 @@ Round/hunt teardown runs without any per-puzzle locking on BOTH edges: !delete_r
 
 **Failure scenario:** While !delete_round is awaiting its 30s confirmation and then deleting channels/sheets, a teammate's !solve (or a dashboard solve, which uses the same per-puzzle locks) on a member puzzle proceeds in parallel — writing to a sheet/DB row mid-deletion, yielding Sheets errors or a re-committed row for a deleted puzzle.
 
+**Status update (2026-07-02):** fully fixed. A new `puzzles_lock(puzzle_ids)`
+helper (`bot/core/locks.py`) holds every member puzzle's lock — from the same
+shared `_PUZZLE_LOCKS` registry `puzzle_lock`/`with_puzzle_mutex` already use —
+for the duration of confirm-plus-delete, on all four entrypoints: bang
+`!delete_round`, bang `!delete_hunt`, and both web equivalents. A concurrent
+`!solve`/dashboard-solve on any member puzzle now blocks until teardown
+completes (or the reverse, if the solve got there first), closing the
+interleaving race described above.
+
 ### 46. [LOW] `bot/cogs/puzzles.py:3155`
 
 start_reminders (bot/cogs/puzzles.py:3155) calls self.reminder_loop.start(channel) unconditionally; discord.py tasks.Loop.start raises RuntimeError if the loop is already launched, so a second !start_reminders (same or different hunt) fails — the error is caught by the cog's on_command_error generic branch, which logs it and replies "Something went wrong", not a crash but a confusing failure with no way to point the single shared loop at a second hunt's channel (one Loop per cog instance, bound to whichever channel started it first). The reset of self.reminder_index at line 3154 also happens before the failing start, perturbing the running loop's message cadence.
@@ -490,6 +499,17 @@ In PuzzleService.create_puzzle, forum_channel is assigned only inside the `round
 create_hunt (bot/core/puzzle_service.py:2086) and delete_hunt (:2164) are the only service mutations without @pushes_board, and no caller on either path (bang: puzzles.py:535/:3111; web: actions.py:708/:1280) publishes a board event — so no WebSocket invalidation fires on hunt create/delete. Impact is smaller than claimed: the hunt board self-heals within 30s via useHunt's refetchInterval (frontend/src/api.ts:123), and the hunt list would stay stale even WITH a push, because useActivityFeed only invalidates the ["hunt", uid] query, never ["hunts"].
 
 **Failure scenario:** !delete_hunt from Discord (puzzles.py:3111): every dashboard client watching that hunt keeps rendering the deleted board — no board_changed/WebSocket invalidation ever fires, and subsequent API refetches 404 only after a manual reload; a bang !hunt creation similarly never appears on open hunt lists until reload.
+
+**Status update (2026-07-02):** partially fixed. `delete_hunt` now carries
+`@pushes_board()`, so a WebSocket `board_changed` event fires on hunt delete
+and connected dashboard clients stop rendering a deleted board immediately
+instead of waiting on the 30s poll or a manual reload. `create_hunt` is
+deliberately left unfixed: it has no pre-call `hunt` object to push from (it
+creates one), and — as this finding's own analysis already noted — the
+frontend's `useActivityFeed` only invalidates the `["hunt", uid]` query, never
+`["hunts"]`, so a bang `!hunt` creation would still not appear on an open hunt
+list even with a backend push. Fixing hunt-creation visibility needs a
+frontend query-invalidation change, out of scope for this backend-only fix.
 
 ### 55. [LOW] `bot/store/mysqldb.py:580`
 
