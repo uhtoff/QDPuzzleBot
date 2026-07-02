@@ -6,7 +6,7 @@ factories are plain functions. Patch DAOs at the cog import site
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests.conftest import make_cog, make_ctx, make_round
+from tests.conftest import make_cog, make_ctx, make_hunt, make_round
 
 
 # --- Round is a create-time alias of Metapuzzle (keeps " - meta" suffix) -----
@@ -53,6 +53,25 @@ async def test_delete_round_allows_capstone_channel():
         await Puzzles.delete_round.callback(cog, ctx)
     cog._confirm_destructive.assert_awaited_once()             # guard passed (not rejected)
     assert all("main group channel" not in str(c) for c in ctx.send.call_args_list)
+
+
+async def test_delete_round_bang_passes_keep_puzzles_false():
+    from bot.cogs.puzzles import Puzzles
+    tag_group = make_round(id=7)
+    cog = make_cog(hunt=make_hunt(channel_id=999))
+    cog.bot = MagicMock()
+    cog.bot.get_channel.return_value = MagicMock(send=AsyncMock())
+    cog.get_channel_type = lambda ctx: "Group"
+    cog.get_tag_group = lambda ctx: tag_group
+    cog._confirm_destructive = AsyncMock(return_value=True)
+    cog.service.delete_round = AsyncMock(return_value=[])
+    ctx = make_ctx()
+    cog.environment = {ctx.message.id: {"puzzle": None, "tag_group": tag_group}}
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+        PuzzleDb.get_all_from_tag_group.return_value = []
+        await Puzzles.delete_round.callback(cog, ctx)
+    cog.service.delete_round.assert_awaited_once()
+    assert cog.service.delete_round.await_args.kwargs["keep_puzzles"] is False
 
 
 def test_get_settings_routes_capstone_to_tag_group():

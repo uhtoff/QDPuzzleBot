@@ -3051,7 +3051,8 @@ class Puzzles(commands.Cog):
 
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
-        failed = await self.service.delete_round(ctx.guild, self.get_hunt(ctx), tag_group)
+        failed = await self.service.delete_round(
+            ctx.guild, self.get_hunt(ctx), tag_group, keep_puzzles=False)
 
         await hunt_general_channel.send(
             f":white_check_mark: Round {tag_group.name} successfully deleted.  "
