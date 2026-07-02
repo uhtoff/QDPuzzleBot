@@ -161,4 +161,18 @@ async def start_web(bot):
         ),
         name="web-dashboard",
     )
+    task.add_done_callback(_log_web_task_failure)
     return task
+
+
+def _log_web_task_failure(task: asyncio.Task) -> None:
+    """Surface a crash in the background web-dashboard task.
+
+    Without this, a hypercorn startup failure (e.g. port already bound) is
+    silently swallowed — the bot keeps running with the dashboard down and
+    nothing in the logs to say why."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Web dashboard task failed; dashboard is down.", exc_info=exc)

@@ -120,11 +120,33 @@ class DiscordNotifier(Notifier):
         hunt,
         puzzle: Optional[object] = None,
     ) -> None:
-        """Refresh a puzzle's pinned info message after a metadata change."""
-        if guild is None or puzzle is None:
+        """Refresh a puzzle's pinned info message after a metadata change.
+
+        When ``puzzle`` is None, refreshes the hunt channel's own pinned info
+        message instead (used for hunt-settings changes: !set_login, !set_start,
+        !update_settings, and the web PATCH /hunts/<uid>/settings equivalent)."""
+        if guild is None:
             return
         cog = self._cog()
         if cog is None:
+            return
+
+        if puzzle is None:
+            if hunt is None or not hunt.channel_id:
+                return
+            channel = guild.get_channel_or_thread(hunt.channel_id)
+            if channel is None:
+                return
+            try:
+                from bot.store import GuildSettingsDb
+                await cog.send_initial_hunt_channel_messages(
+                    None, channel,
+                    hunt=hunt,
+                    update=True,
+                    guild_data=GuildSettingsDb.get(guild.id),
+                )
+            except Exception:
+                logger.exception("refresh_info: failed for hunt %s", hunt.id)
             return
 
         channel = guild.get_channel_or_thread(puzzle.channel_id) if puzzle.channel_id else None

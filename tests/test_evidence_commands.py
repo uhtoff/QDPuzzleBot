@@ -16,7 +16,7 @@ class TestClueCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock(return_value=[MagicMock()])
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
         cog.service.refresh_evidence = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="Suspect 3 likes Bourbon biscuits")
@@ -35,7 +35,7 @@ class TestClueCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock(return_value=[MagicMock()])
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
         cog.service.refresh_evidence = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="some note")
@@ -51,7 +51,7 @@ class TestClueCommand:
         puzzle = make_puzzle(id=5, hunt_id=10)
         cog = make_cog(puzzle)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock()
+        cog.service.log_clues = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="")
 
@@ -70,7 +70,7 @@ class TestCluesCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock(return_value=[MagicMock()] * 4)
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock()] * 4)
         cog.service.refresh_evidence = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items='APPLE BANANA "CHERRY BOMB" DURIAN')
@@ -84,7 +84,7 @@ class TestCluesCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock(return_value=[MagicMock(), MagicMock(), MagicMock()])
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(), MagicMock(), MagicMock()])
         cog.service.refresh_evidence = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items="APPLE BANANA CHERRY")
@@ -100,7 +100,7 @@ class TestCluesCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock(return_value=[MagicMock()])
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
         cog.service.refresh_evidence = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items='"ONLY ONE"')
@@ -113,7 +113,7 @@ class TestCluesCommand:
         puzzle = make_puzzle(id=5, hunt_id=10)
         cog = make_cog(puzzle)
         ctx = make_ctx()
-        cog.service.log_clues = MagicMock()
+        cog.service.log_clues = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items="")
 

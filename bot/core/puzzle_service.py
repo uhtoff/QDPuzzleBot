@@ -1972,7 +1972,8 @@ class PuzzleService:
                 targets.append(group.target_puzzle_id)
         return targets[0] if len(targets) == 1 else None
 
-    def log_clues(self, hunt, puzzle, notes: list) -> list:
+    @pushes_board()
+    async def log_clues(self, hunt, puzzle, notes: list) -> list:
         """Insert one evidence_item per note. Returns list of EvidenceData.
 
         If the source puzzle informs exactly one target, each clue is auto-routed
@@ -2327,7 +2328,8 @@ class PuzzleService:
 
     _UNSET = object()
 
-    def update_hunt_settings(self, hunt, *, url=_UNSET, start_timestamp=_UNSET,
+    @pushes_board()
+    async def update_hunt_settings(self, hunt, *, url=_UNSET, start_timestamp=_UNSET,
                              username=_UNSET, password=_UNSET, url_sep=_UNSET,
                              puzzle_prefix=_UNSET):
         """Apply whitelisted per-hunt settings and commit. Only provided keys change."""

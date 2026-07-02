@@ -21,10 +21,10 @@ EXPECTED_PUSH_METHODS = {
     "add_note", "add_partial", "add_sheet", "add_solution", "bulk_re_edge",
     "change_solution", "convert_to_meta", "convert_to_puzzle", "convert_to_type",
     "create_mini", "create_puzzle", "create_tag_group", "delete_puzzle",
-    "delete_round", "erase_note", "make_minimeta", "remove_minimeta", "remove_sheet",
-    "rename_group", "rename_puzzle",
+    "delete_round", "erase_note", "log_clues", "make_minimeta", "remove_minimeta",
+    "remove_sheet", "rename_group", "rename_puzzle",
     "set_puzzle_url", "solve", "tag_with_edge", "unsolve",
-    "untag_from", "update_puzzle_field",
+    "untag_from", "update_hunt_settings", "update_puzzle_field",
 }
 
 
