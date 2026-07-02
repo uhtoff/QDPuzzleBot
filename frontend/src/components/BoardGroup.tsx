@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import { useClipboard, useDisclosure, useMediaQuery } from "@mantine/hooks";
 import {
@@ -75,6 +75,12 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
   const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
+
+  // Reset the scope choice whenever the modal closes, so a reopen (this round
+  // or another) starts from "keep" rather than a stale "all" selection.
+  useEffect(() => {
+    if (!deleteRoundOpen) setDeleteAllPuzzles(false);
+  }, [deleteRoundOpen]);
 
   function rebuild() {
     rebuildMut.mutate(group.tag_group_id, {
