@@ -188,6 +188,7 @@ async def test_create_puzzle_emits_board_changed():
     bot = MagicMock()
     gsheet = MagicMock()
     gsheet.create_puzzle_spreadsheet = AsyncMock()
+    gsheet.compute_insert_index = AsyncMock(return_value=0)
     bot.get_cog.return_value = gsheet
     svc = PuzzleService(bot, notifier=notifier)
 

@@ -180,6 +180,7 @@ class TestCreateMini:
         async def fake_create_sheet(p, **kwargs):
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        gsheet.compute_insert_index = AsyncMock(return_value=0)
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
 
@@ -224,6 +225,7 @@ class TestCreateMini:
             p.google_page_id = "PAGE7"
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        gsheet.compute_insert_index = AsyncMock(return_value=0)
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
 
@@ -263,6 +265,7 @@ class TestCreateMini:
         async def fake_create_sheet(p, **kwargs):
             return None
         gsheet.create_puzzle_spreadsheet = fake_create_sheet
+        gsheet.compute_insert_index = AsyncMock(return_value=0)
         bot = MagicMock()
         bot.get_cog.return_value = gsheet
 
@@ -395,7 +398,7 @@ class TestUnsolveService:
 
         order = []
         gsheet_cog = MagicMock()
-        gsheet_cog.compute_insert_index.return_value = 3
+        gsheet_cog.compute_insert_index = AsyncMock(return_value=3)
 
         async def fake_restore(puzzle_data, restore_index=None):
             order.append("restore")
@@ -625,9 +628,9 @@ class TestRemoveMinimeta:
         svc.delete_puzzle = AsyncMock()
         gsheet = MagicMock()
         gsheet.get_spreadsheet_id.return_value = "SS"
-        gsheet.sheet_list.return_value = {
+        gsheet.sheet_list = AsyncMock(return_value={
             "sheets": [{"properties": {"sheetId": 99}, "tables": [{"id": "t"}]}]
-        }
+        })
         gsheet.demote_tab_to_puzzle = AsyncMock()
         svc._gsheet_cog = MagicMock(return_value=gsheet)
         RollupDb.get_by_attr.return_value = None
@@ -648,9 +651,9 @@ class TestRemoveMinimeta:
         svc.delete_puzzle = AsyncMock()
         gsheet = MagicMock()
         gsheet.get_spreadsheet_id.return_value = "SS"
-        gsheet.sheet_list.return_value = {
+        gsheet.sheet_list = AsyncMock(return_value={
             "sheets": [{"properties": {"sheetId": 99}}]
-        }
+        })
         gsheet.demote_tab_to_puzzle = AsyncMock()
         svc._gsheet_cog = MagicMock(return_value=gsheet)
         RollupDb.get_by_attr.return_value = None

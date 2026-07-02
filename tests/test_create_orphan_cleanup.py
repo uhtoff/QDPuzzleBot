@@ -27,6 +27,7 @@ def _cog_with_sheets():
     gsheet = MagicMock()
     gsheet.create_puzzle_spreadsheet = AsyncMock()
     gsheet.delete_puzzle_spreadsheet = AsyncMock()
+    gsheet.compute_insert_index = AsyncMock(return_value=0)
     bot = MagicMock()
     bot.get_cog.return_value = gsheet
     return Puzzles(bot), gsheet

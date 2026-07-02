@@ -348,6 +348,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   {editable ? (
                     <StatusCell
                       value={p.status}
+                      solved={p.solved}
                       onChange={(status) => updateMut.mutate({ puzzleId: p.id, patch: { status } })}
                     />
                   ) : p.status ? (

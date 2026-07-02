@@ -35,10 +35,13 @@ async def list_guilds():
     Pass ?admin=1 to restrict to guilds where the user holds an admin role."""
     user = current_user()
     admin_only = request.args.get("admin") == "1"
+    membership, _ = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
     result = []
     for guild_id, info in guilds_map.items():
         snowflake = info["guild_snowflake"]
+        if snowflake not in membership:
+            continue
         is_admin = await user_can_manage(user["id"], snowflake, roles=ADMIN_ROLES)
         if admin_only and not is_admin:
             continue
@@ -204,9 +207,13 @@ async def add_evidence():
     notes = body.get("notes", [])
     if not hunt_uid or not source_puzzle_id or not notes:
         return jsonify({"error": "hunt_uid, source_puzzle_id, and notes required"}), 400
+    if not all(isinstance(n, str) for n in notes):
+        return jsonify({"error": "notes must be strings"}), 400
     hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
     if hunt is None:
         return jsonify({"error": "hunt not found"}), guild_or_status
+    if hunt["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
     puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
     if puzzle is None or puzzle.hunt_id != hunt["id"]:
         return jsonify({"error": "puzzle not found in hunt"}), 404
@@ -221,6 +228,40 @@ async def add_evidence():
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 
+async def _activity_event_visible(event, user_id, guild_id):
+    """True if the user can actually see the channel an "activity" event came from.
+
+    Guild membership alone isn't enough: one guild can host several teams whose
+    channels are gated by a per-hunt Discord role overwrite (see hunt_visible),
+    not by guild membership. Checking the live permission overwrites for the
+    specific channel matches that same per-hunt gate without needing a DB lookup
+    per message.
+    """
+    bot = current_app.bot
+    guild = bot.get_guild(guild_id)
+    if guild is None:
+        return False
+    channel = guild.get_channel(int(event["channel_id"]))
+    if channel is None:
+        return False  # deleted/uncached channel: fail closed, a stale line is harmless to drop
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            return False
+    return channel.permissions_for(member).view_channel
+
+
+async def _board_event_visible(event, membership, roles_by_guild):
+    """True if the user's team role grants them the hunt a "board" event names."""
+    hunt = await data.get_hunt_by_uid(event["uid"])
+    if hunt is None:
+        return False
+    guilds_map = await data.get_guilds_map()
+    return hunt_visible(hunt, membership, roles_by_guild, guilds_map)
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""
@@ -228,7 +269,7 @@ async def ws_activity():
     if not user:
         await websocket.close(1008)  # policy violation / unauthenticated
         return
-    membership, _ = await resolve_membership(user["id"])
+    membership, roles_by_guild = await resolve_membership(user["id"])
     queue = events.subscribe()
     # Membership is resolved once at connect, so without this a user who is kicked
     # (or whose roles change) keeps receiving events until they disconnect.
@@ -245,13 +286,25 @@ async def ws_activity():
 
             now = time.monotonic()
             if event is None or (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
-                membership, _ = await resolve_membership(user["id"])
+                membership, roles_by_guild = await resolve_membership(user["id"])
                 last_refresh = now
                 if not membership:
                     await websocket.close(1008)  # no longer a member of any guild
                     return
 
-            if event is not None and event.get("guild_id") in membership:
+            if event is None or event.get("guild_id") not in membership:
+                continue
+
+            # Guild membership only proves the user belongs to the guild; per-hunt
+            # team-role visibility (hunt_visible) is a finer-grained gate that
+            # membership alone does not enforce — check it per event type.
+            visible = True
+            if event.get("type") == "activity":
+                visible = await _activity_event_visible(event, user["id"], event["guild_id"])
+            elif event.get("type") == "board":
+                visible = await _board_event_visible(event, membership, roles_by_guild)
+
+            if visible:
                 await websocket.send_json(event)
     except asyncio.CancelledError:
         raise

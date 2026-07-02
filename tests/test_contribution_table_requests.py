@@ -34,8 +34,10 @@ def _capture_batch(cog):
 def _capture_lowlevel(cog, current_col_a):
     """Patch the low-level seams reconcile_table uses; record batch requests."""
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.sheet_list = lambda spreadsheet_id=None: {
-        "sheets": [{"properties": {"sheetId": 900, "title": "Meta", "index": 0}}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta", "index": 0}}]}
+    cog.sheet_list = _fake_sheet_list
 
     async def fake_values_get(spreadsheet_id, a1_range):
         # header + current keys down column A
@@ -56,7 +58,10 @@ def _capture_lowlevel(cog, current_col_a):
 def test_add_contribution_table_covers_header_and_hides_key_col():
     cog = _cog()
     calls = _capture_batch(cog)
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Meta"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Meta"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     table_id = asyncio.run(cog._add_contribution_table(page_id=900))
 
@@ -122,12 +127,15 @@ def test_reconcile_table_numeric_length_and_resizes_table():
     native Table is resized to cover header + data so rows belong to it."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
-        "properties": {"sheetId": 700, "title": "Unassigned Feeders", "index": 0},
-        "tables": [{"tableId": "UT", "range": {
-            "sheetId": 700, "startRowIndex": 0, "startColumnIndex": 0,
-            "endRowIndex": 1, "endColumnIndex": 5}}],
-    }]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{
+            "properties": {"sheetId": 700, "title": "Unassigned Feeders", "index": 0},
+            "tables": [{"tableId": "UT", "range": {
+                "sheetId": 700, "startRowIndex": 0, "startColumnIndex": 0,
+                "endRowIndex": 1, "endColumnIndex": 5}}],
+        }]}
+    cog.sheet_list = _fake_sheet_list
 
     async def fake_values_get(spreadsheet_id, a1_range):
         return {"values": [["id"]]}   # header only, no data yet
@@ -160,7 +168,10 @@ def test_generate_puzzle_tab_writes_header_and_no_table_for_feeder():
     calls = _capture_batch(cog)
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 901
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
 
     p = PuzzleData()
     p.id = 2
@@ -179,8 +190,14 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     calls = _capture_batch(cog)
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 902
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Meta"
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Meta"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     p = PuzzleData()
     p.id = 1
@@ -211,7 +228,10 @@ def test_generate_puzzle_tab_formats_tab():
     calls = _capture_batch(cog)
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 903
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
 
     p = PuzzleData()
     p.id = 3
@@ -239,9 +259,12 @@ def test_generate_puzzle_tab_formats_tab():
 
 def test_solution_bg_request_targets_shifted_solution_cell():
     cog = _cog()
-    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
-        "properties": {"sheetId": 905, "title": "Meta"},
-        "tables": [{"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0}}]}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{
+            "properties": {"sheetId": 905, "title": "Meta"},
+            "tables": [{"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0}}]}]}
+    cog.sheet_list = _fake_sheet_list
 
     p = PuzzleData()
     p.id = 1
@@ -266,7 +289,10 @@ def test_promote_inserts_columns_before_adding_table():
         return {"values": [["flavour"], ["progress"]]}
 
     cog._values_get = fake_values_get
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Alpha"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     p = PuzzleData()
     p.id = 1
@@ -294,7 +320,10 @@ def _promote_alpha():
         return {"values": [["saved"]]}
 
     cog._values_get = fake_values_get
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Alpha"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     p = PuzzleData()
     p.id = 1
@@ -355,8 +384,11 @@ def test_header_shift_constant_for_target():
     # returns TARGET_HEADER_SHIFT for a target's own tab regardless of where the
     # Table sits (old code keyed off the Table's row).
     cog = _cog()
-    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [
-        {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [
+            {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+    cog.sheet_list = _fake_sheet_list
     p = PuzzleData()
     p.id = 1
     p.is_target = True
@@ -371,8 +403,11 @@ def test_header_shift_applies_to_minimeta():
     # not a tag_group target (is_target stays False), so the shift must key off
     # is_minimeta too — otherwise solution/progress writes land one column left.
     cog = _cog()
-    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [
-        {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [
+            {"properties": {"sheetId": 905}, "tables": [{"range": {"startRowIndex": 0}}]}]}
+    cog.sheet_list = _fake_sheet_list
     p = PuzzleData()
     p.id = 1
     p.is_target = False
@@ -389,7 +424,10 @@ def _demote_alpha():
     cog = _cog()
     calls = _capture_batch(cog)
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Alpha"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     async def fake_values_get(spreadsheet_id, a1_range):
         return {"values": [["saved"]]}
@@ -447,7 +485,10 @@ def test_demote_does_not_rename_tab():
     cog = _cog()
     _capture_batch(cog)
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Alpha"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Alpha"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     async def fake_values_get(spreadsheet_id, a1_range):
         return {"values": [["saved"]]}
@@ -568,11 +609,14 @@ def _reconcile_with_table(grey_below):
     50), one desired row; return the captured batchUpdate bodies."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.sheet_list = lambda spreadsheet_id=None: {"sheets": [{
-        "properties": {"sheetId": 900, "title": "Meta",
-                       "gridProperties": {"rowCount": 50}},
-        "tables": [{"tableId": "T", "range": {
-            "startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}]}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{
+            "properties": {"sheetId": 900, "title": "Meta",
+                           "gridProperties": {"rowCount": 50}},
+            "tables": [{"tableId": "T", "range": {
+                "startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}]}]}
+    cog.sheet_list = _fake_sheet_list
 
     async def fake_values_get(spreadsheet_id, a1_range):
         return {"values": [["key"]]}  # header only, no existing data rows
@@ -711,7 +755,10 @@ def test_generate_puzzle_tab_emits_bold_values_and_border():
     calls = _capture_batch(cog)
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
 
     p = PuzzleData()
     p.id = 7
@@ -777,7 +824,10 @@ def test_generate_puzzle_tab_passes_index_to_create_blank_tab():
     cog = _cog()
     _capture_batch(cog)
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
     seen = {}
 
     def fake_blank(spreadsheet_id, name, index=None):
@@ -803,7 +853,10 @@ def test_ensure_unassigned_table_pins_tab_to_far_left():
     Sheets appends it last. ensure_unassigned_table must move it to index 0."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_page_name_by_id = lambda page_id, spreadsheet_id=None: "Unassigned Feeders"
+
+    async def _fake_get_page_name_by_id(page_id, spreadsheet_id=None):
+        return "Unassigned Feeders"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     async def fake_values_update(spreadsheet_id, a1, values):
         pass
@@ -834,7 +887,10 @@ def _run_ensure_evidence(page_id=800):
     (header_updates, clears, batch_bodies)."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_page_name_by_id = lambda pid, spreadsheet_id=None: "Evidence"
+
+    async def _fake_get_page_name_by_id(pid, spreadsheet_id=None):
+        return "Evidence"
+    cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     header_updates = []
     clears = []
@@ -920,7 +976,10 @@ def test_generate_puzzle_tab_survives_contribution_table_failure():
     _capture_batch(cog)   # header batch succeeds
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_unique_tab_name = lambda n: n
+
+    async def _fake_get_unique_tab_name(n):
+        return n
+    cog.get_unique_tab_name = _fake_get_unique_tab_name
 
     async def boom(page_id, header_row=0):
         raise RuntimeError("Internal error encountered.")
@@ -942,8 +1001,10 @@ def test_render_contribution_creates_missing_table_then_reconciles():
     render_contribution creates it before writing data."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.sheet_list = lambda spreadsheet_id=None: {
-        "sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}   # no "tables"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}   # no "tables"
+    cog.sheet_list = _fake_sheet_list
 
     created = []
 
@@ -974,8 +1035,10 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     write so contribution rows never clobber the header at row 0."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.sheet_list = lambda spreadsheet_id=None: {
-        "sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}
+    cog.sheet_list = _fake_sheet_list
 
     async def boom(page_id, header_row=0):
         raise RuntimeError("Internal error encountered.")

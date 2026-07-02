@@ -16,10 +16,60 @@ class TestUpdatePuzzleFieldStatus:
         hunt = make_hunt()
         puzzle = make_puzzle(id=5, hunt_id=10)
 
-        await svc.update_puzzle_field(hunt, puzzle, "status", "solved")
+        await svc.update_puzzle_field(hunt, puzzle, "status", "stuck")
 
-        assert puzzle.status == "solved"
+        assert puzzle.status == "stuck"
         PuzzleDb.commit.assert_called_once_with(puzzle)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_solved_status_rejected_when_not_solved(self, PuzzleDb):
+        """"solved"/"backsolved" are owned by the solve machinery, not !status."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        hunt = make_hunt()
+        puzzle = make_puzzle(id=5, hunt_id=10, solved=False)
+
+        with pytest.raises(ValueError, match="solve"):
+            await svc.update_puzzle_field(hunt, puzzle, "status", "solved")
+
+        PuzzleDb.commit.assert_not_called()
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_backsolved_status_rejected_when_not_solved(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        hunt = make_hunt()
+        puzzle = make_puzzle(id=5, hunt_id=10, solved=False)
+
+        with pytest.raises(ValueError):
+            await svc.update_puzzle_field(hunt, puzzle, "status", "backsolved")
+
+        PuzzleDb.commit.assert_not_called()
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_can_toggle_between_solved_and_backsolved_when_solved(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        hunt = make_hunt()
+        puzzle = make_puzzle(id=5, hunt_id=10, solved=True, status="solved")
+
+        await svc.update_puzzle_field(hunt, puzzle, "status", "backsolved")
+
+        assert puzzle.status == "backsolved"
+        PuzzleDb.commit.assert_called_once_with(puzzle)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_cannot_change_away_from_solved_status_manually(self, PuzzleDb):
+        """Once solved, only the unsolve machinery may change the status."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        hunt = make_hunt()
+        puzzle = make_puzzle(id=5, hunt_id=10, solved=True, status="solved")
+
+        with pytest.raises(ValueError, match="unsolve"):
+            await svc.update_puzzle_field(hunt, puzzle, "status", "in progress")
+
+        PuzzleDb.commit.assert_not_called()
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_status_case_insensitive_validation(self, PuzzleDb):

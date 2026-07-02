@@ -46,20 +46,20 @@ def _make_puzzle_with_sheet(page_id, is_target, solved):
 # compute_insert_index: no existing puzzle tabs → INITIAL_OFFSET
 # ---------------------------------------------------------------------------
 
-def test_compute_insert_index_no_puzzles_target(tmp_path):
+async def test_compute_insert_index_no_puzzles_target(tmp_path):
     cog = make_sheets_cog()
     # Sheet list has only reserved slots (indices 0-6), no puzzle tabs
     reserved = [_sheet_entry(i, i) for i in range(7)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": reserved}):
-        idx = cog.compute_insert_index(is_target=True, puzzles=[])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": reserved})):
+        idx = await cog.compute_insert_index(is_target=True, puzzles=[])
     assert idx == cog.INITIAL_OFFSET
 
 
-def test_compute_insert_index_no_puzzles_regular(tmp_path):
+async def test_compute_insert_index_no_puzzles_regular(tmp_path):
     cog = make_sheets_cog()
     reserved = [_sheet_entry(i, i) for i in range(7)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": reserved}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": reserved})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[])
     assert idx == cog.INITIAL_OFFSET
 
 
@@ -67,17 +67,17 @@ def test_compute_insert_index_no_puzzles_regular(tmp_path):
 # compute_insert_index: target goes after last unsolved target
 # ---------------------------------------------------------------------------
 
-def test_compute_insert_index_target_after_existing_target():
+async def test_compute_insert_index_target_after_existing_target():
     cog = make_sheets_cog()
     target_puzzle = _make_puzzle_with_sheet(page_id=101, is_target=True, solved=False)
     # Target is at sheet index 7
     sheets = [_sheet_entry(i, i) for i in range(7)] + [_sheet_entry(101, 7)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=True, puzzles=[target_puzzle])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=True, puzzles=[target_puzzle])
     assert idx == 8   # after the target at index 7
 
 
-def test_compute_insert_index_target_after_last_of_multiple_targets():
+async def test_compute_insert_index_target_after_last_of_multiple_targets():
     cog = make_sheets_cog()
     t1 = _make_puzzle_with_sheet(page_id=101, is_target=True, solved=False)
     t2 = _make_puzzle_with_sheet(page_id=102, is_target=True, solved=False)
@@ -85,8 +85,8 @@ def test_compute_insert_index_target_after_last_of_multiple_targets():
         [_sheet_entry(i, i) for i in range(7)]
         + [_sheet_entry(101, 7), _sheet_entry(102, 8)]
     )
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=True, puzzles=[t1, t2])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=True, puzzles=[t1, t2])
     assert idx == 9   # after index 8
 
 
@@ -94,26 +94,26 @@ def test_compute_insert_index_target_after_last_of_multiple_targets():
 # compute_insert_index: regular puzzle positioning
 # ---------------------------------------------------------------------------
 
-def test_compute_insert_index_regular_after_existing_regular():
+async def test_compute_insert_index_regular_after_existing_regular():
     cog = make_sheets_cog()
     r1 = _make_puzzle_with_sheet(page_id=201, is_target=False, solved=False)
     sheets = [_sheet_entry(i, i) for i in range(7)] + [_sheet_entry(201, 7)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[r1])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[r1])
     assert idx == 8
 
 
-def test_compute_insert_index_regular_after_target_when_no_regulars():
+async def test_compute_insert_index_regular_after_target_when_no_regulars():
     """With only a target existing, a new regular goes right after the target."""
     cog = make_sheets_cog()
     t1 = _make_puzzle_with_sheet(page_id=101, is_target=True, solved=False)
     sheets = [_sheet_entry(i, i) for i in range(7)] + [_sheet_entry(101, 7)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[t1])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[t1])
     assert idx == 8
 
 
-def test_compute_insert_index_regular_after_last_regular_not_last_target():
+async def test_compute_insert_index_regular_after_last_regular_not_last_target():
     """Regular goes after the last regular, even if there's a target later
     (shouldn't happen in normal use but the algorithm must handle it)."""
     cog = make_sheets_cog()
@@ -124,8 +124,8 @@ def test_compute_insert_index_regular_after_last_regular_not_last_target():
         [_sheet_entry(i, i) for i in range(7)]
         + [_sheet_entry(101, 7), _sheet_entry(201, 8)]
     )
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[t1, r1])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[t1, r1])
     assert idx == 9  # after last regular (8), not last target (7)
 
 
@@ -133,14 +133,14 @@ def test_compute_insert_index_regular_after_last_regular_not_last_target():
 # compute_insert_index: solved tabs are excluded from zone anchors
 # ---------------------------------------------------------------------------
 
-def test_compute_insert_index_ignores_solved_puzzles():
+async def test_compute_insert_index_ignores_solved_puzzles():
     """A solved puzzle's tab (at the end) must not anchor the unsolved zone."""
     cog = make_sheets_cog()
     solved = _make_puzzle_with_sheet(page_id=301, is_target=False, solved=True)
     # Solved tab is at index 20 (end); no unsolved tabs exist
     sheets = [_sheet_entry(i, i) for i in range(7)] + [_sheet_entry(301, 20)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[solved])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[solved])
     assert idx == cog.INITIAL_OFFSET  # falls back, not 21
 
 
@@ -148,13 +148,13 @@ def test_compute_insert_index_ignores_solved_puzzles():
 # compute_insert_index: hidden sheets skipped
 # ---------------------------------------------------------------------------
 
-def test_compute_insert_index_skips_hidden_sheets():
+async def test_compute_insert_index_skips_hidden_sheets():
     cog = make_sheets_cog()
     r1 = _make_puzzle_with_sheet(page_id=201, is_target=False, solved=False)
     # r1's sheet is hidden (shouldn't happen in practice but ensure robustness)
     sheets = [_sheet_entry(201, 7, hidden=True)]
-    with patch.object(cog, "sheet_list", return_value={"sheets": sheets}):
-        idx = cog.compute_insert_index(is_target=False, puzzles=[r1])
+    with patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": sheets})):
+        idx = await cog.compute_insert_index(is_target=False, puzzles=[r1])
     assert idx == cog.INITIAL_OFFSET  # hidden tab not counted
 
 
@@ -302,7 +302,7 @@ async def test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_arch
     with (
         patch.object(cog, "batch_update", side_effect=fake_batch_update),
         patch.object(cog, "move_puzzle_spreadsheet", new=AsyncMock(return_value="live-extra")) as mock_move,
-        patch.object(cog, "get_page_name_by_id", return_value="Extra Sheet"),
+        patch.object(cog, "get_page_name_by_id", new=AsyncMock(return_value="Extra Sheet")),
         patch.object(cog, "get_spreadsheet_id", return_value="sheet-id"),
         patch.object(cog, "get_archive_spreadsheet_id", return_value="archive-id"),
         patch("bot.cogs.puzzles_gsheet.config") as mock_cfg,

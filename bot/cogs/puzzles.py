@@ -4,6 +4,7 @@ import random
 from typing import Any, Optional
 
 import discord
+import pytz
 from discord import app_commands
 from discord.ext import tasks, commands
 from googleapiclient.errors import HttpError
@@ -1167,6 +1168,7 @@ class Puzzles(commands.Cog):
             return await self.send_not_puzzle_channel(ctx)
         await self.service.make_minimeta(puzzle)
         await ctx.send(f":white_check_mark: **{puzzle.name}** is now a minimeta cluster. Use `!add_mini` to add mini-puzzles.")
+        await self.info(ctx, update=True)
 
     @commands.command()
     async def remove_minimeta(self, ctx):
@@ -1187,6 +1189,7 @@ class Puzzles(commands.Cog):
             f":white_check_mark: **{puzzle.name}** is no longer a minimeta; its "
             f"mini-puzzles were removed."
         )
+        await self.info(ctx, update=True)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -1385,19 +1388,33 @@ class Puzzles(commands.Cog):
 
         default_edge = TYPE_DEFAULTS.get(target_group.type, {}).get("default_edge", "feeds")
 
+        # In a split round, puzzles moved into the solved/overflow categories are
+        # tracked only via TagGroupCategoryDb (not TagGroupJsonDb.category_id), so
+        # a plain meta_category.channels walk silently misses them (#15).
+        sync_categories = [meta_category]
+        seen_category_ids = {meta_category.id}
+        for row in category_layout.group_categories(target_group, TagGroupCategoryDb):
+            if row.category_id in seen_category_ids:
+                continue
+            extra_category = discord.utils.get(ctx.guild.categories, id=row.category_id)
+            if extra_category is not None:
+                sync_categories.append(extra_category)
+                seen_category_ids.add(extra_category.id)
+
         updated = 0
         errors = []
-        for channel in meta_category.channels:
-            puz = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
-            if puz is None:
-                continue
-            if puz.id == target_group.target_puzzle_id:
-                continue
-            try:
-                await self.service.tag_edge_only(puz, target_group, default_edge, guild=None)
-                updated += 1
-            except Exception as exc:
-                errors.append((puz.name, str(exc)))
+        for category in sync_categories:
+            for channel in category.channels:
+                puz = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
+                if puz is None:
+                    continue
+                if puz.id == target_group.target_puzzle_id:
+                    continue
+                try:
+                    await self.service.tag_edge_only(puz, target_group, default_edge, guild=None)
+                    updated += 1
+                except Exception as exc:
+                    errors.append((puz.name, str(exc)))
 
         hunt = self.get_hunt(ctx)
         if hunt is not None:
@@ -2255,26 +2272,43 @@ class Puzzles(commands.Cog):
         tag_group = kwargs.get('tag_group', self.get_tag_group(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
         puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
+
+        # Capstone/runaround share this welcome with plain metas, but their default
+        # tagging edge differs (TYPE_DEFAULTS): a capstone's members should use
+        # !informs, not !feeds_only/!feeds, or tagging one silently shifts the
+        # group toward meta semantics (#70). Word the channel kind and the
+        # recommended tagging command to match the group's actual type.
+        kind = {"Capstone": "capstone", "Runaround": "runaround"}.get(tag_group.type, "meta")
+        rename_target = "metapuzzle" if kind == "meta" else kind
+        if tag_group.type == "Capstone":
+            tagging_hints = (
+                f"        • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this capstone — this is the edge capstone members should use.\n"
+                f"        • `!feeds_only {tag_group.group_code}` / `!feeds {tag_group.group_code}` tag a puzzle as a standard feeder instead; do not use these for capstone members.\n"
+            )
+        else:
+            tagging_hints = (
+                f"        • `!feeds_only {tag_group.group_code}` when used in another puzzle channel will add it to this {kind} as a feeder and move it to this category.\n"
+                f"        • `!feeds {tag_group.group_code}` when used in another puzzle channel will add it to this {kind} as a feeder but not move it (e.g. if a puzzle feeds multiple metas).\n"
+                f"        • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this {kind} — it contributes without being a standard feeder (e.g. capstones / cross-references).\n"
+            )
+
         embed = discord.Embed(
-            description=f"""Welcome to the meta channel for {tag_group.name}!"""
+            description=f"""Welcome to the {kind} channel for {tag_group.name}!"""
         )
         embed.add_field(
             name="Overview",
-            value="This channel is for general discussion of the round and working on the meta, please note the first two column of the sheet are reserved for the puzzle titles and answers and will be overwritten by the bot!",
+            value=f"This channel is for general discussion of the round and working on the {kind}, please note the first two column of the sheet are reserved for the puzzle titles and answers and will be overwritten by the bot!",
             inline=False,
         )
         embed.add_field(
                         name="General Commands",
                         value=f"""The following may be useful discord commands:
-        • `!p <puzzle-name>` will add a puzzle to this meta.
-        • `!list` : List all puzzles in this meta.
+        • `!p <puzzle-name>` will add a puzzle to this {kind}.
+        • `!list` : List all puzzles in this {kind}.
         • `!info` will re-post this message.
-        • `!feeds_only {tag_group.group_code}` when used in another puzzle channel will add it to this meta as a feeder and move it to this category.
-        • `!feeds {tag_group.group_code}` when used in another puzzle channel will add it to this meta as a feeder but not move it (e.g. if a puzzle feeds multiple metas).
-        • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this meta — it contributes to the meta without being a standard feeder (e.g. capstones / cross-references).
-        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this meta.
-        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the meta.
-        • `!rename_meta <puzzle-name>` (admin only) will rename the metapuzzle.
+{tagging_hints}        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this {kind}.
+        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the {kind}.
+        • `!rename_meta <puzzle-name>` (admin only) will rename the {rename_target}.
         """,
                         inline=False,
                     )
@@ -2512,8 +2546,8 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         try:
             await self.service.update_puzzle_field(hunt, puzzle, "status", status)
-        except ValueError:
-            await ctx.send(f":exclamation: Status should be one of {self.STATUSES}, got \"{status}\"")
+        except ValueError as exc:
+            await ctx.send(f":exclamation: {exc}")
             return
         await self.send_state(ctx, ctx.channel, puzzle, description=":white_check_mark: I've updated:" if status else None)
 
@@ -2969,7 +3003,8 @@ class Puzzles(commands.Cog):
             else:
                 round_name = channel.category
             thread_name = f"{puzzle.name} ({round_name})"
-            puzzle.archive_time = datetime.datetime.now()
+            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            PuzzleJsonDb.commit(puzzle)
         else:
             thread_name = f"{channel.name} ({channel.category.name})"
         if len(thread_name) > 100:

@@ -31,10 +31,14 @@ All landed:
 - Tranche 3 (`17afadf`): web↔Discord pin/board staleness — #63, #65, #66, #67, #68, #85.
 - Tranche 4 (`be0ae05`): Google Sheets correctness bugs — #25, #26, #47, #48.
 
-**#24** (event-loop-blocking Sheets calls) was scoped out of tranche 4 deliberately: the real
-fix requires converting 6 sync helper methods to async across ~30 call sites in two source
-files plus two test files, a much larger/riskier change than a single-function fix. Left
-outstanding as its own follow-up task.
+**#24** (event-loop-blocking Sheets calls) was scoped out of tranche 4 deliberately (the real
+fix required converting 6 sync helper methods to async across ~30 call sites in two source
+files plus two test files, a much larger/riskier change than a single-function fix) and left as
+its own follow-up task. That follow-up is now done: `sheet_list` and 6 related helpers (plus a
+7th, `get_puzzle_sheet_index`, sharing the same defect) in `bot/cogs/puzzles_gsheet.py` are async,
+routed through the existing `execute_with_retry` helper instead of the event-loop-blocking
+`execute_sync`; every call site across `bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`
+now awaits them (commits `8319a31`, `494a91f`, `f8fcfe9`, `fdb4cfb`).
 
 Round/hunt-deletion-scoped findings (#29, #30, #32, #42, #45, #54, #55) were excluded from
 every tranche above by design — that area was being worked in parallel in `working-2`
@@ -42,6 +46,27 @@ every tranche above by design — that area was being worked in parallel in `wor
 whether that work incidentally fixed any of them.
 
 No other findings in this document have been actioned.
+
+**Fix-review pass (2026-07-02):** all 47 findings previously marked `FIXED` were re-reviewed
+against their actual commit diffs — one reviewer per fix commit, checking that the diff genuinely
+closes the finding's failure scenario and is sound code. All 47 passed and are now marked
+`FIXED AND REVIEWED`. No fix was found broken or incomplete. Two carry a recorded reviewer note
+for a low-risk residual (not a defect in the fix): **#63** (the added pin refresh is not
+try/except-wrapped, so it can raise after commit in a hand-broken channel) and **#38** (the WS
+event filter is default-open for future/unknown event types — no leak today). A few others had
+purely cosmetic residuals (e.g. #28's warning-string label, #62's partial-embed wording) noted at
+review time but not worth doc annotations. The `MOOT` (#88) and `PARTIALLY MITIGATED` (#29, #30)
+findings were left as-is — they were not in the `FIXED` set.
+
+**Deferred hardening pass (do after the remaining findings are fixed):** the two reviewer-note
+residuals above are intentionally NOT actioned yet — batch them into a single hardening pass once
+the outstanding fixes are done, rather than reopening two already-reviewed commits now:
+- **#63** — wrap the added `await self.info(ctx, update=True)` pin refresh in the same best-effort
+  try/except the web-side `web_refresh_info` seam uses, so a hand-broken (pin-less) channel can't
+  raise after the settings already committed.
+- **#38** — flip the `/ws/activity` event filter to default-*deny* for unknown event types (today
+  it defaults open; harmless now since only `activity`/`board`/`ready` exist, but a future
+  hidden-hunt-bearing event type would leak on guild membership alone).
 
 Severity: high = wrong behaviour/data loss a user will plausibly hit; medium = real but
 narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or cleanup.
@@ -51,7 +76,7 @@ narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or clea
 
 ### 1. [HIGH] `bot/cogs/puzzles.py:2917`
 
-**Status: FIXED** in `b0225d6` (`fix(archive): preserve attachment/embed-only messages (#1)`, branch `working-1`, merged to `staging` in `8442c15`).
+**Status: FIXED AND REVIEWED** in `b0225d6` (`fix(archive): preserve attachment/embed-only messages (#1)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 archive_channel's per-message loop gates all archiving (attachment download, webhook re-send, reactions) behind `if content:` at bot/cogs/puzzles.py:2917, so any message with empty text — attachment-only posts (pasted screenshots) and embed-only messages — is silently dropped from the archive thread, and the source channel is then permanently deleted at line 2946, losing those attachments irrecoverably.
 
@@ -61,7 +86,7 @@ archive_channel's per-message loop gates all archiving (attachment download, web
 
 ### 2. [HIGH] `bot/cogs/puzzles_gsheet.py:513`
 
-**Status: FIXED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #4 below (same code path).
+**Status: FIXED AND REVIEWED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #4 below (same code path).
 
 restore_puzzle_spreadsheet gates moving additional sheets back from the archive on `puzzle_data.solved` (bot/cogs/puzzles_gsheet.py:513), but its only production caller, puzzle_service.unsolve, sets `puzzle.solved = False` (puzzle_service.py:1000) before calling it (line 1012), so the move-back branch is dead code; the requests built at lines 516-523 then reference archive-spreadsheet sheet ids in a batchUpdate sent to the LIVE spreadsheet (batch_update default archive=False, line 78-79), so the entire atomic batch — including the main tab's solution/progress clear and reposition — fails with 400 "no sheet with id", and unsolve raises after the DB solve state was already committed.
 
@@ -71,7 +96,7 @@ restore_puzzle_spreadsheet gates moving additional sheets back from the archive 
 
 ### 3. [HIGH] `bot/cogs/puzzles_gsheet.py:1202`
 
-**Status: FIXED** in `3ed8ae1` (`fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3)`, branch `working-1`, merged to `staging` in `8442c15`).
+**Status: FIXED AND REVIEWED** in `3ed8ae1` (`fix(gsheet): stop deleting sheet rows on contribution/unassigned prune (#3)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 reconcile_table prunes stale contribution rows with deleteDimension over whole sheet ROWS (bot/cogs/puzzles_gsheet.py:1202-1205), deleting the full-width grid row on the target's own tab; any re-key (feeds->informs re-edge, untag, capstone conversion flipping every feeder, evidence deletion) therefore shifts the solver work grid in cols E+ up one row per prune, silently destroying solver data on the very columns promote_tab_to_target reserves for solvers.
 
@@ -81,7 +106,7 @@ reconcile_table prunes stale contribution rows with deleteDimension over whole s
 
 ### 4. [HIGH] `bot/core/puzzle_service.py:1012`
 
-**Status: FIXED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #2 above (same code path — the review's own "minor correction" already noted the overlap).
+**Status: FIXED AND REVIEWED** in `3c4042a` (`fix(gsheet): unsolve archive-spreadsheet desync (#2, #4)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #2 above (same code path — the review's own "minor correction" already noted the overlap).
 
 unsolve (bot/core/puzzle_service.py:1003) commits the puzzle BEFORE restore_puzzle_spreadsheet (line 1012) and never commits after, so the restored google_page_id/archived=False (mutated in puzzles_gsheet.py:505-508, where the old archive tab is deleted) are lost for any caller without its own post-commit. The bang !unsolve path is accidentally rescued by cog_after_invoke (bot/cogs/puzzles.py:197-200), which commits the same ctx puzzle object — but the web unsolve endpoint (bot/web/actions.py:1691) has no commit at all, and !unsolve_mini commits the ctx minimeta, not the mutated mini. After a web unsolve of an archived puzzle, the DB keeps archived=1 plus a deleted archive sheetId; any later sheet write that re-reads the puzzle (e.g. re-solve → archive_puzzle_spreadsheet) targets a nonexistent sheetId and fails with a Sheets 400, desyncing the puzzle's sheet until manual repair. (Minor correction: additional_sheets page ids are not actually re-mutated during unsolve because the line-513 move is gated on puzzle_data.solved, already cleared at line 1000 — a separate latent bug.)
 
@@ -91,7 +116,7 @@ unsolve (bot/core/puzzle_service.py:1003) commits the puzzle BEFORE restore_puzz
 
 ### 5. [HIGH] `bot/core/puzzle_service.py:1073`
 
-**Status: FIXED** in `26e8e3f` (`fix(puzzle_service): clear tag_edges on convert_to_puzzle demote (#5)`, branch `working-1`, merged to `staging` in `8442c15`).
+**Status: FIXED AND REVIEWED** in `26e8e3f` (`fix(puzzle_service): clear tag_edges on convert_to_puzzle demote (#5)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 convert_to_puzzle (bot/core/puzzle_service.py:1069-1075) removes the deleted group's id from puzzle.tags but never touches puzzle.tag_edges, so the meta's 'target' self-edge survives in memory; the immediately following PuzzleJsonDb.commit tag-sync (bot/store/mysqldb.py:571-576) computes mem_pairs - db_pairs = {(deleted_gid, 'target')} and INSERTs a tags row whose tag_group_id FK (ON DELETE CASCADE, migrations/000_base_schema.sql:118, repointed by 011_taggroup_rename.sql) references the just-deleted group — raising IntegrityError after the group deletion is committed and before demote_tab_to_puzzle runs, for both the bang and web demote paths.
 
@@ -101,7 +126,7 @@ convert_to_puzzle (bot/core/puzzle_service.py:1069-1075) removes the deleted gro
 
 ### 6. [HIGH] `bot/web/notifier.py:22`
 
-**Status: FIXED** in `0da35ea` (`fix(web): publish the guild snowflake from board_changed, not the row id (#6)`, branch `working-1`, merged to `staging` in `8442c15`).
+**Status: FIXED AND REVIEWED** in `0da35ea` (`fix(web): publish the guild snowflake from board_changed, not the row id (#6)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 WebNotifier.board_changed (bot/web/notifier.py:22) publishes guild_id as hunt.guild_id, which is the guilds-table row id (hunts are created with guild_id=settings.id, the auto-inc row id, distinct from the snowflake), but ws_activity (bot/web/api.py:254) filters events against a membership set of Discord guild snowflakes — so every board event routed through the service's @pushes_board → CompositeNotifier → WebNotifier path is silently dropped for all WebSocket clients. This covers all bang-command mutations AND nearly all web mutations (actions.py now relies on the service push everywhere except the single remaining _notify_board call at actions.py:1494), so live board invalidation effectively never reaches the dashboard.
 
@@ -111,7 +136,7 @@ WebNotifier.board_changed (bot/web/notifier.py:22) publishes guild_id as hunt.gu
 
 ### 7. [HIGH] `frontend/src/components/AdminSettingsPanel.tsx:75`
 
-**Status: FIXED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #8 below (the fixes interact — both touch how `start_local` is derived/synced). Chose a UTC-offset picker (not full IANA timezones) per user decision.
+**Status: FIXED AND REVIEWED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #8 below (the fixes interact — both touch how `start_local` is derived/synced). Chose a UTC-offset picker (not full IANA timezones) per user decision.
 
 frontend/src/components/AdminSettingsPanel.tsx round-trips the hunt start time through mismatched timezones: line 75 renders the default with toISOString().slice(0,16) (UTC wall time) into a datetime-local input, while handleSave (line 107) parses values.start_local with new Date(), which ECMAScript interprets as LOCAL time for the offset-less "YYYY-MM-DDTHH:mm" form. For any user not in UTC, the displayed start time is wrong by their offset, and every Save that touches any field silently PATCHes start_timestamp shifted by -offset (e.g. -3600 for UTC+1), compounding on repeated saves.
 
@@ -121,7 +146,7 @@ frontend/src/components/AdminSettingsPanel.tsx round-trips the hunt start time t
 
 ### 8. [HIGH] `frontend/src/components/AdminSettingsPanel.tsx:88`
 
-**Status: FIXED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #7 above.
+**Status: FIXED AND REVIEWED** in `1740bab` (`fix(web): hunt-start timezone picker + stop wiping in-progress edits (#7, #8)`, branch `working-1`, merged to `staging` in `8442c15`). Fixed together with #7 above.
 
 The render-phase sync in frontend/src/components/AdminSettingsPanel.tsx:88 compares local form state to incoming props (values.url !== url || values.start_local !== startLocalDefault) instead of comparing previous props to current props, so every keystroke in Website URL or Start time triggers setValues() back to the server values on the very next render — those two fields are uneditable from the web and Save can never change url/start_timestamp. Whenever the condition does fire (any user edit to those fields, or a server-side url/start change arriving via useHunt's refetch), it also resets username, password, url_sep, and puzzle_prefix, silently discarding any in-progress edits to those fields.
 
@@ -131,7 +156,7 @@ The render-phase sync in frontend/src/components/AdminSettingsPanel.tsx:88 compa
 
 ### 9. [MEDIUM] `bot/cogs/puzzles.py:464`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.category (lines 464, 474, 489) and the looked-up bot channel (lines 474, 480, 484, 488) without None checks, and it measures the CURRENT channel's category fullness even for !hunt and !round, which create their own new categories — so a full bot-channel/hunt-channel category yields a false "not enough space" refusal.
 
@@ -139,7 +164,7 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 10. [MEDIUM] `bot/cogs/puzzles.py:598`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !puzzle (bot/cogs/puzzles.py:595-598) dereferences hunt.id without a None guard; in any untracked channel cog_before_invoke leaves hunt=None (channel_type 'Guild'), so `!p name` raises AttributeError and the user gets the generic "Something went wrong" error instead of a "run this in a hunt channel" message like !rebuild gives.
 
@@ -147,7 +172,7 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 11. [MEDIUM] `bot/cogs/puzzles.py:999`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !list_tags crashes on an untagged puzzle: tag_info stays "" and embed.add_field(name="Current tags", value="") makes Discord reject the embed with HTTP 400, so the organiser gets an error instead of the listing. The dangling-tag-id half of the claim is only latent: line 999 would indeed raise AttributeError on None.name, but TagGroupJsonDb.delete cleans the tags rows for the deleted group and !add_tag's append never persists, so a dangling id requires abnormal state (manual DB edit or crash mid-delete).
 
@@ -155,13 +180,18 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 12. [MEDIUM] `bot/cogs/puzzles.py:1135`
 
+**Status: FIXED AND REVIEWED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). Both bang commands now call
+`self.info(ctx, update=True)`; both web endpoints now call
+`cog.web_refresh_info`.
+
 !remove_minimeta and !make_minimeta never refresh the pinned info message (no self.info(ctx, update=True)), unlike !add_mini/!solve_mini/!unsolve_mini; the web endpoints (make-minimeta / remove-minimeta in bot/web/actions.py) have the same gap, never calling cog.web_refresh_info. After remove_minimeta the pinned embed keeps showing the mini list with links to deleted threads and Type "Minimeta" until some other pin-refreshing command runs.
 
 **Failure scenario:** After `!remove_minimeta`, the pinned info embed (which renders the mini list via create_mini_list at line 2146) still shows the numbered list of now-deleted mini-puzzles with links to dead threads until some other command happens to refresh it; !make_minimeta likewise leaves the pin without the new minimeta state.
 
 ### 13. [MEDIUM] `bot/cogs/puzzles.py:1262`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !clue (bot/cogs/puzzles.py:1251) and !clues (:1268) never check that they are running in a puzzle channel: get_puzzle returns None outside one, and service.log_clues then dereferences the None puzzle (first at puzzle.tags in _sole_informs_target, bot/core/puzzle_service.py:1884, then puzzle.id at :1902), raising AttributeError that surfaces as the generic "Something went wrong" apology instead of the send_not_puzzle_channel guidance every comparable command gives.
 
@@ -169,7 +199,7 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 14. [MEDIUM] `bot/cogs/puzzles.py:1280`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !clues parses its input with shlex.split (bot/cogs/puzzles.py:1280) with no try/except, so any unbalanced quote — including a plain apostrophe like DON'T — raises ValueError('No closing quotation'), which surfaces as the generic ':exclamation: Something went wrong' message; no clue is logged and the user gets no hint that the quote/apostrophe was the cause.
 
@@ -177,13 +207,18 @@ check_available_space (bot/cogs/puzzles.py:458-491) dereferences ctx.channel.cat
 
 ### 15. [MEDIUM] `bot/cogs/puzzles.py:1331`
 
+**Status: FIXED AND REVIEWED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). `!sync` now also walks every category
+recorded for the group in `TagGroupCategoryDb` (solved/overflow), not just the
+primary category.
+
 !sync (alias !sync_round) iterates only the group's primary category (ctx.channel.category.channels, bot/cogs/puzzles.py:1331) and never consults TagGroupCategoryDb/category_layout.group_categories, so in a split round any untagged puzzles that were moved into the "— solved" or overflow categories are silently skipped while the command replies ":white_check_mark: Synced N puzzle(s)" with no warning.
 
 **Failure scenario:** In a split round where several solved puzzles were moved to the solved category, `!sync` (alias !sync_round, documented as tagging the round's puzzles) walks only meta_category.channels, never consults TagGroupCategoryDb for the solved/overflow categories, and replies ':white_check_mark: Synced N puzzle(s)' — the solved feeders stay untagged and absent from the meta roll-up with no warning.
 
 ### 16. [MEDIUM] `bot/cogs/puzzles.py:1366`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 The tagging commands (feeds/feeds_only/informs/informs_only/groups_with/groups_only_with/remove_from) guard only `channel_type == 'Hunt'` (bot/cogs/puzzles.py:1366, 1392, 1418, 1447, 1472, 1497, 1522), not a missing puzzle: in a group main channel whose group has no target puzzle they crash with AttributeError on None (user sees the generic "Something went wrong" apology), and in an untracked 'Guild' channel they reply ":x: This hunt has no groups to assign to yet" — a misleading message, since the real problem is running the command in the wrong channel.
 
@@ -191,7 +226,7 @@ The tagging commands (feeds/feeds_only/informs/informs_only/groups_with/groups_o
 
 ### 17. [MEDIUM] `bot/cogs/puzzles.py:1399`
 
-**Status: FIXED** in `52a5e94` (`fix(puzzles): ack tag mutations after they succeed, not before (#17, #74)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `52a5e94` (`fix(puzzles): ack tag mutations after they succeed, not before (#17, #74)`, branch `working-1`).
 
 feeds_only (bot/cogs/puzzles.py:1399), remove_from (:1428), informs_only (:1479) and groups_only_with (:1529) send the ':white_check_mark:' success message BEFORE awaiting the service mutation, so if untag_from raises ValueError('cannot remove the last tag from a metapuzzle') or tag_edge_only/tag_with_edge raises SheetRefreshError (or channel.edit raises a Discord error), the user gets a success ack for a mutation that never completed — unlike feeds (:1373-1376), informs (:1454-1457) and groups_with (:1504-1507), which ack only after the mutation succeeds.
 
@@ -199,7 +234,7 @@ feeds_only (bot/cogs/puzzles.py:1399), remove_from (:1428), informs_only (:1479)
 
 ### 18. [MEDIUM] `bot/cogs/puzzles.py:1624`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !round unpacks _round_impl's result at bot/cogs/puzzles.py:1624 (`tag_group, puzzle = await self._round_impl(...)`), but _round_impl returns bare None on every handled RuntimeError (round_exists, puzzle_name_clash, no_category_space/category_exists) at line 1599, so the unpack raises TypeError; the cog's on_command_error fallback (lines 438-441) then logs it as an unhandled error and sends a spurious ':exclamation: Something went wrong running that command' to the user right after the intended friendly error message.
 
@@ -207,7 +242,7 @@ feeds_only (bot/cogs/puzzles.py:1399), remove_from (:1428), informs_only (:1479)
 
 ### 19. [MEDIUM] `bot/cogs/puzzles.py:1988`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 !list (list_puzzles) dereferences self.get_tag_group(ctx).id at bot/cogs/puzzles.py:1988 without a None check; in a Puzzle channel whose category has no TagGroup row — concretely, a split-layout group's solved or overflow category, which is tracked only in the TagGroupCategoryDb join table that cog_before_invoke's fallback (line 180) does not consult — the environment tag_group is None and the command raises AttributeError, so the user gets the generic ":exclamation: Something went wrong" apology (with a server-side traceback) instead of the puzzle list or a targeted message.
 
@@ -221,7 +256,7 @@ The update=True pin-refresh path assumes the bot's info message is always the la
 
 ### 21. [MEDIUM] `bot/cogs/puzzles.py:2767`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 mark_as_complete (bot/cogs/puzzles.py:2767) calls _solve_impl directly without the not-a-puzzle-channel and already-solved guards that solve/partial have: in a non-puzzle channel it passes puzzle=None into service.solve, which tracebacks with AttributeError at puzzle_service.py:929 instead of the friendly ':x: not a puzzle channel' reply; in an already-solved channel it re-runs the full solve path, appending '/✅' to the recorded solution (puzzle_service.py:933-934), stamping a new solve_time and committing, where !s correctly refuses with ':x: already solved'.
 
@@ -229,13 +264,18 @@ mark_as_complete (bot/cogs/puzzles.py:2767) calls _solve_impl directly without t
 
 ### 22. [MEDIUM] `bot/cogs/puzzles.py:2889`
 
+**Status: FIXED AND REVIEWED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`). `archive_channel`
+now commits the puzzle after setting `archive_time`, using the same tz-aware
+UTC stamp as the service path.
+
 archive_channel (bot/cogs/puzzles.py:2889) sets archive_time (naive local time, unlike the UTC-aware service path at bot/core/puzzle_service.py:980) on a freshly-fetched PuzzleData instance that is never committed — the function ends by deleting the channel (line 2946) with no PuzzleJsonDb.commit, and cog_after_invoke (lines 197-207) only commits the environment's puzzle, a different instance resolved from ctx.channel. The DB row keeps archive_time=NULL and a dangling channel_id, so consumers like get_solved_puzzles_to_archive (bot/store/mysqldb.py:377) never see these puzzles as archived.
 
 **Failure scenario:** !archive_round archives a round: for each puzzle, PuzzleJsonDb.get_by_attr(channel_id=...) returns a fresh object, archive_time is set at line 2889, then the object is discarded — cog_after_invoke only commits the environment's puzzle. The DB row keeps archive_time=NULL and a dangling channel_id to a deleted channel, so anything keying off puzzles.archive_time (e.g. mysqldb.py:377, dashboard backfill checks) never sees these puzzles as archived.
 
 ### 23. [MEDIUM] `bot/cogs/puzzles.py:2961`
 
-**Status: FIXED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `5747523` (`fix(puzzles): add missing channel/None guards (review tranche 1, #9-23)`, branch `working-1`).
 
 archive_solved_manually is doubly broken: bot/cogs/puzzles.py:2961 reads settings.hunt_settings[hunt_id], but GuildSettings (bot/store/puzzle_settings.py:26-35, and the MySQL loader MySQLGuildSettingsDb.get at bot/store/mysqldb.py:750-759 which builds it via GuildSettings.import_dict) has no hunt_settings attribute, so the command raises AttributeError immediately; and even if fixed, line 2973 calls .flatten() on channel.history(), which was removed in discord.py 2.0 (Pipfile.lock pins discord.py 2.7.1), so it would AttributeError again. The advertised admin command can never succeed.
 
@@ -243,15 +283,16 @@ archive_solved_manually is doubly broken: bot/cogs/puzzles.py:2961 reads setting
 
 ### 24. [MEDIUM] `bot/cogs/puzzles_gsheet.py:90`
 
-**Status: DEFERRED** (2026-07-02, branch `working-1`). Considered as part of tranche 4 alongside
-#25/#26/#47/#48, but scoped out at the user's request: the real fix requires converting 6 sync
-helper methods (`sheet_list`, `get_unique_tab_name`, `get_page_id_by_name`, `get_page_name_by_id`,
-`move_sheet_to_end`, `compute_insert_index`) from sync to async, rippling to ~30 call sites across
-`bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`, plus two test files
-(`tests/test_sheet_list_guard.py`, `tests/test_sheet_ordering.py`) that call them synchronously
-today. A couple of call sites (`move_sheet_to_end` used inline inside a request-list literal)
-can't just get an `await` — the surrounding code needs restructuring. Left as its own standalone
-follow-up task, not fixed here.
+**Status: FIXED AND REVIEWED** in `8319a31`, `494a91f`, `f8fcfe9`, `fdb4cfb` (async conversion of `sheet_list`
+and its helpers, plus a 7th method — `get_puzzle_sheet_index` — sharing the same defect; every
+call site now awaits them via `execute_with_retry`), branch `working-1`. Originally deferred out
+of tranche 4 (2026-07-02) alongside #25/#26/#47/#48 at the user's request: the real fix requires
+converting 6 sync helper methods (`sheet_list`, `get_unique_tab_name`, `get_page_id_by_name`,
+`get_page_name_by_id`, `move_sheet_to_end`, `compute_insert_index`) from sync to async, rippling
+to ~30 call sites across `bot/cogs/puzzles_gsheet.py` and `bot/core/puzzle_service.py`, plus two
+test files (`tests/test_sheet_list_guard.py`, `tests/test_sheet_ordering.py`) that call them
+synchronously today. A couple of call sites (`move_sheet_to_end` used inline inside a
+request-list literal) can't just get an `await` — the surrounding code needs restructuring.
 
 sheet_list (bot/cogs/puzzles_gsheet.py:90) calls the blocking execute_sync (network call plus time.sleep backoff up to 60s, serialized behind the module-wide _execute_lock) directly on the bot event loop: it is invoked with no thread offload from async methods reconcile_table (line 1137) and _ensure_contribution_table (line 1422), and via sync helpers get_unique_tab_name (106, plus a second bare execute_sync at 109) called from async add_new_sheet (391), compute_insert_index (363), move_sheet_to_end (341), and get_page_name_by_id (133). Any Sheets 429/5xx during these paths sleeps on the loop, stalling every command, web request, and the gateway heartbeat; even without retries the loop can block on _execute_lock while a worker thread (execute_with_retry) holds it.
 
@@ -259,7 +300,7 @@ sheet_list (bot/cogs/puzzles_gsheet.py:90) calls the blocking execute_sync (netw
 
 ### 25. [MEDIUM] `bot/cogs/puzzles_gsheet.py:282`
 
-**Status: FIXED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
 
 The =HYPERLINK formula is built by naive string interpolation of the puzzle name at bot/cogs/puzzles_gsheet.py:282 (update_puzzle_info) and :1289 (_puzzle_tab_header_requests), with no doubling of embedded double quotes. A puzzle named e.g. The "Best" Puzzle yields =HYPERLINK("url","The "Best" Puzzle"), an unparseable formula; the Sheets API stores it and the puzzle tab's name cell renders #ERROR! instead of the name/hyperlink (rather than reliably failing the whole batchUpdate as originally claimed). Both the create path (generate_puzzle_tab) and every rename/update (rename_puzzle → update_puzzle) hit this; single-quote doubling exists for A1 tab-name references (safe_name) but no equivalent for formula string args.
 
@@ -267,7 +308,7 @@ The =HYPERLINK formula is built by naive string interpolation of the puzzle name
 
 ### 26. [MEDIUM] `bot/cogs/puzzles_gsheet.py:286`
 
-**Status: FIXED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
 
 update_puzzle_info's rename path (bot/cogs/puzzles_gsheet.py:286) computes tab-name uniqueness against the LIVE spreadsheet (get_unique_tab_name with no spreadsheet arg defaults via sheet_list to get_spreadsheet_id) but applies the rename to the ARCHIVE spreadsheet when puzzle.archived (batch_update(updates, puzzle.archived) at line 291), so renaming an archived puzzle checks collisions in the wrong spreadsheet.
 
@@ -281,7 +322,7 @@ bulk_re_edge (bot/core/puzzle_service.py:802) flips member edge rows via raw SQL
 
 ### 28. [MEDIUM] `bot/core/puzzle_service.py:979`
 
-**Status: FIXED** in `5435deb` (`fix(service): isolate own-sheet failures in solve/change/add (#28)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in after the HIGH findings landed, at the user's request.
+**Status: FIXED AND REVIEWED** in `5435deb` (`fix(service): isolate own-sheet failures in solve/change/add (#28)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in after the HIGH findings landed, at the user's request.
 
 In solve(), a plain Sheets failure (HttpError) from archive_puzzle_spreadsheet at bot/core/puzzle_service.py:979 propagates after the solve is already committed (line 939): @pushes_board treats any non-SheetRefreshError as "mutation not applied", so no board_changed WebSocket push fires on either the bang or web path and dashboard clients keep showing the puzzle unsolved; the second commit (line 982: archive_time, moved additional-sheet page ids) and forum-tag update are skipped. On the bang path _solve_impl (bot/cogs/puzzles.py:2630) aborts before the solved embed/channel move/pin update and on_command_error (puzzles.py:431) tells the user their change "may not have been saved" even though the DB says solved; the web path (bot/web/actions.py:353-355) does message correctly but still misses the board push. Same post-commit-raise pattern in change_solution/add_solution (lines 1229/1247), where it additionally swallows the pending SheetRefreshError meta badging.
 
@@ -322,6 +363,16 @@ remains reachable there.
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
+**Status: FIXED AND REVIEWED** in `ad90908` (`fix(puzzles): stop status/backsolved from being
+set outside solve/unsolve (#31)`, branch `working-1`). Implemented the other way
+round from the original finding's framing (which suggested running solve
+machinery when status is manually set to "Solved"): `update_puzzle_field` now
+refuses to set or clear "solved"/"backsolved" at all — those labels are owned
+by `solve()`/`unsolve()` — except toggling between the two on an
+already-solved puzzle. The dashboard's status picker (`PuzzleEditCells.tsx`)
+mirrors this: it only offers Solved/Backsolved once solved, and only the
+non-solved statuses beforehand.
+
 update_puzzle_field validates status against STATUSES, which includes "solved" and "backsolved" (bot/core/constants.py:13-14), and then only does setattr + commit (bot/core/puzzle_service.py:1272-1273) — none of the solve machinery in service.solve (puzzle_service.py:917-991: solved=True, solve_time, meta/group rollup refresh, sheet archive) runs. Both entrypoints expose "Solved"/"Backsolved" as pickable values (bang !status choices at bot/cogs/puzzles.py:2403-2410 → service call at 2425; web status dropdown STATUS_OPTIONS at frontend/src/components/PuzzleEditCells.tsx:25-26 → PATCH handler at bot/web/actions.py:209), so a user can label a puzzle Solved while puzzle.solved stays False: the dashboard hide-solved filter (frontend/src/components/PuzzleTable.tsx:191, keyed on p.solved) still shows it, meta sheet rollups and the group solved-derivation (puzzle_service.py:955-963) never fire, and the sheet is never archived.
 
 **Failure scenario:** !status solved (puzzles.py:2425) or web PATCH status='solved' (actions.py:209): puzzle.status becomes 'solved' but solved=False, no solve_time, no meta rollup refresh, no sheet archive; the dashboard's hide-solved filter (keyed on p.solved) still shows it, metas never receive its answer, and the group solved-derivation never fires.
@@ -348,11 +399,25 @@ guarantee airtight against future drift.
 
 ### 33. [MEDIUM] `bot/store/mysqldb.py:625`
 
+**Status: FIXED AND REVIEWED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`).
+`EvidenceData.import_dict` and `MySQLEvidenceDb.log()` now both reattach
+`tzinfo=UTC`, matching `PuzzleData.import_dict`'s pattern for every other
+timestamp field. The frontend display bug was a separate fix on top — `f25ba82`
+(`fix(frontend): render evidence timestamps in local time, not raw UTC (#33)`)
+— since EvidencePanel sliced the raw string instead of parsing it, so a UTC
+offset alone wouldn't have changed what was displayed.
+
 Evidence created_at is written as naive datetime.utcnow() (bot/store/mysqldb.py:625) and EvidenceData.import_dict (bot/store/evidence_data.py:16-21) copies DB rows without re-attaching tzinfo=UTC (unlike PuzzleData.import_dict, puzzle_data.py:72), so bot/web/data.py:556 serialises evidence created_at via raw isoformat() with no +00:00 offset while every other web timestamp goes through _iso() (data.py:78-82). The frontend EvidencePanel (frontend/src/components/EvidencePanel.tsx:159) renders the string as-is via slice, so non-UTC users see evidence 'logged at' in bare UTC while other dashboard times are local (e.g. HuntInfoPanel toLocaleString) or correctly offset-parsed (util.ts relativeTime) — shifted by their UTC offset. Any future comparison of EvidenceData.created_at against the codebase's standard aware datetimes raises TypeError.
 
 **Failure scenario:** bot/web/data.py:556 serialises i.created_at.isoformat() with no offset; the EvidencePanel renders it as-is, so a user in any non-UTC timezone sees evidence 'logged at' times shifted by their UTC offset relative to every other dashboard timestamp (activity, solve times, which are UTC-annotated); any future code comparing an EvidenceData.created_at to the codebase's standard aware datetimes raises TypeError (naive vs aware).
 
 ### 34. [MEDIUM] `bot/web/actions.py:125`
+
+**Status: FIXED AND REVIEWED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Both
+endpoints now return `hunt_archived` (403) when the hunt is archived, matching
+every sibling mutation.
 
 add_note (bot/web/actions.py:124) and erase_note (bot/web/actions.py:153) are the only puzzle-mutating web endpoints missing the ctx["hunt"]["archived"] guard (delete_hunt's omission at 1261 is deliberate and commented), so POST /api/puzzles/<id>/notes and DELETE .../notes/<index> succeed on an archived hunt's puzzle — mutating the frozen DB record and emitting a board push — despite api.py declaring archived hunts read-only. (Correction: the service methods only commit notes to the DB; no archive sheet is touched.)
 
@@ -360,11 +425,20 @@ add_note (bot/web/actions.py:124) and erase_note (bot/web/actions.py:153) are th
 
 ### 35. [MEDIUM] `bot/web/actions.py:712`
 
+**Status: FIXED AND REVIEWED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`).
+`start_timestamp` is now validated (numeric, in-range for
+`datetime.fromtimestamp`) before any Discord/Sheets resources are created.
+
 create_hunt (bot/web/actions.py:712) passes the unvalidated JSON value body["start_timestamp"] straight to service.create_hunt, where datetime.fromtimestamp (bot/core/puzzle_service.py:2149) runs only after the Discord role/category/channels and Google spreadsheet are created but before HuntJsonDb.commit (2161); a string or null value raises TypeError, which the route's except clauses (actions.py:716-721) do not catch, yielding a 500 with orphaned Discord/Sheets resources and no hunts row.
 
 **Failure scenario:** An admin client sends start_timestamp as a string (e.g. "1720000000" from a form field) or null; the required-keys check at actions.py:678 only verifies presence, service.create_hunt creates the team role, category, #general channel, solved divider and the Google sheet, then `datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)` (puzzle_service.py ~2149) raises TypeError → 500 with all Discord/Sheets artifacts created but no hunts row, requiring manual cleanup (reconcile can't see a hunt that doesn't exist).
 
 ### 36. [MEDIUM] `bot/web/api.py:40`
+
+**Status: FIXED AND REVIEWED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). `list_guilds` now filters to guilds
+the user is actually a member of before building the response.
 
 GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return the guilds the current user belongs to"): the loop over guilds_map at line 39 never checks membership (resolve_membership is imported but not called here), so every guild row — name, snowflake, and per-guild admin flag — is returned to any logged-in session unless ?admin=1. Combined with OAuth login being open to any Discord account (bot/web/auth.py uses only the "identify" scope with no membership gate in login/callback), a complete outsider can enumerate all teams' guild names and snowflakes. Hunt data itself stays protected (list_hunts and _load_visible_hunt apply hunt_visible), so this is an information-disclosure gap, not a hunt-visibility bypass.
 
@@ -372,15 +446,28 @@ GET /api/guilds (bot/web/api.py:31-51) contradicts its own docstring ("Return th
 
 ### 37. [MEDIUM] `bot/web/api.py:213`
 
+**Status: FIXED AND REVIEWED** in `bbe2777` (`fix(web): archived-hunt write guards +
+malformed create_hunt input (#34, #35, #37)`, branch `working-1`). Now guards
+on `hunt["archived"]` and validates every element of `notes` is a string
+before writing any of them (rejecting the whole request instead of a partial
+write).
+
 POST /api/evidence (bot/web/api.py:196-221) lacks the hunt-archived guard that every other web mutation enforces, so any guild member can write evidence rows (and fire a sheet refresh) into a read-only archived hunt; and the per-note write loop at line 213 calls n.strip() on each raw JSON element, so a non-string note (e.g. notes=["ok", 42]) raises AttributeError mid-loop after earlier notes are already committed, returning a 500 with a partial write and no refresh_evidence task. Mitigating: the SPA never calls this POST (clue creation goes through /actions/puzzles/<id>/clues, which is guarded), so it is only reachable by direct authenticated API calls.
 
 **Failure scenario:** 1) Any team member POSTs evidence for a puzzle in an archived hunt: _load_visible_hunt passes (archived hunts are visible to all guild members) and there is no `hunt["archived"]` check, so rows are written and a sheet refresh task fired against a read-only hunt. 2) A request with notes=["ok", 42] logs "ok" via EvidenceJsonDb.log, then `n.strip()` raises AttributeError on 42 → 500 returned while the first note is already persisted and no refresh_evidence task is scheduled.
 
 ### 38. [MEDIUM] `bot/web/api.py:254`
 
+**Status: FIXED AND REVIEWED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). "activity" events are now checked
+against the live Discord channel permission overwrites for the requesting
+member; "board" events are checked against `hunt_visible`.
+
 /ws/activity (bot/web/api.py:254) filters events only by guild membership, not the per-hunt team-role visibility model that every REST endpoint enforces via hunt_visible, so guild members without a hunt's team role still receive live activity events (channel_id, author display name, timestamp) for that hidden hunt's channels and board events carrying the hidden hunt's uid.
 
 **Failure scenario:** A guild has two teams; a member of team A (lacking team B's hunt role, so hunt_visible=False for B's hunts) opens the dashboard WebSocket. Every human message in team B's puzzle channels publishes {channel_id, author display name, timestamp, guild_id=snowflake} (bot/cogs/activity.py:60), which passes the guild-membership-only filter at api.py:254 and streams to the team-A user — leaking who is active on which hidden puzzle and when. Web-action board events (actions.py:69) similarly leak hidden hunt uids.
+
+**Reviewer note (2026-07-02):** Approved — "activity" events now gate on the live per-channel `permissions_for(member).view_channel` (the most precise object for the manual hunt-role-on-category model) and "board" events on `hunt_visible`; both fail closed on missing guild/channel/member/hunt. One latent hardening item (not a current leak): the filter is default-open (`visible = True`) for any event `type` that is neither `activity` nor `board`. Only those two types plus a directly-sent `ready` exist today, so nothing leaks now, but a future event type carrying hidden-hunt data would pass on guild membership alone — consider making the filter default-deny for unknown types.
 
 ### 39. [MEDIUM] `frontend/src/components/MiniPuzzlePanel.tsx:58`
 
@@ -450,7 +537,7 @@ start_reminders (bot/cogs/puzzles.py:3155) calls self.reminder_loop.start(channe
 
 ### 47. [LOW] `bot/cogs/puzzles_gsheet.py:295`
 
-**Status: FIXED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
 
 update_cell's sheet_id-is-None fallback (bot/cogs/puzzles_gsheet.py:295) calls self.get_puzzle_data(), which is defined nowhere in the repo, so if that branch is ever reached it raises AttributeError instead of a useful error. Reachability nuance: the common "unset" value for google_page_id is the dataclass default "" (empty string), which is falsy but not None, so it bypasses the fallback and instead sends sheetId "" to the Sheets API; only a literal None page_id (e.g. NULL from the DB) reaches the broken fallback. Either way the fallback is dead/broken code that can never do what it pretends to.
 
@@ -458,7 +545,7 @@ update_cell's sheet_id-is-None fallback (bot/cogs/puzzles_gsheet.py:295) calls s
 
 ### 48. [LOW] `bot/cogs/puzzles_gsheet.py:342`
 
-**Status: FIXED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `be0ae05` (`fix(gsheet): quote-escape hyperlinks, fix rename target, dead fallback, off-by-one (#25,26,47,48)`, branch `working-1`).
 
 move_sheet_to_end (bot/cogs/puzzles_gsheet.py:342) sets index = len(sheets) - 1, but the Sheets API evaluates updateSheetProperties index moves in before-the-move positions, so a truly-final move needs index = len(sheets); solved tabs therefore land second-to-last, leaving whatever tab is currently last stranded to the right of all solved tabs when no archive spreadsheet is configured (and for target puzzles).
 
@@ -566,7 +653,7 @@ puzzles.url is varchar(150) while hunts.url is varchar(250) (migrations/000_base
 
 ### 62. [HIGH] `bot/web/actions.py:361`
 
-**Status: FIXED** in `25154f0` (`fix(web): post embed + refresh pin for partial/change/add solves (#62)`, branch `working-1`, merged to `staging` in `8442c15`).
+**Status: FIXED AND REVIEWED** in `25154f0` (`fix(web): post embed + refresh pin for partial/change/add solves (#62)`, branch `working-1`, merged to `staging` in `8442c15`).
 
 Web solve modes 'partial', 'change' and 'add' perform the service mutation but skip both the puzzle-channel announcement embed and the pinned-info refresh that the bang equivalents always do: bot/web/actions.py:359-362 gates web_post_solved_embed (which itself ends with web_refresh_info) behind mode == "full" only, so after a dashboard 'change' the Discord pin keeps displaying the OLD solution and no update is announced in the channel.
 
@@ -576,11 +663,13 @@ Web solve modes 'partial', 'change' and 'add' perform the service mutation but s
 
 ### 63. [MEDIUM] `bot/cogs/puzzles.py:1969`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Added a pin refresh + board push after the commit; did NOT add a web equivalent for guild/round settings (that's a feature gap, out of scope for this fix).
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Added a pin refresh + board push after the commit; did NOT add a web equivalent for guild/round settings (that's a feature gap, out of scope for this fix).
 
 !update_settings (bot/cogs/puzzles.py:1967-1971) commits directly to the store (save_settings → *JsonDb.commit, or PuzzleJsonDb.commit for the update_puzzle_settings alias), bypassing puzzle_service — so no @pushes_board event and no pinned-info refresh — and the web has no equivalent for guild/round (TagGroup) settings or hunt keys outside the 6-key whitelist in bot/web/actions.py:747. Mitigating context: the common puzzle fields (status/priority/puzzle_type) do have proper dual paths (!type/!status/!priority → service.update_puzzle_field with @pushes_board, and web PATCH /puzzles/<id> with web_refresh_info), so the staleness only bites when an admin uses the escape-hatch command instead.
 
 **Failure scenario:** Admin runs `!update_puzzle_settings puzzle_type crossword`: the pinned info's Type field and every connected dashboard stay stale (no board push) until an unrelated mutation fires; guild/round settings can only ever be changed from Discord, violating the project's bang↔web parity principle.
+
+**Reviewer note (2026-07-02):** Approved — the pin refresh + board push resolve the staleness. One low-risk residual: unlike the web-side `web_refresh_info` best-effort seam, the added `await self.info(ctx, update=True)` is NOT try/except-wrapped, so in an abnormal channel with no pinned info message `send_initial_*(update=True)` can hit `channel_pins[-1]` → IndexError *after* the settings already committed (DB persists, but the user sees an error and no success ack). Bot-created hunt/puzzle channels always carry the pin, and this mirrors the existing `!info update` path, so it only bites a hand-broken channel. Also note the commit/handoff wording "gated on the channel actually having a pin" is imprecise — the guard is on channel *type*, not pin existence.
 
 ### 64. [MEDIUM] `bot/cogs/puzzles.py:2811`
 
@@ -590,7 +679,7 @@ The archive family of bang commands — !archive_round (bot/cogs/puzzles.py:2811
 
 ### 65. [MEDIUM] `bot/core/notifier.py:136`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Extended `DiscordNotifier.refresh_info` to handle a hunt-level (puzzle=None) pin refresh, wired into !set_login, !set_start, and the web PATCH /hunts/<uid>/settings endpoint.
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Extended `DiscordNotifier.refresh_info` to handle a hunt-level (puzzle=None) pin refresh, wired into !set_login, !set_start, and the web PATCH /hunts/<uid>/settings endpoint.
 
 No path — bang !set_login (bot/cogs/puzzles.py:1900), !set_start (1919), !update_settings (1927), or web PATCH /hunts/<uid>/settings (bot/web/actions.py:776) — refreshes the hunt channel's pinned info message after hunt settings change, and DiscordNotifier.refresh_info structurally cannot do so (bot/core/notifier.py:136 early-returns when puzzle is None and its handler dispatch at 157-161 only covers metapuzzle/puzzle channels), even though username, password, and start_timestamp render in that pin (puzzles.py:2051-2064). A user running !info gets a fresh non-pinned duplicate (update defaults False at puzzles.py:2307; users cannot pass kwargs to a discord.py command), so the stale pinned message persists.
 
@@ -598,7 +687,7 @@ No path — bang !set_login (bot/cogs/puzzles.py:1900), !set_start (1919), !upda
 
 ### 66. [MEDIUM] `bot/core/puzzle_service.py:1892`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Converted log_clues to async + @pushes_board(); also made frontend/src/pages/HuntBoard.tsx's WS handler invalidate `["evidence", uid]` alongside `["hunt", uid]`.
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Converted log_clues to async + @pushes_board(); also made frontend/src/pages/HuntBoard.tsx's WS handler invalidate `["evidence", uid]` alongside `["hunt", uid]`.
 
 log_clues (bot/core/puzzle_service.py:1892) carries no @pushes_board and none of its three entrypoints (!clue at bot/cogs/puzzles.py:1262, !clues at 1284, web action at bot/web/actions.py:444) publishes any board event; even if one did, the WS handler (frontend/src/pages/HuntBoard.tsx:37) only invalidates ["hunt", uid], never ["evidence", uid], and useEvidence (frontend/src/api.ts:514-519) has no refetchInterval — so clues logged by others never live-update an open Evidence panel; only the logger's own web mutation invalidates ["evidence", uid] (api.ts:170) for themselves. React-query's default refetch-on-window-focus means a viewer will pick it up on tab refocus, but not while the tab stays focused.
 
@@ -606,7 +695,7 @@ log_clues (bot/core/puzzle_service.py:1892) carries no @pushes_board and none of
 
 ### 67. [MEDIUM] `bot/web/actions.py:380`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`).
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`).
 
 Web POST /puzzles/<id>/link (bot/web/actions.py:380-412) sets the puzzle URL via service.set_puzzle_url but never calls cog.web_refresh_info, so the pinned info message — whose links field renders the puzzle URL (puzzles.py:2091) — stays stale; the bang path !link does refresh it (puzzles.py:2396 → send_state → info(update=True) at 2330), and sibling web endpoints (PATCH update_puzzle, add/remove sheet at actions.py:220/255/292) all do refresh.
 
@@ -614,7 +703,7 @@ Web POST /puzzles/<id>/link (bot/web/actions.py:380-412) sets the puzzle URL via
 
 ### 68. [LOW] `bot/core/puzzle_service.py:2244`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Converted to async + @pushes_board(), matching every other board-visible service mutation.
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Converted to async + @pushes_board(), matching every other board-visible service mutation.
 
 update_hunt_settings (bot/core/puzzle_service.py:2244) is a plain sync method with no @pushes_board, and none of its callers — !set_login (bot/cogs/puzzles.py:1900), !set_start (bot/cogs/puzzles.py:1919), or web PATCH /hunts/<uid>/settings (bot/web/actions.py:776) — emit a board_changed event, so hunt-settings changes (url, start time, login, prefix) never push to connected dashboards; other clients render stale hunt header values until an unrelated mutation fires a push or they reload.
 
@@ -630,6 +719,12 @@ README.md:69 documents a `!p puzzle-round-name: puzzle-name` colon syntax for cr
 **Failure scenario:** A user in the bot channel types `!p the-bog: clueless-crossword` expecting the puzzle to land in the-bog; instead the bot treats the full string `the-bog: clueless-crossword` as the puzzle name (round taken from the current channel's context), creating a mis-named puzzle/sheet in the wrong place.
 
 ### 70. [MEDIUM] `bot/cogs/puzzles.py:2311`
+
+**Status: FIXED AND REVIEWED** in `eff54d5` (`fix(puzzles): close pin/parity staleness gaps
+(#12, #15, #70)`, branch `working-1`). The welcome now names the channel kind
+correctly (capstone/runaround/meta) and, for capstones, leads with `!informs`
+and warns against `!feeds_only`/`!feeds`. Both `!info` and the web
+pin-refresh path share this one function, so the fix covers both entrypoints.
 
 Capstone and Runaround channels get the generic metapuzzle pinned welcome on both entrypoints — bang !info (bot/cogs/puzzles.py:2311-2312) and web refresh/welcome (bot/core/notifier.py:120, :158 route on puzzle.is_target with no capstone case) — so the pin says "Welcome to the meta channel for ..." and leads with `!feeds_only`/`!feeds` hints, which are the wrong edge for a capstone whose members should use `!informs`; a solver following the top hint tags a feeds edge (and `!feeds_only` also moves their channel), silently shifting the capstone toward meta semantics and its sheet rollup toward an answer list.
 
@@ -658,7 +753,7 @@ docs/dashboard.md line 44 (deploy step 2) still instructs applying the dashboard
 
 ### 74. [MEDIUM] `bot/cogs/puzzles.py:1385`
 
-**Status: FIXED** in `52a5e94` (`fix(puzzles): ack tag mutations after they succeed, not before (#17, #74)`, branch `working-1`). Reordered the four drifted commands to ack-after-mutation, matching their siblings — a pure statement reorder, no new duplication removed (the six-way copy-paste itself was out of scope).
+**Status: FIXED AND REVIEWED** in `52a5e94` (`fix(puzzles): ack tag mutations after they succeed, not before (#17, #74)`, branch `working-1`). Reordered the four drifted commands to ack-after-mutation, matching their siblings — a pure statement reorder, no new duplication removed (the six-way copy-paste itself was out of scope).
 
 The feeds/feeds_only/informs/informs_only/groups_with/groups_only_with (plus remove_from) command family in bot/cogs/puzzles.py is six near-identical copy-pasted bodies differing only in edge string and message text, and they have drifted: the plain variants (feeds 1373-1376, informs 1454-1457, groups_with 1504-1507) send the ✅ success message AFTER the service call, while feeds_only (1399-1401), remove_from (1428-1430), informs_only (1479-1481) and groups_only_with (1529-1531) send ✅ BEFORE the mutation, so a service failure leaves the user with a false success confirmation (only partially mitigated by a trailing ⚠️ from on_command_error).
 
@@ -690,7 +785,7 @@ The 'Puzzle commands' embed field is duplicated between _add_metapuzzle_command_
 
 ### 79. [LOW] `bot/cogs/puzzles.py:2642`
 
-**Status: FIXED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Extracted a shared `bot.core.notifier.build_solved_embed` formula. While fixing this, also found and removed (`32ef6fc`) the `Notifier.puzzle_solved` interface method and its four implementations, plus `_post_solved_embed` — none of it was reachable from anywhere outside `notifier.py`; this also makes #88 below moot (the vulnerable code no longer exists).
+**Status: FIXED AND REVIEWED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Extracted a shared `bot.core.notifier.build_solved_embed` formula. While fixing this, also found and removed (`32ef6fc`) the `Notifier.puzzle_solved` interface method and its four implementations, plus `_post_solved_embed` — none of it was reachable from anywhere outside `notifier.py`; this also makes #88 below moot (the vulnerable code no longer exists).
 
 The 'PUZZLE SOLVED!' embed is built in three places — _solve_impl (bot/cogs/puzzles.py:2642), web_post_solved_embed (bot/cogs/puzzles.py:821), and the cog-unavailable fallback _post_solved_embed (bot/core/notifier.py:261) — so any wording/emoji change must be made up to three times; the notifier fallback additionally sends via get_event_loop().create_task without awaiting (notifier.py:266) and will silently rot. Note: the bang-vs-web Follow-up wording difference is at least partly intentional (dashboard-specific copy, mirrored by web_post_unsolved), so 'already-divergent' overstates drift there.
 
@@ -698,7 +793,7 @@ The 'PUZZLE SOLVED!' embed is built in three places — _solve_impl (bot/cogs/pu
 
 ### 80. [LOW] `bot/cogs/puzzles.py:2678`
 
-**Status: FIXED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Merged into one `_change_or_add_solution_impl`; also added the Follow-up field `add_solution`'s embed was missing.
+**Status: FIXED AND REVIEWED** in `4ec4444` (`refactor: dedupe the solved embed and change/add-solution tails (#79, #80)`, branch `working-1`, merged to `staging` in `8442c15`). Folded in at the user's request. Merged into one `_change_or_add_solution_impl`; also added the Follow-up field `add_solution`'s embed was missing.
 
 change_solution (bot/cogs/puzzles.py:2678-2717) and add_solution (2721-2757) duplicate a near-identical ~30-line tail — not-a-puzzle guard, unsolved fallback (to _solve_impl / _partial_impl respectively), _normalize_solution, empty-solution check, service call, SheetRefreshError capture, celebration embed, self.info(ctx, update=True), and _warn_stale_sheets — differing only in the service method, embed title, and the fallback impl; the copies have already drifted in that add_solution's embed omits the Follow-up field that change_solution (2710-2713), _solve_impl (2644-2647) and _partial_impl (2595-2598) all include.
 
@@ -733,13 +828,21 @@ refresh_evidence (bot/core/puzzle_service.py:1909) and link/unlink_informs_for_e
 
 ### 85. [MEDIUM] `bot/web/__init__.py:156`
 
-**Status: FIXED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Added a `task.add_done_callback` that logs (with exc_info) if the background task raises.
+**Status: FIXED AND REVIEWED** in `17afadf` (`fix(web,notifier): close web↔Discord pin/board staleness gaps (#63,65,66,67,68,85)`, branch `working-1`). Added a `task.add_done_callback` that logs (with exc_info) if the background task raises.
 
 The web-dashboard task's exception is never observed: start_web (bot/web/__init__.py:156-164) creates the run_task task with no done-callback, and bot.web_task (bot/__init__.py:191) holds a permanent strong reference, so if hypercorn fails after task creation (e.g. the port is already bound) the exception is neither logged nor retrieved and the bot runs on with the dashboard silently down.
 
 **Failure scenario:** Another process holds config.web_port when the bot starts; hypercorn's bind fails inside the task, the bot keeps running normally, discord.log shows only 'Starting web dashboard', and the operator discovers the dashboard is down hours later with no error anywhere.
 
 ### 86. [MEDIUM] `bot/web/actions.py:1060`
+
+**Status: FIXED AND REVIEWED** in `1e3fe6b` (`fix(web): close multi-team visibility/permission
+gaps (#36, #38, #86)`, branch `working-1`). All six convert-to-* endpoints now
+gate on `require_admin` (ADMIN_ROLES) instead of `require_organiser`, matching
+the bang commands' role requirement. (The bang commands additionally require
+the Discord `manage_channels` permission, which has no clean web equivalent —
+these are hunt-wide actions, not scoped to a specific channel the invoker is
+in — so this fix closes the role-list gap, not the permission-check gap.)
 
 All web convert endpoints (convert-to-meta at bot/web/actions.py:549, the shared _convert_to_type_handler at :1061 used by convert-to-capstone/runaround/group/metapuzzle, convert-to-feeder at :1006, and convert-to-puzzle at :1168) gate on require_organiser (ORGANISER_ROLES = ADMIN_ROLES + 'Organisers') with no Discord-permission check, while every equivalent bang command requires the stricter ADMIN_ROLES plus manage_channels — so an Organisers-only user is refused the bang command but can perform the identical conversion from the dashboard.
 

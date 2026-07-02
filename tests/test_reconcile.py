@@ -60,9 +60,10 @@ def _gcog(page_name=None):
     g.get_spreadsheet_id.return_value = "SS"
     g.get_archive_spreadsheet_id.return_value = "ARC"
     g.INITIAL_OFFSET = 999
-    g.get_page_name_by_id = MagicMock(return_value=page_name)
+    g.get_page_name_by_id = AsyncMock(return_value=page_name)
     g.add_new_puzzle_sheet = AsyncMock()
     g.update_puzzle_info = AsyncMock()
+    g.compute_insert_index = AsyncMock(return_value=999)
     return g
 
 
@@ -274,7 +275,7 @@ def test_reconcile_failure_isolated_per_puzzle():
            any(t == "Boom" for t, _ in report.failures)
 
 
-def test_collect_orphan_tabs_skips_structural_tabs():
+async def test_collect_orphan_tabs_skips_structural_tabs():
     """Structural tabs (REFERENCE template tab, Unassigned Puzzles, Evidence)
     and puzzle additional-sheet tabs are never orphans — only a genuinely
     unmatched tab is flagged."""
@@ -283,21 +284,21 @@ def test_collect_orphan_tabs_skips_structural_tabs():
 
     gcog = MagicMock()
     gcog.get_spreadsheet_id.return_value = "SS"
-    gcog.sheet_list.return_value = {"sheets": [
+    gcog.sheet_list = AsyncMock(return_value={"sheets": [
         _sheet(100, "Tide"),               # valid puzzle tab
         _sheet(101, "Tide — notes"),       # puzzle additional sheet
         _sheet(200, "Unassigned Puzzles"), # structural (page-id tracked)
         _sheet(201, "Evidence"),           # structural (page-id tracked)
         _sheet(300, "REFERENCE"),          # structural template tab (untracked)
         _sheet(999, "old-puzzle"),         # genuine orphan
-    ]}
+    ]})
     svc = _service_with_gsheet(gcog)
     hunt = make_hunt(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
                      unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
     p = _puzzle(google_page_id="100")
     p.additional_sheets = [SimpleNamespace(google_page_id="101")]
     report = ReconcileReport()
-    svc._collect_orphan_tabs(hunt, [p], report)
+    await svc._collect_orphan_tabs(hunt, [p], report)
     assert report.orphan_tabs == [(999, "old-puzzle")]
 
 
