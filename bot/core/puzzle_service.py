@@ -306,10 +306,14 @@ class PuzzleService:
         category = discord.utils.get(guild.categories, id=home_group.category_id)
         return category, home_group
 
-    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply):
+    async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=()):
         """Make the puzzle's Discord channel match the DB. Returns the list of
         actions taken/needed. Resolution order: keep+fix existing > relink named >
-        create. Welcome is reposted ONLY when a brand-new channel is created."""
+        create. Welcome is reposted ONLY when a brand-new channel is created.
+
+        ``hunt_category_ids`` scopes step 2's relink search to this hunt's own
+        round/group categories, so a same-named channel belonging to a different
+        hunt (or a different puzzle) in the same guild can't be hijacked."""
         # Mini-puzzles live as threads inside their minimeta's channel (see
         # create_mini) and are deliberately untagged. Reconcile has no
         # thread-creation path, so a mini here would be wrongly promoted to a
@@ -335,8 +339,13 @@ class PuzzleService:
                     await live.edit(name=want_name)
             return actions
 
-        # 2. A channel with the right name already exists somewhere: relink + move.
-        existing = discord.utils.get(guild.channels, name=want_name)
+        # 2. A channel with the right name already exists in one of this hunt's
+        # own categories: relink + move. Scoped to hunt_category_ids so a
+        # same-named channel in another hunt/round can't be adopted.
+        existing = discord.utils.get(
+            (c for c in guild.channels if getattr(c.category, "id", None) in hunt_category_ids),
+            name=want_name,
+        )
         if existing is not None:
             actions.append(ReconcileAction("channel_relink", puzzle.name,
                                            f"-> #{existing.id}"))
@@ -401,10 +410,14 @@ class PuzzleService:
         isolated: one failure is recorded and the run continues."""
         report = ReconcileReport()
         puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+        rounds = TagGroupJsonDb.get_all(hunt.id)
+        hunt_category_ids = frozenset(r.category_id for r in rounds if r.category_id)
 
         for puzzle in puzzles:
             try:
-                for action in await self._reconcile_channel(guild, hunt, puzzle, report, apply=apply):
+                for action in await self._reconcile_channel(
+                        guild, hunt, puzzle, report, apply=apply,
+                        hunt_category_ids=hunt_category_ids):
                     report.actions.append(action)
                 for action in await self._reconcile_tabs(hunt, puzzle, apply=apply):
                     report.actions.append(action)
@@ -412,7 +425,6 @@ class PuzzleService:
                 logger.exception("reconcile: failed for puzzle %s", puzzle.name)
                 report.add_failure(puzzle.name, error)
 
-        rounds = TagGroupJsonDb.get_all(hunt.id)
         for tag_group in rounds:
             if tag_group.category_id and discord.utils.get(
                     guild.categories, id=tag_group.category_id) is None:

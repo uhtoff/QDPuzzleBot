@@ -19,7 +19,18 @@ if "LADDER_SPOT_DATA_DIR" in os.environ:
     DATA_DIR = Path(os.environ["LADDER_SPOT_DATA_DIR"])
 
 class MySQLReconnector:
+    # Every cursor()/commit()/rollback() call runs _ensure() synchronously on
+    # whatever thread calls it -- for the bang/web write paths, that's the bot's
+    # event loop. Without an explicit connect_timeout, mysql-connector-python
+    # falls back to the OS socket default, which can block for tens of seconds
+    # to minutes against an unreachable host -- stalling every command bot-wide
+    # for the whole outage window (#89). Bound it so a down/unreachable MySQL
+    # fails fast instead; this doesn't move the query off the event loop, but it
+    # caps the worst-case per-call stall from "unbounded" to a few seconds.
+    _CONNECT_TIMEOUT_SECONDS = 5
+
     def __init__(self, **cfg):
+        cfg.setdefault("connect_timeout", self._CONNECT_TIMEOUT_SECONDS)
         self._cfg = cfg
         self._conn = None
         self._connect()
