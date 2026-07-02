@@ -297,6 +297,8 @@ update_puzzle_info's rename path (bot/cogs/puzzles_gsheet.py:286) computes tab-n
 
 ### 27. [MEDIUM] `bot/core/puzzle_service.py:802`
 
+**Status: FIXED** in `ba61dfc` (`fix(service): hold member puzzle mutexes during bulk_re_edge (#27)`, branch `working-1`). `bulk_re_edge` now acquires every member's `puzzle_lock` (sorted, deduped) for the duration of the flip; neither caller (bang, no lock; web, target-only lock) already holds a member lock, so this can't deadlock.
+
 bulk_re_edge (bot/core/puzzle_service.py:802) flips member edge rows via raw SQL while holding no per-member puzzle locks (bang !convert_to_capstone holds no lock at all, web holds only the target's lock), so any concurrently in-flight command on a member puzzle that loaded it pre-flip will, at its next PuzzleJsonDb.commit, have the bidirectional tag-sync (bot/store/mysqldb.py:566-576) silently revert that member's edge back to the stale in-memory type.
 
 **Failure scenario:** !convert_to_capstone on group G (flips member P feeds→informs in DB) races with an in-flight !solve of P (P's mutex held, P loaded with 'feeds' before the flip): solve's commit at line 982 computes db_pairs={(G,'informs')} vs mem_pairs={(G,'feeds')}, DELETEs the informs row and re-INSERTs feeds — the type conversion is undone for P with no error anywhere.
