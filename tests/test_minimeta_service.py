@@ -377,6 +377,41 @@ class TestUnsolveService:
 
         guild.get_channel_or_thread.assert_called_once_with(9001)
 
+    @patch("bot.core.puzzle_service.SheetsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.TagGroupJsonDb")
+    def test_commits_after_sheet_restore(self, RoundDb, PuzzleDb, SheetsDb):
+        """The DB commit must happen AFTER restore_puzzle_spreadsheet mutates
+        puzzle.archived/google_page_id, else those fields never persist (#4)."""
+        import asyncio
+        from bot.core.puzzle_service import PuzzleService
+        from bot.store.puzzle_data import AdditionalSheetData
+
+        puzzle = make_puzzle(id=1, hunt_id=10, solved=True, solution="ANS", tags=[])
+        puzzle.additional_sheets = [AdditionalSheetData(google_page_id="extra-1")]
+        hunt = make_hunt()
+        RoundDb.get_by_attr.return_value = None
+        PuzzleDb.get_all_from_hunt.return_value = []
+
+        order = []
+        gsheet_cog = MagicMock()
+        gsheet_cog.compute_insert_index.return_value = 3
+
+        async def fake_restore(puzzle_data, restore_index=None):
+            order.append("restore")
+
+        gsheet_cog.restore_puzzle_spreadsheet = fake_restore
+        PuzzleDb.commit.side_effect = lambda *a, **kw: order.append("commit_puzzle")
+        SheetsDb.commit.side_effect = lambda *a, **kw: order.append("commit_sheet")
+
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet_cog
+        svc = PuzzleService(bot)
+
+        asyncio.run(svc.unsolve(None, hunt, puzzle))
+
+        assert order == ["restore", "commit_puzzle", "commit_sheet"]
+
 
 class TestSolveMiniByNumber:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")

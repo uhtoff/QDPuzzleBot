@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 from tests.conftest import make_puzzle
+from bot.store.puzzle_data import AdditionalSheetData
 
 
 # ---------------------------------------------------------------------------
@@ -280,3 +281,36 @@ async def test_restore_puzzle_spreadsheet_defaults_to_initial_offset():
     ]
     for req in move_reqs:
         assert req["updateSheetProperties"]["properties"]["index"] == cog.INITIAL_OFFSET
+
+
+@pytest.mark.asyncio
+async def test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_archived():
+    """Additional sheets must move back from the archive whenever the puzzle
+    itself was archived — not gated on puzzle_data.solved, which unsolve()
+    already cleared to False before calling restore (#2)."""
+    cog = make_sheets_cog()
+    puzzle = make_puzzle()
+    puzzle.google_page_id = 99
+    puzzle.is_target = False
+    puzzle.archived = True
+    puzzle.solved = False  # unsolve() clears this before restore is called
+    puzzle.additional_sheets = [AdditionalSheetData(google_page_id="archive-extra")]
+
+    async def fake_batch_update(body, archive=False):
+        pass
+
+    with (
+        patch.object(cog, "batch_update", side_effect=fake_batch_update),
+        patch.object(cog, "move_puzzle_spreadsheet", new=AsyncMock(return_value="live-extra")) as mock_move,
+        patch.object(cog, "get_page_name_by_id", return_value="Extra Sheet"),
+        patch.object(cog, "get_spreadsheet_id", return_value="sheet-id"),
+        patch.object(cog, "get_archive_spreadsheet_id", return_value="archive-id"),
+        patch("bot.cogs.puzzles_gsheet.config") as mock_cfg,
+    ):
+        mock_cfg.puzzle_cell_solution = "B1"
+        mock_cfg.puzzle_cell_progress = "B3"
+        await cog.restore_puzzle_spreadsheet(puzzle)
+
+    # Once for the main page, once for the additional sheet.
+    assert mock_move.await_count == 2
+    assert puzzle.additional_sheets[0].google_page_id == "live-extra"

@@ -55,7 +55,6 @@ def _notifier():
     n.board_changed = AsyncMock()
     n.welcome = AsyncMock()
     n.refresh_info = AsyncMock()
-    n.puzzle_solved = AsyncMock()
     return n
 
 

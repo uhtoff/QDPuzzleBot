@@ -6,12 +6,13 @@ import {
   Collapse,
   Divider,
   Group,
+  Select,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   IconAlertTriangle,
@@ -23,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { useArchiveHunt, useCreateArchiveSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
   uid: string;
@@ -40,7 +42,8 @@ interface AdminSettingsPanelProps {
 
 interface FormValues {
   url: string;
-  start_local: string;  // datetime-local input format
+  start_local: string;  // datetime-local input format, wall-clock time in start_offset_minutes
+  start_offset_minutes: number;  // UTC offset (minutes east of UTC) start_local is expressed in
   username: string;
   password: string;
   url_sep: string;
@@ -70,31 +73,38 @@ export function AdminSettingsPanel({
   const sheetMut = useCreateArchiveSheet(uid);
   const deleteMut = useDeleteHunt(uid);
 
-  const startLocalDefault =
-    start_timestamp != null && start_timestamp > 0
-      ? new Date(start_timestamp * 1000).toISOString().slice(0, 16)
-      : "";
-
-  const [values, setValues] = useState<FormValues>({
-    url,
-    start_local: startLocalDefault,
-    username,
-    password,
-    url_sep,
-    puzzle_prefix,
+  const [values, setValues] = useState<FormValues>(() => {
+    const offset = browserOffsetMinutes();
+    return {
+      url,
+      start_local: tsToLocal(start_timestamp, offset),
+      start_offset_minutes: offset,
+      username,
+      password,
+      url_sep,
+      puzzle_prefix,
+    };
   });
 
-  // Sync form when parent data changes
-  if (values.url !== url || values.start_local !== startLocalDefault) {
+  // Re-sync the form from the server only when we switch to a different hunt —
+  // not on every background refetch of the SAME hunt (the dashboard polls every
+  // 30s), which would otherwise wipe out-of-sync in-progress edits every time it
+  // fired. See #7/#8 in docs/reviews/2026-07-02-staging-full-review.md.
+  const lastUid = useRef(uid);
+  useEffect(() => {
+    if (lastUid.current === uid) return;
+    lastUid.current = uid;
+    const offset = browserOffsetMinutes();
     setValues({
       url,
-      start_local: startLocalDefault,
+      start_local: tsToLocal(start_timestamp, offset),
+      start_offset_minutes: offset,
       username,
       password,
       url_sep,
       puzzle_prefix,
     });
-  }
+  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix]);
 
   const handleSave = useCallback(() => {
     const patch: HuntSettingsPatch = {};
@@ -104,8 +114,8 @@ export function AdminSettingsPanel({
     }
 
     if (values.start_local) {
-      const ts = Math.round(new Date(values.start_local).getTime() / 1000);
-      if (ts !== start_timestamp) {
+      const ts = localToTs(values.start_local, values.start_offset_minutes);
+      if (ts !== null && ts !== start_timestamp) {
         patch.start_timestamp = ts;
       }
     } else if (start_timestamp != null && start_timestamp > 0) {
@@ -205,13 +215,27 @@ export function AdminSettingsPanel({
           onChange={(e) => setValues((v) => ({ ...v, url: e.target.value }))}
         />
 
-        <TextInput
-          type="datetime-local"
-          label="Start time"
-          description="Leaving this blank clears the start time."
-          value={values.start_local}
-          onChange={(e) => setValues((v) => ({ ...v, start_local: e.target.value }))}
-        />
+        <Group align="flex-end" gap="sm">
+          <TextInput
+            type="datetime-local"
+            label="Start time"
+            description="Leaving this blank clears the start time."
+            value={values.start_local}
+            onChange={(e) => setValues((v) => ({ ...v, start_local: e.target.value }))}
+            style={{ flex: 1 }}
+          />
+          <Select
+            label="Timezone"
+            data={UTC_OFFSET_OPTIONS}
+            value={String(values.start_offset_minutes)}
+            onChange={(val) =>
+              val != null &&
+              setValues((v) => ({ ...v, start_offset_minutes: Number(val) }))
+            }
+            allowDeselect={false}
+            w={140}
+          />
+        </Group>
 
         <TextInput
           label="Shared username"

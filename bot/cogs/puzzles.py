@@ -814,15 +814,12 @@ class Puzzles(commands.Cog):
         # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
         # is a thread snowflake, also resolves — otherwise the SOLVED embed is silently
         # skipped for minis.
+        from bot.core.notifier import build_solved_embed
         channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
             emoji = guild_data.discord_bot_emoji if guild_data else ""
-            embed = discord.Embed(
-                title="PUZZLE SOLVED!",
-                description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`",
-            )
-            embed.add_field(name="Follow-up", value="Solved from the dashboard. Tidying up the sheets…")
+            embed = build_solved_embed(emoji, puzzle, "Solved from the dashboard. Tidying up the sheets…")
             try:
                 await channel.send(embed=embed)
             except Exception:
@@ -836,6 +833,43 @@ class Puzzles(commands.Cog):
                 await self._apply_solved_move(guild, channel)
             except Exception:
                 logger.exception("web_post_solved_embed: failed to reposition channel")
+        await self.web_refresh_info(guild, hunt, puzzle)
+
+    _WEB_SOLUTION_UPDATE_EMBEDS = {
+        "partial": lambda emoji, puzzle: (
+            "Partially SOLVED!",
+            f"{emoji} :partying_face: Great work! Added the solution `{puzzle.solution}`",
+        ),
+        "change": lambda emoji, puzzle: (
+            "PUZZLE SOLUTION UPDATED!",
+            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
+        ),
+        "add": lambda emoji, puzzle: (
+            "EXTRA PUZZLE SOLUTION ADDED!",
+            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
+        ),
+    }
+
+    async def web_post_solution_update_embed(self, guild, hunt, puzzle, mode):
+        """Best-effort dashboard-side presentation after service.add_partial/
+        change_solution/add_solution (mode in "partial"/"change"/"add"): post the
+        mode-appropriate embed in the puzzle channel, mirroring the bang
+        !partial/!change_solution/!add_solution messages, and refresh the pinned
+        info. Never raises. Unlike web_post_solved_embed/web_post_unsolved, these
+        modes don't change solved state, so the channel is never repositioned."""
+        # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
+        # is a thread snowflake, also resolves — otherwise the embed is skipped for minis.
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
+        if channel is not None:
+            guild_data = GuildSettingsDb.get(guild.id)
+            emoji = guild_data.discord_bot_emoji if guild_data else ""
+            title, description = self._WEB_SOLUTION_UPDATE_EMBEDS[mode](emoji, puzzle)
+            embed = discord.Embed(title=title, description=description)
+            embed.add_field(name="Follow-up", value="Updated from the dashboard.")
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                logger.exception("web_post_solution_update_embed: failed to post %s message", mode)
         await self.web_refresh_info(guild, hunt, puzzle)
 
     async def web_post_unsolved(self, guild, hunt, puzzle, prev_solution=""):
@@ -2622,6 +2656,7 @@ class Puzzles(commands.Cog):
 
 
     async def _solve_impl(self, ctx, *args):
+        from bot.core.notifier import build_solved_embed
         solution = self._normalize_solution(args)
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
@@ -2639,11 +2674,9 @@ class Puzzles(commands.Cog):
             return
 
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="PUZZLE SOLVED!",
-                              description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`")
-        embed.add_field(
-            name="Follow-up",
-            value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
+        embed = build_solved_embed(
+            emoji, puzzle,
+            "If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
         )
         await ctx.send(embed=embed)
         await self.move_to_solved(ctx)
@@ -2673,20 +2706,22 @@ class Puzzles(commands.Cog):
         await self._solve_impl(ctx, *solution.split())
 
 
-    @commands.hybrid_command(aliases=["update_solution","update_answer"], description="Replace this puzzle's recorded solution (e.g. fix a typo)")
-    @with_puzzle_mutex(wait=False)
-    async def change_solution(self, ctx, *, answer: str = ""):
-        """*Replace this puzzle's recorded solution (e.g. to fix a typo).*
-
-        Usage: `!change_solution answer`
-        Example: `!change_solution BLUE WHALE`
-        If the puzzle wasn't solved yet it solves it. Run in the puzzle's channel.
-        Aliases: `!update_solution`, `!update_answer`."""
+    async def _change_or_add_solution_impl(self, ctx, answer, *, mode):
+        """Shared tail for !change_solution and !add_solution: not-a-puzzle guard,
+        unsolved fallback (to _solve_impl/_partial_impl), normalize, empty-solution
+        guard, service call, SheetRefreshError capture, celebration embed, pin
+        refresh. `mode` is "change" or "add" — the two commands differ only in the
+        service method, the embed title, and the unsolved fallback (#80: these had
+        drifted into two ~30-line near-copies, missing the Follow-up field on
+        !add_solution that the other three variants all include)."""
         if not self.get_puzzle(ctx):
             await self.send_not_puzzle_channel(ctx)
             return
         elif not self.get_puzzle(ctx).solved:
-            await self._solve_impl(ctx, *answer.split())
+            if mode == "change":
+                await self._solve_impl(ctx, *answer.split())
+            else:
+                await self._partial_impl(ctx, *answer.split())
             return
 
         solution = self._normalize_solution(answer.split())
@@ -2700,12 +2735,16 @@ class Puzzles(commands.Cog):
 
         sheet_warning = None
         try:
-            await self.service.change_solution(self.get_guild(ctx), hunt, puzzle, solution)
+            if mode == "change":
+                await self.service.change_solution(self.get_guild(ctx), hunt, puzzle, solution)
+            else:
+                await self.service.add_solution(self.get_guild(ctx), hunt, puzzle, solution)
         except SheetRefreshError as exc:
             sheet_warning = exc
 
+        title = "PUZZLE SOLUTION UPDATED!" if mode == "change" else "EXTRA PUZZLE SOLUTION ADDED!"
         emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="PUZZLE SOLUTION UPDATED!",
+        embed = discord.Embed(title=title,
                               description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
         embed.add_field(
             name="Follow-up",
@@ -2716,6 +2755,17 @@ class Puzzles(commands.Cog):
         if sheet_warning:
             await self._warn_stale_sheets(ctx, sheet_warning)
 
+    @commands.hybrid_command(aliases=["update_solution","update_answer"], description="Replace this puzzle's recorded solution (e.g. fix a typo)")
+    @with_puzzle_mutex(wait=False)
+    async def change_solution(self, ctx, *, answer: str = ""):
+        """*Replace this puzzle's recorded solution (e.g. to fix a typo).*
+
+        Usage: `!change_solution answer`
+        Example: `!change_solution BLUE WHALE`
+        If the puzzle wasn't solved yet it solves it. Run in the puzzle's channel.
+        Aliases: `!update_solution`, `!update_answer`."""
+        await self._change_or_add_solution_impl(ctx, answer, mode="change")
+
     @commands.hybrid_command(aliases=["add_to_solution"], description="Add an extra solution to an already-solved puzzle")
     @with_puzzle_mutex(wait=False)
     async def add_solution(self, ctx, *, answer: str = ""):
@@ -2725,36 +2775,7 @@ class Puzzles(commands.Cog):
         Example: `!add_solution GREY WHALE`
         If the puzzle isn't solved yet this records a partial instead. Run in the puzzle's channel.
         Alias: `!add_to_solution`."""
-        if not self.get_puzzle(ctx):
-            await self.send_not_puzzle_channel(ctx)
-            return
-        elif not self.get_puzzle(ctx).solved:
-            await self._partial_impl(ctx, *answer.split())
-            return
-
-        solution = self._normalize_solution(answer.split())
-
-
-        puzzle = self.get_puzzle(ctx)
-        hunt = self.get_hunt(ctx)
-
-        if solution == "":
-            await ctx.send(":x: Nice try, but you need to give a solution!")
-            return
-
-        sheet_warning = None
-        try:
-            await self.service.add_solution(self.get_guild(ctx), hunt, puzzle, solution)
-        except SheetRefreshError as exc:
-            sheet_warning = exc
-
-        emoji = self.get_guild_data(ctx).discord_bot_emoji
-        embed = discord.Embed(title="EXTRA PUZZLE SOLUTION ADDED!",
-                              description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
-        await ctx.send(embed=embed)
-        await self.info(ctx, update=True)
-        if sheet_warning:
-            await self._warn_stale_sheets(ctx, sheet_warning)
+        await self._change_or_add_solution_impl(ctx, answer, mode="add")
 
     @commands.hybrid_command(name="mark_as_complete", aliases=["mark_as_solved","complete"], description="Mark this puzzle solved with a tick when there's no text answer")
     @with_puzzle_mutex(wait=False)
@@ -2914,35 +2935,37 @@ class Puzzles(commands.Cog):
                 if author.id == bot_id:
                     continue
                 content = message.content
-                if content:
-                    if content[0] == '!' and content[:3] != '!s ':
-                        continue
-                    files = []
-                    for a in message.attachments:
-                        try:
-                            files.append(await a.to_file(use_cached=True))
-                        except discord.HTTPException as e:
-                            # some attachments/filetypes can't be re-downloaded - skip
-                            # the attachment but keep archiving the rest of the message.
-                            logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
-                    avatar_url = getattr(author.avatar, 'url', None)
+                if content and content[0] == '!' and content[:3] != '!s ':
+                    continue
+                files = []
+                for a in message.attachments:
                     try:
-                        moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
-                                                          embeds=message.embeds, thread=thread, wait=True, silent=True)
+                        files.append(await a.to_file(use_cached=True))
                     except discord.HTTPException as e:
-                        # e.g. an attachment too large to re-upload, or content the API
-                        # rejects - skip this message rather than aborting the archive.
-                        logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
-                        continue
-                    if message.reactions:
-                        for reaction in message.reactions:
-                            try:
-                                await moved_message.add_reaction(reaction.emoji)
-                            except discord.HTTPException as e:
-                                # e.g. a custom/external emoji the bot can't apply - skip it
-                                # rather than aborting the whole archive.
-                                logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
-                    await asyncio.sleep(0.1)
+                        # some attachments/filetypes can't be re-downloaded - skip
+                        # the attachment but keep archiving the rest of the message.
+                        logger.warning(f"Skipping attachment {a.filename!r} while archiving: {e}")
+                if not content and not files and not message.embeds:
+                    # truly nothing to archive (e.g. all attachments failed to download)
+                    continue
+                avatar_url = getattr(author.avatar, 'url', None)
+                try:
+                    moved_message = await webhook[0].send(content=content, username=author.display_name, avatar_url=avatar_url, files = files,
+                                                      embeds=message.embeds, thread=thread, wait=True, silent=True)
+                except discord.HTTPException as e:
+                    # e.g. an attachment too large to re-upload, or content the API
+                    # rejects - skip this message rather than aborting the archive.
+                    logger.warning(f"Skipping message from {author.display_name} while archiving: {e}")
+                    continue
+                if message.reactions:
+                    for reaction in message.reactions:
+                        try:
+                            await moved_message.add_reaction(reaction.emoji)
+                        except discord.HTTPException as e:
+                            # e.g. a custom/external emoji the bot can't apply - skip it
+                            # rather than aborting the whole archive.
+                            logger.warning(f"Skipping reaction {reaction.emoji!r} while archiving: {e}")
+                await asyncio.sleep(0.1)
         await channel.delete(reason=self.DELETE_REASON)
         return True
 

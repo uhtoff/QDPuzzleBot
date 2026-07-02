@@ -356,10 +356,14 @@ async def solve_puzzle(puzzle_id):
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
 
-        # Post solved embed + refresh minimeta pin only for full solves.
+        # Post the mode-appropriate embed + refresh the pinned info (mirrors the
+        # bang equivalents); only full solves also refresh a parent minimeta pin,
+        # since only solve()/unsolve() touch minimeta rollup state.
         if mode == "full":
             await cog.web_post_solved_embed(guild, hunt_obj, puzzle)
             await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
+        else:
+            await cog.web_post_solution_update_embed(guild, hunt_obj, puzzle, mode)
 
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))

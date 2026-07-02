@@ -38,6 +38,41 @@ export function relativeTime(iso: string | null | undefined): string {
   return `${days}d ago`;
 }
 
+/** The browser's current UTC offset in minutes east of UTC (e.g. UTC+2 -> 120). */
+export function browserOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset();
+}
+
+/** Format a UTC offset in minutes as "UTC+02:00" / "UTC-05:30". */
+function formatOffset(minutes: number): string {
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
+}
+
+/** Select options for a UTC-offset picker: UTC-12:00 .. UTC+14:00, half-hour steps. */
+export const UTC_OFFSET_OPTIONS = Array.from({ length: 53 }, (_, i) => {
+  const minutes = -720 + i * 30;
+  return { value: String(minutes), label: formatOffset(minutes) };
+});
+
+/** Render a stored UTC timestamp as a datetime-local wall-clock string in `offsetMinutes`. */
+export function tsToLocal(ts: number | null, offsetMinutes: number): string {
+  if (ts == null || ts <= 0) return "";
+  return new Date(ts * 1000 + offsetMinutes * 60000).toISOString().slice(0, 16);
+}
+
+/** Parse a datetime-local wall-clock string (expressed in offsetMinutes) to a UTC timestamp. */
+export function localToTs(local: string, offsetMinutes: number): number | null {
+  const [datePart, timePart] = local.split("T");
+  if (!datePart || !timePart) return null;
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  return Math.round((Date.UTC(y, m - 1, d, hh, mm) - offsetMinutes * 60000) / 1000);
+}
+
 /** Length of an answer counting only letters and digits (no spaces or punctuation). */
 export function answerLength(solution: string | null): number {
   if (!solution) return 0;

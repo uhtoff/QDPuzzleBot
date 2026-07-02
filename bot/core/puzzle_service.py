@@ -976,8 +976,17 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
-            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            # Failure isolation (matches the meta-refresh loop above): a Sheets
+            # failure here must not skip the second commit, forum-tag update, or
+            # board push below — the solve is already committed as applied, so an
+            # uncaught raise here would incorrectly present it as failed while
+            # leaving the DB out of sync with what did/didn't move to the archive.
+            try:
+                await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
+                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+            except Exception:
+                logger.exception("solve: failed to archive spreadsheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
@@ -1000,7 +1009,6 @@ class PuzzleService:
         puzzle.solved = False
         puzzle.solve_time = None
         puzzle.archive_time = None
-        PuzzleJsonDb.commit(puzzle)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1010,6 +1018,13 @@ class PuzzleService:
             existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
             restore_idx = gsheet_cog.compute_insert_index(puzzle.is_target, existing)
             await gsheet_cog.restore_puzzle_spreadsheet(puzzle, restore_index=restore_idx)
+
+        # Commit AFTER the sheet restore (mirrors solve()'s ordering): restore
+        # mutates puzzle.archived/google_page_id and each additional sheet's
+        # google_page_id, so committing first would persist stale/dangling ids.
+        PuzzleJsonDb.commit(puzzle)
+        for sheet in puzzle.additional_sheets:
+            SheetsJsonDb.commit(sheet)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         for tag in puzzle.tags:
@@ -1069,6 +1084,11 @@ class PuzzleService:
         target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if target_group is not None:
             TagGroupJsonDb.delete(target_group.id)
+            # Drop every edge to the deleted group (normally just the 'target'
+            # self-edge), not just puzzle.tags — leaving one in tag_edges makes the
+            # next commit's tag-sync try to INSERT a row against the tag_group we
+            # just deleted, failing with an IntegrityError.
+            puzzle.tag_edges.pop(target_group.id, None)
             if target_group.id in puzzle.tags:
                 puzzle.tags.remove(target_group.id)
         puzzle.is_target = False
@@ -1226,7 +1246,15 @@ class PuzzleService:
         failed = await self.refresh_targets(hunt, tag_groups)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.update_solution(puzzle)
+            # Failure isolation (same reasoning as solve()'s archive call): the
+            # solution change is already committed, so a Sheets failure here must
+            # not swallow any metas already collected in `failed` above, nor skip
+            # the board push that tells the dashboard the mutation applied.
+            try:
+                await gsheet_cog.update_solution(puzzle)
+            except Exception:
+                logger.exception("change_solution: failed to update sheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         if failed:
             raise SheetRefreshError(failed)
@@ -1244,7 +1272,11 @@ class PuzzleService:
         failed = await self.refresh_targets(hunt, tag_groups)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.update_solution(puzzle)
+            try:
+                await gsheet_cog.update_solution(puzzle)
+            except Exception:
+                logger.exception("add_solution: failed to update sheet for puzzle %s", puzzle.id)
+                failed.append(puzzle.id)
 
         if failed:
             raise SheetRefreshError(failed)

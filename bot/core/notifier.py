@@ -45,15 +45,6 @@ class Notifier(abc.ABC):
         """Refresh a puzzle's pinned info message after a metadata change."""
 
     @abc.abstractmethod
-    async def puzzle_solved(
-        self,
-        guild,
-        hunt,
-        puzzle: Optional[object] = None,
-    ) -> None:
-        """Post the SOLVED embed after a solve."""
-
-    @abc.abstractmethod
     async def board_changed(self, hunt) -> None:
         """Notify that the board state has changed for this hunt (Phase B)."""
 
@@ -66,9 +57,6 @@ class NullNotifier(Notifier):
         return None
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:
-        return None
-
-    async def puzzle_solved(self, guild=None, hunt=None, puzzle=None) -> None:
         return None
 
     async def board_changed(self, hunt=None) -> None:
@@ -178,26 +166,6 @@ class DiscordNotifier(Notifier):
             from bot.core.forum_config import sync_forum_guidelines
             await sync_forum_guidelines(guild, hunt, tag_group, puzzle)
 
-    async def puzzle_solved(
-        self,
-        guild,
-        hunt,
-        puzzle: Optional[object] = None,
-    ) -> None:
-        """Post the SOLVED embed after a solve."""
-        if guild is None or puzzle is None:
-            return
-        cog = self._cog()
-        if cog is None:
-            # Fallback: post directly without cog helper.
-            _post_solved_embed(self.bot, guild, puzzle)
-            return
-
-        try:
-            await cog.web_post_solved_embed(guild, hunt, puzzle)
-        except Exception:
-            logger.exception("puzzle_solved: failed for puzzle %s", puzzle.id)
-
 
 # ------------------------------------------------------------------ composite
 class CompositeNotifier(Notifier):
@@ -233,33 +201,21 @@ class CompositeNotifier(Notifier):
         for n in self._notifiers:
             await n.refresh_info(guild, hunt, puzzle)
 
-    async def puzzle_solved(
-        self,
-        guild,
-        hunt,
-        puzzle: Optional[object] = None,
-    ) -> None:
-        for n in self._notifiers:
-            await n.puzzle_solved(guild, hunt, puzzle)
-
     async def board_changed(self, hunt=None) -> None:
         for n in self._notifiers:
             await n.board_changed(hunt)
 
 
 # ------------------------------------------------------------------ helpers
-def _post_solved_embed(bot, guild, puzzle):
-    """Best-effort direct post of solved embed (no cog needed)."""
-    channel = guild.get_channel_or_thread(puzzle.channel_id) if puzzle.channel_id else None
-    if channel is None:
-        return
-    from bot.store import GuildSettingsDb
-    guild_data = GuildSettingsDb.get(guild.id)
-    emoji = guild_data.discord_bot_emoji if guild_data else ""
-
+def build_solved_embed(emoji, puzzle, follow_up):
+    """Shared "PUZZLE SOLVED!" embed formula (#79: this title/description was
+    independently copied in the bang !solve command, web_post_solved_embed, and
+    this module's cog-unavailable fallback — a wording/emoji change had to be
+    made in three places). Only the Follow-up text is caller-specific (bang vs.
+    dashboard copy is deliberately different)."""
     embed = __import__("discord").Embed(
         title="PUZZLE SOLVED!",
         description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`",
     )
-    embed.add_field(name="Follow-up", value="Solved from the dashboard. Tidying up the sheets…")
-    __import__("asyncio").get_event_loop().create_task(channel.send(embed=embed))
+    embed.add_field(name="Follow-up", value=follow_up)
+    return embed
