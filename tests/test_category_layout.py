@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from bot.store.tag_group_category_data import (
     TagGroupCategoryData, ROLE_UNSOLVED, ROLE_SOLVED,
 )
+from bot.core.discord_channels import SOLVE_DIVIDER
 
 
 def test_tag_group_category_defaults():
@@ -37,7 +38,6 @@ def test_overflow_category_name_solved():
 
 
 def test_puzzle_count_excludes_divider():
-    from bot.core.discord_channels import SOLVE_DIVIDER
     div = MagicMock(); div.name = SOLVE_DIVIDER
     a = MagicMock(); a.name = "puz-a"
     b = MagicMock(); b.name = "puz-b"
@@ -67,7 +67,6 @@ def test_soft_limit_below_hard_cap():
 def _split_fixtures(divider_pos=2):
     """Build a guild + a primary category with 1 divider, 2 unsolved (pos<divider)
     and 1 solved (pos>divider) channel."""
-    from bot.core.discord_channels import SOLVE_DIVIDER
     div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = divider_pos
     div.delete = AsyncMock()
     u1 = MagicMock(); u1.name = "u1"; u1.position = 0; u1.edit = AsyncMock()
@@ -375,3 +374,128 @@ def test_primary_category_none_for_unset_home():
     """A channel-less group (category_id == 0) -> None."""
     guild = MagicMock(categories=[MagicMock(id=999)])
     assert layout.primary_category(guild, MagicMock(category_id=0)) is None
+
+
+# ----------------------------------------------------------------- group_chat_channel
+
+def test_group_chat_channel_none_when_has_target():
+    tag_group = MagicMock(category_id=100)
+    tag_group.has_target = True
+    assert layout.group_chat_channel(MagicMock(), tag_group) is None
+
+
+def test_group_chat_channel_none_when_no_primary_category():
+    tag_group = MagicMock(category_id=0)
+    tag_group.has_target = False
+    guild = MagicMock()
+    guild.categories = []
+    assert layout.group_chat_channel(guild, tag_group) is None
+
+
+def test_group_chat_channel_finds_by_name():
+    tag_group = MagicMock(category_id=100)
+    tag_group.name = "Loose Ends"
+    tag_group.has_target = False
+    chat_ch = MagicMock()
+    chat_ch.name = "loose-ends"
+    primary = MagicMock(id=100)
+    primary.text_channels = [chat_ch]
+    guild = MagicMock()
+    guild.categories = [primary]
+    assert layout.group_chat_channel(guild, tag_group) is chat_ch
+
+
+# ----------------------------------------------------------------- move_channel_to_general
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_no_category_returns_false():
+    guild = MagicMock()
+    guild.categories = []
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+    assert await layout.move_channel_to_general(guild, 999, channel, False) is False
+    channel.edit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_full_category_returns_false():
+    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
+    general = MagicMock(id=500)
+    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
+    guild = MagicMock()
+    guild.categories = [general]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+    assert await layout.move_channel_to_general(guild, 500, channel, False) is False
+    channel.edit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_unsolved_positions_above_divider():
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
+    other = MagicMock(); other.name = "general"; other.position = 0
+    general = MagicMock(id=500)
+    general.channels = [div, other]
+    guild = MagicMock()
+    guild.categories = [general]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=general, position=4)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_solved_positions_after_divider():
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
+    other = MagicMock(); other.name = "general"; other.position = 0
+    general = MagicMock(id=500)
+    general.channels = [div, other]
+    guild = MagicMock()
+    guild.categories = [general]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, True)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=general, position=6)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_no_divider_appends_at_end():
+    other = MagicMock(); other.name = "general"; other.position = 3
+    general = MagicMock(id=500)
+    general.channels = [other]           # no SOLVE_DIVIDER channel present
+    guild = MagicMock()
+    guild.categories = [general]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=general, position=4)
+
+
+# ----------------------------------------------------------------- delete_group_categories keep_channel_ids
+
+@pytest.mark.asyncio
+async def test_delete_group_categories_keeps_protected_channel():
+    keep = MagicMock(id=42); keep.delete = AsyncMock()
+    doomed = MagicMock(id=43); doomed.delete = AsyncMock()
+    cat = MagicMock(id=100); cat.channels = [keep, doomed]; cat.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [cat]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [TagGroupCategoryData(group_id=5, category_id=100)]
+    tag_group = MagicMock(id=5)
+
+    result = await layout.delete_group_categories(guild, tag_group, dao, keep_channel_ids={42})
+
+    assert result is True
+    keep.delete.assert_not_called()
+    doomed.delete.assert_awaited_once()
+    cat.delete.assert_awaited_once()
+    dao.delete_for_group.assert_called_once_with(5)

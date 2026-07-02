@@ -460,8 +460,10 @@ export interface DeleteRoundResult {
 export function useDeleteRound(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (roundId: number) =>
-      apiSend<DeleteRoundResult>(`/api/tag_groups/${roundId}`, "DELETE"),
+    mutationFn: ({ roundId, keepPuzzles }: { roundId: number; keepPuzzles: boolean }) =>
+      apiSend<DeleteRoundResult>(`/api/tag_groups/${roundId}`, "DELETE", {
+        keep_puzzles: keepPuzzles,
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }

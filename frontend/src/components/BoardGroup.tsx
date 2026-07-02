@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import { useClipboard, useDisclosure, useMediaQuery } from "@mantine/hooks";
 import {
@@ -7,6 +7,7 @@ import {
   Badge,
   Box,
   Group,
+  Radio,
   Table,
   Text,
   Tooltip,
@@ -72,7 +73,14 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const rebuildMut = useRebuildRollup(detail.hunt.uid);
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
+  const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
   const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
+
+  // Reset the scope choice whenever the modal closes, so a reopen (this round
+  // or another) starts from "keep" rather than a stale "all" selection.
+  useEffect(() => {
+    if (!deleteRoundOpen) setDeleteAllPuzzles(false);
+  }, [deleteRoundOpen]);
 
   function rebuild() {
     rebuildMut.mutate(group.tag_group_id, {
@@ -87,21 +95,24 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   function runDeleteRound() {
-    deleteRoundMut.mutate(group.tag_group_id, {
-      onSuccess: (data) => {
-        if (data.failed_channels && data.failed_channels.length > 0) {
-          notifications.show({
-            message: `Round "${group.name}" deleted. Could not delete channels for: ${data.failed_channels.join(", ")}.`,
-            color: "yellow",
-            autoClose: 10000,
-          });
-        } else {
-          notifications.show({ message: `Round "${group.name}" permanently deleted.`, color: "green" });
-        }
-        setDeleteRoundOpen(false);
+    deleteRoundMut.mutate(
+      { roundId: group.tag_group_id, keepPuzzles: !deleteAllPuzzles },
+      {
+        onSuccess: (data) => {
+          if (data.failed_channels && data.failed_channels.length > 0) {
+            notifications.show({
+              message: `Round "${group.name}" deleted. Could not delete/relocate channels for: ${data.failed_channels.join(", ")}.`,
+              color: "yellow",
+              autoClose: 10000,
+            });
+          } else {
+            notifications.show({ message: `Round "${group.name}" permanently deleted.`, color: "green" });
+          }
+          setDeleteRoundOpen(false);
+        },
+        onError: notifyError,
       },
-      onError: notifyError,
-    });
+    );
   }
 
   function copyAnswers() {
@@ -361,11 +372,30 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         confirmLabel="Delete round"
         loading={deleteRoundMut.isPending}
       >
-        <Text size="sm" c="red">
-          ⚠️ This permanently deletes <b>{group.num_feeders} puzzle{group.num_feeders === 1 ? "" : "s"}</b>,
-          their Discord channels and Google sheet tabs, and the round&rsquo;s Discord category.
-          This cannot be undone.
-        </Text>
+        <Radio.Group
+          value={deleteAllPuzzles ? "all" : "keep"}
+          onChange={(v) => setDeleteAllPuzzles(v === "all")}
+          label="What should happen to this round's puzzles?"
+        >
+          <Group mt="xs">
+            <Radio value="keep" label="Round only — keep its puzzles" />
+            <Radio value="all" label={`Round + all ${group.puzzles.length} puzzle${group.puzzles.length === 1 ? "" : "s"}`} />
+          </Group>
+        </Radio.Group>
+        {deleteAllPuzzles ? (
+          <Text size="sm" c="red">
+            ⚠️ This permanently deletes <b>{group.puzzles.length} puzzle{group.puzzles.length === 1 ? "" : "s"}</b>,
+            their Discord channels and Google sheet tabs, and the round&rsquo;s Discord category.
+            This cannot be undone.
+          </Text>
+        ) : (
+          <Text size="sm" c="red">
+            ⚠️ This permanently deletes the round&rsquo;s target puzzle (or dedicated chat channel,
+            if it has no target) and its Discord category. Every other puzzle in this round keeps
+            its sheet and Discord channel — those channels move into the hunt&rsquo;s general
+            category. This cannot be undone.
+          </Text>
+        )}
       </TypedConfirmModal>
     </Accordion.Item>
   );

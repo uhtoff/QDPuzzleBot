@@ -1160,15 +1160,40 @@ class PuzzleService:
             raise SheetRefreshError(failed)
 
     @pushes_board()
-    async def delete_round(self, guild, hunt, tag_group):
-        """Delete all puzzles in a group (sheet + DB + Discord channel per puzzle),
-        delete the group's Discord category (including its solved-divider channel),
-        and delete the group DB record. Per-puzzle failures are isolated: one failure
-        is logged and the run continues. Guild may be None (skips all Discord deletions).
-        Returns the list of puzzle names whose Discord channels could not be deleted."""
-        puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+    async def delete_round(self, guild, hunt, tag_group, keep_puzzles=True):
+        """Delete a group's Discord category (including its solved-divider channel)
+        and the group DB record. Per-puzzle/channel failures are isolated: one
+        failure is logged and the run continues. Guild may be None (skips all
+        Discord operations). Returns the list of puzzle names whose Discord
+        channel could not be deleted or relocated.
+
+        keep_puzzles (default True): only tear down the round's own footprint —
+        its target puzzle (sheet + DB + channel) if it has one, or its dedicated
+        chat channel if it doesn't (a target-less Group round) — and relocate
+        every other member puzzle's Discord channel into the hunt's general
+        category instead of deleting it (their DB rows/sheets are untouched
+        either way). Pass keep_puzzles=False for the old all-or-nothing
+        behavior that deletes every member puzzle. Forum-layout rounds always
+        do the full delete regardless of keep_puzzles — forum threads have no
+        "move to the general category" equivalent.
+        """
+        narrow = keep_puzzles and hunt.layout_mode != "forum"
+        all_puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+
+        if narrow:
+            target_puzzle = next(
+                (p for p in all_puzzles
+                 if tag_group.target_puzzle_id and p.id == tag_group.target_puzzle_id),
+                None,
+            )
+            to_delete = [target_puzzle] if target_puzzle else []
+            to_keep = [p for p in all_puzzles if p is not target_puzzle]
+        else:
+            to_delete = all_puzzles
+            to_keep = []
+
         failed_channels = []
-        for puzzle in puzzles:
+        for puzzle in to_delete:
             gsheet_cog = self._gsheet_cog(hunt)
             if gsheet_cog is not None:
                 try:
@@ -1179,6 +1204,29 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+
+        relocation_failed_channel_ids = set()
+        if narrow and guild is not None:
+            owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
+            owned_category_ids |= {
+                row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
+            }
+            for puzzle in to_keep:
+                if not puzzle.channel_id:
+                    continue
+                channel = guild.get_channel(puzzle.channel_id)
+                if channel is None or channel.category_id not in owned_category_ids:
+                    continue
+                if not await category_layout.move_channel_to_general(
+                    guild, hunt.category_id, channel, puzzle.solved
+                ):
+                    failed_channels.append(puzzle.name)
+                    relocation_failed_channel_ids.add(puzzle.channel_id)
+
+            group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
+            if group_chat_ch is not None:
+                if not await self._safe_delete_channel(guild, group_chat_ch.id):
+                    failed_channels.append(tag_group.name)
 
         TagGroupJsonDb.delete(tag_group.id)
 
@@ -1196,8 +1244,11 @@ class PuzzleService:
                 # Split rounds own several categories (unsolved/solved/overflow); delete
                 # them all + drop the join rows. delete_group_categories returns False for
                 # single-category rounds, which keep the legacy divider+category teardown.
+                # keep_channel_ids protects any narrow-mode relocation failure from being
+                # swept up in the blanket per-category channel delete.
                 if not await category_layout.delete_group_categories(
-                    guild, tag_group, TagGroupCategoryDb
+                    guild, tag_group, TagGroupCategoryDb,
+                    keep_channel_ids=relocation_failed_channel_ids,
                 ) and tag_group.category_id:
                     category = discord.utils.get(guild.categories, id=tag_group.category_id)
                     if category is not None:
@@ -2229,6 +2280,9 @@ class PuzzleService:
                             logger.exception("delete_hunt: could not delete forum %s",
                                              tag_group.category_id)
                 else:
+                    group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
+                    if group_chat_ch is not None:
+                        await self._safe_delete_channel(guild, group_chat_ch.id)
                     category = discord.utils.get(guild.categories, id=tag_group.category_id)
                     if category is not None:
                         for ch in list(category.channels):
