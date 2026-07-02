@@ -25,7 +25,9 @@ async def test_archive_hunt_runs_when_confirmed():
         channels_archived=4, final_name="H - me"))
     ctx = make_ctx()
     ctx.author.display_name = "me"
-    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)):
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+        PuzzleDb.get_all_from_hunt.return_value = []
         await Puzzles.archive_hunt.callback(cog, ctx)
     cog.service.archive_hunt.assert_awaited_once()
     assert cog.service.archive_hunt.await_args.args[0] is ctx.guild
@@ -39,6 +41,28 @@ async def test_archive_hunt_aborts_when_cancelled():
     cog.service.archive_hunt = AsyncMock()
     ctx = make_ctx()
     ctx.author.display_name = "me"
-    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=False)):
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=False)), \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+        PuzzleDb.get_all_from_hunt.return_value = []
         await Puzzles.archive_hunt.callback(cog, ctx)
     cog.service.archive_hunt.assert_not_awaited()
+
+
+async def test_archive_hunt_locks_member_puzzles():
+    """archive_hunt must hold every member puzzle's lock for the duration of
+    confirm+archive, matching delete_hunt/delete_round (review follow-up)."""
+    hunt = _hunt()
+    cog = make_cog(hunt=hunt)
+    cog.service.archive_hunt = AsyncMock(return_value=hunt_archive.HuntArchiveReport(
+        channels_archived=4, final_name="H - me"))
+    ctx = make_ctx()
+    ctx.author.display_name = "me"
+    members = [MagicMock(id=3), MagicMock(id=1)]
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_hunt.return_value = members
+        lock_mock.return_value.__aenter__ = AsyncMock(return_value=None)
+        lock_mock.return_value.__aexit__ = AsyncMock(return_value=None)
+        await Puzzles.archive_hunt.callback(cog, ctx)
+    lock_mock.assert_called_once_with([3, 1])

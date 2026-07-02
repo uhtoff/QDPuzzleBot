@@ -3165,23 +3165,25 @@ class Puzzles(commands.Cog):
                 f"channel, delete all its categories and channels (including voice), rename "
                 f"this channel to **{final}**, and mark the hunt archived. Google sheets are "
                 f"kept. **Not reversible.**")
-        if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
-            return
-        status = await ctx.send("⏳ Archiving…")
+        member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
+        async with puzzles_lock(member_puzzle_ids):
+            if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
+                return
+            status = await ctx.send("⏳ Archiving…")
 
-        async def on_progress(done, total, name):
-            try:
-                await status.edit(content=f"⏳ Archived {done}/{total} — {name}")
-            except discord.HTTPException:
-                pass
+            async def on_progress(done, total, name):
+                try:
+                    await status.edit(content=f"⏳ Archived {done}/{total} — {name}")
+                except discord.HTTPException:
+                    pass
 
-        report = await self.service.archive_hunt(ctx.guild, hunt, ctx.author, on_progress=on_progress)
-        summary = (f":white_check_mark: Archived hunt into **{report.final_name}** — "
-                   f"{report.channels_archived} channel(s), {report.messages_moved} message(s) moved, "
-                   f"{report.voice_deleted} voice channel(s) removed.")
-        if report.failures:
-            summary += f"\n:warning: {len(report.failures)} channel(s) failed: {', '.join(report.failures)}"
-        await ctx.send(summary)
+            report = await self.service.archive_hunt(ctx.guild, hunt, ctx.author, on_progress=on_progress)
+            summary = (f":white_check_mark: Archived hunt into **{report.final_name}** — "
+                       f"{report.channels_archived} channel(s), {report.messages_moved} message(s) moved, "
+                       f"{report.voice_deleted} voice channel(s) removed.")
+            if report.failures:
+                summary += f"\n:warning: {len(report.failures)} channel(s) failed: {', '.join(report.failures)}"
+            await ctx.send(summary)
 
     @commands.command()
     @commands.has_any_role(*ORGANISER_ROLES)
