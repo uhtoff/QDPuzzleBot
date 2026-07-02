@@ -743,23 +743,15 @@ async def create_hunt():
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
-    # Post + pin the welcome message in the new hunt channel (parity with !newhunt,
-    # which does this via send_initial_hunt_channel_messages). Best-effort: a failure
-    # here must not fail hunt creation, which already committed.
+    # Post + pin the welcome message in the new hunt channel (parity with !newhunt).
+    # Routed through DiscordNotifier.welcome — the same seam every other
+    # welcome/pin flow uses — so a future change to welcome/pin semantics reaches
+    # both bang and web hunt creation together (#81). Best-effort: welcome() never
+    # raises, so a Discord hiccup can't fail hunt creation, which already committed.
     channel = guild.get_channel(new_hunt.channel_id) if new_hunt.channel_id else None
     if channel is not None:
-        try:
-            from bot.store import GuildSettingsDb
-            # Read fresh (not get_cached): get_cached memoises a None miss, so a
-            # guild settings row backfilled after the first lookup would stay
-            # invisible until restart, leaving the Overview link unresolved.
-            guild_data = GuildSettingsDb.get(int(guild_snowflake))
-            msg = await cog.send_initial_hunt_channel_messages(
-                None, channel, hunt=new_hunt, guild_data=guild_data,
-            )
-            await msg.pin()
-        except Exception:
-            logger.exception("create_hunt: failed to send/pin welcome message")
+        from bot.core.notifier import DiscordNotifier
+        await DiscordNotifier(bot).welcome(guild, new_hunt, channel=channel)
 
     await _audit("create_hunt", hunt_uid=new_hunt.uid)
     return jsonify({"uid": new_hunt.uid})
@@ -1537,7 +1529,7 @@ async def create_puzzle(uid):
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
-    guild = bot.get_guild(int(ctx["guild_snowflake"]))
+    guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     try:
         from bot.core.notifier import DiscordNotifier
         puzzle = await cog.service.create_puzzle(
@@ -1580,7 +1572,7 @@ async def create_meta(uid):
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
-    guild = bot.get_guild(int(ctx["guild_snowflake"]))
+    guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     try:
         from bot.core.notifier import DiscordNotifier
         # Mirror the bang path's meta naming: a Round's target puzzle is named

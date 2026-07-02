@@ -554,8 +554,8 @@ class Puzzles(commands.Cog):
         )
 
         text_channel = self.bot.get_channel(new_hunt.channel_id)
-        initial_message = await self.send_initial_hunt_channel_messages(ctx, text_channel, hunt=new_hunt)
-        await initial_message.pin()
+        from bot.core.notifier import DiscordNotifier
+        await DiscordNotifier(self.bot).welcome(ctx.guild, new_hunt, channel=text_channel)
 
         return (ctx.guild.get_channel(new_hunt.category_id), text_channel, True)
 
@@ -1729,6 +1729,34 @@ class Puzzles(commands.Cog):
                 f"for {self.get_hunt(ctx).name} - {tag_group.name}"
             )
 
+    async def _run_convert_to_type(
+        self, ctx, new_type, channel_type, *, error_if_not_meta, wrong_state_msg, success_msg,
+    ):
+        """Shared body for the convert_to_meta/capstone/runaround/group/metapuzzle
+        bang commands: they differ only in the target group type, the resulting
+        channel type, which is_target state is valid to convert from, and the
+        wrong-state/success message text. Mirrors the web equivalent,
+        _convert_to_type_handler (bot/web/actions.py)."""
+        if (puzzle := self.get_puzzle(ctx)) is None:
+            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
+            return
+        is_wrong_state = puzzle.is_target if not error_if_not_meta else not puzzle.is_target
+        if is_wrong_state:
+            await ctx.channel.send(f":x: {wrong_state_msg}")
+            return
+
+        try:
+            tag_group, summary = await self.service.convert_to_type(
+                ctx.guild, self.get_hunt(ctx), puzzle, new_type
+            )
+        except RuntimeError as e:
+            await ctx.send(f":x: {e}")
+            return
+        self.set_tag_group(ctx, tag_group)
+        self.set_channel_type(ctx, channel_type)
+        await self.info(ctx, update=True)
+        await ctx.send(success_msg(tag_group, summary))
+
     @commands.hybrid_command(description="Convert puzzle to metapuzzle", )
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
@@ -1738,25 +1766,14 @@ class Puzzles(commands.Cog):
         Usage: `!convert_to_meta`
         Example: `!convert_to_meta`
         Run in the puzzle's channel. Admins/mods only (needs Manage Channels)."""
-        if ( puzzle := self.get_puzzle(ctx) ) is None:
-            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
-            return
-        elif puzzle.is_target:
-            await ctx.channel.send(":x: This puzzle is already a metapuzzle.")
-            return
-
-        try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, "Metapuzzle"
-            )
-        except RuntimeError as e:
-            await ctx.send(f":x: {e}")
-            return
-        self.set_tag_group(ctx, tag_group)
-        self.set_channel_type(ctx, "Metapuzzle")
-        await self.info(ctx, update=True)
-        await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a metapuzzle within the category, other puzzles can now be tagged to it using its meta code {tag_group.group_code}."
+        await self._run_convert_to_type(
+            ctx, "Metapuzzle", "Metapuzzle",
+            error_if_not_meta=False,
+            wrong_state_msg="This puzzle is already a metapuzzle.",
+            success_msg=lambda tag_group, summary: (
+                ":white_check_mark: I've converted this puzzle into a metapuzzle within the "
+                f"category, other puzzles can now be tagged to it using its meta code {tag_group.group_code}."
+            ),
         )
 
     @commands.hybrid_command(description="Convert puzzle to capstone", )
@@ -1768,25 +1785,13 @@ class Puzzles(commands.Cog):
         Usage: `!convert_to_capstone`
         Example: `!convert_to_capstone`
         Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
-        if (puzzle := self.get_puzzle(ctx)) is None:
-            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
-            return
-        elif not puzzle.is_target:
-            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a capstone.")
-            return
-
-        try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, "Capstone"
-            )
-        except RuntimeError as e:
-            await ctx.send(f":x: {e}")
-            return
-        self.set_tag_group(ctx, tag_group)
-        self.set_channel_type(ctx, "Capstone")
-        await self.info(ctx, update=True)
-        await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a capstone. {summary}"
+        await self._run_convert_to_type(
+            ctx, "Capstone", "Capstone",
+            error_if_not_meta=True,
+            wrong_state_msg="This puzzle is not a meta and cannot be converted to a capstone.",
+            success_msg=lambda tag_group, summary: (
+                f":white_check_mark: I've converted this puzzle into a capstone. {summary}"
+            ),
         )
 
     @commands.hybrid_command(description="Convert puzzle to runaround", )
@@ -1798,25 +1803,13 @@ class Puzzles(commands.Cog):
         Usage: `!convert_to_runaround`
         Example: `!convert_to_runaround`
         Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
-        if (puzzle := self.get_puzzle(ctx)) is None:
-            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
-            return
-        elif not puzzle.is_target:
-            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a runaround.")
-            return
-
-        try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, "Runaround"
-            )
-        except RuntimeError as e:
-            await ctx.send(f":x: {e}")
-            return
-        self.set_tag_group(ctx, tag_group)
-        self.set_channel_type(ctx, "Runaround")
-        await self.info(ctx, update=True)
-        await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a runaround. {summary}"
+        await self._run_convert_to_type(
+            ctx, "Runaround", "Runaround",
+            error_if_not_meta=True,
+            wrong_state_msg="This puzzle is not a meta and cannot be converted to a runaround.",
+            success_msg=lambda tag_group, summary: (
+                f":white_check_mark: I've converted this puzzle into a runaround. {summary}"
+            ),
         )
 
     @commands.hybrid_command(description="Convert meta puzzle to group", )
@@ -1828,25 +1821,13 @@ class Puzzles(commands.Cog):
         Usage: `!convert_to_group`
         Example: `!convert_to_group`
         Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
-        if (puzzle := self.get_puzzle(ctx)) is None:
-            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
-            return
-        elif not puzzle.is_target:
-            await ctx.channel.send(":x: This puzzle is not a meta and cannot be converted to a group.")
-            return
-
-        try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, "Group"
-            )
-        except RuntimeError as e:
-            await ctx.send(f":x: {e}")
-            return
-        self.set_tag_group(ctx, tag_group)
-        self.set_channel_type(ctx, "Group")
-        await self.info(ctx, update=True)
-        await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a group. {summary}"
+        await self._run_convert_to_type(
+            ctx, "Group", "Group",
+            error_if_not_meta=True,
+            wrong_state_msg="This puzzle is not a meta and cannot be converted to a group.",
+            success_msg=lambda tag_group, summary: (
+                f":white_check_mark: I've converted this puzzle into a group. {summary}"
+            ),
         )
 
     @commands.hybrid_command(description="Convert meta to a plain metapuzzle", )
@@ -1859,25 +1840,13 @@ class Puzzles(commands.Cog):
         Example: `!convert_to_metapuzzle`
         Run in a meta puzzle's channel; feeders revert to the 'feeds' edge.
         Admins/mods only (needs Manage Channels)."""
-        if (puzzle := self.get_puzzle(ctx)) is None:
-            await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
-            return
-        elif not puzzle.is_target:
-            await ctx.channel.send(":x: This puzzle is not a meta. Use `!convert_to_meta` to promote a feeder.")
-            return
-
-        try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, "Metapuzzle"
-            )
-        except RuntimeError as e:
-            await ctx.send(f":x: {e}")
-            return
-        self.set_tag_group(ctx, tag_group)
-        self.set_channel_type(ctx, "Metapuzzle")
-        await self.info(ctx, update=True)
-        await ctx.send(
-            f":white_check_mark: I've converted this puzzle into a metapuzzle. {summary}"
+        await self._run_convert_to_type(
+            ctx, "Metapuzzle", "Metapuzzle",
+            error_if_not_meta=True,
+            wrong_state_msg="This puzzle is not a meta. Use `!convert_to_meta` to promote a feeder.",
+            success_msg=lambda tag_group, summary: (
+                f":white_check_mark: I've converted this puzzle into a metapuzzle. {summary}"
+            ),
         )
 
     @commands.hybrid_command(
@@ -2239,32 +2208,59 @@ class Puzzles(commands.Cog):
             inline=False,
         )
 
-    @staticmethod
-    def _add_metapuzzle_command_fields(embed):
+    # Bullets shared verbatim between the meta and puzzle channel pins' solve-related
+    # command field (the puzzle pin also gets a leading !p line — see
+    # _solve_commands_field_value). Single source so the two pins can't drift.
+    _SOLVE_COMMAND_BULLETS = (
+        "`!s SOLUTION` will mark this puzzle as solved and archive this channel",
+        "`!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be "
+        "separated by slashes, mark as completed with !s SOLUTION with the final solution or "
+        "just !s if all answers entered",
+        "`!mark_as_complete` will mark the puzzle solved with a tick (for interactions or "
+        "puzzles without a traditional answer)",
+        "`!add_sheet <name>` will add an additional working sheet to the puzzle, for "
+        "sub-puzzles or just tidier work (name is optional)",
+    )
+
+    @classmethod
+    def _solve_commands_field_value(cls, *, prefix=()):
+        bullets = [*prefix, *cls._SOLVE_COMMAND_BULLETS]
+        return "\n".join(f"• {b}" for b in bullets)
+
+    # Bullets shared between the meta and puzzle channel pins' "Puzzle commands" field.
+    # The puzzle pin additionally gets !info right after !link (redundant on the meta
+    # pin, which already lists it under General Commands) and !feeds/!informs/
+    # !rename_puzzle appended at the end (meta-only commands live elsewhere). Single
+    # source so the two pins can't drift the way they had (#78).
+    _PUZZLE_COMMAND_COMMON_BULLETS = (
+        "`!link <url>` will update the link to the puzzle on the hunt website",
+        "`!type <puzzle type>` will mark the type of the puzzle",
+        "`!priority <priority>` will mark the priority of the puzzle",
+        "`!status <status>` will update the status of the puzzle",
+        "`!note <note>` can be used to leave a note about ideas/progress",
+        "`!notes` can be used to see the notes that have been left",
+        "`!erase_note <note number>` can be used to erase the specified note",
+        "`!clue <text>` logs a clue/observation to the hunt's evidence sheet "
+        "(`!clues` for several at once)",
+    )
+
+    @classmethod
+    def _puzzle_commands_field_value(cls, *, insert_after_first=(), append=()):
+        common = cls._PUZZLE_COMMAND_COMMON_BULLETS
+        bullets = [common[0], *insert_after_first, *common[1:], *append]
+        return "\n".join(f"• {b}" for b in bullets)
+
+    @classmethod
+    def _add_metapuzzle_command_fields(cls, embed):
         """Add the shared Metapuzzle/Puzzle command-help fields to an embed."""
         embed.add_field(
                         name="Metapuzzle commands",
-                        value="""
-        • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-        • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be separated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
-        • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
-        • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
-        """,
+                        value=cls._solve_commands_field_value(),
                         inline=False,
                     )
         embed.add_field(
             name="Puzzle commands",
-            value="""
-                • `!link <url>` will update the link to the puzzle on the hunt website
-                • `!type <puzzle type>` will mark the type of the puzzle
-                • `!priority <priority>` will mark the priority of the puzzle
-                • `!status <status>` will update the status of the puzzle
-                • `!note <note>` can be used to leave a note about ideas/progress
-                • `!notes` can be used to see the notes that have been left
-                • `!erase_note <note number>` can be used to erase the specified note
-                • `!clue <text>` logs a clue/observation from this puzzle to the hunt's evidence sheet
-                • `!clues item1 item2 "multi word item"` logs several clues at once (quote any with spaces)
-                """,
+            value=cls._puzzle_commands_field_value(),
             inline=False,
         )
 
@@ -2405,30 +2401,22 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
                         name="Commands",
-                        value="""
-                • `!p <puzzle-name>` will add a puzzle to this round/meta puzzle.
-                • `!s SOLUTION` will mark this puzzle as solved and archive this channel
-                • `!ps SOLUTION` will mark this puzzle as partially solved, multiple answers will be separated by slashes, mark as completed with !s SOLUTION with the final solution or just !s if all answers entered 
-                • `!mark_as_complete` will mark the puzzle solved with a tick (for interactions or puzzles without a traditional answer)
-                • `!add_sheet <name>` will add an additional working sheet to the puzzle, for sub-puzzles or just tidier work (name is optional)
-                """,
+                        value=self._solve_commands_field_value(
+                            prefix=("`!p <puzzle-name>` will add a puzzle to this round/meta puzzle.",)
+                        ),
                         inline=False,
                     )
         embed.add_field(
             name="Puzzle commands",
-            value="""
-                • `!link <url>` will update the link to the puzzle on the hunt website
-                • `!info` will re-post this message
-                • `!type <puzzle type>` will mark the type of the puzzle
-                • `!priority <priority>` will mark the priority of the puzzle
-                • `!status <status>` will update the status of the puzzle
-                • `!note <note>` can be used to leave a note about ideas/progress
-                • `!notes` can be used to see the notes that have been left
-                • `!erase_note <note number>` can be used to erase the specified note
-                • `!clue <text>` logs a clue/observation to the hunt's evidence sheet (`!clues` for several at once)
-                • `!feeds <meta_code>` tags this puzzle as a feeder of a meta/round (code is in the meta's pinned message); `!informs <meta_code>` tags it as informing one without being a standard feeder
-                • `!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.
-                """,
+            value=self._puzzle_commands_field_value(
+                insert_after_first=("`!info` will re-post this message",),
+                append=(
+                    "`!feeds <meta_code>` tags this puzzle as a feeder of a meta/round (code is "
+                    "in the meta's pinned message); `!informs <meta_code>` tags it as informing "
+                    "one without being a standard feeder",
+                    "`!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.",
+                ),
+            ),
             inline=False,
         )
         self._add_puzzle_links_field(ctx, embed, puzzle, hunt, kwargs.get('guild_data'))

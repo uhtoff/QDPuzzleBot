@@ -84,7 +84,10 @@ class DiscordNotifier(Notifier):
         puzzle: Optional[object] = None,
         channel=None,
     ) -> None:
-        """Post and pin the welcome message."""
+        """Post and pin the welcome message.
+
+        ``tag_group`` and ``puzzle`` both None means the hunt's own channel
+        (used by hunt creation, bang and web alike — see #81)."""
         if channel is None or guild is None:
             return
         cog = self._cog()
@@ -92,23 +95,23 @@ class DiscordNotifier(Notifier):
             return
 
         from bot.store import GuildSettingsDb
-        kwargs = {
-            "hunt": hunt,
-            "tag_group": tag_group,
-            "puzzle": puzzle,
-            # ctx is None on this path, so the welcome handlers can't fall back to
-            # the environment for guild settings (needed by _overview_url). Supply
-            # it explicitly.
-            "guild_data": GuildSettingsDb.get(guild.id),
-        }
+        # ctx is None on this path, so the welcome handlers can't fall back to
+        # the environment for guild settings (needed by _overview_url). Supply
+        # it explicitly.
+        guild_data = GuildSettingsDb.get(guild.id)
         try:
-            handler = (
-                cog.send_initial_group_channel_messages
-                if puzzle is None
-                else (cog.send_initial_metapuzzle_channel_messages
-                     if puzzle.is_target
-                     else cog.send_initial_puzzle_channel_messages)
-            )
+            if tag_group is None and puzzle is None:
+                handler = cog.send_initial_hunt_channel_messages
+                kwargs = {"hunt": hunt, "guild_data": guild_data}
+            else:
+                handler = (
+                    cog.send_initial_metapuzzle_channel_messages
+                    if puzzle is not None and puzzle.is_target
+                    else (cog.send_initial_puzzle_channel_messages
+                         if puzzle is not None
+                         else cog.send_initial_group_channel_messages)
+                )
+                kwargs = {"hunt": hunt, "tag_group": tag_group, "puzzle": puzzle, "guild_data": guild_data}
             message = await handler(None, channel, **kwargs)
             await message.pin()
         except Exception:

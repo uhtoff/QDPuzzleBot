@@ -992,11 +992,26 @@ convert_to_meta / convert_to_capstone / convert_to_runaround / convert_to_group 
 
 **Failure scenario:** Any shared fix — e.g. adding the puzzle mutex the other mutating commands carry, or changing the RuntimeError presentation — must be applied five times; the web side already needed a parameterized _convert_to_type_handler for the same operations, showing the shape, so each new group type adds another full copy here.
 
+**Status: FIXED** in `3498c20`, branch `working-2`. All five commands now share
+one `_run_convert_to_type` body (mirroring the web side's
+`_convert_to_type_handler`), parameterized by target type, resulting channel
+type, which `is_target` state is valid to convert from, and the wrong-state/
+success message text. Message text is unchanged; no `@with_puzzle_mutex` was
+added (none of the five had it before — that was cited as an example of the
+duplication cost, not an existing gap in this finding).
+
 ### 78. [LOW] `bot/cogs/puzzles.py:2261`
 
 The 'Puzzle commands' embed field is duplicated between _add_metapuzzle_command_fields (bot/cogs/puzzles.py:2114-2128) and send_initial_puzzle_channel_messages (bot/cogs/puzzles.py:2261-2277) and has mildly drifted (!clue/!clues collapsed to one line and !info added only in the puzzle copy), so new/renamed commands must be edited in two places; however, the claimed meta-pin gap is overstated — !feeds/!informs/!info/!rename_meta are already listed in the meta pin's General Commands field (lines 2182-2188), so meta-channel solvers are not actually missing tagging commands.
 
 **Failure scenario:** Every new or renamed command needs the help text edited in two embeds; today a solver in a meta channel sees a different (staler) command list than in a puzzle channel, e.g. no mention of !feeds/!informs tagging from the meta pin's shared field.
+
+**Status: FIXED** in `3498c20`, branch `working-2`. Both fields now build from
+shared `_solve_commands_field_value`/`_puzzle_commands_field_value`, parameterized
+by the small per-channel-kind differences (the puzzle pin's leading `!p` line;
+its `!info`/`!feeds`/`!informs`/`!rename_puzzle` extras). Also fixed the one
+concrete drift the finding called out: the meta pin's `!clue`/`!clues` wording
+now matches the puzzle pin's merged one-liner.
 
 ### 79. [LOW] `bot/cogs/puzzles.py:2642`
 
@@ -1020,11 +1035,26 @@ The post-and-pin welcome wrapper flow for the hunt channel is duplicated inline 
 
 **Failure scenario:** A change to welcome/pin semantics (e.g. the pins[-1] edit convention, guild-settings sourcing, or pin error handling) made in DiscordNotifier.welcome never reaches web hunt creation, so web-created and bang-created hunts get different pinned welcomes and the update=True refresh path can edit the wrong message.
 
+**Status: FIXED** in `3498c20`, branch `working-2`. `DiscordNotifier.welcome` now
+has a hunt-channel branch (`tag_group=None` and `puzzle=None` dispatches to
+`send_initial_hunt_channel_messages`); both bang `!hunt` and web
+`POST /api/hunts` route their post-and-pin flow through it instead of each
+doing it inline. Added coverage for the new dispatch branch and confirmed the
+existing group-welcome dispatch is unaffected.
+
 ### 82. [LOW] `bot/web/actions.py:1535`
 
 The ~15-line handler preamble is genuinely copy-pasted across ~22 handlers in bot/web/actions.py, and two copies have drifted: create_puzzle (actions.py:1535) and create_meta (actions.py:1578) call bot.get_guild(int(ctx["guild_snowflake"])) without the "if snowflake else None" guard used by the other 20 occurrences, so a NULL guilds.guild_id yields a TypeError 500 on POST /hunts/<uid>/puzzles or /metas. However, the claimed contrast is overstated: only 2 guarded handlers (lines 703, 1423) actually handle guild=None; the rest pass None into service code that dereferences it (e.g. guild.categories in puzzle_service.py:1620), also producing a 500. The real cost is drift risk from duplication, not a distinct user-visible failure mode.
 
 **Failure scenario:** A hunt whose guild row has a NULL guild_snowflake: POST /hunts/<uid>/puzzles or /metas raises TypeError at int(None) and returns a 500, while every other handler degrades to guild=None; each new handler re-copies the block and can drift the same way.
+
+**Status: FIXED (guard gap only)** in `3498c20`, branch `working-2`.
+`create_puzzle` and `create_meta` now guard `int(ctx["guild_snowflake"])` the
+same way as the rest of the file's handlers, closing the one concrete drift
+(TypeError → 500) the finding identified. Added regression tests for both.
+The broader ~15-line-preamble duplication across ~22 handlers is unchanged —
+the finding's own assessment frames that as drift risk, not a distinct
+user-visible failure mode beyond this one guard gap.
 
 ### 83. [LOW] `docs/dashboard.md:34`
 

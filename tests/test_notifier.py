@@ -117,6 +117,60 @@ async def test_discord_refresh_info_skips_guidelines_for_channel_hunt():
     sync.assert_not_awaited()
 
 
+# ---- welcome: hunt-channel dispatch (#81) ----
+
+@pytest.mark.asyncio
+async def test_welcome_dispatches_to_hunt_channel_when_no_tag_group_or_puzzle():
+    """tag_group=None and puzzle=None means the hunt's own channel — used by
+    hunt creation (bang !hunt and web POST /api/hunts), both routed through
+    this one seam so they can't drift on welcome/pin semantics."""
+    cog = MagicMock()
+    message = MagicMock()
+    message.pin = AsyncMock()
+    cog.send_initial_hunt_channel_messages = AsyncMock(return_value=message)
+    bot = MagicMock()
+    bot.get_cog.return_value = cog
+    n = DiscordNotifier(bot)
+
+    guild = MagicMock()
+    hunt = MagicMock()
+    channel = MagicMock()
+
+    with patch("bot.store.GuildSettingsDb") as gsdb:
+        gsdb.get.return_value = MagicMock()
+        await n.welcome(guild, hunt, channel=channel)
+
+    cog.send_initial_hunt_channel_messages.assert_awaited_once_with(
+        None, channel, hunt=hunt, guild_data=gsdb.get.return_value,
+    )
+    message.pin.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_welcome_still_dispatches_to_group_when_tag_group_given_no_puzzle():
+    """A bare group welcome (tag_group set, puzzle=None) must still go to
+    send_initial_group_channel_messages, not the new hunt-channel branch."""
+    cog = MagicMock()
+    message = MagicMock()
+    message.pin = AsyncMock()
+    cog.send_initial_group_channel_messages = AsyncMock(return_value=message)
+    bot = MagicMock()
+    bot.get_cog.return_value = cog
+    n = DiscordNotifier(bot)
+
+    guild = MagicMock()
+    hunt = MagicMock()
+    tag_group = MagicMock()
+    channel = MagicMock()
+
+    with patch("bot.store.GuildSettingsDb") as gsdb:
+        gsdb.get.return_value = MagicMock()
+        await n.welcome(guild, hunt, tag_group=tag_group, channel=channel)
+
+    cog.send_initial_group_channel_messages.assert_awaited_once()
+    message.pin.assert_awaited_once()
+
+
 # ---- Phase B: board_changed ----
 
 @pytest.mark.asyncio
