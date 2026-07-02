@@ -47,16 +47,28 @@ whether that work incidentally fixed any of them.
 
 No other findings in this document have been actioned.
 
-**Fix-review pass (2026-07-02):** all 47 findings previously marked `FIXED` were re-reviewed
-against their actual commit diffs — one reviewer per fix commit, checking that the diff genuinely
-closes the finding's failure scenario and is sound code. All 47 passed and are now marked
-`FIXED AND REVIEWED`. No fix was found broken or incomplete. Two carry a recorded reviewer note
-for a low-risk residual (not a defect in the fix): **#63** (the added pin refresh is not
-try/except-wrapped, so it can raise after commit in a hand-broken channel) and **#38** (the WS
-event filter is default-open for future/unknown event types — no leak today). A few others had
-purely cosmetic residuals (e.g. #28's warning-string label, #62's partial-embed wording) noted at
-review time but not worth doc annotations. The `MOOT` (#88) and `PARTIALLY MITIGATED` (#29, #30)
-findings were left as-is — they were not in the `FIXED` set.
+**Fix-review pass (2026-07-02):** every landed fix has been re-reviewed against its actual commit
+diff — one reviewer per fix commit, checking that the diff genuinely closes the finding's failure
+scenario and is sound code. Done in three waves as fixes landed: (1) the original 47 `FIXED`
+findings; (2) a second batch of 5 (#20, #27, #39, #40, #41); (3) the round/hunt-deletion section
+that had been worked in parallel on `working-2` and annotated with the "Status update … fully/
+partially fixed" wording instead of a `FIXED` marker (#32, #42, #45, #54, #55). **All passed** —
+no fix was found broken; #54 is a sound *partial* fix (delete_hunt push landed, create_hunt
+deferred to a named frontend change). Findings carrying a low-risk residual have an inline
+`**Reviewer note (2026-07-02):**`; the notable ones are **#63** (pin refresh not try/except-wrapped),
+**#38** (WS event filter default-open for unknown event types), **#20** (pin-recover helper catches
+only `Forbidden`; >50-pins edge case), and **#27**/**#45** (lock helpers held across a confirm
+window / hand-rolled vs the shared `puzzles_lock`). Purely cosmetic residuals (e.g. #28's
+warning-string label, #62's partial-embed wording) were noted at review but not annotated.
+
+**Cross-cutting caveat (DB migration):** the delete-cascade fixes (#32, #42, #55) depend on
+`migrations/022_delete_cascades.sql` actually being run against **production** — the commit states
+it was applied only to the connected test DB. This is standard for the repo's manual-migration
+approach, not a defect in the DDL, but the cascades do nothing until the migration is applied.
+
+The `MOOT` (#88) and `PARTIALLY MITIGATED` (#29, #30) findings were left as-is — #29/#30 document
+still-reachable bugs (the `keep_puzzles=False` full-delete paths), not fixes, so there was nothing
+to review.
 
 **Deferred hardening pass (do after the remaining findings are fixed):** the two reviewer-note
 residuals above are intentionally NOT actioned yet — batch them into a single hardening pass once
@@ -250,11 +262,13 @@ feeds_only (bot/cogs/puzzles.py:1399), remove_from (:1428), informs_only (:1479)
 
 ### 20. [MEDIUM] `bot/cogs/puzzles.py:2084`
 
-**Status: FIXED** in `979e6e7` (`fix(puzzles): recover the pinned info message instead of assuming pins()[-1] (#20)`, branch `working-1`). Added `_refresh_pinned_info`, which finds the bot's own pin by author (instead of assuming `[-1]`) and recreates it (send + re-pin) if missing or unpinnable, instead of raising.
+**Status: FIXED AND REVIEWED** in `979e6e7` (`fix(puzzles): recover the pinned info message instead of assuming pins()[-1] (#20)`, branch `working-1`). Added `_refresh_pinned_info`, which finds the bot's own pin by author (instead of assuming `[-1]`) and recreates it (send + re-pin) if missing or unpinnable, instead of raising.
 
 The update=True pin-refresh path assumes the bot's info message is always the last element of await channel.pins(): send_initial_hunt/metapuzzle/group_channel_messages do channel_pins[-1].edit() with no empty-pins guard and no check the message is the bot's own, so if a mod unpins/deletes the bot's info pin the next bang command that refreshes (e.g. !solve/!status/!info in a meta channel) raises IndexError or discord.Forbidden after the DB mutation has committed — in _solve_impl this loses the stale-sheet warning and the refresh_unassigned task. The web path is guarded (web_refresh_info never raises) but the ~20 bang call sites are not; only the puzzle variant guards empty pins, and there it silently skips the refresh instead of re-sending. With >50 pins, discord.py 2.7.1 pins() returns only the 50 newest, so [-1] is not the oldest pin and the wrong message is edited.
 
 **Failure scenario:** A mod unpins (or deletes) the bot's pinned info message in a meta channel; the next !solve/!status/!info there either raises IndexError (no pins) or tries to edit whatever message is now oldest-pinned — a user's message, giving 403 Forbidden — so the command tracebacks after the DB mutation (in _solve_impl the sheet warning and refresh_unassigned task are lost). Also asymmetric: only the puzzle variant (line 2285) guards empty pins, and there it silently drops the refresh instead of re-sending; lines 2200 and 2234 have the same unguarded pattern. With >50 pins, awaiting pins() returns only the newest 50, so [-1] is not the oldest pin at all.
+
+**Reviewer note (2026-07-02):** Approved — the shared `_refresh_pinned_info` helper finds the bot's own pin by `author.id` and recreates it on missing/Forbidden, closing the IndexError-and-wrong-message crashes at all four call sites (tests cover by-author, recreate-on-missing, edit-Forbidden, pins-Forbidden, embeds variant). Two narrow residuals, neither reintroducing the post-commit traceback: (1) the edit/pin paths catch only `discord.Forbidden`, so a `NotFound` race (message deleted between `pins()` and `edit()`) or the `HTTPException` from hitting Discord's 50-pin cap on re-pin would still propagate; (2) the >50-pins case is only partially handled — if the bot's real info pin sits outside the newest 50 returned, the helper edits a different bot pin or sends a fresh one, orphaning the original rather than reusing it.
 
 ### 21. [MEDIUM] `bot/cogs/puzzles.py:2767`
 
@@ -318,11 +332,13 @@ update_puzzle_info's rename path (bot/cogs/puzzles_gsheet.py:286) computes tab-n
 
 ### 27. [MEDIUM] `bot/core/puzzle_service.py:802`
 
-**Status: FIXED** in `ba61dfc` (`fix(service): hold member puzzle mutexes during bulk_re_edge (#27)`, branch `working-1`). `bulk_re_edge` now acquires every member's `puzzle_lock` (sorted, deduped) for the duration of the flip; neither caller (bang, no lock; web, target-only lock) already holds a member lock, so this can't deadlock.
+**Status: FIXED AND REVIEWED** in `ba61dfc` (`fix(service): hold member puzzle mutexes during bulk_re_edge (#27)`, branch `working-1`). `bulk_re_edge` now acquires every member's `puzzle_lock` (sorted, deduped) for the duration of the flip; neither caller (bang, no lock; web, target-only lock) already holds a member lock, so this can't deadlock.
 
 bulk_re_edge (bot/core/puzzle_service.py:802) flips member edge rows via raw SQL while holding no per-member puzzle locks (bang !convert_to_capstone holds no lock at all, web holds only the target's lock), so any concurrently in-flight command on a member puzzle that loaded it pre-flip will, at its next PuzzleJsonDb.commit, have the bidirectional tag-sync (bot/store/mysqldb.py:566-576) silently revert that member's edge back to the stale in-memory type.
 
 **Failure scenario:** !convert_to_capstone on group G (flips member P feeds→informs in DB) races with an in-flight !solve of P (P's mutex held, P loaded with 'feeds' before the flip): solve's commit at line 982 computes db_pairs={(G,'informs')} vs mem_pairs={(G,'feeds')}, DELETEs the informs row and re-INSERTs feeds — the type conversion is undone for P with no error anywhere.
+
+**Reviewer note (2026-07-02):** Approved — `bulk_re_edge` now holds every member's `puzzle_lock` (sorted, deduped via `AsyncExitStack`) across the flip, so a concurrent load-under-lock command either commits before the flip or blocks until after it; callers were checked for reentrancy (bang holds no lock; web holds only the target's, which is excluded from `members`), so no deadlock. Minor non-blocking cleanups: it hand-rolls the sorted/deduped acquisition that the existing `puzzles_lock(puzzle_ids)` helper in bot/core/locks.py already provides (reuse would be cleaner), and the locks.py module docstring still claims "the ctx-free PuzzleService deliberately does NOT lock," which this change (like the pre-existing `rollup_lock`) now contradicts — the docstring is slightly stale though the inline comment documents the rationale.
 
 ### 28. [MEDIUM] `bot/core/puzzle_service.py:979`
 
@@ -401,6 +417,8 @@ split categories (their `category_id` is a puzzle channel id, which
 this leak was already unreachable there — the FK simply makes that
 guarantee airtight against future drift.
 
+**Reviewer note (2026-07-02):** Approved (`87a3137` + `948393e`). The FK on `tag_group_category.group_id → tag_group.id` (ON DELETE CASCADE) is correct; the migration first narrows that column `bigint→int(11)` to match `tag_group.id` (required or the FK add fails errno 150) and the table is empty so it's data-safe. `delete_hunt` now routes Discord teardown through `delete_group_categories` (mirroring `delete_round`), so split rounds' extra solved/overflow categories are actually deleted. No concerns — the explicit join-row DELETE is now redundant with the cascade but harmless, and the cascade only removes join rows, never Discord objects.
+
 ### 33. [MEDIUM] `bot/store/mysqldb.py:625`
 
 **Status: FIXED AND REVIEWED** in `40b079c` (`fix(archive,evidence): commit archive_time and
@@ -475,7 +493,7 @@ member; "board" events are checked against `hunt_visible`.
 
 ### 39. [MEDIUM] `frontend/src/components/MiniPuzzlePanel.tsx:58`
 
-**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #41 below (same root cause).
+**Status: FIXED AND REVIEWED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #41 below (same root cause).
 
 MiniPuzzlePanel fires solvePuzzle.mutate / createMini.mutate with no per-call onError and clears the typed input synchronously (solve: lines 58-59 and 71-72; create-mini: lines 91-92 and 102-103), and neither the hooks nor the QueryClient show an error notification, so a failed mini solve or mini creation silently discards the user's input with no visible error.
 
@@ -483,7 +501,7 @@ MiniPuzzlePanel fires solvePuzzle.mutate / createMini.mutate with no per-call on
 
 ### 40. [MEDIUM] `frontend/src/components/PuzzleTable.tsx:113`
 
-**Status: FIXED** in `0ff253f` (`fix(service): make a target's self-edge exclusive with feeds/informs (#40)`, branch `working-1`). `tag_with_edge` now drops `target` when adding `feeds`/`informs` on a group's own target, and drops `feeds`/`informs` when re-adding `target`, scoped to `puzzle.id == group.target_puzzle_id`. With that exclusivity restored, `r.edges` only ever contains one of the three at a time, so the existing frontend `disabled={r.edges.includes(o.edge)}` check (no frontend change needed) correctly disables just the active option instead of greying out permanently.
+**Status: FIXED AND REVIEWED** in `0ff253f` (`fix(service): make a target's self-edge exclusive with feeds/informs (#40)`, branch `working-1`). `tag_with_edge` now drops `target` when adding `feeds`/`informs` on a group's own target, and drops `feeds`/`informs` when re-adding `target`, scoped to `puzzle.id == group.target_puzzle_id`. With that exclusivity restored, `r.edges` only ever contains one of the three at a time, so the existing frontend `disabled={r.edges.includes(o.edge)}` check (no frontend change needed) correctly disables just the active option instead of greying out permanently.
 
 The web "No self-feed" off-switch for a target's deliberate self-feed is doubly broken: (1) frontend/src/components/PuzzleTable.tsx:113 disables the menu item whenever r.edges includes "target", and since enabling a self-feed (AddToGroupPicker "feeds itself" → mode=add, edge=feeds → tag_with_edge) never drops the target self-edge, edges become {target, feeds} and the off-switch is permanently greyed out; (2) even where clickable (legacy self-feeders that migration 019 skipped, whose edges are {feeds} without "target"), the resulting mode=add edge=target call reaches puzzle_service.tag_with_edge (bot/core/puzzle_service.py:691-698), whose exclusivity handling only covers feeds/informs vs none — it adds the "target" row without dropping feeds/informs, so the self-feed persists in rollups and the menu item then greys out. No other web path can remove it: DragBoard hides "Remove" for a group's own target (DragBoard.tsx:111) and the API rejects mode=remove for the own meta (bot/web/actions.py:906-907).
 
@@ -491,7 +509,7 @@ The web "No self-feed" off-switch for a target's deliberate self-feed is doubly 
 
 ### 41. [MEDIUM] `frontend/src/components/PuzzleTable.tsx:306`
 
-**Status: FIXED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #39 above. Added `onError: notifyError` at each named call site, matching the existing convention (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) rather than introducing new global MutationCache infrastructure.
+**Status: FIXED AND REVIEWED** in `a7a597f` (`fix(web): add missing mutation error handling (#39, #41)`, branch `working-1`). Fixed together with #39 above. Added `onError: notifyError` at each named call site, matching the existing convention (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) rather than introducing new global MutationCache infrastructure.
 
 Multiple mutation call sites fire with no onError handler and the QueryClient (frontend/src/main.tsx:13) defines no MutationCache/global mutation error handler, so failed writes give zero user feedback: debug-edge retags (PuzzleTable.tsx:306, 314), status/priority/type updates (PuzzleTable.tsx:347/361/375, BoardGroup.tsx:270, PuzzleDrawer.tsx:163/169/175), link/sheet/erase-note mutations (PuzzleDrawer.tsx:200-213, 272, 369), and evidence edits (EvidencePanel.tsx:123-129). This is an omission, not a design choice — sibling components (DragBoard, ReconcilePanel, PuzzleEditCells, CreateControls) consistently pass notifyError per call.
 
@@ -511,6 +529,8 @@ or hunt delete now cascades its evidence automatically at the database
 level, regardless of which code path (bang, web, future additions) performs
 it — no application-code change needed. Pre-existing orphans (14 of 20 rows
 on this DB) were purged as part of applying the migration.
+
+**Reviewer note (2026-07-02):** Approved (`87a3137`). FK directions/actions are correct: NOT NULL `source_puzzle_id`/`hunt_id` cascade (evidence is owned by its source puzzle/hunt), nullable `target_puzzle_id` is ON DELETE SET NULL (a deleted target shouldn't destroy the row). Orphans are purged/nulled *in the same migration before* each ALTER, so the FK add can't fail on existing violators. No concerns.
 
 ### 43. [LOW] `bot/cogs/puzzles.py:642`
 
@@ -538,6 +558,8 @@ for the duration of confirm-plus-delete, on all four entrypoints: bang
 `!solve`/dashboard-solve on any member puzzle now blocks until teardown
 completes (or the reverse, if the solve got there first), closing the
 interleaving race described above.
+
+**Reviewer note (2026-07-02):** Approved (`595566a` + `e763a9c` + `8afcbdb`). `puzzles_lock` acquires from the same `_PUZZLE_LOCKS` registry `puzzle_lock`/`with_puzzle_mutex` use, in `sorted(set(...))` order (deadlock-safe; consistent puzzle-before-rollup ordering with the rollup lock), wired into all four entrypoints. Two documented tradeoffs, not defects: locks are held across the ~30s `_confirm_destructive` wait, so a concurrent solve/retag on any member blocks for that window (acceptable for a rare destructive op, but real starvation); and `member_puzzle_ids` is snapshotted before locking, so a puzzle added *during* the confirm window wouldn't be locked (outside the described race, low risk).
 
 ### 46. [LOW] `bot/cogs/puzzles.py:3155`
 
@@ -608,6 +630,8 @@ frontend's `useActivityFeed` only invalidates the `["hunt", uid]` query, never
 list even with a backend push. Fixing hunt-creation visibility needs a
 frontend query-invalidation change, out of scope for this backend-only fix.
 
+**Reviewer note (2026-07-02):** Approved as a partial fix (`e49856f`). `@pushes_board()` on `delete_hunt` fires `board_changed` after teardown; the decorator captures the passed-in `hunt` object, so `board_changed` still has a valid `hunt.uid`/`hunt.guild_id` even though the DB row is gone — clients invalidate, refetch, 404, and stop rendering immediately. The `create_hunt` deferral is genuine, not a cop-out: even a backend push wouldn't surface a new hunt because `useActivityFeed` only invalidates `["hunt", uid]`, never `["hunts"]` — that needs the named frontend change. No concerns.
+
 ### 55. [LOW] `bot/store/mysqldb.py:580`
 
 MySQLPuzzleJsonDb.delete (bot/store/mysqldb.py:580-584) deletes the puzzles row and its tags rows but never touches additional_sheets, and the additional_sheets table (migrations/000_base_schema.sql:121-130) has no FK/cascade to puzzles — so every puzzle/round/hunt delete (puzzle_service.delete_puzzle:1136, delete_round:1158, delete_hunt:2180) orphans that puzzle's additional_sheets rows in the DB forever. The DB-corruption follow-on (ghost sheets attaching to a new puzzle via construct_puzzle's puzzle_id eager-load) is real code-wise but requires puzzles.id reuse, which only happens on auto-increment recalculation (MySQL<8/MariaDB<10.2.4 restart) — unlikely on a modern MariaDB, so the practical cost is an unbounded but small row leak.
@@ -621,6 +645,8 @@ puzzle delete now cascades its additional sheets automatically at the
 database level, regardless of which code path performs it — no
 application-code change needed. Pre-existing orphans (101 of 118 rows on
 this DB) were purged as part of applying the migration.
+
+**Reviewer note (2026-07-02):** Approved (`87a3137`). FK `additional_sheets.puzzle_id → puzzles.id` (ON DELETE CASCADE) is the correct direction/action; both columns are `int(11)`, nullable `puzzle_id` means legitimately-unattached sheets (NULL) are untouched, and dangling non-NULL orphans are DELETEd before the ALTER so it applies cleanly. No concerns.
 
 ### 56. [LOW] `bot/store/puzzle_data.py:85`
 
