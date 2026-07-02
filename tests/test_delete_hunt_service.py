@@ -105,3 +105,35 @@ async def test_delete_hunt_deletes_group_chat_channel():
         await svc.delete_hunt(guild, hunt)
 
     safe_delete.assert_any_call(guild, 555)
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_tears_down_split_round_categories():
+    """A split round (one that outgrew a single category into separate
+    unsolved/solved/overflow categories) must have ALL its categories deleted
+    by delete_hunt, not just tag_group.category_id — mirrors delete_round's
+    existing use of category_layout.delete_group_categories (review #32)."""
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    gsheet = MagicMock()
+    gsheet.delete_puzzle_spreadsheet = AsyncMock()
+    gsheet.delete_hunt_spreadsheet = AsyncMock()
+
+    group = MagicMock(id=9, category_id=100)
+    guild.categories = []
+
+    with patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=True)) as delete_group_cats, \
+         patch("bot.core.puzzle_service.category_layout.group_chat_channel",
+               return_value=None):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = [group]
+
+        await svc.delete_hunt(guild, hunt)
+
+    delete_group_cats.assert_awaited_once_with(guild, group, tgcdb)
