@@ -252,7 +252,7 @@ async def move_channel_to_general(guild, general_category_id, channel, solved):
     try:
         async with layout_lock:
             await channel.edit(category=general, position=position)
-    except (discord.RateLimited, discord.HTTPException):
+    except Exception:
         logger.exception("move_channel_to_general: could not move channel %s",
                          getattr(channel, "id", "?"))
         return False

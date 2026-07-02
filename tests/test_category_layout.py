@@ -464,6 +464,22 @@ async def test_move_channel_to_general_solved_positions_after_divider():
     channel.edit.assert_awaited_once_with(category=general, position=6)
 
 
+@pytest.mark.asyncio
+async def test_move_channel_to_general_no_divider_appends_at_end():
+    other = MagicMock(); other.name = "general"; other.position = 3
+    general = MagicMock(id=500)
+    general.channels = [other]           # no SOLVE_DIVIDER channel present
+    guild = MagicMock()
+    guild.categories = [general]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=general, position=4)
+
+
 # ----------------------------------------------------------------- delete_group_categories keep_channel_ids
 
 @pytest.mark.asyncio
