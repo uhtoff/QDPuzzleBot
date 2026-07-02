@@ -36,14 +36,13 @@ class PuzzleData:
     additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False
-    archived: bool = False
+    on_solved_sheet: bool = False
     solution: str = None
     priority: str = ""
     puzzle_type: str = ""
     notes: List[str] = field(default_factory=list)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
-    archive_time: Optional[datetime.datetime] = None
     tags: List[int] = field(default_factory=list)
     tag_edges: Dict[int, set] = field(default_factory=dict)  # tag_group_id -> set of edge_type
     is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)
@@ -124,8 +123,6 @@ class _PuzzleJsonDb:
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         pass
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        pass
-    def get_solved_puzzles_to_archive(self, guild_id, now=None, include_meta=False, minutes=5) -> List[PuzzleData]:
         pass
     def aggregate_json(self) -> dict:
         pass

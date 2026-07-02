@@ -23,7 +23,7 @@ def _service(notifier=None):
 
 
 def _hunt():
-    return make_hunt(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC")
+    return make_hunt(id=1, google_sheet_id="SS", solved_sheet_id="ARC")
 
 
 def _puzzle(**kw):
@@ -56,9 +56,9 @@ def _service_with_gsheet(gcog):
 def _gcog(page_name=None):
     g = MagicMock()
     g.set_spreadsheet_id = MagicMock()
-    g.set_archive_spreadsheet_id = MagicMock()
+    g.set_solved_sheet_id = MagicMock()
     g.get_spreadsheet_id.return_value = "SS"
-    g.get_archive_spreadsheet_id.return_value = "ARC"
+    g.get_solved_sheet_id.return_value = "ARC"
     g.INITIAL_OFFSET = 999
     g.get_page_name_by_id = AsyncMock(return_value=page_name)
     g.add_new_puzzle_sheet = AsyncMock()
@@ -315,7 +315,7 @@ async def test_collect_orphan_tabs_skips_structural_tabs():
         _sheet(999, "old-puzzle"),         # genuine orphan
     ]})
     svc = _service_with_gsheet(gcog)
-    hunt = make_hunt(id=1, google_sheet_id="SS", archive_google_sheet_id="ARC",
+    hunt = make_hunt(id=1, google_sheet_id="SS", solved_sheet_id="ARC",
                      unassigned_sheet_page_id=200, evidence_sheet_page_id=201)
     p = _puzzle(google_page_id="100")
     p.additional_sheets = [SimpleNamespace(google_page_id="101")]

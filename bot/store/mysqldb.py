@@ -368,25 +368,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 
-    def get_solved_puzzles_to_archive(self, guild_id, now=None, include_meta=False, minutes=1) -> List[PuzzleData]:
-        """Returns list of all solved but unarchived puzzles"""
-        all_puzzles = self.get_all(guild_id)
-        now = now or datetime.datetime.now(tz=pytz.UTC)
-        puzzles_to_archive = []
-        for puzzle in all_puzzles:
-            if puzzle.archive_time is not None:
-                # already archived
-                continue
-            if puzzle.name == "meta" and not include_meta:
-                # we usually do not want to archive meta channels, only do manually
-                continue
-            if puzzle.solved and puzzle.solve_time is not None:
-                # found a solved puzzle
-                if now - puzzle.solve_time > datetime.timedelta(minutes=minutes):
-                    # enough time has passed, archive the channel
-                    puzzles_to_archive.append(puzzle)
-        return puzzles_to_archive
-
     def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:
         cursor = self.mydb.cursor(dictionary = True)
         query = ("SELECT 1 FROM puzzles "

@@ -1,7 +1,7 @@
 """solve/change_solution/add_solution must isolate a Sheets failure on their OWN
 sheet write the same way they already isolate meta-refresh failures (#28).
 
-Previously an uncaught HttpError from archive_puzzle_spreadsheet (solve) or
+Previously an uncaught HttpError from move_puzzle_to_solved_sheet (solve) or
 update_solution (change_solution/add_solution) propagated past the second
 commit, the forum-tag update, and @pushes_board's board_changed push — even
 though the DB mutation (solved/solution/solve_time) was already committed.
@@ -35,7 +35,7 @@ def test_solve_archive_failure_still_commits_and_pushes(SheetsDb, RoundDb, Puzzl
     RoundDb.get_by_attr.return_value = None
 
     gsheet_cog = MagicMock()
-    gsheet_cog.archive_puzzle_spreadsheet = AsyncMock(side_effect=RuntimeError("Sheets 500"))
+    gsheet_cog.move_puzzle_to_solved_sheet = AsyncMock(side_effect=RuntimeError("Sheets 500"))
     svc = _svc_with_gsheet(gsheet_cog)
     svc.notifier = MagicMock(board_changed=AsyncMock())
 

@@ -17,15 +17,15 @@ def _hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCH1"
+    h.solved_sheet_id = "ARCH1"
     return h
 
 
 def _svc_with_sheets():
     gsheet = MagicMock()
     gsheet.render_minimeta_contribution = AsyncMock()
-    gsheet.archive_puzzle_spreadsheet = AsyncMock()
-    gsheet.restore_puzzle_spreadsheet = AsyncMock()
+    gsheet.move_puzzle_to_solved_sheet = AsyncMock()
+    gsheet.restore_puzzle_from_solved_sheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     gsheet.compute_insert_index = AsyncMock(return_value=0)
     bot = MagicMock()

@@ -16,7 +16,7 @@ def _hunt(id=10):
     h = HuntData()
     h.id = id
     h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCH1"
+    h.solved_sheet_id = "ARCH1"
     return h
 
 

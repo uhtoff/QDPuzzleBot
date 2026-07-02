@@ -209,17 +209,17 @@ def test_move_sheet_to_start_delegates_to_initial_offset():
 
 
 # ---------------------------------------------------------------------------
-# restore_puzzle_spreadsheet: uses restore_index for main + additional tabs
+# restore_puzzle_from_solved_sheet: uses restore_index for main + additional tabs
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_restore_puzzle_spreadsheet_uses_restore_index():
+async def test_restore_puzzle_from_solved_sheet_uses_restore_index():
     """When restore_index is passed, the move request targets that index."""
     cog = make_sheets_cog()
     puzzle = make_puzzle()
     puzzle.google_page_id = 99
     puzzle.is_target = False
-    puzzle.archived = False
+    puzzle.on_solved_sheet = False
     puzzle.additional_sheets = []
 
     captured_requests = []
@@ -230,12 +230,12 @@ async def test_restore_puzzle_spreadsheet_uses_restore_index():
     with (
         patch.object(cog, "batch_update", side_effect=fake_batch_update),
         patch.object(cog, "get_spreadsheet_id", return_value="sheet-id"),
-        patch.object(cog, "get_archive_spreadsheet_id", return_value=None),
+        patch.object(cog, "get_solved_sheet_id", return_value=None),
         patch("bot.cogs.puzzles_gsheet.config") as mock_cfg,
     ):
         mock_cfg.puzzle_cell_solution = "B1"
         mock_cfg.puzzle_cell_progress = "B3"
-        await cog.restore_puzzle_spreadsheet(puzzle, restore_index=9)
+        await cog.restore_puzzle_from_solved_sheet(puzzle, restore_index=9)
 
     move_reqs = [
         r for r in captured_requests
@@ -250,13 +250,13 @@ async def test_restore_puzzle_spreadsheet_uses_restore_index():
 
 
 @pytest.mark.asyncio
-async def test_restore_puzzle_spreadsheet_defaults_to_initial_offset():
+async def test_restore_puzzle_from_solved_sheet_defaults_to_initial_offset():
     """When restore_index is omitted, falls back to INITIAL_OFFSET."""
     cog = make_sheets_cog()
     puzzle = make_puzzle()
     puzzle.google_page_id = 99
     puzzle.is_target = False
-    puzzle.archived = False
+    puzzle.on_solved_sheet = False
     puzzle.additional_sheets = []
 
     captured_requests = []
@@ -267,12 +267,12 @@ async def test_restore_puzzle_spreadsheet_defaults_to_initial_offset():
     with (
         patch.object(cog, "batch_update", side_effect=fake_batch_update),
         patch.object(cog, "get_spreadsheet_id", return_value="sheet-id"),
-        patch.object(cog, "get_archive_spreadsheet_id", return_value=None),
+        patch.object(cog, "get_solved_sheet_id", return_value=None),
         patch("bot.cogs.puzzles_gsheet.config") as mock_cfg,
     ):
         mock_cfg.puzzle_cell_solution = "B1"
         mock_cfg.puzzle_cell_progress = "B3"
-        await cog.restore_puzzle_spreadsheet(puzzle)
+        await cog.restore_puzzle_from_solved_sheet(puzzle)
 
     move_reqs = [
         r for r in captured_requests
@@ -284,7 +284,7 @@ async def test_restore_puzzle_spreadsheet_defaults_to_initial_offset():
 
 
 @pytest.mark.asyncio
-async def test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_archived():
+async def test_restore_puzzle_from_solved_sheet_moves_additional_sheets_back_when_archived():
     """Additional sheets must move back from the archive whenever the puzzle
     itself was archived — not gated on puzzle_data.solved, which unsolve()
     already cleared to False before calling restore (#2)."""
@@ -292,7 +292,7 @@ async def test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_arch
     puzzle = make_puzzle()
     puzzle.google_page_id = 99
     puzzle.is_target = False
-    puzzle.archived = True
+    puzzle.on_solved_sheet = True
     puzzle.solved = False  # unsolve() clears this before restore is called
     puzzle.additional_sheets = [AdditionalSheetData(google_page_id="archive-extra")]
 
@@ -301,15 +301,15 @@ async def test_restore_puzzle_spreadsheet_moves_additional_sheets_back_when_arch
 
     with (
         patch.object(cog, "batch_update", side_effect=fake_batch_update),
-        patch.object(cog, "move_puzzle_spreadsheet", new=AsyncMock(return_value="live-extra")) as mock_move,
+        patch.object(cog, "move_puzzle_sheet", new=AsyncMock(return_value="live-extra")) as mock_move,
         patch.object(cog, "get_page_name_by_id", new=AsyncMock(return_value="Extra Sheet")),
         patch.object(cog, "get_spreadsheet_id", return_value="sheet-id"),
-        patch.object(cog, "get_archive_spreadsheet_id", return_value="archive-id"),
+        patch.object(cog, "get_solved_sheet_id", return_value="archive-id"),
         patch("bot.cogs.puzzles_gsheet.config") as mock_cfg,
     ):
         mock_cfg.puzzle_cell_solution = "B1"
         mock_cfg.puzzle_cell_progress = "B3"
-        await cog.restore_puzzle_spreadsheet(puzzle)
+        await cog.restore_puzzle_from_solved_sheet(puzzle)
 
     # Once for the main page, once for the additional sheet.
     assert mock_move.await_count == 2

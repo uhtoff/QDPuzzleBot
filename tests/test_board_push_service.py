@@ -43,7 +43,7 @@ def _hunt(id=10, uid="HUNT1", guild_id=111222333):
     h.uid = uid
     h.guild_id = guild_id
     h.google_sheet_id = "S1"
-    h.archive_google_sheet_id = "A1"
+    h.solved_sheet_id = "A1"
     h.url = None
     h.category_id = 1
     h.name = "H"

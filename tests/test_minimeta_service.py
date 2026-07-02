@@ -29,9 +29,9 @@ class TestPuzzleDataParentField:
             "channel_id": 999, "solved": False, "solution": None,
             "status": "", "priority": "",
             "puzzle_type": "Mini", "notes": None, "url": "", "google_page_id": "",
-            "archived": False, "voice_channel_id": 0, "channel_mention": "",
+            "on_solved_sheet": False, "voice_channel_id": 0, "channel_mention": "",
             "channel_name": "", "start_time": None, "solve_time": None,
-            "archive_time": None, "tag_edges": None,
+            "tag_edges": None,
         }
         p = PuzzleData.import_dict(row)
         assert p.parent_puzzle_id == 3
@@ -329,13 +329,12 @@ class TestUnsolveService:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_unsolve_clears_fields(self, RoundDb, PuzzleDb):
-        """unsolve resets solved/solution/solve_time/archive_time."""
+        """unsolve resets solved/solution/solve_time."""
         import asyncio
         from bot.core.puzzle_service import PuzzleService
 
         puzzle = make_puzzle(id=1, hunt_id=10, solved=True, solution="ANS", tags=[])
         puzzle.solve_time = "sometime"
-        puzzle.archive_time = "sometime"
         hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
@@ -348,7 +347,6 @@ class TestUnsolveService:
         assert puzzle.solved is False
         assert puzzle.solution == ""
         assert puzzle.solve_time is None
-        assert puzzle.archive_time is None
         assert puzzle.status == "Unsolved"
         PuzzleDb.commit.assert_called()
 
@@ -361,7 +359,6 @@ class TestUnsolveService:
 
         mini = make_puzzle(id=5, solved=True, solution="X", tags=[], parent_puzzle_id=3, channel_id=9001)
         mini.solve_time = "t"
-        mini.archive_time = "t"
         hunt = make_hunt()
         RoundDb.get_by_attr.return_value = None
 
@@ -384,8 +381,8 @@ class TestUnsolveService:
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.TagGroupJsonDb")
     def test_commits_after_sheet_restore(self, RoundDb, PuzzleDb, SheetsDb):
-        """The DB commit must happen AFTER restore_puzzle_spreadsheet mutates
-        puzzle.archived/google_page_id, else those fields never persist (#4)."""
+        """The DB commit must happen AFTER restore_puzzle_from_solved_sheet mutates
+        puzzle.on_solved_sheet/google_page_id, else those fields never persist (#4)."""
         import asyncio
         from bot.core.puzzle_service import PuzzleService
         from bot.store.puzzle_data import AdditionalSheetData
@@ -403,7 +400,7 @@ class TestUnsolveService:
         async def fake_restore(puzzle_data, restore_index=None):
             order.append("restore")
 
-        gsheet_cog.restore_puzzle_spreadsheet = fake_restore
+        gsheet_cog.restore_puzzle_from_solved_sheet = fake_restore
         PuzzleDb.commit.side_effect = lambda *a, **kw: order.append("commit_puzzle")
         SheetsDb.commit.side_effect = lambda *a, **kw: order.append("commit_sheet")
 

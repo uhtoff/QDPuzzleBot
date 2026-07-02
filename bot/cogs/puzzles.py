@@ -186,7 +186,7 @@ class Puzzles(commands.Cog):
             gsheet_cog.set_notify_channel(ctx.channel)
             if hunt is not None:
                 gsheet_cog.set_spreadsheet_id(hunt.google_sheet_id)
-                gsheet_cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+                gsheet_cog.set_solved_sheet_id(hunt.solved_sheet_id)
         self.environment[ctx.message.id] = {'channel_type': channel_type,
                                             'hunt': hunt,
                                             'tag_group': tag_group,
@@ -374,23 +374,23 @@ class Puzzles(commands.Cog):
         return self.environment[ctx.message.id]['gsheet_cog'] or None
 
     def get_puzzle_sheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
-        """Return the active or archive spreadsheet id for a puzzle.
+        """Return the active or solved-puzzles spreadsheet id for a puzzle.
 
         When *hunt* is not provided (bang path), falls back to environment lookup.
         """
         if hunt is None:
             hunt = self.get_hunt(ctx)
-        if puzzle.archived:
-            return hunt.archive_google_sheet_id
+        if puzzle.on_solved_sheet:
+            return hunt.solved_sheet_id
         else:
             return hunt.google_sheet_id
 
     def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
-        """Return the spreadsheet id for additional sheets (archive when solved)."""
+        """Return the spreadsheet id for additional sheets (solved puzzles sheet when solved)."""
         if hunt is None:
             hunt = self.get_hunt(ctx)
         if puzzle.solved:
-            return hunt.archive_google_sheet_id
+            return hunt.solved_sheet_id
         else:
             return hunt.google_sheet_id
 
@@ -559,13 +559,16 @@ class Puzzles(commands.Cog):
 
         return (ctx.guild.get_channel(new_hunt.category_id), text_channel, True)
 
-    @commands.hybrid_command(description="Set the hunt to use a second spreadsheet to hold solved puzzles (admin only)",)
+    @commands.hybrid_command(
+        aliases=["set_to_archive"],
+        description="Use a separate 'solved puzzles sheet' for solved feeders (admin only)",
+    )
     @commands.has_any_role(*ADMIN_ROLES)
-    async def set_to_archive(self, ctx):
-        """*Set this hunt to use a second spreadsheet to hold solved puzzles.*
+    async def use_solved_sheet(self, ctx):
+        """*Use a separate 'solved puzzles sheet' to hold solved feeders (metas stay on the main sheet).*
 
-        Usage: `!set_to_archive`
-        Example: `!set_to_archive`
+        Usage: `!use_solved_sheet`
+        Example: `!use_solved_sheet`
         Run in the main Hunt channel. Admins/mods only."""
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.send(":x: This command must be done from the main Hunt channel")
@@ -573,17 +576,17 @@ class Puzzles(commands.Cog):
 
         hunt = self.get_hunt(ctx)
 
-        if len(hunt.archive_google_sheet_id)>0:
-            await ctx.send(":x: This hunt is already set to use a second sheet for solved puzzles")
+        if len(hunt.solved_sheet_id)>0:
+            await ctx.send(":x: This hunt is already using a solved puzzles sheet")
             return
 
         if self.get_gsheet_cog(ctx) is not None:
-            google_drive_id = await self.get_gsheet_cog(ctx).create_hunt_archive_spreadsheet(hunt.name)
-            hunt.archive_google_sheet_id = google_drive_id
+            google_drive_id = await self.get_gsheet_cog(ctx).create_solved_sheet(hunt.name)
+            hunt.solved_sheet_id = google_drive_id
 
         HuntJsonDb.commit(hunt)
 
-        await ctx.send(":white_check_mark: The hunt has been set to use a second sheet for solved puzzles")
+        await ctx.send(":white_check_mark: The hunt has been set to use a solved puzzles sheet")
         await self.info(ctx, update=True)
         return
 
@@ -2174,8 +2177,8 @@ class Puzzles(commands.Cog):
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
                         • [Google Sheet](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
-        if hunt.archive_google_sheet_id:
-            puzzle_links += f"""• [Solved Google Sheet Archive](https://docs.google.com/spreadsheets/d/{hunt.archive_google_sheet_id})
+        if hunt.solved_sheet_id:
+            puzzle_links += f"""• [Solved Puzzles Sheet](https://docs.google.com/spreadsheets/d/{hunt.solved_sheet_id})
             """
         if hunt.username:
             puzzle_links += f"""• Hunt Username: {hunt.username}
@@ -3032,7 +3035,6 @@ class Puzzles(commands.Cog):
             else:
                 round_name = channel.category
             thread_name = f"{puzzle.name} ({round_name})"
-            puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
             PuzzleJsonDb.commit(puzzle)
         else:
             thread_name = f"{channel.name} ({channel.category.name})"

@@ -110,7 +110,7 @@ def make_puzzle_row(
         "is_meta": is_meta,
         "status": status,
         "solved": solved,
-        "archived": False,
+        "on_solved_sheet": False,
         "solution": solution,
         "priority": priority,
         "puzzle_type": puzzle_type,
@@ -137,7 +137,7 @@ def make_round_ref(id, name, group_code="RC", is_target_of=False, edges=("feeds"
 def make_hunt(
     id=10,
     google_sheet_id="SHEET1",
-    archive_google_sheet_id="ARCHIVE1",
+    solved_sheet_id="ARCHIVE1",
     **kwargs,
 ):
     """Return a HuntData with sensible defaults.
@@ -149,7 +149,7 @@ def make_hunt(
     h = HuntData()
     h.id = id
     h.google_sheet_id = google_sheet_id
-    h.archive_google_sheet_id = archive_google_sheet_id
+    h.solved_sheet_id = solved_sheet_id
     for attr, val in kwargs.items():
         setattr(h, attr, val)
     return h

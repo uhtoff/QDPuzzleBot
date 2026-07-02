@@ -18,7 +18,7 @@ def _hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCH1"
+    h.solved_sheet_id = "ARCH1"
     h.url = None
     return h
 

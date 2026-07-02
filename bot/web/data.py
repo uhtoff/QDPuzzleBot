@@ -100,7 +100,7 @@ async def get_guilds_map():
 async def get_all_hunts():
     return await fetch_all(
         "SELECT id, uid, name, url, guild_id, role_id, archived, "
-        "google_sheet_id, archive_google_sheet_id, start_time, solve_time "
+        "google_sheet_id, solved_sheet_id, start_time, solve_time "
         "FROM hunts"
     )
 
@@ -108,7 +108,7 @@ async def get_all_hunts():
 async def get_hunt_by_uid(uid):
     return await fetch_one(
         "SELECT id, uid, name, url, guild_id, role_id, archived, "
-        "google_sheet_id, archive_google_sheet_id, start_time, solve_time, "
+        "google_sheet_id, solved_sheet_id, start_time, solve_time, "
         "start_timestamp, username, password, url_sep, puzzle_prefix "
         "FROM hunts WHERE uid = %s",
         (uid,),
@@ -120,7 +120,7 @@ async def get_hunt_for_puzzle(puzzle_id):
     return await fetch_one(
         "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
         "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
-        "hunts.archive_google_sheet_id "
+        "hunts.solved_sheet_id "
         "FROM hunts JOIN puzzles ON puzzles.hunt_id = hunts.id "
         "WHERE puzzles.id = %s",
         (puzzle_id,),
@@ -132,7 +132,7 @@ async def get_hunt_for_tag_group(tag_group_id):
     return await fetch_one(
         "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
         "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
-        "hunts.archive_google_sheet_id "
+        "hunts.solved_sheet_id "
         "FROM hunts JOIN tag_group ON tag_group.hunt_id = hunts.id "
         "WHERE tag_group.id = %s",
         (tag_group_id,),
@@ -144,7 +144,7 @@ async def get_hunt_for_evidence(item_id):
     return await fetch_one(
         "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
         "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
-        "hunts.archive_google_sheet_id "
+        "hunts.solved_sheet_id "
         "FROM hunts JOIN evidence_items ON evidence_items.hunt_id = hunts.id "
         "WHERE evidence_items.id = %s",
         (item_id,),
@@ -176,7 +176,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
         "SELECT puzzles.id, puzzles.name, puzzles.url, puzzles.channel_id, "
         "puzzles.google_page_id, "
         "EXISTS(SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = puzzles.id) AS is_target, "
-        "puzzles.status, puzzles.solved, puzzles.archived, puzzles.solution, "
+        "puzzles.status, puzzles.solved, puzzles.on_solved_sheet, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
         "puzzles.start_time, puzzles.solve_time, "
         "tag_group.id AS tag_group_id, tag_group.name AS tag_group_name, "
@@ -210,7 +210,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 "is_meta": bool(row["is_target"]),
                 "status": row["status"],
                 "solved": bool(row["solved"]),
-                "archived": bool(row["archived"]),
+                "on_solved_sheet": bool(row["on_solved_sheet"]),
                 "solution": row["solution"],
                 "priority": row["priority"],
                 "puzzle_type": row["puzzle_type"],

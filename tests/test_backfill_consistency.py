@@ -12,7 +12,7 @@ def _rounds():
     from bot.store import mydb
     cur = mydb.cursor(dictionary=True)
     cur.execute(
-        "SELECT r.id, r.target_puzzle_id, r.status, r.solve_time, r.archive_time "
+        "SELECT r.id, r.target_puzzle_id, r.status, r.solve_time "
         "FROM tag_group r"
     )
     rows = cur.fetchall()
@@ -25,9 +25,7 @@ def test_status_backfill_matches_lifecycle_times():
     if not rows:
         pytest.skip("no rounds in test DB")
     for r in rows:
-        if r["archive_time"] is not None:
-            expected = "archived"
-        elif r["solve_time"] is not None:
+        if r["solve_time"] is not None:
             expected = "solved"
         else:
             expected = "active"

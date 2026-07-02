@@ -681,7 +681,7 @@ async def require_admin(guild_snowflake):
 # --- Hunt create / delete (admin only) ------------------------------------
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
-_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_archive_sheet",
+_CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
                          "layout_mode"}
 
 
@@ -825,10 +825,10 @@ async def post_hunt_archive(uid):
     return jsonify({"ok": True, "archived": bool(archived)})
 
 
-@actions_bp.route("/hunts/<uid>/archive-sheet", methods=["POST"])
+@actions_bp.route("/hunts/<uid>/solved-sheet", methods=["POST"])
 @login_required
-async def post_hunt_archive_sheet(uid):
-    """Create the hunt's archive Google Sheet (one-way). Admin only."""
+async def post_hunt_solved_sheet(uid):
+    """Create the hunt's solved puzzles Google Sheet (one-way). Admin only."""
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
@@ -842,26 +842,26 @@ async def post_hunt_archive_sheet(uid):
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
 
-    if hunt_obj.archive_google_sheet_id:
-        return jsonify({"error": "archive_sheet_exists"}), 409
+    if hunt_obj.solved_sheet_id:
+        return jsonify({"error": "solved_sheet_exists"}), 409
 
     gsheet_cog = current_app.bot.get_cog("GoogleSheets")
     if gsheet_cog is None:
         return jsonify({"error": "gsheet_unavailable"}), 503
 
     gsheet_cog.set_spreadsheet_id(hunt_obj.google_sheet_id)
-    gsheet_cog.set_archive_spreadsheet_id(hunt_obj.archive_google_sheet_id)
+    gsheet_cog.set_solved_sheet_id(hunt_obj.solved_sheet_id)
 
     try:
-        sheet_id = await gsheet_cog.create_hunt_archive_spreadsheet(hunt_obj.name)
-        hunt_obj.archive_google_sheet_id = sheet_id
+        sheet_id = await gsheet_cog.create_solved_sheet(hunt_obj.name)
+        hunt_obj.solved_sheet_id = sheet_id
         HuntJsonDb.commit(hunt_obj)
     except Exception:
-        logger.exception("web archive sheet creation failed for hunt %s", hunt_obj.id)
+        logger.exception("web solved sheet creation failed for hunt %s", hunt_obj.id)
         return jsonify({"error": "sheet_creation_failed"}), 500
 
-    await _audit("hunt_archive_sheet", hunt_uid=uid)
-    return jsonify({"ok": True, "archive_google_sheet_id": sheet_id})
+    await _audit("hunt_solved_sheet", hunt_uid=uid)
+    return jsonify({"ok": True, "solved_sheet_id": sheet_id})
 
 
 # --- Retag puzzles between metas (organiser only) ---------------------------

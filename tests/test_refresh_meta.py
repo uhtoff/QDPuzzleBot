@@ -24,7 +24,7 @@ def _hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCH1"
+    h.solved_sheet_id = "ARCH1"
     return h
 
 
@@ -33,7 +33,7 @@ def _svc_with_sheets():
     gsheet.add_metapuzzle_data = AsyncMock()
     gsheet.add_metametapuzzle_data = AsyncMock()
     gsheet.render_contribution = AsyncMock()
-    gsheet.archive_puzzle_spreadsheet = AsyncMock()
+    gsheet.move_puzzle_to_solved_sheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     bot = MagicMock()
     bot.get_cog.return_value = gsheet
@@ -65,7 +65,7 @@ class TestRefreshMetaFires:
             pdb.get_all_from_tag_group.return_value = []
             await svc.refresh_target(_hunt(), meta_round)
         gsheet.set_spreadsheet_id.assert_called_with("SHEET1")
-        gsheet.set_archive_spreadsheet_id.assert_called_with("ARCH1")
+        gsheet.set_solved_sheet_id.assert_called_with("ARCH1")
 
     @pytest.mark.asyncio
     async def test_calls_add_metapuzzle_data_for_regular_meta(self):
@@ -282,6 +282,6 @@ class TestSolveFailureIsolation:
 
         # Both metas attempted; the archive still ran despite the first failure.
         assert gsheet.render_contribution.await_count == 2
-        gsheet.archive_puzzle_spreadsheet.assert_awaited_once()
+        gsheet.move_puzzle_to_solved_sheet.assert_awaited_once()
         assert exc.value.failed_round_ids == [5]
         assert puzzle.solved is True

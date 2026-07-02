@@ -27,7 +27,7 @@ def _forum_hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "S1"
-    h.archive_google_sheet_id = "A1"
+    h.solved_sheet_id = "A1"
     h.url = None
     h.category_id = 1          # the single hunt category (forum parent)
     h.name = "H"
@@ -172,7 +172,7 @@ def _channel_hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "S1"
-    h.archive_google_sheet_id = "A1"
+    h.solved_sheet_id = "A1"
     h.url = None
     h.category_id = 1
     h.name = "H"

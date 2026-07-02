@@ -116,15 +116,15 @@ async def test_create_hunt_captures_sheet_and_role():
     svc, guild = _create_service(), _create_guild()
     gsheet = MagicMock()
     gsheet.create_hunt_spreadsheet = AsyncMock(return_value="SHEET_ID")
-    gsheet.create_hunt_archive_spreadsheet = AsyncMock(return_value="ARCH_ID")
+    gsheet.create_solved_sheet = AsyncMock(return_value="ARCH_ID")
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch.object(svc, "_gsheet_cog", return_value=gsheet):
         hdb.check_duplicates.return_value = False
         await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                              role_name="Team", create_archive_sheet=True)
+                              role_name="Team", create_solved_sheet=True)
     hunt = _committed_hunt(hdb.commit)
     assert hunt.google_sheet_id == "SHEET_ID"
-    assert hunt.archive_google_sheet_id == "ARCH_ID"
+    assert hunt.solved_sheet_id == "ARCH_ID"
     assert hunt.role_id == 333
 
 

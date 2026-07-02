@@ -110,7 +110,7 @@ async def hunt_detail(uid):
             "archived": bool(hunt["archived"]),
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
-            "archive_sheet_base_url": _sheet_base(hunt["archive_google_sheet_id"]),
+            "solved_sheet_base_url": _sheet_base(hunt["solved_sheet_id"]),
             "can_manage": can_manage,
             "is_admin": admin,
             "start_timestamp": hunt.get("start_timestamp"),

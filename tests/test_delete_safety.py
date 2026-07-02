@@ -84,7 +84,7 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
     hunt_obj = SimpleNamespace(
         id=10, name="TestHunt",
         channel_id=200, category_id=0,
-        google_sheet_id="", archive_google_sheet_id="",
+        google_sheet_id="", solved_sheet_id="",
     )
 
     guild = MagicMock()

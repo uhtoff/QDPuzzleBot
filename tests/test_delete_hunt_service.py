@@ -30,7 +30,7 @@ def _delete_hunt_obj():
     h.category_id = 50
     h.channel_id = 60
     h.google_sheet_id = "SHEET_ID"
-    h.archive_google_sheet_id = "ARCH_ID"
+    h.solved_sheet_id = "ARCH_ID"
     return h
 
 

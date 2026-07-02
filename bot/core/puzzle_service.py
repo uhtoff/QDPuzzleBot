@@ -237,7 +237,7 @@ class PuzzleService:
         cog = self.bot.get_cog("GoogleSheets")
         if cog is not None and hunt is not None:
             cog.set_spreadsheet_id(hunt.google_sheet_id)
-            cog.set_archive_spreadsheet_id(hunt.archive_google_sheet_id)
+            cog.set_solved_sheet_id(hunt.solved_sheet_id)
         return cog
 
     # --- forum tag helpers ---
@@ -385,7 +385,7 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return actions
-        spreadsheet = (gsheet_cog.get_archive_spreadsheet_id() if puzzle.archived
+        spreadsheet = (gsheet_cog.get_solved_sheet_id() if puzzle.on_solved_sheet
                        else gsheet_cog.get_spreadsheet_id())
 
         async def _tab_present(page_id):
@@ -463,7 +463,7 @@ class PuzzleService:
         if gsheet_cog is None:
             return
         spreadsheet = gsheet_cog.get_spreadsheet_id()
-        valid = {str(p.google_page_id) for p in puzzles if p.google_page_id and not p.archived}
+        valid = {str(p.google_page_id) for p in puzzles if p.google_page_id and not p.on_solved_sheet}
         # Additional per-puzzle sheets are real puzzle tabs, not orphans.
         for puzzle in puzzles:
             for sheet in getattr(puzzle, "additional_sheets", None) or []:
@@ -1020,8 +1020,7 @@ class PuzzleService:
             # uncaught raise here would incorrectly present it as failed while
             # leaving the DB out of sync with what did/didn't move to the archive.
             try:
-                await gsheet_cog.archive_puzzle_spreadsheet(puzzle)
-                puzzle.archive_time = datetime.datetime.now(tz=pytz.UTC)
+                await gsheet_cog.move_puzzle_to_solved_sheet(puzzle)
             except Exception:
                 logger.exception("solve: failed to archive spreadsheet for puzzle %s", puzzle.id)
                 failed.append(puzzle.id)
@@ -1046,7 +1045,6 @@ class PuzzleService:
         puzzle.solution = ""
         puzzle.solved = False
         puzzle.solve_time = None
-        puzzle.archive_time = None
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1055,10 +1053,10 @@ class PuzzleService:
             # at the wrong position.
             existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
             restore_idx = await gsheet_cog.compute_insert_index(puzzle.is_target, existing)
-            await gsheet_cog.restore_puzzle_spreadsheet(puzzle, restore_index=restore_idx)
+            await gsheet_cog.restore_puzzle_from_solved_sheet(puzzle, restore_index=restore_idx)
 
         # Commit AFTER the sheet restore (mirrors solve()'s ordering): restore
-        # mutates puzzle.archived/google_page_id and each additional sheet's
+        # mutates puzzle.on_solved_sheet/google_page_id and each additional sheet's
         # google_page_id, so committing first would persist stale/dangling ids.
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
@@ -2298,7 +2296,7 @@ class PuzzleService:
 
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
-                          create_archive_sheet=False, layout_mode="channel",
+                          create_solved_sheet=False, layout_mode="channel",
                           guild_id=0):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
@@ -2343,11 +2341,11 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(None)
         google_sheet_id = ""
-        archive_google_sheet_id = ""
+        solved_sheet_id = ""
         if gsheet_cog is not None:
             google_sheet_id = await gsheet_cog.create_hunt_spreadsheet(name)
-            if create_archive_sheet:
-                archive_google_sheet_id = await gsheet_cog.create_hunt_archive_spreadsheet(name)
+            if create_solved_sheet:
+                solved_sheet_id = await gsheet_cog.create_solved_sheet(name)
 
         new_hunt = HuntData(
             name=name,
@@ -2368,8 +2366,8 @@ class PuzzleService:
             new_hunt.role_id = team_role.id
         if google_sheet_id:
             new_hunt.google_sheet_id = google_sheet_id
-        if archive_google_sheet_id:
-            new_hunt.archive_google_sheet_id = archive_google_sheet_id
+        if solved_sheet_id:
+            new_hunt.solved_sheet_id = solved_sheet_id
 
         HuntJsonDb.commit(new_hunt)
         if self.notifier is not None:
@@ -2448,8 +2446,8 @@ class PuzzleService:
         if gsheet_cog is not None:
             if hunt.google_sheet_id:
                 await gsheet_cog.delete_hunt_spreadsheet(hunt.google_sheet_id)
-            if hunt.archive_google_sheet_id:
-                await gsheet_cog.delete_hunt_spreadsheet(hunt.archive_google_sheet_id)
+            if hunt.solved_sheet_id:
+                await gsheet_cog.delete_hunt_spreadsheet(hunt.solved_sheet_id)
 
         # Delete hunt channel + category (best-effort; failures logged, not raised)
         if guild is not None:

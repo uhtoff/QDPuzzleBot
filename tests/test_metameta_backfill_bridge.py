@@ -20,7 +20,7 @@ def _hunt():
     h = HuntData()
     h.id = 10
     h.google_sheet_id = "SHEET1"
-    h.archive_google_sheet_id = "ARCH1"
+    h.solved_sheet_id = "ARCH1"
     return h
 
 
@@ -29,7 +29,7 @@ def _svc_with_sheets():
     gsheet.add_metapuzzle_data = AsyncMock()
     gsheet.add_metametapuzzle_data = AsyncMock()
     gsheet.render_contribution = AsyncMock()
-    gsheet.archive_puzzle_spreadsheet = AsyncMock()
+    gsheet.move_puzzle_to_solved_sheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
     bot = MagicMock()
     bot.get_cog.return_value = gsheet

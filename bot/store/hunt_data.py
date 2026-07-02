@@ -21,7 +21,7 @@ class HuntData:
     channel_id: int = 0
     guild_id: int = 0
     google_sheet_id: str = ""
-    archive_google_sheet_id: str = ""
+    solved_sheet_id: str = ""
     url: str = ""
     url_sep: str = "-"
     puzzle_prefix: str = "puzzle"
@@ -33,7 +33,6 @@ class HuntData:
     password: str = ""
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
-    archive_time: Optional[datetime.datetime] = None
     evidence_sheet_page_id: Optional[int] = None
     evidence_table_id: Optional[int] = None
     unassigned_sheet_page_id: Optional[int] = None
@@ -65,8 +64,6 @@ class _HuntJsonDb:
     def get(self, guild_id, round_id, hunt_id) -> HuntData:
         pass
     def get_all(self, guild_id, hunt_id="*") -> List[HuntData]:
-        pass
-    def get_solved_rounds_to_archive(self, guild_id, now=None, include_meta=False, minutes=5) -> List[HuntData]:
         pass
     def aggregate_json(self) -> dict:
         pass

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Task, and ContextVars are isolated per Task, so concurrent commands from different
 # teams/hunts cannot overwrite each other's target spreadsheet.
 _current_spreadsheet_id = contextvars.ContextVar("current_spreadsheet_id", default=None)
-_current_archive_spreadsheet_id = contextvars.ContextVar("current_archive_spreadsheet_id", default=None)
+_current_solved_sheet_id = contextvars.ContextVar("current_solved_sheet_id", default=None)
 # Channel to notify if a Sheets call has to be retried, plus a one-shot flag so a
 # single command posts at most one "retrying" notice. Request-scoped, like above.
 _current_notify_channel = contextvars.ContextVar("current_notify_channel", default=None)
@@ -53,14 +53,14 @@ class GoogleSheets(commands.Cog):
     def set_spreadsheet_id(self, spreadsheet_id):
         _current_spreadsheet_id.set(spreadsheet_id)
 
-    def set_archive_spreadsheet_id(self, archive_spreadsheet_id):
-        _current_archive_spreadsheet_id.set(archive_spreadsheet_id)
+    def set_solved_sheet_id(self, solved_sheet_id):
+        _current_solved_sheet_id.set(solved_sheet_id)
 
     def get_spreadsheet_id(self):
         return _current_spreadsheet_id.get()
 
-    def get_archive_spreadsheet_id(self):
-        return _current_archive_spreadsheet_id.get()
+    def get_solved_sheet_id(self):
+        return _current_solved_sheet_id.get()
 
     def set_notify_channel(self, channel):
         """Register the channel to warn if Sheets calls for this command stall."""
@@ -84,7 +84,7 @@ class GoogleSheets(commands.Cog):
             logger.exception("Failed to send Sheets retry notice")
 
     async def batch_update(self, body, archive = False):
-        spreadsheet_id = self.get_archive_spreadsheet_id() if archive else self.get_spreadsheet_id()
+        spreadsheet_id = self.get_solved_sheet_id() if archive else self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
@@ -295,13 +295,13 @@ class GoogleSheets(commands.Cog):
                 self.get_column(config.puzzle_cell_name) + offset, self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
-            target_spreadsheet_id = self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
+            target_spreadsheet_id = self.get_solved_sheet_id() if puzzle.on_solved_sheet else self.get_spreadsheet_id()
             unique_name = await self.get_unique_tab_name(puzzle_name, target_spreadsheet_id)
             requests.append(self.set_sheet_name(unique_name, puzzle.google_page_id))
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, puzzle.archived)
+        await self.batch_update(updates, puzzle.on_solved_sheet)
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
@@ -492,11 +492,11 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data, update_name)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        await self.delete_sheet(puzzle_data.google_page_id, puzzle_data.archived)
+        await self.delete_sheet(puzzle_data.google_page_id, puzzle_data.on_solved_sheet)
 
-    async def move_puzzle_spreadsheet(self, to_archive, page, tab_name):
-        spreadsheet_to = self.get_archive_spreadsheet_id() if to_archive else self.get_spreadsheet_id()
-        spreadsheet_from = self.get_spreadsheet_id() if to_archive else self.get_archive_spreadsheet_id()
+    async def move_puzzle_sheet(self, to_solved, page, tab_name):
+        spreadsheet_to = self.get_solved_sheet_id() if to_solved else self.get_spreadsheet_id()
+        spreadsheet_from = self.get_spreadsheet_id() if to_solved else self.get_solved_sheet_id()
         copy_req = get_sheet().sheets().copyTo(
             spreadsheetId=spreadsheet_from,
             sheetId=page,
@@ -504,7 +504,7 @@ class GoogleSheets(commands.Cog):
         )
         copied = await execute_with_retry(copy_req, on_retry=self._notify_retry)
         new_sheet_id = copied['sheetId']
-        await self.delete_sheet(page, not to_archive)
+        await self.delete_sheet(page, not to_solved)
         unique_title = await self.get_unique_tab_name(tab_name, spreadsheet_to)
         bu_req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_to,
@@ -517,19 +517,19 @@ class GoogleSheets(commands.Cog):
         await execute_with_retry(bu_req, on_retry=self._notify_retry)
         return new_sheet_id
 
-    async def restore_puzzle_spreadsheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
-        was_archived = puzzle_data.archived
-        if puzzle_data.archived:
-            puzzle_data.archived = False
-            puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(False, puzzle_data.google_page_id,
+    async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
+        was_archived = puzzle_data.on_solved_sheet
+        if puzzle_data.on_solved_sheet:
+            puzzle_data.on_solved_sheet = False
+            puzzle_data.google_page_id = await self.move_puzzle_sheet(False, puzzle_data.google_page_id,
                                                                             puzzle_data.name)
         move_idx = restore_index if restore_index is not None else self.INITIAL_OFFSET
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                if self.get_archive_spreadsheet_id() and was_archived:
-                    current_name = await self.get_page_name_by_id(sheet.google_page_id, self.get_archive_spreadsheet_id())
-                    sheet.google_page_id = await self.move_puzzle_spreadsheet(False, sheet.google_page_id, current_name)
+                if self.get_solved_sheet_id() and was_archived:
+                    current_name = await self.get_page_name_by_id(sheet.google_page_id, self.get_solved_sheet_id())
+                    sheet.google_page_id = await self.move_puzzle_sheet(False, sheet.google_page_id, current_name)
                 requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
@@ -561,9 +561,9 @@ class GoogleSheets(commands.Cog):
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, puzzle_data.archived)
+        await self.batch_update(updates, puzzle_data.on_solved_sheet)
 
-    async def archive_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+    async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData):
         offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
         main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id)
@@ -588,12 +588,12 @@ class GoogleSheets(commands.Cog):
         }
         await self.batch_update(updates)
         for sheet in puzzle_data.additional_sheets:
-            if self.get_archive_spreadsheet_id():
+            if self.get_solved_sheet_id():
                 current_name = await self.get_page_name_by_id(sheet.google_page_id)
-                sheet.google_page_id = await self.move_puzzle_spreadsheet(True, sheet.google_page_id, current_name)
-        if puzzle_data.is_target is False and self.get_archive_spreadsheet_id():
-            puzzle_data.google_page_id = await self.move_puzzle_spreadsheet(True, puzzle_data.google_page_id, puzzle_data.name)
-            puzzle_data.archived = True
+                sheet.google_page_id = await self.move_puzzle_sheet(True, sheet.google_page_id, current_name)
+        if puzzle_data.is_target is False and self.get_solved_sheet_id():
+            puzzle_data.google_page_id = await self.move_puzzle_sheet(True, puzzle_data.google_page_id, puzzle_data.name)
+            puzzle_data.on_solved_sheet = True
             return
         else:
             return
@@ -611,7 +611,7 @@ class GoogleSheets(commands.Cog):
         await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission), on_retry=self._notify_retry)
         return new_file_id
 
-    async def create_hunt_archive_spreadsheet(self, hunt_name):
+    async def create_solved_sheet(self, hunt_name):
         permission = {
             'type': 'anyone',
             'role': 'writer'
@@ -622,7 +622,7 @@ class GoogleSheets(commands.Cog):
         }), on_retry=self._notify_retry)
         new_file_id = new_file['id']
         await execute_with_retry(get_drive().permissions().create(fileId=new_file_id, body=permission), on_retry=self._notify_retry)
-        self.set_archive_spreadsheet_id(new_file_id)
+        self.set_solved_sheet_id(new_file_id)
         return new_file_id
 
 
@@ -730,8 +730,8 @@ class GoogleSheets(commands.Cog):
     # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.
     # It writes a whole roll-up in two values() calls (clear + update) instead of
     # ~750 single-cell updateCells ops, and snapshots values RAW so an answer like
-    # "=A1" is stored as text and never a live formula — archived puzzles move to a
-    # separate spreadsheet where any cross-tab formula would resolve to #REF.
+    # "=A1" is stored as text and never a live formula — puzzles moved to the solved
+    # puzzles sheet would otherwise resolve any cross-tab formula to #REF.
 
     @staticmethod
     def _col_letter(index: int) -> str:
@@ -757,12 +757,12 @@ class GoogleSheets(commands.Cog):
         return puzzle.solution if puzzle.solution else "Unsolved"
 
     def _target_spreadsheet_id(self, puzzle: PuzzleData):
-        """Live spreadsheet, or the archive one once the puzzle has been archived."""
-        return self.get_archive_spreadsheet_id() if puzzle.archived else self.get_spreadsheet_id()
+        """Live spreadsheet, or the solved puzzles sheet once the puzzle has moved there."""
+        return self.get_solved_sheet_id() if puzzle.on_solved_sheet else self.get_spreadsheet_id()
 
     # --- Developer metadata: stable tab pointers (M5 substrate, M7 load-bearing) ---
-    # A tab's numeric sheetId is reassigned when a sheet is moved to the archive
-    # spreadsheet (see move_puzzle_spreadsheet), so a roll-up that keyed only on the
+    # A tab's numeric sheetId is reassigned when a sheet is moved to the solved
+    # spreadsheet (see move_puzzle_sheet), so a roll-up that keyed only on the
     # sheetId would dangle. Developer metadata is a searchable id that travels with
     # the tab. M5 records it as substrate but still renders via the meta puzzle's
     # google_page_id (the trusted pointer); M7 will resolve the target tab off it.

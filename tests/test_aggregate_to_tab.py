@@ -100,7 +100,7 @@ def _capture_aggregate(cog):
 
     cog.aggregate_to_tab = fake_aggregate
     cog.get_spreadsheet_id = lambda: "LIVE"
-    cog.get_archive_spreadsheet_id = lambda: "ARCHIVE"
+    cog.get_solved_sheet_id = lambda: "ARCHIVE"
     return calls
 
 
@@ -133,7 +133,7 @@ class TestAddMetapuzzleData:
         cog = _cog()
         calls = _capture_aggregate(cog)
         meta = make_puzzle(id=1, name="Meta")
-        meta.archived = True
+        meta.on_solved_sheet = True
         asyncio.run(cog.add_metapuzzle_data(meta, [meta]))
         assert calls[0]["spreadsheet_id"] == "ARCHIVE"
         assert calls[0]["rows"] == []

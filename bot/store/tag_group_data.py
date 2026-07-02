@@ -42,7 +42,6 @@ class TagGroupData:
     status: str = "active"       # active / solved / archived (a tag_group is solved when its target is)
     start_time: Optional[datetime.datetime] = None
     solve_time: Optional[datetime.datetime] = None
-    archive_time: Optional[datetime.datetime] = None
 
     @property
     def has_target(self) -> bool:
@@ -136,8 +135,6 @@ class _TagGroupJsonDb:
     def delete(self, tag_group_data):
         pass
     def get_all(self, guild_id, hunt_id="*") -> List[TagGroupData]:
-        pass
-    def get_solved_rounds_to_archive(self, guild_id, now=None, include_meta=False, minutes=5) -> List[TagGroupData]:
         pass
     def aggregate_json(self) -> dict:
         pass
