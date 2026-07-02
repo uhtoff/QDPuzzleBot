@@ -3051,6 +3051,9 @@ class Puzzles(commands.Cog):
 
         hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
 
+        # keep_puzzles=False pinned explicitly: the service default flipped to True
+        # (keep member puzzles) for the web dashboard's scoped-delete option, but the
+        # bang command's confirm text above still promises "and its {n} puzzle(s)".
         failed = await self.service.delete_round(
             ctx.guild, self.get_hunt(ctx), tag_group, keep_puzzles=False)
 
