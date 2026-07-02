@@ -378,16 +378,16 @@ class PuzzleService:
         spreadsheet = (gsheet_cog.get_archive_spreadsheet_id() if puzzle.archived
                        else gsheet_cog.get_spreadsheet_id())
 
-        def _tab_present(page_id):
+        async def _tab_present(page_id):
             if not page_id:
                 return False
-            return gsheet_cog.get_page_name_by_id(page_id, spreadsheet) is not None
+            return await gsheet_cog.get_page_name_by_id(page_id, spreadsheet) is not None
 
-        if not _tab_present(puzzle.google_page_id):
+        if not await _tab_present(puzzle.google_page_id):
             actions.append(ReconcileAction("tab_create", puzzle.name, "main tab missing"))
             if apply:
                 existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-                insert_idx = gsheet_cog.compute_insert_index(
+                insert_idx = await gsheet_cog.compute_insert_index(
                     getattr(puzzle, 'is_target', False), existing)
                 await gsheet_cog.add_new_puzzle_sheet(puzzle, insert_idx)
                 await gsheet_cog.update_puzzle_info(puzzle)
@@ -420,7 +420,7 @@ class PuzzleService:
                            f"category {tag_group.category_id} missing")
 
         self._collect_orphan_channels(guild, rounds, puzzles, report)
-        self._collect_orphan_tabs(hunt, puzzles, report)
+        await self._collect_orphan_tabs(hunt, puzzles, report)
         return report
 
     def _collect_orphan_channels(self, guild, rounds, puzzles, report):
@@ -445,7 +445,7 @@ class PuzzleService:
         "Tab template", "Meta Tab template", "Overview",
     })
 
-    def _collect_orphan_tabs(self, hunt, puzzles, report):
+    async def _collect_orphan_tabs(self, hunt, puzzles, report):
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return
@@ -462,7 +462,7 @@ class PuzzleService:
             if page_id is not None:
                 valid.add(str(page_id))
         try:
-            sheets = gsheet_cog.sheet_list(spreadsheet)["sheets"]
+            sheets = (await gsheet_cog.sheet_list(spreadsheet))["sheets"]
         except Exception:  # noqa: BLE001
             logger.exception("reconcile: could not list tabs for orphan scan")
             return
@@ -1016,7 +1016,7 @@ class PuzzleService:
             # the solved end (not yet moved), so including it would anchor the zone
             # at the wrong position.
             existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
-            restore_idx = gsheet_cog.compute_insert_index(puzzle.is_target, existing)
+            restore_idx = await gsheet_cog.compute_insert_index(puzzle.is_target, existing)
             await gsheet_cog.restore_puzzle_spreadsheet(puzzle, restore_index=restore_idx)
 
         # Commit AFTER the sheet restore (mirrors solve()'s ordering): restore
@@ -1384,9 +1384,10 @@ class PuzzleService:
         # no Table, and demoting it would delete the solver grid.
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None and puzzle.google_page_id:
+            sheets = (await gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id()))["sheets"]
             has_table = any(
                 bool(s.get("tables"))
-                for s in gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id())["sheets"]
+                for s in sheets
                 if s["properties"]["sheetId"] == int(puzzle.google_page_id)
             )
             if has_table:
@@ -1536,7 +1537,7 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = gsheet_cog.compute_insert_index(False, existing)  # minis are regular
+            insert_idx = await gsheet_cog.compute_insert_index(False, existing)  # minis are regular
             await gsheet_cog.create_puzzle_spreadsheet(mini, index=insert_idx)
 
         PuzzleJsonDb.commit(mini)
@@ -1678,7 +1679,7 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = gsheet_cog.compute_insert_index(new_puzzle.is_target, existing)
+            insert_idx = await gsheet_cog.compute_insert_index(new_puzzle.is_target, existing)
             await gsheet_cog.create_puzzle_spreadsheet(new_puzzle, index=insert_idx)
 
         PuzzleJsonDb.commit(new_puzzle)
@@ -2066,7 +2067,7 @@ class PuzzleService:
             except Exception:
                 # A tab with this name may already exist from an earlier run —
                 # reuse it rather than failing (addSheet errors on duplicate names).
-                page_id = gsheet_cog.get_page_id_by_name(tab_name)
+                page_id = await gsheet_cog.get_page_id_by_name(tab_name)
                 if page_id is None:
                     raise
             hunt.unassigned_sheet_page_id = page_id
