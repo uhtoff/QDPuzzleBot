@@ -16,6 +16,7 @@ import type { LiveActivity } from "../hooks/useActivityFeed";
 import { useRetagPuzzle, useUpdatePuzzle, type EdgeType } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
+import { MiniCountBadge } from "./MiniCountBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
@@ -275,7 +276,11 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
               <Table.Th w={90}>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
-          {filtered.map((p) => (
+          {filtered.map((p) => {
+              const bandProps = p.is_minimeta
+                ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
+                : {};
+              return (
               <Table.Tbody key={p.id}>
               <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                 <Table.Td>
@@ -285,16 +290,17 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     archiveSheetBase={detail.hunt.archive_sheet_base_url}
                   />
                 </Table.Td>
-                <Table.Td>
+                <Table.Td {...bandProps}>
                   <Group gap={6} wrap="nowrap">
                     <MetaBadge puzzle={p} />
                     <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                    <MiniCountBadge puzzle={p} />
                   </Group>
                 </Table.Td>
-                <Table.Td>
+                <Table.Td {...bandProps}>
                   {debugEdges ? (
                     p.rounds.length ? (
-                      <Group gap={4} wrap="wrap">
+                      <Group gap={4} wrap="wrap" onClick={(e) => e.stopPropagation()}>
                         {p.rounds.map((r) => (
                           <EdgeBadge
                             key={r.id}
@@ -328,12 +334,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     </Text>
                   )}
                 </Table.Td>
-                <Table.Td>
+                <Table.Td {...bandProps}>
                   <Text ff="monospace" size="sm">
                     {p.solution || ""}
                   </Text>
                 </Table.Td>
-                <Table.Td ta="right">
+                <Table.Td ta="right" {...bandProps}>
                   <Text size="sm" c="dimmed">
                     {p.solution ? answerLength(p.solution) : ""}
                   </Text>
@@ -387,7 +393,6 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   onSolve={setSolvePuzzle}
                   onUnsolve={setSolvePuzzle}
                   onOpenNotes={onOpenNotes}
-                  onToggleMinis={toggleMinis}
                 />
               </Table.Tr>
               {p.is_minimeta && expandedMinis.has(p.id) && (
@@ -402,7 +407,8 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                 </Table.Tr>
               )}
               </Table.Tbody>
-            ))}
+            );
+            })}
         </Table>
       </Table.ScrollContainer>
 

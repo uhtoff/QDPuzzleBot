@@ -8,7 +8,6 @@ interface PuzzleRowActionsProps {
   onSolve: (puzzle: Puzzle) => void;
   onUnsolve: (puzzle: Puzzle) => void;
   onOpenNotes: (puzzle: Puzzle) => void;
-  onToggleMinis: (id: number) => void;
   /** Width of the <Table.Td> wrapper. Defaults to undefined (auto). */
   tdWidth?: number;
 }
@@ -16,12 +15,9 @@ interface PuzzleRowActionsProps {
 /**
  * Shared row-actions cell for puzzle tables.
  *
- * Renders a single <Table.Td> containing the solve/unsolve button, notes indicator,
- * and (for Minimeta puzzles) a mini-expansion toggle.
+ * Renders a single <Table.Td> containing the solve/unsolve button and notes indicator.
  *
- * Place this inside the puzzle's <Table.Tr>. The Minimeta expansion row
- * (<MiniPuzzlePanel>) should be rendered as a sibling <Table.Tr> after the
- * main row using the `expandedMinis` set supplied by `useMiniExpansion`.
+ * Place this inside the puzzle's <Table.Tr>.
  */
 export function PuzzleRowActions({
   puzzle: p,
@@ -29,7 +25,6 @@ export function PuzzleRowActions({
   onSolve,
   onUnsolve,
   onOpenNotes,
-  onToggleMinis,
   tdWidth,
 }: PuzzleRowActionsProps) {
   return (
@@ -54,19 +49,6 @@ export function PuzzleRowActions({
             <IconNote size={16} />
           </ActionIcon>
         </Indicator>
-        {p.is_minimeta && (
-          <Tooltip label={`${p.mini_puzzles.filter((m) => m.solved).length}/${p.mini_puzzles.length} minis solved`}>
-            <Badge
-              color="violet"
-              variant="light"
-              onClick={() => onToggleMinis(p.id)}
-              aria-label="Toggle minis"
-              style={{ cursor: "pointer", flexShrink: 0 }}
-            >
-              {p.mini_puzzles.filter((m) => m.solved).length}/{p.mini_puzzles.length}
-            </Badge>
-          </Tooltip>
-        )}
         {p.rollup_stale && (
           <Tooltip label={p.rollup_error || "This minimeta's sheet is out of date"} multiline maw={320}>
             <Badge color="red" variant="light" size="sm" leftSection={<IconAlertTriangle size={12} />} style={{ cursor: "default" }}>

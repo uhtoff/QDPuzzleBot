@@ -30,6 +30,7 @@ import {
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
+import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
@@ -207,7 +208,11 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
       <Accordion.Panel>
         <Table>
           <Table.Tbody>
-            {sortPuzzles(group.puzzles, group.group_code).map((p) => (
+            {sortPuzzles(group.puzzles, group.group_code).map((p) => {
+              const bandProps = p.is_minimeta
+                ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
+                : {};
+              return (
               <Fragment key={`${group.tag_group_id}-${p.id}`}>
                 <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                   {/* Kind strip — both layouts */}
@@ -222,9 +227,10 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                           archiveSheetBase={detail.hunt.archive_sheet_base_url}
                         />
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td {...bandProps}>
                         <Group gap={6} wrap="nowrap">
                           <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                          <MiniCountBadge puzzle={p} />
                         </Group>
                         <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
                           {p.solution || "—"}
@@ -236,7 +242,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         onSolve={setSolvePuzzle}
                         onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
-                        onToggleMinis={toggleMinis}
                         tdWidth={80}
                       />
                     </>
@@ -250,13 +255,14 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                           archiveSheetBase={detail.hunt.archive_sheet_base_url}
                         />
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td {...bandProps}>
                         <Group gap={6}>
                           <MetaBadge puzzle={p} />
                           <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                          <MiniCountBadge puzzle={p} />
                         </Group>
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td {...bandProps}>
                         <Text ff="monospace" size="sm">
                           {p.solution || ""}
                         </Text>
@@ -286,7 +292,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         onSolve={setSolvePuzzle}
                         onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
-                        onToggleMinis={toggleMinis}
                         tdWidth={76}
                       />
                     </>
@@ -300,7 +305,8 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                   </Table.Tr>
                 )}
               </Fragment>
-            ))}
+            );
+            })}
           </Table.Tbody>
         </Table>
 
