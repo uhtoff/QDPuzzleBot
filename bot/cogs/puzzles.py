@@ -2962,7 +2962,8 @@ class Puzzles(commands.Cog):
 
         Usage: `!archive_round`
         Example: `!archive_round`
-        Run in a channel of the round to archive. Admins/mods only."""
+        Run in a channel of the round to archive. Admins/mods only.
+        Bang-only: no web-dashboard equivalent, by design."""
         hunt = self.get_hunt(ctx)
         if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
             await ctx.send(":x: !archive_round is not available for forum hunts yet")
@@ -2988,7 +2989,8 @@ class Puzzles(commands.Cog):
         Usage: `!archive_category`
         Example: `!archive_category`
         Run in a channel of the category to archive; defaults to archiving into the hunt
-        general channel. Admins/mods only. Usually called via `!archive_round`."""
+        general channel. Admins/mods only. Usually called via `!archive_round`.
+        Bang-only: no web-dashboard equivalent, by design."""
         if ignore_channels is None:
             ignore_channels = []
         if delete_channels is None:
@@ -3016,7 +3018,8 @@ class Puzzles(commands.Cog):
         Usage: `!archive_channel`
         Example: `!archive_channel`
         Run in the channel to archive. The destination needs a webhook. Admins/mods only.
-        Usually called via `!archive_round` / `!archive_category`."""
+        Usually called via `!archive_round` / `!archive_category`.
+        Bang-only: no web-dashboard equivalent, by design."""
         if channel is None:
             channel = ctx.channel
         if archive_to is None:
@@ -3104,7 +3107,8 @@ class Puzzles(commands.Cog):
 
         Usage: `!archive_solved_manually`
         Example: `!archive_solved_manually`
-        Run in a channel of the hunt. Admins/mods only."""
+        Run in a channel of the hunt. Admins/mods only.
+        Bang-only: no web-dashboard equivalent, by design."""
         guild = ctx.guild
         hunt = self.get_hunt(ctx)
         if hunt is None:

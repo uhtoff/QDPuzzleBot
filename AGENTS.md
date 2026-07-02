@@ -170,6 +170,14 @@ pipenv run ruff check --fix    # apply safe auto-fixes
 - **Keep both in sync with the code.** When you add, remove, rename, or change a command's
   arguments or permissions, update (a) its docstring and (b) the row in `docs/commands.md`;
   for hybrid/slash commands keep the `description=` consistent with the summary (≤100 chars).
+- **Bang↔web parity has deliberate exceptions.** The aim is for every model-changing bang
+  command to have a web-dashboard equivalent (both surfaces call the shared `bot/core/`
+  service layer — see *Architecture notes*). A few are **bang-only by design**, with no web
+  equivalent — don't file these as parity gaps: the **channel-archiving family**
+  (`!archive_round` / `!archive_category` / `!archive_channel` / `!archive_solved_manually`),
+  which is Discord message-history plumbing (copy a channel's history into a thread, then
+  delete it) with no model logic to expose, and the **`!sync`** family, a Discord-ergonomics
+  bulk-tag shortcut. See the *Archiving* section of `docs/commands.md`.
 
 ## Deployment & infrastructure
 

@@ -100,7 +100,7 @@ Run in the member puzzle's channel; `meta_code` is the **target** group's code. 
 | `!groups_with` *(slash)* | | `meta_code` | none | Add to a group without contributing to its meta. |
 | `!groups_only_with` *(slash)* | | `meta_code` | none | Assign with a `none` edge, clear other `none` tags. |
 | `!remove_from` *(slash)* | `!remove_from_meta`, `!remove_from_round` | `meta_code` | — | Remove the puzzle from a group. |
-| `!sync` *(slash)* | `!sync_meta`, `!sync_feeders`, `!sync_round` | — | — | Tag every puzzle in this category to the group (organisers/admins; run in the group's main channel). |
+| `!sync` | `!sync_meta`, `!sync_feeders`, `!sync_round` | — | — | Tag every puzzle in this category to the group (organisers/admins; run in the group's main channel). Bang-only, by design. |
 
 ## Minimetas
 
