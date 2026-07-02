@@ -248,6 +248,20 @@ class CompositeNotifier(Notifier):
 
 
 # ------------------------------------------------------------------ helpers
+def build_solved_embed(emoji, puzzle, follow_up):
+    """Shared "PUZZLE SOLVED!" embed formula (#79: this title/description was
+    independently copied in the bang !solve command, web_post_solved_embed, and
+    this module's cog-unavailable fallback — a wording/emoji change had to be
+    made in three places). Only the Follow-up text is caller-specific (bang vs.
+    dashboard copy is deliberately different)."""
+    embed = __import__("discord").Embed(
+        title="PUZZLE SOLVED!",
+        description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`",
+    )
+    embed.add_field(name="Follow-up", value=follow_up)
+    return embed
+
+
 def _post_solved_embed(bot, guild, puzzle):
     """Best-effort direct post of solved embed (no cog needed)."""
     channel = guild.get_channel_or_thread(puzzle.channel_id) if puzzle.channel_id else None
@@ -257,9 +271,5 @@ def _post_solved_embed(bot, guild, puzzle):
     guild_data = GuildSettingsDb.get(guild.id)
     emoji = guild_data.discord_bot_emoji if guild_data else ""
 
-    embed = __import__("discord").Embed(
-        title="PUZZLE SOLVED!",
-        description=f"{emoji} :partying_face: Great work! Marked the solution as `{puzzle.solution}`",
-    )
-    embed.add_field(name="Follow-up", value="Solved from the dashboard. Tidying up the sheets…")
+    embed = build_solved_embed(emoji, puzzle, "Solved from the dashboard. Tidying up the sheets…")
     __import__("asyncio").get_event_loop().create_task(channel.send(embed=embed))
