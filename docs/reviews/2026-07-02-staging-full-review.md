@@ -805,6 +805,8 @@ The feeds/feeds_only/informs/informs_only/groups_with/groups_only_with (plus rem
 
 ### 75. [MEDIUM] `bot/web/actions.py:1153`
 
+**Status: FIXED** in `da89fbc` (`fix(web): dedupe convert-to-puzzle into convert-to-feeder (#75)`, branch `working-1`). `convert_to_puzzle` now delegates entirely to `convert_to_feeder`, so the two routes can no longer drift.
+
 convert_to_puzzle (bot/web/actions.py:1153) duplicates the convert_to_feeder handler body instead of delegating, and the copies have drifted: it lacks the HttpError catch (a Sheets HttpError after the already-committed demotion propagates to a 500 while the /convert-to-feeder twin returns ok+sheet_warning), drops the orphaned-feeders count from the response, and its SheetRefreshError branch returns early, skipping refresh_unassigned_safe and the audit record. Correction: the SPA only calls /convert-to-feeder (frontend/src/api.ts:395), so the drift affects backward-compat/external callers of the alias route, not the dashboard.
 
 **Failure scenario:** A Google Sheets HttpError during POST /puzzles/<id>/convert-to-puzzle propagates to a 500 even though the demotion already committed (the /convert-to-feeder twin returns ok+sheet_warning for the same failure), and the SPA never learns how many feeders were orphaned; any future fix to one route silently misses the other.
@@ -865,6 +867,8 @@ Deploy instructions are near-duplicated between docs/dashboard.md (steps 1-6 at 
 ## 5. Practices (7 findings)
 
 ### 84. [MEDIUM] `bot/core/puzzle_service.py:1909`
+
+**Status: FIXED** in `1a6300e` (`fix(service): wrap evidence background tasks in safe fire-and-forget helpers (#84)`, branch `working-1`). Added `refresh_evidence_safe`, `link_informs_for_evidence_safe`, and `unlink_informs_for_evidence_safe` (matching `refresh_unassigned_safe`'s pattern) and switched every raw `asyncio.create_task` call site to use them.
 
 refresh_evidence (bot/core/puzzle_service.py:1909) and link/unlink_informs_for_evidence (:1973/:1985) have no internal exception guard yet are launched via bare, unreferenced asyncio.create_task at bot/web/actions.py:445, 1740, 1743, 1755, 1785, 1789, bot/web/api.py:220, and bot/cogs/puzzles.py:1263/1285 — violating the codebase's own safe-wrapper convention (refresh_unassigned_safe docstring, puzzle_service.py:2072-2073: "Use this for every asyncio.create_task(...) trigger") that the sibling helpers refresh_informs_targets (:1968-1971) and refresh_target_for_puzzle (:2009-2012) do follow.
 
