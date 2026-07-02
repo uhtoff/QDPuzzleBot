@@ -213,3 +213,51 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
     tgcdb.delete_for_group.assert_called_once_with(5)
     pdb.delete.assert_not_called()            # feeder's DB row untouched
     assert failed == ["Feeder"]
+
+
+@pytest.mark.asyncio
+async def test_full_delete_protects_foreign_target_puzzle():
+    """keep_puzzles=False deletes every ordinary member puzzle, but a member
+    puzzle that is itself a DIFFERENT tag group's target (a nested meta whose
+    target puzzle also feeds this round) must be relocated, not deleted —
+    deleting it would orphan the nested group's target_puzzle_id (review #30)."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    ordinary = make_puzzle(id=2, name="Ordinary", channel_id=902, tags=[5])
+    nested_meta_target = make_puzzle(
+        id=3, name="Nested Meta", is_target=True, channel_id=903, tags=[5])
+
+    ordinary_ch = MagicMock(id=902); ordinary_ch.delete = AsyncMock()
+    nested_ch = MagicMock(id=903); nested_ch.category_id = 100; nested_ch.edit = AsyncMock(); nested_ch.delete = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [ordinary_ch, nested_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    general_cat = _general_category()
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(
+        side_effect=lambda cid: {902: ordinary_ch, 903: nested_ch}.get(cid))
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [ordinary, nested_meta_target]
+        tgcdb.get_for_group.return_value = []
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=False)
+
+    pdb.delete.assert_called_once_with(2)                                        # only the ordinary puzzle's DB row
+    ordinary_ch.delete.assert_awaited_once()                                     # ordinary puzzle: deleted
+    nested_ch.edit.assert_awaited_once_with(category=general_cat, position=0)    # nested meta target: relocated
+    nested_ch.delete.assert_not_called()
+    assert failed == []
