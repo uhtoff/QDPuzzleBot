@@ -838,6 +838,43 @@ class Puzzles(commands.Cog):
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
+    _WEB_SOLUTION_UPDATE_EMBEDS = {
+        "partial": lambda emoji, puzzle: (
+            "Partially SOLVED!",
+            f"{emoji} :partying_face: Great work! Added the solution `{puzzle.solution}`",
+        ),
+        "change": lambda emoji, puzzle: (
+            "PUZZLE SOLUTION UPDATED!",
+            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
+        ),
+        "add": lambda emoji, puzzle: (
+            "EXTRA PUZZLE SOLUTION ADDED!",
+            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
+        ),
+    }
+
+    async def web_post_solution_update_embed(self, guild, hunt, puzzle, mode):
+        """Best-effort dashboard-side presentation after service.add_partial/
+        change_solution/add_solution (mode in "partial"/"change"/"add"): post the
+        mode-appropriate embed in the puzzle channel, mirroring the bang
+        !partial/!change_solution/!add_solution messages, and refresh the pinned
+        info. Never raises. Unlike web_post_solved_embed/web_post_unsolved, these
+        modes don't change solved state, so the channel is never repositioned."""
+        # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
+        # is a thread snowflake, also resolves — otherwise the embed is skipped for minis.
+        channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
+        if channel is not None:
+            guild_data = GuildSettingsDb.get(guild.id)
+            emoji = guild_data.discord_bot_emoji if guild_data else ""
+            title, description = self._WEB_SOLUTION_UPDATE_EMBEDS[mode](emoji, puzzle)
+            embed = discord.Embed(title=title, description=description)
+            embed.add_field(name="Follow-up", value="Updated from the dashboard.")
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                logger.exception("web_post_solution_update_embed: failed to post %s message", mode)
+        await self.web_refresh_info(guild, hunt, puzzle)
+
     async def web_post_unsolved(self, guild, hunt, puzzle, prev_solution=""):
         """Best-effort dashboard-side presentation after service.unsolve: post the
         UNSOLVED embed in the puzzle channel, move it back to an unsolved category
