@@ -2,23 +2,35 @@
 
 A React/Mantine SPA over a Quart JSON API embedded in the bot process.
 
-Phase 1 (read): hunts grouped by meta, solutions, a filterable puzzle list, and
-live Discord activity. Phase 2 (write, organiser-gated except notes): add/erase
-notes, retag puzzles between metas (drag board + add/remove menu), and create
-puzzles and metas. Write-actions run through ctx-free `web_*` methods on the
-Puzzles cog, so the website creates real Discord channels + Google sheets exactly
-like the matching `!` commands.
+Read: hunts grouped by meta, solutions, a filterable puzzle list, evidence, and
+live Discord activity. Write (organiser-gated except notes/evidence): notes,
+retag puzzles between metas (drag board + add/remove menu), create puzzles and
+metas, solve/unsolve, sheets, clues/evidence, minimeta and convert-to-* type
+changes, rename, hunt create/settings/archive/delete, tag-group delete/rename,
+reconcile, and rollup rebuild — roughly 36 write routes in total. Write-actions
+run through ctx-free `web_*` methods on the Puzzles cog (mirrored, for
+Discord-visible side effects, by `bot/core/notifier.py`), so the website
+creates real Discord channels + Google sheets and posts/refreshes the same
+messages and pins as the matching `!` commands.
 
 ## Architecture
 
 - `bot/web/` — Quart app started from `setup_hook` (only when `web.enabled`).
   - `auth.py` — Discord OAuth (`identify` scope) → httpOnly session cookie.
     Membership and team roles come from the live bot, not OAuth scopes.
-  - `api.py` — `/api/hunts`, `/api/hunts/<uid>`, `/api/hunts/<uid>/puzzles`,
-    and the `/api/ws/activity` WebSocket.
+  - `api.py` — read endpoints and the live-activity WebSocket:
+    `/api/guilds`, `/api/hunts`, `/api/hunts/<uid>`, `/api/hunts/<uid>/puzzles`,
+    `/api/rollups/<id>/answers`, `/api/evidence` (GET+POST), and
+    `/api/ws/activity`.
+  - `actions.py` — the write routes listed above (solve, retag, convert-to-*,
+    hunt lifecycle, reconcile, evidence edit/delete, etc.), each backed by a
+    `PuzzleService`/cog `web_*` call.
   - `data.py` — dashboard read queries on a dedicated connection pool, run off
     the event loop via `asyncio.to_thread` (never shares the bot's connection).
   - `events.py` — in-process pub/sub feeding the activity WebSocket.
+- `bot/core/notifier.py` — ctx-free Discord notifications (welcome messages,
+  pin refreshes, solved embeds) shared by bang commands and web actions, so
+  both callers produce the same Discord-visible output.
 - `bot/cogs/activity.py` — records the last human message per channel into
   `channel_activity` and publishes a live event.
 - `frontend/` — Vite + React + TS + Mantine SPA.
@@ -38,11 +50,15 @@ See `memory/site-hunt-visibility.md` for the full model.
    pipenv install            # picks up quart from the Pipfile
    cd frontend && npm install && npm run build   # outputs frontend/dist
    ```
-2. **Run the DB migration** (additive — adds `hunts.archived` and the
-   `channel_activity` table):
+2. **Apply pending DB migrations** via the ledgered runner (see "Database setup"
+   in the main [`README.md`](../README.md#database-setup)):
    ```bash
-   mysql <db> < scripts/sql/001_dashboard.sql
+   python migrate.py            # apply every pending migration in order
+   python migrate.py status     # show which migrations are applied vs pending
    ```
+   Do **not** apply `migrations/*.sql` files directly with `mysql` — the runner
+   tracks what has run in a `schema_migrations` table, and a direct apply skips
+   that ledger and desyncs later `migrate.py` runs.
 3. **Create a Discord OAuth app** (Developer Portal → your application → OAuth2).
    Add the redirect `https://<site-hostname>/api/auth/callback` and copy the
    client id/secret. The redirect URI must be HTTPS (Discord rejects non-HTTPS

@@ -57,6 +57,7 @@ All convert commands are *slash* hybrids, run in the puzzle's channel, admins/mo
 | `!convert_to_capstone` | | Convert a meta into a capstone. |
 | `!convert_to_runaround` | | Convert a meta into a runaround. |
 | `!convert_to_group` | | Convert a meta into a group (category without a meta puzzle). |
+| `!convert_to_metapuzzle` | | Convert a capstone/runaround/group back into a plain metapuzzle (feeders revert to the `feeds` edge). |
 | `!convert_to_puzzle` | `!convert_to_feeder` | Convert a meta back into an ordinary feeder. |
 
 ## Puzzles
