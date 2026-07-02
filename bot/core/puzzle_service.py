@@ -1189,8 +1189,16 @@ class PuzzleService:
             to_delete = [target_puzzle] if target_puzzle else []
             to_keep = [p for p in all_puzzles if p is not target_puzzle]
         else:
-            to_delete = all_puzzles
-            to_keep = []
+            # A member puzzle that is itself a DIFFERENT tag group's target (a
+            # nested meta whose target puzzle also happens to feed this round)
+            # must never be deleted here: that would orphan the nested group's
+            # target_puzzle_id, the same case delete_puzzle forbids outright.
+            # Only this round's own target (if any) is fair game for full delete.
+            to_delete = [
+                p for p in all_puzzles
+                if not p.is_target or p.id == tag_group.target_puzzle_id
+            ]
+            to_keep = [p for p in all_puzzles if p not in to_delete]
 
         failed_channels = []
         for puzzle in to_delete:
@@ -1206,7 +1214,7 @@ class PuzzleService:
                     failed_channels.append(puzzle.name)
 
         relocation_failed_channel_ids = set()
-        if narrow and guild is not None:
+        if to_keep and guild is not None:
             owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
             owned_category_ids |= {
                 row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
