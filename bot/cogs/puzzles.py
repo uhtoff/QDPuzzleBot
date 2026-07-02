@@ -461,17 +461,27 @@ class Puzzles(commands.Cog):
             return True
         space_available = True
         guild = ctx.guild
-        channels = len(ctx.channel.category.channels)
+        category = ctx.channel.category
+        # required_categories > 0 means the command creates its own fresh category
+        # (e.g. !hunt, !round), so the CURRENT channel's category fullness is not
+        # relevant to whether that new category can be created.
+        check_current_category = category is not None and required_categories == 0
+        channels = len(category.channels) if category is not None else 0
         categories = len(guild.categories)
         total_channels = len(guild.channels)
         remaining_channels = self.MAX_CHANNELS_PER_GUILD - total_channels
         remaining_categories = self.MAX_CATEGORIES - categories
         remaining_category_channels = self.MAX_CHANNELS_PER_CATEGORY-channels
-        if remaining_channels < required_channels or remaining_category_channels < required_channels or remaining_categories < required_categories:
+        if remaining_channels < required_channels or remaining_categories < required_categories:
+            space_available = False
+        if check_current_category and remaining_category_channels < required_channels:
             space_available = False
         bot_channel = discord.utils.get(ctx.guild.channels, name=self.get_guild_data(ctx).discord_bot_channel)
+        if bot_channel is None:
+            return space_available
         if space_available is False:
-            await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server, {channels} channels in {ctx.channel.category.name} and {total_channels} total channels.")
+            category_note = f", {channels} channels in {category.name}" if check_current_category else ""
+            await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server{category_note} and {total_channels} total channels.")
         else:
             remaining_channels -= required_channels
             remaining_category_channels -= required_channels
@@ -484,9 +494,9 @@ class Puzzles(commands.Cog):
                 await bot_channel.send(
                     f"@here Server space is getting tight, remaining category space is {remaining_categories}."
                 )
-            if remaining_category_channels <= 2:
+            if check_current_category and remaining_category_channels <= 2:
                 await bot_channel.send(
-                    f"@here The {ctx.channel.category.name} category is getting full, remaining channel space is {remaining_category_channels}."
+                    f"@here The {category.name} category is getting full, remaining channel space is {remaining_category_channels}."
                 )
         return space_available
 
@@ -594,6 +604,9 @@ class Puzzles(commands.Cog):
         puzzle_name = arg
         hunt = self.get_hunt(ctx)
         guild = ctx.guild
+
+        if hunt is None:
+            return await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
 
         if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id):
             return await ctx.send(
@@ -1030,14 +1043,15 @@ class Puzzles(commands.Cog):
         tag_info = ""
         tags = puzzle.tags.copy()
         for tag in tags:
-            tag_name = TagGroupJsonDb.get_by_attr(id=tag).name
+            tag_group = TagGroupJsonDb.get_by_attr(id=tag)
+            tag_name = tag_group.name if tag_group is not None else "*(deleted group)*"
             tag_info += f"{tag_name} - ID:{tag}\n"
         embed = discord.Embed(
             description=f"""Tag listing for {puzzle.name}"""
         )
         embed.add_field(
             name="Current tags",
-            value=tag_info,
+            value=tag_info or "*(none)*",
             inline=False,
         )
         groups = TagGroupJsonDb.get_all(self.get_hunt(ctx).id)
@@ -1046,7 +1060,7 @@ class Puzzles(commands.Cog):
             group_info += f"{group.name} - ID:{group.id}\n"
         embed.add_field(
             name="Available tags",
-            value=group_info,
+            value=group_info or "*(none)*",
             inline=False,
         )
         await ctx.send(embed=embed)
@@ -1290,6 +1304,8 @@ class Puzzles(commands.Cog):
         Run in a puzzle channel. For several at once use `!clues`."""
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         if not note.strip():
             await ctx.send(":warning: No clue text provided.")
             return
@@ -1308,10 +1324,19 @@ class Puzzles(commands.Cog):
         import shlex
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         if not items.strip():
             await ctx.send(":warning: No items provided.")
             return
-        notes = shlex.split(items)
+        try:
+            notes = shlex.split(items)
+        except ValueError:
+            await ctx.send(
+                ":warning: Couldn't parse that — check your quotes are balanced "
+                "(a stray `'` or `\"` will confuse it)."
+            )
+            return
         if not notes:
             await ctx.send(":warning: No items provided.")
             return
@@ -1401,6 +1426,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1427,6 +1454,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1453,6 +1482,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1482,6 +1513,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1507,6 +1540,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1532,6 +1567,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1557,6 +1594,8 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         target_group = await self.resolve_target_group(ctx, meta_code)
         if not target_group:
             return
@@ -1630,7 +1669,7 @@ class Puzzles(commands.Cog):
                     ":exclamation: Category creation failed — server may be full or "
                     "the category already exists."
                 )
-            return  # error already sent, stop further processing
+            return None, None  # error already sent, stop further processing
 
     @commands.command(aliases=["r","mp","metapuzzle",
                                "capstone", "cs", "runaround", "ra", "group"])
@@ -2018,13 +2057,14 @@ class Puzzles(commands.Cog):
         For a whole-hunt overview, use the dashboard website."""
         all_puzzles = {}
         embed_title = ""
-        if self.get_channel_type(ctx) in (*GROUP_TYPES, "Puzzle"):
-            round_puzzles = PuzzleJsonDb.get_all_from_tag_group(self.get_tag_group(ctx).id)
-            all_puzzles[self.get_tag_group(ctx).id] = {
-                        'name': self.get_tag_group(ctx).name,
+        tag_group = self.get_tag_group(ctx)
+        if self.get_channel_type(ctx) in (*GROUP_TYPES, "Puzzle") and tag_group is not None:
+            round_puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
+            all_puzzles[tag_group.id] = {
+                        'name': tag_group.name,
                         'puzzles': round_puzzles
                     }
-            embed_title = f"Puzzles in Round {self.get_tag_group(ctx).name}"
+            embed_title = f"Puzzles in Round {tag_group.name}"
         else:
             await ctx.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
 
@@ -2785,6 +2825,13 @@ class Puzzles(commands.Cog):
         Usage: `!mark_as_complete`
         Example: `!mark_as_complete`
         Run in an unsolved puzzle channel. Aliases: `!mark_as_solved`, `!complete`."""
+
+        if not self.get_puzzle(ctx):
+            await self.send_not_puzzle_channel(ctx)
+            return
+        elif self.get_puzzle(ctx).solved:
+            await ctx.send(":x: This puzzle appears to already be solved")
+            return
         await self._solve_impl(ctx, "✅")
 
     @commands.hybrid_command(aliases=["u"], description="Undo a solve: clear the solution and move back to unsolved")
@@ -2978,12 +3025,16 @@ class Puzzles(commands.Cog):
         Example: `!archive_solved_manually`
         Run in a channel of the hunt. Admins/mods only."""
         guild = ctx.guild
-        settings = GuildSettingsDb.get(guild.id)
-        hunt_id = ctx.channel.category.id
-        hunt_category = discord.utils.get(guild.categories, id=hunt_id)
-        hunt_settings = settings.hunt_settings[hunt_id]
-        solved_category_name = self.get_solved_puzzle_category(hunt_settings.hunt_name)
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        hunt_category = discord.utils.get(guild.categories, id=hunt.category_id)
+        solved_category_name = self.get_solved_puzzle_category(hunt.name)
         solved_category = discord.utils.get(guild.categories, name=solved_category_name)
+        if hunt_category is None or solved_category is None:
+            await ctx.send(":x: Couldn't find this hunt's category or its solved category.")
+            return
         last_position = 0
         for hunt_channel in hunt_category.channels:
             logger.debug(f"{hunt_channel.name} : {hunt_channel.position}")
@@ -2993,7 +3044,7 @@ class Puzzles(commands.Cog):
         # Delete the channels without many messages and move the others to the end of the main category
         # TODO Look at the channel move method
         for channel in solved_category.channels:
-            num_messages = len(await channel.history(limit=10).flatten())
+            num_messages = len([m async for m in channel.history(limit=10)])
             if num_messages > 7:
                 last_position += 1
                 # Category/position aren't rename-limited; apply them immediately,
