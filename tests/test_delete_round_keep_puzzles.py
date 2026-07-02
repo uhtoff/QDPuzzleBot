@@ -261,3 +261,71 @@ async def test_full_delete_protects_foreign_target_puzzle():
     nested_ch.edit.assert_awaited_once_with(category=general_cat, position=0)    # nested meta target: relocated
     nested_ch.delete.assert_not_called()
     assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel():
+    """An empty target-less Group round (no member puzzles) in keep_puzzles=True
+    mode must still have its dedicated chat channel deleted — this must not
+    regress when to_keep is empty (regression guard for #30 fix)."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+    tag_group.name = "Loose Ends"
+
+    chat_ch = MagicMock(id=800); chat_ch.name = "loose-ends"; chat_ch.delete = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [chat_ch]
+    round_cat.text_channels = [chat_ch]
+    round_cat.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.categories = [round_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {800: chat_ch}.get(cid))
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = []
+        tgcdb.get_for_group.return_value = []
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
+
+    chat_ch.delete.assert_awaited_once()
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_full_delete_forum_mode_unaffected_by_foreign_target_protection():
+    """Forum-layout rounds always full-delete regardless of keep_puzzles (no
+    relocation story for threads) — a forum round containing a foreign
+    tag group's target puzzle must still delete it outright, exactly like
+    before the #30 fix, not attempt (and silently fail) a relocation."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="forum")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    nested_meta_target = make_puzzle(
+        id=3, name="Nested Meta", is_target=True, channel_id=903, tags=[5])
+
+    forum_ch = MagicMock(id=100); forum_ch.delete = AsyncMock()
+    guild = MagicMock()
+    guild.get_channel = MagicMock(side_effect=lambda cid: {100: forum_ch}.get(cid))
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete:
+        pdb.get_all_from_tag_group.return_value = [nested_meta_target]
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
+
+    pdb.delete.assert_called_once_with(3)             # deleted outright, not protected
+    safe_delete.assert_awaited_once_with(guild, 903)  # attempted its own channel delete
+    forum_ch.delete.assert_awaited_once()              # forum channel itself torn down
+    assert failed == []

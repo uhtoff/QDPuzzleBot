@@ -1178,6 +1178,7 @@ class PuzzleService:
         "move to the general category" equivalent.
         """
         narrow = keep_puzzles and hunt.layout_mode != "forum"
+        is_forum = hunt.layout_mode == "forum"
         all_puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
 
         if narrow:
@@ -1188,6 +1189,12 @@ class PuzzleService:
             )
             to_delete = [target_puzzle] if target_puzzle else []
             to_keep = [p for p in all_puzzles if p is not target_puzzle]
+        elif is_forum:
+            # Forum rounds always full-delete regardless of keep_puzzles (no
+            # relocation story for threads) — unaffected by the foreign-target
+            # protection below, which relies on relocating protected puzzles.
+            to_delete = all_puzzles
+            to_keep = []
         else:
             # A member puzzle that is itself a DIFFERENT tag group's target (a
             # nested meta whose target puzzle also happens to feed this round)
@@ -1231,6 +1238,7 @@ class PuzzleService:
                     failed_channels.append(puzzle.name)
                     relocation_failed_channel_ids.add(puzzle.channel_id)
 
+        if narrow and guild is not None:
             group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
             if group_chat_ch is not None:
                 if not await self._safe_delete_channel(guild, group_chat_ch.id):
