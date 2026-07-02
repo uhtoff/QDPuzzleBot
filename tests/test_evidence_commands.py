@@ -17,7 +17,7 @@ class TestClueCommand:
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
-        cog.service.refresh_evidence = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="Suspect 3 likes Bourbon biscuits")
 
@@ -36,7 +36,7 @@ class TestClueCommand:
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
-        cog.service.refresh_evidence = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="some note")
 
@@ -71,7 +71,7 @@ class TestCluesCommand:
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()] * 4)
-        cog.service.refresh_evidence = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items='APPLE BANANA "CHERRY BOMB" DURIAN')
 
@@ -85,7 +85,7 @@ class TestCluesCommand:
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
         cog.service.log_clues = AsyncMock(return_value=[MagicMock(), MagicMock(), MagicMock()])
-        cog.service.refresh_evidence = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items="APPLE BANANA CHERRY")
 
@@ -101,7 +101,7 @@ class TestCluesCommand:
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
-        cog.service.refresh_evidence = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clues.callback(cog, ctx, items='"ONLY ONE"')
 

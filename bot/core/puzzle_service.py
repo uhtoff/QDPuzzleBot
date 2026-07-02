@@ -2114,6 +2114,18 @@ class PuzzleService:
             data_col_count=5,
         )
 
+    async def refresh_evidence_safe(self, hunt):
+        """Fire-and-forget wrapper for refresh_evidence. Never raises and logs
+        any failure (with hunt id) to discord.log. Use this for every
+        asyncio.create_task(...) trigger of refresh_evidence."""
+        try:
+            await self.refresh_evidence(hunt)
+        except Exception:
+            logger.exception(
+                "background refresh_evidence failed for hunt %s",
+                getattr(hunt, "id", "?"),
+            )
+
     async def refresh_informs_targets(self, hunt, puzzle):
         """Re-render the roll-up for each target this puzzle informs, so a newly
         logged clue's information surfaces in the target's contribution table.
@@ -2156,6 +2168,30 @@ class PuzzleService:
             return
         if source.has_edge(group.id, "informs"):
             await self.untag_from(source, group, edge="informs")
+
+    async def link_informs_for_evidence_safe(self, hunt, source_puzzle_id, target_puzzle_id):
+        """Fire-and-forget wrapper for link_informs_for_evidence. Never raises
+        and logs any failure (with hunt id) to discord.log. Use this for every
+        asyncio.create_task(...) trigger of link_informs_for_evidence."""
+        try:
+            await self.link_informs_for_evidence(hunt, source_puzzle_id, target_puzzle_id)
+        except Exception:
+            logger.exception(
+                "background link_informs_for_evidence failed for hunt %s",
+                getattr(hunt, "id", "?"),
+            )
+
+    async def unlink_informs_for_evidence_safe(self, hunt, source_puzzle_id, target_puzzle_id):
+        """Fire-and-forget wrapper for unlink_informs_for_evidence. Never raises
+        and logs any failure (with hunt id) to discord.log. Use this for every
+        asyncio.create_task(...) trigger of unlink_informs_for_evidence."""
+        try:
+            await self.unlink_informs_for_evidence(hunt, source_puzzle_id, target_puzzle_id)
+        except Exception:
+            logger.exception(
+                "background unlink_informs_for_evidence failed for hunt %s",
+                getattr(hunt, "id", "?"),
+            )
 
     async def refresh_target_for_puzzle(self, hunt, target_puzzle_id):
         """Re-render the roll-up whose target is the given puzzle (best-effort).

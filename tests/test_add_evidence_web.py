@@ -22,7 +22,7 @@ def web():
     app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
 
     cog = MagicMock()
-    cog.service.refresh_evidence = AsyncMock()
+    cog.service.refresh_evidence_safe = AsyncMock()
     app.bot = MagicMock()
     app.bot.get_cog.return_value = cog
     app.register_blueprint(api_bp)
@@ -83,4 +83,4 @@ async def test_succeeds_with_valid_notes(web):
 
     assert resp.status_code == 201
     web.edb.log.assert_called_once()
-    web.cog.service.refresh_evidence.assert_awaited_once()
+    web.cog.service.refresh_evidence_safe.assert_awaited_once()

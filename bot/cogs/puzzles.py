@@ -1313,7 +1313,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":warning: No clue text provided.")
             return
         await self.service.log_clues(hunt, puzzle, [note.strip()])
-        asyncio.create_task(self.service.refresh_evidence(hunt))
+        asyncio.create_task(self.service.refresh_evidence_safe(hunt))
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
 
@@ -1344,7 +1344,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":warning: No items provided.")
             return
         await self.service.log_clues(hunt, puzzle, notes)
-        asyncio.create_task(self.service.refresh_evidence(hunt))
+        asyncio.create_task(self.service.refresh_evidence_safe(hunt))
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
 

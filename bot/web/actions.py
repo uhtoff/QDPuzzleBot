@@ -453,7 +453,7 @@ async def log_clue(puzzle_id):
             return jsonify({"error": "bot_unavailable"}), 503
 
         await cog.service.log_clues(hunt_obj, puzzle, [note])
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
         await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
 
@@ -1742,10 +1742,10 @@ async def update_evidence(item_id):
         item = EvidenceJsonDb.set_target(item_id, target_puzzle_id) or item
         if cog is not None and hunt_obj is not None:
             if item.target_puzzle_id:
-                asyncio.create_task(cog.service.link_informs_for_evidence(
+                asyncio.create_task(cog.service.link_informs_for_evidence_safe(
                     hunt_obj, item.source_puzzle_id, item.target_puzzle_id))
             if old_target and old_target != item.target_puzzle_id:
-                asyncio.create_task(cog.service.unlink_informs_for_evidence(
+                asyncio.create_task(cog.service.unlink_informs_for_evidence_safe(
                     hunt_obj, item.source_puzzle_id, old_target))
                 # The old target loses this contribution row — refresh it too.
                 asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, old_target))
@@ -1757,7 +1757,7 @@ async def update_evidence(item_id):
         # text shows in its contribution table (target unchanged here).
         if not target_changed and item.target_puzzle_id:
             asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
 
@@ -1787,11 +1787,11 @@ async def delete_evidence(item_id):
         if old.target_puzzle_id:
             # Mirror the reassignment cleanup: drop the auto-added informs edge if
             # no routed evidence remains, and refresh the (old) target's table.
-            asyncio.create_task(cog.service.unlink_informs_for_evidence(
+            asyncio.create_task(cog.service.unlink_informs_for_evidence_safe(
                 hunt_obj, old.source_puzzle_id, old.target_puzzle_id))
             asyncio.create_task(cog.service.refresh_target_for_puzzle(
                 hunt_obj, old.target_puzzle_id))
-        asyncio.create_task(cog.service.refresh_evidence(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
     return jsonify({"ok": True})
