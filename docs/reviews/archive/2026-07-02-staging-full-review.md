@@ -91,15 +91,14 @@ approach, not a defect in the DDL, but the cascades do nothing until the migrati
 
 The `MOOT` (#88) finding was left as-is.
 
-**Deferred hardening pass (do after the remaining findings are fixed):** the two reviewer-note
-residuals above are intentionally NOT actioned yet — batch them into a single hardening pass once
-the outstanding fixes are done, rather than reopening two already-reviewed commits now:
-- **#63** — wrap the added `await self.info(ctx, update=True)` pin refresh in the same best-effort
-  try/except the web-side `web_refresh_info` seam uses, so a hand-broken (pin-less) channel can't
-  raise after the settings already committed.
-- **#38** — flip the `/ws/activity` event filter to default-*deny* for unknown event types (today
-  it defaults open; harmless now since only `activity`/`board`/`ready` exist, but a future
-  hidden-hunt-bearing event type would leak on guild membership alone).
+**Deferred hardening pass — DONE (`cc05a20`, branch `staging`):** the two reviewer-note residuals
+above were batched into a single hardening commit:
+- **#63** — the `await self.info(ctx, update=True)` pin refresh in `!update_settings` is now wrapped
+  in the same best-effort try/except the web-side `web_refresh_info` seam uses, so a hand-broken
+  (pin-less) channel can't raise after the settings already committed.
+- **#38** — the `/ws/activity` event filter now defaults to *deny* (`visible = False`) for unknown
+  event types; the directly-sent `ready` event bypasses the loop, so only `activity`/`board` are
+  gated and a future hidden-hunt-bearing type is dropped rather than sent on guild membership alone.
 
 Severity: high = wrong behaviour/data loss a user will plausibly hit; medium = real but
 narrower bug or meaningful parity/doc gap; low = latent bug, drift risk, or cleanup.
