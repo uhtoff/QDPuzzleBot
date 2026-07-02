@@ -350,6 +350,47 @@ sudo systemctl enable --now puzzbot
 sudo journalctl -u puzzbot -f      # follow logs
 ```
 
+### Redeploying with `deploy.sh` (Plesk Git)
+
+[`deploy.sh`](deploy.sh) runs the post-pull steps in the right order: it syncs Python deps
+(`pipenv install --deploy`), applies pending DB migrations (`migrate.py`), then restarts the bot.
+Migrations run **before** the restart, so a failed migration aborts the deploy and leaves the
+running bot untouched (the migrate→deploy→code golden rule).
+
+On a Plesk-managed host, wire it into **Websites & Domains → (your domain) → Git → Additional
+deployment actions**. Plesk pulls the repo and then runs that box as your **subscription system
+user** (Hosting Settings → *System user*) — an *unprivileged* account, non-interactively. Two
+consequences:
+
+- **The restart can't use plain `sudo systemctl restart` unattended** — it would prompt for a
+  password and fail. `deploy.sh` reads a `RESTART_CMD` env var so you can pick the restart that
+  suits how the bot runs. Set it inline in the deployment-actions box (Plesk has no separate
+  env-var panel):
+
+  ```bash
+  RESTART_CMD='sudo -n systemctl restart puzzbot' ./deploy.sh
+  ```
+
+  For that `sudo -n` to work without a password, add a one-time rule as root (replace
+  `<deploy-user>` with the subscription system user; confirm the `systemctl` path with
+  `command -v systemctl`):
+
+  ```
+  # /etc/sudoers.d/puzzbot
+  <deploy-user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart puzzbot
+  ```
+
+  Alternatives for `RESTART_CMD`: `systemctl --user restart puzzbot` (user-level unit +
+  `loginctl enable-linger <deploy-user>`, no sudo at all). If you leave `RESTART_CMD` **unset**,
+  `deploy.sh` falls back to relaunching the bot as a detached user process via
+  `start.sh --restart` — zero privileges, but no systemd supervision or reboot-persistence, so
+  only use that if you are *not* running the systemd unit above (running both would start two bots
+  fighting over the token and `:8099`).
+
+- **Don't restart the bot with a foreground command in the hook** — the deploy action must return.
+  `deploy.sh` already detaches its fallback restart, and `systemctl restart` returns immediately,
+  so either path is safe.
+
 ## 7. (Dashboard) reverse proxy with nginx + TLS
 
 Quart serves the API and the SPA under one origin, so there is **one upstream and no CORS** — just
