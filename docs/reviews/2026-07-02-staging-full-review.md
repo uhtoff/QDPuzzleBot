@@ -646,6 +646,13 @@ _allocate (bot/core/category_layout.py:145) computes next_seq from role_rows rea
 
 **Failure scenario:** Two puzzles created near-simultaneously in a round whose unsolved categories are all at the soft limit: both tasks pass the room check, task B enters the lock after A, reuses A's '(2)' category via the name match, and dao.commit inserts a second join row for the same category_id/seq; cleanup_empty_overflow later deletes the category but only one row (line 232), leaving a dangling join row pointing at a deleted category.
 
+**Status: FIXED** in `51ea131`, branch `working-2`. `_allocate` now re-reads
+`dao.get_for_group(tag_group.id)` (filtered to `role`) under `layout_lock`
+instead of trusting the caller's pre-lock `role_rows` snapshot, matching
+`split_group`'s re-check pattern — two concurrent allocations for the same
+group/role now serialize on the correct `next_seq` instead of racing to the
+same value.
+
 ### 51. [LOW] `bot/core/puzzle_service.py:338`
 
 _reconcile_channel's relink step (bot/core/puzzle_service.py:338) searches guild.channels by name with no hunt or category scoping, so when a puzzle's stored channel is gone, !reconcile apply can adopt a same-named channel belonging to another hunt (or another puzzle) in the same guild: it moves that channel into the puzzle's home category (line 344) and rewrites the puzzle's channel_id/name/mention to it (lines 345-348), hijacking the other hunt's live channel while the other hunt's puzzle record still points at the now-relocated channel.
@@ -657,6 +664,14 @@ _reconcile_channel's relink step (bot/core/puzzle_service.py:338) searches guild
 bulk_re_edge's target re-pin (bot/core/puzzle_service.py:805-807) cannot enforce what its comment (lines 802-804) claims: under migration 020's per-edge unique key (tag_group_id, puzzle_id, edge_type), tag_puzzle_with_edge(target, 'target') is an insert-if-absent that never removes a contributing edge. If the target carries a feeds/informs/none self-edge to its own group (reachable via the deliberately-supported web self-feed loop, bang !feeds run in the meta's own channel, or legacy un-migrated 'none' self-edges), bulk_update_edge_type flips that row to new_edge and the re-pin no-ops (or, in the legacy-'none' case, adds a 'target' row alongside), leaving the target with new_edge + 'target' — i.e. feeding/informing itself after a type conversion, which select_rollup_members' round-mode filter (lines 623-628) then surfaces as the meta contributing to its own table. The comment is also wrong that "bulk_update flips every row including the target's" (bulk_update_edge_type only touches feeds/informs/none rows), and tests/test_edge_primitives.py:308-320 asserts the invariant only against a mocked store, so it never exercises the real SQL.
 
 **Failure scenario:** If the target puzzle carries a feeds/informs row to its own group (added via tag_with_edge/retag, or legacy data), bulk_update_edge_type flips it to new_edge and the re-pin adds 'target' alongside it rather than replacing it; select_rollup_members' contributing filter (line 624-627) then includes the target as its own feeder and the meta's contribution table lists the meta itself as a member.
+
+**Status: FIXED** in `51ea131`, branch `working-2`. `bulk_re_edge` now calls
+`PuzzleJsonDb.delete_tag_edge(target_id, group_id, new_edge)` before re-pinning
+to `'target'`, so the flipped self-row is removed rather than shadowed. Added
+`test_target_own_self_feed_edge_is_removed_not_shadowed` covering the scenario
+the existing test didn't (a target that itself carries a feeds/informs/none
+self-edge before the flip); it still only asserts against the mocked store,
+not real SQL, matching the rest of this test file's pattern.
 
 ### 53. [LOW] `bot/core/puzzle_service.py:1668`
 
@@ -911,6 +926,14 @@ The nginx reverse-proxy config (websocket upgrade map, the proxy_set_header bloc
 
 **Failure scenario:** A proxy fix — e.g. a changed timeout, a new header, or a WebSocket path change — edited in one doc leaves the other stale, and an operator following the un-updated copy deploys a broken or churn-prone activity feed.
 
+**Status: FIXED (mitigated)** in `51ea131`, branch `working-2`. The three
+directive blocks (README standalone, README Plesk variant, docs/dashboard.md
+souwester example) are still separate copies — real de-duplication would need
+a shared include mechanism nginx configs across two docs don't have — but each
+now carries an explicit cross-reference note ("update all three together") and
+the one existing wording drift between the two timeout comments was fixed.
+Reduces the risk from silent drift to a documented manual-sync obligation.
+
 ### 77. [LOW] `bot/cogs/puzzles.py:1670`
 
 convert_to_meta / convert_to_capstone / convert_to_runaround / convert_to_group / convert_to_metapuzzle (bot/cogs/puzzles.py:1637-1786) are five ~30-line clones differing only in the target type string, the is_target guard direction (inverted for convert_to_meta), and the confirmation sentence; any shared change (e.g. adding the @with_puzzle_mutex the other mutating commands carry, or changing RuntimeError presentation) must be repeated five times, while the web path already factored the same operation into a single parameterized _convert_to_type_handler (bot/web/actions.py:1051).
@@ -956,6 +979,12 @@ The ~15-line handler preamble is genuinely copy-pasted across ~22 handlers in bo
 Deploy instructions are near-duplicated between docs/dashboard.md (steps 1-6 at lines 34-60 plus the nginx reference at lines 98-142) and README.md sections 4-7 (lines 255-466), and they have already drifted: docs/dashboard.md line 44 still instructs `mysql <db> < scripts/sql/001_dashboard.sql`, whereas the README's current mechanism is `python migrate.py` over migrations/ (000-009, tracked in schema_migrations), so a reader deploying from dashboard.md skips migrations 002-009 and bypasses migration tracking; the two nginx blocks differ only cosmetically.
 
 **Failure scenario:** Every future deploy change (new config key, port change, proxy tweak) must be made in two places; the DB-migration step already updated in README but not dashboard.md shows the drift is real, and readers of whichever copy is stale deploy incorrectly.
+
+**Status: FIXED** in `51ea131`, branch `working-2`. docs/dashboard.md's step 2
+now reads `python migrate.py` (with a link to README's Database setup section)
+instead of the stale `mysql <db> < scripts/sql/001_dashboard.sql`, closing the
+concrete drift this finding identified. The broader deploy-instructions
+duplication between the two docs is unchanged — out of scope for this fix.
 
 
 ## 5. Practices (7 findings)
