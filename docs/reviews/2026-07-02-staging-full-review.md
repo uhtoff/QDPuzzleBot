@@ -233,6 +233,11 @@ mark_as_complete (bot/cogs/puzzles.py:2767) calls _solve_impl directly without t
 
 ### 22. [MEDIUM] `bot/cogs/puzzles.py:2889`
 
+**Status: FIXED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`). `archive_channel`
+now commits the puzzle after setting `archive_time`, using the same tz-aware
+UTC stamp as the service path.
+
 archive_channel (bot/cogs/puzzles.py:2889) sets archive_time (naive local time, unlike the UTC-aware service path at bot/core/puzzle_service.py:980) on a freshly-fetched PuzzleData instance that is never committed — the function ends by deleting the channel (line 2946) with no PuzzleJsonDb.commit, and cog_after_invoke (lines 197-207) only commits the environment's puzzle, a different instance resolved from ctx.channel. The DB row keeps archive_time=NULL and a dangling channel_id, so consumers like get_solved_puzzles_to_archive (bot/store/mysqldb.py:377) never see these puzzles as archived.
 
 **Failure scenario:** !archive_round archives a round: for each puzzle, PuzzleJsonDb.get_by_attr(channel_id=...) returns a fresh object, archive_time is set at line 2889, then the object is discarded — cog_after_invoke only commits the environment's puzzle. The DB row keeps archive_time=NULL and a dangling channel_id to a deleted channel, so anything keying off puzzles.archive_time (e.g. mysqldb.py:377, dashboard backfill checks) never sees these puzzles as archived.
@@ -327,6 +332,15 @@ MySQLTagGroupJsonDb.delete (bot/store/mysqldb.py:192) removes the tag_group row 
 **Failure scenario:** Delete a hunt (or demote a metapuzzle) whose group had grown into split unsolved/solved/overflow categories: delete_hunt tears down only tag_group.category_id, leaving the extra solved/overflow Discord categories standing, and the stale tag_group_category rows persist forever — get_by_category (mysqldb.py:217) then resolves those still-live category ids to a deleted group id, misrouting later layout/lookup logic (tag_group_category has no FK to tag_group, so nothing cascades).
 
 ### 33. [MEDIUM] `bot/store/mysqldb.py:625`
+
+**Status: FIXED** in `40b079c` (`fix(archive,evidence): commit archive_time and
+fix evidence timestamp tz (#22, #33)`, branch `working-1`).
+`EvidenceData.import_dict` and `MySQLEvidenceDb.log()` now both reattach
+`tzinfo=UTC`, matching `PuzzleData.import_dict`'s pattern for every other
+timestamp field. The frontend display bug was a separate fix on top — `f25ba82`
+(`fix(frontend): render evidence timestamps in local time, not raw UTC (#33)`)
+— since EvidencePanel sliced the raw string instead of parsing it, so a UTC
+offset alone wouldn't have changed what was displayed.
 
 Evidence created_at is written as naive datetime.utcnow() (bot/store/mysqldb.py:625) and EvidenceData.import_dict (bot/store/evidence_data.py:16-21) copies DB rows without re-attaching tzinfo=UTC (unlike PuzzleData.import_dict, puzzle_data.py:72), so bot/web/data.py:556 serialises evidence created_at via raw isoformat() with no +00:00 offset while every other web timestamp goes through _iso() (data.py:78-82). The frontend EvidencePanel (frontend/src/components/EvidencePanel.tsx:159) renders the string as-is via slice, so non-UTC users see evidence 'logged at' in bare UTC while other dashboard times are local (e.g. HuntInfoPanel toLocaleString) or correctly offset-parsed (util.ts relativeTime) — shifted by their UTC offset. Any future comparison of EvidenceData.created_at against the codebase's standard aware datetimes raises TypeError.
 
