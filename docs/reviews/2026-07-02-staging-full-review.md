@@ -309,11 +309,16 @@ delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle 
 
 **Status: PARTIALLY MITIGATED** as of `ad26791` (`feat(delete-round): add keep_puzzles scope (default: keep member puzzles)`, branch `working-2`, merged to `staging` in `9c3a428`). Under the new default (`keep_puzzles=True`), `delete_round` only ever deletes the round's OWN target puzzle (matched by `tag_group.target_puzzle_id`, if set) — a feeder that happens to also be some OTHER nested meta's target, as in the failure scenario above, is now kept rather than deleted, so that scenario can't happen via the default dashboard delete. `keep_puzzles=False` (still used by `!delete_round`, `5195931`, and the web's explicit "Round + all puzzles" option) retains the original no-guard full delete of every member puzzle, so the failure scenario remains fully reachable through either of those paths.
 
-**Status update (2026-07-02):** fully fixed. `delete_round`'s full-delete
-path now excludes any member puzzle that is a DIFFERENT tag group's target
-from deletion (relocating it instead, same as narrow mode), so the
-failure scenario above can no longer happen via either `!delete_round` or
-the web's "Round + all puzzles" option.
+**Status update (2026-07-02):** fixed for non-forum (channel-layout) rounds.
+`delete_round`'s full-delete path now excludes any member puzzle that is a
+DIFFERENT tag group's target from deletion (relocating it instead, same as
+narrow mode), so the failure scenario above can no longer happen via either
+`!delete_round` or the web's "Round + all puzzles" option — for channel-layout
+rounds. Forum-layout rounds are intentionally exempt (forum threads have no
+relocation equivalent, and forum layout is a known stale path not receiving
+new investment per project convention): a forum round still full-deletes
+every member puzzle with no protection, so the original failure scenario
+remains reachable there.
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
