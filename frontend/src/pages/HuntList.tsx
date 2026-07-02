@@ -21,9 +21,11 @@ import {
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
+import { useQueryClient } from "@tanstack/react-query";
 import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
 import { useViewAs } from "../context/ViewAsContext";
+import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { HuntSummary } from "../types";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs } from "../util";
 
@@ -203,6 +205,11 @@ export default function HuntList() {
   const { data: adminGuilds } = useAdminGuilds();
   const { viewAs } = useViewAs();
   const [newHuntOpen, setNewHuntOpen] = useState(false);
+  const qc = useQueryClient();
+  // A "board" event's uid isn't necessarily already in our list (that's the
+  // point for a brand-new hunt, e.g. from a bang !hunt), so unlike HuntBoard's
+  // per-hunt filter, any board push just re-fetches the whole list.
+  useActivityFeed(() => qc.invalidateQueries({ queryKey: ["hunts"] }));
 
   // Respect the Admin "view as" ceiling: hide the New hunt button when previewing
   // as a non-admin.

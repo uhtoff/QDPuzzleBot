@@ -126,3 +126,30 @@ async def test_create_hunt_captures_sheet_and_role():
     assert hunt.google_sheet_id == "SHEET_ID"
     assert hunt.archive_google_sheet_id == "ARCH_ID"
     assert hunt.role_id == 333
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_pushes_board_when_notifier_present():
+    """No pre-existing hunt to bind the @pushes_board decorator's `hunt`
+    parameter to (this call creates one), so the push is manual — must still
+    fire with the just-committed HuntData, so connected dashboards can
+    invalidate their hunt list instead of waiting on a reload (review #54)."""
+    bot = MagicMock()
+    bot.get_cog.return_value = None
+    notifier = MagicMock()
+    notifier.board_changed = AsyncMock()
+    svc, guild = PuzzleService(bot, notifier=notifier), _create_guild()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        hunt = await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
+    notifier.board_changed.assert_awaited_once_with(hunt)
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_no_notifier_does_not_raise():
+    svc, guild = _create_service(), _create_guild()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
