@@ -332,6 +332,20 @@ MySQLTagGroupJsonDb.delete (bot/store/mysqldb.py:192) removes the tag_group row 
 
 **Failure scenario:** Delete a hunt (or demote a metapuzzle) whose group had grown into split unsolved/solved/overflow categories: delete_hunt tears down only tag_group.category_id, leaving the extra solved/overflow Discord categories standing, and the stale tag_group_category rows persist forever — get_by_category (mysqldb.py:217) then resolves those still-live category ids to a deleted group id, misrouting later layout/lookup logic (tag_group_category has no FK to tag_group, so nothing cascades).
 
+**Status update (2026-07-02):** fully fixed. `migrations/022_delete_cascades.sql`
+added a FK from `tag_group_category.group_id` to `tag_group.id` (ON DELETE
+CASCADE), closing the DB-row leak automatically for every delete path,
+present and future. `delete_hunt` was separately updated to route its
+per-group Discord teardown through `category_layout.delete_group_categories`
+(mirroring `delete_round`'s existing pattern), so a split round's extra
+solved/overflow categories are now actually deleted rather than left
+standing as empty orphans. `convert_to_puzzle` needed no code change: the
+Metapuzzle-type rounds it deletes are structurally incapable of ever owning
+split categories (their `category_id` is a puzzle channel id, which
+`category_layout.split_group`'s category-only lookup never resolves), so
+this leak was already unreachable there — the FK simply makes that
+guarantee airtight against future drift.
+
 ### 33. [MEDIUM] `bot/store/mysqldb.py:625`
 
 Evidence created_at is written as naive datetime.utcnow() (bot/store/mysqldb.py:625) and EvidenceData.import_dict (bot/store/evidence_data.py:16-21) copies DB rows without re-attaching tzinfo=UTC (unlike PuzzleData.import_dict, puzzle_data.py:72), so bot/web/data.py:556 serialises evidence created_at via raw isoformat() with no +00:00 offset while every other web timestamp goes through _iso() (data.py:78-82). The frontend EvidencePanel (frontend/src/components/EvidencePanel.tsx:159) renders the string as-is via slice, so non-UTC users see evidence 'logged at' in bare UTC while other dashboard times are local (e.g. HuntInfoPanel toLocaleString) or correctly offset-parsed (util.ts relativeTime) — shifted by their UTC offset. Any future comparison of EvidenceData.created_at against the codebase's standard aware datetimes raises TypeError.
@@ -391,6 +405,15 @@ Multiple mutation call sites fire with no onError handler and the QueryClient (f
 evidence_items has no foreign keys (migrations/009_evidence.sql lines 3-6: hunt_id, source_puzzle_id, target_puzzle_id are bare indexed columns) and no delete path cleans it: delete_puzzle (bot/core/puzzle_service.py:1118) and delete_hunt (puzzle_service.py:2164-2237) never touch evidence_items, and MySQLPuzzleJsonDb.delete (bot/store/mysqldb.py:580) removes only tags rows. Orphaned evidence stays on the hunt board forever; one correction — dangling puzzles render as the "Puzzle {id}" fallback, not a blank name, because resolve_puzzle_names (puzzle_service.py:95-104) fills every id, so data.py:552's "" default never fires.
 
 **Failure scenario:** Delete a puzzle that has evidence logged: its items stay on the hunt's evidence board with a dangling source_puzzle_id, rendered with a blank source name (bot/web/data.py:552 names.get(...) returns "") and un-navigable; delete a hunt and its evidence rows are orphaned permanently, and if hunts.id is ever reused (auto-increment recalculated from MAX(id) after a server restart on older MariaDB) the old hunt's evidence resurfaces on the new hunt.
+
+**Status update (2026-07-02):** fully fixed via
+`migrations/022_delete_cascades.sql`, which adds FKs from
+`evidence_items.source_puzzle_id` and `.hunt_id` (ON DELETE CASCADE) and
+`.target_puzzle_id` (ON DELETE SET NULL) to `puzzles`/`hunts`. Every puzzle
+or hunt delete now cascades its evidence automatically at the database
+level, regardless of which code path (bang, web, future additions) performs
+it — no application-code change needed. Pre-existing orphans (14 of 20 rows
+on this DB) were purged as part of applying the migration.
 
 ### 43. [LOW] `bot/cogs/puzzles.py:642`
 
@@ -473,6 +496,14 @@ create_hunt (bot/core/puzzle_service.py:2086) and delete_hunt (:2164) are the on
 MySQLPuzzleJsonDb.delete (bot/store/mysqldb.py:580-584) deletes the puzzles row and its tags rows but never touches additional_sheets, and the additional_sheets table (migrations/000_base_schema.sql:121-130) has no FK/cascade to puzzles — so every puzzle/round/hunt delete (puzzle_service.delete_puzzle:1136, delete_round:1158, delete_hunt:2180) orphans that puzzle's additional_sheets rows in the DB forever. The DB-corruption follow-on (ghost sheets attaching to a new puzzle via construct_puzzle's puzzle_id eager-load) is real code-wise but requires puzzles.id reuse, which only happens on auto-increment recalculation (MySQL<8/MariaDB<10.2.4 restart) — unlikely on a modern MariaDB, so the practical cost is an unbounded but small row leak.
 
 **Failure scenario:** Delete a round or hunt containing puzzles with additional sheets: the additional_sheets rows persist forever (unbounded leak); because construct_puzzle eager-loads additional_sheets by puzzle_id on every read, any future reuse of a puzzles.id (auto-increment recalculated after restart on older MariaDB/MySQL<8) attaches the dead puzzle's ghost sheets to a brand-new puzzle, corrupting its solve/sheet handling.
+
+**Status update (2026-07-02):** fully fixed via
+`migrations/022_delete_cascades.sql`, which adds a FK from
+`additional_sheets.puzzle_id` to `puzzles.id` (ON DELETE CASCADE). Every
+puzzle delete now cascades its additional sheets automatically at the
+database level, regardless of which code path performs it — no
+application-code change needed. Pre-existing orphans (101 of 118 rows on
+this DB) were purged as part of applying the migration.
 
 ### 56. [LOW] `bot/store/puzzle_data.py:85`
 
