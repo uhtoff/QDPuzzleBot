@@ -56,16 +56,16 @@ diff — one reviewer per fix commit, checking that the diff genuinely closes th
 scenario and is sound code. Done in waves as fixes landed: (1) the original 47 `FIXED`
 findings; (2) a second batch of 5 (#20, #27, #39, #40, #41); (3) the round/hunt-deletion section
 worked in parallel on `working-2` and originally annotated with "Status update … fully/partially
-fixed" wording (#29, #30, #32, #42, #45, #54, #55). **All passed** — no fix was found broken.
+fixed" wording (#29, #30, #32, #42, #45, #54, #55); (4) the two follow-on commits that closed the
+last scoped gaps — #30's forum-layout exemption (`0ec16d6`) and #54's create_hunt hunt-list
+visibility (`a2a7b6b`), each reviewed once merged. **All passed** — no fix was found broken.
 
-Status taxonomy now used: **`FIXED AND REVIEWED`** = fully fixed and verified;
-**`PARTIALLY FIXED AND REVIEWED`** = the landed part is verified but a scoped gap is deferred by
-design (**#30** channel-layout fixed / forum path exempt; **#54** delete_hunt push landed /
-create_hunt deferred to a frontend change). The delete-section findings that had the "Status
-update … fully fixed" wording (#29, #32, #42, #45, #55) were promoted to `FIXED AND REVIEWED` once
-reviewed. #29/#30 also each keep an "Earlier partial mitigation" note recording the interim
-`keep_puzzles`-scope state (`ad26791`) that the later fixes superseded — so there is no longer a
-live `PARTIALLY MITIGATED` status in the doc.
+Every reviewed finding is now **`FIXED AND REVIEWED`** (fully fixed and verified) — there is no
+longer a live `PARTIALLY FIXED AND REVIEWED` or `PARTIALLY MITIGATED` status in the doc. #30 and
+#54 landed in stages (partial fix → gap-closing follow-up); their blocks preserve that history as
+"Earlier partial mitigation" / "Earlier partial fix" notes above the final `FIXED AND REVIEWED`
+status, with the interim states (`ad26791`, `985dca8`+`6014b5e`, `e49856f`) recorded for
+traceability.
 
 Findings carrying a low-risk residual have an inline `**Reviewer note (2026-07-02):**`; the notable
 ones are **#63** (pin refresh not try/except-wrapped), **#38** (WS event filter default-open for
