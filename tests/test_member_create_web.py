@@ -107,3 +107,26 @@ async def test_create_group_rejects_archived_hunt(web):
     assert resp.status_code == 403
     data = await resp.get_json()
     assert data["error"] == "hunt_archived"
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_null_guild_snowflake_degrades_gracefully(web):
+    """#82: create_puzzle used to call int(ctx["guild_snowflake"]) unconditionally,
+    so a hunt whose guild row has a NULL guild_snowflake (unlike every other
+    handler in the file) raised TypeError -> 500 instead of degrading to
+    guild=None like the rest of the file's handlers."""
+    null_ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": None}
+    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(null_ctx, None))):
+        resp = await web.client.post("/api/hunts/U1/puzzles", json={"name": "My Puzzle"})
+    assert resp.status_code == 200
+    assert web.svc.create_puzzle.call_args[0][0] is None  # guild positional arg
+
+
+@pytest.mark.asyncio
+async def test_create_meta_null_guild_snowflake_degrades_gracefully(web):
+    """Same fix as create_puzzle, for its sibling create_meta (#82)."""
+    null_ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": None}
+    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(null_ctx, None))):
+        resp = await web.client.post("/api/hunts/U1/metas", json={"name": "My Round"})
+    assert resp.status_code == 200
+    assert web.svc.create_tag_group.call_args[0][0] is None  # guild positional arg
