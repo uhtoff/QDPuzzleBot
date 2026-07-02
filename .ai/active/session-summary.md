@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-1
 Started: 2026-07-02
-Status: ready for handoff — plan packaged, no code changed yet (base = staging @ bed73c9)
+Status: in progress — fix(archive): preserve attachment/embed-only messages (#1) @ b0225d6
 
 ## Goal
 
@@ -13,9 +13,11 @@ in impact order, marking each off and discussing design questions as we go. Full
 
 ## Current status
 
-Planning only. No source edits. `.ai/active/` handoff set created. The worktree sits
-exactly on `staging` (tip `bed73c9` = the review's HEAD), so all review line anchors are
-accurate. Deleted the stale, fully-merged `fix-correctness-review` branch.
+Phase 1 underway. Worktree bootstrapped for tests (config.json + google_secrets.json
+already present; `pipenv run python -m pytest` collects 747 tests cleanly). #1 (archive
+attachment/embed loss) fixed and committed with a new regression test
+(`tests/test_archive_channel.py`); full suite green (749 passed). #3 (reconcile_table) is
+next — still needs the Q1 design discussion before implementing.
 
 ## Final decisions
 
@@ -26,6 +28,10 @@ accurate. Deleted the stale, fully-merged `fix-correctness-review` branch.
 - One finding (or coupled pair #2+#4, #7+#8) per commit; tick the tracker + record hash +
   bump this Status line on each landing.
 - Discuss design questions (`open-questions.md`) before implementing the finding they block.
+- #1 fix: trigger archiving on content OR attachments OR embeds (previously gated the
+  entire send block behind `if content:`), skip only messages with genuinely nothing to
+  send. No test file existed for archive_channel; added one mirroring the
+  `Puzzles.<cmd>.callback(cog, ctx, ...)` pattern from `test_evidence_commands.py`.
 
 ## Rejected approaches
 
@@ -35,11 +41,9 @@ accurate. Deleted the stale, fully-merged `fix-correctness-review` branch.
 
 ## Next steps
 
-1. Bootstrap the worktree for tests: copy `config.json` + `google_secrets.json` from the
-   main checkout ([[worktree-bootstrap-config]]) so pytest can import.
-2. Resolve blocking open questions Q1 (#3 approach), Q2 (archive spreadsheet in use?),
-   Q3 (#7/#8 TZ + editability) with the user.
-3. Start Phase 1: #1 (archive attachment loss), then #3 (reconcile_table).
+1. Discuss Q1 (#3 reconcile_table prune strategy) with the user, then implement #3.
+2. Continue through Phase 2 (#5, #6), Phase 3 (#7+#8, needs Q3), Phase 4 (#2+#4), Phase 5
+   (#62) per `implementation-plan.md`.
 
 ## Open questions
 
