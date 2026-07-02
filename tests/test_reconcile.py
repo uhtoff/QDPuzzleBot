@@ -160,11 +160,33 @@ def test_channel_relink_when_named_channel_exists_no_welcome():
     with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)), \
          patch.object(ps.PuzzleJsonDb, "commit") as commit:
-        actions = asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
+        actions = asyncio.run(svc._reconcile_channel(
+            guild, _hunt(), p, None, apply=True, hunt_category_ids={500}))
     assert any(a.kind == "channel_relink" for a in actions)
     assert p.channel_id == 888
     commit.assert_called()
     notifier.welcome.assert_not_awaited()  # existing channel kept — no repost
+
+
+def test_channel_relink_scoped_to_hunt_categories():
+    """A same-named channel that belongs to a DIFFERENT hunt's category must not
+    be relinked/hijacked — only categories in hunt_category_ids are searched."""
+    other_cat = _category(999)
+    foreign = SimpleNamespace(id=888, name="tide", mention="<#888>", category=other_cat)
+    other_cat.channels = [foreign]
+    guild = _guild_with(channels=[foreign], categories=[_category(500), other_cat])
+    svc = _service(notifier=AsyncMock())
+    p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
+                      return_value=SimpleNamespace(id=10, category_id=500)), \
+         patch.object(ps, "get_or_create_channel",
+                      new=AsyncMock(return_value=(SimpleNamespace(id=777, name="tide", mention="<#777>"), True))), \
+         patch.object(ps.PuzzleJsonDb, "commit"):
+        actions = asyncio.run(svc._reconcile_channel(
+            guild, _hunt(), p, None, apply=True, hunt_category_ids={500}))
+    assert any(a.kind == "channel_create" for a in actions)
+    assert not any(a.kind == "channel_relink" for a in actions)
+    assert p.channel_id == 777
 
 
 def test_channel_report_only_does_not_mutate():
