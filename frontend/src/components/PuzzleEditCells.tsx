@@ -30,6 +30,8 @@ const STATUS_OPTIONS = [
 ];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Very High"];
 
+export type SolveTarget = Pick<Puzzle, "id" | "name" | "solved" | "solution">;
+
 /** Click a status badge to pick a new one. */
 export function StatusCell({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
   return (
@@ -118,7 +120,7 @@ export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: 
  * Unsolved puzzles: **Mark partial** and **Mark complete** buttons.
  * Solved puzzles: **Change solution** and **Add solution** buttons.
  */
-export function SolveModal({ puzzle, uid, onClose }: { puzzle: Puzzle | null; uid: string; onClose: () => void }) {
+export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | null; uid: string; onClose: () => void }) {
   const solve = useSolvePuzzle(uid);
   const unsolve = useUnsolvePuzzle(uid);
   // One input per action button.
