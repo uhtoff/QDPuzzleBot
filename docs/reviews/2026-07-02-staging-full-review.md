@@ -236,11 +236,15 @@ delete_round (bot/core/puzzle_service.py:1143) deletes every puzzle in the group
 
 **Failure scenario:** Puzzle P feeds meta M1 and is also tagged into round R2; !delete_round R2 (bang or web, neither edge refreshes) deletes P from the DB, but M1's contribution table still shows P's row until some unrelated event next re-renders M1 — the meta sheet displays a feeder that no longer exists.
 
+**Status: PARTIALLY MITIGATED** as of `ad26791` (`feat(delete-round): add keep_puzzles scope (default: keep member puzzles)`, branch `working-2`, merged to `staging` in `9c3a428`). `delete_round` gained a `keep_puzzles` scope; the new web default (`keep_puzzles=True`) no longer deletes feeder puzzles at all — it keeps their DB rows and relocates their Discord channels instead — so the exact failure scenario above can no longer happen via the default dashboard delete. The underlying bug is otherwise untouched: `!delete_round` is pinned to `keep_puzzles=False` (`5195931`, to preserve its historical "delete everything" behavior) and the web dashboard still offers an explicit "Round + all puzzles" option that also runs with `keep_puzzles=False` — both paths still delete every member puzzle with no `refresh_targets` call, so the original failure scenario remains fully reachable through either of them.
+
 ### 30. [MEDIUM] `bot/core/puzzle_service.py:1158`
 
 delete_round (bot/core/puzzle_service.py:1149-1163) deletes every member puzzle with no is_target guard, so when a round contains a nested group's target puzzle (e.g. a meta created via convert_to_meta that still feeds the parent round), that target puzzle's DB row and channel are deleted while the nested group survives with a dangling target_puzzle_id; delete_puzzle explicitly forbids exactly this case (line 1127), and neither the bang command nor the web endpoint adds a guard.
 
 **Failure scenario:** Round R contains meta M's target puzzle P (P feeds R, metameta nesting). !delete_round R deletes P's row and channel; group M survives with target_puzzle_id pointing at a deleted puzzle — refresh_target silently no-ops (metapuzzle None), M's category/channels leak, and M can never be solved or demoted normally.
+
+**Status: PARTIALLY MITIGATED** as of `ad26791` (`feat(delete-round): add keep_puzzles scope (default: keep member puzzles)`, branch `working-2`, merged to `staging` in `9c3a428`). Under the new default (`keep_puzzles=True`), `delete_round` only ever deletes the round's OWN target puzzle (matched by `tag_group.target_puzzle_id`, if set) — a feeder that happens to also be some OTHER nested meta's target, as in the failure scenario above, is now kept rather than deleted, so that scenario can't happen via the default dashboard delete. `keep_puzzles=False` (still used by `!delete_round`, `5195931`, and the web's explicit "Round + all puzzles" option) retains the original no-guard full delete of every member puzzle, so the failure scenario remains fully reachable through either of those paths.
 
 ### 31. [MEDIUM] `bot/core/puzzle_service.py:1265`
 
