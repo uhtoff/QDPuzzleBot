@@ -1176,6 +1176,13 @@ class PuzzleService:
         behavior that deletes every member puzzle. Forum-layout rounds always
         do the full delete regardless of keep_puzzles — forum threads have no
         "move to the general category" equivalent.
+
+        Full delete (keep_puzzles=False, non-forum) still protects any member
+        puzzle that is a DIFFERENT tag group's target (relocated instead of
+        deleted, same as narrow mode) and refreshes every other tag group fed
+        by a deleted puzzle, so neither path can orphan a nested meta's
+        target_puzzle_id or leave a stale contribution row on an unrelated
+        meta's sheet.
         """
         narrow = keep_puzzles and hunt.layout_mode != "forum"
         is_forum = hunt.layout_mode == "forum"
@@ -1222,6 +1229,9 @@ class PuzzleService:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
 
+        # A deleted puzzle may also feed an UNRELATED tag group's target (this
+        # round's own tag_group is excluded above); refresh those so their
+        # contribution tables don't keep a stale row for the deleted puzzle.
         if other_fed_group_ids:
             other_target_groups = [
                 TagGroupJsonDb.get_by_attr(id=gid) for gid in other_fed_group_ids
