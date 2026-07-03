@@ -239,3 +239,73 @@ class TestConvertToPuzzle:
     def test_old_name_removed(self):
         cog = _make_cog_convert()
         assert not hasattr(cog.service, "convert_to_feeder")
+
+
+class TestConvertToGroupTeardown:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog_convert()
+
+    async def _run(self, cog, gsheet=None):
+        puz = make_puzzle(id=7, is_target=True, channel_id=555)
+        group = make_round(id=42, name="Alpha", target_puzzle_id=7, category_id=999)
+        group.type = "Metapuzzle"
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 2 feeds → none")
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_group_info = AsyncMock()
+        cog.service.safe_rename = AsyncMock(return_value=True)
+        if gsheet is not None:
+            cog.bot.get_cog.return_value = gsheet
+        hunt = make_hunt()
+        guild = MagicMock()
+        channel = MagicMock(); channel.id = 555
+        guild.get_channel.return_value = channel
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.return_value = group
+            mhdb.get_by_attr.return_value = hunt
+            await cog.service.convert_to_type(guild, hunt, puz, "Group")
+        return puz, group, mpdb, guild
+
+    @pytest.mark.asyncio
+    async def test_deletes_target_sheet(self, cog):
+        gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+        gsheet.promote_tab_to_group = AsyncMock()
+        await self._run(cog, gsheet=gsheet)
+        gsheet.delete_puzzle_spreadsheet.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_target_record_and_clears_target(self, cog):
+        _puz, group, mpdb, _guild = await self._run(cog)
+        mpdb.delete.assert_called_once_with(7)
+        assert group.target_puzzle_id == 0
+
+    @pytest.mark.asyncio
+    async def test_renames_channel_and_refreshes_group_pin(self, cog):
+        _puz, _group, _mpdb, _guild = await self._run(cog)
+        cog.service.safe_rename.assert_awaited_once()
+        cog.service.notifier.refresh_group_info.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_group_conversion_does_not_delete_target(self, cog):
+        puz = make_puzzle(id=7, is_target=True, channel_id=555)
+        group = make_round(id=42, target_puzzle_id=7)
+        group.type = "Metapuzzle"
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="x")
+        cog.service.notifier = MagicMock(); cog.service.notifier.board_changed = AsyncMock()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.return_value = group
+            mhdb.get_by_attr.return_value = make_hunt()
+            await cog.service.convert_to_type(None, make_hunt(), puz, "Capstone")
+        mpdb.delete.assert_not_called()
+        assert group.target_puzzle_id == 7

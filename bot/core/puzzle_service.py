@@ -906,10 +906,39 @@ class PuzzleService:
         else:
             summary = "no edge change (runaround)"
 
+        # Group has no metapuzzle: tear down the former target now that the edge
+        # flip (which excludes the target's self-edge) has run.
+        if new_type == "Group" and tag_group.target_puzzle_id == puzzle.id:
+            await self._teardown_group_target(guild, hunt, tag_group, puzzle)
+
         # Update forum post tags (structural type may have changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
         return tag_group, summary
+
+    async def _teardown_group_target(self, guild, hunt, tag_group, target):
+        """Convert a targeted group into a bare Group: delete the target meta's
+        sheet + DB record, clear the group's target, and repurpose the meta's
+        channel into the group's general chat channel (rename + group welcome pin).
+        The DB mutation is the durable part; Discord/Sheets steps are best-effort.
+        Non-forum only for the channel repurpose (forum is out of scope)."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            try:
+                await gsheet_cog.delete_puzzle_spreadsheet(target)
+            except Exception:
+                logger.exception("_teardown_group_target: sheet delete failed for puzzle %s", target.id)
+
+        channel_id = getattr(target, "channel_id", 0)
+        PuzzleJsonDb.delete(target.id)
+        tag_group.target_puzzle_id = 0
+        TagGroupJsonDb.commit(tag_group)
+
+        if guild is not None and channel_id and getattr(hunt, "layout_mode", None) != "forum":
+            channel = guild.get_channel(channel_id)
+            if channel is not None:
+                await self.safe_rename(channel, clean_channel_name(tag_group.name))
+                await self.notifier.refresh_group_info(guild, hunt, tag_group)
 
     async def collect_subtree_puzzles(self, root_group):
         """The puzzles a runaround (source_mode='subtree') rolls up: every puzzle
