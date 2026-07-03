@@ -916,6 +916,49 @@ class PuzzleService:
 
         return tag_group, summary
 
+    @pushes_board()
+    async def convert_tag_group_type(self, guild, hunt, tag_group, new_type):
+        """Change a TagGroup's type, keyed on the group (not its target puzzle).
+
+        - Targeted group → any type: resolve the target and delegate to
+          convert_to_type (which handles retype/re-edge and, for Group, teardown).
+        - Bare Group → targeted type: create a meta (promote).
+        Returns (tag_group, summary). Raises RuntimeError("<code>") on recoverable
+        problems."""
+        if tag_group.target_puzzle_id:
+            target = PuzzleJsonDb.get_by_attr(id=tag_group.target_puzzle_id)
+            if target is None:
+                raise RuntimeError("target_missing")
+            return await self.convert_to_type(guild, hunt, target, new_type)
+        if new_type == "Group":
+            return tag_group, "no change (already a group)"
+        return await self._promote_group_to_target(guild, hunt, tag_group, new_type)
+
+    async def _promote_group_to_target(self, guild, hunt, tag_group, new_type):
+        """Bare Group → targeted type: create a meta puzzle for the group. Deletes
+        the old general chat channel first so create_puzzle makes a fresh, fully
+        linked meta channel (its name equals the group name, so a surviving general
+        channel would be found with created=False and skip linking). Non-forum only."""
+        tag_group.type = new_type
+        TagGroupJsonDb.commit(tag_group)
+
+        if guild is not None and getattr(hunt, "layout_mode", None) != "forum":
+            chat = category_layout.group_chat_channel(guild, tag_group)
+            if chat is not None:
+                await self._safe_delete_channel(guild, chat.id)
+
+        puzzle = await self.create_puzzle(
+            guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier,
+        )
+        tag_group.target_puzzle_id = puzzle.id
+        TagGroupJsonDb.commit(tag_group)
+
+        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
+        await self.set_source_mode(hunt, tag_group, default_sm)
+        default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
+        summary = await self.bulk_re_edge(tag_group, default_edge, hunt)
+        return tag_group, summary
+
     async def _teardown_group_target(self, guild, hunt, tag_group, target):
         """Convert a targeted group into a bare Group: delete the target meta's
         sheet + DB record, clear the group's target, and repurpose the meta's

@@ -309,3 +309,52 @@ class TestConvertToGroupTeardown:
             await cog.service.convert_to_type(None, make_hunt(), puz, "Capstone")
         mpdb.delete.assert_not_called()
         assert group.target_puzzle_id == 7
+
+
+class TestConvertTagGroupType:
+    @pytest.fixture
+    def cog(self):
+        return _make_cog_convert()
+
+    @pytest.mark.asyncio
+    async def test_targeted_group_delegates_to_convert_to_type(self, cog):
+        target = make_puzzle(id=7, is_target=True)
+        group = make_round(id=42, target_puzzle_id=7)
+        cog.service.convert_to_type = AsyncMock(return_value=(group, "ok"))
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb:
+            mpdb.get_by_attr.return_value = target
+            g, summary = await cog.service.convert_tag_group_type(None, make_hunt(), group, "Group")
+        cog.service.convert_to_type.assert_awaited_once()
+        assert cog.service.convert_to_type.await_args.args[3] == "Group"
+        assert summary == "ok"
+
+    @pytest.mark.asyncio
+    async def test_bare_group_to_metapuzzle_creates_meta(self, cog):
+        group = make_round(id=42, name="Bag", target_puzzle_id=0, category_id=999)
+        group.type = "Group"
+        new_meta = make_puzzle(id=99, is_target=True)
+        cog.service.create_puzzle = AsyncMock(return_value=new_meta)
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 3 none → feeds")
+        cog.service._safe_delete_channel = AsyncMock(return_value=True)
+        cog.service.notifier = MagicMock(); cog.service.notifier.board_changed = AsyncMock()
+        guild = MagicMock()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.category_layout") as mcl:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: None
+            chat = MagicMock(); chat.id = 321
+            mcl.group_chat_channel.return_value = chat
+            g, summary = await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
+        cog.service.create_puzzle.assert_awaited_once()
+        cog.service._safe_delete_channel.assert_awaited_once_with(guild, 321)
+        assert group.target_puzzle_id == 99
+        assert group.type == "Metapuzzle"
+
+    @pytest.mark.asyncio
+    async def test_bare_group_to_group_is_noop(self, cog):
+        group = make_round(id=42, target_puzzle_id=0)
+        group.type = "Group"
+        _g, summary = await cog.service.convert_tag_group_type(None, make_hunt(), group, "Group")
+        assert "already" in summary.lower()
