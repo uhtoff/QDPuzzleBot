@@ -45,6 +45,12 @@ See `memory/site-hunt-visibility.md` for the full model.
 
 ## Deploy steps (run when ready)
 
+> These steps stand up a **single** instance. For the production model — a **live + test** bot side
+> by side on one Plesk host under two system users (separate ports, DBs, subdomains and Discord
+> apps) — follow [README § "Deploying on a Linux server"](../README.md#deploying-on-a-linux-server);
+> it is the same steps run once per instance. The souwester/redhat reference below stays valid as
+> the *different-boxes* (proxy on one box, bot on another) topology.
+
 1. **Install deps** (additive; safe while the bot runs):
    ```bash
    pipenv install            # picks up quart from the Pipfile

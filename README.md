@@ -189,6 +189,37 @@ optional web dashboard and **getting Discord OAuth working**. For the dashboard 
 deeper reference (serving model, nginx WebSocket details, the live test-site topology) is
 [`docs/dashboard.md`](docs/dashboard.md); this README gives the end-to-end happy path.
 
+It assumes a **Plesk-managed AlmaLinux host** running **two instances of the bot side by side** —
+a **live** bot and a **test** bot — isolated by Linux user. Running them as different system
+users keeps their processes, virtualenvs, configs, logs and per-user systemd units fully separate:
+`start.sh` already scopes its "already running?" check per user (`pgrep -u`), so the two never
+fight over each other's process. The four things they must **not** share are the **web port**, the
+**database**, the **subdomain**, and the **Discord application**.
+
+Pick concrete values up front and keep them straight — everything below is the same steps run
+twice, once per column:
+
+| | **Live** | **Test** |
+|---|---|---|
+| System user | `puzzbot` | `puzzbot-test` |
+| Repo clone | `/home/puzzbot/puzzbot` | `/home/puzzbot-test/puzzbot` |
+| Git branch | `main` | `staging` |
+| Database / DB user | `puzzlebot` | `puzzlebot_test` |
+| `web.port` | `8099` | `8098` |
+| Dashboard subdomain | `puzzweb.<domain>` | `puzzweb-test.<domain>` |
+| Discord application | live bot app | separate test bot app |
+| systemd unit | `--user puzzbot` (as `puzzbot`) | `--user puzzbot` (as `puzzbot-test`) |
+
+Use **two separate Discord applications** (own token + OAuth client id/secret each) so a test
+action never touches the live server or spends the live token, and each gets its own OAuth
+redirect. The two bots can share one Discord guild or live in separate test/live guilds.
+
+> **One box, two users, per-user systemd.** Each user runs its own bot under a **user-level**
+> systemd unit (`systemctl --user`), so neither needs root and both survive logout and reboot via
+> `loginctl enable-linger`. Plesk only terminates TLS and reverse-proxies each subdomain to that
+> instance's port; it does not run the bot. If you only want a **single** instance, just ignore the
+> "Test" column throughout.
+
 ## 1. Host prerequisites
 
 Install the system packages. **Debian/Ubuntu:**
@@ -218,16 +249,34 @@ sudo systemctl enable --now mariadb
 For the optional dashboard you need **Node.js 18+** to build the SPA (installed above); if your
 distro ships an older Node, use [nodesource](https://github.com/nodesource/distributions).
 
-Clone the repo to wherever the service will live. On Plesk, a tidy choice is under the subscription
-that will host the dashboard subdomain (e.g. `/var/www/vhosts/<domain>/puzzbot`), or any dedicated
-service user's home:
+Create the two service users (as root), enable linger so their user-level systemd managers start
+at boot and survive logout, then clone the repo into each user's home on the branch that instance
+tracks. Do the clone **as that user**:
 
 ```bash
+# as root — create the accounts
+useradd -m puzzbot
+useradd -m puzzbot-test
+loginctl enable-linger puzzbot puzzbot-test
+
+# as puzzbot (live → main)
 git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot puzzbot
-cd puzzbot
+git -C puzzbot checkout main
+
+# as puzzbot-test (test → staging)
+git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot puzzbot
+git -C puzzbot checkout staging
 ```
 
+Each instance now lives at `/home/<user>/puzzbot`. On a Plesk box you can instead point each
+instance's clone at the subscription that will host its subdomain and make that subscription's
+system user the instance user — that lets Plesk's per-domain **Git** auto-deploy run `deploy.sh`
+as the right user (see [Redeploying with `deploy.sh`](#redeploying-with-deploysh-plesk-git)).
+
 ## 2. Create the Discord application & bot
+
+Do this **twice** — one application for the live bot and a separate one for the test bot — so the
+two never share a token. Keep the two tokens straight; each goes in that instance's `config.json`.
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) → **New
    Application** (or open an existing one).
@@ -246,11 +295,16 @@ Follow [Database setup](#database-setup) above: create the database + user, put 
 `config.json`, and run `python migrate.py` to apply every migration. Do this **before** first
 starting the bot.
 
-> **On Plesk:** create the database and user in **Websites & Domains → Databases → Add Database**
+Create **one database per instance** — `puzzlebot` for live and `puzzlebot_test` for test — each
+with its own user, so the test bot can never write to live data. Run `python migrate.py` inside
+each instance's checkout (it reads that instance's `config.json`).
+
+> **On Plesk:** create each database and user in **Websites & Domains → Databases → Add Database**
 > (pick MySQL/MariaDB, set a user + password) instead of the `CREATE DATABASE`/`CREATE USER` SQL.
-> Put the Plesk-generated database name, user and password into `config.json`. Plesk's DB user
-> connects over `localhost`, which is what the bot uses. Then still run `python migrate.py` from the
-> repo to apply the schema migrations.
+> Add two — `puzzlebot` and `puzzlebot_test`. Put each Plesk-generated database name, user and
+> password into the matching instance's `config.json`. Plesk's DB user connects over `localhost`,
+> which is what the bot uses. Then still run `python migrate.py` from each repo to apply the schema
+> migrations.
 
 ## 4. (Dashboard) set up Discord OAuth
 
@@ -258,6 +312,9 @@ The dashboard logs users in with Discord OAuth using only the `identify` scope �
 *who* the user is, then the running bot looks up that user's guild membership and team roles from
 its own cache (so the bot must be in the guild with the Server Members intent on). Skip this whole
 step if you are not enabling the dashboard.
+
+Do this in **each** of the two Discord applications from step 2, using that instance's subdomain —
+`puzzweb.<domain>` for live, `puzzweb-test.<domain>` for test.
 
 1. In the Developer Portal → your application → **OAuth2** → **Redirects**, add the callback URL:
    ```
@@ -274,17 +331,18 @@ step if you are not enabling the dashboard.
 
 ## 5. Configure `config.json`
 
-Copy the template and fill it in (see [`config.json.dist`](config.json.dist)):
+Copy the template and fill it in (see [`config.json.dist`](config.json.dist)) **in each instance's
+checkout** — `config.json` is per-user and gitignored, so the two never collide:
 
 ```bash
 cp config.json.dist config.json
 ```
 
-A full dashboard-enabled config looks like:
+A full dashboard-enabled **live** config looks like:
 
 ```jsonc
 {
-  "discord_bot_token": "<bot token from step 2>",
+  "discord_bot_token": "<LIVE bot token from step 2>",
   "prefix": "!",
   "storage": "mysql",
   "database": "puzzlebot",
@@ -292,16 +350,21 @@ A full dashboard-enabled config looks like:
   "mysql_password": "<db password>",
   "web": {
     "enabled": true,
-    "host": "0.0.0.0",          // 0.0.0.0 if the reverse proxy is on another box; 127.0.0.1 if same-box
+    "host": "127.0.0.1",        // 127.0.0.1: Plesk's nginx is same-box. Use 0.0.0.0 only if the proxy is another box.
     "port": 8099,
     "session_secret": "<a long random string>",
-    "oauth_client_id": "<from step 4>",
-    "oauth_client_secret": "<from step 4>",
-    "oauth_redirect_uri": "https://your-host/api/auth/callback",
-    "frontend_url": "https://your-host"
+    "oauth_client_id": "<live app, from step 4>",
+    "oauth_client_secret": "<live app, from step 4>",
+    "oauth_redirect_uri": "https://puzzweb.<domain>/api/auth/callback",
+    "frontend_url": "https://puzzweb.<domain>"
   }
 }
 ```
+
+The **test** config is the same file with every shared value swapped to its own column: the
+**test** bot token, `"database": "puzzlebot_test"` (+ its user/password), `"port": 8098`, the
+**test** app's OAuth id/secret, and the `puzzweb-test.<domain>` redirect/frontend URLs. The
+distinct `port` is what lets both bots bind on one box — never give them the same one.
 
 If you use Google Sheets, also drop the service-account key in `google_secrets.json` (see
 [Setup](#setup)).
@@ -310,7 +373,8 @@ If you use Google Sheets, also drop the service-account key in `google_secrets.j
 
 `./start.sh` builds the SPA (`frontend/dist`) and then starts the bot, which serves both the API
 and the built SPA from one process on `web.port`. A failed frontend build is non-fatal — the bot
-still starts and serves the previous build:
+still starts and serves the previous build. Run this **as each instance's user**, in that user's
+checkout:
 
 ```bash
 pipenv install                  # production deps
@@ -319,36 +383,48 @@ pipenv install                  # production deps
 # Restart:      ./start.sh --restart
 ```
 
-### Running it as a systemd service
+### Running each instance as a user systemd service
 
-For an unattended deployment, prefer a unit over `nohup`. Create
-`/etc/systemd/system/puzzbot.service` (adjust `User` and `WorkingDirectory`):
+For an unattended deployment, prefer a unit over `nohup`. With two bots on one box under two users,
+run each under a **user-level** systemd unit — no root, cleanly isolated per account, and it
+survives logout and reboot once linger is on (enabled back in step 1). As **each** user (`puzzbot`,
+then `puzzbot-test`), create `~/.config/systemd/user/puzzbot.service`:
 
 ```ini
 [Unit]
 Description=QDPuzzleBot Discord puzzle-hunt manager
-After=network-online.target mariadb.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=puzzbot
-WorkingDirectory=/home/puzzbot/puzzbot
-ExecStart=/home/puzzbot/puzzbot/start.sh
+WorkingDirectory=%h/puzzbot
+ExecStart=%h/puzzbot/start.sh
 Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
-Then:
+`%h` expands to the user's home, so the **same** file works verbatim for both accounts — they live
+in separate per-user managers, so there is no name clash. Then, as each user:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now puzzbot
-sudo journalctl -u puzzbot -f      # follow logs
+mkdir -p ~/.config/systemd/user      # if it doesn't exist yet
+systemctl --user daemon-reload
+systemctl --user enable --now puzzbot
+systemctl --user status puzzbot
+journalctl --user -u puzzbot -f      # follow logs
 ```
+
+> A user unit can't order itself `After=mariadb.service` (that's a system unit). On a Plesk host
+> MariaDB is up long before the lingering user managers start at boot, so the DB is ready in
+> practice; `Restart=on-failure` covers any rare early race. If you would rather use **root-owned**
+> units instead, create `/etc/systemd/system/puzzbot.service` and `puzzbot-test.service` with
+> `User=puzzbot` / `User=puzzbot-test`, `After=... mariadb.service`, and manage them with
+> `sudo systemctl` — but then the Plesk deploy hook needs a passwordless-sudo rule per unit (see
+> below).
 
 ### Redeploying with `deploy.sh` (Plesk Git)
 
@@ -357,51 +433,62 @@ lockfile (`pipenv sync`), applies pending DB migrations (`migrate.py`), then res
 Migrations run **before** the restart, so a failed migration aborts the deploy and leaves the
 running bot untouched (the migrate→deploy→code golden rule).
 
-On a Plesk-managed host, wire it into **Websites & Domains → (your domain) → Git → Additional
-deployment actions**. Plesk pulls the repo and then runs that box as your **subscription system
-user** (Hosting Settings → *System user*) — an *unprivileged* account, non-interactively. Two
-consequences:
+Wire it into **each** subdomain's **Websites & Domains → (your domain) → Git → Additional
+deployment actions** so live and test redeploy independently from their own branches (`main` /
+`staging`). Plesk pulls the repo and then runs that box as the domain's **subscription system
+user** (Hosting Settings → *System user*), non-interactively — so arrange for that user to be the
+instance's user (`puzzbot` / `puzzbot-test`), and the restart below then targets the right bot.
 
-- **The restart can't use plain `sudo systemctl restart` unattended** — it would prompt for a
-  password and fail. `deploy.sh` reads a `RESTART_CMD` env var so you can pick the restart that
-  suits how the bot runs. Set it inline in the deployment-actions box (Plesk has no separate
-  env-var panel):
+- **Restart via the user-level unit** — the natural fit here, since each bot runs under its own
+  user's `systemctl --user`. It needs no root at all. Set `RESTART_CMD` inline in the
+  deployment-actions box (Plesk has no separate env-var panel):
 
   ```bash
-  RESTART_CMD='sudo -n systemctl restart puzzbot' ./deploy.sh
+  RESTART_CMD='systemctl --user restart puzzbot' ./deploy.sh
   ```
 
-  For that `sudo -n` to work without a password, add a one-time rule as root (replace
-  `<deploy-user>` with the subscription system user; confirm the `systemctl` path with
-  `command -v systemctl`):
+  This works unattended because linger (step 1) keeps the user's systemd manager running even
+  with no active login. Because the unit runs `start.sh`, the redeploy still rebuilds the frontend.
+
+- **Alternative — root-owned units.** If you went with root units instead, use
+  `RESTART_CMD='sudo -n systemctl restart puzzbot'` (or `puzzbot-test`) and add a one-time
+  passwordless rule per unit as root (confirm the path with `command -v systemctl`):
 
   ```
   # /etc/sudoers.d/puzzbot
-  <deploy-user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart puzzbot
+  puzzbot      ALL=(root) NOPASSWD: /usr/bin/systemctl restart puzzbot
+  puzzbot-test ALL=(root) NOPASSWD: /usr/bin/systemctl restart puzzbot-test
   ```
 
-  Alternatives for `RESTART_CMD`: `systemctl --user restart puzzbot` (user-level unit +
-  `loginctl enable-linger <deploy-user>`, no sudo at all). If you leave `RESTART_CMD` **unset**,
-  `deploy.sh` falls back to relaunching the bot as a detached user process via
-  `start.sh --restart` — zero privileges, but no systemd supervision or reboot-persistence, so
-  only use that if you are *not* running the systemd unit above (running both would start two bots
-  fighting over the token and `:8099`).
+- **No systemd at all?** Leave `RESTART_CMD` **unset** and `deploy.sh` relaunches the bot as a
+  detached user process via `start.sh --restart` — zero privileges, but no supervision or
+  reboot-persistence. Use this only if that instance is *not* also under a systemd unit; running
+  both would start two bots fighting over the token and its port.
 
 - **Don't restart the bot with a foreground command in the hook** — the deploy action must return.
   `deploy.sh` already detaches its fallback restart, and `systemctl restart` returns immediately,
   so either path is safe.
 
-## 7. (Dashboard) reverse proxy with nginx + TLS
+## 7. (Dashboard) reverse proxy with nginx *or* Apache + TLS
 
 Quart serves the API and the SPA under one origin, so there is **one upstream and no CORS** — just
 proxy your HTTPS hostname to the bot's `:8099`, including the WebSocket upgrade for the live
-activity feed. Terminate TLS at nginx (Let's Encrypt for a public name, or an internal CA for an
-internal one).
+activity feed (`/api/ws/activity`). Terminate TLS at the proxy (Let's Encrypt for a public name, or
+an internal CA for an internal one). Either web server works — use whichever your host already runs:
 
-This is the canonical proxy block — the Plesk variant below and the souwester
-test-site example in `docs/dashboard.md` are the same directives reshaped for
-their environment. If you change the proxy headers, timeouts, or WebSocket
-upgrade handling, update all three together.
+- **nginx** — the canonical block below, plus the Plesk nginx variant.
+- **Apache** — the [equivalent directives](#apache-equivalent-directives) further down, plus the
+  Plesk Apache variant. Use this if your Plesk box serves sites with Apache and has no nginx.
+
+The bot reads **no** forwarded headers (it takes its URLs from `frontend_url` / `oauth_redirect_uri`
+in `config.json`), so the `X-Forwarded-*` lines below are only for correct client IPs in logs —
+the proxy works without them. What is **not** optional is the **WebSocket upgrade** for
+`/api/ws/activity` and a **long read timeout**, or the live activity feed drops every 60s.
+
+This is the canonical proxy block — the Apache equivalent, the Plesk variants below, and the
+souwester test-site example in `docs/dashboard.md` are the same directives reshaped for their
+environment. If you change the proxy headers, timeouts, or WebSocket upgrade handling, update them
+all together.
 
 Define the WebSocket upgrade map once, globally:
 
@@ -460,34 +547,98 @@ at the bot box's LAN address, and allow `nginx-box → tcp/8099` on the LAN fire
 off any external port-forward).
 
 **AlmaLinux / RHEL-family — SELinux.** With SELinux enforcing, nginx is **blocked from making the
-outbound proxy connection** by default and you'll get `502` + an `AVC denied` audit log. Allow it:
+outbound proxy connection** by default and you'll get `502` + an `AVC denied` audit log. Allow it
+(this same `httpd_` boolean also covers Apache):
 
 ```bash
 sudo setsebool -P httpd_can_network_connect 1
 ```
 
+### Apache (equivalent directives)
+
+Same proxy, Apache flavour. It needs `mod_proxy`, `mod_proxy_http`, `mod_proxy_wstunnel` (the
+WebSocket tunnel), `mod_headers`, and `mod_ssl`. On Debian/Ubuntu:
+
+```bash
+sudo a2enmod proxy proxy_http proxy_wstunnel headers ssl http2
+sudo systemctl reload apache2
+```
+
+On AlmaLinux/RHEL these ship in the `httpd` package and are usually loaded already (check
+`/etc/httpd/conf.modules.d/`); on Plesk they are enabled by default.
+
+The vhost (e.g. `/etc/apache2/sites-available/puzzbot.conf`, or `/etc/httpd/conf.d/puzzbot.conf`):
+
+```apache
+<VirtualHost *:443>
+    ServerName your-host
+
+    SSLEngine on
+    SSLCertificateFile    /etc/letsencrypt/live/your-host/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/your-host/privkey.pem
+
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "https"   # optional; logging only
+
+    # WebSocket upgrade for the live activity feed. This explicit ws:// mapping
+    # MUST come before the catch-all below — mod_proxy matches in file order.
+    ProxyPass        /api/ws/activity ws://127.0.0.1:8099/api/ws/activity timeout=3600
+    ProxyPassReverse /api/ws/activity ws://127.0.0.1:8099/api/ws/activity
+
+    # Everything else (API + SPA). The long timeout keeps slow/idle requests alive.
+    ProxyPass        / http://127.0.0.1:8099/ timeout=3600
+    ProxyPassReverse / http://127.0.0.1:8099/
+</VirtualHost>
+
+# Optional: redirect plain HTTP to HTTPS
+<VirtualHost *:80>
+    ServerName your-host
+    Redirect permanent / https://your-host/
+</VirtualHost>
+```
+
+Validate and reload:
+
+```bash
+sudo apachectl configtest && sudo systemctl reload apache2   # httpd on RHEL
+```
+
+`ProxyPass /` proxies **all** requests, so Apache never serves the vhost's DocumentRoot — Quart
+serves the SPA. As with nginx, if the bot and Apache are on **different boxes**, set `web.host` to
+`0.0.0.0`, point the proxy at the bot box's LAN address, and firewall `:8099` to the proxy only.
+The SELinux boolean above applies to Apache too.
+
 ### Plesk-managed hosts
 
-Don't hand-edit vhosts on a Plesk box — Plesk owns the nginx config and will overwrite them. Instead:
+Don't hand-edit vhosts on a Plesk box — Plesk owns the generated web-server config (nginx and/or
+Apache) and will overwrite them. Add your proxy through Plesk's **Additional directives** boxes
+instead. Use **step 3a** if Plesk has nginx in front, or **step 3b** if it serves with **Apache
+only** (no nginx) — check under the subdomain's **Apache & nginx Settings**: if there is no
+"Proxy mode" / nginx section, you're Apache-only.
 
-The proxy block below is the same directives as the standalone-nginx block above
-(and the souwester example in `docs/dashboard.md`) reshaped for where Plesk lets
-you add them — if you change the proxy headers, timeouts, or WebSocket upgrade
-handling, update all three together.
+The proxy blocks below are the same directives as the standalone blocks above (and the souwester
+example in `docs/dashboard.md`) reshaped for where Plesk lets you add them — if you change the proxy
+headers, timeouts, or WebSocket upgrade handling, update them all together.
+
+Do steps 1–3 **once per instance**: two subdomains, each proxying to its own instance's port
+(`puzzweb.<domain>` → `:8099` live, `puzzweb-test.<domain>` → `:8098` test). Step 4 (the nginx
+WebSocket map) and step 5 (the SELinux boolean) are host-wide — do them **once** and both subdomains
+use them.
 
 1. **Create a subdomain** for the dashboard in **Websites & Domains** (e.g.
-   `puzzweb.your-domain.com`). Point `oauth_redirect_uri` / `frontend_url` / the Discord redirect
-   at this hostname.
+   `puzzweb.your-domain.com` for live, `puzzweb-test.your-domain.com` for test). Point each
+   instance's `oauth_redirect_uri` / `frontend_url` / Discord redirect at its own hostname.
 2. **Issue TLS** with the **SSL It!** extension (Let's Encrypt) for that subdomain — Plesk handles
    renewal.
-3. **Turn the docroot into a pure proxy.** Under the subdomain → **Apache & nginx Settings**:
+3a. **(nginx front-end) Turn the docroot into a pure proxy.** Under the subdomain → **Apache &
+   nginx Settings**:
    - tick **Proxy mode** off-loaded to nginx as needed, and **untick "Smart static files
      processing"** so nginx doesn't try to serve files from the docroot (Quart serves the SPA).
    - In **Additional nginx directives**, add the proxy (Plesk drops these into the `server{}` block,
-     so reference a map defined globally — see note):
+     so reference a map defined globally — see step 4):
      ```nginx
      location / {
-         proxy_pass http://127.0.0.1:8099;
+         proxy_pass http://127.0.0.1:8099;   # test subdomain → 127.0.0.1:8098
          proxy_http_version 1.1;
 
          proxy_set_header Host              $host;
@@ -502,27 +653,50 @@ handling, update all three together.
          proxy_send_timeout 3600s;
      }
      ```
-4. **Define the WebSocket upgrade map once, globally** (the `map` directive is only valid in
-   `http{}` context, which Plesk's per-domain box is not). Plesk includes `/etc/nginx/conf.d/*.conf`
-   in its `http{}`, so add a file there with a uniquely-named variable to avoid clashing with any
-   Plesk-provided map:
+
+3b. **(Apache-only front-end) Add the proxy in Apache's directives box.** Under the subdomain →
+   **Apache & nginx Settings** → **Additional Apache directives**, use the box for **HTTPS**
+   (Plesk already generated the `<VirtualHost *:443>` and its TLS; you're adding inside it, so no
+   `<VirtualHost>` wrapper and no SSL cert lines). Apache-only means **no** nginx map step 4 is
+   needed — `mod_proxy_wstunnel` handles the upgrade via the explicit `ws://` line:
+   ```apache
+   ProxyPreserveHost On
+
+   # WebSocket first — must precede the catch-all (mod_proxy matches in order).
+   ProxyPass        /api/ws/activity ws://127.0.0.1:8099/api/ws/activity timeout=3600
+   ProxyPassReverse /api/ws/activity ws://127.0.0.1:8099/api/ws/activity
+
+   ProxyPass        / http://127.0.0.1:8099/ timeout=3600   # test subdomain → :8098
+   ProxyPassReverse / http://127.0.0.1:8099/
+   ```
+   `ProxyPass /` overrides the docroot, so there is no "Smart static files" toggle to worry about.
+   Confirm `mod_proxy_wstunnel` is loaded (`httpd -M | grep wstunnel`); on Plesk it normally is.
+4. **(nginx only) Define the WebSocket upgrade map once, globally** (the `map` directive is only
+   valid in `http{}` context, which Plesk's per-domain box is not). Plesk includes
+   `/etc/nginx/conf.d/*.conf` in its `http{}`, so add a file there with a uniquely-named variable to
+   avoid clashing with any Plesk-provided map. **Skip this entirely on an Apache-only host.**
    ```nginx
    # /etc/nginx/conf.d/puzzbot_ws.conf
    map $http_upgrade $puzzbot_conn_upgrade { default upgrade; '' close; }
    ```
    Then `sudo nginx -t && sudo systemctl reload nginx`. (Plesk also regenerates config on
    subscription changes; this `conf.d` file is global and survives that.)
-5. **SELinux** still applies — run the `httpd_can_network_connect` boolean above so Plesk's nginx
-   can reach `127.0.0.1:8099`.
+5. **SELinux** still applies — run the `httpd_can_network_connect` boolean above so Plesk's
+   nginx/Apache can reach `127.0.0.1:8099`.
 
 Keep the bot's `web.host` at `127.0.0.1` (same-box) so `:8099` is never exposed directly — only
-Plesk's nginx reaches it.
+Plesk's proxy reaches it.
 
 ## 8. Verify
 
-- Bot logs in to Discord and responds to `!help` in the server.
-- Browse to `https://your-host/`, click login → you are bounced to Discord, authorise, and land
-  back on the board.
+Check **each** instance independently — the two are only truly isolated if these all pass separately:
+
+- Each bot logs in to Discord as its **own** application and responds to `!help` (confirm the live
+  bot answers in the live server and the test bot as the test app — not one bot answering twice).
+- Browse to each subdomain (`https://puzzweb.<domain>/` and `https://puzzweb-test.<domain>/`),
+  click login → you are bounced to Discord, authorise, and land back on that board.
+- Confirm the ports don't collide: `ss -ltnp | grep -E ':809[89]'` should show `puzzbot` on `8099`
+  and `puzzbot-test` on `8098` (and both `systemctl --user status puzzbot` are `active`).
 - The puzzle list and live activity feed populate (an active hunt is visible to holders of its
   team role; see [`docs/dashboard.md`](docs/dashboard.md) for the visibility model).
 
