@@ -105,8 +105,10 @@ helpers avoid drift between the two seams.
 
 - **New** `POST /api/tag_groups/<id>/change-type`, body `{"type": "<Metapuzzle|Capstone|Runaround|Group>"}`.
   Group-keyed (mirrors `delete_tag_group` / `rename_tag_group`): `_visible_hunt_for_tag_group`,
-  `require_admin`, `puzzles_lock` over members, calls `convert_tag_group_type`, audits
+  `require_organiser`, `puzzles_lock` over members, calls `convert_tag_group_type`, audits
   `change_group_type`, refreshes unassigned, returns `{ok, summary, sheet_warning?}`.
+  Organiser-gated to match delete/rename (not admin — the puzzle-keyed convert bang commands
+  need Manage-Channels, but the group-menu equivalents follow the group-lifecycle gate).
 - **Reuse** `DELETE /api/tag_groups/<id>` (`delete_tag_group`, `keep_puzzles` body) for delete group.
 - **Reuse** `POST /api/puzzles/<id>/convert-to-feeder` (+ its `convert-to-feeder-preview`) for
   "delete group, keep target as feeder", resolving the group's `target_puzzle_id` on the frontend.
