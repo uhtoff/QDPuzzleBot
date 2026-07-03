@@ -863,6 +863,7 @@ class PuzzleService:
         Returns ``(tag_group, summary_string)``.
         """
         tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        already_grouped = tag_group is not None
 
         if tag_group is None:
             # Bare puzzle — promote in-place (no Discord channel creation)
@@ -907,8 +908,10 @@ class PuzzleService:
             summary = "no edge change (runaround)"
 
         # Group has no metapuzzle: tear down the former target now that the edge
-        # flip (which excludes the target's self-edge) has run.
-        if new_type == "Group" and tag_group.target_puzzle_id == puzzle.id:
+        # flip (which excludes the target's self-edge) has run. Only for a
+        # PRE-EXISTING group — never the promote-in-place branch above, which just
+        # created the group around this puzzle (that would delete it immediately).
+        if already_grouped and new_type == "Group" and tag_group.target_puzzle_id == puzzle.id:
             await self._teardown_group_target(guild, hunt, tag_group, puzzle)
 
         # Update forum post tags (structural type may have changed).

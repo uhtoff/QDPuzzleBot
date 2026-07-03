@@ -8,6 +8,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 import asyncio
 import datetime
 import logging
+from contextlib import AsyncExitStack
 
 import discord
 import pytz
@@ -1400,7 +1401,7 @@ async def change_group_type(tag_group_id):
     if new_type not in GROUP_TYPES:
         return jsonify({"error": "invalid_type"}), 400
 
-    from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
+    from bot.store import HuntJsonDb, TagGroupJsonDb
     tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
     if tag_group is None:
         return jsonify({"error": "round_not_found"}), 404
@@ -1410,12 +1411,17 @@ async def change_group_type(tag_group_id):
         return jsonify({"error": "bot_unavailable"}), 503
     snowflake = ctx["guild_snowflake"]
     guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
-    member_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
 
     warning = None
     summary = None  # stays None if convert_tag_group_type raises SheetRefreshError
     try:
-        async with puzzles_lock(member_ids):
+        # Lock ONLY the target puzzle (if any), mirroring the puzzle-keyed convert
+        # routes. convert_tag_group_type -> convert_to_type -> bulk_re_edge acquires
+        # each *feeder's* puzzle_lock itself, and it excludes the target; holding the
+        # members' locks here too would self-deadlock (puzzle_lock is non-reentrant).
+        async with AsyncExitStack() as stack:
+            if tag_group.target_puzzle_id:
+                await stack.enter_async_context(puzzle_lock(tag_group.target_puzzle_id))
             _group, summary = await cog.service.convert_tag_group_type(
                 guild, hunt_obj, tag_group, new_type)
     except RuntimeError as exc:
