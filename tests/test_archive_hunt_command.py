@@ -1,7 +1,6 @@
 """!archive_hunt cog command: confirm gate + delegation to service.archive_hunt."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from bot.cogs.puzzles import Puzzles
 from bot.core import hunt_archive

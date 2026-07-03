@@ -2,7 +2,6 @@
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from bot.core import hunt_archive
 

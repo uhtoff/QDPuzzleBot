@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import List
 
-import pytz
 from bot.core.discord_channels import clean_channel_name
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
@@ -602,7 +601,6 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
     def log(self, hunt_id: int, source_puzzle_id: int, note: str) -> 'EvidenceData':
         """Insert one evidence item and return it."""
-        import datetime
         now = datetime.datetime.utcnow()
         cursor = self.mydb.cursor(dictionary=True)
         try:

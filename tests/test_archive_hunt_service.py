@@ -7,7 +7,6 @@ archived flag.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
-import pytest
 
 from bot.core import hunt_archive
 from bot.core.puzzle_service import PuzzleService

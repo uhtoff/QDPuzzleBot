@@ -1,7 +1,6 @@
 """_confirm_destructive: archive callers get accurate (non-'sheets deleted') copy."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from bot.cogs.puzzles import Puzzles
 from tests.conftest import make_ctx

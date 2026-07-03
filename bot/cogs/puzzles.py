@@ -1,10 +1,8 @@
-import datetime
 import logging
 import random
 from typing import Any, Optional
 
 import discord
-import pytz
 from discord import app_commands
 from discord.ext import tasks, commands
 from googleapiclient.errors import HttpError
