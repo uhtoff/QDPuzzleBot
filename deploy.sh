@@ -29,6 +29,8 @@
 #
 #   User-level unit (survives logout via `loginctl enable-linger <user>`):
 #     RESTART_CMD='systemctl --user restart puzzbot'
+#     # This script auto-sets XDG_RUNTIME_DIR so the --user restart reaches the
+#     # user bus from the non-login Plesk hook (linger must be on — README § 6).
 #
 # With RESTART_CMD set, systemd handles (re)building via the unit's
 # ExecStart=.../start.sh, so behaviour is the same either way.
@@ -42,6 +44,14 @@ cd "$(dirname "$(readlink -f "$0")")"
 # to `python3 -m pipenv`. (Same bootstrap as start.sh.)
 export PYENV_ROOT="${PYENV_ROOT:-${HOME:-/root}/.pyenv}"
 export PATH="$PYENV_ROOT/shims:${HOME:-/root}/.local/bin:/usr/local/bin:$PATH"
+
+# A `systemctl --user` RESTART_CMD needs XDG_RUNTIME_DIR to find the per-user bus,
+# but a Plesk Git hook / non-login shell (su -c) doesn't set it — the restart then
+# dies with "Failed to connect to bus: No such file or directory" even though the
+# unit is healthy. Default it to the standard per-user path when unset. (Linger
+# must be enabled so /run/user/<uid> exists — see README § "user systemd service".)
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 if command -v pipenv >/dev/null 2>&1; then
   PIPENV="pipenv"
 elif python3 -m pipenv --version >/dev/null 2>&1; then

@@ -418,6 +418,28 @@ systemctl --user status puzzbot
 journalctl --user -u puzzbot -f      # follow logs
 ```
 
+> **`systemctl --user` → "Failed to connect to bus: No such file or directory"?** The unit can be
+> running perfectly (under linger) while an *interactive* shell still can't reach it. This happens
+> when you enter the account with `su` / `su -` (or a Plesk shell) instead of a real login: `su`
+> doesn't start a user session, so `XDG_RUNTIME_DIR` and the user D-Bus aren't set. Fixes, best
+> first:
+> - **SSH in directly as the user** (on Plesk: Hosting Settings → *Access to the server over SSH* →
+>   `/bin/bash`) — a real login sets `XDG_RUNTIME_DIR`/the bus up for you.
+> - **Or export `XDG_RUNTIME_DIR`** in the `su` shell before any `systemctl --user` (run this **as
+>   the bot user**, not root — as root `id -u` is `0` and points at the wrong dir):
+>   ```bash
+>   export XDG_RUNTIME_DIR=/run/user/$(id -u)
+>   ```
+>   That alone is usually enough. If it still can't connect, also set the bus address explicitly:
+>   ```bash
+>   export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+>   ```
+>   Append the export(s) to the user's `~/.bashrc` so they stick. (`machinectl shell <user>@` also
+>   gives a clean session but isn't installed on minimal/VPS hosts.)
+>
+> Enable **linger first** (`loginctl enable-linger <user>`, step 1) — it starts the user manager and
+> creates `/run/user/<uid>`; the exports point at that dir, so without linger it won't exist yet.
+
 > A user unit can't order itself `After=mariadb.service` (that's a system unit). On a Plesk host
 > MariaDB is up long before the lingering user managers start at boot, so the DB is ready in
 > practice; `Restart=on-failure` covers any rare early race. If you would rather use **root-owned**
@@ -448,7 +470,10 @@ instance's user (`puzzbot` / `puzzbot-test`), and the restart below then targets
   ```
 
   This works unattended because linger (step 1) keeps the user's systemd manager running even
-  with no active login. Because the unit runs `start.sh`, the redeploy still rebuilds the frontend.
+  with no active login. The Plesk hook runs in a non-login shell with no `XDG_RUNTIME_DIR`, so a
+  bare `systemctl --user` there would fail with *"Failed to connect to bus"* — `deploy.sh` sets
+  `XDG_RUNTIME_DIR=/run/user/$(id -u)` for you to avoid that (linger must be on so the dir exists).
+  Because the unit runs `start.sh`, the redeploy still rebuilds the frontend.
 
 - **Alternative — root-owned units.** If you went with root units instead, use
   `RESTART_CMD='sudo -n systemctl restart puzzbot'` (or `puzzbot-test`) and add a one-time
