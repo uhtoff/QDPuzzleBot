@@ -157,7 +157,9 @@ with two unrelated features that also say "archive": the **solved puzzles sheet*
 channels.
 
 Channel archiving auto-creates the destination webhook, does not copy reactions, and
-times out stuck attachment downloads (so a busy channel can't hang the run).
+times out stuck attachment downloads (so a busy channel can't hang the run). `!archive_hunt`
+holds locks on every puzzle in the hunt for the whole run, so solving is blocked hunt-wide
+until it finishes.
 
 | Command | Where | Does |
 |---|---|---|
