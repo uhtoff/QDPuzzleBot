@@ -86,22 +86,29 @@ new branches:
 4. Order: run the edge flip (`bulk_re_edge(..., "none")`) **while the target still exists** so its
    self-edge exclusion/refresh is correct, then tear down.
 
-**(b) Promote — bare Group → targeted** (`_promote_group_to_target`):
+**(b) Promote — bare Group → targeted** (`_promote_group_to_target`): **repurpose the general
+channel in place** (symmetric with the teardown; preserves history; avoids a cache race).
 1. Retype the group (`tag_group.type = new_type`; commit) so `create_puzzle`'s welcome renders
-   the right kind.
-2. **Delete the old general chat channel first**, then create the meta via
+   the right kind. Resolve the existing general channel (`category_layout.group_chat_channel`,
+   non-forum, before the target is set) as `chat`.
+2. Create the meta via
    `self.create_puzzle(guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier)`.
-   Reason: `create_puzzle` calls `get_or_create_channel(clean_channel_name(name))`; because the meta
-   name equals the group name, an *existing* general channel would be found with `created=False`,
-   skipping the channel-link + welcome and leaving the meta channel-less. Deleting it first makes
-   `create_puzzle` create a fresh meta channel (`created=True`), fully linked with a meta welcome
-   pin, and its sheet tab. `create_puzzle` also sets `is_target=True` and tags the `target`
-   self-edge, so no re-tag is needed. *(Accepted tradeoff: a bare Group's chat history is lost;
-   bare groups rarely carry meaningful discussion. Teardown, by contrast, repurposes the meta
-   channel in place to preserve the meta's discussion.)*
-3. Set `tag_group.target_puzzle_id = puzzle.id`; commit. Set source_mode + re-edge members to
+   Because the meta name equals the group name, `create_puzzle`'s `get_or_create_channel` finds the
+   existing general channel and returns `created=False`, leaving the puzzle **unlinked**
+   (`channel_id == 0`). `create_puzzle` still creates the sheet tab, sets `is_target=True`, and tags
+   the `target` self-edge.
+3. Reconcile the channel:
+   - if `puzzle.channel_id` is unset → **adopt** `chat` onto the meta (`channel_id`/`name`/`mention`;
+     commit), then after setting the target, `notifier.refresh_info(guild, hunt, puzzle)` swaps the
+     channel's pin from the group welcome to the meta welcome;
+   - if `create_puzzle` made a *fresh* channel instead (general channel had gone missing) →
+     `_safe_delete_channel` the leftover `chat`; the fresh channel already got its meta welcome.
+4. Set `tag_group.target_puzzle_id = puzzle.id`; commit. Set source_mode + re-edge members to
    `TYPE_DEFAULTS[new_type]["default_edge"]` via `set_source_mode` + `bulk_re_edge`.
-4. Guarded to non-forum for the channel delete/create; forum-mode promote is out of scope.
+5. **Why not delete-then-recreate:** `channel.delete()` only evicts the channel from discord.py's
+   cache on the later `CHANNEL_DELETE` gateway event, so a subsequent `get_or_create_channel` could
+   still find the stale channel and skip linking — leaving the meta channel-less. Repurposing in
+   place sidesteps that race. Guarded to non-forum; forum-mode promote is out of scope.
 
 `convert_to_type` (puzzle-keyed) stays for the bang path and the bare-feeder promote-in-place; it
 **also** gains the Group teardown so `!convert_to_group` is fixed. The shared teardown/promote

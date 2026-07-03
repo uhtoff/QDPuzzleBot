@@ -348,9 +348,40 @@ class TestConvertTagGroupType:
             mcl.group_chat_channel.return_value = chat
             g, summary = await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
         cog.service.create_puzzle.assert_awaited_once()
+        # create_puzzle returned a puzzle with its own channel (id 111) != the
+        # general channel (321) — the fresh-channel branch retires the leftover.
         cog.service._safe_delete_channel.assert_awaited_once_with(guild, 321)
         assert group.target_puzzle_id == 99
         assert group.type == "Metapuzzle"
+
+    @pytest.mark.asyncio
+    async def test_bare_group_promote_adopts_existing_channel(self, cog):
+        # The common path: create_puzzle reuses the general channel by name and
+        # leaves the meta unlinked (channel_id 0). Promote adopts that channel onto
+        # the meta and swaps its pin to the meta welcome — no delete, no race.
+        group = make_round(id=42, name="Bag", target_puzzle_id=0, category_id=999)
+        group.type = "Group"
+        new_meta = make_puzzle(id=99, is_target=True, channel_id=0)
+        cog.service.create_puzzle = AsyncMock(return_value=new_meta)
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 3 none → feeds")
+        cog.service._safe_delete_channel = AsyncMock(return_value=True)
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
+        guild = MagicMock()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.category_layout") as mcl:
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: None
+            chat = MagicMock(); chat.id = 321; chat.name = "bag"; chat.mention = "<#321>"
+            mcl.group_chat_channel.return_value = chat
+            await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
+        assert new_meta.channel_id == 321                       # adopted in place
+        cog.service._safe_delete_channel.assert_not_awaited()   # nothing to retire
+        cog.service.notifier.refresh_info.assert_awaited_once()  # pin -> meta welcome
+        assert group.target_puzzle_id == 99
 
     @pytest.mark.asyncio
     async def test_bare_group_to_group_is_noop(self, cog):
