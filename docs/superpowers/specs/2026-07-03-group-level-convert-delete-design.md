@@ -87,15 +87,21 @@ new branches:
    self-edge exclusion/refresh is correct, then tear down.
 
 **(b) Promote — bare Group → targeted** (`_promote_group_to_target`):
-1. Create the meta puzzle via `self.create_puzzle(guild, hunt, tag_group, name, is_meta=True,
-   notifier=...)`. Repurpose the general chat channel: rather than create a brand-new channel,
-   rename the existing `group_chat_channel` into the meta channel and hand its id to the new
-   puzzle (so no orphan general channel remains); create its sheet tab; pin the meta welcome.
-   *(If repurposing the existing channel proves too invasive in `create_puzzle`, fall back to
-   creating a fresh meta channel and deleting the old general channel — decided at implementation
-   time; either way, exactly one channel remains and it is the meta channel.)*
-2. Set `tag_group.target_puzzle_id = puzzle.id`, `puzzle.is_target = True`, tag the `target`
-   self-edge; set source_mode + re-edge members to `TYPE_DEFAULTS[new_type]["default_edge"]`.
+1. Retype the group (`tag_group.type = new_type`; commit) so `create_puzzle`'s welcome renders
+   the right kind.
+2. **Delete the old general chat channel first**, then create the meta via
+   `self.create_puzzle(guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier)`.
+   Reason: `create_puzzle` calls `get_or_create_channel(clean_channel_name(name))`; because the meta
+   name equals the group name, an *existing* general channel would be found with `created=False`,
+   skipping the channel-link + welcome and leaving the meta channel-less. Deleting it first makes
+   `create_puzzle` create a fresh meta channel (`created=True`), fully linked with a meta welcome
+   pin, and its sheet tab. `create_puzzle` also sets `is_target=True` and tags the `target`
+   self-edge, so no re-tag is needed. *(Accepted tradeoff: a bare Group's chat history is lost;
+   bare groups rarely carry meaningful discussion. Teardown, by contrast, repurposes the meta
+   channel in place to preserve the meta's discussion.)*
+3. Set `tag_group.target_puzzle_id = puzzle.id`; commit. Set source_mode + re-edge members to
+   `TYPE_DEFAULTS[new_type]["default_edge"]` via `set_source_mode` + `bulk_re_edge`.
+4. Guarded to non-forum for the channel delete/create; forum-mode promote is out of scope.
 
 `convert_to_type` (puzzle-keyed) stays for the bang path and the bare-feeder promote-in-place; it
 **also** gains the Group teardown so `!convert_to_group` is fixed. The shared teardown/promote
