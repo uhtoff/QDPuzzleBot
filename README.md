@@ -270,6 +270,20 @@ pyenv install 3.12
 pyenv global 3.12        # or `pyenv local 3.12` inside the repo dir
 ```
 
+The `Pipfile` pins `python_version = "3.12"`, so `pipenv install` fails immediately if the
+active interpreter isn't 3.12 — a clear error instead of a confusing downstream failure.
+
+> **Use a recent pipenv.** Python 3.12 removed `distutils` from the stdlib, and older pipenv
+> probes install paths by importing it — so a stale distro pipenv fails on 3.12 with
+> `ModuleNotFoundError: No module named 'distutils'`, which cascades into *every* package
+> "failing to install". Upgrade first (want a 2023.11+/2024+ version):
+>
+> ```bash
+> pip3 install --user --upgrade pip pipenv
+> pipenv --rm                     # discard any half-built venv
+> pipenv --python 3.12 install
+> ```
+
 > **`pipenv: command not found`?** `pip3 install --user pipenv` puts the binary in
 > `~/.local/bin`, which isn't on `PATH` by default. Add it (append to `~/.bashrc` too), then
 > pin the interpreter when creating the virtualenv:
