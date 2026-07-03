@@ -80,7 +80,7 @@ def ensure_migrations_table(conn):
             "  `filename`   VARCHAR(255) NOT NULL,"
             "  `applied_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,"
             "  PRIMARY KEY (`filename`)"
-            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"
         )
         conn.commit()
     finally:

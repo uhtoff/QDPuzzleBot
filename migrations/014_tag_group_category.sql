@@ -12,4 +12,4 @@ CREATE TABLE IF NOT EXISTS `tag_group_category` (
   UNIQUE KEY `uq_group_category` (`group_id`, `category_id`),
   KEY `idx_group` (`group_id`),
   KEY `idx_category` (`category_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

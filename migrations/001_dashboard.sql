@@ -17,4 +17,4 @@ CREATE TABLE IF NOT EXISTS `channel_activity` (
     `last_author_name`      VARCHAR(255)    NOT NULL DEFAULT '',
     PRIMARY KEY (`channel_id`),
     KEY `idx_channel_activity_guild` (`guild_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

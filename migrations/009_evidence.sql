@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `evidence_items` (
   KEY `idx_evidence_hunt`   (`hunt_id`),
   KEY `idx_evidence_source` (`source_puzzle_id`),
   KEY `idx_evidence_target` (`target_puzzle_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Store the page id of the Evidence sheet tab once created.
 ALTER TABLE `hunts`
