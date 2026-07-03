@@ -436,6 +436,8 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
                 "rollup_stale": bool(ru.get("stale", False)),
                 "rollup_error": ru.get("error"),
                 "source_mode": ru.get("source_mode") or "round",
+                "group_type": group_info.get(tag_group_id, {}).get("type"),
+                "target_puzzle_id": group_info.get(tag_group_id, {}).get("target_puzzle_id") or 0,
             }
             order.append(tag_group_id)
         return groups[tag_group_id]
