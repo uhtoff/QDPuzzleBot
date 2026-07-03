@@ -746,6 +746,43 @@ use them.
    ```
    `ProxyPass /` overrides the docroot, so there is no "Smart static files" toggle to worry about.
    Confirm `mod_proxy_wstunnel` is loaded (`httpd -M | grep wstunnel`); on Plesk it normally is.
+
+   **Alternative — detect the upgrade by header (`mod_rewrite`).** If the explicit `ws://`
+   `ProxyPass` line above doesn't upgrade on your Apache/module build (some do, some don't),
+   use a `mod_rewrite` rule that proxies *any* request carrying an `Upgrade: websocket` header
+   instead. Keep the catch-all `ProxyPass /` and add:
+   ```apache
+   ProxyPreserveHost On
+   ProxyPass        / http://127.0.0.1:8099/ timeout=3600   # test subdomain → :8098
+   ProxyPassReverse / http://127.0.0.1:8099/
+
+   # Any WebSocket (matched by the Upgrade header) → ws:// backend.
+   RewriteEngine On
+   RewriteCond %{HTTP:Upgrade} =websocket [NC]
+   RewriteRule /(.*) ws://127.0.0.1:8099/$1 [P,L]
+   ```
+   This form is path-agnostic (no hard-coded `/api/ws/activity`) but needs **`mod_rewrite`** in
+   addition to `mod_proxy_wstunnel`. If WebSockets still don't upgrade, move the `RewriteEngine`
+   block **above** the `ProxyPass /` line — module load order decides which claims the request
+   first, so rewrite-first is the safer arrangement.
+
+   > **nginx in front of Apache?** If Plesk fronts Apache with nginx (there's a "Proxy mode"
+   > section under **Apache & nginx Settings** → you're *not* Apache-only), these Apache
+   > directives only fix the nginx→Apache→app inner hop — nginx still has to forward the
+   > `Upgrade`/`Connection` headers on the outer hop. Recent Plesk does by default; if plain
+   > pages work but the WebSocket never returns **101**, nginx is dropping the header. Fix it by
+   > carving the WS path out in **Additional nginx directives** (proxied straight to the app,
+   > bypassing Apache for just that path):
+   > ```nginx
+   > location /api/ws/ {
+   >     proxy_pass http://127.0.0.1:8099;   # test subdomain → :8098
+   >     proxy_http_version 1.1;
+   >     proxy_set_header Upgrade    $http_upgrade;
+   >     proxy_set_header Connection "upgrade";
+   >     proxy_set_header Host       $host;
+   >     proxy_read_timeout 3600s;
+   > }
+   > ```
 4. **(nginx only) Define the WebSocket upgrade map once, globally** (the `map` directive is only
    valid in `http{}` context, which Plesk's per-domain box is not). Plesk includes
    `/etc/nginx/conf.d/*.conf` in its `http{}`, so add a file there with a uniquely-named variable to
