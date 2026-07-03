@@ -1413,6 +1413,7 @@ async def change_group_type(tag_group_id):
     member_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
 
     warning = None
+    summary = None  # stays None if convert_tag_group_type raises SheetRefreshError
     try:
         async with puzzles_lock(member_ids):
             _group, summary = await cog.service.convert_tag_group_type(
