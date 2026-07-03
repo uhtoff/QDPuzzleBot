@@ -19,3 +19,6 @@ google-api-python-client = "*"
 quart = "*"
 aiohttp = "*"
 python-slugify = "*"
+
+[requires]
+python_version = "3.12"
