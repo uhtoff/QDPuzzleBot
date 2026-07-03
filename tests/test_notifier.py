@@ -207,3 +207,32 @@ async def test_composite_notifier_add_sink_registers_for_future_calls():
     await comp.board_changed(hunt)
 
     sink.board_changed.assert_awaited_once_with(hunt)
+
+
+# ---- refresh_group_info: bare-Group channel pin refresh ----
+
+from tests.conftest import make_hunt, make_round  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_refresh_group_info_updates_group_pin():
+    bot = MagicMock()
+    cog = MagicMock()
+    cog.send_initial_group_channel_messages = AsyncMock()
+    bot.get_cog.return_value = cog
+    guild = MagicMock()
+    channel = MagicMock()
+    guild.get_channel_or_thread.return_value = channel
+    n = DiscordNotifier(bot)
+    tag_group = make_round(id=5, category_id=222)
+    with patch("bot.core.category_layout.group_chat_channel", return_value=None), \
+         patch("bot.store.GuildSettingsDb") as gsdb:
+        gsdb.get.return_value = MagicMock()
+        await n.refresh_group_info(guild, make_hunt(), tag_group)
+    cog.send_initial_group_channel_messages.assert_awaited_once()
+    assert cog.send_initial_group_channel_messages.await_args.kwargs["update"] is True
+
+
+@pytest.mark.asyncio
+async def test_null_notifier_has_refresh_group_info():
+    await NullNotifier().refresh_group_info(None, None, None)  # no raise

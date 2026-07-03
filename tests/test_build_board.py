@@ -4,6 +4,24 @@ from bot.web.data import build_board, _load_notes
 from tests.conftest import make_puzzle_row, make_round_ref
 
 
+def test_build_board_exposes_group_type_and_target():
+    all_groups = [{"id": 5, "name": "Alpha", "group_code": "AL",
+                   "type": "Group", "target_puzzle_id": 0}]
+    board = build_board(puzzles=[], all_groups=all_groups)
+    grp = next(g for g in board if g["tag_group_id"] == 5)
+    assert grp["group_type"] == "Group"
+    assert grp["target_puzzle_id"] == 0
+
+
+def test_build_board_group_type_targeted():
+    all_groups = [{"id": 6, "name": "Beta", "group_code": "BE",
+                   "type": "Metapuzzle", "target_puzzle_id": 88}]
+    board = build_board(puzzles=[], all_groups=all_groups)
+    grp = next(g for g in board if g["tag_group_id"] == 6)
+    assert grp["group_type"] == "Metapuzzle"
+    assert grp["target_puzzle_id"] == 88
+
+
 # ---------------------------------------------------------------------------
 # _load_notes
 # ---------------------------------------------------------------------------

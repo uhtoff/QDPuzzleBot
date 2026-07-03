@@ -96,6 +96,8 @@ export interface BoardGroup {
   rollup_stale: boolean;
   rollup_error: string | null;
   source_mode: string;  // "round" | "subtree" | "explicit" (M7)
+  group_type: string | null;
+  target_puzzle_id: number | null;
 }
 
 export interface HuntDetail {

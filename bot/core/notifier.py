@@ -45,6 +45,10 @@ class Notifier(abc.ABC):
         """Refresh a puzzle's pinned info message after a metadata change."""
 
     @abc.abstractmethod
+    async def refresh_group_info(self, guild, hunt, tag_group) -> None:
+        """Refresh a bare-Group channel's pinned welcome after a type change."""
+
+    @abc.abstractmethod
     async def board_changed(self, hunt) -> None:
         """Notify that the board state has changed for this hunt (Phase B)."""
 
@@ -57,6 +61,9 @@ class NullNotifier(Notifier):
         return None
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:
+        return None
+
+    async def refresh_group_info(self, guild=None, hunt=None, tag_group=None) -> None:
         return None
 
     async def board_changed(self, hunt=None) -> None:
@@ -191,6 +198,31 @@ class DiscordNotifier(Notifier):
             from bot.core.forum_config import sync_forum_guidelines
             await sync_forum_guidelines(guild, hunt, tag_group, puzzle)
 
+    async def refresh_group_info(self, guild, hunt, tag_group) -> None:
+        """Refresh a bare-Group channel's pinned welcome after a type change."""
+        if guild is None or tag_group is None:
+            return
+        cog = self._cog()
+        if cog is None:
+            return
+
+        from bot.core import category_layout
+        channel = category_layout.group_chat_channel(guild, tag_group)
+        if channel is None:
+            channel = guild.get_channel_or_thread(getattr(tag_group, "category_id", 0))
+        if channel is None:
+            return
+
+        try:
+            from bot.store import GuildSettingsDb
+            await cog.send_initial_group_channel_messages(
+                None, channel,
+                hunt=hunt, tag_group=tag_group, update=True,
+                guild_data=GuildSettingsDb.get(guild.id),
+            )
+        except Exception:
+            logger.exception("refresh_group_info: failed for group %s", tag_group.id)
+
 
 # ------------------------------------------------------------------ composite
 class CompositeNotifier(Notifier):
@@ -225,6 +257,10 @@ class CompositeNotifier(Notifier):
     ) -> None:
         for n in self._notifiers:
             await n.refresh_info(guild, hunt, puzzle)
+
+    async def refresh_group_info(self, guild, hunt, tag_group) -> None:
+        for n in self._notifiers:
+            await n.refresh_group_info(guild, hunt, tag_group)
 
     async def board_changed(self, hunt=None) -> None:
         for n in self._notifiers:

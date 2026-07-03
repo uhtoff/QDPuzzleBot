@@ -19,7 +19,8 @@ from tests.conftest import make_puzzle, make_round
 # Add a method here when (and only when) it mutates board-visible state.
 EXPECTED_PUSH_METHODS = {
     "add_note", "add_partial", "add_sheet", "add_solution", "bulk_re_edge",
-    "change_solution", "convert_to_meta", "convert_to_puzzle", "convert_to_type",
+    "change_solution", "convert_tag_group_type", "convert_to_meta",
+    "convert_to_puzzle", "convert_to_type",
     "create_mini", "create_puzzle", "create_tag_group", "delete_hunt",
     "delete_puzzle", "delete_round", "erase_note", "log_clues", "make_minimeta",
     "remove_minimeta", "remove_sheet", "rename_group", "rename_puzzle",

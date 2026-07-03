@@ -863,6 +863,7 @@ class PuzzleService:
         Returns ``(tag_group, summary_string)``.
         """
         tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        already_grouped = tag_group is not None
 
         if tag_group is None:
             # Bare puzzle — promote in-place (no Discord channel creation)
@@ -906,10 +907,117 @@ class PuzzleService:
         else:
             summary = "no edge change (runaround)"
 
+        # Group has no metapuzzle: tear down the former target now that the edge
+        # flip (which excludes the target's self-edge) has run. Only for a
+        # PRE-EXISTING group — never the promote-in-place branch above, which just
+        # created the group around this puzzle (that would delete it immediately).
+        if already_grouped and new_type == "Group" and tag_group.target_puzzle_id == puzzle.id:
+            await self._teardown_group_target(guild, hunt, tag_group, puzzle)
+
         # Update forum post tags (structural type may have changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
         return tag_group, summary
+
+    @pushes_board()
+    async def convert_tag_group_type(self, guild, hunt, tag_group, new_type):
+        """Change a TagGroup's type, keyed on the group (not its target puzzle).
+
+        - Targeted group → any type: resolve the target and delegate to
+          convert_to_type (which handles retype/re-edge and, for Group, teardown).
+        - Bare Group → targeted type: create a meta (promote).
+        Returns (tag_group, summary). Raises RuntimeError("<code>") on recoverable
+        problems."""
+        if tag_group.target_puzzle_id:
+            target = PuzzleJsonDb.get_by_attr(id=tag_group.target_puzzle_id)
+            if target is None:
+                raise RuntimeError("target_missing")
+            return await self.convert_to_type(guild, hunt, target, new_type)
+        if new_type == "Group":
+            return tag_group, "no change (already a group)"
+        return await self._promote_group_to_target(guild, hunt, tag_group, new_type)
+
+    async def _promote_group_to_target(self, guild, hunt, tag_group, new_type):
+        """Bare Group → targeted type: create a meta puzzle for the group and
+        repurpose the group's existing general chat channel as the meta channel.
+
+        The meta channel name (clean_channel_name(name)) equals the group's general
+        channel name, so create_puzzle's get_or_create_channel finds the existing
+        channel and returns created=False, leaving the puzzle unlinked. We adopt
+        that channel onto the meta and swap its pin to the meta welcome. (In the
+        rare case create_puzzle made a fresh channel instead — e.g. the general
+        channel had gone missing — we retire the leftover general channel.)
+
+        We deliberately do NOT delete-then-recreate: channel.delete() only evicts
+        the channel from discord.py's cache on the later CHANNEL_DELETE gateway
+        event, so a subsequent create could still find the stale channel and skip
+        linking. Repurposing in place sidesteps that race and preserves history.
+        Non-forum only (forum is out of scope)."""
+        tag_group.type = new_type
+        TagGroupJsonDb.commit(tag_group)
+
+        chat = None
+        if guild is not None and getattr(hunt, "layout_mode", None) != "forum":
+            chat = category_layout.group_chat_channel(guild, tag_group)
+
+        puzzle = await self.create_puzzle(
+            guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier,
+        )
+
+        adopted = False
+        if chat is not None:
+            if puzzle.channel_id and puzzle.channel_id != chat.id:
+                # create_puzzle made a fresh meta channel (general channel was gone):
+                # retire the now-duplicate general channel.
+                await self._safe_delete_channel(guild, chat.id)
+            elif not puzzle.channel_id:
+                # create_puzzle reused the general channel by name but left it
+                # unlinked (created=False): adopt it as the meta channel.
+                puzzle.channel_id = chat.id
+                puzzle.channel_name = getattr(chat, "name", None)
+                puzzle.channel_mention = getattr(chat, "mention", None)
+                PuzzleJsonDb.commit(puzzle)
+                adopted = True
+
+        tag_group.target_puzzle_id = puzzle.id
+        TagGroupJsonDb.commit(tag_group)
+
+        # The adopted channel still carries the group welcome pin — swap it to the
+        # meta welcome now that the target is set (refresh_info resolves the group
+        # via target_puzzle_id). A fresh channel already got its meta welcome from
+        # create_puzzle, so only refresh when we adopted.
+        if adopted and self.notifier is not None:
+            await self.notifier.refresh_info(guild, hunt, puzzle)
+
+        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
+        await self.set_source_mode(hunt, tag_group, default_sm)
+        default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
+        summary = await self.bulk_re_edge(tag_group, default_edge, hunt)
+        return tag_group, summary
+
+    async def _teardown_group_target(self, guild, hunt, tag_group, target):
+        """Convert a targeted group into a bare Group: delete the target meta's
+        sheet + DB record, clear the group's target, and repurpose the meta's
+        channel into the group's general chat channel (rename + group welcome pin).
+        The DB mutation is the durable part; Discord/Sheets steps are best-effort.
+        Non-forum only for the channel repurpose (forum is out of scope)."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            try:
+                await gsheet_cog.delete_puzzle_spreadsheet(target)
+            except Exception:
+                logger.exception("_teardown_group_target: sheet delete failed for puzzle %s", target.id)
+
+        channel_id = getattr(target, "channel_id", 0)
+        PuzzleJsonDb.delete(target.id)
+        tag_group.target_puzzle_id = 0
+        TagGroupJsonDb.commit(tag_group)
+
+        if guild is not None and channel_id and getattr(hunt, "layout_mode", None) != "forum":
+            channel = guild.get_channel(channel_id)
+            if channel is not None:
+                await self.safe_rename(channel, clean_channel_name(tag_group.name))
+                await self.notifier.refresh_group_info(guild, hunt, tag_group)
 
     async def collect_subtree_puzzles(self, root_group):
         """The puzzles a runaround (source_mode='subtree') rolls up: every puzzle

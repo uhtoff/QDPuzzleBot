@@ -19,6 +19,7 @@ import {
   Loader,
   Menu,
   Paper,
+  Radio,
   ScrollArea,
   Stack,
   Text,
@@ -28,14 +29,12 @@ import { IconDotsVertical } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup, HuntDetail, Puzzle } from "../types";
 import {
-  useConvertToCapstone,
   useConvertToFeeder,
   useConvertToFeederPreview,
-  useConvertToGroup,
   useConvertToMeta,
-  useConvertToMetapuzzle,
-  useConvertToRunaround,
+  useChangeGroupType,
   useDeletePuzzle,
+  useDeleteRound,
   useMakeMinimeta,
   useRemoveMinimeta,
   useRenameGroup,
@@ -61,20 +60,15 @@ interface CardProps {
   columnName: string;
   metas: MetaOption[];
   onRetag: (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => void;
-  onConvertToFeeder: (puzzle: Puzzle) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
   onRemoveMinimeta: (puzzle: Puzzle) => void;
   onConvertToMeta: (puzzleId: number) => void;
-  onConvertToMetapuzzle: (puzzleId: number) => void;
-  onConvertToCapstone: (puzzleId: number) => void;
-  onConvertToRunaround: (puzzleId: number) => void;
-  onConvertToGroup: (puzzleId: number) => void;
   isOrganiser: boolean;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onConvertToFeeder, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, onConvertToMetapuzzle, onConvertToCapstone, onConvertToRunaround, onConvertToGroup, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -109,10 +103,6 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Allow removing from the current column unless this puzzle IS that meta.
   const here = puzzle.rounds.find((r) => r.group_code === columnGroupCode);
   const canRemove = columnGroupCode != null && here != null && !here.is_target_of;
-  // The stored type of the group this puzzle is the target of (Metapuzzle /
-  // Capstone / Runaround / Group). Drives the convert menu so it never offers
-  // the type the puzzle already is.
-  const currentType = puzzle.rounds.find((r) => r.is_target_of)?.group_type ?? null;
 
   return (
     <>
@@ -174,70 +164,6 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
                 </Menu.Item>
               </>
             )}
-            {puzzle.is_meta && (
-              <>
-                <Menu.Divider />
-                {currentType !== "Metapuzzle" && (
-                  <Menu.Item
-                    color="grape"
-                    onClick={() =>
-                      setPendingAction({
-                        title: "Convert to metapuzzle",
-                        message: `Convert "${puzzle.name}" to a metapuzzle?`,
-                        onConfirm: () => onConvertToMetapuzzle(puzzle.id),
-                      })
-                    }
-                  >
-                    Convert to metapuzzle
-                  </Menu.Item>
-                )}
-                {currentType !== "Capstone" && (
-                  <Menu.Item
-                    color="grape"
-                    onClick={() =>
-                      setPendingAction({
-                        title: "Convert to capstone",
-                        message: `Convert "${puzzle.name}" to a capstone?`,
-                        onConfirm: () => onConvertToCapstone(puzzle.id),
-                      })
-                    }
-                  >
-                    Convert to capstone
-                  </Menu.Item>
-                )}
-                {currentType !== "Runaround" && (
-                  <Menu.Item
-                    color="grape"
-                    onClick={() =>
-                      setPendingAction({
-                        title: "Convert to runaround",
-                        message: `Convert "${puzzle.name}" to a runaround?`,
-                        onConfirm: () => onConvertToRunaround(puzzle.id),
-                      })
-                    }
-                  >
-                    Convert to runaround
-                  </Menu.Item>
-                )}
-                {currentType !== "Group" && (
-                  <Menu.Item
-                    color="grape"
-                    onClick={() =>
-                      setPendingAction({
-                        title: "Convert to group",
-                        message: `Convert "${puzzle.name}" to a group?`,
-                        onConfirm: () => onConvertToGroup(puzzle.id),
-                      })
-                    }
-                  >
-                    Convert to group
-                  </Menu.Item>
-                )}
-                <Menu.Item color="red" onClick={() => onConvertToFeeder(puzzle)}>
-                  Convert to feeder…
-                </Menu.Item>
-              </>
-            )}
             {puzzle.is_minimeta && !puzzle.solved && (
               <>
                 <Menu.Divider />
@@ -275,7 +201,7 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
                 </Menu.Item>
               </>
             )}
-            {isOrganiser && (
+            {isOrganiser && !puzzle.is_meta && (
               <>
                 <Menu.Divider />
                 <Menu.Item color="red" onClick={() => onDeletePuzzle(puzzle)}>
@@ -338,10 +264,16 @@ function Column({
   group,
   children,
   onRenameGroup,
+  onChangeType,
+  onConvertGroupToFeeder,
+  onDeleteGroup,
 }: {
   group: BoardGroup;
   children: ReactNode;
   onRenameGroup: (tagGroupId: number, name: string) => void;
+  onChangeType: (group: BoardGroup, type: string) => void;
+  onConvertGroupToFeeder: (group: BoardGroup) => void;
+  onDeleteGroup: (group: BoardGroup) => void;
 }) {
   // The Unassigned column (group_code === null) is a drop target too: dropping a
   // puzzle there clears it from all metas. Its groupCode in the drop data is null.
@@ -409,9 +341,42 @@ function Column({
             </Badge>
           )}
         </Group>
-        <Text size="xs" c="dimmed">
-          {group.num_solved_feeders}/{group.num_feeders}
-        </Text>
+        <Group gap={4} wrap="nowrap">
+          <Text size="xs" c="dimmed">
+            {group.num_solved_feeders}/{group.num_feeders}
+          </Text>
+          {!isUnassigned && (
+            <Menu position="bottom-end" withinPortal shadow="md" width={230}>
+              <Menu.Target>
+                <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Group actions">
+                  <IconDotsVertical size={15} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Change type</Menu.Label>
+                {["Metapuzzle", "Capstone", "Runaround", "Group"]
+                  .filter((t) => t !== group.group_type)
+                  .map((t) => (
+                    <Menu.Item key={t} onClick={() => onChangeType(group, t)}>
+                      {t}
+                    </Menu.Item>
+                  ))}
+                {(group.target_puzzle_id ?? 0) > 0 && (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Item color="orange" onClick={() => onConvertGroupToFeeder(group)}>
+                      Convert to feeder (keep puzzle)…
+                    </Menu.Item>
+                  </>
+                )}
+                <Menu.Divider />
+                <Menu.Item color="red" onClick={() => onDeleteGroup(group)}>
+                  Delete group…
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          )}
+        </Group>
       </Group>
       <Stack gap={6}>{children}</Stack>
     </Paper>
@@ -426,10 +391,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const makeMinimeta = useMakeMinimeta(uid);
   const removeMinimeta = useRemoveMinimeta(uid);
   const convertToMeta = useConvertToMeta(uid);
-  const convertToCapstone = useConvertToCapstone(uid);
-  const convertToRunaround = useConvertToRunaround(uid);
-  const convertToGroup = useConvertToGroup(uid);
-  const convertToMetapuzzle = useConvertToMetapuzzle(uid);
+  const changeType = useChangeGroupType(uid);
+  const deleteRoundMut = useDeleteRound(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [active, setActive] = useState<Puzzle | null>(null);
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
@@ -440,6 +403,11 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const [deleteTarget, setDeleteTarget] = useState<Puzzle | null>(null);
   // Minimeta awaiting a remove-status confirm (null = modal closed).
   const [removeMinimetaTarget, setRemoveMinimetaTarget] = useState<Puzzle | null>(null);
+  // Group awaiting a delete confirm (null = modal closed).
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<BoardGroup | null>(null);
+  const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
+  // Group type change awaiting a confirm (null = modal closed).
+  const [changeTypeConfirm, setChangeTypeConfirm] = useState<{ group: BoardGroup; type: string; message: string } | null>(null);
   const isOrganiser = detail.hunt.can_manage;
   // Track every in-flight retag ourselves: React Query's single mutation only
   // exposes the latest call's variables, so concurrent retags would otherwise
@@ -447,6 +415,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
   // Deferred drag action awaiting confirmation via ConfirmModal.
   const [dragConfirm, setDragConfirm] = useState<{ title: string; message: string; puzzleId: number; groupCode: string; mode: RetagMode } | null>(null);
+
+  useEffect(() => {
+    if (!deleteGroupTarget) setDeleteAllPuzzles(false);
+  }, [deleteGroupTarget]);
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -537,49 +509,70 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     });
   }
 
-  function onConvertToCapstone(puzzleId: number) {
-    convertToCapstone.mutate(puzzleId, {
-      onSuccess: (data) => {
-        showSheetWarning(data);
-        notifications.show({ message: "Converted to a capstone.", color: "green" });
-      },
-      onError: notifyError,
-    });
-  }
-
-  function onConvertToRunaround(puzzleId: number) {
-    convertToRunaround.mutate(puzzleId, {
-      onSuccess: (data) => {
-        showSheetWarning(data);
-        notifications.show({ message: "Converted to a runaround.", color: "green" });
-      },
-      onError: notifyError,
-    });
-  }
-
-  function onConvertToGroup(puzzleId: number) {
-    convertToGroup.mutate(puzzleId, {
-      onSuccess: (data) => showSheetWarning(data),
-      onError: notifyError,
-    });
-  }
-
-  function onConvertToMetapuzzle(puzzleId: number) {
-    convertToMetapuzzle.mutate(puzzleId, {
-      onSuccess: (data) => {
-        showSheetWarning(data);
-        notifications.show({ message: "Converted to a metapuzzle.", color: "green" });
-      },
-      onError: notifyError,
-    });
-  }
-
   function onRenameGroup(tagGroupId: number, name: string) {
     renameGroup.mutate(
       { tagGroupId, name },
       {
         onSuccess: () =>
           notifications.show({ message: "Group renamed.", color: "green" }),
+        onError: notifyError,
+      },
+    );
+  }
+
+  function runChangeType(group: BoardGroup, type: string) {
+    changeType.mutate(
+      { tagGroupId: group.tag_group_id, type },
+      {
+        onSuccess: (data) => {
+          showSheetWarning(data);
+          notifications.show({ message: `"${group.name}" is now a ${type}.`, color: "green" });
+        },
+        onError: notifyError,
+      },
+    );
+  }
+
+  function onChangeType(group: BoardGroup, type: string) {
+    const isTargeted = (group.target_puzzle_id ?? 0) > 0;
+    if (isTargeted && type === "Group") {
+      setChangeTypeConfirm({
+        group, type,
+        message: `Convert "${group.name}" to a group? This removes its metapuzzle, deletes its Google sheet, and turns its channel into the round's general channel. Feeders remain but become pooled (untagged).`,
+      });
+    } else if (!isTargeted && type !== "Group") {
+      setChangeTypeConfirm({
+        group, type,
+        message: `Convert "${group.name}" to a ${type}? This creates a metapuzzle (a new Google sheet and channel) for the group and replaces its chat channel.`,
+      });
+    } else {
+      runChangeType(group, type);
+    }
+  }
+
+  function onConvertGroupToFeeder(group: BoardGroup) {
+    const target = group.puzzles.find((p) => p.is_meta) ?? null;
+    if (target) setConvertTarget(target); // reuses the existing convert-to-feeder modal + preview
+  }
+
+  function onDeleteGroup(group: BoardGroup) {
+    setDeleteGroupTarget(group);
+  }
+
+  function runDeleteRound() {
+    if (!deleteGroupTarget) return;
+    const name = deleteGroupTarget.name;
+    deleteRoundMut.mutate(
+      { roundId: deleteGroupTarget.tag_group_id, keepPuzzles: !deleteAllPuzzles },
+      {
+        onSuccess: (data) => {
+          if (data.failed_channels?.length) {
+            notifications.show({ message: `Group "${name}" deleted; some channels couldn't be removed: ${data.failed_channels.join(", ")}`, color: "yellow" });
+          } else {
+            notifications.show({ message: `Group "${name}" deleted.`, color: "green" });
+          }
+          setDeleteGroupTarget(null);
+        },
         onError: notifyError,
       },
     );
@@ -653,7 +646,14 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         <ScrollArea type="auto" offsetScrollbars>
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
-              <Column key={group.tag_group_id} group={group} onRenameGroup={onRenameGroup}>
+              <Column
+                key={group.tag_group_id}
+                group={group}
+                onRenameGroup={onRenameGroup}
+                onChangeType={onChangeType}
+                onConvertGroupToFeeder={onConvertGroupToFeeder}
+                onDeleteGroup={onDeleteGroup}
+              >
                 {sortPuzzles(group.puzzles, group.group_code).map((p) => (
                   <PuzzleCard
                     key={`${group.tag_group_id}-${p.id}`}
@@ -663,15 +663,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
-                    onConvertToFeeder={setConvertTarget}
                     onDeletePuzzle={setDeleteTarget}
                     onMakeMinimeta={onMakeMinimeta}
                     onRemoveMinimeta={setRemoveMinimetaTarget}
                     onConvertToMeta={onConvertToMeta}
-                    onConvertToMetapuzzle={onConvertToMetapuzzle}
-                    onConvertToCapstone={onConvertToCapstone}
-                    onConvertToRunaround={onConvertToRunaround}
-                    onConvertToGroup={onConvertToGroup}
                     isOrganiser={isOrganiser}
                     isPending={pendingIds.has(p.id)}
                   />
@@ -768,6 +763,45 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         confirmLabel="Move"
         confirmColor="blue"
       />
+
+      <ConfirmModal
+        opened={changeTypeConfirm != null}
+        onClose={() => setChangeTypeConfirm(null)}
+        onConfirm={() => {
+          if (changeTypeConfirm) runChangeType(changeTypeConfirm.group, changeTypeConfirm.type);
+          setChangeTypeConfirm(null);
+        }}
+        title={`Change type to ${changeTypeConfirm?.type ?? ""}`}
+        message={changeTypeConfirm?.message ?? ""}
+        confirmLabel="Change type"
+        confirmColor="grape"
+      />
+
+      <TypedConfirmModal
+        opened={deleteGroupTarget != null}
+        onClose={() => setDeleteGroupTarget(null)}
+        onConfirm={runDeleteRound}
+        title={`Delete group "${deleteGroupTarget?.name ?? ""}"`}
+        confirmPhrase={deleteGroupTarget?.name ?? ""}
+        confirmLabel="Delete group"
+        loading={deleteRoundMut.isPending}
+      >
+        <Radio.Group
+          value={deleteAllPuzzles ? "all" : "keep"}
+          onChange={(v) => setDeleteAllPuzzles(v === "all")}
+          label="What should happen to this group's puzzles?"
+        >
+          <Group mt="xs">
+            <Radio value="keep" label="Group only — keep its puzzles" />
+            <Radio value="all" label={`Group + all ${deleteGroupTarget?.puzzles.length ?? 0} puzzle${(deleteGroupTarget?.puzzles.length ?? 0) === 1 ? "" : "s"}`} />
+          </Group>
+        </Radio.Group>
+        <Text size="sm" c="red" mt="xs">
+          {deleteAllPuzzles
+            ? "⚠️ This permanently deletes every puzzle in the group, their Discord channels and Google sheet tabs, and the group's Discord category. This cannot be undone."
+            : "⚠️ This deletes the group's target puzzle (or its dedicated chat channel) and its Discord category. Other puzzles keep their sheet/channel and move to the hunt's general category. This cannot be undone."}
+        </Text>
+      </TypedConfirmModal>
     </Box>
   );
 }

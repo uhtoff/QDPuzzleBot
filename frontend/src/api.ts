@@ -234,6 +234,17 @@ export function useRenameGroup(uid: string) {
   });
 }
 
+export function useChangeGroupType(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tagGroupId, type }: { tagGroupId: number; type: string }) =>
+      apiSend<{ ok: boolean; summary?: string; sheet_warning?: string }>(
+        `/api/tag_groups/${tagGroupId}/change-type`, "POST", { type },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 /** Modes for solve-variant actions (mirrors web/actions.py). */
 export type SolveMode = "full" | "partial" | "change" | "add";
 

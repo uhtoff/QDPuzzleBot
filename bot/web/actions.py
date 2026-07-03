@@ -8,6 +8,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 import asyncio
 import datetime
 import logging
+from contextlib import AsyncExitStack
 
 import discord
 import pytz
@@ -1376,6 +1377,67 @@ async def rename_tag_group(tag_group_id):
     await _audit("rename_group", hunt_uid=ctx["hunt"]["uid"],
                  detail=f"tag_group_id={tag_group_id} name={new_name}")
     return jsonify({"ok": True})
+
+
+@actions_bp.route("/tag_groups/<int:tag_group_id>/change-type", methods=["POST"])
+@login_required
+async def change_group_type(tag_group_id):
+    """Change a tag group's type (Metapuzzle/Capstone/Runaround/Group), keyed on
+    the group. Organiser-gated (matches delete/rename). Body {"type": "<label>"}.
+    Group-menu equivalent of the puzzle-keyed convert bang commands."""
+    from bot.core.puzzle_service import GROUP_TYPES, GROUP_TYPE_INPUT_ALIASES
+    ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
+    if err:
+        return err
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    raw_type = body.get("type")
+    new_type = GROUP_TYPE_INPUT_ALIASES.get(raw_type, raw_type)
+    if new_type not in GROUP_TYPES:
+        return jsonify({"error": "invalid_type"}), 400
+
+    from bot.store import HuntJsonDb, TagGroupJsonDb
+    tag_group = TagGroupJsonDb.get_by_attr(id=tag_group_id)
+    if tag_group is None:
+        return jsonify({"error": "round_not_found"}), 404
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    snowflake = ctx["guild_snowflake"]
+    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+
+    warning = None
+    summary = None  # stays None if convert_tag_group_type raises SheetRefreshError
+    try:
+        # Lock ONLY the target puzzle (if any), mirroring the puzzle-keyed convert
+        # routes. convert_tag_group_type -> convert_to_type -> bulk_re_edge acquires
+        # each *feeder's* puzzle_lock itself, and it excludes the target; holding the
+        # members' locks here too would self-deadlock (puzzle_lock is non-reentrant).
+        async with AsyncExitStack() as stack:
+            if tag_group.target_puzzle_id:
+                await stack.enter_async_context(puzzle_lock(tag_group.target_puzzle_id))
+            _group, summary = await cog.service.convert_tag_group_type(
+                guild, hunt_obj, tag_group, new_type)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    except SheetRefreshError as exc:
+        warning = str(exc)
+
+    asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+    await _audit("change_group_type", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"tag_group_id={tag_group_id} type={new_type}")
+    resp = {"ok": True, "summary": summary}
+    if warning:
+        resp["sheet_warning"] = warning
+    return jsonify(resp)
 
 
 # --- Reconcile (organiser only) ----------------------------------------------
