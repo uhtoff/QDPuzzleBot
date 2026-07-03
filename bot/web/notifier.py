@@ -37,3 +37,6 @@ class WebNotifier(Notifier):
 
     async def refresh_info(self, guild=None, hunt=None, puzzle=None) -> None:
         return None
+
+    async def refresh_group_info(self, guild=None, hunt=None, tag_group=None) -> None:
+        return None
