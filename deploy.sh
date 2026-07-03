@@ -36,14 +36,27 @@
 # ExecStart=.../start.sh, so behaviour is the same either way.
 # ──────────────────────────────────────────────────────────────────────────
 set -uo pipefail
+
+# ─── Environment repair (Plesk Git hook / non-login shell) ──────────────────
+# Plesk runs this hook with a stripped, sometimes wrong environment:
+#   • PATH may omit /usr/bin & /bin — so even readlink/dirname aren't found;
+#   • HOME may be unset OR set to "/", so ~/.local/bin and pyenv resolve to
+#     junk (symptom: `//.local/bin/pipenv: ...: bad interpreter`). Note HOME="/"
+#     is not empty, so a `${HOME:-default}` fallback does NOT catch it.
+# Repair both BEFORE running any external command (including the cd below).
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
+  HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
+  export HOME
+fi
+
 cd "$(dirname "$(readlink -f "$0")")"
 
-# Plesk hooks / systemd run with a minimal PATH that omits the dirs an
-# interactive login shell adds, so pipenv isn't found even though it works by
-# hand. Cover the common cases (pyenv shims, pip --user / pipx), then fall back
-# to `python3 -m pipenv`. (Same bootstrap as start.sh.)
-export PYENV_ROOT="${PYENV_ROOT:-${HOME:-/root}/.pyenv}"
-export PATH="$PYENV_ROOT/shims:${HOME:-/root}/.local/bin:/usr/local/bin:$PATH"
+# pipenv often lives on a pyenv shim or ~/.local/bin (pip --user) that a login
+# shell adds but this hook doesn't — prepend them on top of the repaired PATH.
+# (Same bootstrap as start.sh.) HOME is correct now, so these resolve right.
+export PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
+export PATH="$PYENV_ROOT/shims:$HOME/.local/bin:$PATH"
 
 # A `systemctl --user` RESTART_CMD needs XDG_RUNTIME_DIR to find the per-user bus,
 # but a Plesk Git hook / non-login shell (su -c) doesn't set it — the restart then
@@ -52,7 +65,10 @@ export PATH="$PYENV_ROOT/shims:${HOME:-/root}/.local/bin:/usr/local/bin:$PATH"
 # must be enabled so /run/user/<uid> exists — see README § "user systemd service".)
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
-if command -v pipenv >/dev/null 2>&1; then
+# Test that pipenv actually RUNS (not just `command -v`): a pip --user pipenv
+# with a stale pyenv shebang exists on PATH but dies with "bad interpreter", so
+# existence alone isn't enough — fall through to `python3 -m pipenv` if so.
+if pipenv --version >/dev/null 2>&1; then
   PIPENV="pipenv"
 elif python3 -m pipenv --version >/dev/null 2>&1; then
   PIPENV="python3 -m pipenv"
