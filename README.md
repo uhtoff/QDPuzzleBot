@@ -246,6 +246,42 @@ sudo systemctl enable --now mariadb
 > set up the reverse proxy + TLS through Plesk (step 7), not by editing `/etc/nginx` directly.
 > Node.js can come from `dnf` as above or from Plesk's **Node.js** extension.
 
+### Python 3.12 via pyenv
+
+The bot needs **Python 3.12**. If the host's system `python3` is older (common on
+RHEL/AlmaLinux), install 3.12 per service user with [pyenv](https://github.com/pyenv/pyenv)
+rather than replacing the system Python. Install the build deps once as root, then run the rest
+**as each service user** (`puzzbot` / `puzzbot-test`) — pyenv installs into that user's `$HOME`:
+
+```bash
+# build deps — as root, one time for the box (RHEL/AlmaLinux)
+sudo dnf install -y gcc make patch zlib-devel bzip2 bzip2-devel readline-devel \
+  sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel
+
+# as the service user
+curl -fsSL https://pyenv.run | bash
+
+# add pyenv to the shell — also append these three lines to ~/.bashrc so they persist
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init - bash)"
+
+pyenv install 3.12
+pyenv global 3.12        # or `pyenv local 3.12` inside the repo dir
+```
+
+> **`pipenv: command not found`?** `pip3 install --user pipenv` puts the binary in
+> `~/.local/bin`, which isn't on `PATH` by default. Add it (append to `~/.bashrc` too), then
+> pin the interpreter when creating the virtualenv:
+>
+> ```bash
+> export PATH="$HOME/.local/bin:$PATH"
+> pipenv --python 3.12 install
+> ```
+>
+> If `su`-ing in gives no `pipenv`/`pyenv` on PATH, you're in a non-login shell — the service
+> user's shell is `/bin/false`, so use a login shell: `su -s /bin/bash - <user>` (note the `-`).
+
 For the optional dashboard you need **Node.js 18+** to build the SPA (installed above); if your
 distro ships an older Node, use [nodesource](https://github.com/nodesource/distributions).
 
