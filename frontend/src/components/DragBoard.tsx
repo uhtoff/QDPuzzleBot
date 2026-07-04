@@ -45,7 +45,7 @@ import {
 import { notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
 import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
-import { MetaBadge } from "./MetaBadge";
+import { getKind, kindColorVar } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 
 interface MetaOption {
@@ -111,6 +111,9 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   // Allow removing from the current column unless this puzzle IS that meta.
   const here = puzzle.rounds.find((r) => r.group_code === columnGroupCode);
   const canRemove = columnGroupCode != null && here != null && !here.is_target_of;
+  // Arrange is space-constrained (narrow columns), so the puzzle's kind shows
+  // as a coloured left-edge line instead of the MetaBadge used elsewhere.
+  const kind = getKind(puzzle);
 
   return (
     <>
@@ -124,13 +127,13 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
         opacity: isDragging ? 0.4 : isPending ? 0.5 : 1,
         cursor: "grab",
         backgroundColor: puzzle.solved ? "var(--mantine-color-green-light)" : undefined,
+        borderLeft: kind ? `4px solid ${kindColorVar(kind.color)}` : undefined,
       }}
       {...listeners}
       {...attributes}
     >
       <Group gap={6} wrap="nowrap" justify="space-between">
         <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
-          <MetaBadge puzzle={puzzle} />
           {multiMeta && (
             <Badge
               size="xs"
@@ -308,6 +311,13 @@ function Column({
     id: `meta:${group.group_code}`,
     data: { groupCode: group.group_code },
   });
+  // A plain group / Unassigned Feeders has no target, so no kind line — only a
+  // group with a target (meta/capstone/metameta/runaround) carries one, in the
+  // target puzzle's own kind colour.
+  const targetPuzzle = group.target_puzzle_id
+    ? group.puzzles.find((p) => p.id === group.target_puzzle_id) ?? null
+    : null;
+  const kind = targetPuzzle ? getKind(targetPuzzle) : null;
   return (
     <Paper
       ref={setNodeRef}
@@ -319,6 +329,7 @@ function Column({
         flex: "0 0 auto",
         outline: isOver ? "2px solid var(--mantine-color-blue-5)" : undefined,
         opacity: isUnassigned && !isOver ? 0.85 : 1,
+        borderLeft: kind ? `4px solid ${kindColorVar(kind.color)}` : undefined,
       }}
     >
       <Group justify="space-between" mb="xs">

@@ -266,7 +266,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
             <Table.Tr>
               <Table.Th w={110}>Links</Table.Th>
               <Table.Th>Puzzle</Table.Th>
-              <Table.Th>Group</Table.Th>
+              {debugEdges && <Table.Th>Group</Table.Th>}
               <Table.Th>Solution</Table.Th>
               <Table.Th w={50} ta="right">Len</Table.Th>
               <Table.Th>Status</Table.Th>
@@ -297,9 +297,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     <MiniCountBadge puzzle={p} />
                   </Group>
                 </Table.Td>
-                <Table.Td {...bandProps}>
-                  {debugEdges ? (
-                    p.rounds.length ? (
+                {debugEdges && (
+                  <Table.Td {...bandProps}>
+                    {p.rounds.length ? (
                       <Group gap={4} wrap="wrap" onClick={(e) => e.stopPropagation()}>
                         {p.rounds.map((r) => (
                           <EdgeBadge
@@ -333,13 +333,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                       </Group>
                     ) : (
                       <Text size="sm" c="dimmed">—</Text>
-                    )
-                  ) : (
-                    <Text size="sm" c="dimmed">
-                      {p.rounds.map((r) => r.name).join(", ") || "—"}
-                    </Text>
-                  )}
-                </Table.Td>
+                    )}
+                  </Table.Td>
+                )}
                 <Table.Td {...bandProps}>
                   <Text ff="monospace" size="sm">
                     {p.solution || ""}
