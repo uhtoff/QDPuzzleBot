@@ -36,6 +36,14 @@ def _create_service():
     return PuzzleService(bot)
 
 
+def _create_service_with_notifier():
+    bot = MagicMock()
+    bot.get_cog.return_value = None
+    notifier = MagicMock()
+    notifier.board_changed = AsyncMock()
+    return PuzzleService(bot, notifier=notifier), notifier
+
+
 def _committed_hunt(commit_mock):
     """The HuntData passed to HuntJsonDb.commit (last call)."""
     assert commit_mock.called
@@ -418,3 +426,55 @@ async def test_apply_gating_overwrites_collects_failures():
         failed = await svc._apply_gating_overwrites(guild, hunt, ov)
 
     assert failed == ["H"]
+
+
+@pytest.mark.asyncio
+async def test_set_hunt_role_gates_open_hunt():
+    svc, notifier = _create_service_with_notifier()
+    guild = MagicMock()
+    guild.default_role = MagicMock(); guild.me = MagicMock()
+    guild.roles = []
+    role = MagicMock(); role.id = 777; role.members = []
+    guild.create_role = AsyncMock(return_value=role)
+    main = MagicMock(); main.edit = AsyncMock()
+    guild.get_channel = MagicMock(return_value=main)
+    requester = _member_with_add(role)
+    hunt = MagicMock(); hunt.role_id = 0; hunt.category_id = 111; hunt.id = 5; hunt.name = "H"
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.SOLVE_CATEGORY", False), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tg:
+        tg.get_all.return_value = []
+        failed = await svc.set_hunt_role(
+            guild, hunt, role_name="Team A", requester=requester,
+            confirm_existing_role=True,
+        )
+
+    assert hunt.role_id == 777
+    hdb.commit.assert_called_once_with(hunt)
+    main.edit.assert_awaited_once()
+    notifier.board_changed.assert_awaited_once_with(hunt)
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_set_hunt_role_rejects_already_gated():
+    svc, _ = _create_service_with_notifier()
+    hunt = MagicMock(); hunt.role_id = 42
+    with pytest.raises(RuntimeError, match="already_gated"):
+        await svc.set_hunt_role(
+            MagicMock(), hunt, role_name="Team A", requester=MagicMock(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_set_hunt_role_existing_role_needs_confirm():
+    svc, _ = _create_service_with_notifier()
+    guild = MagicMock()
+    existing = MagicMock(); existing.name = "Team A"; existing.members = [MagicMock()]
+    guild.roles = [existing]
+    hunt = MagicMock(); hunt.role_id = 0
+    with pytest.raises(RuntimeError, match="existing_role_confirm"):
+        await svc.set_hunt_role(
+            guild, hunt, role_name="Team A", requester=MagicMock(),
+        )

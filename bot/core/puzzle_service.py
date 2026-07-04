@@ -2489,6 +2489,26 @@ class PuzzleService:
                 failed.append(name)
         return failed
 
+    @pushes_board()
+    async def set_hunt_role(self, guild, hunt, *, role_name, requester,
+                            confirm_existing_role=False):
+        """Gate an OPEN hunt (role_id 0) to ``role_name``: set role_id and apply the
+        Discord overwrite to every existing category. Raises RuntimeError with
+        "already_gated" / "existing_role_confirm" / "role_not_applied". Returns the
+        list of category names whose overwrite update failed (empty on full success).
+        """
+        if hunt.role_id != 0:
+            raise RuntimeError("already_gated")
+
+        team_role = await self._resolve_gating_role(
+            guild, role_name, requester, confirm_existing_role
+        )
+        hunt.role_id = team_role.id
+        HuntJsonDb.commit(hunt)
+
+        overwrites = self._gating_overwrites(guild, team_role)
+        return await self._apply_gating_overwrites(guild, hunt, overwrites)
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
