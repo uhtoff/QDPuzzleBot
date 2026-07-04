@@ -324,6 +324,46 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
 
 
 @pytest.mark.asyncio
+async def test_deletes_categories_before_deleting_group_row():
+    """tag_group_category rows FK-cascade off the tag_group row (migration 022),
+    so TagGroupJsonDb.delete(tag_group.id) must run AFTER
+    category_layout.delete_group_categories reads them — deleting the row
+    first would silently wipe the very rows it needs, making it fall back to
+    (and only tear down) the legacy single-category path and orphan the
+    solved/overflow categories."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = []
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.categories = [round_cat]
+    guild.get_channel = MagicMock(return_value=None)
+
+    manager = MagicMock()
+    delete_group_cats = AsyncMock(return_value=True)
+    manager.attach_mock(delete_group_cats, "delete_group_categories")
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               delete_group_cats):
+        manager.attach_mock(tgdb.delete, "tag_group_delete")
+        pdb.get_all_from_tag_group.return_value = []
+        tgcdb.get_for_group.return_value = []
+
+        await svc.delete_round(guild, hunt, tag_group)
+
+    call_names = [c[0] for c in manager.mock_calls]
+    assert call_names.index("delete_group_categories") < call_names.index("tag_group_delete")
+
+
+@pytest.mark.asyncio
 async def test_full_delete_protects_foreign_target_puzzle():
     """keep_puzzles=False deletes every ordinary member puzzle, but a member
     puzzle that is itself a DIFFERENT tag group's target (a nested meta whose

@@ -1396,8 +1396,6 @@ class PuzzleService:
                 if not await self._safe_delete_channel(guild, group_chat_ch.id):
                     failed_channels.append(tag_group.name)
 
-        TagGroupJsonDb.delete(tag_group.id)
-
         if guild is not None:
             if hunt.layout_mode == "forum":
                 # Forum mode: delete the forum channel (cascades its posts)
@@ -1413,7 +1411,9 @@ class PuzzleService:
                 # them all + drop the join rows. delete_group_categories returns False for
                 # single-category rounds, which keep the legacy divider+category teardown.
                 # keep_channel_ids protects any narrow-mode relocation failure from being
-                # swept up in the blanket per-category channel delete.
+                # swept up in the blanket per-category channel delete. Must run BEFORE
+                # TagGroupJsonDb.delete below: tag_group_category rows FK-cascade off the
+                # tag_group row, so deleting that first would wipe the rows this reads.
                 if not await category_layout.delete_group_categories(
                     guild, tag_group, TagGroupCategoryDb,
                     keep_channel_ids=relocation_failed_channel_ids,
@@ -1431,6 +1431,8 @@ class PuzzleService:
                         except Exception:
                             logger.exception("delete_round: could not delete category %s",
                                              tag_group.category_id)
+
+        TagGroupJsonDb.delete(tag_group.id)
         return failed_channels
 
     async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel):
@@ -2639,7 +2641,9 @@ class PuzzleService:
         # Delete each group's category + DB row
         tag_groups = TagGroupJsonDb.get_all(hunt.id)
         for tag_group in tag_groups:
-            TagGroupJsonDb.delete(tag_group.id)
+            # TagGroupJsonDb.delete happens at the end of this iteration: tag_group_category
+            # rows FK-cascade off the tag_group row, so deleting it first would wipe the
+            # rows delete_group_categories below needs to read.
             if guild is not None and tag_group.category_id:
                 if hunt.layout_mode == "forum":
                     # Forum mode: category_id holds a forum channel id
@@ -2675,6 +2679,7 @@ class PuzzleService:
                             except Exception:
                                 logger.exception("delete_hunt: could not delete group category %s",
                                                  tag_group.category_id)
+            TagGroupJsonDb.delete(tag_group.id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)

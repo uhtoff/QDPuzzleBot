@@ -286,8 +286,39 @@ async def test_move_channel_to_solved_moves_into_solved_category():
     channel = MagicMock(); channel.category = source; channel.edit = AsyncMock()
 
     returned_source = await layout.move_channel_to_solved(guild, tag_group, dao, channel)
-    channel.edit.assert_awaited_once_with(category=solved_cat)
+    channel.edit.assert_awaited_once_with(category=solved_cat, position=0)
     assert returned_source is source
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_solved_appends_after_existing_channels():
+    """Regression: channel.edit(category=X) with no `position` keeps the
+    channel's OLD absolute position number (discord.py only re-sorts when
+    `position` is given) — it must always be requested explicitly, or a
+    moved-in channel can land above an existing one (e.g. the round's own
+    target puzzle) instead of after it."""
+    target_puzzle = MagicMock(); target_puzzle.name = "target"; target_puzzle.position = 0
+    other = MagicMock(); other.name = "other"; other.position = 1
+    solved_cat = MagicMock(id=200, position=6)
+    solved_cat.name = "round-1 — solved"
+    solved_cat.channels = [target_puzzle, other]   # already there before the move
+    solved_cat.edit = AsyncMock()
+    guild = MagicMock(); guild.categories = [solved_cat]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=200, role="solved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    source = MagicMock(id=100)
+    # A stale, unrelated LOW position from the channel's previous (unsolved)
+    # category — if this leaked through unchanged, it would land above
+    # target_puzzle (position 0) instead of after it.
+    channel = MagicMock(position=0); channel.category = source; channel.edit = AsyncMock()
+
+    await layout.move_channel_to_solved(guild, tag_group, dao, channel)
+
+    channel.edit.assert_awaited_once_with(category=solved_cat, position=2)
 
 
 @pytest.mark.asyncio
@@ -304,6 +335,31 @@ async def test_move_channel_to_solved_noop_if_already_there():
     returned = await layout.move_channel_to_solved(guild, tag_group, dao, channel)
     channel.edit.assert_not_awaited()
     assert returned is None
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_unsolved_appends_after_existing_channels():
+    """Same explicit-position requirement as move_channel_to_solved: a stale
+    absolute position from the channel's old category must not land it above
+    an existing channel (e.g. the round's own target puzzle) in the new one."""
+    target_puzzle = MagicMock(); target_puzzle.name = "target"; target_puzzle.position = 0
+    unsolved_cat = MagicMock(id=100, position=5)
+    unsolved_cat.name = "round-1"
+    unsolved_cat.channels = [target_puzzle]
+    unsolved_cat.edit = AsyncMock()
+    guild = MagicMock(); guild.categories = [unsolved_cat]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(group_id=5, category_id=200, role="solved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+    source = MagicMock(id=200)
+    channel = MagicMock(position=0); channel.category = source; channel.edit = AsyncMock()
+
+    await layout.move_channel_to_unsolved(guild, tag_group, dao, channel)
+
+    channel.edit.assert_awaited_once_with(category=unsolved_cat, position=1)
 
 
 @pytest.mark.asyncio

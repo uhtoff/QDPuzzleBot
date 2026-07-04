@@ -137,3 +137,42 @@ async def test_delete_hunt_tears_down_split_round_categories():
         await svc.delete_hunt(guild, hunt)
 
     delete_group_cats.assert_any_await(guild, group, tgcdb)
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_tears_down_categories_before_deleting_group_row():
+    """tag_group_category rows FK-cascade off the tag_group row (migration 022),
+    so TagGroupJsonDb.delete(tag_group.id) must run AFTER delete_group_categories
+    reads them — deleting the row first would silently wipe the very rows
+    delete_group_categories needs, making it fall back to (and only tear down)
+    the legacy single-category path and orphan the solved/overflow categories."""
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    gsheet = MagicMock()
+    gsheet.delete_puzzle_spreadsheet = AsyncMock()
+    gsheet.delete_hunt_spreadsheet = AsyncMock()
+
+    group = MagicMock(id=9, category_id=100)
+    guild.categories = []
+
+    manager = MagicMock()
+    delete_group_cats = AsyncMock(return_value=True)
+    manager.attach_mock(delete_group_cats, "delete_group_categories")
+
+    with patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb"), \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               delete_group_cats), \
+         patch("bot.core.puzzle_service.category_layout.group_chat_channel",
+               return_value=None):
+        manager.attach_mock(rdb.delete, "tag_group_delete")
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = [group]
+
+        await svc.delete_hunt(guild, hunt)
+
+    call_names = [c[0] for c in manager.mock_calls]
+    assert call_names.index("delete_group_categories") < call_names.index("tag_group_delete")

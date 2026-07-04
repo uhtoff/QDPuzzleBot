@@ -225,8 +225,15 @@ async def move_channel_to_solved(guild, tag_group, dao, channel):
     target = await pick_solved_category(guild, tag_group, dao)
     if target is None or (source is not None and target.id == source.id):
         return None
+    # Discord's channel.edit only re-sorts position when a `position` kwarg is
+    # given (discord.py's abc._edit calls _move only in that case) — passing
+    # just `category=` reparents the channel but keeps its OLD absolute
+    # position number, which can easily be lower than everything already in
+    # the new category, landing it at the top instead of the end. Always
+    # request a position explicitly.
+    position = max((ch.position for ch in target.channels), default=-1) + 1
     async with layout_lock:
-        await channel.edit(category=target)
+        await channel.edit(category=target, position=position)
     return source
 
 
@@ -236,8 +243,11 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     target = await pick_unsolved_category(guild, tag_group, dao)
     if target is None or (source is not None and target.id == source.id):
         return None
+    # See move_channel_to_solved: position must be explicit or the channel
+    # keeps its old (wrong) absolute position in the new category.
+    position = max((ch.position for ch in target.channels), default=-1) + 1
     async with layout_lock:
-        await channel.edit(category=target)
+        await channel.edit(category=target, position=position)
     return source
 
 
