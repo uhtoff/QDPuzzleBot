@@ -1287,7 +1287,17 @@ class PuzzleService:
         target_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         PuzzleJsonDb.delete(puzzle.id)
         failed = await self.refresh_targets(hunt, target_groups)
+        channel = guild.get_channel(puzzle.channel_id) \
+            if guild is not None and puzzle.channel_id else None
+        category = getattr(channel, "category", None)
         await self._safe_delete_channel(guild, puzzle.channel_id)
+        # Deleting the last puzzle out of a split/overflow category must
+        # reclaim it, same as the solve/unsolve/retag moves do. Best-effort:
+        # the guild cache may not yet reflect the channel deletion (it updates
+        # on the gateway event), in which case the empty category is caught by
+        # the next drop from it instead.
+        if category is not None:
+            await category_layout.cleanup_source_category(guild, category)
         if failed:
             raise SheetRefreshError(failed)
 

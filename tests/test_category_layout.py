@@ -33,6 +33,22 @@ def _fresh_layout_lock(monkeypatch):
     monkeypatch.setattr(layout, "layout_lock", asyncio.Lock())
 
 
+@pytest.fixture(autouse=True)
+def _no_store_claims(monkeypatch):
+    """Stub the lazily-imported bot.store lookups (claim checks, source-category
+    resolution) to miss by default so no unit test here touches MySQL; tests
+    that care override via _patch_no_claims / their own monkeypatching."""
+    import bot.store as store
+    for name in ("TagGroupCategoryDb", "HuntCategoryDb"):
+        stub = MagicMock()
+        stub.get_by_category.return_value = None
+        monkeypatch.setattr(store, name, stub)
+    for name in ("TagGroupJsonDb", "HuntJsonDb"):
+        stub = MagicMock()
+        stub.get_by_attr.return_value = None
+        monkeypatch.setattr(store, name, stub)
+
+
 def test_solved_category_name():
     assert layout.solved_category_name("round-1") == "round-1 — solved"
 
@@ -635,6 +651,69 @@ async def test_allocate_rechecks_category_ceiling_under_the_lock():
     u0.clone.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_cleanup_source_category_resolves_owning_table(monkeypatch):
+    """A vacated source category can belong to EITHER join table (an unassigned
+    puzzle leaving hunt overflow for a round category, or vice versa) — the
+    cleanup must resolve the owning table itself rather than trust the
+    destination's dao, which would silently never match."""
+    import bot.store as store
+    from bot.store.hunt_category_data import HuntCategoryData
+    overflow = _cat(201, 7, n_channels=0)
+    overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [overflow]
+    hunt_row = HuntCategoryData(id=9, hunt_id=7, category_id=201, role="solved", seq=1)
+    tgc = MagicMock(); tgc.get_by_category.return_value = None
+    hc = MagicMock(); hc.get_by_category.return_value = hunt_row
+    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
+    monkeypatch.setattr(store, "HuntCategoryDb", hc)
+
+    await layout.cleanup_source_category(guild, overflow)
+
+    overflow.delete.assert_awaited_once()
+    hc.delete.assert_called_once_with(9)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_source_category_noop_when_untracked(monkeypatch):
+    import bot.store as store
+    plain = _cat(300, 9, n_channels=0)
+    plain.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [plain]
+    tgc = MagicMock(); tgc.get_by_category.return_value = None
+    hc = MagicMock(); hc.get_by_category.return_value = None
+    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
+    monkeypatch.setattr(store, "HuntCategoryDb", hc)
+
+    await layout.cleanup_source_category(guild, plain)
+
+    plain.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_legacy_destination_cleans_vacated_source(monkeypatch):
+    """Moving a channel into a NOT-split owner (legacy divider layout) still
+    vacates its previous category — if that source was an overflow category
+    (of either table), it must be reclaimed just like the split-destination
+    branch does."""
+    other = MagicMock(); other.name = "general"; other.position = 3
+    primary = MagicMock(id=500)
+    primary.channels = [other]
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=500, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    source_cat = MagicMock(id=201)
+    channel = MagicMock(); channel.category_id = 999; channel.category = source_cat
+    channel.edit = AsyncMock()
+    cleanup = AsyncMock()
+    monkeypatch.setattr(layout, "cleanup_source_category", cleanup)
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is True
+    cleanup.assert_awaited_once_with(guild, source_cat)
+
+
 # ----------------------------------------------------------------- teardown tests
 
 @pytest.mark.asyncio
@@ -988,13 +1067,15 @@ async def test_move_channel_to_owner_split_state_delegates_and_cleans_overflow(m
     source_cat = MagicMock()
     solved_mock = AsyncMock(return_value=source_cat)
     monkeypatch.setattr(layout, "move_channel_to_solved", solved_mock)
+    # Source cleanup goes through the table-agnostic resolver: the vacated
+    # category may belong to the OTHER join table (cross-owner relocation).
     cleanup_mock = AsyncMock()
-    monkeypatch.setattr(layout, "cleanup_empty_overflow", cleanup_mock)
+    monkeypatch.setattr(layout, "cleanup_source_category", cleanup_mock)
 
     result = await layout.move_channel_to_owner(guild, owner, dao, channel, True)
 
     solved_mock.assert_awaited_once_with(guild, owner, dao, channel)
-    cleanup_mock.assert_awaited_once_with(guild, owner, dao, source_cat)
+    cleanup_mock.assert_awaited_once_with(guild, source_cat)
     assert result is True
 
 

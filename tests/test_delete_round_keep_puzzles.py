@@ -13,6 +13,23 @@ from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER
 from tests.conftest import make_hunt, make_puzzle, make_round
 
 
+@pytest.fixture(autouse=True)
+def _no_store_lookups(monkeypatch):
+    """category_layout lazily imports bot.store for its claim checks and
+    source-category cleanup; stub those lookups to miss so relocation flows
+    here never touch MySQL (these tests patch the service's own DAO refs,
+    which the lazy import doesn't go through)."""
+    import bot.store as store
+    for name in ("TagGroupCategoryDb", "HuntCategoryDb"):
+        stub = MagicMock()
+        stub.get_by_category.return_value = None
+        monkeypatch.setattr(store, name, stub)
+    for name in ("TagGroupJsonDb", "HuntJsonDb"):
+        stub = MagicMock()
+        stub.get_by_attr.return_value = None
+        monkeypatch.setattr(store, name, stub)
+
+
 def _svc():
     from bot.core.puzzle_service import PuzzleService
     bot = MagicMock()

@@ -317,7 +317,10 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
                              getattr(channel, "id", "?"))
             return False
         if source is not None:
-            await cleanup_empty_overflow(guild, owner, dao, source)
+            # Table-agnostic: on a cross-owner relocation the vacated source
+            # belongs to the OTHER join table (e.g. hunt overflow → round),
+            # which the destination's dao would silently never match.
+            await cleanup_source_category(guild, source)
         return True
 
     primary = _home_category(guild, owner)
@@ -345,6 +348,7 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
             return False
         return await move_channel_to_owner(guild, owner, dao, channel, solved)
 
+    source = getattr(channel, "category", None)
     try:
         # Computed INSIDE the lock (not before it), so two concurrent moves
         # into primary can't both read the same stale channel list and race
@@ -372,6 +376,10 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
         logger.exception("move_channel_to_owner: could not move channel %s",
                          getattr(channel, "id", "?"))
         return False
+    # The legacy-destination branch vacates a source too — reclaim it if it
+    # was an overflow category (of either join table).
+    if source is not None:
+        await cleanup_source_category(guild, source)
     return True
 
 
@@ -405,6 +413,23 @@ async def cleanup_empty_overflow(guild, tag_group, dao, category):
             dao.delete(row.id)
     except Exception:
         logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)
+
+
+async def cleanup_source_category(guild, category):
+    """cleanup_empty_overflow for a category whose owning join table the
+    caller doesn't know: a vacated source can belong to EITHER table — an
+    unassigned puzzle leaving hunt overflow for a round's category, a member
+    leaving a round for the hunt's general container, a puzzle deletion.
+    Resolves the owner across both tables (lazily imported, same reason as
+    _category_claimed) and delegates; untracked categories are left alone.
+    """
+    if category is None:
+        return
+    from bot.store import TagGroupCategoryDb, HuntCategoryDb
+    for dao in (TagGroupCategoryDb, HuntCategoryDb):
+        if dao.get_by_category(category.id) is not None:
+            await cleanup_empty_overflow(guild, None, dao, category)
+            return
 
 
 # ----------------------------------------------------------------- teardown

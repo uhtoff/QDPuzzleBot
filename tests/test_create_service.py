@@ -325,3 +325,23 @@ async def test_delete_round_uses_layout_teardown_for_split():
         pdb.get_all_from_tag_group.return_value = []
         await svc.delete_round(guild, _svc_hunt(), round_data)
     teardown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_puzzle_cleans_emptied_overflow_category():
+    """Deleting the last puzzle whose channel lives in an overflow category must
+    reclaim that category — the same cleanup solve/unsolve/retag moves already
+    run — instead of stranding an empty '(N)' category on the server."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    source_cat = MagicMock(id=201)
+    channel = MagicMock(); channel.category = source_cat
+    guild.get_channel.return_value = channel
+    puzzle = make_puzzle(id=7, name="P", channel_id=555)
+    puzzle.tags = []
+    with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout.cleanup_source_category",
+               AsyncMock()) as cleanup, \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)):
+        await svc.delete_puzzle(guild, _svc_hunt(), puzzle)
+    cleanup.assert_awaited_once_with(guild, source_cat)
