@@ -683,7 +683,7 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "layout_mode"}
+                         "layout_mode", "confirm_existing_role"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -727,6 +727,13 @@ async def create_hunt():
     if guild is None:
         return jsonify({"error": "guild_unavailable"}), 503
 
+    creator = guild.get_member(int(current_user()["id"]))
+    if creator is None:
+        try:
+            creator = await guild.fetch_member(int(current_user()["id"]))
+        except discord.HTTPException:
+            creator = None
+
     fields = {k: v for k, v in body.items() if k in _CREATE_HUNT_OPTIONAL}
     try:
         new_hunt = await cog.service.create_hunt(
@@ -735,11 +742,19 @@ async def create_hunt():
             url=body["url"],
             start_timestamp=body["start_timestamp"],
             guild_id=guild_id,
+            creator=creator,
             **fields,
         )
     except RuntimeError as exc:
         if "hunt_exists" in str(exc):
             return jsonify({"error": "hunt_exists"}), 409
+        if "existing_role_confirm" in str(exc):
+            role_name = body.get("role_name")
+            return jsonify({
+                "needs_confirm": "existing_role",
+                "message": (f"Role '{role_name}' already exists. Normally each team "
+                            f"gets its own role per hunt — reuse it and add you to it?"),
+            }), 200
         raise
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
@@ -755,7 +770,10 @@ async def create_hunt():
         await DiscordNotifier(bot).welcome(guild, new_hunt, channel=channel)
 
     await _audit("create_hunt", hunt_uid=new_hunt.uid)
-    return jsonify({"uid": new_hunt.uid})
+    resp = {"uid": new_hunt.uid}
+    if body.get("role_name") and not new_hunt.role_id:
+        resp["warning"] = "role_not_applied"
+    return jsonify(resp)
 
 
 # --- Hunt settings (admin only) --------------------------------------------
