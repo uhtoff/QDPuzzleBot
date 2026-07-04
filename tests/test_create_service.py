@@ -58,6 +58,32 @@ async def test_create_puzzle_commits_row_creates_sheet_and_notifies():
 
 
 @pytest.mark.asyncio
+async def test_create_puzzle_repicks_category_after_sheet_awaits():
+    """The first category pick happens before seconds-long Google Sheets
+    awaits, during which concurrent creates can fill the picked category past
+    the cap — or background consolidation can delete it entirely. The channel
+    must be created in a category re-picked AFTER the sheet work."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    stale = MagicMock(id=888, channels=[])
+    fresh = MagicMock(id=999, channels=[])
+    guild.categories = [stale, fresh]
+    notifier = MagicMock(); notifier.welcome = AsyncMock()
+    round_data = make_round(id=5, category_id=888)
+    goc = AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(side_effect=[stale, fresh])) as pick, \
+         patch("bot.core.puzzle_service.get_or_create_channel", goc):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(guild, _svc_hunt(), round_data, "Newpuz",
+                                is_meta=False, notifier=notifier)
+    assert pick.await_count == 2
+    assert goc.await_args.kwargs["category"] is fresh
+
+
+@pytest.mark.asyncio
 async def test_create_puzzle_url_gets_scheme_even_if_hunt_url_lacks_one():
     """A bare hunt.url hostname (no https://) breaks Discord's [text](url)
     markdown on the puzzle's own link — it silently shows the raw brackets
@@ -125,7 +151,9 @@ async def test_create_puzzle_uses_layout_picker_for_round():
                AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
         await svc.create_puzzle(guild, _svc_hunt(), round_data, "Newpuz", is_meta=False, notifier=notifier)
-    pick.assert_awaited_once()
+    # Picked twice: fail-fast probe up front, authoritative re-pick right
+    # before channel creation (after the seconds-long sheet awaits).
+    assert pick.await_count == 2
 
 
 @pytest.mark.parametrize("group_type, target_puzzle_id, expected_edge", [

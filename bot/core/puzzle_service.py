@@ -2021,6 +2021,18 @@ class PuzzleService:
                 # Apply forum post tags to the new thread.
                 await self._update_forum_tags(guild, hunt, new_puzzle)
             else:
+                # Re-pick the target category NOW: the pick at the top of this
+                # method ran before seconds-long sheet awaits, during which
+                # concurrent creates can fill that category past the cap, or a
+                # background consolidation can delete an overflow category
+                # outright. The early pick stays as the fail-fast capacity
+                # probe (no_category_space raises before any sheet/DB work);
+                # this one is the authoritative placement.
+                owner, owner_dao = (
+                    (round_data, TagGroupCategoryDb) if round_data is not None
+                    else (hunt, HuntCategoryDb))
+                category = await category_layout.pick_unsolved_category(
+                    guild, owner, owner_dao)
                 text_channel, created = await get_or_create_channel(
                     guild=guild, category=category, channel_name=channel_name,
                     channel_type="text",
