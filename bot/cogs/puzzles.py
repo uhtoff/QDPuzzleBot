@@ -3054,6 +3054,30 @@ class Puzzles(commands.Cog):
         ignore_channels = []
         if self.get_channel_type(ctx) == 'Hunt':
             ignore_channels = [ctx.channel.name]
+
+        owner, dao = self._owner_for_channel(ctx.channel)
+        if owner is not None and category_layout.is_split(owner, dao):
+            # A split owner owns several categories (unsolved / '— solved' /
+            # '(N)' overflow); archive them ALL — not just the one this
+            # command ran in — then delete them and drop the join rows, which
+            # nothing else would clean up (archive deletes no DB rows, so no
+            # FK cascade fires).
+            categories = [c for c in
+                          (discord.utils.get(ctx.guild.categories, id=r.category_id)
+                           for r in category_layout.group_categories(owner, dao))
+                          if c is not None]
+            for cat in categories:
+                if not await self._archive_category_channels(
+                        ctx, cat, hunt_general_channel, ignore_channels,
+                        [self.SOLVE_DIVIDER]):
+                    return False
+            for cat in categories:
+                await cat.delete(reason=self.DELETE_REASON)
+            dao.delete_for_group(owner.id)
+            await hunt_general_channel.send(
+                f":white_check_mark: Round {category.name} successfully archived.")
+            return True
+
         success = await self.archive_category(ctx, hunt_general_channel, ignore_channels = ignore_channels, delete_channels=[self.SOLVE_DIVIDER])
         if success:
             await ctx.channel.category.delete(reason=self.DELETE_REASON)
@@ -3079,8 +3103,14 @@ class Puzzles(commands.Cog):
         # If archive_to not set then archive to the main hunt channel
         if archive_to is None:
             archive_to = self.get_hunt_channel(ctx)
-        channels = ctx.channel.category.channels
-        for channel in channels:
+        return await self._archive_category_channels(
+            ctx, ctx.channel.category, archive_to, ignore_channels, delete_channels)
+
+    async def _archive_category_channels(self, ctx, category, archive_to,
+                                         ignore_channels, delete_channels):
+        """archive_category's body for an explicit *category* — archive_round
+        needs it per owned category for split owners, not just ctx's own."""
+        for channel in list(category.channels):
             if channel.name in ignore_channels:
                 continue
             if channel.name not in delete_channels:

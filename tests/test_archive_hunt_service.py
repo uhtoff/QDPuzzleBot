@@ -152,3 +152,36 @@ async def test_archive_hunt_records_failure_when_safe_delete_returns_false():
     assert "voice72" in report.failures
     assert report.voice_deleted == 0
     assert hunt.archived is True
+
+async def test_archive_hunt_drops_layout_join_rows():
+    """Archive keeps every hunt/tag_group DB row (hunt.archived=True only), so
+    no FK cascade ever fires — the split-layout join rows must be dropped
+    explicitly, or they point at deleted categories forever and is_split()
+    stays true for the archived hunt and every archived round."""
+    svc, hunt = _service(), _hunt()
+    invoker = MagicMock(); invoker.display_name = "me"
+
+    dest = MagicMock(); dest.id = 60; dest.threads = []
+    dest.edit = AsyncMock()
+    main_cat = MagicMock(); main_cat.id = 50; main_cat.channels = [dest]; main_cat.delete = AsyncMock()
+    dest.category = main_cat
+    guild = MagicMock()
+    guild.categories = [main_cat]
+    guild.get_channel.return_value = dest
+    tg = MagicMock(); tg.id = 3; tg.category_id = 0
+
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
+         patch("bot.core.hunt_archive.ensure_webhook", new=AsyncMock(return_value=MagicMock())), \
+         patch.object(svc, "_safe_delete_channel", new=AsyncMock(return_value=True)), \
+         patch.object(svc, "safe_rename", new=AsyncMock()):
+        tgdb.get_all.return_value = [tg]
+        tgcdb.get_for_group.return_value = []
+        hcdb.get_for_group.return_value = []
+
+        await svc.archive_hunt(guild, hunt, invoker)
+
+    hcdb.delete_for_group.assert_called_once_with(7)
+    tgcdb.delete_for_group.assert_called_once_with(3)

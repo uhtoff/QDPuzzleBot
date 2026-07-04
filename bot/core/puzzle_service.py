@@ -2873,6 +2873,14 @@ class PuzzleService:
         report.final_name = hunt_archive.archived_channel_name(hunt, team)
         await self.safe_rename(dest, report.final_name)
 
+        # Archive keeps every hunt/tag_group DB row (only the flag below
+        # changes), so no FK cascade ever fires — drop the split-layout join
+        # rows explicitly, or they point at the deleted categories forever and
+        # is_split() stays true for the archived hunt and every archived round.
+        HuntCategoryDb.delete_for_group(hunt.id)
+        for tg in TagGroupJsonDb.get_all(hunt.id):
+            TagGroupCategoryDb.delete_for_group(tg.id)
+
         hunt.archived = True
         HuntJsonDb.commit(hunt)
         return report
