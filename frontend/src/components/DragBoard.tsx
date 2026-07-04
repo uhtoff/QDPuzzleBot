@@ -475,22 +475,31 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
 
   const runRetag = (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => {
     setPendingIds((s) => new Set(s).add(puzzleId));
-    retag.mutate(
-      { puzzleId, metaCode: groupCode, mode, edge },
-      {
-        onSuccess: (data) => {
-          showSheetWarning(data);
-        },
-        onError: notifyError,
-        onSettled: () => {
-          setPendingIds((s) => {
-            const next = new Set(s);
-            next.delete(puzzleId);
-            return next;
-          });
-        },
-      }
-    );
+    // mutateAsync (not mutate + inline onSuccess/onError/onSettled): the inline
+    // callback form is routed through a single #mutateOptions field shared by
+    // every call on this one useMutation() instance, so firing several retags
+    // back-to-back (e.g. dragging a few puzzles between metas quickly) makes
+    // each new call overwrite the previous one's callbacks and detach its
+    // observer — an earlier call's onSettled then never fires, leaving that
+    // puzzle's card stuck greyed-out even though its request already
+    // succeeded. mutateAsync's returned promise is tied to that call's own
+    // mutation instance, so it resolves/rejects independently of any later
+    // concurrent call.
+    retag
+      .mutateAsync({ puzzleId, metaCode: groupCode, mode, edge })
+      .then((data) => {
+        showSheetWarning(data);
+      })
+      .catch((err) => {
+        notifyError(err);
+      })
+      .finally(() => {
+        setPendingIds((s) => {
+          const next = new Set(s);
+          next.delete(puzzleId);
+          return next;
+        });
+      });
   };
 
   function runConvertToFeeder() {
