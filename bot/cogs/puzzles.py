@@ -3305,7 +3305,7 @@ class Puzzles(commands.Cog):
         view.message = await ctx.send(embed=embed, view=view)
         await view.wait()
         if view.value is None:
-            await ctx.send(":hourglass: Confirmation timed out — no hunt created.")
+            await ctx.send(":hourglass: Confirmation timed out — nothing changed.")
         return view.value is True
 
     async def _safe_delete_channel(self, guild, channel_id):
