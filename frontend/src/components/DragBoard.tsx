@@ -60,6 +60,7 @@ interface CardProps {
   columnName: string;
   metas: MetaOption[];
   onRetag: (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => void;
+  onMove: (puzzleId: number, groupCode: string) => void;
   onDeletePuzzle: (puzzle: Puzzle) => void;
   onMakeMinimeta: (puzzleId: number) => void;
   onRemoveMinimeta: (puzzle: Puzzle) => void;
@@ -68,7 +69,7 @@ interface CardProps {
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onMove, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -76,8 +77,9 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   });
   // Pending action for the ConfirmModal (minimeta / convert-to-meta).
   const [pendingAction, setPendingAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
-  // Controls the "Add to group" searchable picker overlay.
+  // Controls the "Add to group" / "Move to group" searchable picker overlays.
   const [addOpen, setAddOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   // Groups this puzzle is not already in (candidates for "add"). A meta may also
   // be added to its OWN group so it feeds itself in a loop — that group is in
@@ -91,11 +93,17 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
   const addable = metas.filter(
     (m) => !inCodes.has(m.code) || (m.code === ownTargetCode && (!selfFeeds || !selfInforms)),
   );
-  // If a refresh empties the addable set while the picker is open, close it so a
-  // later refresh that restores candidates doesn't spuriously re-open it.
+  // Candidates for "Move to group…" — any group this puzzle isn't already in
+  // (a plain move replaces its only membership, so no self-target rows here).
+  const moveable = metas.filter((m) => !inCodes.has(m.code));
+  // If a refresh empties the addable/moveable set while a picker is open, close
+  // it so a later refresh that restores candidates doesn't spuriously re-open it.
   useEffect(() => {
     if (addable.length === 0) setAddOpen(false);
   }, [addable.length]);
+  useEffect(() => {
+    if (moveable.length === 0) setMoveOpen(false);
+  }, [moveable.length]);
   // A feeder that belongs to more than one meta is at risk: a plain drag is a
   // "move", which detaches it from all of its other metas. Flag it on the card.
   const metaCount = puzzle.rounds.filter((r) => r.group_code).length;
@@ -155,6 +163,9 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
               <Menu.Item disabled>Already in all groups</Menu.Item>
             ) : (
               <Menu.Item onClick={() => setAddOpen(true)}>Add to group…</Menu.Item>
+            )}
+            {moveable.length > 0 && (
+              <Menu.Item onClick={() => setMoveOpen(true)}>Move to group…</Menu.Item>
             )}
             {canRemove && (
               <>
@@ -240,6 +251,19 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
         selfFeeds={selfFeeds}
         selfInforms={selfInforms}
         onRetag={onRetag}
+      />
+    )}
+    {moveable.length > 0 && (
+      <AddToGroupPicker
+        mode="move"
+        opened={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        puzzleId={puzzle.id}
+        items={moveable}
+        ownTargetCode={null}
+        selfFeeds={false}
+        selfInforms={false}
+        onRetag={(id, groupCode) => onMove(id, groupCode)}
       />
     )}
     {pendingAction && (
@@ -630,17 +654,24 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     // Skip a no-op drop back onto the puzzle's current meta — otherwise every
     // drop fires a retag that moves the Discord channel (a PATCH /channels write).
     if (groupCode === sourceGroupCode) return;
-    // A plain drag is a "move": the server clears all of this puzzle's meta tags
-    // and re-adds only the target, silently detaching it from any other metas.
-    // Warn first when that would actually lose memberships.
-    if (p && !p.is_meta && p.rounds.filter((r) => r.group_code).length > 1) {
+    requestMove(puzzleId, groupCode);
+  }
+
+  // Shared "move" path for both a drag-drop and the card menu's "Move to
+  // group…" picker: the server clears all of this puzzle's meta tags and
+  // re-adds only the target, silently detaching it from any other metas — warn
+  // first when that would actually lose memberships.
+  function requestMove(puzzleId: number, groupCode: string) {
+    const p = byId.get(puzzleId);
+    if (!p) return;
+    if (!p.is_meta && p.rounds.filter((r) => r.group_code).length > 1) {
       const lost = p.rounds.filter((r) => r.group_code && r.group_code !== groupCode);
       const names = lost.map((r) => r.name).join(", ");
       setDragConfirm({
         title: "Move puzzle",
         message:
           `"${p.name}" is also in: ${names}. ` +
-          `Dragging onto a group MOVES it — it will be removed from those other groups. ` +
+          `Moving it to a group removes it from those other groups. ` +
           `To keep it in multiple groups, use the ⋮ menu's "Add to group" instead. ` +
           `Move it anyway?`,
         puzzleId,
@@ -656,7 +687,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     <Box>
       <Text size="sm" c="dimmed" mb="xs">
         Drag a puzzle onto a group to reassign it (moves its Discord channel too if it is a meta), or onto Unassigned Feeders to
-        remove it from all groups. Use the ⋮ menu on a card to add it to an additional group or remove it from just one.
+        remove it from all groups. Use the ⋮ menu on a card to add it to an additional group, move it without dragging, or remove it from just one.
       </Text>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <ScrollArea
@@ -686,6 +717,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     columnName={group.name}
                     metas={metas}
                     onRetag={runRetag}
+                    onMove={requestMove}
                     onDeletePuzzle={setDeleteTarget}
                     onMakeMinimeta={onMakeMinimeta}
                     onRemoveMinimeta={setRemoveMinimetaTarget}

@@ -12,13 +12,16 @@ interface AddToGroupPickerProps {
   opened: boolean;
   onClose: () => void;
   puzzleId: number;
-  /** Groups this puzzle can be added to — the already-computed `addable` list. */
+  /** Groups this puzzle can be added to (or moved to) — the already-computed list. */
   items: GroupOption[];
   /** group_code of the group this puzzle is the target of, if any. */
   ownTargetCode: string | null;
   selfFeeds: boolean;
   selfInforms: boolean;
   onRetag: (puzzleId: number, groupCode: string, mode: RetagMode, edge?: EdgeType) => void;
+  /** "add" (default) keeps the puzzle in its other groups; "move" replaces its
+   * only membership — no self-target feeds/informs rows in that mode. */
+  mode?: "add" | "move";
 }
 
 // One selectable row: a display label plus the retag action it runs.
@@ -28,20 +31,24 @@ interface Row {
   run: () => void;
 }
 
-// Expand the addable groups into concrete rows. A group the puzzle is the
-// target of expands into up to two self-edge rows (feeds / informs), mirroring
-// the original kebab markup; every other group is a single plain "add" row.
+// Expand the addable/moveable groups into concrete rows. In "add" mode, a
+// group the puzzle is the target of expands into up to two self-edge rows
+// (feeds / informs), mirroring the original kebab markup; every other group
+// is a single plain row for the given mode. "move" mode never expands a
+// self-target row — moving replaces the puzzle's only membership, so feeding
+// itself isn't a sensible candidate there.
 function buildRows(
   items: GroupOption[],
   puzzleId: number,
   ownTargetCode: string | null,
   selfFeeds: boolean,
   selfInforms: boolean,
+  mode: "add" | "move",
   onRetag: AddToGroupPickerProps["onRetag"],
 ): Row[] {
   const rows: Row[] = [];
   for (const m of items) {
-    if (m.code === ownTargetCode) {
+    if (mode === "add" && m.code === ownTargetCode) {
       if (!selfFeeds) {
         rows.push({
           key: `${m.code}-feeds`,
@@ -60,7 +67,7 @@ function buildRows(
       rows.push({
         key: m.code,
         label: m.name,
-        run: () => onRetag(puzzleId, m.code, "add"),
+        run: () => onRetag(puzzleId, m.code, mode),
       });
     }
   }
@@ -76,11 +83,13 @@ export function AddToGroupPicker({
   selfFeeds,
   selfInforms,
   onRetag,
+  mode = "add",
 }: AddToGroupPickerProps) {
   const isMobile = useMediaQuery("(max-width: 48em)") ?? false;
   const [query, setQuery] = useState("");
+  const title = mode === "move" ? "Move to group" : "Add to group";
 
-  const rows = buildRows(items, puzzleId, ownTargetCode, selfFeeds, selfInforms, onRetag);
+  const rows = buildRows(items, puzzleId, ownTargetCode, selfFeeds, selfInforms, mode, onRetag);
   const needle = query.trim().toLowerCase();
   const filtered = needle ? rows.filter((r) => r.label.toLowerCase().includes(needle)) : rows;
 
@@ -129,13 +138,13 @@ export function AddToGroupPicker({
 
   if (isMobile) {
     return (
-      <Drawer opened={opened} onClose={close} position="bottom" title="Add to group" size="70%">
+      <Drawer opened={opened} onClose={close} position="bottom" title={title} size="70%">
         {body}
       </Drawer>
     );
   }
   return (
-    <Modal opened={opened} onClose={close} title="Add to group" size="sm" centered>
+    <Modal opened={opened} onClose={close} title={title} size="sm" centered>
       {body}
     </Modal>
   );
