@@ -815,6 +815,68 @@ async def patch_hunt_settings(uid):
     return jsonify({"ok": True})
 
 
+@actions_bp.route("/hunts/<uid>/role", methods=["POST"])
+@login_required
+async def set_hunt_role(uid):
+    """Gate an open hunt behind a team role. Admin only. Returns
+    {"ok": True, "failed_categories": [...]}, or a needs_confirm prompt when the
+    role already exists."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    role_name = (body.get("role_name") or "").strip()
+    if not role_name:
+        return jsonify({"error": "missing_role_name"}), 400
+    confirm_existing = bool(body.get("confirm_existing_role"))
+
+    from bot.store import HuntJsonDb
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+    cog = current_app.bot.get_cog("Puzzles")
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = current_app.bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    if guild is None:
+        return jsonify({"error": "guild_unavailable"}), 503
+
+    requester = guild.get_member(int(current_user()["id"]))
+    if requester is None:
+        try:
+            requester = await guild.fetch_member(int(current_user()["id"]))
+        except discord.HTTPException:
+            requester = None
+
+    try:
+        failed = await cog.service.set_hunt_role(
+            guild, hunt_obj, role_name=role_name,
+            requester=requester, confirm_existing_role=confirm_existing,
+        )
+    except RuntimeError as exc:
+        s = str(exc)
+        if "already_gated" in s:
+            return jsonify({"error": "already_gated"}), 409
+        if "existing_role_confirm" in s:
+            return jsonify({
+                "needs_confirm": "existing_role",
+                "message": (f"Role '{role_name}' already exists. Normally each team "
+                            f"gets its own role per hunt — reuse it and add you to it?"),
+            }), 200
+        if "role_not_applied" in s:
+            return jsonify({"error": "role_not_applied"}), 422
+        raise
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("set_hunt_role", hunt_uid=uid, detail=role_name)
+    return jsonify({"ok": True, "failed_categories": failed})
+
+
 # --- Hunt archive actions (admin only) -------------------------------------
 
 @actions_bp.route("/hunts/<uid>/archive", methods=["POST"])
