@@ -30,26 +30,12 @@ import {
 } from "../api";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { PuzzleLinks } from "./PuzzleLinks";
-import { MetaBadge } from "./MetaBadge";
+import { MetaBadge, getKind, kindColorVar } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
-
-const KIND_STRIP_COLOR: Record<string, string> = {
-  runaround: "var(--mantine-color-red-6)",
-  metameta: "var(--mantine-color-violet-6)",
-  capstone: "var(--mantine-color-orange-6)",
-  meta: "var(--mantine-color-grape-6)",
-  minimeta: "var(--mantine-color-grape-4)",
-};
-
-function kindStrip(p: { meta_kind?: string | null; is_minimeta?: boolean }): string | undefined {
-  if (p.meta_kind) return KIND_STRIP_COLOR[p.meta_kind];
-  if (p.is_minimeta) return KIND_STRIP_COLOR.minimeta;
-  return undefined;
-}
 
 interface Props {
   group: BoardGroupType;
@@ -75,6 +61,13 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
   const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
+  // A plain group / Unassigned Feeders has no target, so no kind bar — only a
+  // group with a target (meta/capstone/metameta/runaround) carries one, in the
+  // target puzzle's own kind colour. Mirrors the Arrange board's group lines.
+  const targetPuzzle = group.target_puzzle_id
+    ? group.puzzles.find((p) => p.id === group.target_puzzle_id) ?? null
+    : null;
+  const groupKind = targetPuzzle ? getKind(targetPuzzle) : null;
 
   // Reset the scope choice whenever the modal closes, so a reopen (this round
   // or another) starts from "keep" rather than a stale "all" selection.
@@ -135,7 +128,13 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
 
   return (
     <Accordion.Item value={String(group.tag_group_id)}>
-      <Box style={{ display: "flex", alignItems: "center" }}>
+      <Box
+        style={{
+          display: "flex",
+          alignItems: "center",
+          borderLeft: groupKind ? `4px solid ${kindColorVar(groupKind.color)}` : undefined,
+        }}
+      >
         <Accordion.Control
           style={{ flex: 1 }}
           styles={solvedAll ? { control: { backgroundColor: "var(--mantine-color-green-light)" } } : undefined}
@@ -223,11 +222,12 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
               const bandProps = p.is_minimeta
                 ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
                 : {};
+              const rowKind = getKind(p);
               return (
               <Fragment key={`${group.tag_group_id}-${p.id}`}>
                 <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
                   {/* Kind strip — both layouts */}
-                  <Table.Td w={4} p={0} style={{ backgroundColor: kindStrip(p) }} />
+                  <Table.Td w={4} p={0} style={{ backgroundColor: rowKind ? kindColorVar(rowKind.color) : undefined }} />
                   {isNarrow ? (
                     <>
                       {/* Compact layout: links | title+solution | actions */}

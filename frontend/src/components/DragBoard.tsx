@@ -370,11 +370,6 @@ function Column({
               {group.name}
             </Text>
           )}
-          {group.group_code && (
-            <Badge size="xs" color="grape" variant="light">
-              {group.group_code}
-            </Badge>
-          )}
         </Group>
         <Group gap={4} wrap="nowrap">
           <Text size="xs" c="dimmed">

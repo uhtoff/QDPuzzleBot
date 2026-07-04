@@ -80,32 +80,37 @@ class _MySQLBaseDb:
         cursor.close()
         return found
 
+    # Capital letters + digits only — this is a bang-command shorthand users type
+    # by hand, so no lowercase and nothing else ambiguous/punctuation-like.
+    UID_CHARS = string.ascii_uppercase + string.digits
+
     def generate_uid(self, field = 'id', chars = 6, input = None):
         code = ""
         if input is not None:
             split_input = input.split()
             for word in split_input:
-                if word[:2].isascii():
-                    code += word[:2].upper()
+                alnum = "".join(ch for ch in word if ch.isascii() and ch.isalnum())
+                if alnum:
+                    code += alnum[:2].upper()
             code = code[:6]
 
         while len(code) < chars:
-            code += random.choice(string.ascii_letters).upper()
+            code += random.choice(self.UID_CHARS)
 
         loop_count = 0
 
         while self.check_duplicates(code, field):
             loop_count += 1
             if loop_count < 26:
-                code = code[:5] + random.choice(string.ascii_letters).upper()
+                code = code[:5] + random.choice(self.UID_CHARS)
             elif loop_count < 512:
                 code = code[:4]
                 while len(code) < 6:
-                    code += random.choice(string.ascii_letters).upper()
+                    code += random.choice(self.UID_CHARS)
             else:
                 code = code[:3]
                 while len(code) < 6:
-                    code += random.choice(string.ascii_letters).upper()
+                    code += random.choice(self.UID_CHARS)
 
         return code
 
