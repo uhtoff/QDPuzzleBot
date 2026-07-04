@@ -24,6 +24,7 @@ import { notifications } from "@mantine/notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { useViewAs } from "../context/ViewAsContext";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import type { HuntSummary } from "../types";
@@ -70,11 +71,40 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
   const [forumLayout, setForumLayout] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [confirmRole, setConfirmRole] = useState<{ message: string; payload: CreateHuntPayload } | null>(null);
 
   const guildOptions = (guilds ?? []).map((g) => ({
     value: String(g.id),
     label: g.guild_name,
   }));
+
+  const submit = (payload: CreateHuntPayload) => {
+    createMut.mutate(payload, {
+      onSuccess: (data) => {
+        // The named role already exists — ask the admin to confirm reuse, then
+        // resubmit the same payload with confirm_existing_role: true.
+        if (data.needs_confirm === "existing_role") {
+          setConfirmRole({
+            message: data.message ?? "That role already exists — reuse it for this hunt?",
+            payload,
+          });
+          return;
+        }
+        notifications.show({ message: `Hunt "${name}" created.`, color: "green" });
+        if (data.warning === "role_not_applied") {
+          notifications.show({
+            message: "Hunt created, but it couldn't be gated to that role — it's open (ungated).",
+            color: "yellow",
+          });
+        }
+        onClose();
+        if (data.uid) navigate(`/hunts/${data.uid}`);
+      },
+      onError: (e) => {
+        notifications.show({ message: (e as Error).message, color: "red" });
+      },
+    });
+  };
 
   const handleSubmit = () => {
     if (!guildId || !name.trim() || !url.trim() || !startLocal) return;
@@ -93,21 +123,13 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (createSolvedSheet) payload.create_solved_sheet = true;
     if (forumLayout) payload.layout_mode = "forum";
 
-    createMut.mutate(payload, {
-      onSuccess: (data) => {
-        notifications.show({ message: `Hunt "${name}" created.`, color: "green" });
-        onClose();
-        navigate(`/hunts/${data.uid}`);
-      },
-      onError: (e) => {
-        notifications.show({ message: (e as Error).message, color: "red" });
-      },
-    });
+    submit(payload);
   };
 
   const canSubmit = !!guildId && !!name.trim() && !!url.trim() && !!startLocal;
 
   return (
+    <>
     <Modal opened={opened} onClose={onClose} title="New hunt" size="md">
       <Stack gap="sm">
         <Select
@@ -197,6 +219,19 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
         </Button>
       </Stack>
     </Modal>
+    <ConfirmModal
+      opened={confirmRole !== null}
+      onClose={() => setConfirmRole(null)}
+      onConfirm={() => {
+        if (confirmRole) submit({ ...confirmRole.payload, confirm_existing_role: true });
+        setConfirmRole(null);
+      }}
+      title="Role already exists"
+      message={confirmRole?.message ?? ""}
+      confirmLabel="Reuse role"
+      confirmColor="orange"
+    />
+    </>
   );
 }
 

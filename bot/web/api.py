@@ -101,6 +101,16 @@ async def hunt_detail(uid):
     # Archived hunts are read-only even for organisers.
     can_manage = (not hunt["archived"]) and await user_can_manage(current_user()["id"], guild_snowflake)
     admin = await user_can_manage(current_user()["id"], guild_snowflake, roles=ADMIN_ROLES)
+    # Gating status: a non-zero role_id means the hunt is gated to a team role.
+    # Resolve the role's name (best-effort) so the dashboard can show it.
+    gating_role_id = hunt.get("role_id") or 0
+    gating_role_name = None
+    if gating_role_id and guild_snowflake:
+        _guild = current_app.bot.get_guild(int(guild_snowflake))
+        if _guild is not None:
+            _role = _guild.get_role(gating_role_id)
+            if _role is not None:
+                gating_role_name = _role.name
     from bot.core.puzzle_service import CREATE_META_TYPES
     return jsonify({
         "hunt": {
@@ -108,6 +118,8 @@ async def hunt_detail(uid):
             "name": hunt["name"],
             "url": hunt["url"],
             "archived": bool(hunt["archived"]),
+            "is_gated": bool(gating_role_id),
+            "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
             "solved_sheet_base_url": _sheet_base(hunt["solved_sheet_id"]),

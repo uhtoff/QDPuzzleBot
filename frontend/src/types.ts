@@ -106,6 +106,8 @@ export interface HuntDetail {
     name: string;
     url: string;
     archived: boolean;
+    is_gated: boolean;
+    role_name: string | null;
     guild_snowflake: string | null;
     sheet_base_url: string | null;
     solved_sheet_base_url: string | null;

@@ -25,6 +25,7 @@ import { EvidencePanel } from "../components/EvidencePanel";
 import { ReconcilePanel } from "../components/ReconcilePanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
+import { GateHuntPanel } from "../components/GateHuntPanel";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { Puzzle } from "../types";
@@ -165,6 +166,14 @@ export default function HuntBoard() {
               archived={data.hunt.archived}
               hasSolvedSheet={!!data.hunt.solved_sheet_base_url}
               puzzleCount={data.summary.total}
+            />
+          )}
+          {/* Team-role gating — admin-gated; hidden on archived (read-only) hunts */}
+          {data.hunt.is_admin && !data.hunt.archived && (
+            <GateHuntPanel
+              uid={uid!}
+              isGated={data.hunt.is_gated}
+              roleName={data.hunt.role_name}
             />
           )}
           {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}
