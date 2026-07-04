@@ -11,7 +11,8 @@ from functools import wraps
 
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
-    TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, resolve_group
+    TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
+    resolve_group
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
 
@@ -992,18 +993,39 @@ class Puzzles(commands.Cog):
         gid = category_layout.group_id_for_category(channel.category.id, TagGroupCategoryDb)
         return TagGroupJsonDb.get_by_attr(id=gid) if gid else None
 
-    async def _apply_solved_move(self, guild, channel):
-        """Category-aware reposition of a just-solved channel: SPLIT → move into a
-        solved category (+ clean an emptied overflow source); SINGLE → below the
-        divider. Caller guards thread/None. Never raises on its own."""
+    def _owner_for_channel(self, channel):
+        """Resolve the split-layout owner of a channel's category as an
+        ``(owner, dao)`` pair: a tag_group + TagGroupCategoryDb (primary
+        category or join table), else the hunt itself + HuntCategoryDb for a
+        channel in a hunt-owned split/overflow category (unassigned puzzles
+        after the hunt's general category splits). ``(None, None)`` when
+        nothing owns the category — legacy divider handling applies."""
         tag_group = self._tag_group_for_channel(channel)
-        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+        if tag_group is not None:
+            return tag_group, TagGroupCategoryDb
+        if isinstance(channel, discord.Thread) or channel.category is None:
+            return None, None
+        hunt_id = category_layout.group_id_for_category(
+            channel.category.id, HuntCategoryDb)
+        if hunt_id:
+            hunt = HuntJsonDb.get_by_attr(id=hunt_id)
+            if hunt is not None:
+                return hunt, HuntCategoryDb
+        return None, None
+
+    async def _apply_solved_move(self, guild, channel):
+        """Category-aware reposition of a just-solved channel: SPLIT (round- or
+        hunt-owned) → move into a solved category (+ clean an emptied overflow
+        source); SINGLE → below the divider. Caller guards thread/None. Never
+        raises on its own."""
+        owner, dao = self._owner_for_channel(channel)
+        if owner is not None and category_layout.is_split(owner, dao):
             source = await category_layout.move_channel_to_solved(
-                guild, tag_group, TagGroupCategoryDb, channel,
+                guild, owner, dao, channel,
             )
             if source is not None:
                 await category_layout.cleanup_empty_overflow(
-                    guild, tag_group, TagGroupCategoryDb, source,
+                    guild, owner, dao, source,
                 )
         else:
             divider = self.get_solve_divider_position(None, channel.category)
@@ -1012,17 +1034,18 @@ class Puzzles(commands.Cog):
                     await channel.edit(position=divider + 1)
 
     async def _apply_unsolved_move(self, guild, channel):
-        """Category-aware reposition of a just-unsolved channel: SPLIT → move back to
-        an unsolved category (+ clean an emptied overflow source); SINGLE → above the
-        divider. Caller guards thread/None. Never raises on its own."""
-        tag_group = self._tag_group_for_channel(channel)
-        if tag_group is not None and category_layout.is_split(tag_group, TagGroupCategoryDb):
+        """Category-aware reposition of a just-unsolved channel: SPLIT (round- or
+        hunt-owned) → move back to an unsolved category (+ clean an emptied
+        overflow source); SINGLE → above the divider. Caller guards thread/None.
+        Never raises on its own."""
+        owner, dao = self._owner_for_channel(channel)
+        if owner is not None and category_layout.is_split(owner, dao):
             source = await category_layout.move_channel_to_unsolved(
-                guild, tag_group, TagGroupCategoryDb, channel,
+                guild, owner, dao, channel,
             )
             if source is not None:
                 await category_layout.cleanup_empty_overflow(
-                    guild, tag_group, TagGroupCategoryDb, source,
+                    guild, owner, dao, source,
                 )
         else:
             divider = self.get_solve_divider_position(None, channel.category)

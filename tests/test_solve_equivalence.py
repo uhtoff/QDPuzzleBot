@@ -1190,6 +1190,62 @@ class TestApplyMoveHelpers:
         cl.move_channel_to_solved.assert_not_awaited()
         channel.edit.assert_awaited_once_with(position=4)
 
+    @pytest.mark.asyncio
+    async def test_apply_solved_move_split_hunt_category(self, cog):
+        """A channel in a HUNT-owned split category (an unassigned puzzle after
+        the hunt's general category split) must move via the hunt owner +
+        HuntCategoryDb — not fall to the legacy divider branch, which is dead
+        there (splitting deleted the divider) and silently strands the channel."""
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock()
+        channel.category = MagicMock(id=900)
+        hunt = MagicMock(id=7)
+        source = MagicMock()
+
+        cog._tag_group_for_channel = MagicMock(return_value=None)
+        with patch("bot.cogs.puzzles.HuntJsonDb") as hdb, \
+             patch("bot.cogs.puzzles.HuntCategoryDb") as hcdb, \
+             patch("bot.cogs.puzzles.category_layout") as cl:
+            hdb.get_by_attr.return_value = hunt
+            cl.group_id_for_category.return_value = 7
+            cl.is_split.return_value = True
+            cl.move_channel_to_solved = AsyncMock(return_value=source)
+            cl.cleanup_empty_overflow = AsyncMock()
+
+            await cog._apply_solved_move(guild, channel)
+
+        cl.move_channel_to_solved.assert_awaited_once_with(guild, hunt, hcdb, channel)
+        cl.cleanup_empty_overflow.assert_awaited_once_with(guild, hunt, hcdb, source)
+
+    @pytest.mark.asyncio
+    async def test_apply_unsolved_move_split_hunt_category(self, cog):
+        """Unsolve is symmetric: a channel relocated into a hunt-owned solved
+        category must move back through the hunt owner + HuntCategoryDb."""
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock()
+        channel.category = MagicMock(id=901)
+        hunt = MagicMock(id=7)
+        source = MagicMock()
+
+        cog._tag_group_for_channel = MagicMock(return_value=None)
+        with patch("bot.cogs.puzzles.HuntJsonDb") as hdb, \
+             patch("bot.cogs.puzzles.HuntCategoryDb") as hcdb, \
+             patch("bot.cogs.puzzles.category_layout") as cl:
+            hdb.get_by_attr.return_value = hunt
+            cl.group_id_for_category.return_value = 7
+            cl.is_split.return_value = True
+            cl.move_channel_to_unsolved = AsyncMock(return_value=source)
+            cl.cleanup_empty_overflow = AsyncMock()
+
+            await cog._apply_unsolved_move(guild, channel)
+
+        cl.move_channel_to_unsolved.assert_awaited_once_with(guild, hunt, hcdb, channel)
+        cl.cleanup_empty_overflow.assert_awaited_once_with(guild, hunt, hcdb, source)
+
 
 class TestRenameGroup:
     @pytest.fixture

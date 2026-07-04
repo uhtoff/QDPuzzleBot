@@ -17,3 +17,9 @@ class HuntCategoryData:
     category_id: int = 0
     role: str = ROLE_UNSOLVED   # 'unsolved' | 'solved'
     seq: int = 0
+
+    @property
+    def group_id(self):
+        """Owner id under the duck-typed name generic category_layout code
+        reads (TagGroupCategoryData stores it as group_id)."""
+        return self.hunt_id

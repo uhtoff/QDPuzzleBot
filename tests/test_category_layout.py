@@ -283,6 +283,17 @@ def test_group_id_for_category_none_when_unknown():
     assert layout.group_id_for_category(999, dao) is None
 
 
+def test_group_id_for_category_works_with_hunt_rows():
+    """The duck-typed DAO contract must hold for BOTH join tables:
+    HuntCategoryData stores its owner as hunt_id, but generic code reads
+    row.group_id — the hunt row has to answer to it too."""
+    from bot.store.hunt_category_data import HuntCategoryData
+    dao = MagicMock()
+    dao.get_by_category.return_value = HuntCategoryData(
+        hunt_id=7, category_id=300, role="solved", seq=0)
+    assert layout.group_id_for_category(300, dao) == 7
+
+
 @pytest.mark.asyncio
 async def test_move_channel_to_solved_moves_into_solved_category():
     solved_cat = _cat(200, 6, n_channels=0)
