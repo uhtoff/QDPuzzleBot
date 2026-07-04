@@ -1,10 +1,18 @@
-"""Multi-category layout for a tag_group (round) that outgrows one Discord
-category (50-channel cap). Owns placement, allocation, the single→split
-transition, empty-overflow cleanup, and teardown.
+"""Multi-category layout for an *owner* — a tag_group (round) or a hunt's own
+general container — that outgrows one Discord category (50-channel cap). Owns
+placement, allocation, the single→split transition, empty-overflow cleanup,
+and teardown.
 
-A group with no `tag_group_category` rows is in the legacy single-category
+Generic over the owner: every function here only needs ``owner.id``,
+``owner.category_id``, and ``owner.name`` (a ``TagGroupData`` or ``HuntData``
+both qualify), plus a ``dao`` — ``TagGroupCategoryDb`` or ``HuntCategoryDb`` —
+exposing the same duck-typed interface (``get_for_group``, ``get_by_category``,
+``delete_for_group``, ``make_row``) so the same split/allocate/teardown code
+serves both without caring which owner it's called for.
+
+An owner with no category rows (in its `dao`) is in the legacy single-category
 layout (one category + the ———solved——— divider); callers keep today's
-divider behaviour for it. Once a group splits, every category it owns has a
+divider behaviour for it. Once an owner splits, every category it owns has a
 row recording its role ('unsolved'/'solved') and seq.
 """
 import asyncio
@@ -12,8 +20,8 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
-from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED, TagGroupCategoryData
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
+from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +150,8 @@ async def split_group(guild, tag_group, dao):
             divider = discord.utils.get(primary.channels, name=SOLVE_DIVIDER)
             if divider is not None:
                 await divider.delete(reason=DELETE_REASON)
-        dao.commit(TagGroupCategoryData(
-            group_id=tag_group.id, category_id=primary.id,
-            role=ROLE_UNSOLVED, seq=0))
-        dao.commit(TagGroupCategoryData(
-            group_id=tag_group.id, category_id=solved_cat.id,
-            role=ROLE_SOLVED, seq=0))
+        dao.commit(dao.make_row(tag_group.id, primary.id, ROLE_UNSOLVED, 0))
+        dao.commit(dao.make_row(tag_group.id, solved_cat.id, ROLE_SOLVED, 0))
 
 
 # ----------------------------------------------------------------- placement
@@ -169,8 +173,7 @@ async def _allocate(guild, tag_group, dao, role_rows, role):
         new_cat = existing or await template.clone(name=name)
         if existing is None:
             await new_cat.edit(position=template.position + 1)
-        dao.commit(TagGroupCategoryData(
-            group_id=tag_group.id, category_id=new_cat.id, role=role, seq=next_seq))
+        dao.commit(dao.make_row(tag_group.id, new_cat.id, role, next_seq))
     return new_cat
 
 
@@ -234,67 +237,63 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     return source
 
 
-def _general_overflow_name(base, seq):
-    return base if seq == 0 else f"{base} ({seq + 1})"
+async def move_channel_to_owner(guild, owner, dao, channel, solved):
+    """Relocate *channel* into whichever of *owner*'s categories is correct for
+    *solved* — used when a puzzle's channel needs to move to a DIFFERENT
+    owner entirely (e.g. delete_round's keep_puzzles relocation), as opposed
+    to move_channel_to_solved/_unsolved's same-owner solve/unsolve reposition.
 
+    Split state: delegates to move_channel_to_solved/_unsolved and cleans up
+    any overflow category the move emptied. Legacy (not yet split) state:
+    positions the channel relative to the existing solve divider if there's
+    room, or proactively splits (mirroring pick_unsolved_category's own
+    proactive split) and retries if the primary category is already at the
+    soft limit — so an owner with room never gets force-split just because a
+    channel arrived, matching the round soft-limit behaviour instead of
+    special-casing "general" categories.
 
-async def _pick_general_category(guild, general):
-    """Find the first general-category slot (the primary, or a numbered
-    overflow clone) with room for one more channel, creating a new overflow
-    category if every existing one is full. Mirrors _allocate/_pick_or_allocate's
-    split behaviour for tag_group categories, but the hunt's general category
-    has no DAO-tracked rows — overflow categories ("General (2)", "General (3)",
-    ...) are found purely by name, same convention split_group already uses to
-    reuse an existing category by name."""
-    base = general.name
-    seq = 0
-    cat = general
-    while cat is not None and len(cat.channels) >= MAX_CHANNELS_PER_CATEGORY:
-        seq += 1
-        cat = discord.utils.get(guild.categories, name=_general_overflow_name(base, seq))
-    if cat is not None:
-        return cat
-    if len(guild.categories) >= MAX_CATEGORIES:
-        return None
-    async with layout_lock:
-        # Re-check under the lock in case a concurrent caller just created it.
-        name = _general_overflow_name(base, seq)
-        existing = discord.utils.get(guild.categories, name=name)
-        new_cat = existing or await general.clone(name=name)
-        if existing is None:
-            await new_cat.edit(position=general.position + 1)
-    return new_cat
+    Returns True if moved (or already correctly placed), False if there's no
+    usable category for *owner* or the move failed.
+    """
+    if is_split(owner, dao):
+        mover = move_channel_to_solved if solved else move_channel_to_unsolved
+        try:
+            source = await mover(guild, owner, dao, channel)
+        except Exception:
+            logger.exception("move_channel_to_owner: could not move channel %s",
+                             getattr(channel, "id", "?"))
+            return False
+        if source is not None:
+            await cleanup_empty_overflow(guild, owner, dao, source)
+        return True
 
-
-async def move_channel_to_general(guild, general_category_id, channel, solved):
-    """Move *channel* into the hunt's general category (``general_category_id``)
-    — used by delete_round's keep_puzzles mode to relocate a kept puzzle's
-    channel out of a round category that's about to be deleted. Positioned
-    like tag_edge_only's channel-move: unsolved just above the solved
-    divider, solved after it. Overflows into a numbered clone category
-    ("General (2)", ...) when the primary general category is full. Returns
-    True if moved, False if there's no general category, no category (primary
-    or overflow) has room and none more can be allocated, or the move failed
-    (caller should treat that puzzle's channel as needing manual attention)."""
-    general = _category_by_id(guild, general_category_id)
-    if general is None:
+    primary = _home_category(guild, owner)
+    if primary is None:
         return False
-    target = await _pick_general_category(guild, general)
-    if target is None:
-        return False
-    divider_pos = solve_divider_position(target)
+    if channel.category_id == primary.id:
+        return True
+    if puzzle_count(primary) + 1 > CATEGORY_SOFT_LIMIT:
+        try:
+            await split_group(guild, owner, dao)
+        except Exception:
+            logger.exception("move_channel_to_owner: could not split %s to make room",
+                             getattr(owner, "id", "?"))
+            return False
+        return await move_channel_to_owner(guild, owner, dao, channel, solved)
+
+    divider_pos = solve_divider_position(primary)
     if divider_pos is not False:
         position = (
-            max((ch.position for ch in target.channels), default=0) + 1
+            max((ch.position for ch in primary.channels), default=0) + 1
             if solved else divider_pos - 1
         )
     else:
-        position = max((ch.position for ch in target.channels), default=-1) + 1
+        position = max((ch.position for ch in primary.channels), default=-1) + 1
     try:
         async with layout_lock:
-            await channel.edit(category=target, position=position)
+            await channel.edit(category=primary, position=position)
     except Exception:
-        logger.exception("move_channel_to_general: could not move channel %s",
+        logger.exception("move_channel_to_owner: could not move channel %s",
                          getattr(channel, "id", "?"))
         return False
     return True

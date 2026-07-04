@@ -18,7 +18,7 @@ import discord
 import pytz
 from googleapiclient.errors import HttpError
 
-from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -30,7 +30,7 @@ from bot.core.errors import SheetRefreshError
 from bot.utils import urls
 from bot.core.discord_channels import (
     clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
-    MAX_CHANNELS_PER_GUILD, MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES,
+    MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
@@ -1450,34 +1450,25 @@ class PuzzleService:
         group being deleted (``tag_group``). Prefers moving it into a category
         belonging to another group ``puzzle`` is also tagged to — so a shared
         puzzle lands with its other round rather than in the catch-all general
-        category — and only falls back to the hunt's general category
-        (``category_layout.move_channel_to_general``) if none of its other
-        groups have a usable category. Returns True if moved, False if every
-        option failed (caller should treat the channel as needing manual
-        attention)."""
+        category — and only falls back to the hunt's own general category
+        if none of its other groups have a usable category. Both cases go
+        through ``category_layout.move_channel_to_owner``, which auto-splits
+        the target the same way round categories already do, rather than a
+        separate general-category-only mechanism. Returns True if moved,
+        False if every option failed (caller should treat the channel as
+        needing manual attention)."""
         for other_gid in puzzle.tags:
             if other_gid == tag_group.id:
                 continue
             other_group = TagGroupJsonDb.get_by_attr(id=other_gid)
             if other_group is None:
                 continue
-            mover = (category_layout.move_channel_to_solved if puzzle.solved
-                     else category_layout.move_channel_to_unsolved)
-            try:
-                # The channel is confirmed (by the caller) to still be in a
-                # category owned by tag_group, so a non-None return here can
-                # only mean the move to other_group actually happened — it
-                # can't be the "already in target" no-op.
-                moved = await mover(guild, other_group, TagGroupCategoryDb, channel)
-            except Exception:
-                logger.exception(
-                    "delete_round: could not relocate %s into sibling group %s",
-                    puzzle.name, other_group.id)
-                continue
-            if moved is not None:
+            if await category_layout.move_channel_to_owner(
+                guild, other_group, TagGroupCategoryDb, channel, puzzle.solved
+            ):
                 return True
-        return await category_layout.move_channel_to_general(
-            guild, hunt.category_id, channel, puzzle.solved
+        return await category_layout.move_channel_to_owner(
+            guild, hunt, HuntCategoryDb, channel, puzzle.solved
         )
 
     @pushes_board()
@@ -1930,16 +1921,18 @@ class PuzzleService:
                     guild, round_data, TagGroupCategoryDb,
                 )
         else:
-            category_id = hunt.category_id
-            category = discord.utils.get(guild.categories, id=category_id) if category_id else None
+            # Unassigned puzzles flow through the same multi-category layout as
+            # rounds, keyed to the hunt itself rather than a tag_group — so the
+            # hunt's general category splits/allocates an overflow category as
+            # needed instead of hard-blocking creation at the 50 cap.
+            category = await category_layout.pick_unsolved_category(
+                guild, hunt, HuntCategoryDb,
+            )
 
         # Guild-wide ceiling still applies (overflow can't conjure channel slots).
         # Threads don't count toward the 500 cap.
         if hunt.layout_mode != "forum" and len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
             raise RuntimeError("guild_full")
-        # Hunt category (no round) keeps the simple hard guard.
-        if round_data is None and category is not None and len(category.channels) >= MAX_CHANNELS_PER_CATEGORY:
-            raise RuntimeError("category_full")
 
         new_puzzle = PuzzleData(
             name=name,
@@ -2711,12 +2704,26 @@ class PuzzleService:
                 except Exception:
                     logger.exception("delete_hunt: could not delete hunt channel %s", hunt.channel_id)
             if hunt.category_id:
-                category = discord.utils.get(guild.categories, id=hunt.category_id)
-                if category is not None:
-                    try:
-                        await category.delete(reason=self._DISCORD_DELETE_REASON)
-                    except Exception:
-                        logger.exception("delete_hunt: could not delete hunt category %s", hunt.category_id)
+                # The hunt's general category can split/overflow the same way a
+                # round's can (see create_puzzle/delete_round); delete_group_categories
+                # tears down all of unsolved/solved/overflow + the DB join rows.
+                # Returns False for a still-single-category hunt, which keeps the
+                # legacy divider+category teardown below.
+                if not await category_layout.delete_group_categories(
+                    guild, hunt, HuntCategoryDb,
+                ):
+                    category = discord.utils.get(guild.categories, id=hunt.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_hunt: could not delete divider channel")
+                        try:
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.exception("delete_hunt: could not delete hunt category %s", hunt.category_id)
 
         HuntJsonDb.delete(hunt.id)
         return failed_channels
@@ -2741,7 +2748,8 @@ class PuzzleService:
             return report
         webhook = await hunt_archive.ensure_webhook(dest)
 
-        # Every category the hunt owns: main + solved-by-name + each group's categories.
+        # Every category the hunt owns: main + solved-by-name + any split/overflow
+        # categories the hunt's own general container owns + each group's categories.
         category_ids = set()
         if hunt.category_id:
             category_ids.add(hunt.category_id)
@@ -2749,6 +2757,9 @@ class PuzzleService:
             guild.categories, name=category_layout.solved_category_name(hunt.name))
         if solved is not None:
             category_ids.add(solved.id)
+        for row in category_layout.group_categories(hunt, HuntCategoryDb):
+            if row.category_id:
+                category_ids.add(row.category_id)
         for tg in TagGroupJsonDb.get_all(hunt.id):
             if tg.category_id:
                 category_ids.add(tg.category_id)

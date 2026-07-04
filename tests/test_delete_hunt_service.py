@@ -136,4 +136,4 @@ async def test_delete_hunt_tears_down_split_round_categories():
 
         await svc.delete_hunt(guild, hunt)
 
-    delete_group_cats.assert_awaited_once_with(guild, group, tgcdb)
+    delete_group_cats.assert_any_await(guild, group, tgcdb)

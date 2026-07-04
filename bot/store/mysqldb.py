@@ -10,6 +10,7 @@ from bot.core.discord_channels import clean_channel_name
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
+from .hunt_category_data import HuntCategoryData
 from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
@@ -203,6 +204,12 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
 class MySQLTagGroupCategoryDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group_category'
 
+    def make_row(self, owner_id, category_id, role, seq):
+        """Build an (uncommitted) row for a category owned by tag_group ``owner_id``.
+        Lets category_layout's generic split/allocate code construct a row without
+        depending on which owner (tag_group vs hunt) it's building for."""
+        return TagGroupCategoryData(group_id=owner_id, category_id=category_id, role=role, seq=seq)
+
     def get_for_group(self, group_id):
         """All category rows for a group, ordered by role then seq."""
         cursor = self.mydb.cursor(dictionary=True)
@@ -236,6 +243,55 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
         try:
             cursor.execute(
                 "DELETE FROM tag_group_category WHERE group_id = %s", (group_id,)
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+
+class MySQLHuntCategoryDb(_MySQLBaseDb):
+    """The hunt-level counterpart to MySQLTagGroupCategoryDb: tracks the extra
+    categories a hunt's general container owns once it splits/overflows past
+    the soft limit. Same shape and method names (duck-typed) so category_layout's
+    generic split/allocate/pick/delete functions work unchanged against either DAO.
+    """
+    TABLE_NAME = 'hunt_category'
+
+    def make_row(self, owner_id, category_id, role, seq):
+        return HuntCategoryData(hunt_id=owner_id, category_id=category_id, role=role, seq=seq)
+
+    def get_for_group(self, hunt_id):
+        """All category rows for a hunt, ordered by role then seq."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT * FROM hunt_category WHERE hunt_id = %s "
+                "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
+                (hunt_id,),
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [HuntCategoryData(**row) for row in rows]
+
+    def get_by_category(self, category_id):
+        """The single row owning a category, or None."""
+        cursor = self.mydb.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT * FROM hunt_category WHERE category_id = %s LIMIT 1",
+                (category_id,),
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return HuntCategoryData(**row) if row else None
+
+    def delete_for_group(self, hunt_id):
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM hunt_category WHERE hunt_id = %s", (hunt_id,)
             )
         finally:
             cursor.close()

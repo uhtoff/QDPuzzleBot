@@ -493,10 +493,10 @@ class Puzzles(commands.Cog):
                 await bot_channel.send(
                     f"@here Server space is getting tight, remaining category space is {remaining_categories}."
                 )
-            if check_current_category and remaining_category_channels <= 2:
-                await bot_channel.send(
-                    f"@here The {category.name} category is getting full, remaining channel space is {remaining_category_channels}."
-                )
+            # No "category getting full" warning here: round and hunt-general
+            # categories now auto-split/overflow (category_layout.pick_unsolved_category)
+            # before a single category can actually run out of room, so a
+            # per-category "getting full" warning would just be noise.
         return space_available
 
     @commands.command(aliases=["h"])

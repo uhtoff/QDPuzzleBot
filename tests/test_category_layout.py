@@ -88,6 +88,8 @@ async def test_split_group_moves_solved_deletes_divider_writes_rows():
     guild, primary, solved_cat, div, unsolved, solved = _split_fixtures()
     dao = MagicMock()
     dao.get_for_group.return_value = []           # not yet split
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
     tag_group = MagicMock(id=5, category_id=100, name="Round 1")
 
     await layout.split_group(guild, tag_group, dao)
@@ -187,6 +189,8 @@ async def test_pick_unsolved_allocates_when_all_full():
     dao.get_for_group.return_value = [
         TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
     ]
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
     tag_group = MagicMock(id=5, category_id=100, name="Round 1")
 
     result = await layout.pick_unsolved_category(guild, tag_group, dao)
@@ -405,131 +409,194 @@ def test_group_chat_channel_finds_by_name():
     assert layout.group_chat_channel(guild, tag_group) is chat_ch
 
 
-# ----------------------------------------------------------------- move_channel_to_general
+# ----------------------------------------------------------------- move_channel_to_owner
+#
+# move_channel_to_owner(guild, owner, dao, channel, solved) is generic over any
+# owner (tag_group OR hunt) — used when a puzzle's channel must move to a
+# DIFFERENT owner entirely (e.g. delete_round's keep_puzzles relocation, either
+# into a sibling group or the hunt's own general container), as opposed to
+# move_channel_to_solved/_unsolved's same-owner solve/unsolve reposition.
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_no_category_returns_false():
+async def test_move_channel_to_owner_no_category_returns_false():
     guild = MagicMock()
     guild.categories = []
+    owner = MagicMock(id=5, category_id=0, name="General")
+    dao = MagicMock()
+    dao.get_for_group.return_value = []
     channel = MagicMock()
     channel.edit = AsyncMock()
-    assert await layout.move_channel_to_general(guild, 999, channel, False) is False
+
+    assert await layout.move_channel_to_owner(guild, owner, dao, channel, False) is False
     channel.edit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_full_category_overflows_to_new_category():
-    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
-    general = MagicMock(id=500, name="General", position=3)
-    general.name = "General"
-    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
-    overflow = MagicMock(id=501)
-    overflow.channels = []
-    general.clone = AsyncMock(return_value=overflow)
-    overflow.edit = AsyncMock()
-    guild = MagicMock()
-    guild.categories = [general]
-    channel = MagicMock()
+async def test_move_channel_to_owner_already_in_place_returns_true_without_edit():
+    primary = MagicMock(id=100)
+    primary.channels = []
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 100
     channel.edit = AsyncMock()
 
-    result = await layout.move_channel_to_general(guild, 500, channel, False)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
     assert result is True
-    general.clone.assert_awaited_once_with(name="General (2)")
-    overflow.edit.assert_awaited_once_with(position=4)
-    channel.edit.assert_awaited_once_with(category=overflow, position=0)
+    channel.edit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_reuses_existing_overflow_with_room():
-    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
-    general = MagicMock(id=500)
-    general.name = "General"
-    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
-    general.clone = AsyncMock()
-    overflow = MagicMock(id=501)
-    overflow.name = "General (2)"
-    overflow.channels = []
-    guild = MagicMock()
-    guild.categories = [general, overflow]
-    channel = MagicMock()
+async def test_move_channel_to_owner_not_split_unsolved_positions_above_divider():
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
+    other = MagicMock(); other.name = "general"; other.position = 0
+    primary = MagicMock(id=500)
+    primary.channels = [div, other]
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=500, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
     channel.edit = AsyncMock()
 
-    result = await layout.move_channel_to_general(guild, 500, channel, False)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
     assert result is True
-    general.clone.assert_not_awaited()
-    channel.edit.assert_awaited_once_with(category=overflow, position=0)
+    channel.edit.assert_awaited_once_with(category=primary, position=4)
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_no_category_space_returns_false():
-    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES
-    general = MagicMock(id=500)
-    general.name = "General"
-    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
-    general.clone = AsyncMock()
-    others = [MagicMock() for _ in range(MAX_CATEGORIES - 1)]
-    guild = MagicMock()
-    guild.categories = [general] + others
-    channel = MagicMock()
+async def test_move_channel_to_owner_not_split_solved_positions_after_divider():
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
+    other = MagicMock(); other.name = "general"; other.position = 0
+    primary = MagicMock(id=500)
+    primary.channels = [div, other]
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=500, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
     channel.edit = AsyncMock()
 
-    result = await layout.move_channel_to_general(guild, 500, channel, False)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, True)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=primary, position=6)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_not_split_no_divider_appends_at_end():
+    other = MagicMock(); other.name = "general"; other.position = 3
+    primary = MagicMock(id=500)
+    primary.channels = [other]           # no SOLVE_DIVIDER channel present
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=500, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is True
+    channel.edit.assert_awaited_once_with(category=primary, position=4)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_not_split_edit_failure_returns_false():
+    primary = MagicMock(id=500)
+    primary.channels = []
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=500, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
+    channel.edit = AsyncMock(side_effect=RuntimeError("boom"))
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
     assert result is False
-    general.clone.assert_not_awaited()
-    channel.edit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_unsolved_positions_above_divider():
-    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
-    other = MagicMock(); other.name = "general"; other.position = 0
-    general = MagicMock(id=500)
-    general.channels = [div, other]
-    guild = MagicMock()
-    guild.categories = [general]
-    channel = MagicMock()
-    channel.edit = AsyncMock()
+async def test_move_channel_to_owner_over_soft_limit_splits_then_places(monkeypatch):
+    """A not-yet-split owner whose primary is already at the soft limit gets
+    proactively split (mirroring pick_unsolved_category's own proactive
+    split) instead of being force-appended past the limit."""
+    primary = MagicMock(id=100)
+    primary.channels = [MagicMock() for _ in range(layout.CATEGORY_SOFT_LIMIT)]  # full
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock()
+    dao.get_for_group.side_effect = [
+        [],  # not split (initial check)
+        [TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0)],  # split now
+    ]
+    split_mock = AsyncMock()
+    monkeypatch.setattr(layout, "split_group", split_mock)
+    unsolved_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(layout, "move_channel_to_unsolved", unsolved_mock)
+    channel = MagicMock(); channel.category_id = 999
 
-    result = await layout.move_channel_to_general(guild, 500, channel, False)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
+    split_mock.assert_awaited_once_with(guild, owner, dao)
+    unsolved_mock.assert_awaited_once_with(guild, owner, dao, channel)
     assert result is True
-    channel.edit.assert_awaited_once_with(category=general, position=4)
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_solved_positions_after_divider():
-    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 5
-    other = MagicMock(); other.name = "general"; other.position = 0
-    general = MagicMock(id=500)
-    general.channels = [div, other]
-    guild = MagicMock()
-    guild.categories = [general]
-    channel = MagicMock()
-    channel.edit = AsyncMock()
+async def test_move_channel_to_owner_split_failure_returns_false(monkeypatch):
+    """A Discord-side failure while proactively splitting (e.g. clone raises)
+    must be isolated as a per-puzzle failure, not propagate out of
+    delete_round and abort the whole run."""
+    primary = MagicMock(id=100)
+    primary.channels = [MagicMock() for _ in range(layout.CATEGORY_SOFT_LIMIT)]  # full
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    monkeypatch.setattr(layout, "split_group", AsyncMock(side_effect=RuntimeError("boom")))
+    channel = MagicMock(); channel.category_id = 999
 
-    result = await layout.move_channel_to_general(guild, 500, channel, True)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
-    assert result is True
-    channel.edit.assert_awaited_once_with(category=general, position=6)
+    assert result is False
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_no_divider_appends_at_end():
-    other = MagicMock(); other.name = "general"; other.position = 3
-    general = MagicMock(id=500)
-    general.channels = [other]           # no SOLVE_DIVIDER channel present
+async def test_move_channel_to_owner_split_state_delegates_and_cleans_overflow(monkeypatch):
     guild = MagicMock()
-    guild.categories = [general]
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
     channel = MagicMock()
-    channel.edit = AsyncMock()
+    source_cat = MagicMock()
+    solved_mock = AsyncMock(return_value=source_cat)
+    monkeypatch.setattr(layout, "move_channel_to_solved", solved_mock)
+    cleanup_mock = AsyncMock()
+    monkeypatch.setattr(layout, "cleanup_empty_overflow", cleanup_mock)
 
-    result = await layout.move_channel_to_general(guild, 500, channel, False)
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, True)
 
+    solved_mock.assert_awaited_once_with(guild, owner, dao, channel)
+    cleanup_mock.assert_awaited_once_with(guild, owner, dao, source_cat)
     assert result is True
-    channel.edit.assert_awaited_once_with(category=general, position=4)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_split_state_exception_returns_false(monkeypatch):
+    guild = MagicMock()
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    channel = MagicMock()
+    monkeypatch.setattr(
+        layout, "move_channel_to_unsolved", AsyncMock(side_effect=RuntimeError("boom")))
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is False
 
 
 # ----------------------------------------------------------------- delete_group_categories keep_channel_ids

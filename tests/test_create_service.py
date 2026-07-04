@@ -169,9 +169,11 @@ async def test_create_unassigned_puzzle_sets_no_edge():
     notifier = MagicMock()
     notifier.welcome = AsyncMock()
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
         pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        hcdb.get_for_group.return_value = []
         await svc.create_puzzle(
             guild, _svc_hunt(), None, "Newpuz", is_meta=False, notifier=notifier)
     pdb.tag_puzzle_with_edge.assert_not_called()
