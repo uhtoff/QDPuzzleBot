@@ -643,7 +643,11 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         remove it from all groups. Use the ⋮ menu on a card to add it to an additional group or remove it from just one.
       </Text>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <ScrollArea type="auto" offsetScrollbars>
+        {/* Cap the board's height so its horizontal scrollbar always stays on
+            screen — with many puzzles the columns can be much taller than the
+            viewport, pushing an uncapped ScrollArea's scrollbar off the bottom
+            until the whole page is scrolled down first. */}
+        <ScrollArea type="auto" offsetScrollbars mah="65vh">
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
               <Column

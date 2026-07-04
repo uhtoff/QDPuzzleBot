@@ -1453,8 +1453,11 @@ class GoogleSheets(commands.Cog):
         """Return True if the target's contribution Table exists, creating it (below
         the frozen header) if missing. Meta creation adds it, but a transient Sheets
         500 there can leave the tab tableless — this self-heals on the next render.
-        Returns False if it still cannot be created, so the caller skips the data
-        write rather than letting reconcile_table fall back to row 0 over the header."""
+
+        Lets a creation failure propagate (e.g. a legacy/imported tab whose row 4
+        columns A-D already hold real content the Table can't be laid over) so the
+        caller's refresh_target/!rebuild badges and reports it, rather than quietly
+        reporting success while never writing the rollup."""
         from bot.cogs import sheet_layout
         spreadsheet_id = self.get_spreadsheet_id()
         for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
@@ -1462,12 +1465,8 @@ class GoogleSheets(commands.Cog):
                 if s.get("tables"):
                     return True
                 break
-        try:
-            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
-            return True
-        except Exception:
-            logger.exception("_ensure_contribution_table: could not create table on %s", page_id)
-            return False
+        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+        return True
 
     async def render_minimeta_contribution(self, minimeta, members):
         """Render the contribution table on a minimeta's own tab.
