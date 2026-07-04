@@ -9,6 +9,8 @@ import string
 
 import discord
 
+from bot.utils import config
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,9 @@ _STRIP_PUNCT = re.compile(
 SOLVE_CATEGORY = False
 SOLVE_DIVIDER = "———solved———"
 MAX_CHANNELS_PER_GUILD = 500
-MAX_CHANNELS_PER_CATEGORY = 50
+# Discord's real cap is 50; config.max_channels_per_category overrides it so a
+# test config can exercise category split/overflow without creating 45+ channels.
+MAX_CHANNELS_PER_CATEGORY = config.max_channels_per_category
 MAX_CATEGORIES = 50
 DELETE_REASON = "bot-delete"
 

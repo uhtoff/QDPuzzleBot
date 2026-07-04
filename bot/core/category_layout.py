@@ -20,14 +20,16 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
 
 logger = logging.getLogger(__name__)
 
 # Allocate/split when a category WOULD cross this, leaving headroom below the
-# hard cap (MAX_CHANNELS_PER_CATEGORY = 50) so a create never fails mid-flight.
-CATEGORY_SOFT_LIMIT = 45
+# hard cap so a create never fails mid-flight. Scales with the configured cap
+# (see config.max_channels_per_category) rather than a fixed 45, so a lowered
+# test cap still leaves the same proportion of headroom.
+CATEGORY_SOFT_LIMIT = max(1, MAX_CHANNELS_PER_CATEGORY - 5)
 
 # Serialises all category-structure mutations (create category, move channel
 # between categories, delete category) this module performs.

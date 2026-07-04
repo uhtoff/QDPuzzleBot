@@ -9,6 +9,9 @@ default_config = {
     "storage": "mysql",
     "debug": False,
     "development": False,
+    # Discord's real per-category channel cap is 50; overridable so a test
+    # config can exercise category split/overflow without creating 45+ channels.
+    "max_channels_per_category": 50,
 }
 
 class Config:
@@ -52,6 +55,8 @@ class Config:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))
         self.development = self.config.get("development", default_config.get("development"))
+        self.max_channels_per_category = int(self.config.get(
+            "max_channels_per_category", default_config.get("max_channels_per_category")))
 
     def store(self):
         data = {"prefix": self.prefix, "discord_bot_token": self.token, "database": self.database}

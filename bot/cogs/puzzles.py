@@ -67,7 +67,7 @@ def with_puzzle_mutex(*, wait: bool = True):
     return decorator
 
 class Puzzles(commands.Cog):
-    MAX_CHANNELS_PER_CATEGORY = 50
+    MAX_CHANNELS_PER_CATEGORY = _channels.MAX_CHANNELS_PER_CATEGORY
     MAX_CHANNELS_PER_GUILD = 500
     MAX_CATEGORIES = 50
     GENERAL_CHANNEL_NAME = "general"
