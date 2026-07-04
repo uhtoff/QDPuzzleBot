@@ -140,6 +140,13 @@ def _category_claimed(category_id):
     )
 
 
+def is_managed_category(category_id):
+    """Public face of _category_claimed for callers outside the engine: True
+    if the bot's layout machinery owns *category_id* (a group's/hunt's home
+    or a split/overflow member). Hand-made categories return False."""
+    return _category_claimed(category_id)
+
+
 def group_categories(tag_group, dao):
     return dao.get_for_group(tag_group.id)
 

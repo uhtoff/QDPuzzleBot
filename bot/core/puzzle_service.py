@@ -1241,6 +1241,56 @@ class PuzzleService:
             await gsheet_cog.demote_tab_to_puzzle(puzzle)
         return orphaned
 
+    async def absorb_category(self, guild, hunt, category):
+        """Adopt a HAND-MADE category into the hunt's layout: relocate every
+        puzzle channel in *category* through the general split/overflow
+        machinery (solved puzzles land on the solved side; general splits or
+        allocates overflow as needed), delete any hand-made solve-divider
+        channel, and delete the category itself once fully emptied. The
+        cleanup path for categories split by hand before the overflow engine
+        existed.
+
+        Refuses (ValueError) a category the engine already manages — a
+        group's/hunt's home or a split/overflow member — absorbing one of
+        those would fight the layout the bot itself maintains.
+
+        Channels that aren't this hunt's puzzles are left in place and
+        reported; any of those (or a failed move) keeps the category alive.
+        Returns {"moved", "skipped", "failed", "deleted"}."""
+        if category_layout.is_managed_category(category.id):
+            raise ValueError("cannot absorb a bot-managed category")
+        moved, skipped, failed = 0, [], []
+        blockers = 0
+        for ch in list(category.channels):
+            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                try:
+                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                except Exception:
+                    logger.exception("absorb_category: could not delete divider %s", ch.id)
+                    blockers += 1
+                continue
+            puzzle = PuzzleJsonDb.get_by_attr(channel_id=ch.id)
+            if puzzle is None or puzzle.hunt_id != hunt.id:
+                skipped.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
+                blockers += 1
+                continue
+            if await category_layout.move_channel_to_owner(
+                    guild, hunt, HuntCategoryDb, ch, puzzle.solved):
+                moved += 1
+            else:
+                failed.append(puzzle.name)
+                blockers += 1
+        deleted = False
+        if blockers == 0:
+            try:
+                await category.delete(reason=self._DISCORD_DELETE_REASON)
+                deleted = True
+            except Exception:
+                logger.exception("absorb_category: could not delete category %s",
+                                 category.id)
+        return {"moved": moved, "skipped": skipped, "failed": failed,
+                "deleted": deleted}
+
     async def _teardown_converted_group_categories(self, guild, hunt, tag_group):
         """convert_to_puzzle's category handling for a SPLIT round: every member
         puzzle (including the demoted meta itself) keeps its channel, so

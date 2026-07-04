@@ -3061,6 +3061,43 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @commands.has_any_role(*ADMIN_ROLES)
+    async def absorb_category(self, ctx):
+        """*Move every puzzle channel in this hand-made category into the hunt's general layout (auto-overflow), then delete the emptied category.*
+
+        Usage: `!absorb_category`
+        Example: `!absorb_category`
+        Run in a puzzle channel of the hand-made category to absorb. Cleanup
+        for categories split by hand before the overflow engine existed —
+        solved puzzles land on the general solved side, and general splits or
+        allocates overflow categories as needed. Refuses categories the bot
+        already manages. Channels that aren't this hunt's puzzles stay put
+        (and keep the category alive). Admins/mods only.
+        Bang-only: no web-dashboard equivalent, by design."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a puzzle channel of the category.")
+            return False
+        category = ctx.channel.category
+        if category is None:
+            await ctx.send(":x: This channel isn't in a category.")
+            return False
+        try:
+            report = await self.service.absorb_category(self.get_guild(ctx), hunt, category)
+        except ValueError:
+            await ctx.send(":x: That category is already managed by the bot — nothing to absorb.")
+            return False
+        lines = [f":white_check_mark: Absorbed {report['moved']} channel(s) into the hunt's general layout."]
+        if report["skipped"]:
+            lines.append(f":grey_question: Left in place (not this hunt's puzzles): {', '.join(report['skipped'])}")
+        if report["failed"]:
+            lines.append(f":x: Could not move: {', '.join(report['failed'])}")
+        lines.append(":broom: Emptied category deleted." if report["deleted"]
+                     else ":information_source: Category kept (channels remain in it).")
+        await ctx.send("\n".join(lines))
+        return not report["failed"]
+
+    @commands.command()
+    @commands.has_any_role(*ADMIN_ROLES)
     async def archive_round(self, ctx):
         """*Archive this round: copy every channel in the category into threads, then delete the category.*
 
