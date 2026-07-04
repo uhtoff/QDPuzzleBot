@@ -20,7 +20,7 @@ import logging
 
 import discord
 
-from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER, clean_channel_name, clean_category_name, solve_divider_position
+from bot.core.discord_channels import DELETE_REASON, MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER, clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position
 from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
 
 logger = logging.getLogger(__name__)
@@ -446,6 +446,7 @@ async def consolidate(guild, owner_id, dao):
 
         for role in (ROLE_UNSOLVED, ROLE_SOLVED):
             await _consolidate_role(guild, owner_id, dao, role, _count, added)
+        await _maybe_unsplit(guild, owner_id, dao, _count)
 
 
 async def _consolidate_role(guild, owner_id, dao, role, _count, added):
@@ -507,6 +508,68 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
             return
         dao.delete(top.id)
         # Loop: a further fold may now be possible.
+
+
+# How long to wait for a freshly-created divider to appear in the guild cache
+# (it arrives on the gateway CHANNEL_CREATE event, normally within ms).
+_DIVIDER_WAIT_TRIES = 30
+_DIVIDER_WAIT_DELAY = 0.1
+
+
+async def _maybe_unsplit(guild, owner_id, dao, _count):
+    """Reverse split_group once the owner is fully folded: exactly one row per
+    role (seq=0 each) and small enough that unsolved + solved + the divider
+    fit under CATEGORY_SOFT_LIMIT with CONSOLIDATE_MARGIN to spare.
+
+    Resumable order, rows deleted LAST: create the divider at the bottom of
+    the unsolved category → wait for it to reach the guild cache (moves
+    compute positions from the cache; without it a bulk renumber could land
+    solved channels ABOVE the divider) → move the solved channels below it
+    with explicit positions → delete the solved category → drop the rows.
+    Every earlier crash point leaves the owner validly split. A solved row
+    whose category was deleted out-of-band still completes (nothing to move).
+    Caller holds layout_lock.
+    """
+    rows = dao.get_for_group(owner_id)
+    unsolved = [r for r in rows if r.role == ROLE_UNSOLVED]
+    solved = [r for r in rows if r.role == ROLE_SOLVED]
+    if len(unsolved) != 1 or unsolved[0].seq != 0:
+        return
+    if len(solved) != 1 or solved[0].seq != 0:
+        return
+    u_cat = _category_by_id(guild, unsolved[0].category_id)
+    if u_cat is None:
+        return
+    s_cat = _category_by_id(guild, solved[0].category_id)
+    total = _count(u_cat) + (_count(s_cat) if s_cat is not None else 0) + 1
+    if total > CATEGORY_SOFT_LIMIT - CONSOLIDATE_MARGIN:
+        return
+    try:
+        await get_or_create_channel(
+            guild=guild, category=u_cat, channel_name=SOLVE_DIVIDER,
+            channel_type="text", position=500)
+        for _ in range(_DIVIDER_WAIT_TRIES):
+            if any(ch.name == SOLVE_DIVIDER for ch in u_cat.channels):
+                break
+            await asyncio.sleep(_DIVIDER_WAIT_DELAY)
+        else:
+            logger.warning(
+                "unsplit: divider for category %s never reached the cache; "
+                "aborting (split state kept, next trigger retries)", u_cat.id)
+            return
+        if s_cat is not None:
+            movers = sorted(
+                (ch for ch in s_cat.text_channels if ch.name != SOLVE_DIVIDER),
+                key=lambda ch: ch.position)
+            base = max((ch.position for ch in u_cat.channels), default=-1) + 1
+            for i, ch in enumerate(movers):
+                await ch.edit(category=u_cat, position=base + i)
+            await s_cat.delete(reason=DELETE_REASON)
+    except Exception:
+        logger.exception("unsplit: failed midway for owner %s (safe: rows "
+                         "survive, next run resumes)", owner_id)
+        return
+    dao.delete_for_group(owner_id)
 
 
 async def cleanup_source_category(guild, category):

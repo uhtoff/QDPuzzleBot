@@ -857,6 +857,9 @@ async def test_consolidate_unsolved_before_solved(monkeypatch):
         TagGroupCategoryData(id=3, group_id=5, category_id=200, role="solved", seq=0),
         TagGroupCategoryData(id=4, group_id=5, category_id=201, role="solved", seq=1),
     ])
+    # This test asserts fold ordering only; the post-fold state is a valid
+    # un-split candidate, which has its own tests below.
+    monkeypatch.setattr(layout, "_maybe_unsplit", AsyncMock(), raising=False)
 
     await layout.consolidate(guild, 5, dao)
 
@@ -892,6 +895,123 @@ async def test_consolidate_tracks_capacity_across_moves_in_one_run(monkeypatch):
     m1, m2 = u2.channels
     m1.edit.assert_awaited_once_with(category=u0, position=2)
     m2.edit.assert_awaited_once_with(category=u0, position=3)
+
+
+# ----------------------------------------------------------------- un-split
+
+def _unsplit_fixture(monkeypatch, n_unsolved=3, n_solved=2, divider_reaches_cache=True):
+    """Owner split into exactly u0/s0 (seq=0 each). get_or_create_channel is
+    patched: it 'creates' the divider and (by default) makes it appear in
+    u0's cached channel list, the way the gateway event would."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 10)
+    u0 = _filled_cat(100, 5, n=n_unsolved)
+    s0 = _filled_cat(200, 6, n=n_solved, name="round-1 — solved")
+    guild = MagicMock(); guild.categories = [u0, s0]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=200, role="solved", seq=0),
+    ])
+    dao.delete_for_group.side_effect = lambda gid: store.clear()
+
+    divider = MagicMock(); divider.name = SOLVE_DIVIDER
+    divider.position = n_unsolved          # lands after the unsolved block
+
+    async def _fake_get_or_create(guild, category, channel_name, channel_type, **kw):
+        if divider_reaches_cache:
+            category.channels.append(divider)
+        return divider, True
+
+    goc = AsyncMock(side_effect=_fake_get_or_create)
+    monkeypatch.setattr(layout, "get_or_create_channel", goc)
+    # Don't really sleep while polling for the cache in the timeout test.
+    monkeypatch.setattr(layout, "_DIVIDER_WAIT_TRIES", 3)
+    monkeypatch.setattr(layout, "_DIVIDER_WAIT_DELAY", 0)
+    return guild, u0, s0, dao, store, divider, goc
+
+
+@pytest.mark.asyncio
+async def test_unsplit_merges_solved_back_under_divider(monkeypatch):
+    """Both sides at seq=0 and small enough: recreate the divider at the bottom
+    of the unsolved category, move the solved channels below it with explicit
+    positions, delete the solved category, and delete the rows LAST."""
+    guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(monkeypatch)
+    solved_channels = list(s0.channels)
+
+    await layout.consolidate(guild, 5, dao)
+
+    goc.assert_awaited_once_with(
+        guild=guild, category=u0, channel_name=SOLVE_DIVIDER,
+        channel_type="text", position=500)
+    # Movers land after the divider (position 3), in their original order.
+    solved_channels[0].edit.assert_awaited_once_with(category=u0, position=4)
+    solved_channels[1].edit.assert_awaited_once_with(category=u0, position=5)
+    s0.delete.assert_awaited_once()
+    dao.delete_for_group.assert_called_once_with(5)
+    assert store == []                     # owner is single-category again
+
+
+@pytest.mark.asyncio
+async def test_unsplit_blocked_when_total_exceeds_margin(monkeypatch):
+    """unsolved + solved + divider must fit under SOFT_LIMIT - margin, or the
+    next few creates would just re-split — leave the split alone."""
+    guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(
+        monkeypatch, n_unsolved=4, n_solved=2)   # 4+2+1=7 > 10-4
+
+    await layout.consolidate(guild, 5, dao)
+
+    goc.assert_not_awaited()
+    s0.delete.assert_not_awaited()
+    assert len(store) == 2
+
+
+@pytest.mark.asyncio
+async def test_unsplit_blocked_while_overflow_rows_remain(monkeypatch):
+    """Un-split only from the fully-folded position: one row per role."""
+    guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(
+        monkeypatch, n_unsolved=1, n_solved=1)
+    u1 = _filled_cat(101, 7, n=6)          # margin-blocked: 6 > free(9) - 4
+    guild.categories.append(u1)
+    store.append(TagGroupCategoryData(
+        id=3, group_id=5, category_id=101, role="unsolved", seq=1))
+
+    await layout.consolidate(guild, 5, dao)
+
+    goc.assert_not_awaited()
+    s0.delete.assert_not_awaited()
+    assert len(store) == 3
+
+
+@pytest.mark.asyncio
+async def test_unsplit_aborts_when_divider_never_reaches_cache(monkeypatch):
+    """Moves compute positions from the guild cache; if the created divider
+    never shows up there, a bulk renumber could land solved channels ABOVE it.
+    Abort instead — split state is kept (an extra divider in a split category
+    is inert) and the next trigger retries."""
+    guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(
+        monkeypatch, divider_reaches_cache=False)
+
+    await layout.consolidate(guild, 5, dao)
+
+    goc.assert_awaited_once()
+    for ch in s0.channels:
+        ch.edit.assert_not_awaited()
+    s0.delete.assert_not_awaited()
+    assert len(store) == 2                 # rows survive -> resumable
+
+
+@pytest.mark.asyncio
+async def test_unsplit_completes_when_solved_category_gone(monkeypatch):
+    """A dangling solved seq=0 row (category deleted out-of-band) still
+    finishes the un-split: divider recreated, rows dropped, nothing to move."""
+    guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(monkeypatch)
+    guild.categories.remove(s0)            # solved category vanished
+
+    await layout.consolidate(guild, 5, dao)
+
+    goc.assert_awaited_once()
+    s0.delete.assert_not_awaited()
+    dao.delete_for_group.assert_called_once_with(5)
+    assert store == []
 
 
 # ----------------------------------------------------------------- teardown tests
