@@ -153,3 +153,19 @@ async def test_create_hunt_no_notifier_does_not_raise():
         hdb.check_duplicates.return_value = False
         hdb.generate_uid.return_value = "abc123"
         await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
+
+
+def test_gating_overwrites_denies_everyone_allows_role_and_bot():
+    svc = _create_service()
+    guild = MagicMock()
+    everyone = MagicMock(name="everyone")
+    me = MagicMock(name="me")
+    guild.default_role = everyone
+    guild.me = me
+    role = MagicMock(name="team")
+
+    ov = svc._gating_overwrites(guild, role)
+
+    assert ov[everyone].view_channel is False
+    assert ov[role].view_channel is True
+    assert ov[me].view_channel is True

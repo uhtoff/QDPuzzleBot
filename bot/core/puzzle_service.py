@@ -2402,6 +2402,16 @@ class PuzzleService:
 
     # -- Hunt create / delete ------------------------------------------
 
+    def _gating_overwrites(self, guild, team_role):
+        """Overwrite dict that gates a category to ``team_role``: @everyone hidden,
+        the team role visible, and the bot always visible (so denying @everyone can
+        never lock the bot out of channels it manages)."""
+        return {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            team_role: discord.PermissionOverwrite(view_channel=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True),
+        }
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
