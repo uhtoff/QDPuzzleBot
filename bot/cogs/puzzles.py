@@ -528,7 +528,9 @@ class Puzzles(commands.Cog):
             hunt_name, hunt_url = arg.split(":", 1)
             if HuntJsonDb.check_duplicates(hunt_name):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
-            await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode)
+            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode)
+            if new_hunt is None:
+                return  # wrapper already messaged (cancelled / no space)
             return await ctx.send(
                 f":white_check_mark: I've created a new hunt category and channel for {hunt_name}"
             )
@@ -538,24 +540,44 @@ class Puzzles(commands.Cog):
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
                           layout_mode: str = "channel"):
         if await self.check_available_space(ctx, 5, 2) is False:
-            return await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
+            await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
+            return None
 
         settings = self.get_guild_data(ctx)
-        new_hunt = await self.service.create_hunt(
-            ctx.guild,
-            name=hunt_name,
-            url=hunt_url,
-            start_timestamp=0,
-            role_name=role_name,
-            layout_mode=layout_mode,
-            guild_id=settings.id if settings else 0,
-        )
+        confirm_existing = False
+        while True:
+            try:
+                new_hunt = await self.service.create_hunt(
+                    ctx.guild,
+                    name=hunt_name,
+                    url=hunt_url,
+                    start_timestamp=0,
+                    role_name=role_name,
+                    layout_mode=layout_mode,
+                    guild_id=settings.id if settings else 0,
+                    creator=ctx.author,
+                    confirm_existing_role=confirm_existing,
+                )
+                break
+            except RuntimeError as exc:
+                if "existing_role_confirm" in str(exc) and not confirm_existing:
+                    if not await self._confirm_reuse_role(ctx, role_name):
+                        await ctx.send(":x: Cancelled — no hunt created.")
+                        return None
+                    confirm_existing = True
+                    continue
+                raise
 
         text_channel = self.bot.get_channel(new_hunt.channel_id)
         from bot.core.notifier import DiscordNotifier
         await DiscordNotifier(self.bot).welcome(ctx.guild, new_hunt, channel=text_channel)
 
-        return (ctx.guild.get_channel(new_hunt.category_id), text_channel, True)
+        if role_name and not new_hunt.role_id:
+            await ctx.send(
+                f":warning: Created the hunt, but couldn't gate it to **{role_name}** "
+                f"— it's open (ungated). Fix the role in Discord, then re-gate."
+            )
+        return new_hunt
 
     @commands.hybrid_command(
         aliases=["set_to_archive"],
@@ -3218,6 +3240,25 @@ class Puzzles(commands.Cog):
         await view.wait()
         if view.value is None:
             await ctx.send(timeout_msg)
+        return view.value is True
+
+    async def _confirm_reuse_role(self, ctx, role_name):
+        """Confirm reusing an existing role for a hunt. Returns True only on an
+        explicit confirm; False on cancel/timeout."""
+        view = ConfirmView(ctx.author.id)
+        embed = discord.Embed(
+            title="Role already exists",
+            description=(
+                f"A role named **{role_name}** already exists. Normally each team "
+                f"gets its own role per hunt. Reuse it for this hunt (you'll be "
+                f"added to it)?"
+            ),
+            color=discord.Color.orange(),
+        )
+        view.message = await ctx.send(embed=embed, view=view)
+        await view.wait()
+        if view.value is None:
+            await ctx.send(":hourglass: Confirmation timed out — no hunt created.")
         return view.value is True
 
     async def _safe_delete_channel(self, guild, channel_id):
