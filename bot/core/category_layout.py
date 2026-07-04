@@ -161,12 +161,17 @@ async def split_group(guild, tag_group, dao):
 # ----------------------------------------------------------------- placement
 async def _allocate(guild, tag_group, dao, role_rows, role):
     """Create the next numbered category for *role* and record its row."""
-    if len(guild.categories) >= MAX_CATEGORIES:
-        raise RuntimeError("no_category_space")
-    template = _category_by_id(guild, tag_group.category_id)
-    if template is None:
-        raise RuntimeError("primary_category_missing")
     async with layout_lock:
+        # Everything is checked under the lock — including the guild category
+        # ceiling: two concurrent allocations at 49 categories would otherwise
+        # both pass the gate, and the loser's clone would surface a raw
+        # HTTPException instead of the structured error callers map to a
+        # friendly message.
+        if len(guild.categories) >= MAX_CATEGORIES:
+            raise RuntimeError("no_category_space")
+        template = _category_by_id(guild, tag_group.category_id)
+        if template is None:
+            raise RuntimeError("primary_category_missing")
         # Re-read under the lock — closes the TOCTOU where two concurrent
         # allocations for the same group/role both compute the caller's
         # pre-lock role_rows and pick the same next_seq.
@@ -343,8 +348,19 @@ async def cleanup_empty_overflow(guild, tag_group, dao, category):
         return
     try:
         async with layout_lock:
+            # Re-check everything under the lock: between the fast-path checks
+            # above and acquiring the lock, a concurrent move can legally land
+            # a channel here (_pick_or_allocate returns any row with room) —
+            # deleting then would drop that channel to the guild root, outside
+            # the hunt's role-gated permission overwrites. The row can likewise
+            # have been deleted by a concurrent cleanup of the same category.
+            row = dao.get_by_category(category.id)
+            if row is None or row.seq < 1:
+                return
+            if puzzle_count(category) > 0:
+                return
             await category.delete(reason=DELETE_REASON)
-        dao.delete(row.id)
+            dao.delete(row.id)
     except Exception:
         logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)
 

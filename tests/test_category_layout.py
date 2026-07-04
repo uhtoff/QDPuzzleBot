@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,6 +22,15 @@ def test_role_constants():
 
 
 from bot.core import category_layout as layout
+
+
+@pytest.fixture(autouse=True)
+def _fresh_layout_lock(monkeypatch):
+    """layout_lock is module-level, and an asyncio.Lock binds to the event loop
+    of its first *contended* acquire — but pytest-asyncio gives every test its
+    own loop, so a lock contended in one test raises 'bound to a different
+    event loop' in the next. Give each test a fresh lock."""
+    monkeypatch.setattr(layout, "layout_lock", asyncio.Lock())
 
 
 def test_solved_category_name():
@@ -402,6 +413,81 @@ async def test_cleanup_keeps_nonempty_overflow():
     await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
     overflow.delete.assert_not_awaited()
     dao.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_rechecks_emptiness_under_the_lock():
+    """A concurrent move can legally land a channel in an 'empty' overflow
+    category between cleanup's emptiness check and its lock acquisition
+    (_pick_or_allocate returns any row with room). Deleting then would drop
+    that channel to the guild root — the emptiness check must be re-run
+    inside layout_lock."""
+    overflow = _cat(201, 7, n_channels=0)
+    overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [overflow]
+    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
+    dao = MagicMock(); dao.get_by_category.return_value = row
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    async with layout.layout_lock:
+        task = asyncio.ensure_future(
+            layout.cleanup_empty_overflow(guild, tag_group, dao, overflow))
+        await asyncio.sleep(0)          # run cleanup up to the lock
+        late = MagicMock(); late.name = "late-arrival"
+        overflow.channels.append(late)  # concurrent move lands a channel
+    await task
+
+    overflow.delete.assert_not_awaited()
+    dao.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_rechecks_row_under_the_lock():
+    """Symmetric TOCTOU on the row: a concurrent cleanup can delete the join
+    row while this one waits for the lock — the row must be re-fetched inside
+    layout_lock, and a vanished row means nothing to do."""
+    overflow = _cat(201, 7, n_channels=0)
+    overflow.delete = AsyncMock()
+    guild = MagicMock(); guild.categories = [overflow]
+    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
+    dao = MagicMock()
+    dao.get_by_category.side_effect = [row, None]   # pre-lock hit, under-lock miss
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    async with layout.layout_lock:
+        task = asyncio.ensure_future(
+            layout.cleanup_empty_overflow(guild, tag_group, dao, overflow))
+        await asyncio.sleep(0)
+    await task
+
+    overflow.delete.assert_not_awaited()
+    dao.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_allocate_rechecks_category_ceiling_under_the_lock():
+    """Two concurrent allocations at 49 guild categories must not both pass the
+    MAX_CATEGORIES gate: the check has to run inside layout_lock so the loser
+    raises the structured no_category_space error callers map to a friendly
+    message, not a raw HTTPException from Discord's cap."""
+    from bot.core.discord_channels import MAX_CATEGORIES
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
+    u0.clone = AsyncMock()
+    guild = MagicMock(); guild.categories = [u0]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    async with layout.layout_lock:
+        task = asyncio.ensure_future(
+            layout.pick_unsolved_category(guild, tag_group, dao))
+        await asyncio.sleep(0)                      # run allocation up to the lock
+        guild.categories = [u0] * MAX_CATEGORIES    # a rival filled the guild
+    with pytest.raises(RuntimeError, match="no_category_space"):
+        await task
+    u0.clone.assert_not_awaited()
 
 
 # ----------------------------------------------------------------- teardown tests
