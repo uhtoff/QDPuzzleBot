@@ -25,10 +25,11 @@ disagree, **the code is the source of truth** — fix both.
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!hunt` | `!h` | `name:url[, role][, forum]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility; append `, forum` for forum-backed layout (a forum channel per round). |
+| `!hunt` | `!h` | `name:url[, role][, forum]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility; append `, forum` for forum-backed layout (a forum channel per round) — **legacy**, being left to go stale in favor of the category-based layout; don't build new group features against it. |
 | `!use_solved_sheet` *(slash)* | `!set_to_archive` | — | Hunt channel | admins/mods | Use a separate "solved puzzles sheet": solved feeders move there, metas stay on the main sheet. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |
+| `!set_hunt_role` | | `hunt-name, role-name` | bot channel | admins/mods | Gate an existing OPEN hunt behind a team role (applies to web + Discord); confirms if the role already exists. |
 | `!delete_hunt` | | — | Hunt channel | admins/mods | Permanently delete the whole hunt (confirms). Not recoverable. |
 
 ## Rounds & groups

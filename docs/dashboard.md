@@ -2,12 +2,15 @@
 
 A React/Mantine SPA over a Quart JSON API embedded in the bot process.
 
-Read: hunts grouped by meta, solutions, a filterable puzzle list, evidence, and
-live Discord activity. Write (organiser-gated except notes/evidence): notes,
-retag puzzles between metas (drag board + add/remove menu), create puzzles and
-metas, solve/unsolve, sheets, clues/evidence, minimeta and convert-to-* type
-changes, rename, hunt create/settings/archive/delete, tag-group delete/rename,
-reconcile, and rollup rebuild — roughly 36 write routes in total. Write-actions
+Read: hunt lists grouped by guild (reverse-chronological), puzzles grouped by
+meta, solutions, a filterable puzzle list, evidence, and live Discord
+activity.
+Write (organiser-gated except notes/evidence): notes, retag puzzles between
+metas (drag board + add/remove menu), create puzzles and metas, solve/unsolve,
+sheets, clues/evidence, minimeta and convert-to-* type changes, rename, hunt
+create/settings/archive/delete, gate/re-gate a hunt behind a team role,
+tag-group delete/rename, reconcile, and rollup rebuild — roughly 36 write
+routes in total. Write-actions
 run through ctx-free `web_*` methods on the Puzzles cog (mirrored, for
 Discord-visible side effects, by `bot/core/notifier.py`), so the website
 creates real Discord channels + Google sheets and posts/refreshes the same
