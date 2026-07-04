@@ -389,3 +389,81 @@ class TestConvertTagGroupType:
         group.type = "Group"
         _g, summary = await cog.service.convert_tag_group_type(None, make_hunt(), group, "Group")
         assert "already" in summary.lower()
+
+
+class TestConvertToPuzzleSplitRound:
+    """Demoting the meta of a SPLIT round deletes the tag_group row, and the
+    join rows mapping its '— solved'/'(N)' categories FK-cascade off it — the
+    Discord footprint must be handled BEFORE the row delete (same ordering fix
+    as delete_round/delete_hunt), relocating member channels out and tearing
+    the categories down instead of leaving N untracked orphan categories."""
+
+    @pytest.mark.asyncio
+    async def test_split_round_relocates_members_and_tears_down_before_row_delete(self):
+        from bot.core.puzzle_service import PuzzleService
+
+        bot = MagicMock(); bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+        guild = MagicMock()
+        hunt = make_hunt(id=10, category_id=500)
+        meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[5])
+        feeder = make_puzzle(id=2, channel_id=902, tags=[5])
+        group = make_round(id=5, category_id=100, target_puzzle_id=1)
+
+        meta_ch = MagicMock(id=901); meta_ch.category_id = 100
+        feeder_ch = MagicMock(id=902); feeder_ch.category_id = 101
+        guild.get_channel = MagicMock(
+            side_effect=lambda cid: {901: meta_ch, 902: feeder_ch}.get(cid))
+
+        order = []
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+             patch("bot.core.puzzle_service.TagGroupCategoryDb"), \
+             patch("bot.core.puzzle_service.category_layout.is_split",
+                   return_value=True), \
+             patch("bot.core.puzzle_service.category_layout.group_categories",
+                   return_value=[MagicMock(category_id=100),
+                                 MagicMock(category_id=101)]), \
+             patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+                   AsyncMock(side_effect=lambda *a, **k: order.append("teardown") or True)
+                   ) as teardown, \
+             patch.object(svc, "_relocate_kept_puzzle",
+                          AsyncMock(return_value=True)) as reloc:
+            tgdb.get_by_attr.return_value = group
+            tgdb.delete = MagicMock(side_effect=lambda gid: order.append("row_delete"))
+            pdb.get_all_from_tag_group.return_value = [meta, feeder]
+
+            await svc.convert_to_puzzle(guild, hunt, meta)
+
+        assert reloc.await_count == 2                 # the meta's channel + the feeder's
+        teardown.assert_awaited_once()
+        assert order == ["teardown", "row_delete"]    # categories before the FK cascade
+
+    @pytest.mark.asyncio
+    async def test_single_round_demote_leaves_category_alone(self):
+        """Legacy (unsplit) rounds keep today's behaviour: the category and all
+        channels stay physically in place; only the row is deleted."""
+        from bot.core.puzzle_service import PuzzleService
+
+        bot = MagicMock(); bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+        hunt = make_hunt(id=10, category_id=500)
+        meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[5])
+        group = make_round(id=5, category_id=100, target_puzzle_id=1)
+
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+             patch("bot.core.puzzle_service.TagGroupCategoryDb"), \
+             patch("bot.core.puzzle_service.category_layout.is_split",
+                   return_value=False), \
+             patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+                   AsyncMock()) as teardown, \
+             patch.object(svc, "_relocate_kept_puzzle", AsyncMock()) as reloc:
+            tgdb.get_by_attr.return_value = group
+            pdb.get_all_from_tag_group.return_value = [meta]
+
+            await svc.convert_to_puzzle(MagicMock(), hunt, meta)
+
+        reloc.assert_not_awaited()
+        teardown.assert_not_awaited()
+        tgdb.delete.assert_called_once_with(5)

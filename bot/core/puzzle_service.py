@@ -1215,6 +1215,16 @@ class PuzzleService:
         orphaned = len(self.feeders_orphaned_by_convert(puzzle))
         target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if target_group is not None:
+            # A SPLIT round owns several Discord categories mapped only by its
+            # join rows, which FK-cascade off the tag_group row — handle the
+            # Discord footprint BEFORE the row delete (same ordering as
+            # delete_round/delete_hunt), or the categories are orphaned with
+            # no map left to find them by. Legacy single-category rounds keep
+            # today's behaviour: everything stays physically in place.
+            if guild is not None and category_layout.is_split(
+                    target_group, TagGroupCategoryDb):
+                await self._teardown_converted_group_categories(
+                    guild, hunt, target_group)
             TagGroupJsonDb.delete(target_group.id)
             # Drop every edge to the deleted group (normally just the 'target'
             # self-edge), not just puzzle.tags — leaving one in tag_edges makes the
@@ -1230,6 +1240,28 @@ class PuzzleService:
         if gsheet_cog is not None:
             await gsheet_cog.demote_tab_to_puzzle(puzzle)
         return orphaned
+
+    async def _teardown_converted_group_categories(self, guild, hunt, tag_group):
+        """convert_to_puzzle's category handling for a SPLIT round: every member
+        puzzle (including the demoted meta itself) keeps its channel, so
+        relocate them all out of the doomed categories — into a sibling group
+        they're also tagged to, else the hunt's general container — then tear
+        the categories and join rows down. Best-effort per channel: one that
+        cannot be relocated is left in place and protected from the category
+        teardown, mirroring delete_round's keep_puzzles handling."""
+        owned = {r.category_id
+                 for r in category_layout.group_categories(tag_group, TagGroupCategoryDb)}
+        keep_ids = set()
+        for member in PuzzleJsonDb.get_all_from_tag_group(tag_group.id):
+            if not member.channel_id:
+                continue
+            channel = guild.get_channel(member.channel_id)
+            if channel is None or channel.category_id not in owned:
+                continue
+            if not await self._relocate_kept_puzzle(guild, hunt, tag_group, member, channel):
+                keep_ids.add(member.channel_id)
+        await category_layout.delete_group_categories(
+            guild, tag_group, TagGroupCategoryDb, keep_channel_ids=keep_ids)
 
     def feeders_orphaned_by_convert(self, puzzle):
         """Read-only: the feeders that converting *puzzle* back to a feeder would
