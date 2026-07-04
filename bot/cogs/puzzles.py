@@ -458,32 +458,26 @@ class Puzzles(commands.Cog):
         # Threads are uncapped (forum mode), always have space
         if isinstance(ctx.channel, discord.Thread):
             return True
+        # No per-category check here: round and hunt-general categories now
+        # auto-split/overflow (category_layout.pick_unsolved_category /
+        # move_channel_to_owner) before a single category can actually run out
+        # of room, so gating on "the current channel's category is full" would
+        # incorrectly block a command auto-split would have handled fine.
         space_available = True
         guild = ctx.guild
-        category = ctx.channel.category
-        # required_categories > 0 means the command creates its own fresh category
-        # (e.g. !hunt, !round), so the CURRENT channel's category fullness is not
-        # relevant to whether that new category can be created.
-        check_current_category = category is not None and required_categories == 0
-        channels = len(category.channels) if category is not None else 0
         categories = len(guild.categories)
         total_channels = len(guild.channels)
         remaining_channels = self.MAX_CHANNELS_PER_GUILD - total_channels
         remaining_categories = self.MAX_CATEGORIES - categories
-        remaining_category_channels = self.MAX_CHANNELS_PER_CATEGORY-channels
         if remaining_channels < required_channels or remaining_categories < required_categories:
-            space_available = False
-        if check_current_category and remaining_category_channels < required_channels:
             space_available = False
         bot_channel = discord.utils.get(ctx.guild.channels, name=self.get_guild_data(ctx).discord_bot_channel)
         if bot_channel is None:
             return space_available
         if space_available is False:
-            category_note = f", {channels} channels in {category.name}" if check_current_category else ""
-            await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server{category_note} and {total_channels} total channels.")
+            await bot_channel.send(f"@here A command has just failed due to lack of space on the server, there are currently {categories} categories on the server and {total_channels} total channels.")
         else:
             remaining_channels -= required_channels
-            remaining_category_channels -= required_channels
             remaining_categories -= required_categories
             if remaining_channels <= 10:
                 await bot_channel.send(
@@ -493,10 +487,6 @@ class Puzzles(commands.Cog):
                 await bot_channel.send(
                     f"@here Server space is getting tight, remaining category space is {remaining_categories}."
                 )
-            # No "category getting full" warning here: round and hunt-general
-            # categories now auto-split/overflow (category_layout.pick_unsolved_category)
-            # before a single category can actually run out of room, so a
-            # per-category "getting full" warning would just be noise.
         return space_available
 
     @commands.command(aliases=["h"])

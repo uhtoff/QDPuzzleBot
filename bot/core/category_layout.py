@@ -285,9 +285,17 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
 
     divider_pos = solve_divider_position(primary)
     if divider_pos is not False:
+        # Discord's channel-move inserts before the first existing channel whose
+        # *own* position >= the requested value, so requesting divider_pos - 1
+        # can exactly collide with an existing channel already sitting right
+        # before the divider (e.g. a lone target puzzle with nothing between it
+        # and the divider yet) and land the new channel ahead of it instead of
+        # after. Request the divider's own position instead: that always
+        # inserts immediately before the divider — after everything already
+        # above it — without disturbing their order.
         position = (
             max((ch.position for ch in primary.channels), default=0) + 1
-            if solved else divider_pos - 1
+            if solved else divider_pos
         )
     else:
         position = max((ch.position for ch in primary.channels), default=-1) + 1

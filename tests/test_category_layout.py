@@ -462,7 +462,7 @@ async def test_move_channel_to_owner_not_split_unsolved_positions_above_divider(
     result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
     assert result is True
-    channel.edit.assert_awaited_once_with(category=primary, position=4)
+    channel.edit.assert_awaited_once_with(category=primary, position=5)
 
 
 @pytest.mark.asyncio

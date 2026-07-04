@@ -749,28 +749,16 @@ class PuzzleService:
                     await self.untag_from(puzzle, other_group, edge=edge)
                     other_groups.append(other_group)
 
-        # Move channel for feeds edges (backward compat with move_to_meta)
+        # Move channel for feeds edges (backward compat with move_to_meta). Routed
+        # through move_channel_to_owner so a full target category auto-splits
+        # instead of the channel silently staying put (or erroring) — same
+        # machinery delete_round's relocation already uses.
         if edge == "feeds" and guild is not None and puzzle.channel_id:
             channel = guild.get_channel(puzzle.channel_id)
-            # group.category_id is the group's "home container" id, which is only a
-            # real Discord category for channel-layout groups; primary_category
-            # resolves it as a category (None for forum/group/in-place homes — the
-            # move is then skipped, as before).
-            new_category = category_layout.primary_category(guild, group)
-            if channel is not None and new_category is not None and channel.category_id != new_category.id:
-                # Position: unsolved above divider, solved below divider, target at position 0
-                from bot.core.discord_channels import solve_divider_position
-                divider_pos = solve_divider_position(new_category)
-                if puzzle.solved and divider_pos is not False:
-                    # Place solved puzzles at the end (after the divider)
-                    position = max((ch.position for ch in new_category.channels), default=0) + 1
-                elif divider_pos is not False:
-                    # Place unsolved just above the divider
-                    position = divider_pos - 1
-                else:
-                    # No divider (single-category layout) — place after target (position 2)
-                    position = 2
-                await channel.edit(category=new_category, position=position)
+            if channel is not None:
+                await category_layout.move_channel_to_owner(
+                    guild, group, TagGroupCategoryDb, channel, puzzle.solved,
+                )
 
         await self.tag_with_edge(puzzle, group, edge)
 

@@ -221,6 +221,39 @@ class TestTagEdgeOnly:
         assert puz.tag_edges[5] == {"feeds"}
 
     @pytest.mark.asyncio
+    async def test_feeds_edge_relocates_channel_via_move_channel_to_owner(self, cog):
+        """!feeds_only must route the channel move through
+        category_layout.move_channel_to_owner (auto-split-aware), not a raw
+        channel.edit — otherwise a full target category errors instead of
+        overflowing."""
+        puz = make_puzzle(tags=[], channel_id=222, solved=False)
+        puz.tag_edges = {}
+        grp = make_round(id=5)
+        guild = MagicMock()
+        channel = MagicMock(id=222)
+        guild.get_channel = MagicMock(return_value=channel)
+        with _service_mocks(cog), \
+             patch("bot.core.puzzle_service.category_layout.move_channel_to_owner",
+                   AsyncMock(return_value=True)) as mover, \
+             patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb:
+            await cog.service.tag_edge_only(puz, grp, "feeds", guild=guild)
+        mover.assert_awaited_once_with(guild, grp, tgcdb, channel, puz.solved)
+
+    @pytest.mark.asyncio
+    async def test_non_feeds_edge_does_not_move_channel(self, cog):
+        puz = make_puzzle(tags=[], channel_id=222)
+        puz.tag_edges = {}
+        grp = make_round(id=5)
+        guild = MagicMock()
+        channel = MagicMock(id=222)
+        guild.get_channel = MagicMock(return_value=channel)
+        with _service_mocks(cog), \
+             patch("bot.core.puzzle_service.category_layout.move_channel_to_owner",
+                   AsyncMock()) as mover:
+            await cog.service.tag_edge_only(puz, grp, "informs", guild=guild)
+        mover.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_strips_only_named_edge_leaving_coexisting(self, cog):
         puz = make_puzzle(tags=[3]); puz.tag_edges = {3: {"feeds", "informs"}}
         grp = make_round(id=5)

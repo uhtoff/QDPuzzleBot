@@ -65,7 +65,7 @@ async def test_keep_puzzles_deletes_target_and_relocates_feeder():
         failed = await svc.delete_round(guild, hunt, tag_group)
 
     pdb.delete.assert_called_once_with(1)                                       # only the target's DB row
-    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=0)    # unsolved: divider_pos(1) - 1
+    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=1)    # unsolved: just above divider(1)
     target_ch.delete.assert_awaited_once()
     assert failed == []
 
@@ -158,7 +158,7 @@ async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_cate
 
         failed = await svc.delete_round(guild, hunt, tag_group)
 
-    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=0)
+    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=1)
     assert failed == []
 
 
@@ -238,7 +238,7 @@ async def test_keep_puzzles_group_type_deletes_chat_channel_keeps_feeder():
         failed = await svc.delete_round(guild, hunt, tag_group)
 
     chat_ch.delete.assert_awaited_once()
-    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=0)
+    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=1)
     pdb.delete.assert_not_called()
     assert failed == []
 
@@ -368,7 +368,7 @@ async def test_full_delete_protects_foreign_target_puzzle():
 
     pdb.delete.assert_called_once_with(2)                                        # only the ordinary puzzle's DB row
     ordinary_ch.delete.assert_awaited_once()                                     # ordinary puzzle: deleted
-    nested_ch.edit.assert_awaited_once_with(category=general_cat, position=0)    # nested meta target: relocated
+    nested_ch.edit.assert_awaited_once_with(category=general_cat, position=1)    # nested meta target: relocated
     nested_ch.delete.assert_not_called()
     assert failed == []
 
