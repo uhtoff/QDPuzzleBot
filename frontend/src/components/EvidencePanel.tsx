@@ -70,6 +70,7 @@ export function EvidencePanel({ uid, detail }: Props) {
           data={sourceOptions}
           value={filterSource ?? ""}
           onChange={(v) => setFilterSource(v || null)}
+          searchable
           clearable
           w={240}
         />
@@ -84,6 +85,7 @@ export function EvidencePanel({ uid, detail }: Props) {
             data={allPuzzles}
             value={cluePuzzleId ?? ""}
             onChange={(v) => setCluePuzzleId(v || null)}
+            searchable
             w={240}
           />
           <TextInput
