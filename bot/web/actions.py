@@ -1148,7 +1148,11 @@ async def convert_to_feeder(puzzle_id):
 # --- Convert endpoints for capstone, group, runaround ----------------------
 
 def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
-    """Shared handler for convert-to-capstone/group/runaround."""
+    """Shared handler for convert-to-capstone/group/runaround.
+
+    error_if_not_meta: True = metas only, False = non-metas only, None = any
+    state — convert_to_type promotes a bare puzzle in place (solved or not),
+    same as the bang commands."""
     async def handler():
         from bot.store import HuntJsonDb, PuzzleJsonDb
 
@@ -1166,9 +1170,9 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
             if puzzle is None:
                 return jsonify({"error": "puzzle_not_found"}), 404
 
-            if error_if_not_meta and not puzzle.is_target:
+            if error_if_not_meta is True and not puzzle.is_target:
                 return jsonify({"error": "not_a_metapuzzle"}), 400
-            if not error_if_not_meta and puzzle.is_target:
+            if error_if_not_meta is False and puzzle.is_target:
                 return jsonify({"error": "already_a_metapuzzle"}), 400
 
             hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
@@ -1206,22 +1210,24 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-capstone", methods=["POST"])
 @login_required
 async def convert_to_capstone(puzzle_id):
-    """Convert a metapuzzle to a capstone (informs edge).
+    """Convert a puzzle to a capstone (informs edge).
 
-    Changes the group type and flips all feeder edges to informs. Mirrors the
-    !convert_to_capstone bang command."""
-    handler = _convert_to_type_handler(puzzle_id, "Capstone", error_if_not_meta=True)
+    A metapuzzle changes group type and flips all feeder edges to informs; a
+    regular puzzle (solved or not) is promoted in place straight to capstone.
+    Mirrors the !convert_to_capstone bang command."""
+    handler = _convert_to_type_handler(puzzle_id, "Capstone", error_if_not_meta=None)
     return await handler()
 
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/convert-to-runaround", methods=["POST"])
 @login_required
 async def convert_to_runaround_puzzle(puzzle_id):
-    """Convert a metapuzzle to a runaround (subtree source mode).
+    """Convert a puzzle to a runaround (subtree source mode).
 
-    Changes the group type and source mode without changing membership edges.
+    A metapuzzle changes group type and source mode without changing
+    membership edges; a regular puzzle (solved or not) is promoted in place.
     Mirrors the !convert_to_runaround bang command."""
-    handler = _convert_to_type_handler(puzzle_id, "Runaround", error_if_not_meta=True)
+    handler = _convert_to_type_handler(puzzle_id, "Runaround", error_if_not_meta=None)
     return await handler()
 
 

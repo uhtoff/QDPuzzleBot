@@ -1840,13 +1840,18 @@ class Puzzles(commands.Cog):
     ):
         """Shared body for the convert_to_meta/capstone/runaround/group/metapuzzle
         bang commands: they differ only in the target group type, the resulting
-        channel type, which is_target state is valid to convert from, and the
+        channel type, which is_target state is valid to convert from
+        (error_if_not_meta: True = metas only, False = non-metas only,
+        None = any — convert_to_type promotes a bare puzzle in place), and the
         wrong-state/success message text. Mirrors the web equivalent,
         _convert_to_type_handler (bot/web/actions.py)."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
-        is_wrong_state = puzzle.is_target if not error_if_not_meta else not puzzle.is_target
+        if error_if_not_meta is None:
+            is_wrong_state = False
+        else:
+            is_wrong_state = puzzle.is_target if not error_if_not_meta else not puzzle.is_target
         if is_wrong_state:
             await ctx.channel.send(f":x: {wrong_state_msg}")
             return
@@ -1886,17 +1891,20 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_capstone(self, ctx):
-        """*Convert this meta puzzle into a capstone (final meta).*
+        """*Convert this puzzle into a capstone (final meta).*
 
         Usage: `!convert_to_capstone`
         Example: `!convert_to_capstone`
-        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
+        Run in the puzzle's channel. A regular puzzle is promoted in place
+        (like !convert_to_meta, but straight to capstone); a meta's feeders
+        flip feeds → informs. Admins/mods only (needs Manage Channels)."""
         await self._run_convert_to_type(
             ctx, "Capstone", "Capstone",
-            error_if_not_meta=True,
-            wrong_state_msg="This puzzle is not a meta and cannot be converted to a capstone.",
+            error_if_not_meta=None,
+            wrong_state_msg="",
             success_msg=lambda tag_group, summary: (
-                f":white_check_mark: I've converted this puzzle into a capstone. {summary}"
+                f":white_check_mark: I've converted this puzzle into a capstone. "
+                f"Other puzzles can inform it using its code {tag_group.group_code}. {summary}"
             ),
         )
 
@@ -1904,15 +1912,17 @@ class Puzzles(commands.Cog):
     @commands.has_any_role(*ADMIN_ROLES)
     @commands.has_permissions(manage_channels=True)
     async def convert_to_runaround(self, ctx):
-        """*Convert this meta puzzle into a runaround.*
+        """*Convert this puzzle into a runaround.*
 
         Usage: `!convert_to_runaround`
         Example: `!convert_to_runaround`
-        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
+        Run in the puzzle's channel. A regular puzzle is promoted in place;
+        a meta keeps its membership edges. Admins/mods only (needs Manage
+        Channels)."""
         await self._run_convert_to_type(
             ctx, "Runaround", "Runaround",
-            error_if_not_meta=True,
-            wrong_state_msg="This puzzle is not a meta and cannot be converted to a runaround.",
+            error_if_not_meta=None,
+            wrong_state_msg="",
             success_msg=lambda tag_group, summary: (
                 f":white_check_mark: I've converted this puzzle into a runaround. {summary}"
             ),

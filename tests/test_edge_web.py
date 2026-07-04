@@ -347,3 +347,45 @@ async def test_convert_to_metapuzzle_requires_target(web):
     web.puzzle.is_target = False
     resp = await web.client.post("/api/puzzles/5/convert-to-metapuzzle", json={})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Relaxed convert guards — capstone/runaround from a REGULAR (or solved) puzzle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_convert_to_capstone_allows_regular_puzzle(web):
+    """A regular puzzle converts straight to capstone: convert_to_type promotes
+    it in place (the same path convert-to-meta uses) with type Capstone — no
+    convert-to-meta stopover required."""
+    web.puzzle.is_target = False
+    resp = await web.client.post("/api/puzzles/5/convert-to-capstone", json={})
+    assert resp.status_code == 200
+    assert web.svc.convert_to_type.call_args.args[-1] == "Capstone"
+
+
+@pytest.mark.asyncio
+async def test_convert_to_runaround_allows_regular_puzzle(web):
+    web.puzzle.is_target = False
+    resp = await web.client.post("/api/puzzles/5/convert-to-runaround", json={})
+    assert resp.status_code == 200
+    assert web.svc.convert_to_type.call_args.args[-1] == "Runaround"
+
+
+@pytest.mark.asyncio
+async def test_convert_to_capstone_allows_solved_regular_puzzle(web):
+    """Solved puzzles may be converted too (niche, but wanted): there is no
+    solved gate on the endpoint."""
+    web.puzzle.is_target = False
+    web.puzzle.solved = True
+    resp = await web.client.post("/api/puzzles/5/convert-to-capstone", json={})
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_convert_to_capstone_still_works_on_a_meta(web):
+    """The classic meta -> capstone conversion is unchanged."""
+    web.puzzle.is_target = True
+    resp = await web.client.post("/api/puzzles/5/convert-to-capstone", json={})
+    assert resp.status_code == 200
+    assert web.svc.convert_to_type.call_args.args[-1] == "Capstone"

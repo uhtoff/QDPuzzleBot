@@ -32,6 +32,8 @@ import {
   useConvertToFeeder,
   useConvertToFeederPreview,
   useConvertToMeta,
+  useConvertToCapstone,
+  useConvertToRunaround,
   useChangeGroupType,
   useDeletePuzzle,
   useDeleteRound,
@@ -65,11 +67,13 @@ interface CardProps {
   onMakeMinimeta: (puzzleId: number) => void;
   onRemoveMinimeta: (puzzle: Puzzle) => void;
   onConvertToMeta: (puzzleId: number) => void;
+  onConvertToCapstone: (puzzleId: number) => void;
+  onConvertToRunaround: (puzzleId: number) => void;
   isOrganiser: boolean;
   isPending: boolean;
 }
 
-function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onMove, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, isOrganiser, isPending }: CardProps) {
+function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onRetag, onMove, onDeletePuzzle, onMakeMinimeta, onRemoveMinimeta, onConvertToMeta, onConvertToCapstone, onConvertToRunaround, isOrganiser, isPending }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
     disabled: isPending,
@@ -186,32 +190,64 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
                 </Menu.Item>
               </>
             )}
-            {!puzzle.is_meta && !puzzle.is_minimeta && !puzzle.solved && (
+            {!puzzle.is_minimeta && (
               <>
                 <Menu.Divider />
+                {!puzzle.is_meta && !puzzle.solved && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Make minimeta",
+                        message: `Mark "${puzzle.name}" as a minimeta?`,
+                        onConfirm: () => onMakeMinimeta(puzzle.id),
+                      })
+                    }
+                  >
+                    Make minimeta
+                  </Menu.Item>
+                )}
+                {!puzzle.is_meta && (
+                  <Menu.Item
+                    color="grape"
+                    onClick={() =>
+                      setPendingAction({
+                        title: "Convert to meta",
+                        message: `Convert "${puzzle.name}" to a meta? This creates a new meta round around it.`,
+                        onConfirm: () => onConvertToMeta(puzzle.id),
+                      })
+                    }
+                  >
+                    Convert to meta
+                  </Menu.Item>
+                )}
                 <Menu.Item
                   color="grape"
                   onClick={() =>
                     setPendingAction({
-                      title: "Make minimeta",
-                      message: `Mark "${puzzle.name}" as a minimeta?`,
-                      onConfirm: () => onMakeMinimeta(puzzle.id),
+                      title: "Convert to capstone",
+                      message: puzzle.is_meta
+                        ? `Convert "${puzzle.name}" to a capstone? Its feeders' feeds tags flip to informs.`
+                        : `Convert "${puzzle.name}" to a capstone? This creates a capstone round around it; other puzzles can then inform it.`,
+                      onConfirm: () => onConvertToCapstone(puzzle.id),
                     })
                   }
                 >
-                  Make minimeta
+                  Convert to capstone
                 </Menu.Item>
                 <Menu.Item
                   color="grape"
                   onClick={() =>
                     setPendingAction({
-                      title: "Convert to meta",
-                      message: `Convert "${puzzle.name}" to a meta? This creates a new meta round around it.`,
-                      onConfirm: () => onConvertToMeta(puzzle.id),
+                      title: "Convert to runaround",
+                      message: puzzle.is_meta
+                        ? `Convert "${puzzle.name}" to a runaround? Membership tags are kept.`
+                        : `Convert "${puzzle.name}" to a runaround? This creates a runaround round around it.`,
+                      onConfirm: () => onConvertToRunaround(puzzle.id),
                     })
                   }
                 >
-                  Convert to meta
+                  Convert to runaround
                 </Menu.Item>
               </>
             )}
@@ -421,6 +457,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const makeMinimeta = useMakeMinimeta(uid);
   const removeMinimeta = useRemoveMinimeta(uid);
   const convertToMeta = useConvertToMeta(uid);
+  const convertToCapstone = useConvertToCapstone(uid);
+  const convertToRunaround = useConvertToRunaround(uid);
   const changeType = useChangeGroupType(uid);
   const deleteRoundMut = useDeleteRound(uid);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -559,6 +597,26 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
       onSuccess: (data) => {
         showSheetWarning(data);
         notifications.show({ message: "Converted to a metapuzzle.", color: "green" });
+      },
+      onError: notifyError,
+    });
+  }
+
+  function onConvertToCapstone(puzzleId: number) {
+    convertToCapstone.mutate(puzzleId, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a capstone.", color: "green" });
+      },
+      onError: notifyError,
+    });
+  }
+
+  function onConvertToRunaround(puzzleId: number) {
+    convertToRunaround.mutate(puzzleId, {
+      onSuccess: (data) => {
+        showSheetWarning(data);
+        notifications.show({ message: "Converted to a runaround.", color: "green" });
       },
       onError: notifyError,
     });
@@ -737,6 +795,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                     onMakeMinimeta={onMakeMinimeta}
                     onRemoveMinimeta={setRemoveMinimetaTarget}
                     onConvertToMeta={onConvertToMeta}
+                    onConvertToCapstone={onConvertToCapstone}
+                    onConvertToRunaround={onConvertToRunaround}
                     isOrganiser={isOrganiser}
                     isPending={pendingIds.has(p.id)}
                   />

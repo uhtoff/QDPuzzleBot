@@ -467,3 +467,54 @@ class TestConvertToPuzzleSplitRound:
         reloc.assert_not_awaited()
         teardown.assert_not_awaited()
         tgdb.delete.assert_called_once_with(5)
+
+
+class TestConvertBangGuards:
+    """!convert_to_capstone / !convert_to_runaround accept a REGULAR puzzle
+    (promoted in place by convert_to_type, like !convert_to_meta) and solved
+    puzzles; the meta -> capstone path is unchanged."""
+
+    def _cog_with(self, puzzle):
+        cog = _make_cog_convert()
+        cog.get_puzzle = MagicMock(return_value=puzzle)
+        cog.get_hunt = MagicMock(return_value=make_hunt())
+        cog.set_tag_group = MagicMock()
+        cog.set_channel_type = MagicMock()
+        cog.info = AsyncMock()
+        cog.service = MagicMock()
+        cog.service.convert_to_type = AsyncMock(
+            return_value=(make_round(id=42, group_code="CAP123"), "ok"))
+        ctx = MagicMock()
+        ctx.send = AsyncMock()
+        ctx.channel.send = AsyncMock()
+        return cog, ctx
+
+    @pytest.mark.asyncio
+    async def test_capstone_allows_regular_puzzle(self):
+        puz = make_puzzle(id=7, channel_id=555, is_target=False)
+        cog, ctx = self._cog_with(puz)
+        await cog.convert_to_capstone.callback(cog, ctx)
+        cog.service.convert_to_type.assert_awaited_once()
+        assert cog.service.convert_to_type.call_args.args[-1] == "Capstone"
+
+    @pytest.mark.asyncio
+    async def test_runaround_allows_regular_puzzle(self):
+        puz = make_puzzle(id=7, channel_id=555, is_target=False)
+        cog, ctx = self._cog_with(puz)
+        await cog.convert_to_runaround.callback(cog, ctx)
+        cog.service.convert_to_type.assert_awaited_once()
+        assert cog.service.convert_to_type.call_args.args[-1] == "Runaround"
+
+    @pytest.mark.asyncio
+    async def test_capstone_allows_solved_puzzle(self):
+        puz = make_puzzle(id=7, channel_id=555, is_target=False, solved=True)
+        cog, ctx = self._cog_with(puz)
+        await cog.convert_to_capstone.callback(cog, ctx)
+        cog.service.convert_to_type.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_capstone_still_works_on_a_meta(self):
+        puz = make_puzzle(id=7, channel_id=555, is_target=True)
+        cog, ctx = self._cog_with(puz)
+        await cog.convert_to_capstone.callback(cog, ctx)
+        cog.service.convert_to_type.assert_awaited_once()
