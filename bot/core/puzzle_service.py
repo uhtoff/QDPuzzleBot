@@ -2462,7 +2462,7 @@ class PuzzleService:
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
-                          guild_id=0):
+                          guild_id=0, creator=None, confirm_existing_role=False):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
         ``layout_mode`` is fixed at creation: "channel" (default) clones a
@@ -2478,26 +2478,32 @@ class PuzzleService:
         if HuntJsonDb.check_duplicates(name):
             raise RuntimeError("hunt_exists")
 
-        team_role = None
-        if role_name:
-            team_role = discord.utils.get(guild.roles, name=role_name)
-            if team_role is None:
-                team_role = await guild.create_role(
-                    name=role_name, colour=discord.Colour.random(),
-                    mentionable=True, reason="bot-role",
-                )
+        # existing_role_confirm must propagate (entry point prompts + retries);
+        # role_not_applied is non-fatal here -> fall back to an OPEN hunt.
+        try:
+            team_role = await self._resolve_gating_role(
+                guild, role_name, creator, confirm_existing_role
+            )
+        except RuntimeError as exc:
+            if "existing_role_confirm" in str(exc):
+                raise
+            team_role = None
+        overwrites = self._gating_overwrites(guild, team_role) if team_role else {}
 
         # Category is brand-new, so channels are created directly (no get_or_create lookup).
         category_name = clean_category_name(name)
         category = await guild.create_category(
-            category_name, position=max(len(guild.categories) - 2, 0)
+            category_name, position=max(len(guild.categories) - 2, 0),
+            overwrites=overwrites,
         )
         text_channel = await guild.create_text_channel(
             "general", category=category, reason="bot-hunt-general", position=0
         )
         if SOLVE_CATEGORY:
             await guild.create_category(
-                f"{name}-solved", position=max(len(guild.categories) - 2, 0)
+                category_layout.solved_category_name(name),
+                position=max(len(guild.categories) - 2, 0),
+                overwrites=overwrites,
             )
         else:
             await guild.create_text_channel(

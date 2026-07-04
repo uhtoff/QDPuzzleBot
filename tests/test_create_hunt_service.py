@@ -115,6 +115,9 @@ async def test_create_hunt_rejects_bad_layout_mode():
 @pytest.mark.asyncio
 async def test_create_hunt_captures_sheet_and_role():
     svc, guild = _create_service(), _create_guild()
+    role = guild.create_role.return_value
+    role.members = []
+    creator = _member_with_add(role)
     gsheet = MagicMock()
     gsheet.create_hunt_spreadsheet = AsyncMock(return_value="SHEET_ID")
     gsheet.create_solved_sheet = AsyncMock(return_value="ARCH_ID")
@@ -122,11 +125,108 @@ async def test_create_hunt_captures_sheet_and_role():
          patch.object(svc, "_gsheet_cog", return_value=gsheet):
         hdb.check_duplicates.return_value = False
         await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                              role_name="Team", create_solved_sheet=True)
+                              role_name="Team", create_solved_sheet=True, creator=creator)
     hunt = _committed_hunt(hdb.commit)
     assert hunt.google_sheet_id == "SHEET_ID"
     assert hunt.solved_sheet_id == "ARCH_ID"
     assert hunt.role_id == 333
+
+
+def _guild_for_create():
+    """Guild mock that records overwrites passed to create_category."""
+    guild = MagicMock()
+    guild.id = 999
+    guild.categories = []
+    guild.roles = []
+    guild.default_role = MagicMock(name="everyone")
+    guild.me = MagicMock(name="me")
+    cat = MagicMock(); cat.id = 111
+    chan = MagicMock(); chan.id = 222
+    guild.create_category = AsyncMock(return_value=cat)
+    guild.create_text_channel = AsyncMock(return_value=chan)
+    return guild
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_gates_categories_when_role_given():
+    svc = _create_service()
+    guild = _guild_for_create()
+    role = MagicMock(name="role"); role.id = 333; role.members = []
+    guild.create_role = AsyncMock(return_value=role)
+    creator = _member_with_add(role)
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        hunt = await svc.create_hunt(
+            guild, name="H", url="https://h/", start_timestamp=0,
+            role_name="Team A", creator=creator,
+        )
+
+    assert hunt.role_id == 333
+    _args, kwargs = guild.create_category.call_args_list[0]
+    ov = kwargs["overwrites"]
+    assert ov[guild.default_role].view_channel is False
+    assert ov[role].view_channel is True
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_open_when_no_role():
+    svc = _create_service()
+    guild = _guild_for_create()
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        hunt = await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
+
+    assert hunt.role_id == 0
+    _args, kwargs = guild.create_category.call_args_list[0]
+    assert kwargs["overwrites"] == {}
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_existing_role_requires_confirm():
+    svc = _create_service()
+    guild = _guild_for_create()
+    existing = MagicMock(name="existing"); existing.name = "Team A"
+    existing.members = [MagicMock()]
+    guild.roles = [existing]
+    creator = MagicMock()
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        with pytest.raises(RuntimeError, match="existing_role_confirm"):
+            await svc.create_hunt(
+                guild, name="H", url="https://h/", start_timestamp=0,
+                role_name="Team A", creator=creator,
+            )
+    guild.create_category.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_falls_back_to_open_when_gating_fails():
+    svc = _create_service()
+    guild = _guild_for_create()
+    guild.roles = []
+    new_role = MagicMock(name="new"); new_role.members = []
+    new_role.delete = AsyncMock()
+    guild.create_role = AsyncMock(return_value=new_role)
+    creator = MagicMock()
+    creator.add_roles = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "nope"))
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        hunt = await svc.create_hunt(
+            guild, name="H", url="https://h/", start_timestamp=0,
+            role_name="Team A", creator=creator,
+        )
+
+    assert hunt.role_id == 0
+    new_role.delete.assert_awaited_once()
+    _args, kwargs = guild.create_category.call_args_list[0]
+    assert kwargs["overwrites"] == {}
 
 
 @pytest.mark.asyncio
