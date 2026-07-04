@@ -112,6 +112,26 @@ class Puzzles(commands.Cog):
     async def on_ready(self):
         print(f"{type(self).__name__} Cog ready.")
 
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        """Out-of-band deletions (a user hand-deleting a puzzle channel or a
+        whole bot-managed category) hit none of the service-side consolidation
+        triggers — catch them here. A deleted CATEGORY leaves a dangling join
+        row, so trigger on the category itself; a deleted channel shrinks its
+        parent category. Bot-initiated deletions land here too, but duplicate
+        triggers are cheap no-ops (idempotent, serialised on layout_lock).
+        Threads don't fire this event."""
+        try:
+            if isinstance(channel, discord.CategoryChannel):
+                category_layout.maybe_consolidate_category(channel.guild, channel)
+            elif getattr(channel, "category", None) is not None:
+                category_layout.maybe_consolidate_category(
+                    channel.guild, channel.category)
+        except Exception:
+            logger.exception(
+                "on_guild_channel_delete: consolidation trigger failed for %s",
+                getattr(channel, "id", "?"))
+
     async def cog_before_invoke(self, ctx):
         """For separating commands use ctx.message.id"""
         """For logging ctx.author.name and ctx.message.content"""
