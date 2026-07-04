@@ -37,6 +37,15 @@ CATEGORY_SOFT_LIMIT = max(1, MAX_CHANNELS_PER_CATEGORY - 2)
 # between categories, delete category) this module performs.
 layout_lock = asyncio.Lock()
 
+# Consolidation hysteresis: a fold/un-split only happens if the result leaves
+# at least this many free slots below CATEGORY_SOFT_LIMIT — otherwise a merge
+# right at the split threshold would oscillate (each split↔merge cycle costs a
+# category create + N channel moves + a delete). Fixed, not proportional, for
+# the same reason the soft-limit headroom is: the cap is config-shrinkable for
+# tests, and a proportional margin either vanishes at cap 50 or devours the
+# whole range at test caps.
+CONSOLIDATE_MARGIN = 4
+
 
 # ----------------------------------------------------------------- naming
 def solved_category_name(base_name):
@@ -413,6 +422,91 @@ async def cleanup_empty_overflow(guild, tag_group, dao, category):
             dao.delete(row.id)
     except Exception:
         logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)
+
+
+# ----------------------------------------------------------------- consolidation
+async def consolidate(guild, owner_id, dao):
+    """The inverse of split/overflow, run after a count drops: per role
+    (unsolved first — the side normal play keeps changing), reap dangling
+    rows, reclaim empty overflow categories, and fold the highest-seq
+    overflow back into lower-seq categories when everything fits with
+    CONSOLIDATE_MARGIN to spare. Never renames anything (loose seq: Discord's
+    name bucket is 2 edits / 10 min per channel, so renumbering surviving
+    categories in lockstep would wedge the whole pass), and only ever deletes
+    seq>=1 rows — seq=0 is structural. Idempotent; safe to re-trigger.
+    """
+    async with layout_lock:
+        # The guild cache only reflects our own moves after the gateway
+        # round-trips, so track what this run adds per target category and
+        # count with it — otherwise two successive folds could overfill.
+        added = {}
+
+        def _count(cat):
+            return puzzle_count(cat) + added.get(cat.id, 0)
+
+        for role in (ROLE_UNSOLVED, ROLE_SOLVED):
+            await _consolidate_role(guild, owner_id, dao, role, _count, added)
+
+
+async def _consolidate_role(guild, owner_id, dao, role, _count, added):
+    """One role's reap/reclaim/fold loop. Caller holds layout_lock."""
+    while True:
+        rows = sorted((r for r in dao.get_for_group(owner_id) if r.role == role),
+                      key=lambda r: r.seq)
+        # Pass 1: reap dangling rows and reclaim EMPTY overflow categories —
+        # unconditionally, no margin gate (cleanup_empty_overflow's shipped
+        # semantics). seq=0 rows are never touched.
+        acted = False
+        for row in rows:
+            if row.seq < 1:
+                continue
+            cat = _category_by_id(guild, row.category_id)
+            if cat is None:
+                dao.delete(row.id)
+                acted = True
+            elif _count(cat) == 0:
+                try:
+                    await cat.delete(reason=DELETE_REASON)
+                except Exception:
+                    logger.exception("consolidate: could not delete empty category %s",
+                                     row.category_id)
+                    continue
+                dao.delete(row.id)
+                acted = True
+        if acted:
+            continue    # re-read rows and re-evaluate
+
+        # Pass 2: fold the highest-seq overflow into the lower categories if
+        # its occupants fit with CONSOLIDATE_MARGIN slots left over.
+        if len(rows) < 2:
+            return
+        top = rows[-1]
+        top_cat = _category_by_id(guild, top.category_id)
+        lowers = [c for c in
+                  (_category_by_id(guild, r.category_id) for r in rows[:-1])
+                  if c is not None]
+        if top_cat is None or not lowers:
+            return
+        movers = sorted(
+            (ch for ch in top_cat.text_channels if ch.name != SOLVE_DIVIDER),
+            key=lambda ch: ch.position)
+        free = sum(max(0, CATEGORY_SOFT_LIMIT - _count(c)) for c in lowers)
+        if len(movers) > free - CONSOLIDATE_MARGIN:
+            return
+        try:
+            for ch in movers:
+                target = next(c for c in lowers if _count(c) < CATEGORY_SOFT_LIMIT)
+                position = (max((c2.position for c2 in target.channels), default=-1)
+                            + 1 + added.get(target.id, 0))
+                await ch.edit(category=target, position=position)
+                added[target.id] = added.get(target.id, 0) + 1
+            await top_cat.delete(reason=DELETE_REASON)
+        except Exception:
+            logger.exception("consolidate: fold of category %s failed midway "
+                             "(safe: row survives, next run resumes)", top.category_id)
+            return
+        dao.delete(top.id)
+        # Loop: a further fold may now be possible.
 
 
 async def cleanup_source_category(guild, category):

@@ -714,6 +714,186 @@ async def test_move_channel_to_owner_legacy_destination_cleans_vacated_source(mo
     cleanup.assert_awaited_once_with(guild, source_cat)
 
 
+# ----------------------------------------------------------------- consolidation
+
+def _filled_cat(cid, pos, n, name="round-1"):
+    """A category whose channels carry real positions and async edit/delete."""
+    cat = _cat(cid, pos, n_channels=n, name=name)
+    for i, ch in enumerate(cat.channels):
+        ch.position = i
+        ch.edit = AsyncMock()
+    cat.text_channels = cat.channels
+    cat.delete = AsyncMock()
+    return cat
+
+
+def _dao_with_rows(rows):
+    """A dao over a mutable row list: get_for_group re-reads it, delete removes
+    by row id — so consolidate's re-read-after-acting loop sees real state."""
+    store = list(rows)
+    dao = MagicMock()
+    dao.get_for_group.side_effect = lambda gid: list(store)
+    dao.delete.side_effect = lambda rid: store.remove(
+        next(r for r in store if r.id == rid))
+    return dao, store
+
+
+@pytest.mark.asyncio
+async def test_consolidate_folds_top_overflow_into_lower(monkeypatch):
+    """Enough aggregate free space (with margin): the highest-seq overflow's
+    channels move into the lower category with explicit positions, and the
+    emptied category + its row are deleted. Nothing is ever renamed (loose
+    seq — Discord's name bucket is 2 edits / 10 min per channel)."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=2)
+    u1 = _filled_cat(101, 6, n=2)          # movers=2 <= free(6) - margin(4)
+    guild = MagicMock(); guild.categories = [u0, u1]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    m1, m2 = u1.channels
+    m1.edit.assert_awaited_once_with(category=u0, position=2)
+    m2.edit.assert_awaited_once_with(category=u0, position=3)
+    u1.delete.assert_awaited_once()
+    assert [r.id for r in store] == [1]    # only the seq=0 row survives
+    u0.edit.assert_not_called()            # no rename, no reposition of survivors
+
+
+@pytest.mark.asyncio
+async def test_consolidate_respects_margin(monkeypatch):
+    """movers > free - CONSOLIDATE_MARGIN: folding now would sit too close to
+    the split threshold and oscillate — leave the overflow alone."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=2)          # free = 6
+    u1 = _filled_cat(101, 6, n=3)          # movers=3 > 6 - 4
+    guild = MagicMock(); guild.categories = [u0, u1]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    for ch in u1.channels:
+        ch.edit.assert_not_awaited()
+    u1.delete.assert_not_awaited()
+    assert len(store) == 2
+
+
+@pytest.mark.asyncio
+async def test_consolidate_always_reclaims_empty_overflow(monkeypatch):
+    """An EMPTY seq>=1 category is reclaimed unconditionally — no margin gate —
+    matching cleanup_empty_overflow's shipped semantics."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=7)          # nearly full: free(1) < margin
+    u1 = _filled_cat(101, 6, n=0)          # empty overflow
+    guild = MagicMock(); guild.categories = [u0, u1]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    u1.delete.assert_awaited_once()
+    assert [r.id for r in store] == [1]
+
+
+@pytest.mark.asyncio
+async def test_consolidate_reaps_dangling_rows():
+    """A row whose category no longer resolves (out-of-band delete, crashed
+    cleanup) is dropped — previously these accumulated forever."""
+    u0 = _filled_cat(100, 5, n=2)
+    guild = MagicMock(); guild.categories = [u0]      # 101 is GONE
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    assert [r.id for r in store] == [1]
+
+
+@pytest.mark.asyncio
+async def test_consolidate_never_touches_seq0(monkeypatch):
+    """seq=0 rows are structural (category_id home, clone template, unsuffixed
+    name) — consolidation must only ever delete seq>=1 rows/categories."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=0)          # empty, but PRIMARY
+    s0 = _filled_cat(200, 6, n=0)          # empty, but solved seq=0
+    guild = MagicMock(); guild.categories = [u0, s0]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=200, role="solved", seq=0),
+    ])
+    monkeypatch.setattr(layout, "_maybe_unsplit", AsyncMock(), raising=False)
+
+    await layout.consolidate(guild, 5, dao)
+
+    u0.delete.assert_not_awaited()
+    s0.delete.assert_not_awaited()
+    assert len(store) == 2
+
+
+@pytest.mark.asyncio
+async def test_consolidate_unsolved_before_solved(monkeypatch):
+    """Unsolved-side folds run before solved-side ones (unsolved is the side
+    normal play keeps changing; do it first so solved work isn't wasted)."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    order = []
+    u0 = _filled_cat(100, 5, n=0); u1 = _filled_cat(101, 6, n=0)
+    s0 = _filled_cat(200, 7, n=0); s1 = _filled_cat(201, 8, n=0)
+    u1.delete = AsyncMock(side_effect=lambda **kw: order.append("unsolved"))
+    s1.delete = AsyncMock(side_effect=lambda **kw: order.append("solved"))
+    guild = MagicMock(); guild.categories = [u0, u1, s0, s1]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+        TagGroupCategoryData(id=3, group_id=5, category_id=200, role="solved", seq=0),
+        TagGroupCategoryData(id=4, group_id=5, category_id=201, role="solved", seq=1),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    assert order == ["unsolved", "solved"]
+
+
+@pytest.mark.asyncio
+async def test_consolidate_tracks_capacity_across_moves_in_one_run(monkeypatch):
+    """The guild cache does NOT reflect this run's own moves (it updates on
+    gateway events) — consolidate must track what it already added to each
+    target, or two successive folds could overfill one category."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=2)          # cached free = 6
+    u1 = _filled_cat(101, 6, n=2)
+    u2 = _filled_cat(102, 7, n=2)
+    guild = MagicMock(); guild.categories = [u0, u1, u2]
+    dao, store = _dao_with_rows([
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+        TagGroupCategoryData(id=3, group_id=5, category_id=102, role="unsolved", seq=2),
+    ])
+
+    await layout.consolidate(guild, 5, dao)
+
+    # Fold #1 (seq=2 -> lowers) fits: movers=2 <= free(6+6=12 vs 8-cap... per
+    # target) - margin. After it, u0 effectively holds 4: fold #2 (seq=1) has
+    # free = (8-4)+(gone) = 4, movers=2 <= 4-4 is FALSE -> must NOT fold.
+    u2.delete.assert_awaited_once()
+    u1.delete.assert_not_awaited()
+    assert {r.id for r in store} == {1, 2}
+    # And the fold-#1 movers landed after u0's cached channels at 2,3 —
+    # the second mover's position accounts for the first (cache won't).
+    m1, m2 = u2.channels
+    m1.edit.assert_awaited_once_with(category=u0, position=2)
+    m2.edit.assert_awaited_once_with(category=u0, position=3)
+
+
 # ----------------------------------------------------------------- teardown tests
 
 @pytest.mark.asyncio
