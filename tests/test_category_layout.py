@@ -418,15 +418,67 @@ async def test_move_channel_to_general_no_category_returns_false():
 
 
 @pytest.mark.asyncio
-async def test_move_channel_to_general_full_category_returns_false():
+async def test_move_channel_to_general_full_category_overflows_to_new_category():
     from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
-    general = MagicMock(id=500)
+    general = MagicMock(id=500, name="General", position=3)
+    general.name = "General"
     general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
+    overflow = MagicMock(id=501)
+    overflow.channels = []
+    general.clone = AsyncMock(return_value=overflow)
+    overflow.edit = AsyncMock()
     guild = MagicMock()
     guild.categories = [general]
     channel = MagicMock()
     channel.edit = AsyncMock()
-    assert await layout.move_channel_to_general(guild, 500, channel, False) is False
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is True
+    general.clone.assert_awaited_once_with(name="General (2)")
+    overflow.edit.assert_awaited_once_with(position=4)
+    channel.edit.assert_awaited_once_with(category=overflow, position=0)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_reuses_existing_overflow_with_room():
+    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
+    general = MagicMock(id=500)
+    general.name = "General"
+    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
+    general.clone = AsyncMock()
+    overflow = MagicMock(id=501)
+    overflow.name = "General (2)"
+    overflow.channels = []
+    guild = MagicMock()
+    guild.categories = [general, overflow]
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is True
+    general.clone.assert_not_awaited()
+    channel.edit.assert_awaited_once_with(category=overflow, position=0)
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_general_no_category_space_returns_false():
+    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY, MAX_CATEGORIES
+    general = MagicMock(id=500)
+    general.name = "General"
+    general.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]
+    general.clone = AsyncMock()
+    others = [MagicMock() for _ in range(MAX_CATEGORIES - 1)]
+    guild = MagicMock()
+    guild.categories = [general] + others
+    channel = MagicMock()
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_general(guild, 500, channel, False)
+
+    assert result is False
+    general.clone.assert_not_awaited()
     channel.edit.assert_not_awaited()
 
 

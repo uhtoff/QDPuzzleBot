@@ -234,28 +234,65 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     return source
 
 
+def _general_overflow_name(base, seq):
+    return base if seq == 0 else f"{base} ({seq + 1})"
+
+
+async def _pick_general_category(guild, general):
+    """Find the first general-category slot (the primary, or a numbered
+    overflow clone) with room for one more channel, creating a new overflow
+    category if every existing one is full. Mirrors _allocate/_pick_or_allocate's
+    split behaviour for tag_group categories, but the hunt's general category
+    has no DAO-tracked rows — overflow categories ("General (2)", "General (3)",
+    ...) are found purely by name, same convention split_group already uses to
+    reuse an existing category by name."""
+    base = general.name
+    seq = 0
+    cat = general
+    while cat is not None and len(cat.channels) >= MAX_CHANNELS_PER_CATEGORY:
+        seq += 1
+        cat = discord.utils.get(guild.categories, name=_general_overflow_name(base, seq))
+    if cat is not None:
+        return cat
+    if len(guild.categories) >= MAX_CATEGORIES:
+        return None
+    async with layout_lock:
+        # Re-check under the lock in case a concurrent caller just created it.
+        name = _general_overflow_name(base, seq)
+        existing = discord.utils.get(guild.categories, name=name)
+        new_cat = existing or await general.clone(name=name)
+        if existing is None:
+            await new_cat.edit(position=general.position + 1)
+    return new_cat
+
+
 async def move_channel_to_general(guild, general_category_id, channel, solved):
     """Move *channel* into the hunt's general category (``general_category_id``)
     — used by delete_round's keep_puzzles mode to relocate a kept puzzle's
     channel out of a round category that's about to be deleted. Positioned
     like tag_edge_only's channel-move: unsolved just above the solved
-    divider, solved after it. Returns True if moved, False if there's no
-    general category, it's full, or the move failed (caller should treat
-    that puzzle's channel as needing manual attention)."""
+    divider, solved after it. Overflows into a numbered clone category
+    ("General (2)", ...) when the primary general category is full. Returns
+    True if moved, False if there's no general category, no category (primary
+    or overflow) has room and none more can be allocated, or the move failed
+    (caller should treat that puzzle's channel as needing manual attention)."""
     general = _category_by_id(guild, general_category_id)
-    if general is None or len(general.channels) >= MAX_CHANNELS_PER_CATEGORY:
+    if general is None:
         return False
-    divider_pos = solve_divider_position(general)
+    target = await _pick_general_category(guild, general)
+    if target is None:
+        return False
+    divider_pos = solve_divider_position(target)
     if divider_pos is not False:
         position = (
-            max((ch.position for ch in general.channels), default=0) + 1
+            max((ch.position for ch in target.channels), default=0) + 1
             if solved else divider_pos - 1
         )
     else:
-        position = max((ch.position for ch in general.channels), default=-1) + 1
+        position = max((ch.position for ch in target.channels), default=-1) + 1
     try:
         async with layout_lock:
-            await channel.edit(category=general, position=position)
+            await channel.edit(category=target, position=position)
     except Exception:
         logger.exception("move_channel_to_general: could not move channel %s",
                          getattr(channel, "id", "?"))

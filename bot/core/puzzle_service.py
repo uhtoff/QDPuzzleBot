@@ -1398,9 +1398,7 @@ class PuzzleService:
                 channel = guild.get_channel(puzzle.channel_id)
                 if channel is None or channel.category_id not in owned_category_ids:
                     continue
-                if not await category_layout.move_channel_to_general(
-                    guild, hunt.category_id, channel, puzzle.solved
-                ):
+                if not await self._relocate_kept_puzzle(guild, hunt, tag_group, puzzle, channel):
                     failed_channels.append(puzzle.name)
                     relocation_failed_channel_ids.add(puzzle.channel_id)
 
@@ -1446,6 +1444,41 @@ class PuzzleService:
                             logger.exception("delete_round: could not delete category %s",
                                              tag_group.category_id)
         return failed_channels
+
+    async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel):
+        """Relocate a kept puzzle's channel out of the category owned by the
+        group being deleted (``tag_group``). Prefers moving it into a category
+        belonging to another group ``puzzle`` is also tagged to — so a shared
+        puzzle lands with its other round rather than in the catch-all general
+        category — and only falls back to the hunt's general category
+        (``category_layout.move_channel_to_general``) if none of its other
+        groups have a usable category. Returns True if moved, False if every
+        option failed (caller should treat the channel as needing manual
+        attention)."""
+        for other_gid in puzzle.tags:
+            if other_gid == tag_group.id:
+                continue
+            other_group = TagGroupJsonDb.get_by_attr(id=other_gid)
+            if other_group is None:
+                continue
+            mover = (category_layout.move_channel_to_solved if puzzle.solved
+                     else category_layout.move_channel_to_unsolved)
+            try:
+                # The channel is confirmed (by the caller) to still be in a
+                # category owned by tag_group, so a non-None return here can
+                # only mean the move to other_group actually happened — it
+                # can't be the "already in target" no-op.
+                moved = await mover(guild, other_group, TagGroupCategoryDb, channel)
+            except Exception:
+                logger.exception(
+                    "delete_round: could not relocate %s into sibling group %s",
+                    puzzle.name, other_group.id)
+                continue
+            if moved is not None:
+                return True
+        return await category_layout.move_channel_to_general(
+            guild, hunt.category_id, channel, puzzle.solved
+        )
 
     @pushes_board()
     async def add_partial(self, guild, hunt, puzzle, solution):

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER
+from bot.core.discord_channels import MAX_CATEGORIES, MAX_CHANNELS_PER_CATEGORY, SOLVE_DIVIDER
 from tests.conftest import make_hunt, make_puzzle, make_round
 
 
@@ -69,6 +69,94 @@ async def test_keep_puzzles_deletes_target_and_relocates_feeder():
 
 
 @pytest.mark.asyncio
+async def test_keep_puzzles_prefers_sibling_group_category_over_general():
+    """A kept puzzle also tagged to another group lands in that group's
+    category instead of the hunt's general category."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 7], solved=False)
+    feeder_ch = MagicMock(id=902)
+    feeder_ch.category_id = 100
+    feeder_ch.category = MagicMock(id=100)
+    feeder_ch.edit = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [feeder_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    general_cat = MagicMock(id=500)
+    general_cat.name = "General"
+    general_cat.channels = []
+    sibling_cat = MagicMock(id=200)
+    sibling_cat.channels = []
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat, sibling_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+
+    sibling_group = MagicMock(id=7, category_id=200)
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [feeder]
+        tgcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.return_value = sibling_group
+
+        failed = await svc.delete_round(guild, hunt, tag_group)
+
+    tgdb.get_by_attr.assert_called_once_with(id=7)     # tag_group.id (5) excluded
+    feeder_ch.edit.assert_awaited_once_with(category=sibling_cat)
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_category():
+    """If a kept puzzle's other group has no usable category (e.g. forum-home,
+    or the group row is otherwise unresolvable), it still falls back to the
+    hunt's general category rather than being reported as a failure."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+
+    feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 7], solved=False)
+    feeder_ch = MagicMock(id=902)
+    feeder_ch.category_id = 100
+    feeder_ch.category = MagicMock(id=100)
+    feeder_ch.edit = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [feeder_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    general_cat = _general_category()
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+
+    sibling_group = MagicMock(id=7, category_id=None)   # unresolvable home category
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [feeder]
+        tgcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.return_value = sibling_group
+
+        failed = await svc.delete_round(guild, hunt, tag_group)
+
+    feeder_ch.edit.assert_awaited_once_with(category=general_cat, position=0)
+    assert failed == []
+
+
+@pytest.mark.asyncio
 async def test_keep_puzzles_relocation_failure_reported():
     svc = _svc()
     hunt = make_hunt(category_id=500, layout_mode="channel")
@@ -82,19 +170,24 @@ async def test_keep_puzzles_relocation_failure_reported():
     round_cat.text_channels = []             # no dedicated chat channel to find
     round_cat.delete = AsyncMock()
     general_cat = MagicMock(id=500)
+    general_cat.name = "General"
     general_cat.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]  # full
+    general_cat.clone = AsyncMock()
+    # No overflow category exists and no room to allocate one — genuine failure.
+    other_cats = [MagicMock() for _ in range(MAX_CATEGORIES - 2)]
 
     guild = MagicMock()
-    guild.categories = [round_cat, general_cat]
+    guild.categories = [round_cat, general_cat] + other_cats
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
          patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [feeder]
         tgcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.return_value = None
 
         failed = await svc.delete_round(guild, hunt, tag_group)
 
@@ -190,19 +283,24 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
     round_cat.text_channels = []          # no dedicated chat channel
     round_cat.delete = AsyncMock()
     general_cat = MagicMock(id=500)
+    general_cat.name = "General"
     general_cat.channels = [MagicMock() for _ in range(MAX_CHANNELS_PER_CATEGORY)]  # full -> relocation fails
+    general_cat.clone = AsyncMock()
+    # No overflow category exists and no room to allocate one — genuine failure.
+    other_cats = [MagicMock() for _ in range(MAX_CATEGORIES - 2)]
 
     guild = MagicMock()
-    guild.categories = [round_cat, general_cat]
+    guild.categories = [round_cat, general_cat] + other_cats
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
          patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb:
         pdb.get_all_from_tag_group.return_value = [feeder]
         tgcdb.get_for_group.return_value = [
             TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
         ]
+        tgdb.get_by_attr.return_value = None
 
         failed = await svc.delete_round(guild, hunt, tag_group)
 
