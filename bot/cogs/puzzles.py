@@ -106,7 +106,6 @@ class Puzzles(commands.Cog):
         from bot.core.notifier import CompositeNotifier, DiscordNotifier
         self.service = PuzzleService(self.bot, notifier=CompositeNotifier([DiscordNotifier(self.bot)]))
         self.reminder_index=0
-        self.position_lock = asyncio.Lock()
         self.environment = {}
 
     @commands.Cog.listener()
@@ -1028,9 +1027,13 @@ class Puzzles(commands.Cog):
                 # background if the owner's layout can shrink.
                 category_layout.maybe_consolidate(guild, owner.id, dao)
         else:
-            divider = self.get_solve_divider_position(None, channel.category)
-            if divider is not False:
-                async with self.position_lock:
+            # Same lock split_group holds while it moves channels and deletes
+            # the divider — and the divider position read INSIDE it, or a
+            # concurrent first split can strand the channel against a stale
+            # divider. (A separate cog-level lock serialized nothing.)
+            async with category_layout.layout_lock:
+                divider = self.get_solve_divider_position(None, channel.category)
+                if divider is not False:
                     await channel.edit(position=divider + 1)
 
     async def _apply_unsolved_move(self, guild, channel):
@@ -1047,9 +1050,10 @@ class Puzzles(commands.Cog):
                 # See _apply_solved_move: background shrink check.
                 category_layout.maybe_consolidate(guild, owner.id, dao)
         else:
-            divider = self.get_solve_divider_position(None, channel.category)
-            if divider is not False:
-                async with self.position_lock:
+            # See _apply_solved_move: layout_lock, divider read inside it.
+            async with category_layout.layout_lock:
+                divider = self.get_solve_divider_position(None, channel.category)
+                if divider is not False:
                     await channel.edit(position=divider)
 
     def get_first_channel(self, ctx, category):

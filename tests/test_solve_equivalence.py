@@ -1189,6 +1189,67 @@ class TestApplyMoveHelpers:
         channel.edit.assert_awaited_once_with(position=4)
 
     @pytest.mark.asyncio
+    async def test_apply_solved_move_single_serializes_with_layout_lock(self, cog):
+        """The legacy divider reposition must serialize on category_layout's
+        layout_lock — the same lock split_group holds while it MOVES channels
+        and DELETES the divider — with the divider position read inside it.
+        The old separate cog position_lock closed nothing against a concurrent
+        first split."""
+        import asyncio as aio
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock(); channel.edit = AsyncMock()
+        channel.category = MagicMock()
+        tag_group = MagicMock(id=5)
+        cog._tag_group_for_channel = MagicMock(return_value=tag_group)
+
+        with patch("bot.cogs.puzzles.category_layout") as cl:
+            cl.is_split.return_value = False
+            lock = aio.Lock()
+            cl.layout_lock = lock
+            reads = []
+            cog.get_solve_divider_position = MagicMock(
+                side_effect=lambda ctx, cat: (reads.append(lock.locked()), 3)[1])
+
+            await lock.acquire()          # a split is "in progress"
+            task = aio.ensure_future(cog._apply_solved_move(guild, channel))
+            await aio.sleep(0)
+            assert channel.edit.await_count == 0   # blocked behind the lock
+            assert reads == []                     # divider not read pre-lock
+            lock.release()
+            await task
+
+        assert reads == [True]                     # read INSIDE the lock
+        channel.edit.assert_awaited_once_with(position=4)
+
+    @pytest.mark.asyncio
+    async def test_apply_unsolved_move_single_serializes_with_layout_lock(self, cog):
+        import asyncio as aio
+        from unittest.mock import AsyncMock, patch
+
+        guild = MagicMock()
+        channel = MagicMock(); channel.edit = AsyncMock()
+        channel.category = MagicMock()
+        tag_group = MagicMock(id=5)
+        cog._tag_group_for_channel = MagicMock(return_value=tag_group)
+
+        with patch("bot.cogs.puzzles.category_layout") as cl:
+            cl.is_split.return_value = False
+            lock = aio.Lock()
+            cl.layout_lock = lock
+            cog.get_solve_divider_position = MagicMock(return_value=3)
+
+            await lock.acquire()
+            task = aio.ensure_future(cog._apply_unsolved_move(guild, channel))
+            await aio.sleep(0)
+            assert channel.edit.await_count == 0
+            lock.release()
+            await task
+
+        channel.edit.assert_awaited_once_with(position=3)
+
+    @pytest.mark.asyncio
     async def test_apply_solved_move_split_hunt_category(self, cog):
         """A channel in a HUNT-owned split category (an unassigned puzzle after
         the hunt's general category split) must move via the hunt owner +
