@@ -165,12 +165,21 @@ async def split_group(guild, tag_group, dao):
             solved_cat = await primary.clone(name=solved_category_name(base))
             await solved_cat.edit(position=primary.position + 1)
         if divider_pos is not False:
+            # Text channels only: .channels also lists voice channels, whose
+            # positions Discord numbers in a SEPARATE sorting bucket — comparing
+            # one against the divider's text position is meaningless and could
+            # drag a lobby channel into the solved category.
             movers = [
-                ch for ch in list(primary.channels)
+                ch for ch in list(primary.text_channels)
                 if ch.name != SOLVE_DIVIDER and ch.position > divider_pos
             ]
-            for ch in movers:
-                await ch.edit(category=solved_cat)
+            # Explicit positions, appended after anything already in the target
+            # (the reused-by-name resume path): discord.py only re-sorts when
+            # `position` is passed — without it each mover keeps its old
+            # absolute position number in the new category.
+            base_pos = max((c.position for c in solved_cat.channels), default=-1) + 1
+            for i, ch in enumerate(movers):
+                await ch.edit(category=solved_cat, position=base_pos + i)
             divider = discord.utils.get(primary.channels, name=SOLVE_DIVIDER)
             if divider is not None:
                 await divider.delete(reason=DELETE_REASON)

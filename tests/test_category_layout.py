@@ -95,7 +95,12 @@ def _split_fixtures(divider_pos=2):
     primary = MagicMock(id=100, position=5)
     primary.name = "round-1"
     primary.channels = [u1, div, u2, s1]
+    # Same objects: everything in this fixture is a text channel, and split's
+    # mover selection reads the text-only view (voice positions live in a
+    # separate Discord sorting bucket and must not be compared).
+    primary.text_channels = primary.channels
     solved_cat = MagicMock(id=200)
+    solved_cat.channels = []
     solved_cat.edit = AsyncMock()
     primary.clone = AsyncMock(return_value=solved_cat)
     guild = MagicMock()
@@ -114,8 +119,10 @@ async def test_split_group_moves_solved_deletes_divider_writes_rows():
 
     await layout.split_group(guild, tag_group, dao)
 
-    # Solved channel moved into the new solved category; unsolved untouched.
-    solved[0].edit.assert_awaited_once_with(category=solved_cat)
+    # Solved channel moved into the new solved category WITH an explicit
+    # position (discord.py only re-sorts when `position` is given; without it
+    # the channel keeps its old absolute position number); unsolved untouched.
+    solved[0].edit.assert_awaited_once_with(category=solved_cat, position=0)
     unsolved[0].edit.assert_not_awaited()
     # Divider deleted.
     div.delete.assert_awaited_once()
@@ -125,6 +132,30 @@ async def test_split_group_moves_solved_deletes_divider_writes_rows():
     roles = {(r.role, r.seq, r.category_id) for r in written}
     assert ("unsolved", 0, 100) in roles
     assert ("solved", 0, 200) in roles
+
+
+@pytest.mark.asyncio
+async def test_split_group_leaves_voice_channels_alone():
+    """CategoryChannel.channels includes voice channels, but Discord numbers
+    voice positions in a SEPARATE sorting bucket from text — comparing a voice
+    position against the divider's text position is meaningless and could drag
+    a lobby/voice channel into the '— solved' category. Only text channels are
+    mover candidates."""
+    guild, primary, solved_cat, div, unsolved, solved = _split_fixtures()
+    voice = MagicMock(); voice.name = "lobby"; voice.position = 30   # voice bucket
+    voice.edit = AsyncMock()
+    primary.channels = primary.channels + [voice]    # in .channels ...
+    # ... but NOT in .text_channels (discord.py's text-only view)
+    dao = MagicMock()
+    dao.get_for_group.return_value = []
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.split_group(guild, tag_group, dao)
+
+    voice.edit.assert_not_awaited()          # stays in the unsolved category
+    solved[0].edit.assert_awaited_once()     # real solved text channel still moves
 
 
 @pytest.mark.asyncio
@@ -335,6 +366,7 @@ async def test_pick_unsolved_reuses_primary_when_split_alone_frees_enough_room(m
     primary = MagicMock(id=100, position=5)
     primary.name = "round-1"
     primary.channels = [u1, div, s1, s2]   # 3 puzzles total -> crosses limit of 2
+    primary.text_channels = primary.channels   # same list: all text, stays in sync
     solved_cat = MagicMock(id=200)
     solved_cat.channels = []
     solved_cat.edit = AsyncMock()
