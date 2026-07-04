@@ -375,3 +375,46 @@ async def test_resolve_gating_role_no_actor_raises():
     svc = _create_service()
     with pytest.raises(RuntimeError, match="role_not_applied"):
         await svc._resolve_gating_role(MagicMock(), "Team A", None, False)
+
+
+@pytest.mark.asyncio
+async def test_apply_gating_overwrites_edits_main_and_round_categories():
+    svc = _create_service()
+    guild = MagicMock()
+    guild.default_role = MagicMock(); guild.me = MagicMock()
+    main = MagicMock(name="main"); main.edit = AsyncMock()
+    round_cat = MagicMock(name="round"); round_cat.edit = AsyncMock()
+    guild.get_channel = MagicMock(return_value=main)
+    hunt = MagicMock(); hunt.category_id = 111; hunt.id = 5; hunt.name = "H"
+    role = MagicMock()
+    ov = svc._gating_overwrites(guild, role)
+
+    with patch("bot.core.puzzle_service.SOLVE_CATEGORY", False), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tg, \
+         patch("bot.core.puzzle_service.category_layout") as cl:
+        tg.get_all.return_value = [MagicMock()]
+        cl.primary_category.return_value = round_cat
+        failed = await svc._apply_gating_overwrites(guild, hunt, ov)
+
+    assert failed == []
+    main.edit.assert_awaited_once_with(overwrites=ov)
+    round_cat.edit.assert_awaited_once_with(overwrites=ov)
+
+
+@pytest.mark.asyncio
+async def test_apply_gating_overwrites_collects_failures():
+    svc = _create_service()
+    guild = MagicMock()
+    guild.default_role = MagicMock(); guild.me = MagicMock()
+    main = MagicMock(name="main"); main.id = 111; main.name = "H"
+    main.edit = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "nope"))
+    guild.get_channel = MagicMock(return_value=main)
+    hunt = MagicMock(); hunt.category_id = 111; hunt.id = 5; hunt.name = "H"
+    ov = svc._gating_overwrites(guild, MagicMock())
+
+    with patch("bot.core.puzzle_service.SOLVE_CATEGORY", False), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tg:
+        tg.get_all.return_value = []
+        failed = await svc._apply_gating_overwrites(guild, hunt, ov)
+
+    assert failed == ["H"]

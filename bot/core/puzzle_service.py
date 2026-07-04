@@ -2459,6 +2459,36 @@ class PuzzleService:
 
         return role
 
+    async def _apply_gating_overwrites(self, guild, hunt, overwrites):
+        """Retroactively apply ``overwrites`` to a hunt's existing categories: the
+        main category, the solved category (iff SOLVE_CATEGORY), and each existing
+        round/group category. Synced child channels inherit, so we edit categories
+        only. Returns a list of category names that failed to update."""
+        categories = []
+        main = guild.get_channel(hunt.category_id)
+        if main is not None:
+            categories.append(main)
+        if SOLVE_CATEGORY:
+            solved = discord.utils.get(
+                guild.categories, name=category_layout.solved_category_name(hunt.name)
+            )
+            if solved is not None:
+                categories.append(solved)
+        for tag_group in TagGroupJsonDb.get_all(hunt.id):
+            cat = category_layout.primary_category(guild, tag_group)
+            if cat is not None:
+                categories.append(cat)
+
+        failed = []
+        for category in categories:
+            try:
+                await category.edit(overwrites=overwrites)
+            except discord.HTTPException:
+                name = getattr(category, "name", str(getattr(category, "id", "?")))
+                logger.warning("gating overwrite failed for category %s", name)
+                failed.append(name)
+        return failed
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
