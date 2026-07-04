@@ -7,7 +7,9 @@ GoogleSheets.__new__). Helpers are file-local. Authored test-first (Opus);
 implementation lands separately.
 """
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
@@ -1005,6 +1007,10 @@ def test_render_contribution_creates_missing_table_then_reconciles():
     async def _fake_sheet_list(spreadsheet_id=None):
         return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}   # no "tables"
     cog.sheet_list = _fake_sheet_list
+    # A1 isn't the plain-puzzle "Puzzle Title:" label, so this is the transient
+    # (already-promoted) case: go straight to _add_contribution_table.
+    cog.get_page_name_by_id = AsyncMock(return_value="Meta")
+    cog._values_get = AsyncMock(return_value={"values": [[""]]})
 
     created = []
 
@@ -1030,15 +1036,64 @@ def test_render_contribution_creates_missing_table_then_reconciles():
     assert reconciled == [900]                 # then the data write proceeds
 
 
+def test_render_contribution_promotes_never_promoted_legacy_tab():
+    """A tab imported from a legacy hunt (e.g. Puzzle Boat 10) that never ran
+    through promote_tab_to_target/promote_tab_to_group still carries the
+    plain-puzzle header (the "Puzzle Title:" label at A1) instead of target
+    layout. render_contribution must detect that via A1 and promote the tab
+    (inserting the contribution columns) rather than colliding a direct
+    addTable with the real content already sitting in A-D."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}   # no "tables"
+    cog.sheet_list = _fake_sheet_list
+    cog.get_page_name_by_id = AsyncMock(return_value="Meta")
+    cog._values_get = AsyncMock(
+        return_value={"values": [[sheet_layout.PUZZLE_TAB_CELLS[0]["value"]]]})
+
+    promoted = []
+
+    async def fake_promote(puzzle):
+        promoted.append(puzzle.id)
+
+    def fail_direct_add(page_id, header_row=0):
+        raise AssertionError("must not addTable directly over a never-promoted tab")
+
+    reconciled = []
+
+    async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
+                             grey_below=False):
+        reconciled.append(page_id)
+
+    cog.promote_tab_to_target = fake_promote
+    cog._add_contribution_table = fail_direct_add
+    cog.reconcile_table = fake_reconcile
+
+    meta = PuzzleData()
+    meta.id = 1
+    meta.name = "Meta"
+    meta.google_page_id = 900
+
+    asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
+    assert promoted == [1]
+    assert reconciled == [900]
+
+
 def test_render_contribution_skips_write_when_table_uncreatable():
-    """If the Table still can't be created (sustained Sheets outage), skip the data
-    write so contribution rows never clobber the header at row 0."""
+    """If the Table still can't be created (sustained Sheets outage), the failure
+    propagates (refresh_target/!rebuild badge + report it) rather than being
+    swallowed, and no data write happens so contribution rows never clobber the
+    header at row 0."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
 
     async def _fake_sheet_list(spreadsheet_id=None):
         return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta"}}]}
     cog.sheet_list = _fake_sheet_list
+    cog.get_page_name_by_id = AsyncMock(return_value="Meta")
+    cog._values_get = AsyncMock(return_value={"values": [[""]]})
 
     async def boom(page_id, header_row=0):
         raise RuntimeError("Internal error encountered.")
@@ -1057,5 +1112,6 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     meta.name = "Meta"
     meta.google_page_id = 900
 
-    asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
+    with pytest.raises(RuntimeError):
+        asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
     assert reconciled == []   # no data written when the table couldn't be made

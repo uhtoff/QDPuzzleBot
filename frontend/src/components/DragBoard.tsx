@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -416,9 +416,25 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   // Deferred drag action awaiting confirmation via ConfirmModal.
   const [dragConfirm, setDragConfirm] = useState<{ title: string; message: string; puzzleId: number; groupCode: string; mode: RetagMode } | null>(null);
 
+  // With many puzzles the columns can be much taller than the viewport, so the
+  // board's own vertical scrolling is left to the page (native) rather than a
+  // capped ScrollArea. A sticky mini-scrollbar mirrors horizontal position so
+  // it's always reachable without scrolling all the way down to the board's
+  // bottom edge first.
+  const boardViewportRef = useRef<HTMLDivElement | null>(null);
+  const [boardScroll, setBoardScroll] = useState({ scrollLeft: 0, scrollWidth: 0, clientWidth: 0 });
+  const measureBoardScroll = () => {
+    const el = boardViewportRef.current;
+    if (el) setBoardScroll({ scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
+  };
+
   useEffect(() => {
     if (!deleteGroupTarget) setDeleteAllPuzzles(false);
   }, [deleteGroupTarget]);
+
+  useEffect(() => {
+    measureBoardScroll();
+  }, [detail.board]);
 
   const byId = new Map<number, Puzzle>();
   detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
@@ -643,11 +659,14 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         remove it from all groups. Use the ⋮ menu on a card to add it to an additional group or remove it from just one.
       </Text>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        {/* Cap the board's height so its horizontal scrollbar always stays on
-            screen — with many puzzles the columns can be much taller than the
-            viewport, pushing an uncapped ScrollArea's scrollbar off the bottom
-            until the whole page is scrolled down first. */}
-        <ScrollArea type="auto" offsetScrollbars mah="65vh">
+        <ScrollArea
+          type="auto"
+          offsetScrollbars
+          viewportRef={boardViewportRef}
+          onScrollPositionChange={(pos) =>
+            setBoardScroll((s) => ({ ...s, scrollLeft: pos.x }))
+          }
+        >
           <Group align="flex-start" wrap="nowrap" gap="sm" pb="sm">
             {detail.board.map((group) => (
               <Column
@@ -679,6 +698,34 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
             ))}
           </Group>
         </ScrollArea>
+        {/* Sticky mini-scrollbar: with many puzzles the columns can be much
+            taller than the viewport, so vertical scrolling is left to the
+            page (native) while this stays pinned to the bottom of the visible
+            window, always reachable without scrolling down to the board's
+            actual bottom edge first. */}
+        {boardScroll.scrollWidth > boardScroll.clientWidth && (
+          <Box
+            style={{ position: "sticky", bottom: 0, zIndex: 10 }}
+            bg="var(--mantine-color-body)"
+            py={4}
+            px={2}
+          >
+            <input
+              type="range"
+              aria-label="Scroll groups horizontally"
+              min={0}
+              max={boardScroll.scrollWidth - boardScroll.clientWidth}
+              value={boardScroll.scrollLeft}
+              onChange={(e) => {
+                const el = boardViewportRef.current;
+                const value = Number(e.target.value);
+                if (el) el.scrollLeft = value;
+                setBoardScroll((s) => ({ ...s, scrollLeft: value }));
+              }}
+              style={{ width: "100%" }}
+            />
+          </Box>
+        )}
         <DragOverlay>
           {active ? (
             <Card withBorder padding="xs" radius="sm" style={{ cursor: "grabbing" }}>

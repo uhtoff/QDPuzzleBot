@@ -1449,24 +1449,44 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 10: render contribution table from service -------------------
 
-    async def _ensure_contribution_table(self, page_id):
-        """Return True if the target's contribution Table exists, creating it (below
-        the frozen header) if missing. Meta creation adds it, but a transient Sheets
-        500 there can leave the tab tableless — this self-heals on the next render.
+    async def _ensure_contribution_table(self, puzzle):
+        """Ensure the target's contribution Table exists, creating it (below the
+        frozen header) if missing. Meta creation adds it, but a transient Sheets
+        500 there can leave the tab tableless — retrying the direct add self-heals
+        that case.
 
-        Lets a creation failure propagate (e.g. a legacy/imported tab whose row 4
-        columns A-D already hold real content the Table can't be laid over) so the
-        caller's refresh_target/!rebuild badges and reports it, rather than quietly
-        reporting success while never writing the rollup."""
+        A tab imported from a legacy hunt (e.g. Puzzle Boat 10) may never have run
+        through promote_tab_to_target/promote_tab_to_group at all, so it still
+        carries the plain-puzzle header (offset 0: the "Puzzle Title:" label at
+        A1) instead of target layout (offset 1: A1 reserved blank for the Table's
+        hidden key column) — real content already occupies A-D there, so a direct
+        addTable collides. Detect that via A1 and promote first so the column
+        insert makes room, instead of colliding with what's already in place.
+
+        Lets a creation failure propagate so the caller's refresh_target/!rebuild
+        badges and reports it, rather than quietly reporting success while never
+        writing the rollup."""
         from bot.cogs import sheet_layout
+        page_id = puzzle.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
         for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
                 if s.get("tables"):
-                    return True
+                    return
                 break
+        tab_name = await self.get_page_name_by_id(page_id)
+        if tab_name is None:
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            return
+        safe_name = tab_name.replace("'", "''")
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A1")
+        values = resp.get("values") or []
+        a1_value = values[0][0] if values and values[0] else ""
+        plain_title_label = sheet_layout.PUZZLE_TAB_CELLS[0]["value"]  # "Puzzle Title:"
+        if a1_value == plain_title_label:
+            await self.promote_tab_to_target(puzzle)
+            return
         await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
-        return True
 
     async def render_minimeta_contribution(self, minimeta, members):
         """Render the contribution table on a minimeta's own tab.
@@ -1505,11 +1525,10 @@ class GoogleSheets(commands.Cog):
         Excludes the target's own row, builds desired rows from edges/evidence,
         and reconciles the native Table on the target's page."""
         from bot.core.contribution import contribution_rows
-        # Self-heal: the Table may be missing if its creation hit a transient Sheets
-        # error at meta-creation time. Create it now; skip the write if it still can't
-        # be made (better an empty tab than contribution data clobbering row 0).
-        if not await self._ensure_contribution_table(target_puzzle.google_page_id):
-            return
+        # Self-heal: creates/promotes the Table if it's missing (see
+        # _ensure_contribution_table); raises if it still can't be made, which
+        # refresh_target/!rebuild badge and report rather than silently no-op.
+        await self._ensure_contribution_table(target_puzzle)
         # The target's own row is excluded — a meta is not a contribution of itself.
         # Its self-edge is 'target', so select_rollup_members already drops it from
         # every mode (round wants feeds/informs, explicit wants 'none', subtree skips
