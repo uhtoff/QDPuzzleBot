@@ -652,45 +652,6 @@ async def test_allocate_rechecks_category_ceiling_under_the_lock():
 
 
 @pytest.mark.asyncio
-async def test_cleanup_source_category_resolves_owning_table(monkeypatch):
-    """A vacated source category can belong to EITHER join table (an unassigned
-    puzzle leaving hunt overflow for a round category, or vice versa) — the
-    cleanup must resolve the owning table itself rather than trust the
-    destination's dao, which would silently never match."""
-    import bot.store as store
-    from bot.store.hunt_category_data import HuntCategoryData
-    overflow = _cat(201, 7, n_channels=0)
-    overflow.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [overflow]
-    hunt_row = HuntCategoryData(id=9, hunt_id=7, category_id=201, role="solved", seq=1)
-    tgc = MagicMock(); tgc.get_by_category.return_value = None
-    hc = MagicMock(); hc.get_by_category.return_value = hunt_row
-    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
-    monkeypatch.setattr(store, "HuntCategoryDb", hc)
-
-    await layout.cleanup_source_category(guild, overflow)
-
-    overflow.delete.assert_awaited_once()
-    hc.delete.assert_called_once_with(9)
-
-
-@pytest.mark.asyncio
-async def test_cleanup_source_category_noop_when_untracked(monkeypatch):
-    import bot.store as store
-    plain = _cat(300, 9, n_channels=0)
-    plain.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [plain]
-    tgc = MagicMock(); tgc.get_by_category.return_value = None
-    hc = MagicMock(); hc.get_by_category.return_value = None
-    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
-    monkeypatch.setattr(store, "HuntCategoryDb", hc)
-
-    await layout.cleanup_source_category(guild, plain)
-
-    plain.delete.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_move_channel_to_owner_legacy_destination_cleans_vacated_source(monkeypatch):
     """Moving a channel into a NOT-split owner (legacy divider layout) still
     vacates its previous category — if that source was an overflow category
@@ -705,13 +666,13 @@ async def test_move_channel_to_owner_legacy_destination_cleans_vacated_source(mo
     source_cat = MagicMock(id=201)
     channel = MagicMock(); channel.category_id = 999; channel.category = source_cat
     channel.edit = AsyncMock()
-    cleanup = AsyncMock()
-    monkeypatch.setattr(layout, "cleanup_source_category", cleanup)
+    trigger = MagicMock()
+    monkeypatch.setattr(layout, "maybe_consolidate_category", trigger, raising=False)
 
     result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
 
     assert result is True
-    cleanup.assert_awaited_once_with(guild, source_cat)
+    trigger.assert_called_once_with(guild, source_cat)
 
 
 # ----------------------------------------------------------------- consolidation
@@ -895,6 +856,82 @@ async def test_consolidate_tracks_capacity_across_moves_in_one_run(monkeypatch):
     m1, m2 = u2.channels
     m1.edit.assert_awaited_once_with(category=u0, position=2)
     m2.edit.assert_awaited_once_with(category=u0, position=3)
+
+
+# ----------------------------------------------------------------- triggers
+
+@pytest.mark.asyncio
+async def test_maybe_consolidate_schedules_background_run(monkeypatch):
+    """Eager detection, background execution: with overflow rows present, a
+    consolidate task is spawned (callers never block a solve / web request on
+    channel moves)."""
+    ran = AsyncMock()
+    monkeypatch.setattr(layout, "consolidate", ran)
+    guild = MagicMock()
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=101, role="unsolved", seq=1),
+    ]
+
+    task = layout.maybe_consolidate(guild, 5, dao)
+
+    assert task is not None
+    await task
+    ran.assert_awaited_once_with(guild, 5, dao)
+
+
+def test_maybe_consolidate_skips_legacy_owner():
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    assert layout.maybe_consolidate(MagicMock(), 5, dao) is None
+
+
+def test_maybe_consolidate_skips_fully_folded_fat_owner(monkeypatch):
+    """1+1 seq=0 rows but too big to un-split: nothing consolidate could do —
+    don't even spawn the task."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
+    u0 = _filled_cat(100, 5, n=4)
+    s0 = _filled_cat(200, 6, n=2)          # 4+2+1 > 8-4
+    guild = MagicMock(); guild.categories = [u0, s0]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
+        TagGroupCategoryData(id=2, group_id=5, category_id=200, role="solved", seq=0),
+    ]
+    assert layout.maybe_consolidate(guild, 5, dao) is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_consolidate_category_resolves_owning_table(monkeypatch):
+    """A vacated source category can belong to EITHER join table — the trigger
+    resolves the owning table itself and schedules for that owner."""
+    import bot.store as store
+    from bot.store.hunt_category_data import HuntCategoryData
+    ran = AsyncMock()
+    monkeypatch.setattr(layout, "consolidate", ran)
+    source = MagicMock(id=201)
+    guild = MagicMock()
+    hunt_row = HuntCategoryData(id=9, hunt_id=7, category_id=201, role="solved", seq=1)
+    tgc = MagicMock(); tgc.get_by_category.return_value = None
+    hc = MagicMock(); hc.get_by_category.return_value = hunt_row
+    hc.get_for_group.return_value = [hunt_row]      # seq>=1 -> candidate
+    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
+    monkeypatch.setattr(store, "HuntCategoryDb", hc)
+
+    task = layout.maybe_consolidate_category(guild, source)
+
+    assert task is not None
+    await task
+    ran.assert_awaited_once_with(guild, 7, hc)
+
+
+def test_maybe_consolidate_category_noop_when_untracked(monkeypatch):
+    import bot.store as store
+    tgc = MagicMock(); tgc.get_by_category.return_value = None
+    hc = MagicMock(); hc.get_by_category.return_value = None
+    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
+    monkeypatch.setattr(store, "HuntCategoryDb", hc)
+    assert layout.maybe_consolidate_category(MagicMock(), MagicMock(id=300)) is None
 
 
 # ----------------------------------------------------------------- un-split
@@ -1367,15 +1404,15 @@ async def test_move_channel_to_owner_split_state_delegates_and_cleans_overflow(m
     source_cat = MagicMock()
     solved_mock = AsyncMock(return_value=source_cat)
     monkeypatch.setattr(layout, "move_channel_to_solved", solved_mock)
-    # Source cleanup goes through the table-agnostic resolver: the vacated
+    # Source consolidation goes through the table-agnostic trigger: the vacated
     # category may belong to the OTHER join table (cross-owner relocation).
-    cleanup_mock = AsyncMock()
-    monkeypatch.setattr(layout, "cleanup_source_category", cleanup_mock)
+    trigger = MagicMock()
+    monkeypatch.setattr(layout, "maybe_consolidate_category", trigger, raising=False)
 
     result = await layout.move_channel_to_owner(guild, owner, dao, channel, True)
 
     solved_mock.assert_awaited_once_with(guild, owner, dao, channel)
-    cleanup_mock.assert_awaited_once_with(guild, source_cat)
+    trigger.assert_called_once_with(guild, source_cat)
     assert result is True
 
 

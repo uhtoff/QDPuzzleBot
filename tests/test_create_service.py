@@ -328,10 +328,10 @@ async def test_delete_round_uses_layout_teardown_for_split():
 
 
 @pytest.mark.asyncio
-async def test_delete_puzzle_cleans_emptied_overflow_category():
-    """Deleting the last puzzle whose channel lives in an overflow category must
-    reclaim that category — the same cleanup solve/unsolve/retag moves already
-    run — instead of stranding an empty '(N)' category on the server."""
+async def test_delete_puzzle_triggers_consolidation():
+    """Deleting a puzzle out of a split/overflow category is the most common
+    shrink event — it must trigger consolidation of the vacated category's
+    owner (reclaim/fold/un-split), resolved across both join tables."""
     svc, gsheet = _service_with_sheets()
     guild = MagicMock()
     source_cat = MagicMock(id=201)
@@ -340,8 +340,8 @@ async def test_delete_puzzle_cleans_emptied_overflow_category():
     puzzle = make_puzzle(id=7, name="P", channel_id=555)
     puzzle.tags = []
     with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
-         patch("bot.core.puzzle_service.category_layout.cleanup_source_category",
-               AsyncMock()) as cleanup, \
+         patch("bot.core.puzzle_service.category_layout.maybe_consolidate_category",
+               MagicMock(), create=True) as trigger, \
          patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)):
         await svc.delete_puzzle(guild, _svc_hunt(), puzzle)
-    cleanup.assert_awaited_once_with(guild, source_cat)
+    trigger.assert_called_once_with(guild, source_cat)

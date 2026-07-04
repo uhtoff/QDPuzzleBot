@@ -1323,13 +1323,13 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id else None
         category = getattr(channel, "category", None)
         await self._safe_delete_channel(guild, puzzle.channel_id)
-        # Deleting the last puzzle out of a split/overflow category must
-        # reclaim it, same as the solve/unsolve/retag moves do. Best-effort:
-        # the guild cache may not yet reflect the channel deletion (it updates
-        # on the gateway event), in which case the empty category is caught by
-        # the next drop from it instead.
+        # A puzzle deletion is the most common shrink event — trigger the
+        # vacated owner's consolidation (reclaim/fold/un-split), resolved
+        # across both join tables, in the background. Best-effort: the guild
+        # cache may not yet reflect the channel deletion (it updates on the
+        # gateway event), in which case the next drop catches it instead.
         if category is not None:
-            await category_layout.cleanup_source_category(guild, category)
+            category_layout.maybe_consolidate_category(guild, category)
         if failed:
             raise SheetRefreshError(failed)
 

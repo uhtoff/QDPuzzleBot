@@ -329,7 +329,7 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
             # Table-agnostic: on a cross-owner relocation the vacated source
             # belongs to the OTHER join table (e.g. hunt overflow → round),
             # which the destination's dao would silently never match.
-            await cleanup_source_category(guild, source)
+            maybe_consolidate_category(guild, source)
         return True
 
     primary = _home_category(guild, owner)
@@ -385,10 +385,10 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
         logger.exception("move_channel_to_owner: could not move channel %s",
                          getattr(channel, "id", "?"))
         return False
-    # The legacy-destination branch vacates a source too — reclaim it if it
-    # was an overflow category (of either join table).
+    # The legacy-destination branch vacates a source too — trigger the vacated
+    # owner's consolidation if it was a tracked category (of either table).
     if source is not None:
-        await cleanup_source_category(guild, source)
+        maybe_consolidate_category(guild, source)
     return True
 
 
@@ -572,21 +572,66 @@ async def _maybe_unsplit(guild, owner_id, dao, _count):
     dao.delete_for_group(owner_id)
 
 
-async def cleanup_source_category(guild, category):
-    """cleanup_empty_overflow for a category whose owning join table the
-    caller doesn't know: a vacated source can belong to EITHER table — an
-    unassigned puzzle leaving hunt overflow for a round's category, a member
-    leaving a round for the hunt's general container, a puzzle deletion.
-    Resolves the owner across both tables (lazily imported, same reason as
-    _category_claimed) and delegates; untracked categories are left alone.
-    """
+def _consolidation_candidate(guild, owner_id, dao):
+    """Cheap unlocked pre-check: is there anything consolidate() could
+    plausibly do? Any seq>=1 row (fold / reclaim / reap), or a fully-folded
+    owner small enough that un-split could fire. consolidate() re-reads all
+    state under layout_lock, so a stale positive costs one no-op task."""
+    rows = dao.get_for_group(owner_id)
+    if not rows:
+        return False
+    if any(r.seq >= 1 for r in rows):
+        return True
+    unsolved = [r for r in rows if r.role == ROLE_UNSOLVED]
+    solved = [r for r in rows if r.role == ROLE_SOLVED]
+    if len(unsolved) != 1 or len(solved) != 1:
+        return False
+    u_cat = _category_by_id(guild, unsolved[0].category_id)
+    if u_cat is None:
+        return False
+    s_cat = _category_by_id(guild, solved[0].category_id)
+    total = puzzle_count(u_cat) + (puzzle_count(s_cat) if s_cat is not None else 0) + 1
+    return total <= CATEGORY_SOFT_LIMIT - CONSOLIDATE_MARGIN
+
+
+async def _consolidate_safely(guild, owner_id, dao):
+    try:
+        await consolidate(guild, owner_id, dao)
+    except Exception:
+        logger.exception("consolidate: background run failed for owner %s", owner_id)
+
+
+def maybe_consolidate(guild, owner_id, dao):
+    """Eager detection, deferred execution: run the cheap candidate check now
+    and, if worthwhile, spawn consolidate() as a background task so callers
+    (a solve command, a web request, delete_round's relocation loop) never
+    block on channel moves. Duplicate triggers are harmless — consolidate is
+    idempotent and serialised on layout_lock. Returns the task, or None."""
+    try:
+        if not _consolidation_candidate(guild, owner_id, dao):
+            return None
+    except Exception:
+        logger.exception("maybe_consolidate: candidate check failed for owner %s",
+                         owner_id)
+        return None
+    return asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
+
+
+def maybe_consolidate_category(guild, category):
+    """maybe_consolidate for a category whose owning join table the caller
+    doesn't know: a vacated source can belong to EITHER table — an unassigned
+    puzzle leaving hunt overflow for a round's category, a member leaving a
+    round for the hunt's general container, a puzzle deletion. Resolves the
+    owner across both tables (lazily imported, same reason as
+    _category_claimed); untracked categories are left alone."""
     if category is None:
-        return
+        return None
     from bot.store import TagGroupCategoryDb, HuntCategoryDb
     for dao in (TagGroupCategoryDb, HuntCategoryDb):
-        if dao.get_by_category(category.id) is not None:
-            await cleanup_empty_overflow(guild, None, dao, category)
-            return
+        row = dao.get_by_category(category.id)
+        if row is not None:
+            return maybe_consolidate(guild, row.group_id, dao)
+    return None
 
 
 # ----------------------------------------------------------------- teardown

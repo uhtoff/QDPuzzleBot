@@ -1142,12 +1142,11 @@ class TestApplyMoveHelpers:
         with patch("bot.cogs.puzzles.category_layout") as cl:
             cl.is_split.return_value = True
             cl.move_channel_to_solved = AsyncMock(return_value=source)
-            cl.cleanup_empty_overflow = AsyncMock()
 
             await cog._apply_solved_move(guild, channel)
 
         cl.move_channel_to_solved.assert_awaited_once()
-        cl.cleanup_empty_overflow.assert_awaited_once()
+        cl.maybe_consolidate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_unsolved_move_split_moves_and_cleans(self, cog):
@@ -1162,12 +1161,11 @@ class TestApplyMoveHelpers:
         with patch("bot.cogs.puzzles.category_layout") as cl:
             cl.is_split.return_value = True
             cl.move_channel_to_unsolved = AsyncMock(return_value=source)
-            cl.cleanup_empty_overflow = AsyncMock()
 
             await cog._apply_unsolved_move(guild, channel)
 
         cl.move_channel_to_unsolved.assert_awaited_once()
-        cl.cleanup_empty_overflow.assert_awaited_once()
+        cl.maybe_consolidate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_apply_solved_move_single_uses_divider(self, cog):
@@ -1212,12 +1210,11 @@ class TestApplyMoveHelpers:
             cl.group_id_for_category.return_value = 7
             cl.is_split.return_value = True
             cl.move_channel_to_solved = AsyncMock(return_value=source)
-            cl.cleanup_empty_overflow = AsyncMock()
 
             await cog._apply_solved_move(guild, channel)
 
         cl.move_channel_to_solved.assert_awaited_once_with(guild, hunt, hcdb, channel)
-        cl.cleanup_empty_overflow.assert_awaited_once_with(guild, hunt, hcdb, source)
+        cl.maybe_consolidate.assert_called_once_with(guild, hunt.id, hcdb)
 
     @pytest.mark.asyncio
     async def test_apply_unsolved_move_split_hunt_category(self, cog):
@@ -1239,12 +1236,11 @@ class TestApplyMoveHelpers:
             cl.group_id_for_category.return_value = 7
             cl.is_split.return_value = True
             cl.move_channel_to_unsolved = AsyncMock(return_value=source)
-            cl.cleanup_empty_overflow = AsyncMock()
 
             await cog._apply_unsolved_move(guild, channel)
 
         cl.move_channel_to_unsolved.assert_awaited_once_with(guild, hunt, hcdb, channel)
-        cl.cleanup_empty_overflow.assert_awaited_once_with(guild, hunt, hcdb, source)
+        cl.maybe_consolidate.assert_called_once_with(guild, hunt.id, hcdb)
 
 
 class TestRenameGroup:

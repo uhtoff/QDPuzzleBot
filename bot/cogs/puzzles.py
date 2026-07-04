@@ -1024,9 +1024,9 @@ class Puzzles(commands.Cog):
                 guild, owner, dao, channel,
             )
             if source is not None:
-                await category_layout.cleanup_empty_overflow(
-                    guild, owner, dao, source,
-                )
+                # A count just dropped somewhere: reclaim/fold/un-split in the
+                # background if the owner's layout can shrink.
+                category_layout.maybe_consolidate(guild, owner.id, dao)
         else:
             divider = self.get_solve_divider_position(None, channel.category)
             if divider is not False:
@@ -1044,9 +1044,8 @@ class Puzzles(commands.Cog):
                 guild, owner, dao, channel,
             )
             if source is not None:
-                await category_layout.cleanup_empty_overflow(
-                    guild, owner, dao, source,
-                )
+                # See _apply_solved_move: background shrink check.
+                category_layout.maybe_consolidate(guild, owner.id, dao)
         else:
             divider = self.get_solve_divider_position(None, channel.category)
             if divider is not False:
