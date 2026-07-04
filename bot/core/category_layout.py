@@ -230,9 +230,11 @@ async def move_channel_to_solved(guild, tag_group, dao, channel):
     # just `category=` reparents the channel but keeps its OLD absolute
     # position number, which can easily be lower than everything already in
     # the new category, landing it at the top instead of the end. Always
-    # request a position explicitly.
-    position = max((ch.position for ch in target.channels), default=-1) + 1
+    # request a position explicitly — computed INSIDE the lock (not before
+    # it), so two concurrent moves into the same category can't both read the
+    # same stale channel list and race for the same slot.
     async with layout_lock:
+        position = max((ch.position for ch in target.channels), default=-1) + 1
         await channel.edit(category=target, position=position)
     return source
 
@@ -243,10 +245,11 @@ async def move_channel_to_unsolved(guild, tag_group, dao, channel):
     target = await pick_unsolved_category(guild, tag_group, dao)
     if target is None or (source is not None and target.id == source.id):
         return None
-    # See move_channel_to_solved: position must be explicit or the channel
-    # keeps its old (wrong) absolute position in the new category.
-    position = max((ch.position for ch in target.channels), default=-1) + 1
+    # See move_channel_to_solved: position must be explicit and computed
+    # inside the lock, or the channel keeps its old (wrong) absolute position,
+    # or two concurrent moves race for the same freshly-computed slot.
     async with layout_lock:
+        position = max((ch.position for ch in target.channels), default=-1) + 1
         await channel.edit(category=target, position=position)
     return source
 
@@ -295,24 +298,28 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
             return False
         return await move_channel_to_owner(guild, owner, dao, channel, solved)
 
-    divider_pos = solve_divider_position(primary)
-    if divider_pos is not False:
-        # Discord's channel-move inserts before the first existing channel whose
-        # *own* position >= the requested value, so requesting divider_pos - 1
-        # can exactly collide with an existing channel already sitting right
-        # before the divider (e.g. a lone target puzzle with nothing between it
-        # and the divider yet) and land the new channel ahead of it instead of
-        # after. Request the divider's own position instead: that always
-        # inserts immediately before the divider — after everything already
-        # above it — without disturbing their order.
-        position = (
-            max((ch.position for ch in primary.channels), default=0) + 1
-            if solved else divider_pos
-        )
-    else:
-        position = max((ch.position for ch in primary.channels), default=-1) + 1
     try:
+        # Computed INSIDE the lock (not before it), so two concurrent moves
+        # into primary can't both read the same stale channel list and race
+        # for the same slot.
         async with layout_lock:
+            divider_pos = solve_divider_position(primary)
+            if divider_pos is not False:
+                # Discord's channel-move inserts before the first existing channel
+                # whose *own* position >= the requested value, so requesting
+                # divider_pos - 1 can exactly collide with an existing channel
+                # already sitting right before the divider (e.g. a lone target
+                # puzzle with nothing between it and the divider yet) and land the
+                # new channel ahead of it instead of after. Request the divider's
+                # own position instead: that always inserts immediately before the
+                # divider — after everything already above it — without
+                # disturbing their order.
+                position = (
+                    max((ch.position for ch in primary.channels), default=0) + 1
+                    if solved else divider_pos
+                )
+            else:
+                position = max((ch.position for ch in primary.channels), default=-1) + 1
             await channel.edit(category=primary, position=position)
     except Exception:
         logger.exception("move_channel_to_owner: could not move channel %s",
