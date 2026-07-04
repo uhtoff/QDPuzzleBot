@@ -113,6 +113,24 @@ def base_name(guild, tag_group):
 
 
 # ----------------------------------------------------------------- state
+def _category_claimed(category_id):
+    """True if *category_id* is already claimed by ANY owner: a row in either
+    join table, or some tag_group's/hunt's own home category. Used to gate
+    reuse-by-name adoption: an unclaimed same-name category is our own clone
+    from a run that died before committing its row (safe to adopt); a claimed
+    one merely shares the name — adopting it would commit a second owner and
+    delete_group_categories would later destroy the other owner's channels.
+    Imported lazily to keep this module import-decoupled from the DB layer.
+    """
+    from bot.store import TagGroupCategoryDb, HuntCategoryDb, TagGroupJsonDb, HuntJsonDb
+    return (
+        TagGroupCategoryDb.get_by_category(category_id) is not None
+        or HuntCategoryDb.get_by_category(category_id) is not None
+        or TagGroupJsonDb.get_by_attr(category_id=category_id) is not None
+        or HuntJsonDb.get_by_attr(category_id=category_id) is not None
+    )
+
+
 def group_categories(tag_group, dao):
     return dao.get_for_group(tag_group.id)
 
@@ -141,6 +159,8 @@ async def split_group(guild, tag_group, dao):
         solved_cat = discord.utils.get(
             guild.categories, name=solved_category_name(base)
         )
+        if solved_cat is not None and _category_claimed(solved_cat.id):
+            solved_cat = None   # merely shares the name — clone fresh instead
         if solved_cat is None:
             solved_cat = await primary.clone(name=solved_category_name(base))
             await solved_cat.edit(position=primary.position + 1)
@@ -179,6 +199,8 @@ async def _allocate(guild, tag_group, dao, role_rows, role):
         next_seq = max((r.seq for r in role_rows), default=-1) + 1
         name = overflow_category_name(base_name(guild, tag_group), role, next_seq)
         existing = discord.utils.get(guild.categories, name=name)
+        if existing is not None and _category_claimed(existing.id):
+            existing = None     # merely shares the name — clone fresh instead
         new_cat = existing or await template.clone(name=name)
         if existing is None:
             await new_cat.edit(position=template.position + 1)

@@ -220,6 +220,108 @@ async def test_pick_unsolved_allocates_when_all_full():
     assert (row.role, row.seq, row.category_id) == ("unsolved", 1, 101)
 
 
+def _patch_no_claims(monkeypatch):
+    """Make the lazy bot.store claim lookups all miss (nothing claims any
+    category). Returns the four mocks for per-test overrides."""
+    import bot.store as store
+    tgc = MagicMock(); tgc.get_by_category.return_value = None
+    hc = MagicMock(); hc.get_by_category.return_value = None
+    tgj = MagicMock(); tgj.get_by_attr.return_value = None
+    hj = MagicMock(); hj.get_by_attr.return_value = None
+    monkeypatch.setattr(store, "TagGroupCategoryDb", tgc)
+    monkeypatch.setattr(store, "HuntCategoryDb", hc)
+    monkeypatch.setattr(store, "TagGroupJsonDb", tgj)
+    monkeypatch.setattr(store, "HuntJsonDb", hj)
+    return tgc, hc, tgj, hj
+
+
+@pytest.mark.asyncio
+async def test_allocate_does_not_adopt_foreign_category_by_name(monkeypatch):
+    """A guild category that merely SHARES the computed overflow name (e.g. a
+    round literally named 'round-1 (2)' created before round 'round-1' ever
+    overflowed) must not be adopted: adoption commits a join row claiming it,
+    and delete_round would later delete the foreign round's channels. A fresh
+    clone is created instead — Discord permits duplicate category names."""
+    _, _, tgj, _ = _patch_no_claims(monkeypatch)
+    foreign_round = MagicMock(id=77)
+    tgj.get_by_attr.return_value = foreign_round      # 'round-1 (2)' is another round's home
+
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
+    foreign = _cat(300, 9, n_channels=2, name="round-1 (2)")
+    new_cat = _cat(101, 6, n_channels=0)
+    u0.clone = AsyncMock(return_value=new_cat)
+    guild = MagicMock(); guild.categories = [u0, foreign]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+
+    assert result is new_cat
+    u0.clone.assert_awaited_once()
+    row = dao.commit.call_args.args[0]
+    assert row.category_id == 101                     # never the foreign 300
+
+
+@pytest.mark.asyncio
+async def test_allocate_still_adopts_unclaimed_same_name_category(monkeypatch):
+    """Crash-resume: a same-name category claimed by NOBODY (our own clone from
+    a run that died before committing the row) is still adopted, not re-cloned."""
+    _patch_no_claims(monkeypatch)
+
+    u0 = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full
+    orphan = _cat(300, 9, n_channels=0, name="round-1 (2)")
+    u0.clone = AsyncMock()
+    guild = MagicMock(); guild.categories = [u0, orphan]
+    dao = MagicMock()
+    dao.get_for_group.return_value = [
+        TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
+    ]
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+
+    assert result is orphan
+    u0.clone.assert_not_awaited()
+    row = dao.commit.call_args.args[0]
+    assert row.category_id == 300
+
+
+@pytest.mark.asyncio
+async def test_split_group_does_not_adopt_claimed_solved_category(monkeypatch):
+    """Same ownership rule at split time: an existing 'round-1 — solved'
+    category owned by another group's join row is not reused as this group's
+    solved category."""
+    tgc, _, _, _ = _patch_no_claims(monkeypatch)
+    guild, primary, solved_cat, div, unsolved, solved = _split_fixtures()
+    foreign_solved = MagicMock(id=999)
+    foreign_solved.name = layout.solved_category_name("round-1")
+    guild.categories = [primary, foreign_solved]
+    tgc.get_by_category.side_effect = lambda cid: (
+        TagGroupCategoryData(group_id=88, category_id=999, role="solved", seq=0)
+        if cid == 999 else None)
+
+    dao = MagicMock()
+    dao.get_for_group.return_value = []
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    await layout.split_group(guild, tag_group, dao)
+
+    primary.clone.assert_awaited_once()               # fresh clone, no adoption
+    written = {(r.role, r.category_id) for r in
+               (c.args[0] for c in dao.commit.call_args_list)}
+    assert ("solved", 200) in written                 # the clone (id 200)
+    assert ("solved", 999) not in written             # never the foreign one
+
+
 @pytest.mark.asyncio
 async def test_pick_unsolved_reuses_primary_when_split_alone_frees_enough_room(monkeypatch):
     """A single (not yet split) category crossing the soft limit splits into
