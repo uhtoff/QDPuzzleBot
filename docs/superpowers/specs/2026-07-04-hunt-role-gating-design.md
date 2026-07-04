@@ -177,12 +177,14 @@ requester: discord.Member | None)`:
      raise `RuntimeError("role_not_applied")`.
    - **Role exists with ≥1 member** → set gating, **no** membership change (don't
      force the requester in).
-   - **Role exists but is empty** → raise `RuntimeError("empty_role")`; gating to
-     it would hide the hunt from everyone. The admin populates it (or we get a
-     future "add me too" affordance) and retries.
-   Rationale for raising rather than silently leaving the hunt open: unlike
-   creation (where a role is optional), the caller explicitly asked to gate an
-   existing hunt, so a failure must be reported, not swallowed.
+   - **Role exists but is empty** → **confirmable**, not a hard error. Gating to
+     an empty role would hide the hunt from everyone until it is populated, so we
+     don't do it silently — but we let the admin acknowledge and proceed (see
+     "Empty-role confirmation" below). Without confirmation, signal
+     `RuntimeError("empty_role_confirm")`; with confirmation, gate anyway.
+   Rationale: unlike creation (where a role is optional), the caller explicitly
+   asked to gate an existing hunt, so we surface the empty-role risk rather than
+   swallow it — but as a decision the admin can override, not a dead-end.
 3. Set `hunt.role_id`, commit.
 4. **Retroactively apply the overwrite** to every existing category:
    - Main hunt category (`hunt.category_id`).
@@ -195,13 +197,39 @@ requester: discord.Member | None)`:
      the caller can report "gated N of M categories; these need attention: …".
 5. Push board change so dashboards refresh (match existing notifier usage).
 
+Service signature: `set_hunt_role(guild, hunt, *, role_name, requester,
+confirm_empty_role: bool = False)`.
+
+**Empty-role confirmation.** The empty-role case is a two-step acknowledgement,
+not an error — mirroring the existing convert/orphan confirm flows:
+
+- **Web** (matches the convert dialog's return-then-resubmit,
+  `actions.py:984-1017`, `1490-1495`): the first `POST /hunts/<uid>/role`
+  `{"role_name": "..."}` against an empty role returns **HTTP 200**
+  `{"needs_confirm": "empty_role", "message": "Role 'Team A' has no members —
+  the hunt will be hidden from everyone until you add people. Gate anyway?"}`.
+  The frontend surfaces a confirm button that re-submits
+  `{"role_name": "...", "confirm_empty_role": true}`, which proceeds. (Frontend
+  work is noted for the implementation plan; the contract is defined here.)
+- **Bang** (reuses `_confirm_destructive`, `puzzles.py:3203`): on an empty role,
+  prompt "Role 'Team A' has no members — the hunt will be hidden until you add
+  people. Gate anyway?"; a confirm reaction calls the service with
+  `confirm_empty_role=True`. Cancel/timeout aborts, nothing mutated.
+
+Only the **empty pre-existing role** triggers the prompt. A populated
+pre-existing role gates straight away (no nag); a missing role is created with
+the requester seeded (never empty). The prompt can be widened to "any
+pre-existing role" later if wanted, but the empty case is the only real risk.
+
 **Entry points (both):**
 
 - **Web:** `POST /hunts/<uid>/role` (admin-only, like `POST /hunts`), body
-  `{"role_name": "..."}`. Resolves requester from `current_user()`. Returns the
-  new gating state + any failed categories.
+  `{"role_name": "...", "confirm_empty_role"?: bool}`. Resolves requester from
+  `current_user()`. Returns the new gating state + any failed categories, or the
+  `needs_confirm` response above.
 - **Bang:** `!set_hunt_role <hunt-name>, <role-name>` (admin/mod only, bot
-  channel), requester = `ctx.author`. Reports success + any failed categories.
+  channel), requester = `ctx.author`. Prompts on empty role, then reports
+  success + any failed categories.
 
 ### Rate-limit notes (why this is safe)
 
@@ -228,7 +256,8 @@ requester: discord.Member | None)`:
 | Create-time add fails / creator unresolvable | Drop gating → **open** hunt; delete role iff we created it; warn caller. |
 | Part 2, role missing, requester add fails / unresolvable | Delete the role we created; **raise** `role_not_applied` (hunt stays open). |
 | Part 2, role exists with members | Gate; no membership change. |
-| Part 2, role exists but empty | Reject `empty_role` (would hide the hunt); nothing mutated. |
+| Part 2, role exists but empty, not confirmed | `empty_role_confirm` → prompt (web: `needs_confirm` 200; bang: react-to-confirm); nothing mutated yet. |
+| Part 2, role exists but empty, confirmed | Gate anyway (hunt hidden until populated — acknowledged). |
 | Part 2 on already-gated hunt (`role_id != 0`) | Reject `already_gated`. |
 | Retroactive overwrite fails on some categories | Apply the rest; return the failed list for reporting. |
 
@@ -256,7 +285,10 @@ Part 2:
   overwrites applied to main + each round category (+ solved iff
   `SOLVE_CATEGORY`).
 - open hunt + missing role → role created, requester seeded, gated.
-- open hunt + existing empty role → `empty_role`, nothing mutated.
+- open hunt + existing empty role, not confirmed → `empty_role_confirm`,
+  nothing mutated.
+- open hunt + existing empty role, `confirm_empty_role=True` → gated (role_id
+  set, overwrites applied) despite empty role.
 - already-gated hunt → `already_gated`, nothing mutated.
 - missing role, requester add fails → `role_not_applied`, our-own-role cleaned
   up, hunt still open.
