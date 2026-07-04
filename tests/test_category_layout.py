@@ -737,9 +737,11 @@ async def test_move_channel_to_owner_over_soft_limit_splits_then_places(monkeypa
     guild = MagicMock(); guild.categories = [primary]
     owner = MagicMock(id=5, category_id=100, name="General")
     dao = MagicMock()
+    split_rows = [TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0)]
     dao.get_for_group.side_effect = [
-        [],  # not split (initial check)
-        [TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0)],  # split now
+        [],           # not split (initial check)
+        split_rows,   # post-split progress check
+        split_rows,   # the retry's own is_split check
     ]
     split_mock = AsyncMock()
     monkeypatch.setattr(layout, "split_group", split_mock)
@@ -752,6 +754,74 @@ async def test_move_channel_to_owner_over_soft_limit_splits_then_places(monkeypa
     split_mock.assert_awaited_once_with(guild, owner, dao)
     unsolved_mock.assert_awaited_once_with(guild, owner, dao, channel)
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_in_place_home_full_skips_without_recursion():
+    """An in-place-promoted meta's category_id is a TEXT CHANNEL; _home_category
+    falls back to its parent category, but that host category is NOT ours to
+    split (split_group resolves via _category_by_id, silently no-ops, and the
+    old code recursed forever on identical state). When the host is full the
+    move must simply be skipped."""
+    parent = _cat(100, 5, n_channels=layout.CATEGORY_SOFT_LIMIT)   # full host
+    home_channel = MagicMock(id=555)
+    home_channel.category = parent
+    guild = MagicMock()
+    guild.categories = [parent]                  # 555 is NOT a category
+    guild.get_channel.return_value = home_channel
+    owner = MagicMock(id=5, category_id=555, name="Meta")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is False
+    channel.edit.assert_not_awaited()
+    dao.commit.assert_not_called()               # never tried to split the host
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_in_place_home_with_room_still_places():
+    """Below the limit the in-place fallback keeps working: the feeder lands in
+    the meta's host category."""
+    parent = _cat(100, 5, n_channels=3)
+    for i, ch in enumerate(parent.channels):
+        ch.position = i
+    home_channel = MagicMock(id=555)
+    home_channel.category = parent
+    guild = MagicMock()
+    guild.categories = [parent]
+    guild.get_channel.return_value = home_channel
+    owner = MagicMock(id=5, category_id=555, name="Meta")
+    dao = MagicMock(); dao.get_for_group.return_value = []
+    channel = MagicMock(); channel.category_id = 999
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is True
+    channel.edit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_move_channel_to_owner_returns_false_when_split_makes_no_progress(monkeypatch):
+    """If split_group runs but the owner still is not split afterwards, the
+    retry recursion would re-enter with byte-identical state forever — it must
+    bail out with False instead."""
+    primary = MagicMock(id=100)
+    primary.channels = [MagicMock() for _ in range(layout.CATEGORY_SOFT_LIMIT)]  # full
+    guild = MagicMock(); guild.categories = [primary]
+    owner = MagicMock(id=5, category_id=100, name="General")
+    dao = MagicMock(); dao.get_for_group.return_value = []   # never becomes split
+    monkeypatch.setattr(layout, "split_group", AsyncMock())  # silently no-ops
+    channel = MagicMock(); channel.category_id = 999
+    channel.edit = AsyncMock()
+
+    result = await layout.move_channel_to_owner(guild, owner, dao, channel, False)
+
+    assert result is False
+    channel.edit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

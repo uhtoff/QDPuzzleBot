@@ -295,11 +295,22 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
     if channel.category_id == primary.id:
         return True
     if puzzle_count(primary) + 1 > CATEGORY_SOFT_LIMIT:
+        if _category_by_id(guild, owner.category_id) is None:
+            # The owner's home is a channel (in-place-converted meta / forum
+            # mode), so `primary` is that channel's HOST category — not ours
+            # to split. split_group would silently no-op on it (it resolves
+            # via _category_by_id) and retrying recurses on identical state
+            # forever. Skip the move instead, as the pre-overflow code did.
+            return False
         try:
             await split_group(guild, owner, dao)
         except Exception:
             logger.exception("move_channel_to_owner: could not split %s to make room",
                              getattr(owner, "id", "?"))
+            return False
+        if not is_split(owner, dao):
+            # No progress — split_group hit one of its silent no-op paths, and
+            # retrying would re-enter with byte-identical state forever.
             return False
         return await move_channel_to_owner(guild, owner, dao, channel, solved)
 
