@@ -127,14 +127,16 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   return (
-    <Accordion.Item value={String(group.tag_group_id)}>
-      <Box
-        style={{
-          display: "flex",
-          alignItems: "center",
-          borderLeft: groupKind ? `4px solid ${kindColorVar(groupKind.color)}` : undefined,
-        }}
-      >
+    <Accordion.Item
+      value={String(group.tag_group_id)}
+      style={{
+        // Same full-height kind line as an Arrange group Paper: on the whole
+        // accordion item, so it runs down the expanded puzzle list too — not
+        // just a header-row stub.
+        borderLeft: groupKind ? `4px solid ${kindColorVar(groupKind.color)}` : undefined,
+      }}
+    >
+      <Box style={{ display: "flex", alignItems: "center" }}>
         <Accordion.Control
           style={{ flex: 1 }}
           styles={solvedAll ? { control: { backgroundColor: "var(--mantine-color-green-light)" } } : undefined}
