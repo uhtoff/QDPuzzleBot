@@ -55,6 +55,63 @@ function HuntCard({ hunt }: { hunt: HuntSummary }) {
   );
 }
 
+function sortByStartDesc(hunts: HuntSummary[]): HuntSummary[] {
+  return [...hunts].sort((a, b) => {
+    const at = a.start_time ? Date.parse(a.start_time) : -Infinity;
+    const bt = b.start_time ? Date.parse(b.start_time) : -Infinity;
+    return bt - at;
+  });
+}
+
+interface GuildGroup {
+  key: string;
+  guildName: string | null;
+  hunts: HuntSummary[];
+}
+
+function groupByGuild(hunts: HuntSummary[]): GuildGroup[] {
+  const groups: GuildGroup[] = [];
+  const byKey = new Map<string, GuildGroup>();
+  for (const hunt of hunts) {
+    const key = hunt.guild_snowflake != null ? String(hunt.guild_snowflake) : "unknown";
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, guildName: hunt.guild_name, hunts: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.hunts.push(hunt);
+  }
+  return groups;
+}
+
+function HuntSection({ hunts, defaultOpen }: { hunts: HuntSummary[]; defaultOpen: boolean }) {
+  const groups = groupByGuild(sortByStartDesc(hunts));
+  return (
+    <Accordion multiple variant="separated" defaultValue={defaultOpen ? groups.map((g) => g.key) : []}>
+      {groups.map((g) => (
+        <Accordion.Item key={g.key} value={g.key}>
+          <Accordion.Control>
+            <Group gap="xs">
+              <Text fw={600}>{g.guildName ?? "Unknown server"}</Text>
+              <Badge variant="light" color="gray">
+                {g.hunts.length}
+              </Badge>
+            </Group>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+              {g.hunts.map((h) => (
+                <HuntCard key={h.uid} hunt={h} />
+              ))}
+            </SimpleGrid>
+          </Accordion.Panel>
+        </Accordion.Item>
+      ))}
+    </Accordion>
+  );
+}
+
 function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const { data: guilds } = useAdminGuilds();
@@ -279,33 +336,14 @@ export default function HuntList() {
       {data.active.length === 0 ? (
         <Text c="dimmed">No active hunts for your team right now.</Text>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
-          {data.active.map((h) => (
-            <HuntCard key={h.uid} hunt={h} />
-          ))}
-        </SimpleGrid>
+        <HuntSection hunts={data.active} defaultOpen />
       )}
 
       {data.archived.length > 0 && (
-        <Accordion variant="separated">
-          <Accordion.Item value="old">
-            <Accordion.Control>
-              <Group gap="xs">
-                <Text fw={600}>Old hunts</Text>
-                <Badge variant="light" color="gray">
-                  {data.archived.length}
-                </Badge>
-              </Group>
-            </Accordion.Control>
-            <Accordion.Panel>
-              <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
-                {data.archived.map((h) => (
-                  <HuntCard key={h.uid} hunt={h} />
-                ))}
-              </SimpleGrid>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
+        <Stack gap="xs">
+          <Title order={3}>Old hunts</Title>
+          <HuntSection hunts={data.archived} defaultOpen={false} />
+        </Stack>
       )}
 
       <NewHuntModal opened={newHuntOpen} onClose={() => setNewHuntOpen(false)} />
