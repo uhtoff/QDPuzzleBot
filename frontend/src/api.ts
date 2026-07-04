@@ -72,6 +72,12 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
       return `Discord error — please try again.`;
+    case "already_gated":
+      return "This hunt already has a team role.";
+    case "role_not_applied":
+      return "Couldn't gate the hunt — the role couldn't be made visible (are you addable to it?).";
+    case "missing_role_name":
+      return "Enter a team role name.";
     default:
       return d.error || `${status}`;
   }
@@ -620,14 +626,53 @@ export interface CreateHuntPayload {
   password?: string;
   create_solved_sheet?: boolean;
   layout_mode?: "channel" | "forum";
+  // Set on the second attempt after the backend asks to confirm reusing an
+  // existing role (needs_confirm: "existing_role").
+  confirm_existing_role?: boolean;
+}
+
+// A successful create returns { uid }, optionally with warning: "role_not_applied"
+// (hunt created but couldn't be gated). A 200 with needs_confirm: "existing_role"
+// means the named role already exists and the caller must re-POST with
+// confirm_existing_role: true. (apiSend only treats non-2xx as errors, so this
+// confirm signal arrives here as a normal result.)
+export interface CreateHuntResult {
+  uid?: string;
+  warning?: string;
+  needs_confirm?: string;
+  message?: string;
 }
 
 export function useCreateHunt() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHuntPayload) =>
-      apiSend<{ uid: string }>("/api/hunts", "POST", payload),
+      apiSend<CreateHuntResult>("/api/hunts", "POST", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunts"] }),
+  });
+}
+
+// Gate an open hunt behind a team role. Mirrors useReconcile's "resubmit with a
+// confirm flag" shape: on needs_confirm the caller re-runs with confirmExisting.
+export interface SetHuntRoleResult {
+  ok?: boolean;
+  failed_categories?: string[];
+  needs_confirm?: string;
+  message?: string;
+}
+
+export function useSetHuntRole(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleName, confirmExisting }: { roleName: string; confirmExisting?: boolean }) =>
+      apiSend<SetHuntRoleResult>(
+        `/api/hunts/${uid}/role`,
+        "POST",
+        confirmExisting
+          ? { role_name: roleName, confirm_existing_role: true }
+          : { role_name: roleName }
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });
 }
 

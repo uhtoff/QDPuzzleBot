@@ -2402,10 +2402,117 @@ class PuzzleService:
 
     # -- Hunt create / delete ------------------------------------------
 
+    def _gating_overwrites(self, guild, team_role):
+        """Overwrite dict that gates a category to ``team_role``: @everyone hidden,
+        the team role visible, and the bot always visible (so denying @everyone can
+        never lock the bot out of channels it manages)."""
+        return {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            team_role: discord.PermissionOverwrite(view_channel=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True),
+        }
+
+    async def _resolve_gating_role(self, guild, role_name, actor, confirm_existing_role):
+        """Resolve the role to gate a hunt with, enforcing two invariants:
+        never gate a zero-member role, and confirm reuse of an existing role.
+
+        Returns the ``discord.Role`` to gate with, or ``None`` when no role was
+        requested. Raises ``RuntimeError("existing_role_confirm")`` when the name
+        matches an existing role and it hasn't been confirmed, or
+        ``RuntimeError("role_not_applied")`` when a requested role can't be made
+        visible (no actor, or the actor couldn't be added and the role is empty).
+        """
+        if not role_name:
+            return None
+        if actor is None:
+            raise RuntimeError("role_not_applied")
+
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role is not None and not confirm_existing_role:
+            raise RuntimeError("existing_role_confirm")
+
+        created = False
+        if role is None:
+            role = await guild.create_role(
+                name=role_name, colour=discord.Colour.random(),
+                mentionable=True, reason="bot-role",
+            )
+            created = True
+
+        seeded = actor in role.members
+        if not seeded:
+            try:
+                await actor.add_roles(role, reason="hunt-gating")
+                seeded = True
+            except discord.HTTPException:
+                logger.warning("could not add %s to gating role %r", actor, role_name)
+                seeded = False
+
+        if not seeded and not role.members:
+            # The role would have zero members -> an invisible hunt. Don't gate.
+            if created:
+                try:
+                    await role.delete(reason="rollback: gating role left empty")
+                except discord.HTTPException:
+                    logger.warning("could not delete empty rollback role %r", role_name)
+            raise RuntimeError("role_not_applied")
+
+        return role
+
+    async def _apply_gating_overwrites(self, guild, hunt, overwrites):
+        """Retroactively apply ``overwrites`` to a hunt's existing categories: the
+        main category, the solved category (iff SOLVE_CATEGORY), and each existing
+        round/group category. Synced child channels inherit, so we edit categories
+        only. Returns a list of category names that failed to update."""
+        categories = []
+        main = guild.get_channel(hunt.category_id)
+        if main is not None:
+            categories.append(main)
+        if SOLVE_CATEGORY:
+            solved = discord.utils.get(
+                guild.categories, name=category_layout.solved_category_name(hunt.name)
+            )
+            if solved is not None:
+                categories.append(solved)
+        for tag_group in TagGroupJsonDb.get_all(hunt.id):
+            cat = category_layout.primary_category(guild, tag_group)
+            if cat is not None:
+                categories.append(cat)
+
+        failed = []
+        for category in categories:
+            try:
+                await category.edit(overwrites=overwrites)
+            except discord.HTTPException:
+                name = getattr(category, "name", str(getattr(category, "id", "?")))
+                logger.warning("gating overwrite failed for category %s", name)
+                failed.append(name)
+        return failed
+
+    @pushes_board()
+    async def set_hunt_role(self, guild, hunt, *, role_name, requester,
+                            confirm_existing_role=False):
+        """Gate an OPEN hunt (role_id 0) to ``role_name``: set role_id and apply the
+        Discord overwrite to every existing category. Raises RuntimeError with
+        "already_gated" / "existing_role_confirm" / "role_not_applied". Returns the
+        list of category names whose overwrite update failed (empty on full success).
+        """
+        if hunt.role_id != 0:
+            raise RuntimeError("already_gated")
+
+        team_role = await self._resolve_gating_role(
+            guild, role_name, requester, confirm_existing_role
+        )
+        hunt.role_id = team_role.id
+        HuntJsonDb.commit(hunt)
+
+        overwrites = self._gating_overwrites(guild, team_role)
+        return await self._apply_gating_overwrites(guild, hunt, overwrites)
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
-                          guild_id=0):
+                          guild_id=0, creator=None, confirm_existing_role=False):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
         ``layout_mode`` is fixed at creation: "channel" (default) clones a
@@ -2421,26 +2528,32 @@ class PuzzleService:
         if HuntJsonDb.check_duplicates(name):
             raise RuntimeError("hunt_exists")
 
-        team_role = None
-        if role_name:
-            team_role = discord.utils.get(guild.roles, name=role_name)
-            if team_role is None:
-                team_role = await guild.create_role(
-                    name=role_name, colour=discord.Colour.random(),
-                    mentionable=True, reason="bot-role",
-                )
+        # existing_role_confirm must propagate (entry point prompts + retries);
+        # role_not_applied is non-fatal here -> fall back to an OPEN hunt.
+        try:
+            team_role = await self._resolve_gating_role(
+                guild, role_name, creator, confirm_existing_role
+            )
+        except RuntimeError as exc:
+            if "existing_role_confirm" in str(exc):
+                raise
+            team_role = None
+        overwrites = self._gating_overwrites(guild, team_role) if team_role else {}
 
         # Category is brand-new, so channels are created directly (no get_or_create lookup).
         category_name = clean_category_name(name)
         category = await guild.create_category(
-            category_name, position=max(len(guild.categories) - 2, 0)
+            category_name, position=max(len(guild.categories) - 2, 0),
+            overwrites=overwrites,
         )
         text_channel = await guild.create_text_channel(
             "general", category=category, reason="bot-hunt-general", position=0
         )
         if SOLVE_CATEGORY:
             await guild.create_category(
-                f"{name}-solved", position=max(len(guild.categories) - 2, 0)
+                category_layout.solved_category_name(name),
+                position=max(len(guild.categories) - 2, 0),
+                overwrites=overwrites,
             )
         else:
             await guild.create_text_channel(
