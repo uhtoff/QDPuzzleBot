@@ -7,6 +7,7 @@ Helpers are uniquely named and local to this file.
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 import pytz
 
@@ -169,3 +170,108 @@ def test_gating_overwrites_denies_everyone_allows_role_and_bot():
     assert ov[everyone].view_channel is False
     assert ov[role].view_channel is True
     assert ov[me].view_channel is True
+
+
+def _member_with_add(role_after_add):
+    """A fake actor whose add_roles() seeds the given role (so role.members
+    becomes non-empty), mirroring Discord updating the member cache."""
+    actor = MagicMock(name="actor")
+    async def _add(role, reason=None):
+        role.members.append(actor)
+    actor.add_roles = AsyncMock(side_effect=_add)
+    return actor
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_none_when_no_role_name():
+    svc = _create_service()
+    assert await svc._resolve_gating_role(MagicMock(), None, MagicMock(), False) is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_missing_creates_and_seeds_actor():
+    svc = _create_service()
+    guild = MagicMock()
+    guild.roles = []
+    new_role = MagicMock(name="new")
+    new_role.members = []
+    guild.create_role = AsyncMock(return_value=new_role)
+    actor = _member_with_add(new_role)
+
+    result = await svc._resolve_gating_role(guild, "Team A", actor, False)
+
+    assert result is new_role
+    guild.create_role.assert_awaited_once()
+    actor.add_roles.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_existing_needs_confirm():
+    svc = _create_service()
+    guild = MagicMock()
+    existing = MagicMock(name="existing")
+    existing.name = "Team A"
+    existing.members = [MagicMock()]
+    guild.roles = [existing]
+    actor = MagicMock()
+
+    with pytest.raises(RuntimeError, match="existing_role_confirm"):
+        await svc._resolve_gating_role(guild, "Team A", actor, False)
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_existing_confirmed_adds_actor():
+    svc = _create_service()
+    guild = MagicMock()
+    existing = MagicMock(name="existing")
+    existing.name = "Team A"
+    existing.members = [MagicMock()]  # already has a member
+    guild.roles = [existing]
+    actor = _member_with_add(existing)
+
+    result = await svc._resolve_gating_role(guild, "Team A", actor, True)
+
+    assert result is existing
+    actor.add_roles.assert_awaited_once()  # actor not yet in it -> added
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_new_role_add_fails_deletes_and_raises():
+    svc = _create_service()
+    guild = MagicMock()
+    guild.roles = []
+    new_role = MagicMock(name="new")
+    new_role.members = []
+    new_role.delete = AsyncMock()
+    guild.create_role = AsyncMock(return_value=new_role)
+    actor = MagicMock()
+    actor.add_roles = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "nope"))
+
+    with pytest.raises(RuntimeError, match="role_not_applied"):
+        await svc._resolve_gating_role(guild, "Team A", actor, False)
+    new_role.delete.assert_awaited_once()  # cleaned up our own role
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_existing_populated_add_fails_still_gates():
+    svc = _create_service()
+    guild = MagicMock()
+    existing = MagicMock(name="existing")
+    existing.name = "Team A"
+    existing.members = [MagicMock()]  # other members present
+    existing.delete = AsyncMock()
+    guild.roles = [existing]
+    actor = MagicMock()
+    actor.add_roles = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "nope"))
+
+    result = await svc._resolve_gating_role(guild, "Team A", actor, True)
+
+    assert result is existing            # still visible to its members
+    existing.delete.assert_not_called()  # never delete a pre-existing role
+
+
+@pytest.mark.asyncio
+async def test_resolve_gating_role_no_actor_raises():
+    svc = _create_service()
+    with pytest.raises(RuntimeError, match="role_not_applied"):
+        await svc._resolve_gating_role(MagicMock(), "Team A", None, False)

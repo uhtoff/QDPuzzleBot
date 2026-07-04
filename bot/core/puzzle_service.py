@@ -2412,6 +2412,53 @@ class PuzzleService:
             guild.me: discord.PermissionOverwrite(view_channel=True),
         }
 
+    async def _resolve_gating_role(self, guild, role_name, actor, confirm_existing_role):
+        """Resolve the role to gate a hunt with, enforcing two invariants:
+        never gate a zero-member role, and confirm reuse of an existing role.
+
+        Returns the ``discord.Role`` to gate with, or ``None`` when no role was
+        requested. Raises ``RuntimeError("existing_role_confirm")`` when the name
+        matches an existing role and it hasn't been confirmed, or
+        ``RuntimeError("role_not_applied")`` when a requested role can't be made
+        visible (no actor, or the actor couldn't be added and the role is empty).
+        """
+        if not role_name:
+            return None
+        if actor is None:
+            raise RuntimeError("role_not_applied")
+
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role is not None and not confirm_existing_role:
+            raise RuntimeError("existing_role_confirm")
+
+        created = False
+        if role is None:
+            role = await guild.create_role(
+                name=role_name, colour=discord.Colour.random(),
+                mentionable=True, reason="bot-role",
+            )
+            created = True
+
+        seeded = actor in role.members
+        if not seeded:
+            try:
+                await actor.add_roles(role, reason="hunt-gating")
+                seeded = True
+            except discord.HTTPException:
+                logger.warning("could not add %s to gating role %r", actor, role_name)
+                seeded = False
+
+        if not seeded and not role.members:
+            # The role would have zero members -> an invisible hunt. Don't gate.
+            if created:
+                try:
+                    await role.delete(reason="rollback: gating role left empty")
+                except discord.HTTPException:
+                    logger.warning("could not delete empty rollback role %r", role_name)
+            raise RuntimeError("role_not_applied")
+
+        return role
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
