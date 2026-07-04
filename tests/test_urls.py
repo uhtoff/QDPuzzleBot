@@ -24,3 +24,27 @@ def test_puzzle_url_slug_honours_separator():
 
 def test_puzzle_url_slug_empty_when_no_ascii_content():
     assert urls.puzzle_url_slug("☕🎉") == ""
+
+
+def test_normalize_external_url_adds_https_when_no_scheme():
+    assert urls.normalize_external_url("example.com/hunt") == "https://example.com/hunt"
+
+
+def test_normalize_external_url_leaves_https_alone():
+    assert urls.normalize_external_url("https://example.com/hunt") == "https://example.com/hunt"
+
+
+def test_normalize_external_url_leaves_http_alone():
+    assert urls.normalize_external_url("http://example.com/hunt") == "http://example.com/hunt"
+
+
+def test_normalize_external_url_leaves_other_schemes_alone():
+    assert urls.normalize_external_url("ftp://example.com/hunt") == "ftp://example.com/hunt"
+
+
+def test_normalize_external_url_strips_surrounding_whitespace():
+    assert urls.normalize_external_url("  example.com  ") == "https://example.com"
+
+
+def test_normalize_external_url_empty_stays_empty():
+    assert urls.normalize_external_url("") == ""

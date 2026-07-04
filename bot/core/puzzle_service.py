@@ -1935,7 +1935,7 @@ class PuzzleService:
             new_puzzle.is_target = True
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
-            hunt_url_base = hunt.url.rstrip("/")
+            hunt_url_base = urls.normalize_external_url(hunt.url).rstrip("/")
             p_name = urls.puzzle_url_slug(name, sep=hunt.url_sep)
             new_puzzle.url = f"{hunt_url_base}/{prefix}/{p_name}"
         if round_data is not None:
@@ -2589,7 +2589,7 @@ class PuzzleService:
             category_id=category.id,
             channel_id=text_channel.id,
             guild_id=guild_id,
-            url=url,
+            url=urls.normalize_external_url(url),
             uid=HuntJsonDb.generate_uid('uid'),
         )
         new_hunt.layout_mode = layout_mode
@@ -2845,7 +2845,7 @@ class PuzzleService:
                              puzzle_prefix=_UNSET):
         """Apply whitelisted per-hunt settings and commit. Only provided keys change."""
         if url is not self._UNSET:
-            hunt.url = url
+            hunt.url = urls.normalize_external_url(url)
         if start_timestamp is not self._UNSET:
             hunt.start_timestamp = start_timestamp
             hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)

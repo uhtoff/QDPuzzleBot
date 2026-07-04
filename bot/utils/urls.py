@@ -33,6 +33,20 @@ def docs_url(file_id: str) -> str:
 def drive_folder_url(folder_id: str) -> str:
     return f"https://drive.google.com/drive/u/0/folders/{folder_id}"
 
+def normalize_external_url(url: str) -> str:
+    """Ensure *url* has a scheme, defaulting to ``https://`` when missing.
+
+    A hunt's own site URL is free-text (typed at !hunt creation or set via the
+    dashboard), unlike the Google IDs/URLs above. Discord's masked-link
+    markdown (``[text](url)``) silently refuses to render as a link — showing
+    the raw brackets instead — unless the URL has a recognised scheme, so a
+    bare ``example.com`` breaks every puzzle/hunt link built from it.
+    """
+    url = url.strip()
+    if not url or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
+        return url
+    return f"https://{url}"
+
 def extract_id_from_url(url: str) -> Optional[str]:
     m = re.match(REGEX_DRIVE_URL, url)
     if m:

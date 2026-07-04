@@ -2230,7 +2230,7 @@ class Puzzles(commands.Cog):
             inline=False,
         )
         puzzle_links = (f"""The following are some useful links and information:
-                        • [Hunt Website]({hunt.url})
+                        • [Hunt Website]({urls.normalize_external_url(hunt.url)})
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
                         • [Google Sheet](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
@@ -2268,7 +2268,8 @@ class Puzzles(commands.Cog):
     def _add_puzzle_links_field(self, ctx, embed, puzzle, hunt, guild_data=None):
         spreadsheet_url = urls.spreadsheet_url(self.get_puzzle_sheet(ctx, puzzle, hunt),
                                                puzzle.google_page_id) if hunt.google_sheet_id else "?"
-        puzzle_links = (f"""    • [Puzzle link]({puzzle.url or "?"})
+        puzzle_url = urls.normalize_external_url(puzzle.url) if puzzle.url else "?"
+        puzzle_links = (f"""    • [Puzzle link]({puzzle_url})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""

@@ -58,6 +58,33 @@ async def test_create_puzzle_commits_row_creates_sheet_and_notifies():
 
 
 @pytest.mark.asyncio
+async def test_create_puzzle_url_gets_scheme_even_if_hunt_url_lacks_one():
+    """A bare hunt.url hostname (no https://) breaks Discord's [text](url)
+    markdown on the puzzle's own link — it silently shows the raw brackets
+    instead of rendering a link — so the built puzzle.url must always carry
+    a scheme, even for hunts whose stored url predates/omits one."""
+    svc, gsheet = _service_with_sheets()
+    guild = MagicMock()
+    guild.channels = []
+    cat = MagicMock(id=999)
+    guild.categories = [cat]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    round_data = make_round(id=5, category_id=999)
+    hunt = _svc_hunt()
+    hunt.url = "h.example.com"
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="newpuz"), True))):
+        committed = {}
+        pdb.commit.side_effect = lambda p: (committed.setdefault("puzzle", p), setattr(p, "id", 1))
+        await svc.create_puzzle(guild, hunt, round_data, "Newpuz", is_meta=False, notifier=notifier)
+    assert committed["puzzle"].url.startswith("https://h.example.com/")
+
+
+@pytest.mark.asyncio
 async def test_create_puzzle_orphan_cleanup_on_channel_failure():
     # Relocated from test_create_orphan_cleanup.py — now targets the SERVICE.
     svc, gsheet = _service_with_sheets()

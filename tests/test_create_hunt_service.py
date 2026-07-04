@@ -65,6 +65,20 @@ async def test_create_hunt_commits_core_fields():
 
 
 @pytest.mark.asyncio
+async def test_create_hunt_adds_scheme_to_bare_url():
+    """A bare hostname (no https://) breaks Discord's [text](url) markdown —
+    it silently shows the raw brackets instead of rendering a link — so a
+    scheme must always be added at write time."""
+    svc, guild = _create_service(), _create_guild()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        hdb.generate_uid.return_value = "abc123"
+        await svc.create_hunt(guild, name="H", url="h.example.com/hunt", start_timestamp=0)
+    hunt = _committed_hunt(hdb.commit)
+    assert hunt.url == "https://h.example.com/hunt"
+
+
+@pytest.mark.asyncio
 async def test_create_hunt_mirrors_start_time():
     svc, guild = _create_service(), _create_guild()
     ts = 1_700_000_000

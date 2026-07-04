@@ -41,6 +41,16 @@ async def test_update_url_commits_new_value():
     hdb.commit.assert_called_once_with(hunt)
 
 
+async def test_update_url_adds_scheme_when_missing():
+    """A bare hostname (no https://) breaks Discord's [text](url) markdown —
+    it silently shows the raw brackets instead of rendering a link — so a
+    scheme must always be added at write time."""
+    svc, hunt = _settings_service(), _settings_hunt()
+    with patch("bot.core.puzzle_service.HuntJsonDb"):
+        await svc.update_hunt_settings(hunt, url="new.example.com/hunt")
+    assert hunt.url == "https://new.example.com/hunt"
+
+
 async def test_update_start_timestamp_mirrors_start_time():
     svc, hunt = _settings_service(), _settings_hunt()
     ts = 1_700_000_000
