@@ -64,6 +64,15 @@ def test_soft_limit_below_hard_cap():
     assert layout.CATEGORY_SOFT_LIMIT < MAX_CHANNELS_PER_CATEGORY
 
 
+def test_soft_limit_is_cap_minus_small_fixed_headroom():
+    """The headroom is a small fixed number (2: room to delete the solve
+    divider and land the new channel), not a large or proportional buffer —
+    a hunt server already tends to have a lot of categories, so splitting
+    earlier than necessary just means more categories than needed."""
+    from bot.core.discord_channels import MAX_CHANNELS_PER_CATEGORY
+    assert layout.CATEGORY_SOFT_LIMIT == max(1, MAX_CHANNELS_PER_CATEGORY - 2)
+
+
 def _split_fixtures(divider_pos=2):
     """Build a guild + a primary category with 1 divider, 2 unsolved (pos<divider)
     and 1 solved (pos>divider) channel."""
@@ -198,6 +207,56 @@ async def test_pick_unsolved_allocates_when_all_full():
     # New row written for unsolved seq=1.
     row = dao.commit.call_args.args[0]
     assert (row.role, row.seq, row.category_id) == ("unsolved", 1, 101)
+
+
+@pytest.mark.asyncio
+async def test_pick_unsolved_reuses_primary_when_split_alone_frees_enough_room(monkeypatch):
+    """A single (not yet split) category crossing the soft limit splits into
+    unsolved/solved — it must NOT also allocate a numbered overflow category
+    if moving the solved channels out already leaves the primary with room."""
+    monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 2)
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 3
+    u1 = MagicMock(); u1.name = "u1"; u1.position = 0
+    s1 = MagicMock(); s1.name = "s1"; s1.position = 4
+    s2 = MagicMock(); s2.name = "s2"; s2.position = 5
+    primary = MagicMock(id=100, position=5)
+    primary.name = "round-1"
+    primary.channels = [u1, div, s1, s2]   # 3 puzzles total -> crosses limit of 2
+    solved_cat = MagicMock(id=200)
+    solved_cat.channels = []
+    solved_cat.edit = AsyncMock()
+    primary.clone = AsyncMock(return_value=solved_cat)
+
+    # MagicMocks don't simulate Discord's own effect of a category move/delete
+    # on the category's live .channels list, so reproduce it: moving/deleting
+    # a channel removes it from primary (and, for a move, appends it to its
+    # new home) exactly as the real guild cache would after a successful edit.
+    def _move_to_solved(ch):
+        async def _do(*, category=None, **kw):
+            primary.channels.remove(ch)
+            solved_cat.channels.append(ch)
+        return _do
+    s1.edit = AsyncMock(side_effect=_move_to_solved(s1))
+    s2.edit = AsyncMock(side_effect=_move_to_solved(s2))
+    div.delete = AsyncMock(side_effect=lambda **kw: primary.channels.remove(div))
+
+    guild = MagicMock(); guild.categories = [primary]
+    dao = MagicMock()
+    dao.get_for_group.side_effect = [
+        [],  # pick_unsolved_category's initial not-split check
+        [],  # split_group's fast-path already-split check
+        [],  # split_group's TOCTOU re-check under the lock
+        [TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0)],  # post-split
+    ]
+    dao.make_row.side_effect = lambda owner_id, category_id, role, seq: TagGroupCategoryData(
+        group_id=owner_id, category_id=category_id, role=role, seq=seq)
+    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
+
+    result = await layout.pick_unsolved_category(guild, tag_group, dao)
+
+    assert result is primary                      # reused, not a numbered overflow
+    assert primary.channels == [u1]                # solved + divider left; unsolved untouched
+    primary.clone.assert_awaited_once()            # only the solved-category clone from splitting
 
 
 def test_group_id_for_category_uses_dao_row():

@@ -25,11 +25,13 @@ from bot.store.tag_group_category_data import ROLE_SOLVED, ROLE_UNSOLVED
 
 logger = logging.getLogger(__name__)
 
-# Allocate/split when a category WOULD cross this, leaving headroom below the
-# hard cap so a create never fails mid-flight. Scales with the configured cap
-# (see config.max_channels_per_category) rather than a fixed 45, so a lowered
-# test cap still leaves the same proportion of headroom.
-CATEGORY_SOFT_LIMIT = max(1, MAX_CHANNELS_PER_CATEGORY - 5)
+# Allocate/split when a category WOULD cross this, leaving a small headroom
+# below the hard cap so a create never fails mid-flight — just enough room to
+# delete the solve divider and land the new channel (2 slots), not a large
+# fixed buffer. A hunt server already tends to have a lot of categories, so
+# splitting/overflowing earlier than necessary means more categories than
+# needed; keep the buffer minimal rather than proportional to the cap.
+CATEGORY_SOFT_LIMIT = max(1, MAX_CHANNELS_PER_CATEGORY - 2)
 
 # Serialises all category-structure mutations (create category, move channel
 # between categories, delete category) this module performs.
