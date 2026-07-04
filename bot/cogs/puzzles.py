@@ -579,6 +579,53 @@ class Puzzles(commands.Cog):
             )
         return new_hunt
 
+    @commands.command()
+    @commands.has_any_role(*ADMIN_ROLES)
+    async def set_hunt_role(self, ctx, *, arg):
+        """*Gate an existing OPEN hunt behind a team role (web + Discord).*
+
+        Usage: `!set_hunt_role hunt-name, role-name`. Admins/mods only; run in
+        the bot channel."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        if ", " not in arg:
+            return await ctx.send("Usage: `!set_hunt_role hunt-name, role-name`")
+        hunt_name, role_name = (part.strip() for part in arg.split(", ", 1))
+        if not hunt_name or not role_name:
+            return await ctx.send("Usage: `!set_hunt_role hunt-name, role-name`")
+        hunt = HuntJsonDb.get_by_attr(name=hunt_name)
+        if hunt is None:
+            return await ctx.send(f":x: No hunt named **{hunt_name}**.")
+
+        confirm_existing = False
+        while True:
+            try:
+                failed = await self.service.set_hunt_role(
+                    ctx.guild, hunt, role_name=role_name,
+                    requester=ctx.author, confirm_existing_role=confirm_existing,
+                )
+                break
+            except RuntimeError as exc:
+                s = str(exc)
+                if "already_gated" in s:
+                    return await ctx.send(f":x: **{hunt.name}** already has a role.")
+                if "existing_role_confirm" in s and not confirm_existing:
+                    if not await self._confirm_reuse_role(ctx, role_name):
+                        return await ctx.send(":x: Cancelled.")
+                    confirm_existing = True
+                    continue
+                if "role_not_applied" in s:
+                    return await ctx.send(
+                        f":x: Couldn't gate to **{role_name}** — the role couldn't "
+                        f"be made visible (are you addable to it?)."
+                    )
+                raise
+
+        msg = f":white_check_mark: Gated **{hunt.name}** behind **{role_name}**."
+        if failed:
+            msg += f"\n:warning: These categories weren't updated: {', '.join(failed)}"
+        await ctx.send(msg)
+
     @commands.hybrid_command(
         aliases=["set_to_archive"],
         description="Use a separate 'solved puzzles sheet' for solved feeders (admin only)",
