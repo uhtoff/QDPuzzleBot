@@ -13,7 +13,9 @@ from contextlib import AsyncExitStack
 import discord
 import pytz
 from googleapiclient.errors import HttpError
-from quart import Blueprint, current_app, jsonify, request
+from quart import Blueprint, jsonify, request
+
+from .typed_app import bot_app
 
 from . import data, events
 from bot.web import data as web_data
@@ -128,6 +130,7 @@ async def add_note(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -139,7 +142,7 @@ async def add_note(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
@@ -160,12 +163,13 @@ async def erase_note(puzzle_id, index):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
@@ -189,6 +193,7 @@ async def update_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -200,7 +205,7 @@ async def update_puzzle(puzzle_id):
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
 
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
 
         changed = False
@@ -223,7 +228,7 @@ async def update_puzzle(puzzle_id):
             # board push is emitted by the service (notifier.board_changed)
             if cog is not None:
                 snowflake = ctx["guild_snowflake"]
-                guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+                guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
                 await cog.web_refresh_info(guild, hunt_obj, puzzle)
     return jsonify({"ok": True})
 
@@ -237,6 +242,7 @@ async def add_sheet(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -251,11 +257,11 @@ async def add_sheet(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
-        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
         try:
             sheet = await cog.service.add_sheet(hunt_obj, puzzle, name)
             await _audit("add_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
@@ -277,6 +283,7 @@ async def remove_sheet(puzzle_id, sheet_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -288,11 +295,11 @@ async def remove_sheet(puzzle_id, sheet_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
-        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
         try:
             await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
             await _audit("remove_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
@@ -316,6 +323,7 @@ async def solve_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -339,7 +347,7 @@ async def solve_puzzle(puzzle_id):
             return jsonify({"error": "empty_solution"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -395,6 +403,7 @@ async def set_puzzle_link(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -409,11 +418,11 @@ async def set_puzzle_link(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
         snowflake = ctx["guild_snowflake"]
-        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
         await cog.service.set_puzzle_url(guild, hunt_obj, puzzle, url)
         await _audit("link", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
@@ -433,6 +442,7 @@ async def log_clue(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -449,7 +459,7 @@ async def log_clue(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
@@ -470,6 +480,7 @@ async def make_minimeta_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -485,7 +496,7 @@ async def make_minimeta_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
@@ -494,7 +505,7 @@ async def make_minimeta_puzzle(puzzle_id):
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
         snowflake = ctx["guild_snowflake"]
-        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
         await cog.web_refresh_info(guild, hunt_obj, puzzle)
 
     return jsonify({"ok": True})
@@ -510,6 +521,7 @@ async def remove_minimeta_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -525,7 +537,7 @@ async def remove_minimeta_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -560,6 +572,7 @@ async def convert_to_meta(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -578,7 +591,7 @@ async def convert_to_meta(puzzle_id):
             return jsonify({"error": "already_meta"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
@@ -614,6 +627,7 @@ async def rename_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -639,14 +653,14 @@ async def rename_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
         # Pass the guild so the service renames the Discord channel too (mirrors
         # the bang); safe_rename tolerates the rename rate-limit via deferral.
         snowflake = ctx["guild_snowflake"]
-        guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
         warning = None
         try:
@@ -719,7 +733,7 @@ async def create_hunt():
     if perm:
         return perm
 
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -788,6 +802,7 @@ async def patch_hunt_settings(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -803,12 +818,12 @@ async def patch_hunt_settings(uid):
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
 
     await cog.service.update_hunt_settings(hunt_obj, **body)
-    guild = current_app.bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    guild = bot_app().bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     if guild is not None:
         await cog.service.notifier.refresh_info(guild, hunt_obj)
     await _audit("hunt_settings", hunt_uid=uid)
@@ -824,6 +839,7 @@ async def set_hunt_role(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -838,10 +854,10 @@ async def set_hunt_role(uid):
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
-    guild = current_app.bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    guild = bot_app().bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     if guild is None:
         return jsonify({"error": "guild_unavailable"}), 503
 
@@ -886,6 +902,7 @@ async def post_hunt_archive(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -913,6 +930,7 @@ async def post_hunt_solved_sheet(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     perm = await require_admin(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -926,7 +944,7 @@ async def post_hunt_solved_sheet(uid):
     if hunt_obj.solved_sheet_id:
         return jsonify({"error": "solved_sheet_exists"}), 409
 
-    gsheet_cog = current_app.bot.get_cog("GoogleSheets")
+    gsheet_cog = bot_app().bot.get_cog("GoogleSheets")
     if gsheet_cog is None:
         return jsonify({"error": "gsheet_unavailable"}), 503
 
@@ -958,6 +976,7 @@ async def retag_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1009,7 +1028,7 @@ async def retag_puzzle(puzzle_id):
             # a metapuzzle's tags — doing so would orphan its round).
             return jsonify({"error": "cannot_unassign_meta"}), 400
 
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -1066,6 +1085,7 @@ async def convert_to_feeder_preview(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     perm = await require_organiser(ctx["guild_snowflake"])
     if perm:
         return perm
@@ -1078,7 +1098,7 @@ async def convert_to_feeder_preview(puzzle_id):
     if not puzzle.is_target:
         return jsonify({"error": "not_a_metapuzzle"}), 400
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
     orphans = cog.service.feeders_orphaned_by_convert(puzzle)
@@ -1100,6 +1120,7 @@ async def convert_to_feeder(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_admin(ctx["guild_snowflake"])
@@ -1116,7 +1137,7 @@ async def convert_to_feeder(puzzle_id):
             return jsonify({"error": "not_a_metapuzzle"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -1159,6 +1180,7 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
         ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
         if err:
             return err
+        assert ctx is not None
         if ctx["hunt"]["archived"]:
             return jsonify({"error": "hunt_archived"}), 403
         perm = await require_admin(ctx["guild_snowflake"])
@@ -1176,11 +1198,11 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
                 return jsonify({"error": "already_a_metapuzzle"}), 400
 
             hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-            cog = current_app.bot.get_cog("Puzzles")
+            cog = bot_app().bot.get_cog("Puzzles")
             if cog is None:
                 return jsonify({"error": "bot_unavailable"}), 503
             snowflake = ctx["guild_snowflake"]
-            guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+            guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
             warning = None
             try:
@@ -1276,6 +1298,7 @@ async def delete_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1290,7 +1313,7 @@ async def delete_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -1327,6 +1350,7 @@ async def delete_hunt(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     # Deliberately no archived 403 guard — admins must be able to delete archived hunts.
     perm = await require_admin(ctx["guild_snowflake"])
     if perm:
@@ -1338,7 +1362,7 @@ async def delete_hunt(uid):
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
 
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1379,6 +1403,7 @@ async def delete_tag_group(tag_group_id):
     ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1392,7 +1417,7 @@ async def delete_tag_group(tag_group_id):
         return jsonify({"error": "round_not_found"}), 404
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1427,6 +1452,7 @@ async def rename_tag_group(tag_group_id):
     ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1449,11 +1475,11 @@ async def rename_tag_group(tag_group_id):
     if tag_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
     snowflake = ctx["guild_snowflake"]
-    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
     try:
         await cog.service.rename_group(guild, hunt_obj, tag_group, new_name)
@@ -1475,6 +1501,7 @@ async def change_group_type(tag_group_id):
     ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1492,11 +1519,11 @@ async def change_group_type(tag_group_id):
     if tag_group is None:
         return jsonify({"error": "round_not_found"}), 404
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
     snowflake = ctx["guild_snowflake"]
-    guild = current_app.bot.get_guild(int(snowflake)) if snowflake else None
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
     warning = None
     summary = None  # stays None if convert_tag_group_type raises SheetRefreshError
@@ -1544,6 +1571,7 @@ async def reconcile(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1559,7 +1587,7 @@ async def reconcile(uid):
     from bot.store import HuntJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1609,6 +1637,7 @@ async def rebuild_rollup(tag_group_id):
     ctx, err = await _visible_hunt_for_tag_group(tag_group_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1621,7 +1650,7 @@ async def rebuild_rollup(tag_group_id):
     if target_group is None:
         return jsonify({"error": "round_not_found"}), 404
 
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1654,6 +1683,7 @@ async def create_puzzle(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     body = await request.get_json(silent=True) or {}
@@ -1673,7 +1703,7 @@ async def create_puzzle(uid):
     if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
         return jsonify({"error": "duplicate_name"}), 409
 
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1682,7 +1712,7 @@ async def create_puzzle(uid):
         from bot.core.notifier import DiscordNotifier
         puzzle = await cog.service.create_puzzle(
             guild, hunt_obj, target_group, name,
-            notifier=DiscordNotifier(current_app.bot),
+            notifier=DiscordNotifier(bot_app().bot),
         )
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -1701,6 +1731,7 @@ async def create_meta(uid):
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     body = await request.get_json(silent=True) or {}
@@ -1716,7 +1747,7 @@ async def create_meta(uid):
     from bot.store import HuntJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles")
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -1759,6 +1790,7 @@ async def create_mini(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     perm = await require_organiser(ctx["guild_snowflake"])
@@ -1778,7 +1810,7 @@ async def create_mini(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -1811,6 +1843,7 @@ async def unsolve_puzzle(puzzle_id):
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -1824,7 +1857,7 @@ async def unsolve_puzzle(puzzle_id):
             return jsonify({"error": "not_solved"}), 400
 
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        bot = current_app.bot
+        bot = bot_app().bot
         cog = bot.get_cog("Puzzles")
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
@@ -1849,6 +1882,7 @@ async def update_evidence(item_id):
     ctx, err = await _visible_hunt_for_evidence(item_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -1873,7 +1907,7 @@ async def update_evidence(item_id):
         item = EvidenceJsonDb.update_note(item_id, note) or item
 
     # Apply target reassignment if the key is present (value may be None to clear)
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
     target_changed = "target_puzzle_id" in body
     if target_changed:
@@ -1909,6 +1943,7 @@ async def delete_evidence(item_id):
     ctx, err = await _visible_hunt_for_evidence(item_id)
     if err:
         return err
+    assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
@@ -1923,7 +1958,7 @@ async def delete_evidence(item_id):
 
     EvidenceJsonDb.delete(item_id)
 
-    cog = current_app.bot.get_cog("Puzzles")
+    cog = bot_app().bot.get_cog("Puzzles")
     if cog is not None:
         if old.target_puzzle_id:
             # Mirror the reassignment cleanup: drop the auto-added informs edge if

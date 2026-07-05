@@ -12,7 +12,9 @@ import time
 from urllib.parse import urlencode
 
 import aiohttp
-from quart import Blueprint, current_app, jsonify, redirect, request, session
+from quart import Blueprint, jsonify, redirect, request, session
+
+from .typed_app import bot_app
 
 from bot.utils import config
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
@@ -171,7 +173,7 @@ async def resolve_membership(user_id):
     ``membership`` is a set of guild snowflakes the user belongs to; ``roles_by_guild``
     maps each of those snowflakes to the set of the user's role ids there.
     """
-    bot = current_app.bot
+    bot = bot_app().bot
     membership = set()
     roles_by_guild = {}
     for guild in bot.guilds:
@@ -186,7 +188,7 @@ async def resolve_membership(user_id):
 
 async def resolve_role_names(user_id, guild_snowflake):
     """Return the set of the user's role names in a guild, or None if not a member."""
-    bot = current_app.bot
+    bot = bot_app().bot
     guild = bot.get_guild(guild_snowflake)
     if guild is None:
         return None

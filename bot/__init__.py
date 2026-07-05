@@ -52,7 +52,7 @@ def _install_ratelimit_probe():
         except Exception:
             pass
 
-    _update._probe_installed = True
+    setattr(_update, "_probe_installed", True)
     _dhttp.Ratelimit.update = _update
 
     # The common failure mode (bucket already known-exhausted) is a *pre-emptive*
@@ -119,7 +119,7 @@ def _install_ratelimit_probe():
                 pass
             return resp
 
-        _session_request._probe_installed = True
+        setattr(_session_request, "_probe_installed", True)
         _aiohttp.ClientSession._request = _session_request
 
 
@@ -130,7 +130,15 @@ async def get_prefix(_bot, message):
     return commands.when_mentioned_or(utils.config.prefix)(_bot, message)
 
 
-bot = commands.AutoShardedBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True)
+class PuzzleBot(commands.AutoShardedBot):
+    """AutoShardedBot plus the extra attributes this app staples on at runtime."""
+    version: str
+    invite: str
+    web_task: "asyncio.Task | None"
+    _web_shutdown: asyncio.Event
+
+
+bot = PuzzleBot(command_prefix=get_prefix, intents=discord.Intents.all(), case_insensitive=True)
 bot.version = __version__
 
 @bot.event
@@ -152,6 +160,7 @@ async def on_message(message):
 
 @bot.event
 async def on_ready():
+    assert bot.user is not None  # on_ready fires only after login
     bot.invite = invite_link.format(bot.user.id)
     guild_names = [g.name for g in bot.guilds]
     guild_ids = [g.id for g in bot.guilds]

@@ -20,7 +20,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is True
@@ -37,7 +37,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is False
@@ -48,7 +48,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = None
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is False
@@ -61,7 +61,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is False
@@ -79,7 +79,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is True
@@ -95,7 +95,7 @@ class TestActivityEventVisible:
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
-        with patch("bot.web.api.current_app", MagicMock(bot=bot)):
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is False

@@ -81,13 +81,14 @@ def _register_spa(app):
 
 def create_app(bot):
     """Build the Quart app. Imported lazily so the bot does not hard-depend on Quart."""
-    from quart import Quart, jsonify, request
+    from quart import jsonify, request
 
+    from .typed_app import BotQuart
     from .auth import auth_bp
     from .api import api_bp
     from .actions import actions_bp
 
-    app = Quart(__name__)
+    app = BotQuart(__name__)
     app.secret_key = config.web_session_secret
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
@@ -153,11 +154,15 @@ async def start_web(bot):
     # default (terminate on SIGTERM) is what we want. The event is kept on the
     # bot only to prevent garbage collection.
     bot._web_shutdown = asyncio.Event()
+
+    async def _wait_shutdown() -> None:
+        await bot._web_shutdown.wait()
+
     task = asyncio.create_task(
         app.run_task(
             host=config.web_host,
             port=config.web_port,
-            shutdown_trigger=bot._web_shutdown.wait,
+            shutdown_trigger=_wait_shutdown,
         ),
         name="web-dashboard",
     )

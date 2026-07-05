@@ -3,7 +3,9 @@ import asyncio
 import logging
 import time
 
-from quart import Blueprint, current_app, jsonify, request, session, websocket
+from quart import Blueprint, jsonify, request, session, websocket
+
+from .typed_app import bot_app
 
 from . import data, events
 from .auth import (
@@ -106,7 +108,7 @@ async def hunt_detail(uid):
     gating_role_id = hunt.get("role_id") or 0
     gating_role_name = None
     if gating_role_id and guild_snowflake:
-        _guild = current_app.bot.get_guild(int(guild_snowflake))
+        _guild = bot_app().bot.get_guild(int(guild_snowflake))
         if _guild is not None:
             _role = _guild.get_role(gating_role_id)
             if _role is not None:
@@ -175,7 +177,7 @@ async def rollup_answers(tag_group_id):
         # In-memory default — never persist.
         rollup = RollupData(tag_group_id=tag_group_id)
 
-    bot = current_app.bot
+    bot = bot_app().bot
     cog = bot.get_cog("Puzzles") if bot else None
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
@@ -233,7 +235,7 @@ async def add_evidence():
     # Re-render the Evidence sheet tab (mirrors the bang !clue/!clues fire-and-forget
     # refresh). Best-effort: the clues are already persisted in the DB.
     if items:
-        cog = current_app.bot.get_cog("Puzzles")
+        cog = bot_app().bot.get_cog("Puzzles")
         hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
         if cog is not None and hunt_obj is not None:
             asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
@@ -249,7 +251,7 @@ async def _activity_event_visible(event, user_id, guild_id):
     specific channel matches that same per-hunt gate without needing a DB lookup
     per message.
     """
-    bot = current_app.bot
+    bot = bot_app().bot
     guild = bot.get_guild(guild_id)
     if guild is None:
         return False
