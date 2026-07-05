@@ -66,5 +66,11 @@ jobs:
       - name: Run ruff
         run: ruff check .
 
+      - name: Run basedpyright
+        # Pinned so new checker releases can't break CI; bump deliberately.
+        run: |
+          pip install basedpyright==1.39.8
+          basedpyright bot/
+
       - name: Run tests
         run: pytest -v

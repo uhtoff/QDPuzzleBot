@@ -142,6 +142,22 @@ pipenv run ruff check --fix    # apply safe auto-fixes
   with a reason; `__init__.py` re-exports are ignored wholesale via `per-file-ignores`.
   Review F401 fixes on production code before applying.
 
+## Type checking
+
+```bash
+pipenv run basedpyright bot/    # must report 0 errors; CI enforces it
+```
+
+- `bot/` is pyright-clean as of 2026-07-05 (mode `standard`, config in `pyproject.toml`)
+  and CI fails on any new error — fix new findings, don't suppress them.
+- House patterns: business invariants the checker can't see are narrowed with
+  `assert x is not None` right after acquisition (with the invariant named in a short
+  comment); runtime-stapled attributes are declared on subclasses (`PuzzleBot`,
+  `bot/web/typed_app.py`'s `BotQuart`); web handlers reach the bot/cogs through the
+  typed `bot_app()` / `puzzles_cog()` / `gsheet_cog()` helpers, not `current_app`.
+- `# pyright: ignore[...]` needs a one-line justification and should be a last resort
+  (there are currently none in `bot/`).
+
 ## Database & migrations
 
 - **Rule: migration → deploy → code.** The generic `commit()` writes every dataclass
