@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import {
   Alert,
+  Anchor,
   AppShell,
   Avatar,
   Burger,
@@ -53,6 +54,9 @@ export function AppShellLayout({ user, children }: { user: User; children: React
             <UnstyledButton component={Link} to="/">
               <Title order={4}>🧩 Puzzle Dashboard</Title>
             </UnstyledButton>
+            <Anchor href="/guide.html" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">
+              User guide
+            </Anchor>
           </Group>
           <Menu shadow="md" width={180} position="bottom-end">
             <Menu.Target>
