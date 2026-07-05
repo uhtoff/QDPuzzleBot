@@ -5,3 +5,7 @@ it. It is the single source of truth (shared across tools); this file is just th
 Claude Code auto-loads.
 
 Your global `~/.claude/CLAUDE.md` working-style rules still apply on top.
+
+Generic Python house rules (generated from the global instruction layers):
+
+@docs/agents/python.md

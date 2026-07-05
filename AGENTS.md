@@ -5,6 +5,10 @@ rules still apply (see your global `CLAUDE.md` / `AGENTS.md`); this file adds th
 project specifics and pins the commands/seams. When the two conflict, the user's
 explicit instructions win, then this file, then global defaults.
 
+Generic Python house rules (pytest runner discipline, mock gotchas, ruff F401) live in
+**`docs/agents/python.md`** — read it alongside this file. It is generated from the global
+instruction layers; do not hand-edit it.
+
 ## Integration branch
 
 Integration branch: `staging` (not `main` — main is intentionally behind).
@@ -105,10 +109,10 @@ shapes (config in `pytest.ini`); don't invent harness machinery.
 - **Factories, not fixtures:** `tests/conftest.py` exports plain helper functions —
   `make_hunt()`, `make_round()` (a `TagGroupData`), `make_puzzle()`, `make_ctx()`,
   `make_cog()`. Import and call them; they are **not** pytest fixtures.
-- **Mock Discord by hand:** `MagicMock()` for sync attributes, `AsyncMock()` for awaitables.
-  A guild is `MagicMock()` with `.categories = [...]`; `category.clone`, `channel.edit`,
-  `channel.create_thread`, `guild.create_text_channel` are all `AsyncMock()`. Set
-  `.name`/`.position`/`.id` explicitly (a bare `MagicMock().name` is a Mock, not a string).
+- **Mock Discord by hand** (general mock rules — MagicMock vs AsyncMock, the
+  `MagicMock().name` trap — are in `docs/agents/python.md`): a guild is `MagicMock()` with
+  `.categories = [...]`; `category.clone`, `channel.edit`, `channel.create_thread`,
+  `guild.create_text_channel` are all `AsyncMock()`. Set `.name`/`.position`/`.id` explicitly.
 - **Patch DAOs at the *service* import site, not `bot.store`:** e.g.
   `patch("bot.core.puzzle_service.PuzzleJsonDb")`, `...TagGroupJsonDb`, `...HuntJsonDb`,
   `...RollupsJsonDb`, `...TagGroupCategoryDb` — because `puzzle_service` imports the names
@@ -131,8 +135,8 @@ pipenv run ruff check --fix    # apply safe auto-fixes
 - Config in `ruff.toml`, scoped to the pyflakes (`F`) rule set only — the high-signal
   correctness class (undefined names, unused imports/vars, malformed f-strings). Broader
   style rules (`E`/`W`/`UP`/…) are intentionally **not** enabled yet; widen later if wanted.
-- **Do not blind-`--fix` `F401` (unused import) on `bot/` modules.** Several production
-  modules import names that look unused locally but are load-bearing: package re-exports
+- **Do not blind-`--fix` `F401` (unused import) on `bot/` modules** (the general rule is in
+  `docs/agents/python.md`). The load-bearing cases here: package re-exports
   (`bot/web/auth.py` re-exports `ADMIN_ROLES`) and test patch-targets
   (`patch("bot.core.puzzle_service.GuildSettingsDb")`). Those lines carry `# noqa: F401`
   with a reason; `__init__.py` re-exports are ignored wholesale via `per-file-ignores`.
