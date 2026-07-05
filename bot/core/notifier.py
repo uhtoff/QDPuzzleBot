@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, cast
 
 if TYPE_CHECKING:
     from discord.ext.commands import Bot
+
+    from bot.cogs.puzzles import Puzzles
+    from bot.store import PuzzleData, TagGroupData
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +32,8 @@ class Notifier(abc.ABC):
         self,
         guild,
         hunt,
-        tag_group: Optional[object] = None,
-        puzzle: Optional[object] = None,
+        tag_group: "Optional[TagGroupData]" = None,
+        puzzle: "Optional[PuzzleData]" = None,
         channel=None,
     ) -> None:
         """Post and pin the welcome/pinned-info message."""
@@ -40,7 +43,7 @@ class Notifier(abc.ABC):
         self,
         guild,
         hunt,
-        puzzle: Optional[object] = None,
+        puzzle: "Optional[PuzzleData]" = None,
     ) -> None:
         """Refresh a puzzle's pinned info message after a metadata change."""
 
@@ -77,8 +80,8 @@ class DiscordNotifier(Notifier):
     def __init__(self, bot: "Bot"):
         self.bot = bot
 
-    def _cog(self):
-        return self.bot.get_cog("Puzzles")
+    def _cog(self) -> "Puzzles | None":
+        return cast("Puzzles | None", self.bot.get_cog("Puzzles"))
 
     async def board_changed(self, hunt=None) -> None:
         return None
@@ -87,8 +90,8 @@ class DiscordNotifier(Notifier):
         self,
         guild,
         hunt,
-        tag_group: Optional[object] = None,
-        puzzle: Optional[object] = None,
+        tag_group: "Optional[TagGroupData]" = None,
+        puzzle: "Optional[PuzzleData]" = None,
         channel=None,
     ) -> None:
         """Post and pin the welcome message.
@@ -120,7 +123,8 @@ class DiscordNotifier(Notifier):
                 )
                 kwargs = {"hunt": hunt, "tag_group": tag_group, "puzzle": puzzle, "guild_data": guild_data}
             message = await handler(None, channel, **kwargs)
-            await message.pin()
+            if message is not None:
+                await message.pin()
         except Exception:
             logger.exception("welcome: failed to send/pin in channel %s", channel.id)
 
@@ -128,7 +132,7 @@ class DiscordNotifier(Notifier):
         self,
         guild,
         hunt,
-        puzzle: Optional[object] = None,
+        puzzle: "Optional[PuzzleData]" = None,
     ) -> None:
         """Refresh a puzzle's pinned info message after a metadata change.
 
@@ -242,8 +246,8 @@ class CompositeNotifier(Notifier):
         self,
         guild,
         hunt,
-        tag_group: Optional[object] = None,
-        puzzle: Optional[object] = None,
+        tag_group: "Optional[TagGroupData]" = None,
+        puzzle: "Optional[PuzzleData]" = None,
         channel=None,
     ) -> None:
         for n in self._notifiers:
@@ -253,7 +257,7 @@ class CompositeNotifier(Notifier):
         self,
         guild,
         hunt,
-        puzzle: Optional[object] = None,
+        puzzle: "Optional[PuzzleData]" = None,
     ) -> None:
         for n in self._notifiers:
             await n.refresh_info(guild, hunt, puzzle)

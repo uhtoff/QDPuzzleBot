@@ -5,7 +5,7 @@ import time
 
 from quart import Blueprint, jsonify, request, session, websocket
 
-from .typed_app import bot_app
+from .typed_app import bot_app, puzzles_cog
 
 from . import data, events
 from .auth import (
@@ -177,8 +177,7 @@ async def rollup_answers(tag_group_id):
         # In-memory default — never persist.
         rollup = RollupData(tag_group_id=tag_group_id)
 
-    bot = bot_app().bot
-    cog = bot.get_cog("Puzzles") if bot else None
+    cog = puzzles_cog()
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
 
@@ -235,7 +234,7 @@ async def add_evidence():
     # Re-render the Evidence sheet tab (mirrors the bang !clue/!clues fire-and-forget
     # refresh). Best-effort: the clues are already persisted in the DB.
     if items:
-        cog = bot_app().bot.get_cog("Puzzles")
+        cog = puzzles_cog()
         hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
         if cog is not None and hunt_obj is not None:
             asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
