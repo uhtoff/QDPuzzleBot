@@ -185,7 +185,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
             logger.info(f"Unable to find TagGroup for {keyword} - {value}")
             return None
 
-    def get_all(self, hunt_id="*") -> List[TagGroupData]:
+    def get_all(self, hunt_id: int) -> List[TagGroupData]:
         """Retrieve all tag groups for hunt"""
         tag_group_datas = []
         cursor = self.mydb.cursor(dictionary=True)

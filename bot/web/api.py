@@ -36,6 +36,7 @@ async def list_guilds():
     """Return the guilds the current user belongs to.
     Pass ?admin=1 to restrict to guilds where the user holds an admin role."""
     user = current_user()
+    assert user is not None  # @login_required
     admin_only = request.args.get("admin") == "1"
     membership, _ = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
@@ -61,6 +62,7 @@ async def list_guilds():
 async def list_hunts():
     """Hunts visible to the current user, split into active and archived (old)."""
     user = current_user()
+    assert user is not None  # @login_required
     membership, roles_by_guild = await resolve_membership(user["id"])
     guilds_map = await data.get_guilds_map()
     hunts = await data.get_all_hunts()
@@ -77,6 +79,7 @@ async def list_hunts():
 async def _load_visible_hunt(uid):
     """Return (hunt_row, guild_info) if the current user may see it, else (None, status)."""
     user = current_user()
+    assert user is not None  # every caller is behind @login_required
     hunt = await data.get_hunt_by_uid(uid)
     if not hunt:
         return None, 404
@@ -90,9 +93,13 @@ async def _load_visible_hunt(uid):
 @api_bp.route("/hunts/<uid>")
 @login_required
 async def hunt_detail(uid):
+    user = current_user()
+    assert user is not None  # @login_required
     hunt, guild_or_status = await _load_visible_hunt(uid)
     if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
 
     guild_snowflake = guild_or_status.get("guild_snowflake")
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_snowflake)
@@ -101,8 +108,8 @@ async def hunt_detail(uid):
     board = data.build_board(puzzles, rollups, all_groups)
     solved = sum(1 for p in puzzles if p["solved"])
     # Archived hunts are read-only even for organisers.
-    can_manage = (not hunt["archived"]) and await user_can_manage(current_user()["id"], guild_snowflake)
-    admin = await user_can_manage(current_user()["id"], guild_snowflake, roles=ADMIN_ROLES)
+    can_manage = (not hunt["archived"]) and await user_can_manage(user["id"], guild_snowflake)
+    admin = await user_can_manage(user["id"], guild_snowflake, roles=ADMIN_ROLES)
     # Gating status: a non-zero role_id means the hunt is gated to a team role.
     # Resolve the role's name (best-effort) so the dashboard can show it.
     gating_role_id = hunt.get("role_id") or 0
@@ -144,7 +151,9 @@ async def hunt_detail(uid):
 async def hunt_puzzles(uid):
     hunt, guild_or_status = await _load_visible_hunt(uid)
     if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_or_status.get("guild_snowflake"))
     return jsonify({"puzzles": puzzles})
 
@@ -157,6 +166,7 @@ async def rollup_answers(tag_group_id):
     Returns {mode, answers: [{name, solution}, ...]}. No writes — the endpoint
     never creates a rollup row or triggers a sheet refresh."""
     user = current_user()
+    assert user is not None  # @login_required
     hunt = await data.get_hunt_for_tag_group(tag_group_id)
     if not hunt:
         return jsonify({"error": "round_not_found"}), 404
@@ -204,6 +214,7 @@ async def list_evidence():
         return jsonify({"error": "hunt_uid required"}), 400
     hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
     if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
     items = data.get_evidence(hunt["id"], source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
     return jsonify(items)
@@ -224,6 +235,7 @@ async def add_evidence():
         return jsonify({"error": "notes must be strings"}), 400
     hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
     if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403

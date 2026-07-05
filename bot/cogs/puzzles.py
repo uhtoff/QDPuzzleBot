@@ -143,6 +143,7 @@ class Puzzles(commands.Cog):
         tag_group = None
         puzzle = None
         gsheet_cog = None
+        assert ctx.guild is not None  # hunt commands run inside guilds; DMs have no hunt context
         guild = ctx.guild
         guild_data = GuildSettingsDb.get(ctx.guild.id)
 
@@ -167,9 +168,12 @@ class Puzzles(commands.Cog):
             else:
                 channel_type = 'Guild'
         else:
+            # Guild channels only past here (threads handled above); DM-ish channel
+            # classes have no .category. Top-level channels have category None.
+            channel_category: Optional[discord.CategoryChannel] = getattr(ctx.channel, "category", None)
             channel_type = GuildSettingsDb.get_channel_type(ctx.channel.id)
-            if channel_type is None:
-                channel_type = GuildSettingsDb.get_channel_type(ctx.channel.category.id)
+            if channel_type is None and channel_category is not None:
+                channel_type = GuildSettingsDb.get_channel_type(channel_category.id)
             if channel_type is None:
                 channel_type = "Guild"
             if channel_type == 'Hunt':
@@ -178,8 +182,8 @@ class Puzzles(commands.Cog):
                 # Forum-mode Group: the text channel's OWN id is the group's category_id.
                 # Channel-mode Group: fallback to category lookup below.
                 tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.id)
-                if tag_group is None:
-                    tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id,)
+                if tag_group is None and channel_category is not None:
+                    tag_group = TagGroupJsonDb.get_by_attr(category_id=channel_category.id,)
                 if tag_group:
                     channel_type = tag_group.type
                 if tag_group:
@@ -195,8 +199,8 @@ class Puzzles(commands.Cog):
                     tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                     if tag_group:
                         channel_type = tag_group.type
-                    else:
-                        tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.category.id, )
+                    elif channel_category is not None:
+                        tag_group = TagGroupJsonDb.get_by_attr(category_id=channel_category.id, )
                     hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
@@ -221,8 +225,9 @@ class Puzzles(commands.Cog):
             TagGroupJsonDb.commit(self.get_tag_group(ctx))
         if self.get_hunt(ctx):
             HuntJsonDb.commit(self.get_hunt(ctx))
-        if self.get_guild_data(ctx):
-            GuildSettingsDb.commit(self.get_guild_data(ctx))
+        guild_data = self.get_guild_data(ctx)
+        if guild_data:
+            GuildSettingsDb.commit(guild_data)
         self.environment.pop(ctx.message.id, None)
 
     async def group_code_autocomplete(
@@ -238,6 +243,7 @@ class Puzzles(commands.Cog):
         tag_group = self._tag_group_for_channel(channel)
         if tag_group is None:
             return []
+        # hunt_id param's `str` type comes from its vestigial "*" default; real ids are ints.
         rounds = TagGroupJsonDb.get_all(tag_group.hunt_id)
         rounds_sorted = sorted(
             rounds,
@@ -277,8 +283,14 @@ class Puzzles(commands.Cog):
                     "Word Search", "Cipher", "Image", "Audio", "Physical"]
         suggestions = defaults
         try:
-            category = interaction.channel.category
-            hunt_id = TagGroupJsonDb.get_by_attr(category_id=category.id).hunt_id
+            channel = interaction.channel
+            # Non-text/category-less contexts fall through to the except → defaults.
+            assert isinstance(channel, discord.TextChannel)
+            category = channel.category
+            assert category is not None
+            tag_group = TagGroupJsonDb.get_by_attr(category_id=category.id)
+            assert tag_group is not None
+            hunt_id = tag_group.hunt_id
             used = sorted({p.puzzle_type for p in PuzzleJsonDb.get_all_from_hunt(hunt_id) if p.puzzle_type})
             seen = {t.lower() for t in used}
             suggestions = used + [d for d in defaults if d.lower() not in seen]
@@ -396,8 +408,10 @@ class Puzzles(commands.Cog):
 
         When *hunt* is not provided (bang path), falls back to environment lookup.
         """
+        assert puzzle is not None  # callers always pass it; default is keyword-style only
         if hunt is None:
             hunt = self.get_hunt(ctx)
+        assert hunt is not None  # puzzle contexts always resolve their hunt
         if puzzle.on_solved_sheet:
             return hunt.solved_sheet_id
         else:
@@ -405,8 +419,10 @@ class Puzzles(commands.Cog):
 
     def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         """Return the spreadsheet id for additional sheets (solved puzzles sheet when solved)."""
+        assert puzzle is not None  # callers always pass it; default is keyword-style only
         if hunt is None:
             hunt = self.get_hunt(ctx)
+        assert hunt is not None  # puzzle contexts always resolve their hunt
         if puzzle.solved:
             return hunt.solved_sheet_id
         else:
@@ -462,7 +478,7 @@ class Puzzles(commands.Cog):
     async def check_is_bot_channel(self, ctx) -> bool:
         """Check if command was sent to bot channel configured in settings"""
         settings = GuildSettingsDb.get_cached(ctx.guild.id)
-        if not settings.discord_bot_channel:
+        if settings is None or not settings.discord_bot_channel:
             # If no channel is designated, then all channels are fine
             # to listen to commands.
             return True
@@ -491,7 +507,8 @@ class Puzzles(commands.Cog):
         remaining_categories = self.MAX_CATEGORIES - categories
         if remaining_channels < required_channels or remaining_categories < required_categories:
             space_available = False
-        bot_channel = discord.utils.get(ctx.guild.channels, name=self.get_guild_data(ctx).discord_bot_channel)
+        guild_data = self.get_guild_data(ctx)
+        bot_channel = discord.utils.get(ctx.guild.channels, name=guild_data.discord_bot_channel) if guild_data else None
         if bot_channel is None:
             return space_available
         if space_available is False:
@@ -652,13 +669,15 @@ class Puzzles(commands.Cog):
             return
 
         hunt = self.get_hunt(ctx)
+        assert hunt is not None  # Hunt channel checked above
 
         if len(hunt.solved_sheet_id)>0:
             await ctx.send(":x: This hunt is already using a solved puzzles sheet")
             return
 
-        if self.get_gsheet_cog(ctx) is not None:
-            google_drive_id = await self.get_gsheet_cog(ctx).create_solved_sheet(hunt.name)
+        gsheet_cog = self.get_gsheet_cog(ctx)
+        if gsheet_cog is not None:
+            google_drive_id = await gsheet_cog.create_solved_sheet(hunt.name)
             hunt.solved_sheet_id = google_drive_id
 
         HuntJsonDb.commit(hunt)
@@ -1145,6 +1164,8 @@ class Puzzles(commands.Cog):
         Example: `!list_tags`
         Run in a puzzle channel. Organisers/admins only."""
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         tag_info = ""
         tags = puzzle.tags.copy()
         for tag in tags:
@@ -1159,7 +1180,9 @@ class Puzzles(commands.Cog):
             value=tag_info or "*(none)*",
             inline=False,
         )
-        groups = TagGroupJsonDb.get_all(self.get_hunt(ctx).id)
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # puzzle channels always resolve their hunt
+        groups = TagGroupJsonDb.get_all(hunt.id)
         group_info = ""
         for group in groups:
             group_info += f"{group.name} - ID:{group.id}\n"
@@ -1188,6 +1211,8 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(f":x: No tag group with id {new_tag}. Find IDs with `!list_tags`.")
             return
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         if new_tag in puzzle.tags:
             await ctx.channel.send(f":x: Puzzle already has tag {new_tag}.")
             return
@@ -1205,6 +1230,8 @@ class Puzzles(commands.Cog):
         Find IDs with `!list_tags`. Run in a puzzle channel. Organisers/admins only."""
         remove_tag = int(arg)
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         if remove_tag in puzzle.tags:
             puzzle.tags.remove(remove_tag)
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
@@ -1218,6 +1245,8 @@ class Puzzles(commands.Cog):
         Example: `!add_sheet grid attempt 2`
         Run in a puzzle channel that isn't solved yet. List them with `!list_sheets`."""
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
 
         if puzzle.solved:
             return await ctx.send(":x: You can't add additional sheets to solved puzzles!")
@@ -1254,6 +1283,8 @@ class Puzzles(commands.Cog):
         Example: `!list_sheets`
         Run in a puzzle channel. Alias: `!list_additional_sheets`. Numbers feed `!remove_sheet`."""
         puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return await self.send_not_puzzle_channel(ctx)
         if len(puzzle.additional_sheets) == 0:
             return await ctx.send(':x: No additional sheets found!')
 
@@ -1460,6 +1491,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
 
     def create_additional_sheet_list(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
+        assert puzzle is not None  # callers always pass it; default is keyword-style only
         sheet_links = ""
         count = 1
         spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle, hunt)
@@ -1823,16 +1855,20 @@ class Puzzles(commands.Cog):
         command = ctx.invoked_with
 
         tag_group, puzzle = await self._round_impl(ctx, arg, command)
+        if tag_group is None:
+            return  # creation failed; _round_impl already reported the error
 
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # Hunt channel checked above
         if puzzle is None:
             await ctx.send(
-                f":white_check_mark: I've created a new category for {self.get_hunt(ctx).name} - "
+                f":white_check_mark: I've created a new category for {hunt.name} - "
                 f"{tag_group.name}"
             )
         else:
             await ctx.send(
                 f":white_check_mark: I've created a new {puzzle.name} category and channel "
-                f"for {self.get_hunt(ctx).name} - {tag_group.name}"
+                f"for {hunt.name} - {tag_group.name}"
             )
 
     async def _run_convert_to_type(
@@ -2029,7 +2065,9 @@ class Puzzles(commands.Cog):
         Usage: `!show_settings`
         Example: `!show_settings`
         For debugging. Admins/mods only (needs Manage Channels)."""
-        await ctx.send(f"```json\n{self.get_settings(ctx).to_json(indent=2)}```")
+        settings = self.get_settings(ctx)
+        assert settings is not None  # every channel type resolves a settings object
+        await ctx.send(f"```json\n{settings.to_json(indent=2)}```")
 
     @commands.hybrid_command(description="Show puzzle settings (admin only)",)
     @commands.has_any_role(*ADMIN_ROLES)
@@ -2078,6 +2116,7 @@ class Puzzles(commands.Cog):
         if ":" in arg:
             username, password = arg.split(":", 1)
             hunt = self.get_hunt(ctx)
+            assert hunt is not None  # non-Guild channels always resolve their hunt
             await self.service.update_hunt_settings(hunt, username=username, password=password)
             await self.service.notifier.refresh_info(ctx.guild, hunt)
             return await ctx.send(
@@ -2099,6 +2138,7 @@ class Puzzles(commands.Cog):
             return
 
         hunt = self.get_hunt(ctx)
+        assert hunt is not None  # non-Guild channels always resolve their hunt
         await self.service.update_hunt_settings(hunt, start_timestamp=timestamp)
         await self.service.notifier.refresh_info(ctx.guild, hunt)
         return await ctx.send(
@@ -2267,7 +2307,11 @@ class Puzzles(commands.Cog):
                     "_refresh_pinned_info: cannot edit pin %s in channel %s", bot_pin.id, channel.id
                 )
         try:
-            message = await (channel.send(embeds=embeds) if embeds is not None else channel.send(embed=embed))
+            if embeds is not None:
+                message = await channel.send(embeds=embeds)
+            else:
+                assert embed is not None  # callers pass exactly one of embed/embeds
+                message = await channel.send(embed=embed)
             await message.pin()
             return message
         except discord.Forbidden:
@@ -2276,6 +2320,7 @@ class Puzzles(commands.Cog):
 
     async def send_initial_hunt_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs):
         hunt = kwargs.get('hunt',self.get_hunt(ctx))
+        assert hunt is not None  # hunt channel welcomes always have their hunt row
         embed = discord.Embed(
             description=f"""Welcome to the general channel for {hunt.name}!"""
         )
@@ -2393,6 +2438,7 @@ class Puzzles(commands.Cog):
 
     def _build_embed_list(self, ctx=None, embed: Optional[discord.Embed] = None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         """Wrap the main embed plus an optional additional-sheets embed in a list."""
+        assert embed is not None and puzzle is not None  # callers always pass both; defaults are keyword-style only
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
             sheets_embed = discord.Embed()
@@ -2425,11 +2471,13 @@ class Puzzles(commands.Cog):
         except Exception:
             logger.exception("Failed to add puzzle status fields to embed")
 
-    async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+    async def send_initial_metapuzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> Optional[discord.Message]:
         """Send intro message on a meta channel"""
         tag_group = kwargs.get('tag_group', self.get_tag_group(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
         puzzle = kwargs.get('puzzle', self.get_puzzle(ctx))
+        # Meta channel welcomes always resolve their group, hunt and target puzzle.
+        assert tag_group is not None and hunt is not None and puzzle is not None
 
         # Capstone/runaround share this welcome with plain metas, but their default
         # tagging edge differs (TYPE_DEFAULTS): a capstone's members should use
@@ -2481,10 +2529,11 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embeds=embed_list)
 
-    async def send_initial_group_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+    async def send_initial_group_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> Optional[discord.Message]:
         """Send intro message on a group/round channel"""
         tag_group = kwargs.get('tag_group', self.get_tag_group(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
+        assert tag_group is not None  # group channel welcomes always have their group row
         embed = discord.Embed(
             description=f"""Welcome to the round channel for {tag_group.name}!"""
         )
@@ -2514,10 +2563,11 @@ class Puzzles(commands.Cog):
         else:
             return await channel.send(embed=embed)
 
-    async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> discord.Message:
+    async def send_initial_puzzle_channel_messages(self, ctx, channel: discord.TextChannel, **kwargs) -> Optional[discord.Message]:
         """Send intro message on a puzzle channel"""
         puzzle = kwargs.get("puzzle", self.get_puzzle(ctx))
         hunt = kwargs.get('hunt', self.get_hunt(ctx))
+        assert puzzle is not None and hunt is not None  # puzzle channel welcomes always have both
         embed = discord.Embed(
             description=f"""Welcome to the puzzle channel for {puzzle.name} in {hunt.name}!"""
         )
@@ -2590,7 +2640,9 @@ class Puzzles(commands.Cog):
         """Send simple embed showing relevant links"""
         embed = discord.Embed(description=description)
         embed.add_field(name="Hunt URL", value=puzzle_data.url or "?")
-        spreadsheet_url = urls.spreadsheet_url(self.get_hunt(ctx).google_sheet_id, puzzle_data.google_page_id) if self.get_hunt(ctx).google_sheet_id else "?"
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # puzzle channels always resolve their hunt
+        spreadsheet_url = urls.spreadsheet_url(hunt.google_sheet_id, puzzle_data.google_page_id) if hunt.google_sheet_id else "?"
         embed.add_field(name="Google Drive", value=spreadsheet_url)
         embed.add_field(name="Status", value=puzzle_data.status or "?")
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
@@ -2609,12 +2661,14 @@ class Puzzles(commands.Cog):
         Run in the puzzle's channel. Organisers/admins only. Alias: `!rename_meta`."""
         puzzle = self.get_puzzle(ctx)
         if puzzle:
-            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, self.get_hunt(ctx).id, exclude_puzzle_id=puzzle.id):
+            hunt = self.get_hunt(ctx)
+            assert hunt is not None  # puzzle channels always resolve their hunt
+            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id, exclude_puzzle_id=puzzle.id):
                 return await ctx.send(
                     f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or will lead to a duplicate channel name, please use a different name")
             try:
                 await self.service.rename_puzzle(
-                    ctx.guild, self.get_hunt(ctx), puzzle, puzzle_name
+                    ctx.guild, hunt, puzzle, puzzle_name
                 )
             except SheetRefreshError as exc:
                 await self._warn_stale_sheets(ctx, exc)
@@ -2640,14 +2694,16 @@ class Puzzles(commands.Cog):
                 ":x: Run this from a group's target-puzzle channel, or from a "
                 "regular group's channel.")
             return
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # group channels always resolve their hunt
         if TagGroupJsonDb.check_duplicates_in_hunt(
-                group_name, self.get_hunt(ctx), exclude_group_id=tag_group.id):
+                group_name, hunt, exclude_group_id=tag_group.id):
             await ctx.send(
                 f":exclamation: A group called **{group_name}** already exists in "
                 f"this hunt, please use a different name")
             return
         await self.service.rename_group(
-            ctx.guild, self.get_hunt(ctx), tag_group, group_name)
+            ctx.guild, hunt, tag_group, group_name)
         await ctx.channel.send(":white_check_mark: I've renamed the group.")
 
     @commands.hybrid_command(description="Set or update the puzzle's URL on the hunt site")
@@ -2658,8 +2714,8 @@ class Puzzles(commands.Cog):
         Usage: `!link url`
         Example: `!link https://hunt.example.com/puzzles/crossword`
         Run in the puzzle's channel."""
-        if self.get_puzzle(ctx):
-            puzzle = self.get_puzzle(ctx)
+        puzzle = self.get_puzzle(ctx)
+        if puzzle:
             hunt = self.get_hunt(ctx)
             await self.service.set_puzzle_url(ctx.guild, hunt, puzzle, url)
             await self.send_state(
@@ -2749,7 +2805,8 @@ class Puzzles(commands.Cog):
         Example: `!note try anagramming the first letters`
         With no text, lists existing notes. Run in the puzzle's channel.
         Alias: `!notes`. Remove a note with `!erase_note`."""
-        if self.get_puzzle(ctx) is None:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
             await self.send_not_puzzle_channel(ctx)
             return
 
@@ -2759,15 +2816,13 @@ class Puzzles(commands.Cog):
             # Slash invocations have no ctx.message (so no jump_url); attribute to the
             # author's display name instead, matching the web surface's attribution style.
             attribution = ctx.message.jump_url if ctx.message else ctx.author.display_name
-            await self.service.add_note(hunt, self.get_puzzle(ctx), note, attribution)
+            await self.service.add_note(hunt, puzzle, note, attribution)
             message = (
-                f"Added a new note! Use `!erase_note {len(self.get_puzzle(ctx).notes)}` to remove the note if needed. "
+                f"Added a new note! Use `!erase_note {len(puzzle.notes)}` to remove the note if needed. "
                 f"Check `!notes` for the current list of notes."
             )
 
-        if self.get_puzzle(ctx).notes:
-            puzzle = self.get_puzzle(ctx)
-
+        if puzzle.notes:
             embeds = build_note_embeds(
                 message=message,
                 notes = puzzle.notes,
@@ -2795,15 +2850,14 @@ class Puzzles(commands.Cog):
         Example: `!erase_note 1`
         Get the number from `!notes`. Run in the puzzle's channel. Alias: `!delete_note`."""
 
-        if self.get_puzzle(ctx) is None:
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
             await self.send_not_puzzle_channel(ctx)
             return
 
         hunt = self.get_hunt(ctx)
-        erased = await self.service.erase_note(hunt, self.get_puzzle(ctx), note_index)
+        erased = await self.service.erase_note(hunt, puzzle, note_index)
         description = f"Erased note {note_index}" if erased else f"Unable to find note {note_index}"
-
-        puzzle = self.get_puzzle(ctx)
 
         embeds = build_note_embeds(
             message=description,
@@ -2842,6 +2896,7 @@ class Puzzles(commands.Cog):
 
     def _overview_url(self, ctx=None, hunt: Optional[HuntData] = None, guild_data: Optional[GuildSettings] = None):
         """Overview website URL for a hunt (falls back to the numeric id)."""
+        assert hunt is not None  # callers always pass it; default is keyword-style only
         if guild_data is None:
             guild_data = self.get_guild_data(ctx)
         base = (getattr(guild_data, "website_url", "") or "").rstrip("/")
@@ -2858,7 +2913,9 @@ class Puzzles(commands.Cog):
         except SheetRefreshError as exc:
             sheet_warning = exc
 
-        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        guild_data = self.get_guild_data(ctx)
+        assert guild_data is not None  # guilds running hunt commands always have a settings row
+        emoji = guild_data.discord_bot_emoji
         embed = discord.Embed(title="Partially SOLVED!",
                               description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
         embed.add_field(
@@ -2880,10 +2937,11 @@ class Puzzles(commands.Cog):
         Repeated use appends, joining answers with a slash. Run in an unsolved puzzle channel.
         Alias: `!ps`. Clear partials with `!unsolve`."""
 
-        if not self.get_puzzle(ctx):
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved:
+        elif puzzle.solved:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
 
@@ -2908,7 +2966,9 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: Nice try, but you need to give a solution!")
             return
 
-        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        guild_data = self.get_guild_data(ctx)
+        assert guild_data is not None  # guilds running hunt commands always have a settings row
+        emoji = guild_data.discord_bot_emoji
         embed = build_solved_embed(
             emoji, puzzle,
             "If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`.  \nGive me a sec to tidy up the sheets."
@@ -2932,10 +2992,11 @@ class Puzzles(commands.Cog):
         Run in an unsolved puzzle channel. Alias: `!s`.
         Fix a typo with `!change_solution`; undo with `!unsolve`."""
 
-        if not self.get_puzzle(ctx):
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved:
+        elif puzzle.solved:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
         await self._solve_impl(ctx, *solution.split())
@@ -2949,10 +3010,11 @@ class Puzzles(commands.Cog):
         service method, the embed title, and the unsolved fallback (#80: these had
         drifted into two ~30-line near-copies, missing the Follow-up field on
         !add_solution that the other three variants all include)."""
-        if not self.get_puzzle(ctx):
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
             await self.send_not_puzzle_channel(ctx)
             return
-        elif not self.get_puzzle(ctx).solved:
+        elif not puzzle.solved:
             if mode == "change":
                 await self._solve_impl(ctx, *answer.split())
             else:
@@ -2961,7 +3023,6 @@ class Puzzles(commands.Cog):
 
         solution = self._normalize_solution(answer.split())
 
-        puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
 
         if solution == "":
@@ -2978,7 +3039,9 @@ class Puzzles(commands.Cog):
             sheet_warning = exc
 
         title = "PUZZLE SOLUTION UPDATED!" if mode == "change" else "EXTRA PUZZLE SOLUTION ADDED!"
-        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        guild_data = self.get_guild_data(ctx)
+        assert guild_data is not None  # guilds running hunt commands always have a settings row
+        emoji = guild_data.discord_bot_emoji
         embed = discord.Embed(title=title,
                               description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
         embed.add_field(
@@ -3021,10 +3084,11 @@ class Puzzles(commands.Cog):
         Example: `!mark_as_complete`
         Run in an unsolved puzzle channel. Aliases: `!mark_as_solved`, `!complete`."""
 
-        if not self.get_puzzle(ctx):
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
             await self.send_not_puzzle_channel(ctx)
             return
-        elif self.get_puzzle(ctx).solved:
+        elif puzzle.solved:
             await ctx.send(":x: This puzzle appears to already be solved")
             return
         await self._solve_impl(ctx, "✅")
@@ -3038,18 +3102,20 @@ class Puzzles(commands.Cog):
         Example: `!unsolve`
         Run in a solved puzzle's channel. Also clears partial solutions. Alias: `!u`."""
 
-        if not self.get_puzzle(ctx):
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
             await self.send_not_puzzle_channel(ctx)
             return
-        elif not self.get_puzzle(ctx).solved and not self.get_puzzle(ctx).solution:
+        elif not puzzle.solved and not puzzle.solution:
             await ctx.send(":x: This puzzle appears to not be solved")
             return
 
-        puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
         prev_solution = puzzle.solution
 
-        emoji = self.get_guild_data(ctx).discord_bot_emoji
+        guild_data = self.get_guild_data(ctx)
+        assert guild_data is not None  # guilds running hunt commands always have a settings row
+        emoji = guild_data.discord_bot_emoji
         embed = discord.Embed(
             description=f"{emoji} Alright, I've unmarked {prev_solution} as the solution. "
             "You'll get 'em next time!  \nGive me a sec to restore the sheets."
@@ -3143,6 +3209,7 @@ class Puzzles(commands.Cog):
                     return False
             for cat in categories:
                 await cat.delete(reason=self.DELETE_REASON)
+            assert dao is not None  # _owner_for_channel returns owner and dao together
             dao.delete_for_group(owner.id)
             await hunt_general_channel.send(
                 f":white_check_mark: Round {category.name} successfully archived.")
@@ -3204,7 +3271,9 @@ class Puzzles(commands.Cog):
         if channel is None:
             channel = ctx.channel
         if archive_to is None:
-            archive_to = self.bot.get_channel(self.get_hunt(ctx).channel_id)
+            hunt = self.get_hunt(ctx)
+            assert hunt is not None  # hunt channels always resolve their hunt row
+            archive_to = self.bot.get_channel(hunt.channel_id)
         try:
             webhook = await hunt_archive.ensure_webhook(archive_to)
         except discord.HTTPException as e:
@@ -3314,13 +3383,16 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
 
-        if not await self._confirm_destructive(ctx, f"Delete puzzle **{self.get_puzzle(ctx).name}**, its channel and its sheet?"):
+        puzzle = self.get_puzzle(ctx)
+        assert puzzle is not None  # Puzzle channel checked above
+        if not await self._confirm_destructive(ctx, f"Delete puzzle **{puzzle.name}**, its channel and its sheet?"):
             return
 
-        puzzle = self.get_puzzle(ctx)
-        hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # puzzle channels always resolve their hunt
+        hunt_general_channel = self.bot.get_channel(hunt.channel_id)
         try:
-            await self.service.delete_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
+            await self.service.delete_puzzle(ctx.guild, hunt, puzzle)
             await hunt_general_channel.send(
                 f":white_check_mark: Puzzle {puzzle.name} successfully deleted and sheet cleaned up.")
         except ValueError as exc:
@@ -3335,8 +3407,9 @@ class Puzzles(commands.Cog):
 
     async def delete_puzzle_data(self, ctx, puzzle: PuzzleData, delete_sheet=True):
         if delete_sheet is True:
-            if self.get_gsheet_cog(ctx) is not None:
-                await self.get_gsheet_cog(ctx).delete_puzzle_spreadsheet(puzzle)
+            gsheet_cog = self.get_gsheet_cog(ctx)
+            if gsheet_cog is not None:
+                await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
         PuzzleJsonDb.delete(puzzle.id)
         return True
 
@@ -3362,19 +3435,22 @@ class Puzzles(commands.Cog):
             return
 
         tag_group = self.get_tag_group(ctx)
+        assert tag_group is not None  # group channel checked above
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
         n = len(member_puzzle_ids)
         async with puzzles_lock(member_puzzle_ids):
             if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
                 return
 
-            hunt_general_channel = self.bot.get_channel(self.get_hunt(ctx).channel_id)
+            hunt = self.get_hunt(ctx)
+            assert hunt is not None  # group channels always resolve their hunt
+            hunt_general_channel = self.bot.get_channel(hunt.channel_id)
 
             # keep_puzzles=False pinned explicitly: the service default flipped to True
             # (keep member puzzles) for the web dashboard's scoped-delete option, but the
             # bang command's confirm text above still promises "and its {n} puzzle(s)".
             failed = await self.service.delete_round(
-                ctx.guild, self.get_hunt(ctx), tag_group, keep_puzzles=False)
+                ctx.guild, hunt, tag_group, keep_puzzles=False)
 
             await hunt_general_channel.send(
                 f":white_check_mark: Round {tag_group.name} successfully deleted.  "
@@ -3452,6 +3528,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This command must be done from the main hunt channel")
             return
         hunt = self.get_hunt(ctx)
+        assert hunt is not None  # Hunt channel checked above
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
         n = len(member_puzzle_ids)
         async with puzzles_lock(member_puzzle_ids):
@@ -3477,7 +3554,9 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
             return
 
-        await ctx.channel.send(f"```json\n{self.get_puzzle(ctx).to_json()}```")
+        puzzle = self.get_puzzle(ctx)
+        assert puzzle is not None  # Puzzle channel checked above
+        await ctx.channel.send(f"```json\n{puzzle.to_json()}```")
 
 
     @tasks.loop(hours=2)
@@ -3518,7 +3597,9 @@ class Puzzles(commands.Cog):
         await ctx.send("@here Okay, I'll leave you alone for a bit, but remember I'm always watching...")
 
     def get_hunt_channel(self, ctx):
-        return self.bot.get_channel(self.get_hunt(ctx).channel_id)
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # callers run in hunt-scoped channels
+        return self.bot.get_channel(hunt.channel_id)
 
     def get_solved_channel(self, category):
         solved_channel = None

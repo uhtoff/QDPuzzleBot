@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import logging
 from contextlib import AsyncExitStack
+from typing import Any
 
 import discord
 import pytz
@@ -95,6 +96,7 @@ async def _resolve_visible_hunt(lookup_coro, not_found_key):
     context has keys: hunt (row), guild_snowflake.
     """
     user = current_user()
+    assert user is not None  # every caller is behind @login_required
     hunt = await lookup_coro
     if not hunt:
         return None, (jsonify({"error": not_found_key}), 404)
@@ -143,6 +145,8 @@ async def add_note(puzzle_id):
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
     cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
@@ -170,6 +174,8 @@ async def erase_note(puzzle_id, index):
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
     cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
 
     async with puzzle_lock(puzzle_id):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
@@ -206,6 +212,8 @@ async def update_puzzle(puzzle_id):
             return jsonify({"error": "puzzle_not_found"}), 404
 
         cog = puzzles_cog()
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
 
         changed = False
@@ -546,12 +554,14 @@ async def remove_minimeta_puzzle(puzzle_id):
 
         try:
             await cog.service.remove_minimeta(guild, hunt_obj, puzzle)
-        except RuntimeError:
-            return jsonify({"error": "not_minimeta"}), 400
+        # SheetRefreshError subclasses RuntimeError, so it must be caught first —
+        # otherwise a stale-sheet warning would be misreported as not_minimeta.
         except SheetRefreshError as exc:
             await _audit("remove_minimeta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
             return jsonify({"ok": True, "sheet_warning": str(exc)})
+        except RuntimeError:
+            return jsonify({"error": "not_minimeta"}), 400
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
 
@@ -600,19 +610,21 @@ async def convert_to_meta(puzzle_id):
             tag_group, _summary = await cog.service.convert_to_type(
                 None, hunt_obj, puzzle, "Metapuzzle"
             )
+        # SheetRefreshError subclasses RuntimeError, so it must be caught first
+        # or the warning path is dead and sheet failures 500.
+        except (HttpError, SheetRefreshError):
+            logger.exception("convert_to_meta: sheet update failed for puzzle %s", puzzle_id)
+            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
         except RuntimeError as exc:
             if str(exc) == "already_meta":
                 return jsonify({"error": "already_meta"}), 400
             raise
-        except (HttpError, SheetRefreshError):
-            logger.exception("convert_to_meta: sheet update failed for puzzle %s", puzzle_id)
-            warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
 
         await _audit("convert_to_meta", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         # Best-effort: keep the Unassigned Puzzles tab in sync.
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
 
-    resp = {"ok": True}
+    resp: dict[str, Any] = {"ok": True}
     if warning:
         resp["sheet_warning"] = warning
     return jsonify(resp)
@@ -670,7 +682,7 @@ async def rename_puzzle(puzzle_id):
 
         await _audit("rename", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
 
-    resp = {"ok": True}
+    resp: dict[str, Any] = {"ok": True}
     if warning:
         resp["sheet_warning"] = warning
     return jsonify(resp)
@@ -680,7 +692,9 @@ async def rename_puzzle(puzzle_id):
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
     """Return None if the user holds an allowed role in the guild, else an error tuple."""
-    names = await resolve_role_names(current_user()["id"], guild_snowflake)
+    user = current_user()
+    assert user is not None  # every calling route is behind @login_required
+    names = await resolve_role_names(user["id"], guild_snowflake)
     if names is None:
         return jsonify({"error": "forbidden"}), 403
     if not any(r in names for r in roles):
@@ -741,10 +755,12 @@ async def create_hunt():
     if guild is None:
         return jsonify({"error": "guild_unavailable"}), 503
 
-    creator = guild.get_member(int(current_user()["id"]))
+    user = current_user()
+    assert user is not None  # @login_required
+    creator = guild.get_member(int(user["id"]))
     if creator is None:
         try:
-            creator = await guild.fetch_member(int(current_user()["id"]))
+            creator = await guild.fetch_member(int(user["id"]))
         except discord.HTTPException:
             creator = None
 
@@ -861,10 +877,12 @@ async def set_hunt_role(uid):
     if guild is None:
         return jsonify({"error": "guild_unavailable"}), 503
 
-    requester = guild.get_member(int(current_user()["id"]))
+    user = current_user()
+    assert user is not None  # @login_required
+    requester = guild.get_member(int(user["id"]))
     if requester is None:
         try:
-            requester = await guild.fetch_member(int(current_user()["id"]))
+            requester = await guild.fetch_member(int(user["id"]))
         except discord.HTTPException:
             requester = None
 
@@ -1021,8 +1039,10 @@ async def retag_puzzle(puzzle_id):
             target_group is None or target_group.target_puzzle_id != puzzle.id
         ):
             return jsonify({"error": "bad_edge"}), 400
-        if mode == "remove" and puzzle.id == target_group.target_puzzle_id:
-            return jsonify({"error": "cannot_remove_own_meta"}), 400
+        if mode == "remove":
+            assert target_group is not None  # guaranteed by the bad_group_code check above
+            if puzzle.id == target_group.target_puzzle_id:
+                return jsonify({"error": "cannot_remove_own_meta"}), 400
         if mode == "clear" and puzzle.is_target:
             # A metapuzzle can't be unassigned (mirrors "move", which never clears
             # a metapuzzle's tags — doing so would orphan its round).
@@ -1069,7 +1089,7 @@ async def retag_puzzle(puzzle_id):
         hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
         if hunt_obj is not None:
             asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
-        resp = {"ok": True}
+        resp: dict[str, Any] = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
         return jsonify(resp)
@@ -1158,7 +1178,7 @@ async def convert_to_feeder(puzzle_id):
 
         asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
         await _audit("convert_to_feeder", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-        resp = {"ok": True}
+        resp: dict[str, Any] = {"ok": True}
         if orphaned is not None:
             resp["orphaned"] = orphaned
         if warning:
@@ -1168,7 +1188,7 @@ async def convert_to_feeder(puzzle_id):
 
 # --- Convert endpoints for capstone, group, runaround ----------------------
 
-def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
+def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta: bool | None = True):
     """Shared handler for convert-to-capstone/group/runaround.
 
     error_if_not_meta: True = metas only, False = non-metas only, None = any
@@ -1205,23 +1225,26 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta=True):
             guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
 
             warning = None
+            summary = None  # stays None if convert_to_type raises before returning
             try:
                 tag_group, summary = await cog.service.convert_to_type(
                     guild, hunt_obj, puzzle, new_type
                 )
+            # SheetRefreshError subclasses RuntimeError, so it must be caught first —
+            # otherwise a stale-sheet warning would be misreported as a 400 error.
+            except SheetRefreshError as exc:
+                warning = str(exc)
             except RuntimeError as exc:
                 return jsonify({"error": str(exc)}), 400
             except (discord.RateLimited, discord.HTTPException) as exc:
                 return _discord_error_response(exc)
-            except SheetRefreshError as exc:
-                warning = str(exc)
             except HttpError:
                 logger.exception("convert_to_%s: sheet update failed for puzzle %s", new_type.lower(), puzzle.id)
                 warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
 
             asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
             await _audit(f"convert_to_{new_type.lower()}", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-            resp = {"ok": True, "summary": summary}
+            resp: dict[str, Any] = {"ok": True, "summary": summary}
             if warning:
                 resp["sheet_warning"] = warning
             return jsonify(resp)
@@ -1333,7 +1356,7 @@ async def delete_puzzle(puzzle_id):
             return _discord_error_response(exc)
 
         await _audit("delete_puzzle", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
-        resp = {"ok": True}
+        resp: dict[str, Any] = {"ok": True}
         if warning:
             resp["sheet_warning"] = warning
         return jsonify(resp)
@@ -1379,7 +1402,7 @@ async def delete_hunt(uid):
 
     await _audit("delete_hunt", hunt_uid=uid,
                  detail=f"name={hunt_obj.name}")
-    resp = {"ok": True}
+    resp: dict[str, Any] = {"ok": True}
     if failed:
         resp["failed_channels"] = failed
     return jsonify(resp)
@@ -1438,7 +1461,7 @@ async def delete_tag_group(tag_group_id):
 
     await _audit("delete_round", hunt_uid=ctx["hunt"]["uid"],
                  detail=f"tag_group_id={tag_group_id} name={tag_group.name}")
-    resp = {"ok": True}
+    resp: dict[str, Any] = {"ok": True}
     if failed_channels:
         resp["failed_channels"] = failed_channels
     return jsonify(resp)
@@ -1467,6 +1490,7 @@ async def rename_tag_group(tag_group_id):
     from bot.store import HuntJsonDb, TagGroupJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    assert hunt_obj is not None  # row exists: the visible-hunt check just passed
     if TagGroupJsonDb.check_duplicates_in_hunt(
             new_name, hunt_obj, exclude_group_id=tag_group_id):
         return jsonify({"error": "duplicate_name"}), 400
@@ -1509,7 +1533,7 @@ async def change_group_type(tag_group_id):
         return perm
 
     body = await request.get_json(silent=True) or {}
-    raw_type = body.get("type")
+    raw_type = body.get("type") or ""
     new_type = GROUP_TYPE_INPUT_ALIASES.get(raw_type, raw_type)
     if new_type not in GROUP_TYPES:
         return jsonify({"error": "invalid_type"}), 400
@@ -1537,17 +1561,19 @@ async def change_group_type(tag_group_id):
                 await stack.enter_async_context(puzzle_lock(tag_group.target_puzzle_id))
             _group, summary = await cog.service.convert_tag_group_type(
                 guild, hunt_obj, tag_group, new_type)
+    # SheetRefreshError subclasses RuntimeError, so it must be caught first —
+    # otherwise a stale-sheet warning would be misreported as a 400 error.
+    except SheetRefreshError as exc:
+        warning = str(exc)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
-    except SheetRefreshError as exc:
-        warning = str(exc)
 
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
     await _audit("change_group_type", hunt_uid=ctx["hunt"]["uid"],
                  detail=f"tag_group_id={tag_group_id} type={new_type}")
-    resp = {"ok": True, "summary": summary}
+    resp: dict[str, Any] = {"ok": True, "summary": summary}
     if warning:
         resp["sheet_warning"] = warning
     return jsonify(resp)
@@ -1694,6 +1720,7 @@ async def create_puzzle(uid):
     from bot.store import HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    assert hunt_obj is not None  # row exists: the visible-hunt check just passed
     target_group = None
     if group_code:
         target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
@@ -1863,7 +1890,7 @@ async def unsolve_puzzle(puzzle_id):
         snowflake = ctx["guild_snowflake"]
         guild = bot.get_guild(int(snowflake)) if snowflake else None
         # Capture before service.unsolve clears it, for the channel message.
-        prev_solution = puzzle.solution
+        prev_solution = puzzle.solution or ""
         try:
             await cog.service.unsolve(guild, hunt_obj, puzzle)
         except (discord.RateLimited, discord.HTTPException) as exc:

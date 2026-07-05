@@ -164,7 +164,7 @@ def build_note_embeds(
         if e.footer and e.footer.text:
             total += len(e.footer.text)
         for f in e.fields:
-            total += len(f.name) + len(f.value)
+            total += len(f.name or "") + len(f.value or "")
         return total
 
     def start_new_embed():

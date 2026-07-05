@@ -89,7 +89,7 @@ def first_channel_position(category):
 
 async def get_or_create_channel(
     guild,
-    category: discord.CategoryChannel,
+    category: "discord.CategoryChannel | None",
     channel_name: str,
     channel_type,
     **kwargs,

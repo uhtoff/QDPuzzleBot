@@ -13,6 +13,7 @@ import datetime
 import functools
 import inspect
 import logging
+from typing import Any, Callable
 
 import discord
 import pytz
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 _board_push_depth = contextvars.ContextVar("_board_push_depth", default=0)
 
 
-def pushes_board(hunt="hunt", when=None):
+def pushes_board(hunt: "str | Callable[[dict[str, Any]], Any]" = "hunt", when=None):
     """Decorator: emit a single ``notifier.board_changed`` after a PuzzleService
     mutation, instead of every method calling the notifier by hand.
 
@@ -87,7 +88,7 @@ def pushes_board(hunt="hunt", when=None):
                 raise sheet_error
             return result
 
-        wrapper._pushes_board = True
+        setattr(wrapper, "_pushes_board", True)  # read via getattr by the board-push tests
         return wrapper
 
     return decorator
@@ -1311,7 +1312,7 @@ class PuzzleService:
             if not await self._relocate_kept_puzzle(guild, hunt, tag_group, member, channel):
                 keep_ids.add(member.channel_id)
         await category_layout.delete_group_categories(
-            guild, tag_group, TagGroupCategoryDb, keep_channel_ids=keep_ids)
+            guild, tag_group, TagGroupCategoryDb, keep_channel_ids=frozenset(keep_ids))
 
     def feeders_orphaned_by_convert(self, puzzle):
         """Read-only: the feeders that converting *puzzle* back to a feeder would
@@ -1508,7 +1509,7 @@ class PuzzleService:
                 # tag_group row, so deleting that first would wipe the rows this reads.
                 if not await category_layout.delete_group_categories(
                     guild, tag_group, TagGroupCategoryDb,
-                    keep_channel_ids=relocation_failed_channel_ids,
+                    keep_channel_ids=frozenset(relocation_failed_channel_ids),
                 ) and tag_group.category_id:
                     category = discord.utils.get(guild.categories, id=tag_group.category_id)
                     if category is not None:
@@ -2205,13 +2206,17 @@ class PuzzleService:
                 # land under it (category_layout resolves category_id against
                 # guild.categories; the cog resolves channel-mode groups via the
                 # channel's parent category — see Puzzles.cog_before_invoke).
-                parent_id = (
-                    group_text_channel.id if hunt.layout_mode == "forum"
-                    else new_category.id
-                )
+                if hunt.layout_mode == "forum":
+                    assert group_text_channel is not None  # created above for every Group
+                    parent_id = group_text_channel.id
+                else:
+                    assert new_category is not None  # cloned above in channel mode
+                    parent_id = new_category.id
             elif hunt.layout_mode == "forum":
+                assert forum_channel is not None  # created above in forum mode
                 parent_id = forum_channel.id
             else:
+                assert new_category is not None  # cloned above in channel mode
                 parent_id = new_category.id
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
@@ -2623,6 +2628,10 @@ class PuzzleService:
         team_role = await self._resolve_gating_role(
             guild, role_name, requester, confirm_existing_role
         )
+        if team_role is None:
+            # _resolve_gating_role returns None only for an empty role_name —
+            # there is nothing to gate with (callers validate, so this is a guard).
+            raise RuntimeError("role_not_applied")
         hunt.role_id = team_role.id
         HuntJsonDb.commit(hunt)
 
@@ -2952,9 +2961,9 @@ class PuzzleService:
     _UNSET = object()
 
     @pushes_board()
-    async def update_hunt_settings(self, hunt, *, url=_UNSET, start_timestamp=_UNSET,
-                             username=_UNSET, password=_UNSET, url_sep=_UNSET,
-                             puzzle_prefix=_UNSET):
+    async def update_hunt_settings(self, hunt, *, url: Any = _UNSET, start_timestamp: Any = _UNSET,
+                             username: Any = _UNSET, password: Any = _UNSET, url_sep: Any = _UNSET,
+                             puzzle_prefix: Any = _UNSET):
         """Apply whitelisted per-hunt settings and commit. Only provided keys change."""
         if url is not self._UNSET:
             hunt.url = urls.normalize_external_url(url)

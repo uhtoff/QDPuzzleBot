@@ -5,8 +5,9 @@ can be easily disabled; simply omit this file.
 """
 import contextvars
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
+import discord
 from discord.ext import commands
 
 from bot.utils import config
@@ -18,12 +19,16 @@ logger = logging.getLogger(__name__)
 # Request-scoped target spreadsheets. Each Discord command runs in its own asyncio
 # Task, and ContextVars are isolated per Task, so concurrent commands from different
 # teams/hunts cannot overwrite each other's target spreadsheet.
-_current_spreadsheet_id = contextvars.ContextVar("current_spreadsheet_id", default=None)
-_current_solved_sheet_id = contextvars.ContextVar("current_solved_sheet_id", default=None)
+_current_spreadsheet_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "current_spreadsheet_id", default=None)
+_current_solved_sheet_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "current_solved_sheet_id", default=None)
 # Channel to notify if a Sheets call has to be retried, plus a one-shot flag so a
 # single command posts at most one "retrying" notice. Request-scoped, like above.
-_current_notify_channel = contextvars.ContextVar("current_notify_channel", default=None)
-_notified_flag = contextvars.ContextVar("notified_flag", default=None)
+_current_notify_channel: contextvars.ContextVar[Optional[discord.abc.Messageable]] = contextvars.ContextVar(
+    "current_notify_channel", default=None)
+_notified_flag: contextvars.ContextVar[Optional[List[bool]]] = contextvars.ContextVar(
+    "notified_flag", default=None)
 
 
 def _formula_string(value: str) -> str:
@@ -451,7 +456,7 @@ class GoogleSheets(commands.Cog):
         `index` inserts the tab at that 0-based position (e.g. INITIAL_OFFSET, so
         new puzzles land at the left after the reserved sheets); when omitted,
         Sheets appends the tab at the end."""
-        props = {"title": name}
+        props: dict[str, Any] = {"title": name}
         if index is not None:
             props["index"] = index
         body = {
@@ -1344,6 +1349,7 @@ class GoogleSheets(commands.Cog):
         import inspect as insp
 
         spreadsheet_id = self.get_spreadsheet_id()
+        assert spreadsheet_id is not None  # sheet ops run with a hunt spreadsheet in context
         name = await self.get_unique_tab_name(puzzle.name)
         _result = self.create_blank_tab(spreadsheet_id, name, index)
         page_id = await _result if insp.iscoroutine(_result) else _result

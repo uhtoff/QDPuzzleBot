@@ -16,7 +16,7 @@ import logging
 from typing import TYPE_CHECKING, List, Optional, cast
 
 if TYPE_CHECKING:
-    from discord.ext.commands import Bot
+    from discord.ext.commands import AutoShardedBot, Bot
 
     from bot.cogs.puzzles import Puzzles
     from bot.store import PuzzleData, TagGroupData
@@ -77,7 +77,7 @@ class NullNotifier(Notifier):
 class DiscordNotifier(Notifier):
     """Sends Discord messages via the cog's ctx-free render helpers."""
 
-    def __init__(self, bot: "Bot"):
+    def __init__(self, bot: "Bot | AutoShardedBot"):
         self.bot = bot
 
     def _cog(self) -> "Puzzles | None":

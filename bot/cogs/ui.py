@@ -1,4 +1,6 @@
 """Reusable discord.ui components for the Puzzles cog (M10)."""
+from typing import Optional
+
 import discord
 
 
@@ -14,8 +16,8 @@ class ConfirmView(discord.ui.View):
     def __init__(self, author_id, *, timeout=30.0):
         super().__init__(timeout=timeout)
         self.author_id = author_id
-        self.value = None
-        self.message = None
+        self.value: Optional[bool] = None
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.author_id:
@@ -27,7 +29,8 @@ class ConfirmView(discord.ui.View):
 
     def _disable_all(self):
         for child in self.children:
-            child.disabled = True
+            if isinstance(child, (discord.ui.Button, discord.ui.Select)):
+                child.disabled = True
 
     @discord.ui.button(label="Confirm delete", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction, button=None):
