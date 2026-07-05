@@ -61,7 +61,7 @@ class _RollupJsonDb:
         pass
 
     def get_by_attr(self, **kwargs) -> RollupData:
-        pass
+        raise NotImplementedError
 
     def get_all_from_hunt(self, hunt_id) -> List[RollupData]:
-        pass
+        raise NotImplementedError

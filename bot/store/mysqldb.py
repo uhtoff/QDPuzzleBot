@@ -4,7 +4,10 @@ import string
 import json
 import logging
 from pathlib import Path
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from . import MySQLReconnector
 
 from bot.core.discord_channels import clean_channel_name
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
@@ -20,14 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class _MySQLBaseDb:
-    TABLE_NAME = None
-    SPECIAL_ATTR = []
-    mydb = None
+    TABLE_NAME: str
+    SPECIAL_ATTR: List[str] = []
 
-    def __init__(self, mydb):
+    def __init__(self, mydb: "MySQLReconnector"):
         self.mydb = mydb
 
-    def commit(self, object_to_commit):
+    def commit(self, object_to_commit, /):
         cursor = self.mydb.cursor()
         data = ()
         field_list = []
@@ -65,7 +67,7 @@ class _MySQLBaseDb:
         cursor.close()
         self.mydb.commit()
 
-    def delete(self, delete_id):
+    def delete(self, delete_id, /):
         """Delete single puzzle from database by database id"""
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
@@ -188,13 +190,13 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
         tag_group_datas = []
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT * FROM tag_group WHERE hunt_id = %s", (hunt_id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             tag_group_datas.append(TagGroupData.import_dict(row))
         cursor.close()
         return tag_group_datas
 
-    def delete(self, tag_group_id):
+    def delete(self, tag_group_id, /):
         super(MySQLTagGroupJsonDb, self).delete(tag_group_id)
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
@@ -220,7 +222,7 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
                 "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
                 (group_id,),
             )
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         return [TagGroupCategoryData(**row) for row in rows]
@@ -269,7 +271,7 @@ class MySQLHuntCategoryDb(_MySQLBaseDb):
                 "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
                 (hunt_id,),
             )
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         return [HuntCategoryData(**row) for row in rows]
@@ -304,7 +306,7 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
     def get_by_puzzle(self, puzzle_id):
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         cursor.close()
         return rows
 
@@ -333,7 +335,7 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         try:
             cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `hunt_id` = %s", (hunt_id,))
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         return [RollupData.import_dict(row) for row in rows]
@@ -384,7 +386,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.execute("SELECT puzzles.* FROM puzzles "
                        "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
                        "WHERE hunts.guild_id = %s", (guild_id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
@@ -396,7 +398,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("SELECT puzzles.* FROM puzzles "
                        "WHERE hunt_id = %s", (hunt_id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
@@ -411,7 +413,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "(SELECT puzzle_id FROM tags WHERE tag_group_id = %s)",
             (tag_group_id,),
         )
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
         cursor.close()
@@ -424,11 +426,12 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "SELECT * FROM puzzles WHERE parent_puzzle_id = %s ORDER BY id ASC",
             (parent_puzzle_id,),
         )
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 
-    def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:
+    # Table-specific signature; never called through a base-typed reference.
+    def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
         cursor = self.mydb.cursor(dictionary = True)
         query = ("SELECT 1 FROM puzzles "
                  "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
@@ -465,7 +468,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "   )",
             (hunt_id,),
         )
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 
@@ -473,7 +476,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         select_stmt = "SELECT tags.tag_group_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             gid = row['tag_group_id']
             if gid not in puzzle.tags:
@@ -485,7 +488,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         select_stmt = "SELECT * FROM additional_sheets WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
-        rows = cursor.fetchall()
+        rows = cursor.fetchall() or []
         for row in rows:
             sheet = AdditionalSheetData()
             for attr, value in sheet.__dict__.items():
@@ -573,7 +576,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 "WHERE tag_group_id = %s AND edge_type IN ('feeds','informs','none')",
                 (tag_group_id,),
             )
-            pids = [r[0] for r in cursor.fetchall()]
+            pids = [r[0] for r in cursor.fetchall() or []]
             if pids:
                 placeholders = ",".join(["%s"] * len(pids))
                 cursor.execute(
@@ -591,14 +594,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
 
-    def commit(self, puzzle):
+    def commit(self, puzzle, /):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute(
             "SELECT tag_group_id, edge_type FROM tags WHERE puzzle_id = %s",
             (puzzle.id,),
         )
-        db_pairs = {(r['tag_group_id'], r['edge_type']) for r in cursor.fetchall()}
+        db_pairs = {(r['tag_group_id'], r['edge_type']) for r in cursor.fetchall() or []}
         mem_pairs = {
             (gid, edge)
             for gid, edges in puzzle.tag_edges.items()
@@ -618,7 +621,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
         self.mydb.commit()
 
-    def delete(self, puzzle_id):
+    def delete(self, puzzle_id, /):
         super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
         cursor = self.mydb.cursor(dictionary=True)
         cursor.execute("DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
@@ -651,7 +654,7 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         try:
             cursor.execute("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         return {row['channel_id']: row for row in rows}
@@ -675,7 +678,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
         e = EvidenceData()
-        e.id = new_id
+        e.id = new_id or 0
         e.hunt_id = hunt_id
         e.source_puzzle_id = source_puzzle_id
         e.note = note
@@ -700,7 +703,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         cursor = self.mydb.cursor(dictionary=True)
         try:
             cursor.execute(sql, params)
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         return [EvidenceData.import_dict(r) for r in rows]
@@ -730,7 +733,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
-    def delete(self, item_id: int) -> None:
+    def delete(self, item_id: int, /) -> None:
         """Delete an evidence item by id. No-op if the id does not exist."""
         cursor = self.mydb.cursor()
         try:
@@ -756,12 +759,12 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
 
 class MySQLGuildSettingsDb():
-    def __init__(self, dir_path: Path, mydb):
+    def __init__(self, dir_path: Path, mydb: "MySQLReconnector"):
         self.dir_path = dir_path
-        self.cached_settings = {}
+        self.cached_settings: dict[int, Optional[GuildSettings]] = {}
         self.mydb = mydb
-    
-    def get_channel_type(self, channel_id) -> str:
+
+    def get_channel_type(self, channel_id) -> Optional[str]:
         cursor = self.mydb.cursor(dictionary=True)
         stmt = ("SELECT channel_id, channel_type FROM ( "
                     "SELECT category_id as channel_id, 'Hunt' as channel_type FROM hunts "
@@ -772,7 +775,7 @@ class MySQLGuildSettingsDb():
         data = (channel_id,)
         try:
             cursor.execute(stmt, data)
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() or []
         finally:
             cursor.close()
         # A channel id can legitimately match more than one role: promoting a
@@ -789,7 +792,7 @@ class MySQLGuildSettingsDb():
                 return channel_type
         return None
 
-    def get(self, guild_id: int) -> GuildSettings:
+    def get(self, guild_id: int) -> Optional[GuildSettings]:
         cursor = self.mydb.cursor(dictionary=True)
         try:
             cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))
@@ -800,7 +803,7 @@ class MySQLGuildSettingsDb():
             return GuildSettings.import_dict(row)
         return None
 
-    def get_cached(self, guild_id: int) -> GuildSettings:
+    def get_cached(self, guild_id: int) -> Optional[GuildSettings]:
         if guild_id in self.cached_settings:
             return self.cached_settings[guild_id]
         settings = self.get(guild_id)
@@ -825,7 +828,7 @@ class MySQLGuildSettingsDb():
                            "`drive_parent_id`, `drive_resources_id`) "
                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
-            settings.id = cursor.lastrowid
+            settings.id = cursor.lastrowid or 0
         cursor.close()
         self.mydb.commit()
         # Keep the read cache coherent: a prior get_cached() may have cached a

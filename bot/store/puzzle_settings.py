@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import datetime
 import json
+from typing import Optional
 from dataclasses_json import dataclass_json
 
 
@@ -39,7 +40,7 @@ class GuildSettings:
         r = GuildSettings()
         for attr, value in r.__dict__.items():
             if attr == "notes":
-                setattr(r, attr, json.loads(settings.get(attr, None)))
+                setattr(r, attr, json.loads(settings.get(attr) or "null"))
             elif attr.endswith("_time"):
                 db_date = settings.get(attr,None)
                 if db_date is not None:
@@ -53,11 +54,11 @@ class GuildSettings:
 
 class _GuildSettingsDb:
     @classmethod
-    def get(cls, guild_id: int) -> GuildSettings:
+    def get(cls, guild_id: int) -> Optional[GuildSettings]:
         pass
 
     @classmethod
-    def get_cached(cls, guild_id: int) -> GuildSettings:
+    def get_cached(cls, guild_id: int) -> Optional[GuildSettings]:
         pass
 
     @classmethod

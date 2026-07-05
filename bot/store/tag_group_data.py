@@ -135,6 +135,6 @@ class _TagGroupJsonDb:
     def delete(self, tag_group_data):
         pass
     def get_all(self, guild_id, hunt_id="*") -> List[TagGroupData]:
-        pass
+        raise NotImplementedError
     def aggregate_json(self) -> dict:
-        pass
+        raise NotImplementedError

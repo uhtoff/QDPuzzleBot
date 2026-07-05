@@ -45,7 +45,7 @@ class HuntData:
         r = HuntData()
         for attr, value in r.__dict__.items():
             if attr == "notes":
-                setattr(r, attr, json.loads(hunt_data.get(attr, None)))
+                setattr(r, attr, json.loads(hunt_data.get(attr) or "null"))
             elif attr.endswith("_time"):
                 db_date = hunt_data.get(attr,None)
                 if db_date is not None:
@@ -62,8 +62,8 @@ class _HuntJsonDb:
     def delete(self, round_data):
         pass
     def get(self, guild_id, round_id, hunt_id) -> HuntData:
-        pass
+        raise NotImplementedError
     def get_all(self, guild_id, hunt_id="*") -> List[HuntData]:
-        pass
+        raise NotImplementedError
     def aggregate_json(self) -> dict:
-        pass
+        raise NotImplementedError

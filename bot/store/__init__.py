@@ -1,5 +1,8 @@
 import os
+from typing import cast
+
 import mysql.connector
+from mysql.connector.abstracts import MySQLConnectionAbstract
 
 from pathlib import Path
 
@@ -32,11 +35,10 @@ class MySQLReconnector:
     def __init__(self, **cfg):
         cfg.setdefault("connect_timeout", self._CONNECT_TIMEOUT_SECONDS)
         self._cfg = cfg
-        self._conn = None
         self._connect()
 
     def _connect(self):
-        self._conn = mysql.connector.connect(**self._cfg)
+        self._conn = cast(MySQLConnectionAbstract, mysql.connector.connect(**self._cfg))
         # keep your existing behaviour
         self._conn.autocommit = True
 
@@ -49,7 +51,7 @@ class MySQLReconnector:
                 self._conn.close()
             except Exception:
                 pass
-            self._conn = mysql.connector.connect(**self._cfg)
+            self._conn = cast(MySQLConnectionAbstract, mysql.connector.connect(**self._cfg))
             self._conn.autocommit = True
 
     def cursor(self, *args, **kwargs):
@@ -86,7 +88,6 @@ if config.storage == 'mysql':
         database=config.database,
         charset="utf8mb4",
     )
-    mydb.autocommit = True
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
     GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
     TagGroupJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
@@ -106,6 +107,5 @@ if config.storage == 'mysql':
         database=config.database,
         charset="utf8mb4",
     )
-    activity_db.autocommit = True
     ChannelActivityDb = MySQLChannelActivityDb(mydb=activity_db)
     EvidenceJsonDb = MySQLEvidenceDb(mydb=mydb)

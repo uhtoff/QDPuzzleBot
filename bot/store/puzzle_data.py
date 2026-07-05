@@ -37,7 +37,7 @@ class PuzzleData:
     status: str = ""
     solved: bool = False
     on_solved_sheet: bool = False
-    solution: str = None
+    solution: Optional[str] = None
     priority: str = ""
     puzzle_type: str = ""
     notes: List[str] = field(default_factory=list)
@@ -121,8 +121,8 @@ class _PuzzleJsonDb:
     def delete(self, puzzle_data):
         pass
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
-        pass
+        raise NotImplementedError
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        pass
+        raise NotImplementedError
     def aggregate_json(self) -> dict:
-        pass
+        raise NotImplementedError
