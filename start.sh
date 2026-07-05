@@ -42,7 +42,12 @@ if [ -d frontend ]; then
   echo "[start] Building dashboard frontend..."
   (
     cd frontend
-    [ -d node_modules ] || npm ci
+    # Refresh deps when the lockfile changed since the last install, not only
+    # when node_modules is missing — otherwise a new dependency silently fails
+    # the build and the previous dist keeps being served.
+    if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+      npm ci
+    fi
     npm run build
   ) || echo "[start] WARNING: frontend build failed; serving previous dist (if any)."
 fi
