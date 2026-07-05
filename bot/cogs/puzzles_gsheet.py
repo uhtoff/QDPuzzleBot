@@ -5,7 +5,7 @@ can be easily disabled; simply omit this file.
 """
 import contextvars
 import logging
-from typing import List
+from typing import List, Optional
 
 from discord.ext import commands
 
@@ -445,7 +445,7 @@ class GoogleSheets(commands.Cog):
         await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
 
 
-    async def create_blank_tab(self, spreadsheet_id: str, name: str, index: int = None) -> int:
+    async def create_blank_tab(self, spreadsheet_id: str, name: str, index: Optional[int] = None) -> int:
         """Add a plain blank tab to a spreadsheet. Returns the new sheet's page id.
 
         `index` inserts the tab at that 0-based position (e.g. INITIAL_OFFSET, so

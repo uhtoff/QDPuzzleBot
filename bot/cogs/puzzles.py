@@ -10,7 +10,7 @@ import asyncio
 from functools import wraps
 
 from bot.utils import urls
-from bot.store import PuzzleData, PuzzleJsonDb, GuildSettingsDb, \
+from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group
 from bot.utils.chunking import build_note_embeds
@@ -391,7 +391,7 @@ class Puzzles(commands.Cog):
             return None
         return self.environment[ctx.message.id]['gsheet_cog'] or None
 
-    def get_puzzle_sheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
+    def get_puzzle_sheet(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         """Return the active or solved-puzzles spreadsheet id for a puzzle.
 
         When *hunt* is not provided (bang path), falls back to environment lookup.
@@ -403,7 +403,7 @@ class Puzzles(commands.Cog):
         else:
             return hunt.google_sheet_id
 
-    def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
+    def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         """Return the spreadsheet id for additional sheets (solved puzzles sheet when solved)."""
         if hunt is None:
             hunt = self.get_hunt(ctx)
@@ -1342,7 +1342,7 @@ class Puzzles(commands.Cog):
         embed.description = self.create_mini_list(puzzle, minis, self.get_hunt(ctx))
         await ctx.send(embed=embed)
 
-    def create_mini_list(self, puzzle: PuzzleData, minis=None, hunt: HuntData = None):
+    def create_mini_list(self, puzzle: PuzzleData, minis=None, hunt: Optional[HuntData] = None):
         """Render the numbered mini-puzzle list (solved/unsolved). Shared by
         !list_minis and the pinned-info embed so both stay in sync. Each row
         links to the mini's thread (a channel mention jumps to it) and, when
@@ -1459,7 +1459,7 @@ class Puzzles(commands.Cog):
         asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
         await ctx.send(f":pencil: {len(notes)} clue{'s' if len(notes) != 1 else ''} logged from **{puzzle.name}**.")
 
-    def create_additional_sheet_list(self, ctx=None, puzzle: PuzzleData = None, hunt: HuntData = None):
+    def create_additional_sheet_list(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         sheet_links = ""
         count = 1
         spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle, hunt)
@@ -2391,7 +2391,7 @@ class Puzzles(commands.Cog):
             inline=False,
         )
 
-    def _build_embed_list(self, ctx=None, embed: discord.Embed = None, puzzle: PuzzleData = None, hunt: HuntData = None):
+    def _build_embed_list(self, ctx=None, embed: Optional[discord.Embed] = None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
         """Wrap the main embed plus an optional additional-sheets embed in a list."""
         embed_list = [embed]
         if len(puzzle.additional_sheets) > 0:
@@ -2840,7 +2840,7 @@ class Puzzles(commands.Cog):
         saved and the affected meta sheet(s) are badged on the dashboard."""
         await ctx.send(f":warning: {exc}")
 
-    def _overview_url(self, ctx=None, hunt: HuntData = None, guild_data: GuildSettingsDb = None):
+    def _overview_url(self, ctx=None, hunt: Optional[HuntData] = None, guild_data: Optional[GuildSettings] = None):
         """Overview website URL for a hunt (falls back to the numeric id)."""
         if guild_data is None:
             guild_data = self.get_guild_data(ctx)
