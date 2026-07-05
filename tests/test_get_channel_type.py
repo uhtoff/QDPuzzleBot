@@ -41,7 +41,7 @@ class FakeCursor:
 
 def _db_with_rows(rows):
     mydb = MagicMock()
-    mydb.cursor.return_value = FakeCursor(rows)
+    mydb.dict_cursor.return_value = FakeCursor(rows)
     return MySQLGuildSettingsDb(dir_path=MagicMock(), mydb=mydb)
 
 

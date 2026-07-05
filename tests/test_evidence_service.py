@@ -331,7 +331,9 @@ class TestMySQLEvidenceDbMethods:
         from unittest.mock import MagicMock
         mock_mydb = MagicMock()
         mock_cursor = MagicMock()
+        # delete() uses the plain cursor; update_note() reads back via dict_cursor.
         mock_mydb.cursor.return_value = mock_cursor
+        mock_mydb.dict_cursor.return_value = mock_cursor
         db = MySQLEvidenceDb(mydb=mock_mydb)
         return db, mock_mydb, mock_cursor
 

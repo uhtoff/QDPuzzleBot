@@ -69,7 +69,7 @@ class _MySQLBaseDb:
 
     def delete(self, delete_id, /):
         """Delete single puzzle from database by database id"""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
         cursor.close()
         # if deleted_rows != 1:S
@@ -77,7 +77,7 @@ class _MySQLBaseDb:
 
     def check_duplicates(self, value, field = 'name'):
         """Ensures no duplicate name by default but can check any field if passed"""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `{field}` = %s LIMIT 1", (value,))
         found = cursor.fetchone() is not None
         cursor.close()
@@ -118,7 +118,7 @@ class _MySQLBaseDb:
         return code
 
     def check_duplicates_in_hunt(self, name, hunt_data: HuntData, exclude_group_id=None) -> bool:
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         query = f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s"
         params = [name, hunt_data.id]
         if exclude_group_id is not None:
@@ -138,7 +138,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.cursor(dictionary = True)
+            cursor = self.mydb.dict_cursor()
             try:
                 cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
                 row = cursor.fetchone()
@@ -153,7 +153,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     def get_lowest_code_in_hunt(self, hunt_id):
         """Retrieve lower code from database return 0 if none set"""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute("SELECT group_code FROM tag_group WHERE hunt_id = %s ORDER BY group_code DESC LIMIT 0,1", (hunt_id,))
             row = cursor.fetchone()
@@ -174,7 +174,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
         """Retrieve TagGroup by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.cursor(dictionary = True)
+            cursor = self.mydb.dict_cursor()
             try:
                 cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
                 row = cursor.fetchone()
@@ -188,7 +188,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
     def get_all(self, hunt_id: int) -> List[TagGroupData]:
         """Retrieve all tag groups for hunt"""
         tag_group_datas = []
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("SELECT * FROM tag_group WHERE hunt_id = %s", (hunt_id,))
         rows = cursor.fetchall() or []
         for row in rows:
@@ -198,7 +198,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
 
     def delete(self, tag_group_id, /):
         super(MySQLTagGroupJsonDb, self).delete(tag_group_id)
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
         cursor.close()
 
@@ -214,7 +214,7 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
 
     def get_for_group(self, group_id):
         """All category rows for a group, ordered by role then seq."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             # unsolved categories first, then solved; each by seq
             cursor.execute(
@@ -229,7 +229,7 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
 
     def get_by_category(self, category_id):
         """The single row owning a category, or None."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "SELECT * FROM tag_group_category WHERE category_id = %s LIMIT 1",
@@ -264,7 +264,7 @@ class MySQLHuntCategoryDb(_MySQLBaseDb):
 
     def get_for_group(self, hunt_id):
         """All category rows for a hunt, ordered by role then seq."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "SELECT * FROM hunt_category WHERE hunt_id = %s "
@@ -278,7 +278,7 @@ class MySQLHuntCategoryDb(_MySQLBaseDb):
 
     def get_by_category(self, category_id):
         """The single row owning a category, or None."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "SELECT * FROM hunt_category WHERE category_id = %s LIMIT 1",
@@ -304,7 +304,7 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
     TABLE_NAME = 'additional_sheets'
 
     def get_by_puzzle(self, puzzle_id):
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
         rows = cursor.fetchall() or []
         cursor.close()
@@ -318,7 +318,7 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
         """Retrieve a Rollup by attribute (e.g. round_id=). Last attr wins."""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.cursor(dictionary=True)
+            cursor = self.mydb.dict_cursor()
             try:
                 cursor.execute(
                     f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1",
@@ -332,7 +332,7 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
             return None
 
     def get_all_from_hunt(self, hunt_id) -> List[RollupData]:
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `hunt_id` = %s", (hunt_id,))
             rows = cursor.fetchall() or []
@@ -354,7 +354,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
-        cursor = self.mydb.cursor(dictionary = True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
             row = cursor.fetchone()
@@ -368,7 +368,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Retrieve puzzle by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.cursor(dictionary = True)
+            cursor = self.mydb.dict_cursor()
             try:
                 cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
                 row = cursor.fetchone()
@@ -382,7 +382,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("SELECT puzzles.* FROM puzzles "
                        "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
                        "WHERE hunts.guild_id = %s", (guild_id,))
@@ -395,7 +395,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("SELECT puzzles.* FROM puzzles "
                        "WHERE hunt_id = %s", (hunt_id,))
         rows = cursor.fetchall() or []
@@ -407,7 +407,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def get_all_from_tag_group(self, tag_group_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(
             "SELECT puzzles.* FROM puzzles WHERE puzzles.id IN "
             "(SELECT puzzle_id FROM tags WHERE tag_group_id = %s)",
@@ -421,7 +421,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_children(self, parent_puzzle_id: int):
         """Return all mini-puzzles whose parent_puzzle_id matches."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(
             "SELECT * FROM puzzles WHERE parent_puzzle_id = %s ORDER BY id ASC",
             (parent_puzzle_id,),
@@ -432,7 +432,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     # Table-specific signature; never called through a base-typed reference.
     def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
-        cursor = self.mydb.cursor(dictionary = True)
+        cursor = self.mydb.dict_cursor()
         query = ("SELECT 1 FROM puzzles "
                  "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
         params = [name, clean_channel_name(name), hunt_id]
@@ -453,7 +453,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         A puzzle whose answer feeds nothing is an unassigned feeder regardless of any
         informs / none membership. Excludes target puzzles (B2 derivation) and mini-meta feeders.
         """
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(
             "SELECT p.* FROM puzzles p"
             " WHERE p.hunt_id = %s"
@@ -473,7 +473,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         return [self.construct_puzzle(r) for r in rows]
 
     def get_tags(self, puzzle):
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         select_stmt = "SELECT tags.tag_group_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall() or []
@@ -485,7 +485,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         cursor.close()
 
     def get_additional_sheets(self, puzzle):
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         select_stmt = "SELECT * FROM additional_sheets WHERE puzzle_id = %s"
         cursor.execute(select_stmt, (puzzle.id,))
         rows = cursor.fetchall() or []
@@ -568,7 +568,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Convert members' feeds/informs/none edges to new_edge for a group, without
         creating duplicate (tag_group_id, puzzle_id, new_edge) rows. The target's
         'target' self-edge is left untouched here (bulk_re_edge re-pins it)."""
-        cursor = self.mydb.cursor()
+        cursor = self.mydb.dict_cursor()
         try:
             # Puzzles that currently contribute (feeds/informs/none) to this group.
             cursor.execute(
@@ -576,7 +576,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 "WHERE tag_group_id = %s AND edge_type IN ('feeds','informs','none')",
                 (tag_group_id,),
             )
-            pids = [r[0] for r in cursor.fetchall() or []]
+            pids = [r["puzzle_id"] for r in cursor.fetchall() or []]
             if pids:
                 placeholders = ",".join(["%s"] * len(pids))
                 cursor.execute(
@@ -596,7 +596,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def commit(self, puzzle, /):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute(
             "SELECT tag_group_id, edge_type FROM tags WHERE puzzle_id = %s",
             (puzzle.id,),
@@ -623,7 +623,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def delete(self, puzzle_id, /):
         super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         cursor.execute("DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
         cursor.close()
 
@@ -651,7 +651,7 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
 
     def get_for_guild(self, guild_id) -> dict:
         """Return {channel_id: row} of latest activity for every channel in a guild."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
             rows = cursor.fetchall() or []
@@ -666,7 +666,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
     def log(self, hunt_id: int, source_puzzle_id: int, note: str) -> 'EvidenceData':
         """Insert one evidence item and return it."""
         now = datetime.datetime.utcnow()
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "INSERT INTO evidence_items (hunt_id, source_puzzle_id, note, created_at)"
@@ -700,7 +700,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             where.append("target_puzzle_id = %s")
             params.append(target_puzzle_id)
         sql = "SELECT * FROM evidence_items WHERE " + " AND ".join(where) + " ORDER BY created_at ASC"
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(sql, params)
             rows = cursor.fetchall() or []
@@ -710,7 +710,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
     def get_by_id(self, item_id: int):
         """Return one EvidenceData by id, or None if missing."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
             row = cursor.fetchone()
@@ -720,7 +720,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
     def set_target(self, item_id: int, target_puzzle_id):
         """Set or clear target_puzzle_id on an item. Returns updated EvidenceData."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "UPDATE evidence_items SET target_puzzle_id = %s WHERE id = %s",
@@ -744,7 +744,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
     def update_note(self, item_id: int, note: str):
         """Update the note text for an evidence item. Returns updated EvidenceData or None."""
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "UPDATE evidence_items SET note = %s WHERE id = %s",
@@ -765,7 +765,7 @@ class MySQLGuildSettingsDb():
         self.mydb = mydb
 
     def get_channel_type(self, channel_id) -> Optional[str]:
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         stmt = ("SELECT channel_id, channel_type FROM ( "
                     "SELECT category_id as channel_id, 'Hunt' as channel_type FROM hunts "
                     "UNION SELECT channel_id as channel_id, 'Hunt' as channel_type FROM hunts "
@@ -793,7 +793,7 @@ class MySQLGuildSettingsDb():
         return None
 
     def get(self, guild_id: int) -> Optional[GuildSettings]:
-        cursor = self.mydb.cursor(dictionary=True)
+        cursor = self.mydb.dict_cursor()
         try:
             cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))
             row = cursor.fetchone()

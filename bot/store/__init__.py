@@ -1,8 +1,26 @@
 import os
-from typing import cast
+from typing import Any, Optional, Protocol, Sequence, cast
 
 import mysql.connector
 from mysql.connector.abstracts import MySQLConnectionAbstract
+
+
+class DictCursor(Protocol):
+    """The dict-row cursor surface the DAOs use (``cursor(dictionary=True)``).
+
+    mysql-connector types the generic ``cursor()`` as returning the abstract
+    cursor, whose fetches yield ``RowType | Dict[...]`` unions; the concrete
+    dict cursors (pure-Python and C-extension) share no dict-typed base class.
+    This protocol pins the actual runtime shape: rows are always dicts.
+    """
+
+    def execute(self, operation: str, params: Sequence[Any] = ...) -> Any: ...
+    def executemany(self, operation: str, seq_params: Sequence[Sequence[Any]]) -> Any: ...
+    def fetchone(self) -> Optional[dict[str, Any]]: ...
+    def fetchall(self) -> list[dict[str, Any]]: ...
+    def close(self) -> Any: ...
+    @property
+    def lastrowid(self) -> Optional[int]: ...
 
 from pathlib import Path
 
@@ -57,6 +75,11 @@ class MySQLReconnector:
     def cursor(self, *args, **kwargs):
         self._ensure()
         return self._conn.cursor(*args, **kwargs)
+
+    def dict_cursor(self) -> DictCursor:
+        """A ``dictionary=True`` cursor, typed as such (see DictCursor)."""
+        self._ensure()
+        return cast(DictCursor, self._conn.cursor(dictionary=True))
 
     def commit(self):
         # even with autocommit=True, your code calls commit()
