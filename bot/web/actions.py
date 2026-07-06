@@ -29,7 +29,7 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.locks import puzzle_lock, puzzles_lock
+from bot.core.locks import puzzle_lock, puzzles_lock, hunt_create_lock
 from bot.core.errors import SheetRefreshError
 
 logger = logging.getLogger(__name__)
@@ -1734,9 +1734,6 @@ async def create_puzzle(uid):
         target_group = TagGroupJsonDb.get_by_attr(group_code=group_code)
         if target_group is None or target_group.hunt_id != hunt_obj.id:
             return jsonify({"error": "bad_group_code"}), 400
-    if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
-        return jsonify({"error": "duplicate_name"}), 409
-
     bot = bot_app().bot
     cog = puzzles_cog()
     if cog is None:
@@ -1744,10 +1741,15 @@ async def create_puzzle(uid):
     guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     try:
         from bot.core.notifier import DiscordNotifier
-        puzzle = await cog.service.create_puzzle(
-            guild, hunt_obj, target_group, name,
-            notifier=DiscordNotifier(bot_app().bot),
-        )
+        # Serialize check+create per hunt: a double-submit (or two creators) must
+        # not both pass the duplicate check and each create a same-named puzzle.
+        async with hunt_create_lock(hunt_obj.id):
+            if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
+                return jsonify({"error": "duplicate_name"}), 409
+            puzzle = await cog.service.create_puzzle(
+                guild, hunt_obj, target_group, name,
+                notifier=DiscordNotifier(bot_app().bot),
+            )
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
@@ -1781,6 +1783,7 @@ async def create_meta(uid):
     from bot.store import HuntJsonDb
 
     hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    assert hunt_obj is not None  # row exists: the visible-hunt check just passed
     bot = bot_app().bot
     cog = puzzles_cog()
     if cog is None:
@@ -1797,12 +1800,16 @@ async def create_meta(uid):
         else:
             meta_puzzle_name = name
         stored_type = GROUP_TYPE_INPUT_ALIASES.get(group_type, group_type)
-        new_round, puzzle = await cog.service.create_tag_group(
-            guild, hunt_obj, name,
-            notifier=DiscordNotifier(bot),
-            meta_puzzle_name=meta_puzzle_name,
-            round_type=stored_type,
-        )
+        # Same per-hunt create lock as create_puzzle: create_tag_group runs its own
+        # duplicate check internally, so the whole call must be the critical section
+        # (and it serializes against concurrent puzzle-creates in the hunt too).
+        async with hunt_create_lock(hunt_obj.id):
+            new_round, puzzle = await cog.service.create_tag_group(
+                guild, hunt_obj, name,
+                notifier=DiscordNotifier(bot),
+                meta_puzzle_name=meta_puzzle_name,
+                round_type=stored_type,
+            )
         # Runaround groups aggregate over their subtree, not just direct feeders;
         # set source_mode like the bang path does after creation.
         if stored_type == "Runaround":
