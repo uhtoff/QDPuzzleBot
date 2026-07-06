@@ -61,7 +61,13 @@ async def test_consolidate_moves_channels_reverts_to_channel_home_and_deletes_ca
         mcl._category_by_id.side_effect = lambda g, cid: {900: env["owned_cat"], 800: env["dest_cat"]}.get(cid)
         mcl.is_split.return_value = False
         mcl.primary_category.side_effect = lambda g, grp: env["owned_cat"] if grp is meta else env["dest_cat"]
-        mcl.move_channel_to_owner = AsyncMock(return_value=True)
+
+        async def _move(g, owner, dao, channel, solved):
+            # Mirror the real helper: reparent the channel out of the source cat.
+            if channel in env["owned_cat"].channels:
+                env["owned_cat"].channels.remove(channel)
+            return True
+        mcl.move_channel_to_owner = AsyncMock(side_effect=_move)
         mcl.puzzle_count.return_value = 0
         mcl.delete_group_categories = AsyncMock(return_value=False)  # single-category owner
         mcl.CATEGORY_SOFT_LIMIT = 48
@@ -114,4 +120,24 @@ async def test_consolidate_channel_home_meta_moves_extract_set(env):
         mrdb.get_all.return_value = [meta, dest]
         await svc.consolidate_to(guild, hunt, meta, dest, force=False)
     assert mcl.move_channel_to_owner.await_count == 2
+    env["owned_cat"].delete.assert_not_awaited()
+
+
+async def test_consolidate_keeps_channel_that_fails_to_move(env):
+    svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.side_effect = lambda g, cid: {900: env["owned_cat"], 800: env["dest_cat"]}.get(cid)
+        mcl.is_split.return_value = False
+        mcl.primary_category.side_effect = lambda g, grp: env["owned_cat"] if grp is meta else env["dest_cat"]
+        mcl.puzzle_count.return_value = 0
+        mcl.CATEGORY_SOFT_LIMIT = 48
+        mcl.move_channel_to_owner = AsyncMock(side_effect=[True, False])  # 2nd fails
+        mcl.delete_group_categories = AsyncMock(return_value=False)       # non-split fallback
+        mpdb.get_by_attr.side_effect = lambda **kw: env["target"] if kw.get("id") == 1 else None
+        await svc.consolidate_to(guild, hunt, meta, dest, force=True)
+    # a channel that failed to move (and the category holding it) is NOT deleted
+    env["feeder_ch"].delete.assert_not_awaited()
     env["owned_cat"].delete.assert_not_awaited()

@@ -2030,24 +2030,42 @@ class PuzzleService:
                     > category_layout.CATEGORY_SOFT_LIMIT):
             raise RuntimeError("would_overflow")
 
-        async with category_layout.layout_lock:
-            for channel, puzzle in moves:
-                solved = getattr(puzzle, "status", "") == "solved"
-                await category_layout.move_channel_to_owner(
-                    guild, destination, TagGroupCategoryDb, channel, solved)
-            if owned:
-                if not await category_layout.delete_group_categories(
-                        guild, meta, TagGroupCategoryDb):
-                    for cat in owned:
-                        try:
-                            for ch in list(cat.channels):
-                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                            await cat.delete(reason=self._DISCORD_DELETE_REASON)
-                        except Exception:
-                            logger.warning("consolidate_to: failed to delete category %s",
-                                           getattr(cat, "id", "?"), exc_info=True)
-            meta.category_id = target_puzzle.channel_id
-            TagGroupJsonDb.commit(meta)
+        keep_ids = set()
+        for channel, puzzle in moves:
+            solved = getattr(puzzle, "status", "") == "solved"
+            moved = await category_layout.move_channel_to_owner(
+                guild, destination, TagGroupCategoryDb, channel, solved)
+            if not moved:
+                keep_ids.add(channel.id)
+                logger.warning(
+                    "consolidate_to: could not move channel %s; leaving it in place",
+                    getattr(channel, "id", "?"))
+
+        if owned:
+            if not await category_layout.delete_group_categories(
+                    guild, meta, TagGroupCategoryDb,
+                    keep_channel_ids=frozenset(keep_ids)):
+                # non-split fallback: only delete a category with no real leftover.
+                for cat in owned:
+                    remaining = [ch for ch in list(cat.channels)
+                                 if ch.name != SOLVE_DIVIDER and ch.id not in keep_ids]
+                    if remaining:
+                        logger.warning(
+                            "consolidate_to: category %s still holds %d channel(s); "
+                            "not deleting", getattr(cat, "id", "?"), len(remaining))
+                        continue
+                    try:
+                        for ch in list(cat.channels):
+                            if ch.id in keep_ids:
+                                continue
+                            await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                        await cat.delete(reason=self._DISCORD_DELETE_REASON)
+                    except Exception:
+                        logger.warning("consolidate_to: failed to delete category %s",
+                                       getattr(cat, "id", "?"), exc_info=True)
+
+        meta.category_id = target_puzzle.channel_id
+        TagGroupJsonDb.commit(meta)
         return destination
 
     @pushes_board()
