@@ -2108,17 +2108,26 @@ class PuzzleService:
         return moves, owned
 
     async def _place_channel_in_category(self, category, channel, solved):
-        """Reparent *channel* into *category*, honouring its solve divider (above the
-        divider if unsolved, below if solved). Keeps target channels in a category's
-        primary category rather than letting overflow scatter them."""
-        async with category_layout.layout_lock:
-            divider_pos = solve_divider_position(category)
-            if divider_pos is not False:
-                pos = (max((c.position for c in category.channels), default=0) + 1
-                       if solved else divider_pos)
-            else:
-                pos = max((c.position for c in category.channels), default=-1) + 1
-            await channel.edit(category=category, position=pos)
+        """Reparent *channel* into *category*, honouring its solve divider (above
+        if unsolved, below if solved). Returns True if placed, False if the edit
+        failed (e.g. the category hit Discord's hard channel cap) — mirrors
+        move_channel_to_owner's fail-soft contract so a failed target placement is
+        left in place (and protected by keep_ids) rather than aborting the drain."""
+        try:
+            async with category_layout.layout_lock:
+                divider_pos = solve_divider_position(category)
+                if divider_pos is not False:
+                    pos = (max((c.position for c in category.channels), default=0) + 1
+                           if solved else divider_pos)
+                else:
+                    pos = max((c.position for c in category.channels), default=-1) + 1
+                await channel.edit(category=category, position=pos)
+        except Exception:
+            logger.exception(
+                "_place_channel_in_category: could not place channel %s",
+                getattr(channel, "id", "?"))
+            return False
+        return True
 
     async def consolidate_to(self, guild, hunt, meta, destination, force=False):
         """Fold *meta* into *destination*'s category, reverting meta to channel-home.
@@ -2148,8 +2157,7 @@ class PuzzleService:
         for channel, puzzle in moves:
             solved = getattr(puzzle, "status", "") == "solved"
             if getattr(puzzle, "is_target", False):
-                await self._place_channel_in_category(dest_primary, channel, solved)
-                moved = True
+                moved = await self._place_channel_in_category(dest_primary, channel, solved)
             else:
                 moved = await category_layout.move_channel_to_owner(
                     guild, destination, TagGroupCategoryDb, channel, solved)

@@ -178,6 +178,28 @@ async def test_consolidate_solved_target_placed_below_divider_in_dest_primary(en
     target_ch.edit.assert_awaited_once_with(category=dest_cat, position=3)
 
 
+async def test_consolidate_target_that_fails_to_place_is_kept(env):
+    svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
+    env["target"].is_target = True
+    env["target_ch"].edit = AsyncMock(side_effect=RuntimeError("cap"))  # placement fails
+    svc._refresh_channel_glyph = AsyncMock()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.solve_divider_position", return_value=False), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.side_effect = lambda g, cid: {900: env["owned_cat"], 800: env["dest_cat"]}.get(cid)
+        mcl.is_split.return_value = False
+        mcl.primary_category.side_effect = lambda g, grp: env["owned_cat"] if grp is meta else env["dest_cat"]
+        mcl.puzzle_count.return_value = 0
+        mcl.CATEGORY_SOFT_LIMIT = 48
+        mcl.move_channel_to_owner = AsyncMock(return_value=True)
+        mcl.delete_group_categories = AsyncMock(return_value=False)
+        mpdb.get_by_attr.side_effect = lambda **kw: env["target"] if kw.get("id") == 1 else None
+        await svc.consolidate_to(guild, hunt, meta, dest, force=True)  # must NOT raise
+    env["target_ch"].delete.assert_not_awaited()   # failed-to-place target is kept, not deleted
+
+
 async def test_consolidate_keeps_channel_that_fails_to_move(env):
     svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
