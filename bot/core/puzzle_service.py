@@ -1846,6 +1846,9 @@ class PuzzleService:
             for p in unsolved:
                 channel = guild.get_channel(p.channel_id)
                 if channel is None:
+                    logger.warning(
+                        "extract_target_to_category: channel %s for puzzle %s not "
+                        "found; skipping", p.channel_id, p.id)
                     continue
                 src = getattr(channel, "category", None)
                 if src is not None and src.id != new_category.id:
@@ -1858,6 +1861,9 @@ class PuzzleService:
             for p in solved:
                 channel = guild.get_channel(p.channel_id)
                 if channel is None:
+                    logger.warning(
+                        "extract_target_to_category: channel %s for puzzle %s not "
+                        "found; skipping", p.channel_id, p.id)
                     continue
                 src = getattr(channel, "category", None)
                 if src is not None and src.id != new_category.id:

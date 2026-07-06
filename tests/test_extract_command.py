@@ -4,10 +4,11 @@ from bot.cogs.puzzles import Puzzles
 from bot.store.tag_group_data import TagGroupData
 
 
-def _cog_and_ctx(tag_group, hunt):
+def _cog_and_ctx(tag_group, hunt, puzzle=None):
     cog = MagicMock()  # not spec=Puzzles: `service` is an instance attr, not on the class
     cog.get_hunt = MagicMock(return_value=hunt)
     cog.get_tag_group = MagicMock(return_value=tag_group)
+    cog.get_puzzle = MagicMock(return_value=puzzle)
     cog.service = MagicMock()
     ctx = MagicMock()
     ctx.guild = MagicMock()
@@ -19,8 +20,9 @@ async def test_extract_command_calls_service_and_acks():
     meta = TagGroupData(name="spooky-meta")
     meta.id = 10
     meta.target_puzzle_id = 1
+    target = MagicMock(); target.id = 1  # standing in the meta's own target channel
     hunt = MagicMock()
-    cog, ctx = _cog_and_ctx(meta, hunt)
+    cog, ctx = _cog_and_ctx(meta, hunt, puzzle=target)
     new_cat = MagicMock(); new_cat.name = "spooky-meta"
     cog.service.extract_target_to_category = AsyncMock(return_value=new_cat)
 
@@ -44,8 +46,9 @@ async def test_extract_command_refuses_outside_a_meta():
 
 async def test_extract_command_maps_runtime_error():
     meta = TagGroupData(name="m"); meta.id = 10; meta.target_puzzle_id = 1
+    target = MagicMock(); target.id = 1
     hunt = MagicMock()
-    cog, ctx = _cog_and_ctx(meta, hunt)
+    cog, ctx = _cog_and_ctx(meta, hunt, puzzle=target)
     cog.service.extract_target_to_category = AsyncMock(
         side_effect=RuntimeError("no_category_space"))
 
@@ -53,3 +56,18 @@ async def test_extract_command_maps_runtime_error():
 
     ctx.send.assert_awaited()
     assert "category" in ctx.send.await_args.args[0].lower()
+
+
+async def test_extract_command_refuses_in_feeder_channel():
+    # Resolved group is the host round (has a target), but we're standing in a
+    # feeder whose id != the round's target — must refuse, not extract the round.
+    meta = TagGroupData(name="round"); meta.id = 10; meta.target_puzzle_id = 1
+    feeder = MagicMock(); feeder.id = 2
+    hunt = MagicMock()
+    cog, ctx = _cog_and_ctx(meta, hunt, puzzle=feeder)
+    cog.service.extract_target_to_category = AsyncMock()
+
+    await Puzzles.extract_target_to_category.callback(cog, ctx)
+
+    cog.service.extract_target_to_category.assert_not_awaited()
+    ctx.send.assert_awaited()

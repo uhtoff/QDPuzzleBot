@@ -2013,9 +2013,12 @@ class Puzzles(commands.Cog):
         Bang-only: no web-dashboard equivalent, by design (Discord plumbing)."""
         hunt = self.get_hunt(ctx)
         meta = self.get_tag_group(ctx)
-        if hunt is None or meta is None or not meta.has_target:
+        puzzle = self.get_puzzle(ctx)
+        if (hunt is None or meta is None or not meta.has_target
+                or puzzle is None or meta.target_puzzle_id != puzzle.id):
             return await ctx.send(
-                ":x: Run this in a meta's own puzzle channel.")
+                ":x: Run this in a metapuzzle's own target-puzzle channel "
+                "(not a feeder or group channel).")
         try:
             new_category = await self.service.extract_target_to_category(
                 ctx.guild, hunt, meta)
