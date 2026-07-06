@@ -30,7 +30,7 @@ from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError,
 from .rollup_data import RollupData, _RollupJsonDb
 from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .evidence_data import EvidenceData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb
 
 from bot.utils import config
 
@@ -131,4 +131,14 @@ if config.storage == 'mysql':
         charset="utf8mb4",
     )
     ChannelActivityDb = MySQLChannelActivityDb(mydb=activity_db)
+    # The bridge worker writes on a background thread (asyncio.to_thread), and a
+    # mysql.connector connection is not thread-safe to share; give it its own.
+    message_db_conn = MySQLReconnector(
+        host="localhost",
+        user=config.mysql_username,
+        password=config.mysql_password,
+        database=config.database,
+        charset="utf8mb4",
+    )
+    MessageDb = MySQLMessageDb(mydb=message_db_conn)
     EvidenceJsonDb = MySQLEvidenceDb(mydb=mydb)

@@ -660,6 +660,84 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
         return {row['channel_id']: row for row in rows}
 
 
+class MySQLMessageDb(_MySQLBaseDb):
+    TABLE_NAME = 'messages'
+
+    def write(self, *, id, channel_id, guild_id, author_id, author_name,
+              author_avatar, kind, content, reference_id, created_at):
+        """Insert a captured message. Idempotent on the Discord message id."""
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO messages "
+                "(id, channel_id, guild_id, author_id, author_name, author_avatar, "
+                " kind, content, reference_id, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE content=VALUES(content)",
+                (id, channel_id, guild_id, author_id, author_name, author_avatar,
+                 kind, content, reference_id, created_at),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def mark_edited(self, id, content, edited_at):
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "UPDATE messages SET content=%s, edited_at=%s WHERE id=%s",
+                (content, edited_at, id),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete_message(self, id) -> list:
+        """Hard-delete a message and its attachment rows. Returns the local_path
+        values that existed (relative paths) so the caller can unlink the bytes."""
+        cursor = self.mydb.cursor()
+        try:
+            paths_cursor = self.mydb.dict_cursor()
+            try:
+                paths_cursor.execute(
+                    "SELECT local_path FROM message_attachments WHERE message_id=%s", (id,)
+                )
+                rows = paths_cursor.fetchall() or []
+            finally:
+                paths_cursor.close()
+            cursor.execute("DELETE FROM message_attachments WHERE message_id=%s", (id,))
+            cursor.execute("DELETE FROM messages WHERE id=%s", (id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        return [r["local_path"] for r in rows if r.get("local_path")]
+
+    def add_attachment(self, *, id, message_id, filename, content_type, size, source_url):
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO message_attachments "
+                "(id, message_id, filename, content_type, size, source_url, download_status) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE source_url=VALUES(source_url)",
+                (id, message_id, filename, content_type, size, source_url, 0),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def set_attachment_local(self, id, local_path, download_status):
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "UPDATE message_attachments SET local_path=%s, download_status=%s WHERE id=%s",
+                (local_path, download_status, id),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+
 class MySQLEvidenceDb(_MySQLBaseDb):
     TABLE_NAME = 'evidence_items'
 
