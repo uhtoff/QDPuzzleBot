@@ -339,6 +339,25 @@ class PuzzleService:
         if channel.name != want:
             await self.safe_rename(channel, want)
 
+    async def backfill_glyphs(self, guild, hunt):
+        """Rename every target channel in *hunt* to its desired glyphed name.
+        Idempotent; returns the count of channels actually renamed."""
+        renamed = 0
+        for group in TagGroupJsonDb.get_all(hunt_id=hunt.id):
+            if not group.target_puzzle_id:
+                continue
+            puzzle = PuzzleJsonDb.get_by_attr(id=group.target_puzzle_id)
+            if puzzle is None or not getattr(puzzle, "channel_id", 0):
+                continue
+            channel = guild.get_channel_or_thread(puzzle.channel_id)
+            if channel is None:
+                continue
+            want = self.desired_channel_name(hunt, puzzle, group=group)
+            if channel.name != want:
+                await self.safe_rename(channel, want)
+                renamed += 1
+        return renamed
+
     # --- !reconcile ---
 
     def _home_category(self, guild, puzzle):

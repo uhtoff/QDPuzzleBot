@@ -880,6 +880,23 @@ class Puzzles(commands.Cog):
                     msg += f" :warning: {failed} could not be deleted."
                 await ctx.send(msg)
 
+    @commands.hybrid_command(
+        description="Add/refresh emoji glyphs on every target channel in this hunt")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def backfill_glyphs(self, ctx):
+        """*One-off: prefix every meta/capstone/runaround channel with its glyph.*
+
+        Usage: `!backfill_glyphs`
+        Example: `!backfill_glyphs`
+        Run in any channel of the hunt. Organisers/admins only. Idempotent."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            return await ctx.send(":x: Run this in a hunt channel.")
+        renamed = await self.service.backfill_glyphs(ctx.guild, hunt)
+        await ctx.send(
+            f":white_check_mark: Glyph backfill complete — {renamed} channel(s) renamed.")
+
     async def update_metapuzzle(self, ctx, tag_group):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
         Raises SheetRefreshError if it failed, so the bang edge surfaces it uniformly

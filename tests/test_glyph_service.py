@@ -134,3 +134,26 @@ async def test_refresh_glyph_noop_when_already_correct():
     with patch.object(PuzzleService, "desired_channel_name", return_value="🧩spooky-meta"):
         await svc._refresh_channel_glyph(guild, hunt, meta)
     svc.safe_rename.assert_not_awaited()
+
+
+async def test_backfill_glyphs_renames_each_target():
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
+    g1 = _group(10, "Metapuzzle", 100)
+    g2 = _group(11, "Capstone", 101)
+    g_notarget = _group(12, "Group", 0)
+    t1 = _puzzle(100, "Meta One", is_target=True); t1.channel_id = 500
+    t2 = _puzzle(101, "Cap", is_target=True); t2.channel_id = 501
+    ch1 = MagicMock(); ch1.name = "meta-one"       # needs glyph
+    ch2 = MagicMock(); ch2.name = "👑cap"           # already correct
+    guild.get_channel_or_thread = MagicMock(side_effect=lambda cid: {500: ch1, 501: ch2}.get(cid))
+    svc.safe_rename = AsyncMock()
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch.object(PuzzleService, "desired_channel_name",
+                      side_effect=lambda h, p, group=None: {100: "🧩meta-one", 101: "👑cap"}[p.id]):
+        mrdb.get_all.return_value = [g1, g2, g_notarget]
+        mpdb.get_by_attr.side_effect = lambda id: {100: t1, 101: t2}.get(id)
+        renamed = await svc.backfill_glyphs(guild, hunt)
+    assert renamed == 1
+    svc.safe_rename.assert_awaited_once_with(ch1, "🧩meta-one")
