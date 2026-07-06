@@ -404,6 +404,7 @@ class TestConvertToPuzzleSplitRound:
 
         bot = MagicMock(); bot.get_cog.return_value = None
         svc = PuzzleService(bot)
+        svc.safe_rename = AsyncMock()
         guild = MagicMock()
         hunt = make_hunt(id=10, category_id=500)
         meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[5])
@@ -447,6 +448,7 @@ class TestConvertToPuzzleSplitRound:
 
         bot = MagicMock(); bot.get_cog.return_value = None
         svc = PuzzleService(bot)
+        svc.safe_rename = AsyncMock()
         hunt = make_hunt(id=10, category_id=500)
         meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[5])
         group = make_round(id=5, category_id=100, target_puzzle_id=1)

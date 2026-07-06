@@ -35,6 +35,7 @@ from bot.core.discord_channels import (
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
+from bot.core.target_glyph import glyphed_name
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 from bot.core.target_extract import select_extract_puzzles
 
@@ -295,6 +296,49 @@ class PuzzleService:
         except Exception:
             logger.exception("_update_forum_tags failed for puzzle %s", puzzle.id)
 
+    def _is_metameta_group(self, hunt, group):
+        """Whether *group*'s feeders include another group's target (a sub-meta)."""
+        all_groups = TagGroupJsonDb.get_all(hunt_id=hunt.id)
+        members = PuzzleJsonDb.get_all_from_tag_group(group.id)
+        return is_metameta(group, all_groups, members)
+
+    def _target_kind(self, hunt, puzzle, group=None):
+        """Glyph kind for *puzzle* as a target ('runaround'/'metameta'/'meta'/
+        'capstone'), or None if not a target. *group* may be supplied by the create
+        path where target_puzzle_id isn't committed yet."""
+        if group is None:
+            if not getattr(puzzle, "is_target", False):
+                return None
+            group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+            if group is None:
+                return None
+        if group.type == "Runaround":
+            return "runaround"
+        if self._is_metameta_group(hunt, group):
+            return "metameta"
+        if group.type in ("Round", "Metapuzzle"):
+            return "meta"
+        if group.type == "Capstone":
+            return "capstone"
+        return None
+
+    def desired_channel_name(self, hunt, puzzle, group=None):
+        """Canonical Discord channel name: the target glyph (if any) prefixed to
+        clean_channel_name(puzzle.name)."""
+        kind = self._target_kind(hunt, puzzle, group=group)
+        return glyphed_name(kind, clean_channel_name(puzzle.name))
+
+    async def _refresh_channel_glyph(self, guild, hunt, puzzle):
+        """Rename *puzzle*'s channel to its desired glyphed name if it differs."""
+        if guild is None or not getattr(puzzle, "channel_id", 0):
+            return
+        channel = guild.get_channel(puzzle.channel_id)
+        if channel is None:
+            return
+        want = self.desired_channel_name(hunt, puzzle)
+        if channel.name != want:
+            await self.safe_rename(channel, want)
+
     # --- !reconcile ---
 
     def _home_category(self, guild, puzzle):
@@ -324,7 +368,7 @@ class PuzzleService:
             return []
         actions = []
         category, home_group = self._home_category(guild, puzzle)
-        want_name = clean_channel_name(puzzle.name)
+        want_name = self.desired_channel_name(hunt, puzzle)
 
         # 1. Stored id resolves to a live channel: fix category/name drift only.
         live = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
@@ -901,11 +945,17 @@ class PuzzleService:
         # flip (which excludes the target's self-edge) has run. Only for a
         # PRE-EXISTING group — never the promote-in-place branch above, which just
         # created the group around this puzzle (that would delete it immediately).
-        if already_grouped and new_type == "Group" and tag_group.target_puzzle_id == puzzle.id:
+        torn_down = already_grouped and new_type == "Group" and tag_group.target_puzzle_id == puzzle.id
+        if torn_down:
             await self._teardown_group_target(guild, hunt, tag_group, puzzle)
 
         # Update forum post tags (structural type may have changed).
         await self._update_forum_tags(guild, hunt, puzzle)
+        # Skip the glyph refresh when the target was just torn down: `puzzle` no
+        # longer exists (its DB row was deleted) and its channel was repurposed
+        # into the group's general chat, not renamed to a glyphed puzzle name.
+        if not torn_down:
+            await self._refresh_channel_glyph(guild, hunt, puzzle)
 
         return tag_group, summary
 
@@ -1237,6 +1287,7 @@ class PuzzleService:
                 puzzle.tags.remove(target_group.id)
         puzzle.is_target = False
         PuzzleJsonDb.commit(puzzle)
+        await self._refresh_channel_glyph(guild, hunt, puzzle)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1791,6 +1842,7 @@ class PuzzleService:
 
         # Update forum post tags (newly converted to meta).
         await self._update_forum_tags(guild, hunt, puzzle)
+        await self._refresh_channel_glyph(guild, hunt, puzzle)
 
         return new_round, puzzle
 
@@ -1890,7 +1942,7 @@ class PuzzleService:
         (and tests with _no_guild) skip it.
         """
         puzzle.name = name
-        puzzle.channel_name = clean_channel_name(name)
+        puzzle.channel_name = self.desired_channel_name(hunt, puzzle)
 
         # Rename the Discord channel (skip when guild is None — web + test path).
         # Only edit when the normalised name actually changes: adding punctuation
@@ -2142,7 +2194,8 @@ class PuzzleService:
             new_puzzle.add_edge(round_data.id, edge)
 
         try:
-            channel_name = clean_channel_name(new_puzzle.name)
+            channel_name = self.desired_channel_name(
+                hunt, new_puzzle, group=round_data if is_meta else None)
             if hunt.layout_mode == "forum" and round_data is not None:
                 thread = await create_forum_post(forum_channel, channel_name)
                 new_puzzle.channel_id = thread.id
