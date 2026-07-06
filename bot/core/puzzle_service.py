@@ -1580,7 +1580,8 @@ class PuzzleService:
                 channel = guild.get_channel(puzzle.channel_id)
                 if channel is None or channel.category_id not in owned_category_ids:
                     continue
-                if not await self._relocate_kept_puzzle(guild, hunt, tag_group, puzzle, channel):
+                if not await self._relocate_kept_puzzle(
+                        guild, hunt, tag_group, puzzle, channel, owned_category_ids):
                     failed_channels.append(puzzle.name)
                     relocation_failed_channel_ids.add(puzzle.channel_id)
 
@@ -1660,7 +1661,8 @@ class PuzzleService:
         TagGroupJsonDb.delete(tag_group.id)
         return failed_channels
 
-    async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel):
+    async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,
+                                    doomed_category_ids=frozenset()):
         """Relocate a kept puzzle's channel out of the category owned by the
         group being deleted (``tag_group``). Prefers moving it into a category
         belonging to another group ``puzzle`` is also tagged to — so a shared
@@ -1677,6 +1679,15 @@ class PuzzleService:
                 continue
             other_group = TagGroupJsonDb.get_by_attr(id=other_gid)
             if other_group is None:
+                continue
+            # Skip a group whose own home category is being deleted here: for a
+            # channel-home target consolidated INTO the doomed category,
+            # move_channel_to_owner would resolve the destination back to that
+            # same category and return a false 'already placed' success —
+            # leaving the channel to be swept up and orphaned. Fall through to
+            # the general fallback (or the next tagged group) instead.
+            home = category_layout._home_category(guild, other_group)
+            if home is not None and home.id in doomed_category_ids:
                 continue
             if await category_layout.move_channel_to_owner(
                 guild, other_group, TagGroupCategoryDb, channel, puzzle.solved
@@ -1954,11 +1965,26 @@ class PuzzleService:
     async def _maybe_relieve_overflow(self, guild, hunt, round_data):
         """Best-effort: before a create would overflow, auto-extract a channel-home
         meta to relieve pressure (Plan 4). Any failure falls through to the normal
-        split / hard-fail path. At most one extraction; non-recursive."""
-        if not category_layout.AUTO_EXTRACT_ON_OVERFLOW or round_data is None:
+        split / hard-fail path. At most one extraction; non-recursive.
+
+        Applies to round puzzles (owner = the round) and to unassigned puzzles,
+        whose owner is the hunt's general category (owner = the hunt) — otherwise
+        the general category would only ever split and never auto-extract a nested
+        meta the way rounds do (Case B below)."""
+        if not category_layout.AUTO_EXTRACT_ON_OVERFLOW:
             return
-        primary = category_layout.primary_category(guild, round_data)
+        # Unassigned puzzles have no round; the hunt itself owns the general
+        # category (via HuntCategoryDb), so treat it as the overflow owner.
+        if round_data is not None:
+            owner, owner_dao = round_data, TagGroupCategoryDb
+        else:
+            owner, owner_dao = hunt, HuntCategoryDb
+        primary = category_layout.primary_category(guild, owner)
         if primary is None:
+            # Case A (a channel-home meta with no real category) is round-only:
+            # the hunt's general category is always a real category.
+            if round_data is None:
+                return
             host = category_layout._home_category(guild, round_data)
             if (host is None
                     or category_layout.puzzle_count(host) + 1
@@ -1970,7 +1996,7 @@ class PuzzleService:
                 logger.info("auto-extract (Case A) skipped for meta %s",
                             getattr(round_data, "id", "?"))
             return
-        if category_layout.is_split(round_data, TagGroupCategoryDb):
+        if category_layout.is_split(owner, owner_dao):
             return
         if (category_layout.puzzle_count(primary) + 1
                 <= category_layout.CATEGORY_SOFT_LIMIT):

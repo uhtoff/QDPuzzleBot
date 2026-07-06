@@ -1,5 +1,27 @@
 import { notifications } from "@mantine/notifications";
-import type { Puzzle } from "./types";
+import type { BoardGroup, Puzzle } from "./types";
+
+/**
+ * How many puzzles a full "delete round + all its puzzles" actually deletes.
+ *
+ * Mirrors the backend delete predicate (puzzle_service.delete_round with
+ * keep_puzzles=False): only the round's OWN target puzzle plus non-target
+ * feeders tagged EXCLUSIVELY to this round are deleted. Shared feeders (also
+ * tagged in another round) and puzzles that are some other round's target are
+ * kept and relocated — so `group.puzzles.length` over-counts the warning.
+ */
+export function fullDeletePuzzleCount(group: BoardGroup): number {
+  return group.puzzles.filter((p) => deletedByFullDelete(p, group)).length;
+}
+
+function deletedByFullDelete(p: Puzzle, group: BoardGroup): boolean {
+  // The round's own target puzzle is always deleted.
+  if (p.id === group.target_puzzle_id) return true;
+  // A puzzle that is some round's target (is_meta) is kept and relocated.
+  if (p.is_meta) return false;
+  // A plain feeder is deleted only if it is tagged to no other round.
+  return p.rounds.every((r) => r.id === group.tag_group_id);
+}
 
 export function notifyError(e: unknown): void {
   const message = e instanceof Error ? e.message : String(e);

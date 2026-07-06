@@ -40,11 +40,13 @@ layout_lock = asyncio.Lock()
 # Consolidation hysteresis: a fold/un-split only happens if the result leaves
 # at least this many free slots below CATEGORY_SOFT_LIMIT — otherwise a merge
 # right at the split threshold would oscillate (each split↔merge cycle costs a
-# category create + N channel moves + a delete). Fixed, not proportional, for
-# the same reason the soft-limit headroom is: the cap is config-shrinkable for
-# tests, and a proportional margin either vanishes at cap 50 or devours the
-# whole range at test caps.
-CONSOLIDATE_MARGIN = 4
+# category create + N channel moves + a delete). Kept at 1 (minimal): the cap
+# is config-shrinkable for tests/small servers, and any larger fixed buffer
+# swallows the usable range at a small cap — e.g. a margin of 4 at soft-limit 8
+# means a 5–8-channel split can NEVER fold back (it only folds at ≤4), which
+# stalled folding on a small-cap server. One free slot is enough to avoid an
+# immediate split↔merge on the very next create.
+CONSOLIDATE_MARGIN = 1
 
 # Auto-extract on overflow (Plan 4): when a create would overflow a category,
 # extract a channel-home meta into its own category rather than hard-failing
@@ -616,6 +618,14 @@ async def _consolidate_safely(guild, owner_id, dao):
         logger.exception("consolidate: background run failed for owner %s", owner_id)
 
 
+# Strong references to in-flight background consolidation tasks. asyncio's event
+# loop keeps only a WEAK reference to a bare create_task(), so a task no caller
+# holds can be garbage-collected before it ever runs — which silently dropped
+# every fold/un-split (all trigger sites discard the task). Hold the task here
+# until it finishes so it is guaranteed to run.
+_pending_consolidations: set = set()
+
+
 def maybe_consolidate(guild, owner_id, dao):
     """Eager detection, deferred execution: run the cheap candidate check now
     and, if worthwhile, spawn consolidate() as a background task so callers
@@ -629,7 +639,12 @@ def maybe_consolidate(guild, owner_id, dao):
         logger.exception("maybe_consolidate: candidate check failed for owner %s",
                          owner_id)
         return None
-    return asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
+    task = asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
+    # Keep a strong ref (see _pending_consolidations) so the loop can't GC the
+    # task mid-flight; drop it when done.
+    _pending_consolidations.add(task)
+    task.add_done_callback(_pending_consolidations.discard)
+    return task
 
 
 def maybe_consolidate_category(guild, category):
