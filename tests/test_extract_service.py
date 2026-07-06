@@ -127,6 +127,18 @@ async def test_extract_refuses_when_already_owns_category(env):
             await svc.extract_target_to_category(guild, hunt, meta)
 
 
+async def test_extract_refuses_when_target_puzzle_missing(env):
+    svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.return_value = None
+        mpdb.get_by_attr.return_value = None  # target puzzle row missing
+        with pytest.raises(RuntimeError, match="no_target_puzzle"):
+            await svc.extract_target_to_category(guild, hunt, meta)
+
+
 async def test_extract_refuses_at_category_cap(env):
     svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
     guild.categories = [MagicMock() for _ in range(50)]  # == MAX_CATEGORIES

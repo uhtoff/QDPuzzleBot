@@ -1817,6 +1817,8 @@ class PuzzleService:
 
         # Which puzzles move (pure edge logic; data from the DAOs).
         target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
+        if target_puzzle is None:
+            raise RuntimeError("no_target_puzzle")
         members = PuzzleJsonDb.get_all_from_tag_group(meta.id)
         all_groups = TagGroupJsonDb.get_all(hunt.id)
         target_puzzle_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
