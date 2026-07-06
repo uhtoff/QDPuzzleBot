@@ -1954,11 +1954,26 @@ class PuzzleService:
     async def _maybe_relieve_overflow(self, guild, hunt, round_data):
         """Best-effort: before a create would overflow, auto-extract a channel-home
         meta to relieve pressure (Plan 4). Any failure falls through to the normal
-        split / hard-fail path. At most one extraction; non-recursive."""
-        if not category_layout.AUTO_EXTRACT_ON_OVERFLOW or round_data is None:
+        split / hard-fail path. At most one extraction; non-recursive.
+
+        Applies to round puzzles (owner = the round) and to unassigned puzzles,
+        whose owner is the hunt's general category (owner = the hunt) — otherwise
+        the general category would only ever split and never auto-extract a nested
+        meta the way rounds do (Case B below)."""
+        if not category_layout.AUTO_EXTRACT_ON_OVERFLOW:
             return
-        primary = category_layout.primary_category(guild, round_data)
+        # Unassigned puzzles have no round; the hunt itself owns the general
+        # category (via HuntCategoryDb), so treat it as the overflow owner.
+        if round_data is not None:
+            owner, owner_dao = round_data, TagGroupCategoryDb
+        else:
+            owner, owner_dao = hunt, HuntCategoryDb
+        primary = category_layout.primary_category(guild, owner)
         if primary is None:
+            # Case A (a channel-home meta with no real category) is round-only:
+            # the hunt's general category is always a real category.
+            if round_data is None:
+                return
             host = category_layout._home_category(guild, round_data)
             if (host is None
                     or category_layout.puzzle_count(host) + 1
@@ -1970,7 +1985,7 @@ class PuzzleService:
                 logger.info("auto-extract (Case A) skipped for meta %s",
                             getattr(round_data, "id", "?"))
             return
-        if category_layout.is_split(round_data, TagGroupCategoryDb):
+        if category_layout.is_split(owner, owner_dao):
             return
         if (category_layout.puzzle_count(primary) + 1
                 <= category_layout.CATEGORY_SOFT_LIMIT):

@@ -78,6 +78,47 @@ async def test_case_b_extracts_highest_value_nested_meta():
     svc.extract_target_to_category.assert_awaited_once_with(guild, hunt, big)
 
 
+async def test_general_overflow_extracts_nested_meta():
+    """Unassigned-puzzle overflow (round_data=None) must relieve the hunt's
+    general category the same way a round does — extract the highest-value
+    nested channel-home meta instead of only ever splitting. Regression: the
+    guard used to bail on `round_data is None`, so general never auto-extracted."""
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1; hunt.category_id = 900
+    primary = MagicMock(); primary.id = 900
+    big = _group(11, "Metapuzzle", 100, 801)
+    svc.extract_target_to_category = AsyncMock(return_value=MagicMock())
+    svc._highest_value_nested_meta = MagicMock(return_value=(big, 3))
+    with patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.AUTO_EXTRACT_ON_OVERFLOW = True
+        mcl.EXTRACT_MIN_VALUE = 2
+        mcl.CATEGORY_SOFT_LIMIT = 48
+        mcl.primary_category.return_value = primary
+        mcl.is_split.return_value = False
+        mcl.puzzle_count.return_value = 48
+        await svc._maybe_relieve_overflow(guild, hunt, None)
+    svc.extract_target_to_category.assert_awaited_once_with(guild, hunt, big)
+
+
+async def test_general_overflow_noop_when_already_split():
+    """If the general category is already split, let the split layout handle it
+    (mirrors the round path's is_split short-circuit) — don't also extract."""
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1; hunt.category_id = 900
+    primary = MagicMock(); primary.id = 900
+    svc.extract_target_to_category = AsyncMock()
+    svc._highest_value_nested_meta = MagicMock(return_value=(_group(11, "Metapuzzle", 100, 801), 3))
+    with patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.AUTO_EXTRACT_ON_OVERFLOW = True
+        mcl.EXTRACT_MIN_VALUE = 2
+        mcl.CATEGORY_SOFT_LIMIT = 48
+        mcl.primary_category.return_value = primary
+        mcl.is_split.return_value = True
+        mcl.puzzle_count.return_value = 48
+        await svc._maybe_relieve_overflow(guild, hunt, None)
+    svc.extract_target_to_category.assert_not_awaited()
+
+
 async def test_case_b_falls_through_when_best_value_is_one():
     svc = _svc()
     guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
