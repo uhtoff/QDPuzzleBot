@@ -1,5 +1,4 @@
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 
 def test_safe_filename_strips_path_separators():
