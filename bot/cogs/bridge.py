@@ -9,6 +9,7 @@ from discord.ext import commands
 from bot.store import MessageDb
 from bot.core.message_media import media_root, attachment_relpath, download_attachment
 from bot.utils import config
+from bot.web import events
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,8 @@ class MessageBridge(commands.Cog):
             return  # bridge disabled / not started — stay inert
         # No channel gate: if the id isn't ours the delete is a harmless no-op; if
         # it is, privacy requires purging it regardless of channel state.
-        self._enqueue({"op": "delete", "id": payload.message_id})
+        self._enqueue({"op": "delete", "id": payload.message_id,
+                       "channel_id": payload.channel_id, "guild_id": payload.guild_id})
 
     def _enqueue(self, rec: dict):
         try:
@@ -153,6 +155,27 @@ class MessageBridge(commands.Cog):
             finally:
                 self._queue.task_done()
 
+    @staticmethod
+    def _message_payload(rec: dict) -> dict:
+        return {
+            "id": str(rec["id"]),
+            "author_id": str(rec["author_id"]),
+            "author_name": rec["author_name"],
+            "author_avatar": rec["author_avatar"],
+            "kind": rec["kind"],
+            "content": rec["content"],
+            "reference_id": (str(rec["reference_id"]) if rec.get("reference_id") else None),
+            "created_at": rec["created_at"].isoformat() if hasattr(rec["created_at"], "isoformat") else str(rec["created_at"]),
+            "edited_at": None,
+            "attachments": [],  # attachments arrive via a board refresh / reopen; live text is the priority
+        }
+
+    def _publish(self, event: dict):
+        try:
+            events.publish(event)
+        except Exception:
+            logger.exception("Bridge failed to publish %s", event.get("type"))
+
     async def _handle(self, rec: dict):
         op = rec["op"]
         if op == "insert":
@@ -166,8 +189,12 @@ class MessageBridge(commands.Cog):
             )
             for att in rec["attachments"]:
                 await self._store_attachment(rec, att)
+            self._publish({"type": "message", "channel_id": str(rec["channel_id"]),
+                           "guild_id": rec["guild_id"], "message": self._message_payload(rec)})
         elif op == "edit":
             await asyncio.to_thread(MessageDb.mark_edited, rec["id"], rec["content"], rec["edited_at"])
+            self._publish({"type": "message_edit", "channel_id": None, "guild_id": None,
+                           "message": {"id": str(rec["id"]), "content": rec["content"]}})
         elif op == "delete":
             paths = await asyncio.to_thread(MessageDb.delete_message, rec["id"])
             for rel in paths:
@@ -175,6 +202,9 @@ class MessageBridge(commands.Cog):
                     (media_root() / rel).unlink(missing_ok=True)
                 except Exception:
                     logger.exception("Failed to unlink attachment bytes %s", rel)
+            self._publish({"type": "message_delete",
+                           "channel_id": str(rec.get("channel_id")) if rec.get("channel_id") else None,
+                           "guild_id": rec.get("guild_id"), "message_id": str(rec["id"])})
 
     async def _store_attachment(self, rec: dict, att: dict):
         await asyncio.to_thread(
