@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/message-bridge
 Started: 2026-07-06
-Status: ready for handoff — fix(bridge): make "Open in Discord" default to the https link @ 5fde026
+Status: ready for handoff — Merge branch 'staging' @ 9e3ccec
 
 ## Capture-behavior follow-ups (from live testing) — DONE this session
 Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
