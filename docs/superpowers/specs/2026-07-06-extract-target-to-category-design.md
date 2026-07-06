@@ -307,16 +307,18 @@ cleanup is dropping a split owner's join rows, `:3213`).
   category, so `!archive_round` resolves it via `_owner_for_channel` and archives it as
   its own unit (all owned categories via the join table for a split owner). A
   channel-home meta previously could only be archived as a passenger of its host.
-- **Accepted behaviour — passenger sweep + orphaned rows:** `_archive_category_channels`
-  iterates *every* channel in the category (`:3250`), owner-blind, and archive deletes no
-  DB rows. So archiving a category that hosts a **channel-home meta** archives+deletes
-  that meta's channels and leaves its `TagGroup`/puzzle rows pointing at dead channel
-  ids. This is already true today; the design makes it more prominent because
+- **Accepted behaviour — passenger sweep:** `_archive_category_channels` iterates *every*
+  channel in the category (`:3250`), owner-blind, and archive deletes no DB rows. So
+  archiving a category that hosts a **channel-home meta** archives+deletes that meta's
+  channels along with everything else. The design makes this more prominent because
   `!consolidate_to` deliberately creates a channel-home meta inside a destination, so a
   later `!archive_round` on that destination sweeps the consolidated meta too.
-  **Decision: accept as-is** — it is consistent with archive's existing "channels gone,
-  DB rows persist" contract (the round's own rows orphan the same way). No special
-  handling; documented so the consolidate→archive sequence is not surprising.
+  **Decision: accept as-is.** Archive is a pure Discord-server cleanup: it intentionally
+  leaves *every* row's channel references stale (each puzzle's `channel_id`, every
+  `TagGroup.category_id`, the hunt's own ids), so a channel-home meta's dead `category_id`
+  is not a special case — just one of the uniformly-orphaned references archive always
+  produces. No special handling; documented so the consolidate→archive sequence is not
+  surprising.
 - **No emoji leakage (verified):** `thread_name_for_channel` names archive threads after
   `puzzle.name` for puzzle channels (`hunt_archive.py:74-77`), and the stored
   `puzzle.name` stays glyph-free (the emoji lives only on `channel_name`). Targets always
