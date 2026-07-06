@@ -461,21 +461,9 @@ async def consolidate(guild, owner_id, dao):
         def _count(cat):
             return puzzle_count(cat) + added.get(cat.id, 0)
 
-        def _snapshot():
-            out = []
-            for r in sorted(dao.get_for_group(owner_id), key=lambda r: (r.role, r.seq)):
-                cat = _category_by_id(guild, r.category_id)
-                out.append(f"{r.role}#{r.seq}:cat={r.category_id}:"
-                           f"{'MISSING' if cat is None else _count(cat)}")
-            return out
-
-        logger.info("fold-trace: consolidate START owner=%s rows=[%s]",
-                    owner_id, ", ".join(_snapshot()))
         for role in (ROLE_UNSOLVED, ROLE_SOLVED):
             await _consolidate_role(guild, owner_id, dao, role, _count, added)
         await _maybe_unsplit(guild, owner_id, dao, _count)
-        logger.info("fold-trace: consolidate END owner=%s rows=[%s]",
-                    owner_id, ", ".join(_snapshot()))
 
 
 async def _consolidate_role(guild, owner_id, dao, role, _count, added):
@@ -521,9 +509,6 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
             (ch for ch in top_cat.text_channels if ch.name != SOLVE_DIVIDER),
             key=lambda ch: ch.position)
         free = sum(max(0, CATEGORY_SOFT_LIMIT - _count(c)) for c in lowers)
-        logger.info("fold-trace: Pass2 role=%s top=cat%s movers=%d free=%d threshold=%d -> %s",
-                    role, top.category_id, len(movers), free, free - CONSOLIDATE_MARGIN,
-                    "FOLD" if len(movers) <= free - CONSOLIDATE_MARGIN else "SKIP(margin)")
         if len(movers) > free - CONSOLIDATE_MARGIN:
             return
         try:
@@ -531,15 +516,12 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
                 target = next(c for c in lowers if _count(c) < CATEGORY_SOFT_LIMIT)
                 position = (max((c2.position for c2 in target.channels), default=-1)
                             + 1 + added.get(target.id, 0))
-                logger.info("fold-trace: moving ch=%s from cat%s to cat%s pos=%s",
-                            getattr(ch, "id", "?"), top.category_id, target.id, position)
                 await ch.edit(category=target, position=position)
                 added[target.id] = added.get(target.id, 0) + 1
             await top_cat.delete(reason=DELETE_REASON)
-        except Exception as exc:
+        except Exception:
             logger.exception("consolidate: fold of category %s failed midway "
                              "(safe: row survives, next run resumes)", top.category_id)
-            logger.info("fold-trace: FOLD FAILED cat=%s: %r", top.category_id, exc)
             return
         dao.delete(top.id)
         # Loop: a further fold may now be possible.
@@ -651,13 +633,11 @@ def maybe_consolidate(guild, owner_id, dao):
     block on channel moves. Duplicate triggers are harmless — consolidate is
     idempotent and serialised on layout_lock. Returns the task, or None."""
     try:
-        cand = _consolidation_candidate(guild, owner_id, dao)
+        if not _consolidation_candidate(guild, owner_id, dao):
+            return None
     except Exception:
         logger.exception("maybe_consolidate: candidate check failed for owner %s",
                          owner_id)
-        return None
-    logger.info("fold-trace: maybe_consolidate owner=%s candidate=%s", owner_id, cand)
-    if not cand:
         return None
     task = asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
     # Keep a strong ref (see _pending_consolidations) so the loop can't GC the
@@ -680,11 +660,7 @@ def maybe_consolidate_category(guild, category):
     for dao in (TagGroupCategoryDb, HuntCategoryDb):
         row = dao.get_by_category(category.id)
         if row is not None:
-            logger.info("fold-trace: maybe_consolidate_category cat=%s -> owner=%s via %s",
-                        category.id, row.group_id, type(dao).__name__)
             return maybe_consolidate(guild, row.group_id, dao)
-    logger.info("fold-trace: maybe_consolidate_category cat=%s not owned by any "
-                "tracked layout (no fold triggered)", category.id)
     return None
 
 
