@@ -3,13 +3,22 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/message-bridge
 Started: 2026-07-06
-Status: ready for handoff — feat(bridge): lazily track new puzzle channels (no ~60s capture delay) @ c0479e2
+Status: ready for handoff — feat(bridge): exclude the initial welcome/info embed from capture @ 537b344
+
+## Capture-behavior follow-ups (from live testing) — DONE this session
+Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
+- bfb2389 #3 embed capture: migration 028 (`embeds` TEXT col), normalize+store embeds,
+  serve in transcript + live payload, ChatViewer embed block, hook edit-merge fix.
+- c0479e2 #1 lazy channel tracking: per-channel DB check + negative cache; no ~60s delay.
+- 537b344 #2 welcome exclusion: skip first bot embed-only message in an empty channel.
+Verified: 1099 pytest pass; ruff clean; frontend tsc + build pass. basedpyright has one
+PRE-EXISTING error (puzzle_service.py:1584, unrelated, present at 4b1dba5).
 
 ## Remaining before/at merge
 - Live end-to-end smoke deferred (needs running bot + DB + archive_media_dir; bridge_enabled=true).
-- Apply migration 027 to target DB before enabling.
-- Rebase onto updated staging (after user's bug fixes); likely conflicts: api.py, data.py, mysqldb.py, migration 027 number.
-- Deferred minor follow-ups: reply-quote rendering (reference_id captured but not shown); send_file filename for non-image downloads; viewer opens own WS vs sharing useActivityFeed.
+- Apply migrations 027 AND 028 to target DB before enabling.
+- Rebase onto updated staging (after user's bug fixes); likely conflicts: api.py, data.py, mysqldb.py, migration 027/028 numbers.
+- STILL-deferred minor follow-ups (#4-6): reply-quote rendering (reference_id captured but not shown); send_file filename for non-image downloads; viewer opens own WS vs sharing useActivityFeed.
 - DO NOT merge to staging without user confirmation.
 
 ## Goal
