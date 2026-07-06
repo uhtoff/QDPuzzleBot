@@ -36,6 +36,7 @@ from bot.core.discord_channels import (
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
+from bot.core.target_extract import select_extract_puzzles
 
 logger = logging.getLogger(__name__)
 
@@ -1792,6 +1793,84 @@ class PuzzleService:
         await self._update_forum_tags(guild, hunt, puzzle)
 
         return new_round, puzzle
+
+    async def extract_target_to_category(self, guild, hunt, meta):
+        """Give a channel-home *meta* its own Discord category.
+
+        Moves meta's target channel + exclusive plain feeders into a freshly cloned
+        category, flips ``meta.category_id`` from the target channel id to the new
+        category id (so the group becomes an ordinary single-category owner), and
+        triggers consolidation on any source categories it emptied.
+
+        Raises RuntimeError("already_own_category") if meta already owns a real
+        category, "no_category_space" at the guild category cap, or
+        "no_template_category" if the hunt template category is missing.
+        Returns the new discord category.
+        """
+        if category_layout._category_by_id(guild, meta.category_id) is not None:
+            raise RuntimeError("already_own_category")
+        if len(guild.categories) >= MAX_CATEGORIES:
+            raise RuntimeError("no_category_space")
+        ref_category = discord.utils.get(guild.categories, id=hunt.category_id)
+        if ref_category is None:
+            raise RuntimeError("no_template_category")
+
+        # Which puzzles move (pure edge logic; data from the DAOs).
+        target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
+        members = PuzzleJsonDb.get_all_from_tag_group(meta.id)
+        all_groups = TagGroupJsonDb.get_all(hunt.id)
+        target_puzzle_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
+        puzzles = select_extract_puzzles(meta, target_puzzle, members, target_puzzle_ids)
+
+        sources = set()
+        async with category_layout.layout_lock:
+            new_name = clean_category_name(meta.name)
+            if discord.utils.get(guild.categories, name=new_name) is not None:
+                new_name = new_name + " — " + clean_category_name(hunt.name)
+            new_category = await ref_category.clone(name=new_name)
+            await new_category.edit(position=ref_category.position + 1)
+            if SOLVE_CATEGORY is False:
+                await get_or_create_channel(
+                    guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
+                    channel_type="text", position=500,
+                )
+            divider_pos = solve_divider_position(new_category)
+
+            # Ordering: target first, then unsolved feeders (above divider), then
+            # solved feeders (below divider). Sub-metas never appear here — they are
+            # excluded by select_extract_puzzles.
+            unsolved = [p for p in puzzles if p.status != "solved"]
+            solved = [p for p in puzzles if p.status == "solved"]
+            pos = 0
+            for p in unsolved:
+                channel = guild.get_channel(p.channel_id)
+                if channel is None:
+                    continue
+                src = getattr(channel, "category", None)
+                if src is not None and src.id != new_category.id:
+                    sources.add(src.id)
+                await channel.edit(category=new_category, position=pos)
+                pos += 1
+            for p in solved:
+                channel = guild.get_channel(p.channel_id)
+                if channel is None:
+                    continue
+                src = getattr(channel, "category", None)
+                if src is not None and src.id != new_category.id:
+                    sources.add(src.id)
+                below = (divider_pos + 1) if divider_pos is not False else pos
+                await channel.edit(category=new_category, position=below)
+                pos += 1
+
+            meta.category_id = new_category.id
+            TagGroupJsonDb.commit(meta)
+
+        # Consolidate each vacated source so the previous owner folds/un-splits.
+        for cid in sources:
+            src = category_layout._category_by_id(guild, cid)
+            if src is not None:
+                category_layout.maybe_consolidate_category(guild, src)
+        return new_category
 
     @pushes_board()
     async def rename_puzzle(self, guild, hunt, puzzle, name):
