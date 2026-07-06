@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 
-from quart import Blueprint, jsonify, request, session, websocket
+from quart import Blueprint, jsonify, request, send_file, session, websocket
 
 from .typed_app import bot_app, puzzles_cog
 
@@ -144,6 +144,46 @@ async def hunt_detail(uid):
         "board": board,
         "meta_types": list(CREATE_META_TYPES),
     })
+
+
+@api_bp.route("/channels/<int:channel_id>/messages")
+@login_required
+async def channel_messages(channel_id):
+    user = current_user()
+    assert user is not None
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    if not await _channel_messages_visible(channel_id, membership, roles_by_guild):
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    before = request.args.get("before", type=int)
+    limit = request.args.get("limit", default=50, type=int)
+    messages = await data.get_channel_messages(channel_id, before=before, limit=limit)
+    return jsonify({"messages": messages})
+
+
+@api_bp.route("/attachments/<int:attachment_id>")
+@login_required
+async def attachment_bytes(attachment_id):
+    user = current_user()
+    assert user is not None
+    att = await data.get_attachment_with_channel(attachment_id)
+    if att is None or att["download_status"] != 1 or not att["local_path"]:
+        return jsonify({"error": "not_found"}), 404
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    if not await _channel_messages_visible(att["channel_id"], membership, roles_by_guild):
+        return jsonify({"error": "forbidden"}), 403
+    from bot.core.message_media import media_root
+    path = (media_root() / att["local_path"]).resolve()
+    root = media_root().resolve()
+    if root not in path.parents:            # defense in depth vs path traversal
+        return jsonify({"error": "not_found"}), 404
+    content_type = att["content_type"] or "application/octet-stream"
+    # Images render inline in the viewer; everything else is a download, so force a
+    # Content-Disposition: attachment with the original filename (otherwise the
+    # browser names the saved file after the /api/attachments/<id> URL).
+    is_image = content_type.startswith("image/")
+    return await send_file(path, mimetype=content_type,
+                           as_attachment=not is_image,
+                           attachment_filename=att["filename"])
 
 
 @api_bp.route("/hunts/<uid>/puzzles")
@@ -287,6 +327,16 @@ async def _board_event_visible(event, membership, roles_by_guild):
     return hunt_visible(hunt, membership, roles_by_guild, guilds_map)
 
 
+async def _channel_messages_visible(channel_id, membership, roles_by_guild):
+    """Authorize a transcript request via the owning hunt (works for archived,
+    channel-deleted hunts, unlike the live channel-permission check)."""
+    hunt = await data.get_hunt_by_channel_id(channel_id)
+    if hunt is None:
+        return False
+    guilds_map = await data.get_guilds_map()
+    return hunt_visible(hunt, membership, roles_by_guild, guilds_map)
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""
@@ -331,6 +381,10 @@ async def ws_activity():
                 visible = await _activity_event_visible(event, user["id"], event["guild_id"])
             elif event.get("type") == "board":
                 visible = await _board_event_visible(event, membership, roles_by_guild)
+            elif event.get("type") in ("message", "message_edit", "message_delete"):
+                # Live channels only (archived channels emit no events); the live
+                # channel-permission check matches the same per-hunt role gate.
+                visible = await _activity_event_visible(event, user["id"], event["guild_id"])
 
             if visible:
                 await websocket.send_json(event)

@@ -212,9 +212,10 @@ The default view groups puzzles under their meta, mirroring the Discord categori
 each group you can see the code, feeders solved, and each puzzle's status, answer and
 recent activity. Solved rows go green and sink; solved groups collapse.
 
-The icons on each row link straight to the puzzle's **sheet**, its **Discord channel**,
-and the **puzzle page** on the hunt site. The buttons on the right mark a puzzle solved
-or unsolved and open its notes.
+The icons on each row open the puzzle's **sheet**, its **chat** (a Discord-style
+window — see [Reading a puzzle's chat](#reading-a-puzzles-chat)), and the **puzzle page**
+on the hunt site. The buttons on the right mark a puzzle solved or unsolved and open its
+notes.
 
 ![Board by group](img/userguide/03-board-by-group.png)
 
@@ -233,6 +234,21 @@ its links, mark it solved, add working sheets, and read or add notes — the sam
 `!note` in Discord.
 
 ![Puzzle drawer](img/userguide/05-puzzle-drawer.png)
+
+### Reading a puzzle's chat
+
+Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
+a read-only window showing that channel's discussion right inside the dashboard, rendered
+Discord-style (avatars, replies, images, embeds and `:shortcode:` emoji). For a live hunt
+it shows the recent history and keeps updating as people talk, with an **Open in Discord**
+button to jump to the real channel. For an **archived** hunt — whose Discord channels have
+been condensed into threads or deleted — it shows the **captured transcript**, so the
+discussion stays readable on the dashboard long after the hunt is over.
+
+You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
+feature an admin turns on when deploying (see [`docs/dashboard.md`](dashboard.md)); until
+it is enabled the viewer has no history to show, but the **Open in Discord** button always
+works.
 
 ### Evidence
 

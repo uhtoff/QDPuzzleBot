@@ -23,6 +23,11 @@ _PUZZLE_LOCKS = defaultdict(asyncio.Lock)
 # "puzzle 5" and "round 5" collide on one lock.
 _ROLLUP_LOCKS = defaultdict(asyncio.Lock)
 
+# One asyncio.Lock per HUNT id, serializing puzzle/group CREATION within a hunt so
+# the duplicate-name check and the create it guards run as one critical section.
+# Separate registry (hunt id is yet another int space) for the same reason as above.
+_HUNT_CREATE_LOCKS = defaultdict(asyncio.Lock)
+
 
 @asynccontextmanager
 async def puzzle_lock(puzzle_id):
@@ -45,6 +50,20 @@ async def puzzles_lock(puzzle_ids):
     async with AsyncExitStack() as stack:
         for puzzle_id in sorted(set(puzzle_ids)):
             await stack.enter_async_context(_PUZZLE_LOCKS[puzzle_id])
+        yield
+
+
+@asynccontextmanager
+async def hunt_create_lock(hunt_id):
+    """Serialize puzzle/group creation within a hunt so the duplicate-name check
+    and the create it guards form one atomic critical section — a double-submit
+    (or two concurrent creators) can't both pass the check and each create a row.
+
+    Held at the edges (web handlers) around check+create; the lock-free
+    PuzzleService it calls never re-acquires it. create_puzzle/create_tag_group
+    take deeper locks (category_layout.layout_lock, rollup_lock) only AFTER this
+    one and never the reverse, so there is no lock-ordering cycle."""
+    async with _HUNT_CREATE_LOCKS[hunt_id]:
         yield
 
 

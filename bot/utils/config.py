@@ -51,6 +51,12 @@ class Config:
         self.web_frontend_url = web.get("frontend_url", "")
         # Path to the built SPA (frontend/dist). Empty -> default alongside repo.
         self.web_frontend_dist = web.get("frontend_dist", "")
+        # Message bridge (Discord -> web). Off by default so capture ships dark.
+        self.web_bridge_enabled = bool(web.get("bridge_enabled", False))
+        # Root dir for downloaded attachment bytes. Required when bridge is on.
+        self.web_archive_media_dir = web.get("archive_media_dir", "")
+        # Reject attachments larger than this (bytes). Default 25 MB (Discord free cap).
+        self.web_attachment_max_bytes = int(web.get("attachment_max_bytes", 26214400))
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))

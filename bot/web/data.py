@@ -151,6 +151,17 @@ async def get_hunt_for_evidence(item_id):
     )
 
 
+async def get_hunt_by_channel_id(channel_id):
+    """Resolve the hunt that owns a puzzle channel. Works for archived hunts too
+    (the hunt row persists after the channel is deleted), so it authorizes frozen
+    transcripts that a live channel-permission check could not."""
+    return await fetch_one(
+        "SELECT h.* FROM hunts h JOIN puzzles p ON p.hunt_id = h.id "
+        "WHERE p.channel_id = %s LIMIT 1",
+        (channel_id,),
+    )
+
+
 def hunt_to_json(hunt, guilds_map):
     guild = guilds_map.get(hunt["guild_id"], {})
     return {
@@ -204,6 +215,10 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 "channel_id": str(row["channel_id"]) if row["channel_id"] else None,
                 "discord_url": (
                     f"https://discord.com/channels/{guild_snowflake}/{row['channel_id']}"
+                    if guild_snowflake and row["channel_id"] else None
+                ),
+                "discord_deep_url": (
+                    f"discord://-/channels/{guild_snowflake}/{row['channel_id']}"
                     if guild_snowflake and row["channel_id"] else None
                 ),
                 "sheet_page": row["google_page_id"],
@@ -576,3 +591,70 @@ async def get_guild_activity(guild_snowflake):
         }
         for row in rows
     ]
+
+
+# --- Messages -----------------------------------------------------------------
+
+async def get_channel_messages(channel_id, before=None, limit=50):
+    """Return up to `limit` messages for a channel, ascending by id (render order).
+    `before` is an exclusive snowflake cursor for scrolling into history."""
+    limit = max(1, min(int(limit), 200))
+    if before:
+        rows = await fetch_all(
+            "SELECT id, author_id, author_name, author_avatar, kind, content, embeds, "
+            "reference_id, created_at, edited_at FROM messages "
+            "WHERE channel_id=%s AND id < %s ORDER BY id DESC LIMIT %s",
+            (channel_id, before, limit),
+        )
+    else:
+        rows = await fetch_all(
+            "SELECT id, author_id, author_name, author_avatar, kind, content, embeds, "
+            "reference_id, created_at, edited_at FROM messages "
+            "WHERE channel_id=%s ORDER BY id DESC LIMIT %s",
+            (channel_id, limit),
+        )
+    rows = list(reversed(rows))  # ascending for the viewer
+    if not rows:
+        return []
+    ids = [r["id"] for r in rows]
+    placeholders = ",".join(["%s"] * len(ids))
+    atts = await fetch_all(
+        "SELECT id, message_id, filename, content_type, size, local_path, download_status "
+        f"FROM message_attachments WHERE message_id IN ({placeholders})",
+        tuple(ids),
+    )
+    by_msg = {}
+    for a in atts:
+        by_msg.setdefault(a["message_id"], []).append({
+            "id": str(a["id"]),
+            "filename": a["filename"],
+            "content_type": a["content_type"],
+            "size": a["size"],
+            "url": (f"/api/attachments/{a['id']}" if a["download_status"] == 1 else None),
+        })
+    out = []
+    for r in rows:
+        out.append({
+            "id": str(r["id"]),
+            "author_id": str(r["author_id"]),
+            "author_name": r["author_name"],
+            "author_avatar": r["author_avatar"],
+            "kind": r["kind"],
+            "content": r["content"],
+            "embeds": (json.loads(r["embeds"]) if r["embeds"] else []),
+            "reference_id": (str(r["reference_id"]) if r["reference_id"] else None),
+            "created_at": _iso(r["created_at"]) if isinstance(r["created_at"], datetime.datetime) else r["created_at"],
+            "edited_at": (_iso(r["edited_at"]) if isinstance(r["edited_at"], datetime.datetime) else None),
+            "attachments": by_msg.get(r["id"], []),
+        })
+    return out
+
+
+async def get_attachment_with_channel(attachment_id):
+    """Attachment row plus the channel it belongs to, for auth + file serving."""
+    return await fetch_one(
+        "SELECT a.id, a.filename, a.content_type, a.local_path, a.download_status, "
+        "m.channel_id FROM message_attachments a JOIN messages m ON m.id = a.message_id "
+        "WHERE a.id = %s LIMIT 1",
+        (attachment_id,),
+    )

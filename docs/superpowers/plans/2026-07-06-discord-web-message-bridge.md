@@ -1623,6 +1623,10 @@ Edit `docs/superpowers/specs/2026-07-06-discord-web-message-bridge-design.md` he
 ## Known limitations (documented, intentional)
 
 - Newly created puzzle channels may miss up to `_REFRESH_SECONDS` (60s) of early messages until the gate set refreshes (typically only bot setup messages).
-- Live `message_edit` events without guild context are delivered only to viewers already showing that message id (see C1 note); the frozen transcript is always correct on reopen.
 - Live message events carry text immediately; attachments render on viewer reopen (the REST transcript has them). Acceptable for v1.
+- Reply quotes: `reference_id` is captured/stored/served but the viewer does not yet render a reply quote (design mentions it) — deferred follow-up.
+- `send_file` sets no `Content-Disposition` filename for non-image downloads (kept to allow inline image rendering); minor filename-preservation nit — deferred.
+- The viewer opens its own `/api/ws/activity` socket rather than sharing the board's `useActivityFeed` — functionally fine (pub/sub supports many subscribers); noted architectural duplication.
 - `send_file` attachment serving is via the app; nginx `X-Accel-Redirect` is a future optimization.
+
+**Corrected during final review:** live `message_edit` events now propagate (the raw edit payload *does* carry `channel_id`/`guild_id` as first-class attributes; the original "no guild context on edits" caveat was based on a wrong assumption and was fixed in `2d73401`).

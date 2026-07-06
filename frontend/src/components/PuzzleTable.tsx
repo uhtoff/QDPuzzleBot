@@ -288,6 +288,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     puzzle={p}
                     sheetBase={detail.hunt.sheet_base_url}
                     solvedSheetBase={detail.hunt.solved_sheet_base_url}
+                    huntArchived={detail.hunt.archived}
                   />
                 </Table.Td>
                 <Table.Td {...bandProps}>
