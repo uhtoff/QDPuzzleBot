@@ -157,3 +157,25 @@ async def test_backfill_glyphs_renames_each_target():
         renamed = await svc.backfill_glyphs(guild, hunt)
     assert renamed == 1
     svc.safe_rename.assert_awaited_once_with(ch1, "🧩meta-one")
+
+
+async def test_backfill_glyphs_continues_past_a_failure():
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
+    g1 = _group(10, "Metapuzzle", 100)
+    g2 = _group(11, "Metapuzzle", 101)
+    t1 = _puzzle(100, "One", is_target=True); t1.channel_id = 500
+    t2 = _puzzle(101, "Two", is_target=True); t2.channel_id = 501
+    ch1 = MagicMock(); ch1.name = "one"
+    ch2 = MagicMock(); ch2.name = "two"
+    guild.get_channel_or_thread = MagicMock(side_effect=lambda cid: {500: ch1, 501: ch2}.get(cid))
+    svc.safe_rename = AsyncMock(side_effect=[RuntimeError("boom"), None])  # first fails
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch.object(PuzzleService, "desired_channel_name",
+                      side_effect=lambda h, p, group=None: {100: "🧩one", 101: "🧩two"}[p.id]):
+        mrdb.get_all.return_value = [g1, g2]
+        mpdb.get_by_attr.side_effect = lambda id: {100: t1, 101: t2}.get(id)
+        renamed = await svc.backfill_glyphs(guild, hunt)
+    assert renamed == 1                      # second succeeded despite first failing
+    assert svc.safe_rename.await_count == 2  # both attempted

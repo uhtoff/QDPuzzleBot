@@ -354,8 +354,13 @@ class PuzzleService:
                 continue
             want = self.desired_channel_name(hunt, puzzle, group=group)
             if channel.name != want:
-                await self.safe_rename(channel, want)
-                renamed += 1
+                try:
+                    await self.safe_rename(channel, want)
+                    renamed += 1
+                except Exception:
+                    logger.warning(
+                        "backfill_glyphs: failed to rename channel %s for puzzle %s",
+                        puzzle.channel_id, puzzle.id, exc_info=True)
         return renamed
 
     # --- !reconcile ---
