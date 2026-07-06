@@ -20,7 +20,9 @@ timeout 180 pipenv run python -m pytest tests/test_target_extract.py -q > /tmp/t
 ```bash
 timeout 180 pipenv run basedpyright bot/core/puzzle_service.py bot/core/target_extract.py > /tmp/pyright.log 2>&1
 ```
-and confirm **0 errors** (pre-existing `reportUnused*` *warnings* elsewhere are not errors and don't fail CI — do not "fix" unrelated ones). Only `bot/` is type-checked; `tests/` is not, so unused test params/imports don't matter to CI. Watch specifically for `reportOptionalMemberAccess`: DAO getters like `PuzzleJsonDb.get_by_attr(...)` return `PuzzleData | None`, so narrow with a `None` guard before using the result.
+and confirm **0 errors** (pre-existing `reportUnused*` *warnings* elsewhere are not errors and don't fail CI — do not "fix" unrelated ones). Only `bot/` is type-checked; `tests/` is not, so unused test params/`reportAttributeAccessIssue`/`reportCallIssue` on `.callback(...)` in test files don't matter to CI. Watch specifically for `reportOptionalMemberAccess`: DAO getters like `PuzzleJsonDb.get_by_attr(...)` return `PuzzleData | None`, so narrow with a `None` guard before using the result.
+
+**Lint gate (also CI-enforced):** CI runs `pipenv run ruff check` (pyflakes `F` rules, **repo-wide including `tests/`**). After each task, run `timeout 120 pipenv run ruff check <changed files> > /tmp/ruff.log 2>&1` and expect "All checks passed!". The most common trap is an unused import (`F401`) in a new test — only import what the test actually uses.
 
 ---
 
@@ -474,12 +476,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_extract_command.py`:
+Create `tests/test_extract_command.py` (note: no `import pytest` — these tests use neither `pytest.raises` nor markers, and CI's `ruff check` flags the unused import):
 
 ```python
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from bot.cogs.puzzles import Puzzles
 from bot.store.tag_group_data import TagGroupData
@@ -662,6 +662,11 @@ Read `/tmp/test.log`; expect no new failures vs. the pre-change baseline.
 timeout 300 pipenv run basedpyright bot/ > /tmp/pyright.log 2>&1
 ```
 Read `/tmp/pyright.log`; expect **0 errors** (warnings are fine). This must be clean or CI fails.
+- [ ] Lint gate green (the CI command):
+```bash
+timeout 180 pipenv run ruff check > /tmp/ruff.log 2>&1
+```
+Read `/tmp/ruff.log`; expect "All checks passed!". This must be clean or CI fails.
 - [ ] Manual smoke (optional, live bot): in a promoted-in-place meta's channel, run `!extract_target_to_category`; confirm a new category named after the meta appears, the meta + its exclusive feeders move in, shared feeders and sub-metas stay put, and the roll-up sheet is unchanged.
 
 ## Rollback / recovery notes
