@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Group, Modal, Select, Stack, TextInput } from "@mantine/core";
+import { Button, Group, LoadingOverlay, Modal, Select, Stack, TextInput } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconPlus } from "@tabler/icons-react";
 import type { HuntDetail } from "../types";
@@ -39,6 +39,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const createMeta = useCreateMeta(uid);
 
   function submitPuzzle() {
+    if (createPuzzle.isPending) return;   // block double-submit (e.g. a second Enter)
     const name = puzzleName.trim();
     if (!name || metaCode == null) return;
     createPuzzle.mutate(
@@ -55,6 +56,7 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   }
 
   function submitMeta() {
+    if (createMeta.isPending) return;   // block double-submit (e.g. a second Enter)
     const name = metaName.trim();
     if (!name) return;
     createMeta.mutate(
@@ -81,13 +83,16 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
         </Button>
       </Group>
 
-      <Modal opened={puzzleOpen} onClose={puzzle.close} title="New puzzle" centered>
-        <Stack>
+      <Modal opened={puzzleOpen} onClose={puzzle.close} title="New puzzle" centered
+             closeOnClickOutside={!createPuzzle.isPending} closeOnEscape={!createPuzzle.isPending}>
+        <Stack pos="relative">
+          <LoadingOverlay visible={createPuzzle.isPending} />
           <TextInput
             label="Puzzle name"
             value={puzzleName}
             onChange={(e) => setPuzzleName(e.currentTarget.value)}
             data-autofocus
+            disabled={createPuzzle.isPending}
             onKeyDown={(e) => e.key === "Enter" && submitPuzzle()}
           />
           <Select
@@ -97,25 +102,29 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             value={metaCode}
             onChange={setMetaCode}
             allowDeselect={false}
+            disabled={createPuzzle.isPending}
           />
           <Button
             onClick={submitPuzzle}
             loading={createPuzzle.isPending}
-            disabled={!puzzleName.trim() || metaCode == null}
+            disabled={createPuzzle.isPending || !puzzleName.trim() || metaCode == null}
           >
             Create
           </Button>
         </Stack>
       </Modal>
 
-      <Modal opened={metaOpen} onClose={meta.close} title="New group" centered>
-        <Stack>
+      <Modal opened={metaOpen} onClose={meta.close} title="New group" centered
+             closeOnClickOutside={!createMeta.isPending} closeOnEscape={!createMeta.isPending}>
+        <Stack pos="relative">
+          <LoadingOverlay visible={createMeta.isPending} />
           <TextInput
             label="Group name"
             description="Creates a new category with a channel and Google sheet."
             value={metaName}
             onChange={(e) => setMetaName(e.currentTarget.value)}
             data-autofocus
+            disabled={createMeta.isPending}
             onKeyDown={(e) => e.key === "Enter" && submitMeta()}
           />
           <Select
@@ -124,8 +133,10 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
             value={metaType}
             onChange={(v) => setMetaType((v as MetaType) ?? "Round")}
             allowDeselect={false}
+            disabled={createMeta.isPending}
           />
-          <Button color="grape" onClick={submitMeta} loading={createMeta.isPending} disabled={!metaName.trim()}>
+          <Button color="grape" onClick={submitMeta} loading={createMeta.isPending}
+                  disabled={createMeta.isPending || !metaName.trim()}>
             Create
           </Button>
         </Stack>

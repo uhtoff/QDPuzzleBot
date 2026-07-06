@@ -5,6 +5,7 @@ import {
   Collapse,
   Divider,
   Group,
+  LoadingOverlay,
   Menu,
   Modal,
   Popover,
@@ -132,6 +133,7 @@ export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: 
 export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | null; uid: string; onClose: () => void }) {
   const solve = useSolvePuzzle(uid);
   const unsolve = useUnsolvePuzzle(uid);
+  const busy = solve.isPending || unsolve.isPending;  // block double-submit while a request is in flight
   // One input per action button.
   const [partialText, setPartialText] = useState("");
   const [fullText, setFullText] = useState("");
@@ -141,7 +143,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   function submit(mode: SolveMode) {
-    if (!puzzle) return;
+    if (!puzzle || busy) return;
     const value =
       mode === "partial" ? partialText : mode === "full" ? fullText : mode === "change" ? changeText : addText;
 
@@ -182,7 +184,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
   // Solve a puzzle that has no text answer (interactions, etc.): record a tick as
   // the solution. Mirrors the bot's !mark_as_complete (full solve with "✅").
   function markComplete() {
-    if (!puzzle || puzzle.solved) return;
+    if (!puzzle || puzzle.solved || busy) return;
     solve.mutate(
       { puzzleId: puzzle.id, solution: "✅", mode: "full" },
       {
@@ -200,7 +202,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
   // is the deliberate step (no confirm dialog). Close immediately and rely on the
   // error toast; a failed unsolve self-corrects on the next query invalidation.
   function unsolvePuzzle() {
-    if (!puzzle) return;
+    if (!puzzle || busy) return;
     unsolve.mutate({ puzzleId: puzzle.id }, { onError: notifyError });
     onClose();
   }
@@ -233,9 +235,12 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
       onClose={onClose}
       title={puzzle ? (isSolved ? puzzle.name : `Solve — ${puzzle.name}`) : "Solve"}
       centered
+      closeOnClickOutside={!busy}
+      closeOnEscape={!busy}
     >
       {puzzle && (
-        <Stack>
+        <Stack pos="relative">
+          <LoadingOverlay visible={busy} />
           {isSolved && (
             <Text size="sm" c="dimmed">
               Current solution: {puzzle.solution}
@@ -251,6 +256,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
                 value={fullText}
                 onChange={(e) => setFullText(e.currentTarget.value)}
                 onKeyDown={(e) => handleKey(e, "full")}
+                disabled={busy}
               />
               <Button color="green" onClick={() => submit("full")} loading={solve.isPending} disabled={!fullText.trim()}>
                 Solve
@@ -269,6 +275,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
                     value={partialText}
                     onChange={(e) => setPartialText(e.currentTarget.value)}
                     onKeyDown={(e) => handleKey(e, "partial")}
+                    disabled={busy}
                   />
                   <Button color="blue" variant="light" onClick={() => submit("partial")} loading={solve.isPending}>
                     Mark partial
@@ -295,6 +302,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
                     value={changeText}
                     onChange={(e) => setChangeText(e.currentTarget.value)}
                     onKeyDown={(e) => handleKey(e, "change")}
+                    disabled={busy}
                   />
                   <Button
                     color="orange"
@@ -312,6 +320,7 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
                     value={addText}
                     onChange={(e) => setAddText(e.currentTarget.value)}
                     onKeyDown={(e) => handleKey(e, "add")}
+                    disabled={busy}
                   />
                   <Button
                     color="teal"
