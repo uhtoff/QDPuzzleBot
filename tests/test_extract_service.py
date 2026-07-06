@@ -75,7 +75,8 @@ async def test_extract_clones_from_template_and_flips_category_id(env, monkeypat
     svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
-         patch("bot.core.puzzle_service.get_or_create_channel", AsyncMock()), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(edit=AsyncMock()), True))), \
          patch("bot.core.puzzle_service.solve_divider_position", return_value=False), \
          patch("bot.core.puzzle_service.category_layout") as mcl:
         mcl.layout_lock = asyncio.Lock()
@@ -102,7 +103,8 @@ async def test_extract_triggers_consolidation_on_vacated_source(env):
     svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
-         patch("bot.core.puzzle_service.get_or_create_channel", AsyncMock()), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(edit=AsyncMock()), True))), \
          patch("bot.core.puzzle_service.solve_divider_position", return_value=False), \
          patch("bot.core.puzzle_service.category_layout") as mcl:
         mcl.layout_lock = asyncio.Lock()
@@ -124,6 +126,43 @@ async def test_extract_refuses_when_already_owns_category(env):
         mcl.layout_lock = asyncio.Lock()
         mcl._category_by_id.return_value = MagicMock()  # already a real category
         with pytest.raises(RuntimeError, match="already_own_category"):
+            await svc.extract_target_to_category(guild, hunt, meta)
+
+
+async def test_extract_orders_target_unsolved_divider_solved(env):
+    svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
+    solved_ch = MagicMock(); solved_ch.id = 803
+    solved_ch.category = env["host"]; solved_ch.edit = AsyncMock()
+    base = guild.get_channel.side_effect
+    guild.get_channel = MagicMock(
+        side_effect=lambda cid: solved_ch if cid == 803 else base(cid))
+    solved_feeder = _puzzle(3, 803, [(10, EDGE_FEEDS)], status="solved")
+    divider = MagicMock(); divider.edit = AsyncMock()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(divider, True))), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.return_value = None
+        mcl.maybe_consolidate_category = MagicMock()
+        mpdb.get_by_attr.return_value = env["target"]
+        mpdb.get_all_from_tag_group.return_value = [env["target"], env["feeder"], solved_feeder]
+        mrdb.get_all.return_value = [meta]
+        await svc.extract_target_to_category(guild, hunt, meta)
+    assert env["target_ch"].edit.await_args.kwargs["position"] == 0
+    assert env["feeder_ch"].edit.await_args.kwargs["position"] == 1
+    assert divider.edit.await_args.kwargs["position"] == 2
+    assert solved_ch.edit.await_args.kwargs["position"] == 3
+
+
+async def test_extract_refuses_when_template_missing(env):
+    svc, guild, hunt, meta = env["svc"], env["guild"], env["hunt"], env["meta"]
+    hunt.category_id = 99999  # no category with this id in guild.categories
+    with patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.return_value = None
+        with pytest.raises(RuntimeError, match="no_template_category"):
             await svc.extract_target_to_category(guild, hunt, meta)
 
 

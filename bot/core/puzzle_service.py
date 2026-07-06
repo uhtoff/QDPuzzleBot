@@ -1831,16 +1831,15 @@ class PuzzleService:
                 new_name = new_name + " — " + clean_category_name(hunt.name)
             new_category = await ref_category.clone(name=new_name)
             await new_category.edit(position=ref_category.position + 1)
+            divider = None
             if SOLVE_CATEGORY is False:
-                await get_or_create_channel(
+                divider, _ = await get_or_create_channel(
                     guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
-                    channel_type="text", position=500,
+                    channel_type="text",
                 )
-            divider_pos = solve_divider_position(new_category)
 
-            # Ordering: target first, then unsolved feeders (above divider), then
-            # solved feeders (below divider). Sub-metas never appear here — they are
-            # excluded by select_extract_puzzles.
+            # Ordering: target + unsolved feeders, then the divider, then solved
+            # feeders. Sub-metas never appear here (excluded by select_extract_puzzles).
             unsolved = [p for p in puzzles if p.status != "solved"]
             solved = [p for p in puzzles if p.status == "solved"]
             pos = 0
@@ -1853,6 +1852,9 @@ class PuzzleService:
                     sources.add(src.id)
                 await channel.edit(category=new_category, position=pos)
                 pos += 1
+            if divider is not None:
+                await divider.edit(position=pos)
+                pos += 1
             for p in solved:
                 channel = guild.get_channel(p.channel_id)
                 if channel is None:
@@ -1860,8 +1862,7 @@ class PuzzleService:
                 src = getattr(channel, "category", None)
                 if src is not None and src.id != new_category.id:
                     sources.add(src.id)
-                below = (divider_pos + 1) if divider_pos is not False else pos
-                await channel.edit(category=new_category, position=below)
+                await channel.edit(category=new_category, position=pos)
                 pos += 1
 
             meta.category_id = new_category.id
