@@ -2,6 +2,7 @@ import { Modal, Stack, Group, Avatar, Text, Anchor, Image, Loader } from "@manti
 import { IconBrandDiscord, IconArrowBackUp } from "@tabler/icons-react";
 import { useChannelMessages } from "../hooks/useChannelMessages";
 import type { ChatMessage } from "../types";
+import { emojify } from "../emoji";
 
 interface Props {
   opened: boolean;
@@ -24,7 +25,7 @@ function embedColor(color?: number): string {
 // One-line preview of a replied-to message for the quote row.
 function replySnippet(m: ChatMessage): string {
   const text = m.content?.trim() || m.embeds?.[0]?.title || m.embeds?.[0]?.description;
-  if (text) return text.length > 80 ? text.slice(0, 80) + "…" : text;
+  if (text) return emojify(text.length > 80 ? text.slice(0, 80) + "…" : text);
   if (m.attachments.length) return m.attachments[0].filename;
   return "message";
 }
@@ -80,7 +81,7 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
               {m.content && (
                 <Text size="sm" c={m.kind === KIND_COMMAND ? "dimmed" : undefined}
                       style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {m.content}
+                  {emojify(m.content)}
                 </Text>
               )}
               {m.embeds.map((e, i) => (
@@ -91,23 +92,23 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
                 }}>
                   {e.title && (
                     e.url
-                      ? <Anchor href={e.url} target="_blank" size="sm" fw={600}>{e.title}</Anchor>
-                      : <Text size="sm" fw={600}>{e.title}</Text>
+                      ? <Anchor href={e.url} target="_blank" size="sm" fw={600}>{emojify(e.title)}</Anchor>
+                      : <Text size="sm" fw={600}>{emojify(e.title)}</Text>
                   )}
                   {e.description && (
                     <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                      {e.description}
+                      {emojify(e.description)}
                     </Text>
                   )}
                   {e.fields?.map((f, fi) => (
                     <div key={fi} style={{ marginTop: 4 }}>
-                      {f.name && <Text size="xs" fw={600}>{f.name}</Text>}
+                      {f.name && <Text size="xs" fw={600}>{emojify(f.name)}</Text>}
                       <Text size="xs" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        {f.value}
+                        {emojify(f.value)}
                       </Text>
                     </div>
                   ))}
-                  {e.footer && <Text size="xs" c="dimmed" mt={4}>{e.footer}</Text>}
+                  {e.footer && <Text size="xs" c="dimmed" mt={4}>{emojify(e.footer)}</Text>}
                 </div>
               ))}
               {m.attachments.map((a) =>
