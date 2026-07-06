@@ -51,3 +51,31 @@ class TestFetchMemberCachedLogging:
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warnings) == 1
         assert warnings[0].exc_info is not None
+
+
+class TestGetOrFetchMember:
+    async def test_returns_cached_member_without_fetch(self):
+        cached = MagicMock()
+        guild = MagicMock(id=1, chunked=True)
+        guild.get_member.return_value = cached
+        guild.fetch_member = AsyncMock()
+
+        assert await auth.get_or_fetch_member(guild, 2) is cached
+        guild.fetch_member.assert_not_awaited()
+
+    async def test_chunked_miss_is_authoritative_no_fetch(self):
+        guild = MagicMock(id=1, chunked=True)
+        guild.get_member.return_value = None
+        guild.fetch_member = AsyncMock()
+
+        assert await auth.get_or_fetch_member(guild, 2) is None
+        guild.fetch_member.assert_not_awaited()
+
+    async def test_unchunked_miss_falls_back_to_fetch(self):
+        fetched = MagicMock()
+        guild = MagicMock(id=1, chunked=False)
+        guild.get_member.return_value = None
+        guild.fetch_member = AsyncMock(return_value=fetched)
+
+        assert await auth.get_or_fetch_member(guild, 2) is fetched
+        guild.fetch_member.assert_awaited_once()
