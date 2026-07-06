@@ -40,11 +40,13 @@ layout_lock = asyncio.Lock()
 # Consolidation hysteresis: a fold/un-split only happens if the result leaves
 # at least this many free slots below CATEGORY_SOFT_LIMIT — otherwise a merge
 # right at the split threshold would oscillate (each split↔merge cycle costs a
-# category create + N channel moves + a delete). Fixed, not proportional, for
-# the same reason the soft-limit headroom is: the cap is config-shrinkable for
-# tests, and a proportional margin either vanishes at cap 50 or devours the
-# whole range at test caps.
-CONSOLIDATE_MARGIN = 4
+# category create + N channel moves + a delete). Kept at 1 (minimal): the cap
+# is config-shrinkable for tests/small servers, and any larger fixed buffer
+# swallows the usable range at a small cap — e.g. a margin of 4 at soft-limit 8
+# means a 5–8-channel split can NEVER fold back (it only folds at ≤4), which
+# stalled folding on a small-cap server. One free slot is enough to avoid an
+# immediate split↔merge on the very next create.
+CONSOLIDATE_MARGIN = 1
 
 # Auto-extract on overflow (Plan 4): when a create would overflow a category,
 # extract a channel-home meta into its own category rather than hard-failing

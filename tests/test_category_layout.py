@@ -729,8 +729,8 @@ async def test_consolidate_respects_margin(monkeypatch):
     """movers > free - CONSOLIDATE_MARGIN: folding now would sit too close to
     the split threshold and oscillate — leave the overflow alone."""
     monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
-    u0 = _filled_cat(100, 5, n=2)          # free = 6
-    u1 = _filled_cat(101, 6, n=3)          # movers=3 > 6 - 4
+    u0 = _filled_cat(100, 5, n=6)          # free = 2
+    u1 = _filled_cat(101, 6, n=2)          # movers=2 > free(2) - margin(1) -> would leave 0 free
     guild = MagicMock(); guild.categories = [u0, u1]
     dao, store = _dao_with_rows([
         TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0),
@@ -833,8 +833,8 @@ async def test_consolidate_tracks_capacity_across_moves_in_one_run(monkeypatch):
     gateway events) — consolidate must track what it already added to each
     target, or two successive folds could overfill one category."""
     monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
-    u0 = _filled_cat(100, 5, n=2)          # cached free = 6
-    u1 = _filled_cat(101, 6, n=2)
+    u0 = _filled_cat(100, 5, n=4)          # cached free = 4
+    u1 = _filled_cat(101, 6, n=3)
     u2 = _filled_cat(102, 7, n=2)
     guild = MagicMock(); guild.categories = [u0, u1, u2]
     dao, store = _dao_with_rows([
@@ -845,17 +845,18 @@ async def test_consolidate_tracks_capacity_across_moves_in_one_run(monkeypatch):
 
     await layout.consolidate(guild, 5, dao)
 
-    # Fold #1 (seq=2 -> lowers) fits: movers=2 <= free(6+6=12 vs 8-cap... per
-    # target) - margin. After it, u0 effectively holds 4: fold #2 (seq=1) has
-    # free = (8-4)+(gone) = 4, movers=2 <= 4-4 is FALSE -> must NOT fold.
+    # Fold #1 (seq=2, movers=2) lands in u0 (cached 4). After it, u0 effectively
+    # holds 6 via the `added` tracker: fold #2 (seq=1, movers=3) sees free =
+    # 8-6 = 2, and 3 > 2 - margin(1) -> must NOT fold (proves capacity tracking;
+    # without `added`, cached free would be 4 and it would wrongly fold).
     u2.delete.assert_awaited_once()
     u1.delete.assert_not_awaited()
     assert {r.id for r in store} == {1, 2}
-    # And the fold-#1 movers landed after u0's cached channels at 2,3 —
+    # And the fold-#1 movers landed after u0's cached channels at 4,5 —
     # the second mover's position accounts for the first (cache won't).
     m1, m2 = u2.channels
-    m1.edit.assert_awaited_once_with(category=u0, position=2)
-    m2.edit.assert_awaited_once_with(category=u0, position=3)
+    m1.edit.assert_awaited_once_with(category=u0, position=4)
+    m2.edit.assert_awaited_once_with(category=u0, position=5)
 
 
 # ----------------------------------------------------------------- triggers
@@ -890,8 +891,8 @@ def test_maybe_consolidate_skips_fully_folded_fat_owner(monkeypatch):
     """1+1 seq=0 rows but too big to un-split: nothing consolidate could do —
     don't even spawn the task."""
     monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
-    u0 = _filled_cat(100, 5, n=4)
-    s0 = _filled_cat(200, 6, n=2)          # 4+2+1 > 8-4
+    u0 = _filled_cat(100, 5, n=5)
+    s0 = _filled_cat(200, 6, n=2)          # 5+2+1 = 8 > 8-1
     guild = MagicMock(); guild.categories = [u0, s0]
     dao = MagicMock()
     dao.get_for_group.return_value = [
@@ -992,7 +993,7 @@ async def test_unsplit_blocked_when_total_exceeds_margin(monkeypatch):
     """unsolved + solved + divider must fit under SOFT_LIMIT - margin, or the
     next few creates would just re-split — leave the split alone."""
     guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(
-        monkeypatch, n_unsolved=4, n_solved=2)   # 4+2+1=7 > 10-4
+        monkeypatch, n_unsolved=6, n_solved=3)   # 6+3+1=10 > 10-1
 
     await layout.consolidate(guild, 5, dao)
 
@@ -1006,7 +1007,7 @@ async def test_unsplit_blocked_while_overflow_rows_remain(monkeypatch):
     """Un-split only from the fully-folded position: one row per role."""
     guild, u0, s0, dao, store, divider, goc = _unsplit_fixture(
         monkeypatch, n_unsolved=1, n_solved=1)
-    u1 = _filled_cat(101, 7, n=6)          # margin-blocked: 6 > free(9) - 4
+    u1 = _filled_cat(101, 7, n=9)          # margin-blocked: 9 > free(9) - 1
     guild.categories.append(u1)
     store.append(TagGroupCategoryData(
         id=3, group_id=5, category_id=101, role="unsolved", seq=1))
