@@ -1972,6 +1972,84 @@ class PuzzleService:
                 category_layout.maybe_consolidate_category(guild, src)
         return new_category
 
+    def _channels_to_consolidate(self, guild, hunt, meta):
+        """(channels_with_puzzle, owned_categories) to move when consolidating *meta*.
+
+        Category-owning meta: every non-divider channel across its owned categories
+        (primary + split rows); nested channel-home metas ride along. Channel-home
+        meta: its extract-set (target + exclusive plain feeders), no owned categories."""
+        primary = category_layout.primary_category(guild, meta)
+        if primary is None:
+            target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
+            if target_puzzle is None:
+                raise RuntimeError("no_target_puzzle")
+            members = PuzzleJsonDb.get_all_from_tag_group(meta.id)
+            all_groups = TagGroupJsonDb.get_all(hunt.id)
+            target_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
+            puzzles = select_extract_puzzles(meta, target_puzzle, members, target_ids)
+            moves = []
+            for p in puzzles:
+                ch = guild.get_channel(p.channel_id)
+                if ch is not None:
+                    moves.append((ch, p))
+            return moves, []
+        owned = [primary]
+        if category_layout.is_split(meta, TagGroupCategoryDb):
+            for row in category_layout.group_categories(meta, TagGroupCategoryDb):
+                cat = category_layout._category_by_id(guild, row.category_id)
+                if cat is not None and cat.id not in {c.id for c in owned}:
+                    owned.append(cat)
+        moves = []
+        for cat in owned:
+            for ch in list(cat.channels):
+                if ch.name == SOLVE_DIVIDER:
+                    continue
+                moves.append((ch, PuzzleJsonDb.get_by_attr(channel_id=ch.id)))
+        return moves, owned
+
+    async def consolidate_to(self, guild, hunt, meta, destination, force=False):
+        """Fold *meta* into *destination*'s category, reverting meta to channel-home.
+
+        Raises RuntimeError("no_target_puzzle") if meta's target is missing,
+        "bad_destination" if the destination has no category, or "would_overflow"
+        if placing the channels would push the destination past the soft cap and not
+        *force*. Returns *destination*."""
+        target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
+        if target_puzzle is None:
+            raise RuntimeError("no_target_puzzle")
+        dest_primary = category_layout.primary_category(guild, destination)
+        if dest_primary is None:
+            dest_primary = category_layout._home_category(guild, destination)
+        if dest_primary is None:
+            raise RuntimeError("bad_destination")
+
+        moves, owned = self._channels_to_consolidate(guild, hunt, meta)
+        incoming = sum(1 for _c, p in moves if getattr(p, "status", "") != "solved")
+        if (not force and not category_layout.is_split(destination, TagGroupCategoryDb)
+                and category_layout.puzzle_count(dest_primary) + incoming
+                    > category_layout.CATEGORY_SOFT_LIMIT):
+            raise RuntimeError("would_overflow")
+
+        async with category_layout.layout_lock:
+            for channel, puzzle in moves:
+                solved = getattr(puzzle, "status", "") == "solved"
+                await category_layout.move_channel_to_owner(
+                    guild, destination, TagGroupCategoryDb, channel, solved)
+            if owned:
+                if not await category_layout.delete_group_categories(
+                        guild, meta, TagGroupCategoryDb):
+                    for cat in owned:
+                        try:
+                            for ch in list(cat.channels):
+                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                            await cat.delete(reason=self._DISCORD_DELETE_REASON)
+                        except Exception:
+                            logger.warning("consolidate_to: failed to delete category %s",
+                                           getattr(cat, "id", "?"), exc_info=True)
+            meta.category_id = target_puzzle.channel_id
+            TagGroupJsonDb.commit(meta)
+        return destination
+
     @pushes_board()
     async def rename_puzzle(self, guild, hunt, puzzle, name):
         """Rename a puzzle: set name/channel_name, commit, refresh metas.
