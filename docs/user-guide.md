@@ -138,6 +138,11 @@ puzzle channel) moves that meta and the puzzles that feed *only* it into a fresh
 category — useful when a meta you promoted in place has outgrown the category it was
 sharing. Shared feeders and nested metas stay where they are.
 
+The reverse is `!consolidate_to <destination>`: run in the meta's own puzzle channel, it
+moves the meta and its puzzles into the destination round's category and deletes this
+meta's category — handy when you're short on categories but have channel room to spare. If
+the destination would overflow, the bot asks you to confirm first.
+
 Renames: `!rename_puzzle New Name` (puzzle channel) and `!rename_group New Name`
 (group's channel). Deletion (`!delete_puzzle`, `!delete_round`, `!delete_hunt`) always
 asks for confirmation — and really does delete channels and sheets.
