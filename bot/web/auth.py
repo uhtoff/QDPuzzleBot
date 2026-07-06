@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlencode
 
 import aiohttp
+import discord
 from quart import Blueprint, jsonify, redirect, request, session
 
 from .typed_app import bot_app
@@ -155,6 +156,17 @@ async def _fetch_member_cached(guild, user_id):
         return None
     try:
         member = await guild.fetch_member(user_id)
+    except discord.NotFound:
+        # 404 Unknown Member is the *expected* "user isn't in this guild" answer —
+        # resolve_membership probes every guild the bot is in, so a logged-in user
+        # legitimately 404s on all the ones they don't belong to. Log quietly and
+        # without a traceback; reserve WARNING+exc_info for genuine REST failures.
+        logger.debug(
+            "user %s is not a member of guild %s (negative-cached for %ss)",
+            user_id, guild.id, _NOT_MEMBER_CACHE_TTL,
+        )
+        _not_member_cache[key] = time.monotonic()
+        return None
     except Exception:
         logger.warning(
             "fetch_member failed for user %s in guild %s (treating as not-a-member for %ss)",
