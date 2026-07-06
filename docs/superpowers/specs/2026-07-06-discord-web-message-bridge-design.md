@@ -1,7 +1,7 @@
 # Discord → Web message bridge (archiving as a byproduct)
 
 **Date:** 2026-07-06
-**Status:** Design approved, ready for planning
+**Status:** Implemented on branch `feat/message-bridge` (Phases A–D complete; pending review/merge to staging). Ships dark behind `web.bridge_enabled` (default off). Live end-to-end smoke deferred (needs a running bot + DB + `archive_media_dir`); migration 027 not yet applied to any live DB.
 
 ## Goal
 
