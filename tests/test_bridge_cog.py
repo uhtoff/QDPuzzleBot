@@ -25,6 +25,7 @@ def _msg(*, mid, cid, author_id, is_bot, content, guild_id=42):
     m.created_at.replace.return_value = "2026-07-06 00:00:00"
     m.reference = None
     m.attachments = []
+    m.embeds = []
     return m
 
 
@@ -75,6 +76,53 @@ async def test_worker_insert_writes_row():
         await cog._handle(rec)
     db.write.assert_called_once()
     assert db.write.call_args.kwargs["id"] == 1
+
+
+def test_normalize_embeds_reduces_to_subset():
+    from bot.cogs.bridge import _normalize_embeds
+    raw = [{
+        "title": "SOLVED!", "description": "great work", "url": "http://h/p",
+        "color": 0x00ff00, "type": "rich",  # 'type' dropped
+        "fields": [{"name": "Follow-up", "value": "use !unsolve", "inline": True}],
+        "footer": {"text": "pinned", "icon_url": "http://i"},  # icon_url dropped
+    }]
+    assert _normalize_embeds(raw) == [{
+        "title": "SOLVED!", "description": "great work", "url": "http://h/p",
+        "color": 0x00ff00,
+        "fields": [{"name": "Follow-up", "value": "use !unsolve", "inline": True}],
+        "footer": "pinned",
+    }]
+
+
+def test_normalize_embeds_empty_and_junk():
+    from bot.cogs.bridge import _normalize_embeds, _embeds_json
+    assert _normalize_embeds([]) == []
+    assert _normalize_embeds(None) == []
+    assert _embeds_json([]) is None  # nothing worth storing
+
+
+async def test_on_message_captures_embed_json():
+    import json
+    from bot.cogs.bridge import _normalize_embeds
+    cog = _make_cog()
+    embed = MagicMock()
+    embed.to_dict.return_value = {"title": "SOLVED!", "description": "yay"}
+    msg = _msg(mid=5, cid=100, author_id=999, is_bot=True, content="")
+    msg.embeds = [embed]
+    await cog.on_message(msg)
+    rec = cog._queue.get_nowait()
+    assert json.loads(rec["embeds"]) == _normalize_embeds([{"title": "SOLVED!", "description": "yay"}])
+
+
+async def test_worker_insert_passes_embeds():
+    cog = _make_cog()
+    rec = {"op": "insert", "id": 1, "channel_id": 100, "guild_id": 42, "author_id": 999,
+           "author_name": "Bot", "author_avatar": None, "kind": 1, "content": "",
+           "embeds": '[{"title": "SOLVED!"}]', "reference_id": None,
+           "created_at": "2026-07-06 00:00:00", "attachments": []}
+    with patch("bot.cogs.bridge.MessageDb") as db:
+        await cog._handle(rec)
+    assert db.write.call_args.kwargs["embeds"] == '[{"title": "SOLVED!"}]'
 
 
 async def test_worker_delete_unlinks_files(tmp_path):

@@ -601,14 +601,14 @@ async def get_channel_messages(channel_id, before=None, limit=50):
     limit = max(1, min(int(limit), 200))
     if before:
         rows = await fetch_all(
-            "SELECT id, author_id, author_name, author_avatar, kind, content, "
+            "SELECT id, author_id, author_name, author_avatar, kind, content, embeds, "
             "reference_id, created_at, edited_at FROM messages "
             "WHERE channel_id=%s AND id < %s ORDER BY id DESC LIMIT %s",
             (channel_id, before, limit),
         )
     else:
         rows = await fetch_all(
-            "SELECT id, author_id, author_name, author_avatar, kind, content, "
+            "SELECT id, author_id, author_name, author_avatar, kind, content, embeds, "
             "reference_id, created_at, edited_at FROM messages "
             "WHERE channel_id=%s ORDER BY id DESC LIMIT %s",
             (channel_id, limit),
@@ -641,6 +641,7 @@ async def get_channel_messages(channel_id, before=None, limit=50):
             "author_avatar": r["author_avatar"],
             "kind": r["kind"],
             "content": r["content"],
+            "embeds": (json.loads(r["embeds"]) if r["embeds"] else []),
             "reference_id": (str(r["reference_id"]) if r["reference_id"] else None),
             "created_at": _iso(r["created_at"]) if isinstance(r["created_at"], datetime.datetime) else r["created_at"],
             "edited_at": (_iso(r["edited_at"]) if isinstance(r["edited_at"], datetime.datetime) else None),

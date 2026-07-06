@@ -14,6 +14,12 @@ interface Props {
 
 const KIND_COMMAND = 3;
 
+// Discord embed accent (0xRRGGBB int) → CSS hex; falls back to a neutral grey.
+function embedColor(color?: number): string {
+  if (typeof color !== "number") return "var(--mantine-color-gray-5)";
+  return `#${(color & 0xffffff).toString(16).padStart(6, "0")}`;
+}
+
 export function ChatViewer({ opened, onClose, channelId, live, title, discordDeepUrl, discordUrl }: Props) {
   const { messages, loading } = useChannelMessages(opened ? channelId : null, live);
 
@@ -48,6 +54,33 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
                   {m.content}
                 </Text>
               )}
+              {m.embeds.map((e, i) => (
+                <div key={i} style={{
+                  borderLeft: `3px solid ${embedColor(e.color)}`,
+                  background: "var(--mantine-color-default-hover)",
+                  borderRadius: 3, padding: "6px 10px", marginTop: 4, maxWidth: 460,
+                }}>
+                  {e.title && (
+                    e.url
+                      ? <Anchor href={e.url} target="_blank" size="sm" fw={600}>{e.title}</Anchor>
+                      : <Text size="sm" fw={600}>{e.title}</Text>
+                  )}
+                  {e.description && (
+                    <Text size="sm" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {e.description}
+                    </Text>
+                  )}
+                  {e.fields?.map((f, fi) => (
+                    <div key={fi} style={{ marginTop: 4 }}>
+                      {f.name && <Text size="xs" fw={600}>{f.name}</Text>}
+                      <Text size="xs" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                        {f.value}
+                      </Text>
+                    </div>
+                  ))}
+                  {e.footer && <Text size="xs" c="dimmed" mt={4}>{e.footer}</Text>}
+                </div>
+              ))}
               {m.attachments.map((a) =>
                 a.url ? (
                   a.content_type?.startsWith("image/") ? (

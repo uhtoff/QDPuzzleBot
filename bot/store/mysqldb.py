@@ -660,37 +660,62 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
         return {row['channel_id']: row for row in rows}
 
 
+_UNSET = object()  # sentinel: "argument not provided" (distinct from None)
+
+
 class MySQLMessageDb(_MySQLBaseDb):
     TABLE_NAME = 'messages'
 
     def write(self, *, id, channel_id, guild_id, author_id, author_name,
-              author_avatar, kind, content, reference_id, created_at):
-        """Insert a captured message. Idempotent on the Discord message id."""
+              author_avatar, kind, content, reference_id, created_at, embeds=None):
+        """Insert a captured message. Idempotent on the Discord message id.
+
+        `embeds` is a JSON string (normalized embed payload) or None."""
         cursor = self.mydb.cursor()
         try:
             cursor.execute(
                 "INSERT INTO messages "
                 "(id, channel_id, guild_id, author_id, author_name, author_avatar, "
-                " kind, content, reference_id, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE content=VALUES(content)",
+                " kind, content, embeds, reference_id, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE content=VALUES(content), embeds=VALUES(embeds)",
                 (id, channel_id, guild_id, author_id, author_name, author_avatar,
-                 kind, content, reference_id, created_at),
+                 kind, content, embeds, reference_id, created_at),
             )
         finally:
             cursor.close()
         self.mydb.commit()
 
-    def mark_edited(self, id, content, edited_at):
+    def mark_edited(self, id, content, edited_at, embeds=_UNSET):
+        """Update a message's content/timestamp. `embeds` is only rewritten when a
+        value is passed (a content-only edit leaves any captured embeds intact)."""
         cursor = self.mydb.cursor()
         try:
-            cursor.execute(
-                "UPDATE messages SET content=%s, edited_at=%s WHERE id=%s",
-                (content, edited_at, id),
-            )
+            if embeds is _UNSET:
+                cursor.execute(
+                    "UPDATE messages SET content=%s, edited_at=%s WHERE id=%s",
+                    (content, edited_at, id),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE messages SET content=%s, embeds=%s, edited_at=%s WHERE id=%s",
+                    (content, embeds, edited_at, id),
+                )
         finally:
             cursor.close()
         self.mydb.commit()
+
+    def channel_has_messages(self, channel_id) -> bool:
+        """True if any message is already stored for the channel. Used by the
+        bridge to identify (and skip) the first welcome/info embed."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT 1 FROM messages WHERE channel_id=%s LIMIT 1", (channel_id,)
+            )
+            return cursor.fetchone() is not None
+        finally:
+            cursor.close()
 
     def delete_message(self, id) -> list:
         """Hard-delete a message and its attachment rows. Returns the local_path

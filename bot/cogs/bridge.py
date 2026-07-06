@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import logging
 
 import aiohttp
@@ -108,6 +109,7 @@ class MessageBridge(commands.Cog):
             "author_avatar": avatar,
             "kind": self._kind_for(message),
             "content": message.content or "",
+            "embeds": _embeds_json([e.to_dict() for e in message.embeds]),
             "reference_id": (message.reference.message_id if message.reference else None),
             "created_at": message.created_at.replace(tzinfo=None),
             "attachments": [
@@ -126,9 +128,13 @@ class MessageBridge(commands.Cog):
         if content is None:
             return  # embed-only / non-content edit
         edited = (payload.data or {}).get("edited_timestamp")
-        self._enqueue({"op": "edit", "id": payload.message_id,
-                       "channel_id": payload.channel_id, "guild_id": payload.guild_id,
-                       "content": content, "edited_at": _parse_iso(edited)})
+        data = payload.data or {}
+        rec = {"op": "edit", "id": payload.message_id,
+               "channel_id": payload.channel_id, "guild_id": payload.guild_id,
+               "content": content, "edited_at": _parse_iso(edited)}
+        if "embeds" in data:  # only rewrite embeds when the payload actually carries them
+            rec["embeds"] = _embeds_json(data["embeds"])
+        self._enqueue(rec)
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
@@ -168,6 +174,7 @@ class MessageBridge(commands.Cog):
             "reference_id": (str(rec["reference_id"]) if rec.get("reference_id") else None),
             "created_at": rec["created_at"].isoformat() if hasattr(rec["created_at"], "isoformat") else str(rec["created_at"]),
             "edited_at": None,
+            "embeds": json.loads(rec["embeds"]) if rec.get("embeds") else [],
             "attachments": [],  # attachments arrive via a board refresh / reopen; live text is the priority
         }
 
@@ -186,18 +193,25 @@ class MessageBridge(commands.Cog):
                 author_id=rec["author_id"], author_name=rec["author_name"],
                 author_avatar=rec["author_avatar"], kind=rec["kind"],
                 content=rec["content"], reference_id=rec["reference_id"],
-                created_at=rec["created_at"],
+                created_at=rec["created_at"], embeds=rec.get("embeds"),
             )
             for att in rec["attachments"]:
                 await self._store_attachment(rec, att)
             self._publish({"type": "message", "channel_id": str(rec["channel_id"]),
                            "guild_id": rec["guild_id"], "message": self._message_payload(rec)})
         elif op == "edit":
-            await asyncio.to_thread(MessageDb.mark_edited, rec["id"], rec["content"], rec["edited_at"])
+            if "embeds" in rec:
+                await asyncio.to_thread(MessageDb.mark_edited, rec["id"], rec["content"],
+                                        rec["edited_at"], rec["embeds"])
+            else:
+                await asyncio.to_thread(MessageDb.mark_edited, rec["id"], rec["content"], rec["edited_at"])
+            msg = {"id": str(rec["id"]), "content": rec["content"]}
+            if "embeds" in rec:
+                msg["embeds"] = json.loads(rec["embeds"]) if rec["embeds"] else []
             self._publish({"type": "message_edit",
                            "channel_id": str(rec["channel_id"]) if rec.get("channel_id") else None,
                            "guild_id": rec.get("guild_id"),
-                           "message": {"id": str(rec["id"]), "content": rec["content"]}})
+                           "message": msg})
         elif op == "delete":
             paths = await asyncio.to_thread(MessageDb.delete_message, rec["id"])
             for rel in paths:
@@ -220,6 +234,42 @@ class MessageBridge(commands.Cog):
         assert self._session is not None
         ok = await download_attachment(self._session, att["url"], dest, config.web_attachment_max_bytes)
         await asyncio.to_thread(MessageDb.set_attachment_local, att["id"], rel if ok else None, 1 if ok else 2)
+
+
+def _normalize_embeds(raw_embeds) -> list[dict]:
+    """Reduce Discord embed dicts to the stable subset the viewer renders.
+
+    Accepts the output of ``discord.Embed.to_dict()`` (live send path) or the raw
+    embed dicts from a gateway MESSAGE_UPDATE payload — both share the Discord
+    embed schema. Returns a list of ``{title, description, url, color, fields,
+    footer}`` dicts (missing keys omitted)."""
+    out: list[dict] = []
+    for e in raw_embeds or []:
+        if not isinstance(e, dict):
+            continue
+        norm: dict = {}
+        for key in ("title", "description", "url", "color"):
+            if e.get(key) is not None:
+                norm[key] = e[key]
+        fields = [
+            {"name": f.get("name", ""), "value": f.get("value", ""),
+             "inline": bool(f.get("inline", False))}
+            for f in (e.get("fields") or []) if isinstance(f, dict)
+        ]
+        if fields:
+            norm["fields"] = fields
+        footer = e.get("footer")
+        if isinstance(footer, dict) and footer.get("text"):
+            norm["footer"] = footer["text"]
+        if norm:
+            out.append(norm)
+    return out
+
+
+def _embeds_json(raw_embeds) -> str | None:
+    """Normalized embeds as a JSON string for storage, or None when empty."""
+    norm = _normalize_embeds(raw_embeds)
+    return json.dumps(norm) if norm else None
 
 
 def _parse_iso(value):

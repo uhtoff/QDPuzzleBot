@@ -31,7 +31,10 @@ export function useChannelMessages(channelId: string | null, live: boolean) {
           setMessages((prev) =>
             prev.some((m) => m.id === ev.message!.id) ? prev : [...prev, ev.message!]);
         } else if (ev.type === "message_edit" && ev.message) {
-          setMessages((prev) => prev.map((m) => (m.id === ev.message!.id ? ev.message! : m)));
+          // Edit payloads are partial ({id, content, maybe embeds}); merge so
+          // author/attachments/timestamps survive.
+          setMessages((prev) =>
+            prev.map((m) => (m.id === ev.message!.id ? { ...m, ...ev.message! } : m)));
         } else if (ev.type === "message_delete" && ev.message_id) {
           setMessages((prev) => prev.filter((m) => m.id !== ev.message_id));
         }

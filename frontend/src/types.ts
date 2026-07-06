@@ -134,6 +134,21 @@ export interface ChatAttachment {
   url: string | null; // /api/attachments/<id>, or null if not downloaded
 }
 
+export interface ChatEmbedField {
+  name: string;
+  value: string;
+  inline: boolean;
+}
+
+export interface ChatEmbed {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number; // Discord embed accent, 0xRRGGBB
+  fields?: ChatEmbedField[];
+  footer?: string;
+}
+
 export interface ChatMessage {
   id: string;
   author_id: string;
@@ -141,6 +156,7 @@ export interface ChatMessage {
   author_avatar: string | null;
   kind: number; // 0 human, 1 this-bot, 2 other-bot, 3 command
   content: string;
+  embeds: ChatEmbed[];
   reference_id: string | null;
   created_at: string;
   edited_at: string | null;
