@@ -11,6 +11,7 @@ from . import data, events
 from .auth import (
     ADMIN_ROLES,
     current_user,
+    get_or_fetch_member,
     hunt_visible,
     login_required,
     resolve_membership,
@@ -309,12 +310,9 @@ async def _activity_event_visible(event, user_id, guild_id):
     channel = guild.get_channel(int(event["channel_id"]))
     if channel is None:
         return False  # deleted/uncached channel: fail closed, a stale line is harmless to drop
-    member = guild.get_member(user_id)
+    member = await get_or_fetch_member(guild, user_id)
     if member is None:
-        try:
-            member = await guild.fetch_member(user_id)
-        except Exception:
-            return False
+        return False  # not a member of this guild: can't view the channel
     return channel.permissions_for(member).view_channel
 
 

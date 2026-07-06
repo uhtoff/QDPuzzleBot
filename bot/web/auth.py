@@ -179,6 +179,23 @@ async def _fetch_member_cached(guild, user_id):
     return member
 
 
+async def get_or_fetch_member(guild, user_id):
+    """Return the guild member for ``user_id``, or None if they're not in it.
+
+    Prefers the local member cache. Under the members intent the bot chunks each
+    guild at startup, so once ``guild.chunked`` is True the cache is complete and
+    a ``get_member`` miss is authoritative — the user simply isn't a member, no
+    REST call needed. Only during the brief pre-chunk window (or if chunking is
+    unavailable) do we fall back to the negative-cached REST fetch. This avoids a
+    404 round-trip per non-member per guild on every dashboard poll."""
+    member = guild.get_member(user_id)
+    if member is not None:
+        return member
+    if guild.chunked:
+        return None
+    return await _fetch_member_cached(guild, user_id)
+
+
 async def resolve_membership(user_id):
     """Return (membership, roles_by_guild) for a Discord user from the live bot.
 
@@ -189,9 +206,7 @@ async def resolve_membership(user_id):
     membership = set()
     roles_by_guild = {}
     for guild in bot.guilds:
-        member = guild.get_member(user_id)
-        if member is None:
-            member = await _fetch_member_cached(guild, user_id)
+        member = await get_or_fetch_member(guild, user_id)
         if member is not None:
             membership.add(guild.id)
             roles_by_guild[guild.id] = {role.id for role in member.roles}
@@ -204,9 +219,7 @@ async def resolve_role_names(user_id, guild_snowflake):
     guild = bot.get_guild(guild_snowflake)
     if guild is None:
         return None
-    member = guild.get_member(user_id)
-    if member is None:
-        member = await _fetch_member_cached(guild, user_id)
+    member = await get_or_fetch_member(guild, user_id)
     if member is None:
         return None
     return {role.name for role in member.roles}
