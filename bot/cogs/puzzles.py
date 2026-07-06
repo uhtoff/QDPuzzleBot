@@ -2087,7 +2087,8 @@ class Puzzles(commands.Cog):
                         f"Consolidating **{meta.name}** into **{dest.name}** will overflow "
                         f"it (it'll split into an extra category, reducing the saving). "
                         f"Proceed?",
-                        sheets_deleted=False):
+                        sheets_deleted=False,
+                        confirm_label="Confirm consolidate"):
                     return await ctx.send(":x: Consolidation cancelled.")
                 try:
                     await self.service.consolidate_to(ctx.guild, hunt, meta, dest, force=True)
@@ -3556,11 +3557,13 @@ class Puzzles(commands.Cog):
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)
 
-    async def _confirm_destructive(self, ctx, description, *, sheets_deleted=True):
+    async def _confirm_destructive(self, ctx, description, *, sheets_deleted=True,
+                                   confirm_label="Confirm delete"):
         """Send a Confirm/Cancel prompt and return True only if the invoker
         confirms. Returns False on cancel or timeout. ``sheets_deleted=False``
-        switches the copy for archiving (which keeps the sheets)."""
-        view = ConfirmView(ctx.author.id)
+        switches the copy for archiving (which keeps the sheets). ``confirm_label``
+        overrides the confirm button text for non-delete reuses (e.g. consolidate)."""
+        view = ConfirmView(ctx.author.id, confirm_label=confirm_label)
         if sheets_deleted:
             title = "⚠️ Confirm deletion"
             body = description + "\n\n**Google sheets will be permanently deleted (not recoverable).**"

@@ -70,6 +70,8 @@ async def test_consolidate_confirms_on_would_overflow_then_forces():
 
     assert cog.service.consolidate_to.await_count == 2
     assert cog.service.consolidate_to.await_args_list[1].kwargs.get("force") is True
+    # The overflow confirm button must read "consolidate", not the default "delete".
+    assert cog._confirm_destructive.await_args.kwargs.get("confirm_label") == "Confirm consolidate"
 
 
 async def test_consolidate_overflow_cancelled_does_not_force():

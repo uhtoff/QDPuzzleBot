@@ -13,11 +13,14 @@ class ConfirmView(discord.ui.View):
     be disabled on timeout.
     """
 
-    def __init__(self, author_id, *, timeout=30.0):
+    def __init__(self, author_id, *, timeout=30.0, confirm_label="Confirm delete"):
         super().__init__(timeout=timeout)
         self.author_id = author_id
         self.value: Optional[bool] = None
         self.message: Optional[discord.Message] = None
+        # The confirm button's label is fixed by the decorator below; override it
+        # per call so reused prompts (consolidate, archive) don't say "delete".
+        self.confirm.label = confirm_label
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.author_id:

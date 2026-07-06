@@ -53,6 +53,16 @@ async def test_cancel_sets_false_and_stops():
     assert view.is_finished()
 
 
+def test_confirm_button_label_defaults_to_delete():
+    view = ConfirmView(author_id=42)
+    assert view.confirm.label == "Confirm delete"
+
+
+def test_confirm_button_label_can_be_overridden():
+    view = ConfirmView(author_id=42, confirm_label="Confirm consolidate")
+    assert view.confirm.label == "Confirm consolidate"
+
+
 @pytest.mark.asyncio
 async def test_timeout_leaves_value_none():
     view = ConfirmView(author_id=42)
