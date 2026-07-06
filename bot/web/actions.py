@@ -605,16 +605,24 @@ async def convert_to_meta(puzzle_id):
         if cog is None:
             return jsonify({"error": "bot_unavailable"}), 503
 
+        # Resolve the live guild so convert_to_type's Discord-side effects
+        # (_refresh_channel_glyph, _update_forum_tags) actually run; passing
+        # None silently no-ops them and the promotion never shows on Discord.
+        snowflake = ctx["guild_snowflake"]
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
+
         warning = None
         try:
             tag_group, _summary = await cog.service.convert_to_type(
-                None, hunt_obj, puzzle, "Metapuzzle"
+                guild, hunt_obj, puzzle, "Metapuzzle"
             )
         # SheetRefreshError subclasses RuntimeError, so it must be caught first
         # or the warning path is dead and sheet failures 500.
         except (HttpError, SheetRefreshError):
             logger.exception("convert_to_meta: sheet update failed for puzzle %s", puzzle_id)
             warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
         except RuntimeError as exc:
             if str(exc) == "already_meta":
                 return jsonify({"error": "already_meta"}), 400
