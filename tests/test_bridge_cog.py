@@ -8,6 +8,7 @@ def _make_cog():
     bot.application_id = 999
     cog = MessageBridge(bot)
     cog._puzzle_channels = {100}   # only channel 100 is a tracked puzzle channel
+    cog._worker = MagicMock()      # simulate the running/enabled state
     return cog
 
 
@@ -47,6 +48,22 @@ async def test_on_message_enqueues_insert_for_puzzle_channel():
     await cog.on_message(_msg(mid=1, cid=100, author_id=1, is_bot=False, content="hi"))
     rec = cog._queue.get_nowait()
     assert rec["op"] == "insert" and rec["id"] == 1 and rec["channel_id"] == 100
+
+
+async def test_listeners_inert_when_worker_not_running():
+    # Disabled/not-started state: cog_load never ran, so _worker is None.
+    cog = _make_cog()
+    cog._worker = None
+    assert cog._worker is None
+
+    edit_payload = MagicMock(); edit_payload.message_id = 1; edit_payload.data = {"content": "x"}
+    await cog.on_raw_message_edit(edit_payload)
+
+    del_payload = MagicMock(); del_payload.message_id = 1
+    del_payload.channel_id = 100; del_payload.guild_id = 42
+    await cog.on_raw_message_delete(del_payload)
+
+    assert cog._queue.empty()
 
 
 async def test_worker_insert_writes_row():

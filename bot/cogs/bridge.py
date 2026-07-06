@@ -91,6 +91,8 @@ class MessageBridge(commands.Cog):
     # ---- listeners --------------------------------------------------------
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if self._worker is None:
+            return  # bridge disabled / not started — stay inert
         if message.guild is None or message.channel.id not in self._puzzle_channels:
             return
         author_name = (getattr(message.author, "display_name", None) or message.author.name)[:255]
@@ -117,6 +119,8 @@ class MessageBridge(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent):
+        if self._worker is None:
+            return  # bridge disabled / not started — stay inert
         content = (payload.data or {}).get("content")
         if content is None:
             return  # embed-only / non-content edit
@@ -126,8 +130,10 @@ class MessageBridge(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
-        # No gate: if the id isn't ours the delete is a harmless no-op; if it is,
-        # privacy requires purging it regardless of channel state.
+        if self._worker is None:
+            return  # bridge disabled / not started — stay inert
+        # No channel gate: if the id isn't ours the delete is a harmless no-op; if
+        # it is, privacy requires purging it regardless of channel state.
         self._enqueue({"op": "delete", "id": payload.message_id})
 
     def _enqueue(self, rec: dict):
