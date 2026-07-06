@@ -365,3 +365,37 @@ cleanup is dropping a split owner's join rows, `:3213`).
   see the identification section.
 - **Archive passenger-sweep/orphan behaviour — accepted as-is** (consistent with
   archive's Discord-only teardown); see the archive-interaction section.
+
+## Revision — post-live-testing changes (2026-07-06, after shipping)
+
+Live testing of the shipped series surfaced two bugs and a design refinement; the
+following supersede parts of the original identification/ordering design.
+
+### Delete data-loss fixes (commit `7635b1c`)
+`delete_round` selected DB deletions by tag (correct) but tore down the Discord side by a
+blind category sweep (`delete_group_categories` iterating `cat.channels`), which deleted
+channels physically in the category that belong to OTHER groups — e.g. a channel-home meta
+(consolidated/promoted-in) and its feeders. Two fixes:
+- **Keep shared feeders:** the full-delete path now deletes only the group's own target +
+  members tagged EXCLUSIVELY to it (`set(p.tags) <= {tag_group.id}`); a feeder also tagged
+  to another meta is kept (relocated + auto-untagged when the group row is deleted).
+- **Relocate foreign channels first:** before teardown, every foreign channel in the owned
+  categories (puzzle not a member of this group) is relocated to the hunt's general
+  category, so the sweep can't delete it.
+
+### Identification: ⭐ primary-target marker replaces reliance on ordering (commits `6da30e1`, `e42f857`, `95444be`)
+The original plan said "no separate primary/nested marker" and leaned on channel ORDERING
+to distinguish a category's own target from nested metas. Strict positional ordering proved
+to need too many Discord `edit(position=…)` calls (rate-limited, racey). Superseded by:
+- **⭐ marks a category's OWN (primary) target** — a target whose owning group owns a real
+  category (`primary_category(guild, group) is not None`) gets `⭐` before its kind glyph
+  (`⭐🧩-name`); a nested channel-home meta gets just its kind glyph (`🧩-name`). Derived
+  from the same channel-home-vs-category-owning signal, so it's refreshed only on **extract**
+  (gains ⭐) and **consolidate** (loses ⭐) — one rename each, via `_refresh_channel_glyph`.
+  Folds into `desired_channel_name` (now takes `guild`); backfill/reconcile apply it.
+- **Targets clustered in the primary category:** `consolidate_to` places every target
+  channel (the meta's own + nested sub-metas riding along) into the destination's PRIMARY
+  category via `_place_channel_in_category` (fail-soft), rather than letting overflow scatter
+  them; feeders still route through `move_channel_to_owner`.
+- **Strict target→sub-meta→feeder positional ordering is NOT implemented** (dropped to avoid
+  reposition storms). Identification is glyph-based (⭐ + kind); position is incidental.
