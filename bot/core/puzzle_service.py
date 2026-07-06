@@ -35,7 +35,7 @@ from bot.core.discord_channels import (
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
-from bot.core.target_glyph import glyphed_name
+from bot.core.target_glyph import marked_name
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 from bot.core.target_extract import select_extract_puzzles
 
@@ -322,17 +322,23 @@ class PuzzleService:
             return "capstone"
         return None
 
-    def desired_channel_name(self, hunt, puzzle, group=None):
-        """Canonical Discord channel name: the target glyph (if any) prefixed to
-        clean_channel_name(puzzle.name)."""
+    def desired_channel_name(self, guild, hunt, puzzle, group=None):
+        """Canonical Discord channel name: ⭐ (if this is a category's OWN target) +
+        kind glyph + clean name; bare clean name for a feeder."""
         kind = self._target_kind(hunt, puzzle, group=group)
-        return glyphed_name(kind, clean_channel_name(puzzle.name))
+        clean = clean_channel_name(puzzle.name)
+        if kind is None:
+            return clean
+        owning = group if group is not None else TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
+        is_primary = owning is not None and category_layout.primary_category(guild, owning) is not None
+        return marked_name(kind, clean, is_primary)
 
-    def _desired_target_channel_name(self, hunt, group):
+    def _desired_target_channel_name(self, guild, hunt, group):
         """Glyphed channel name a group's target puzzle should carry (no puzzle
         object needed — the kind is derived from the group)."""
-        return glyphed_name(self._target_kind(hunt, None, group=group),
-                            clean_channel_name(group.name))
+        kind = self._target_kind(hunt, None, group=group)
+        is_primary = category_layout.primary_category(guild, group) is not None
+        return marked_name(kind, clean_channel_name(group.name), is_primary)
 
     async def _refresh_channel_glyph(self, guild, hunt, puzzle):
         """Rename *puzzle*'s channel to its desired glyphed name if it differs."""
@@ -341,7 +347,7 @@ class PuzzleService:
         channel = guild.get_channel_or_thread(puzzle.channel_id)
         if channel is None:
             return
-        want = self.desired_channel_name(hunt, puzzle)
+        want = self.desired_channel_name(guild, hunt, puzzle)
         if channel.name != want:
             await self.safe_rename(channel, want)
 
@@ -358,7 +364,7 @@ class PuzzleService:
             channel = guild.get_channel_or_thread(puzzle.channel_id)
             if channel is None:
                 continue
-            want = self.desired_channel_name(hunt, puzzle, group=group)
+            want = self.desired_channel_name(guild, hunt, puzzle, group=group)
             if channel.name != want:
                 try:
                     await self.safe_rename(channel, want)
@@ -398,7 +404,7 @@ class PuzzleService:
             return []
         actions = []
         category, home_group = self._home_category(guild, puzzle)
-        want_name = self.desired_channel_name(hunt, puzzle)
+        want_name = self.desired_channel_name(guild, hunt, puzzle)
 
         # 1. Stored id resolves to a live channel: fix category/name drift only.
         live = guild.get_channel(puzzle.channel_id) if puzzle.channel_id else None
@@ -1035,7 +1041,7 @@ class PuzzleService:
             # wrongly retire (delete) this channel and its history.
             chat = category_layout.group_chat_channel(guild, tag_group)
             if chat is not None:
-                want = self._desired_target_channel_name(hunt, tag_group)
+                want = self._desired_target_channel_name(guild, hunt, tag_group)
                 if getattr(chat, "name", None) != want:
                     await self.safe_rename(chat, want)
 
@@ -2171,7 +2177,7 @@ class PuzzleService:
         (and tests with _no_guild) skip it.
         """
         puzzle.name = name
-        puzzle.channel_name = self.desired_channel_name(hunt, puzzle)
+        puzzle.channel_name = self.desired_channel_name(guild, hunt, puzzle)
 
         # Rename the Discord channel (skip when guild is None — web + test path).
         # Only edit when the normalised name actually changes: adding punctuation
@@ -2429,7 +2435,7 @@ class PuzzleService:
 
         try:
             channel_name = self.desired_channel_name(
-                hunt, new_puzzle, group=round_data if is_meta else None)
+                guild, hunt, new_puzzle, group=round_data if is_meta else None)
             if hunt.layout_mode == "forum" and round_data is not None:
                 thread = await create_forum_post(forum_channel, channel_name)
                 new_puzzle.channel_id = thread.id

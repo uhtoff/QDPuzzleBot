@@ -26,66 +26,92 @@ def _group(gid, gtype, target_id):
 
 def test_desired_channel_name_feeder_has_no_glyph():
     svc = _svc()
-    hunt = MagicMock(); hunt.id = 1
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     feeder = _puzzle(2, "Plain Feeder")
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb:
         mrdb.get_by_attr.return_value = None
-        assert svc.desired_channel_name(hunt, feeder) == "plain-feeder"
+        assert svc.desired_channel_name(guild, hunt, feeder) == "plain-feeder"
 
 
 def test_desired_channel_name_meta_gets_meta_glyph():
     svc = _svc()
-    hunt = MagicMock(); hunt.id = 1
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     meta = _puzzle(2, "Spooky Meta", is_target=True)
     grp = _group(10, "Metapuzzle", 2)
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.category_layout") as mcl, \
          patch.object(PuzzleService, "_is_metameta_group", return_value=False):
         mrdb.get_by_attr.return_value = grp
         mrdb.get_all.return_value = [grp]
         mpdb.get_all_from_tag_group.return_value = [meta]
-        assert svc.desired_channel_name(hunt, meta) == "🧩-spooky-meta"
+        mcl.primary_category.return_value = MagicMock()
+        assert svc.desired_channel_name(guild, hunt, meta) == "⭐🧩-spooky-meta"
+
+
+def test_desired_channel_name_meta_nested_no_star():
+    """A channel-home meta (owning group doesn't own a real category) keeps
+    just its kind glyph -- no primary marker."""
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
+    meta = _puzzle(2, "Spooky Submeta", is_target=True)
+    grp = _group(10, "Metapuzzle", 2)
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.category_layout") as mcl, \
+         patch.object(PuzzleService, "_is_metameta_group", return_value=False):
+        mrdb.get_by_attr.return_value = grp
+        mrdb.get_all.return_value = [grp]
+        mpdb.get_all_from_tag_group.return_value = [meta]
+        mcl.primary_category.return_value = None
+        assert svc.desired_channel_name(guild, hunt, meta) == "🧩-spooky-submeta"
 
 
 def test_desired_channel_name_capstone_gets_crown():
     svc = _svc()
-    hunt = MagicMock(); hunt.id = 1
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     cap = _puzzle(2, "The End", is_target=True)
     grp = _group(10, "Capstone", 2)
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.category_layout") as mcl, \
          patch.object(PuzzleService, "_is_metameta_group", return_value=False):
         mrdb.get_by_attr.return_value = grp
         mrdb.get_all.return_value = [grp]
         mpdb.get_all_from_tag_group.return_value = [cap]
-        assert svc.desired_channel_name(hunt, cap) == "👑-the-end"
+        mcl.primary_category.return_value = MagicMock()
+        assert svc.desired_channel_name(guild, hunt, cap) == "⭐👑-the-end"
 
 
 def test_desired_channel_name_metameta_gets_double_glyph():
     svc = _svc()
-    hunt = MagicMock(); hunt.id = 1
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     meta = _puzzle(2, "Big Meta", is_target=True)
     grp = _group(10, "Metapuzzle", 2)
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.category_layout") as mcl, \
          patch.object(PuzzleService, "_is_metameta_group", return_value=True):
         mrdb.get_by_attr.return_value = grp
         mrdb.get_all.return_value = [grp]
         mpdb.get_all_from_tag_group.return_value = [meta]
-        assert svc.desired_channel_name(hunt, meta) == "🧩🧩-big-meta"
+        mcl.primary_category.return_value = MagicMock()
+        assert svc.desired_channel_name(guild, hunt, meta) == "⭐🧩🧩-big-meta"
 
 
 def test_desired_channel_name_uses_passed_group_without_db_lookup():
     svc = _svc()
-    hunt = MagicMock(); hunt.id = 1
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     meta = _puzzle(2, "Fresh Meta", is_target=True)
     grp = _group(10, "Runaround", 2)
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.category_layout") as mcl, \
          patch.object(PuzzleService, "_is_metameta_group", return_value=False):
         mpdb.get_all_from_tag_group.return_value = [meta]
         mrdb.get_all.return_value = [grp]
-        assert svc.desired_channel_name(hunt, meta, group=grp) == "🏃-fresh-meta"
+        mcl.primary_category.return_value = MagicMock()
+        assert svc.desired_channel_name(guild, hunt, meta, group=grp) == "⭐🏃-fresh-meta"
         mrdb.get_by_attr.assert_not_called()
 
 
@@ -151,7 +177,7 @@ async def test_backfill_glyphs_renames_each_target():
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch.object(PuzzleService, "desired_channel_name",
-                      side_effect=lambda h, p, group=None: {100: "🧩-meta-one", 101: "👑-cap"}[p.id]):
+                      side_effect=lambda g, h, p, group=None: {100: "🧩-meta-one", 101: "👑-cap"}[p.id]):
         mrdb.get_all.return_value = [g1, g2, g_notarget]
         mpdb.get_by_attr.side_effect = lambda id: {100: t1, 101: t2}.get(id)
         renamed = await svc.backfill_glyphs(guild, hunt)
@@ -173,7 +199,7 @@ async def test_backfill_glyphs_continues_past_a_failure():
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch.object(PuzzleService, "desired_channel_name",
-                      side_effect=lambda h, p, group=None: {100: "🧩-one", 101: "🧩-two"}[p.id]):
+                      side_effect=lambda g, h, p, group=None: {100: "🧩-one", 101: "🧩-two"}[p.id]):
         mrdb.get_all.return_value = [g1, g2]
         mpdb.get_by_attr.side_effect = lambda id: {100: t1, 101: t2}.get(id)
         renamed = await svc.backfill_glyphs(guild, hunt)

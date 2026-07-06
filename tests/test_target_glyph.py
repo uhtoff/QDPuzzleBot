@@ -37,3 +37,16 @@ def test_strip_glyph_handles_legacy_no_separator_name():
 
 def test_glyphed_name_is_idempotent_with_strip():
     assert strip_glyph(glyphed_name("metameta", "x")) == "x"
+
+
+def test_marked_name_primary_gets_star():
+    from bot.core.target_glyph import marked_name
+    assert marked_name("meta", "round-meta", True) == "⭐🧩-round-meta"
+    assert marked_name("meta", "sub", False) == "🧩-sub"
+    assert marked_name(None, "feeder", True) == "feeder"   # feeders never marked
+
+
+def test_strip_glyph_removes_star_and_kind():
+    from bot.core.target_glyph import strip_glyph
+    assert strip_glyph("⭐🧩-round-meta") == "round-meta"
+    assert strip_glyph("⭐🧩🧩-mm") == "mm"

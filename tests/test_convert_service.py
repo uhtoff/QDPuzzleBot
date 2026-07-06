@@ -416,7 +416,8 @@ class TestConvertTagGroupType:
             mrdb.commit.side_effect = lambda r: None
             mcl.group_chat_channel.return_value = chat
             await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
-        cog.service.safe_rename.assert_awaited_once_with(chat, "🧩-bag")  # pre-rename
+        # A promoted bare Group owns its category, so it's a primary target -> starred.
+        cog.service.safe_rename.assert_awaited_once_with(chat, "⭐🧩-bag")  # pre-rename
         cog.service._safe_delete_channel.assert_not_awaited()            # adopted, not retired
         assert new_meta.channel_id == 321
         assert group.target_puzzle_id == 99

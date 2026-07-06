@@ -14,6 +14,12 @@ GLYPHS = {
     "capstone": "👑",
 }
 
+# The marker prefixed ahead of the kind glyph for a category's OWN target (i.e.
+# its owning group owns a real Discord category — see
+# category_layout.primary_category). A nested channel-home target (shares a
+# category rather than owning one) keeps just its kind glyph, no marker.
+PRIMARY_MARKER = "⭐"
+
 # Longest first so a metameta ("🧩🧩") isn't half-stripped as a meta ("🧩").
 _STRIP_ORDER = sorted(GLYPHS.values(), key=len, reverse=True)
 
@@ -30,9 +36,20 @@ def glyphed_name(kind, clean_name):
     return f"{glyph}-{clean_name}" if glyph else clean_name
 
 
+def marked_name(kind, clean_name, is_primary):
+    """glyphed_name plus the ⭐ primary marker when *is_primary* (a category's
+    own target). Feeders (kind None) get no marker and no glyph."""
+    name = glyphed_name(kind, clean_name)
+    if kind is not None and is_primary:
+        return PRIMARY_MARKER + name
+    return name
+
+
 def strip_glyph(channel_name):
-    """*channel_name* with a leading known glyph (and its '-' separator, if any)
-    removed; unchanged if there is no leading glyph."""
+    """*channel_name* with a leading PRIMARY_MARKER and/or known glyph (and its
+    '-' separator, if any) removed; unchanged if there is no leading glyph."""
+    if channel_name.startswith(PRIMARY_MARKER):
+        channel_name = channel_name[len(PRIMARY_MARKER):]
     for glyph in _STRIP_ORDER:
         if channel_name.startswith(glyph):
             rest = channel_name[len(glyph):]
