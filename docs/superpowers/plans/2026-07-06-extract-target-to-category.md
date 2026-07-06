@@ -16,6 +16,12 @@ timeout 180 pipenv run python -m pytest tests/test_target_extract.py -q > /tmp/t
 ```
 (A timeout-killed run exits 124; read `/tmp/test.log`.)
 
+**Type-check gate (CI-enforced):** CI runs `pipenv run basedpyright bot/` (mode `standard`) and fails on **any** error. After every task that adds or changes code under `bot/`, run:
+```bash
+timeout 180 pipenv run basedpyright bot/core/puzzle_service.py bot/core/target_extract.py > /tmp/pyright.log 2>&1
+```
+and confirm **0 errors** (pre-existing `reportUnused*` *warnings* elsewhere are not errors and don't fail CI — do not "fix" unrelated ones). Only `bot/` is type-checked; `tests/` is not, so unused test params/imports don't matter to CI. Watch specifically for `reportOptionalMemberAccess`: DAO getters like `PuzzleJsonDb.get_by_attr(...)` return `PuzzleData | None`, so narrow with a `None` guard before using the result.
+
 ---
 
 ## File Structure
@@ -585,6 +591,11 @@ Expected: PASS (3 passed).
 Run: `timeout 300 pipenv run python -m pytest tests/test_target_extract.py tests/test_extract_service.py tests/test_extract_command.py tests/test_convert_service.py tests/test_category_layout.py -q > /tmp/test.log 2>&1`
 Expected: PASS (all). If `test_convert_service`/`test_category_layout` regress, the new import or method broke something — read `/tmp/test.log`.
 
+- [ ] **Step 5b: Type-check gate**
+
+Run: `timeout 180 pipenv run basedpyright bot/cogs/puzzles.py > /tmp/pyright.log 2>&1`
+Expected: **0 errors** (pre-existing warnings in the file are fine). If the new command introduces a `reportOptionalMemberAccess` (e.g. from `self.get_hunt(ctx)` / `self.get_tag_group(ctx)` returning `... | None`), the `if hunt is None or meta is None or not meta.has_target:` guard already narrows both before use — keep that guard ahead of any attribute access.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -646,6 +657,11 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 timeout 300 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 ```
 Read `/tmp/test.log`; expect no new failures vs. the pre-change baseline.
+- [ ] Type-check gate green (the CI command):
+```bash
+timeout 300 pipenv run basedpyright bot/ > /tmp/pyright.log 2>&1
+```
+Read `/tmp/pyright.log`; expect **0 errors** (warnings are fine). This must be clean or CI fails.
 - [ ] Manual smoke (optional, live bot): in a promoted-in-place meta's channel, run `!extract_target_to_category`; confirm a new category named after the meta appears, the meta + its exclusive feeders move in, shared feeders and sub-metas stay put, and the roll-up sheet is unchanged.
 
 ## Rollback / recovery notes
