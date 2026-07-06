@@ -4,7 +4,7 @@ import string
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
     from . import MySQLReconnector
@@ -660,7 +660,7 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
         return {row['channel_id']: row for row in rows}
 
 
-_UNSET = object()  # sentinel: "argument not provided" (distinct from None)
+_UNSET: Any = object()  # sentinel: "argument not provided" (distinct from None)
 
 
 class MySQLMessageDb(_MySQLBaseDb):
@@ -686,7 +686,7 @@ class MySQLMessageDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
 
-    def mark_edited(self, id, content, edited_at, embeds=_UNSET):
+    def mark_edited(self, id, content, edited_at, embeds: Optional[str] = _UNSET):
         """Update a message's content/timestamp. `embeds` is only rewritten when a
         value is passed (a content-only edit leaves any captured embeds intact)."""
         cursor = self.mydb.cursor()
