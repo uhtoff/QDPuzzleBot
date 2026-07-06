@@ -1,6 +1,5 @@
 """Bridge cog: kind tagging, puzzle-channel gate, and worker DB ops."""
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 def _make_cog():
