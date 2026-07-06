@@ -328,6 +328,12 @@ class PuzzleService:
         kind = self._target_kind(hunt, puzzle, group=group)
         return glyphed_name(kind, clean_channel_name(puzzle.name))
 
+    def _desired_target_channel_name(self, hunt, group):
+        """Glyphed channel name a group's target puzzle should carry (no puzzle
+        object needed — the kind is derived from the group)."""
+        return glyphed_name(self._target_kind(hunt, None, group=group),
+                            clean_channel_name(group.name))
+
     async def _refresh_channel_glyph(self, guild, hunt, puzzle):
         """Rename *puzzle*'s channel to its desired glyphed name if it differs."""
         if guild is None or not getattr(puzzle, "channel_id", 0):
@@ -1022,7 +1028,16 @@ class PuzzleService:
 
         chat = None
         if guild is not None and getattr(hunt, "layout_mode", None) != "forum":
+            # Find the general chat by its bare name FIRST, then pre-rename it to
+            # the glyphed target name so create_puzzle (which now computes the
+            # glyphed name) matches it as created=False and we adopt it in place —
+            # otherwise create_puzzle spawns a fresh glyphed channel and we'd
+            # wrongly retire (delete) this channel and its history.
             chat = category_layout.group_chat_channel(guild, tag_group)
+            if chat is not None:
+                want = self._desired_target_channel_name(hunt, tag_group)
+                if getattr(chat, "name", None) != want:
+                    await self.safe_rename(chat, want)
 
         puzzle = await self.create_puzzle(
             guild, hunt, tag_group, tag_group.name, is_meta=True, notifier=self.notifier,

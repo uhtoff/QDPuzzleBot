@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.core.puzzle_service import default_edge_for_group
+from bot.core.puzzle_service import PuzzleService, default_edge_for_group
 from tests.conftest import make_hunt, make_puzzle, make_round
 
 
@@ -337,6 +337,7 @@ class TestConvertTagGroupType:
         cog.service.set_source_mode = AsyncMock()
         cog.service.bulk_re_edge = AsyncMock(return_value="flipped 3 none → feeds")
         cog.service._safe_delete_channel = AsyncMock(return_value=True)
+        cog.service.safe_rename = AsyncMock(return_value=True)
         cog.service.notifier = MagicMock(); cog.service.notifier.board_changed = AsyncMock()
         guild = MagicMock()
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
@@ -366,6 +367,7 @@ class TestConvertTagGroupType:
         cog.service.set_source_mode = AsyncMock()
         cog.service.bulk_re_edge = AsyncMock(return_value="flipped 3 none → feeds")
         cog.service._safe_delete_channel = AsyncMock(return_value=True)
+        cog.service.safe_rename = AsyncMock(return_value=True)
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
         cog.service.notifier.refresh_info = AsyncMock()
@@ -381,6 +383,42 @@ class TestConvertTagGroupType:
         assert new_meta.channel_id == 321                       # adopted in place
         cog.service._safe_delete_channel.assert_not_awaited()   # nothing to retire
         cog.service.notifier.refresh_info.assert_awaited_once()  # pin -> meta welcome
+        assert group.target_puzzle_id == 99
+
+    @pytest.mark.asyncio
+    async def test_bare_group_promote_prerenames_chat_to_glyph_and_adopts(self, cog):
+        # Regression: create_puzzle now computes a GLYPHED channel name, so the
+        # bare-named general chat ("bag") no longer matches unless we pre-rename it
+        # to the glyphed name ("🧩bag") first. Without the pre-rename, create_puzzle
+        # would spawn a fresh 🧩bag channel and we'd wrongly DELETE the chat +
+        # history. Assert we (a) pre-rename the chat to the glyph and (b) do NOT
+        # retire it.
+        group = make_round(id=42, name="Bag", target_puzzle_id=0, category_id=999)
+        group.type = "Group"
+        # create_puzzle returns the meta unlinked (channel_id 0 => created=False
+        # adopt case), simulating get_or_create_channel matching the renamed chat.
+        new_meta = make_puzzle(id=99, is_target=True, channel_id=0)
+        cog.service.create_puzzle = AsyncMock(return_value=new_meta)
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 3 none → feeds")
+        cog.service._safe_delete_channel = AsyncMock(return_value=True)
+        cog.service.safe_rename = AsyncMock(return_value=True)
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
+        guild = MagicMock()
+        chat = MagicMock(); chat.id = 321; chat.name = "bag"; chat.mention = "<#321>"
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.category_layout") as mcl, \
+             patch.object(PuzzleService, "_is_metameta_group", return_value=False):
+            mpdb.commit.side_effect = lambda p: None
+            mrdb.commit.side_effect = lambda r: None
+            mcl.group_chat_channel.return_value = chat
+            await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
+        cog.service.safe_rename.assert_awaited_once_with(chat, "🧩bag")  # pre-rename
+        cog.service._safe_delete_channel.assert_not_awaited()            # adopted, not retired
+        assert new_meta.channel_id == 321
         assert group.target_puzzle_id == 99
 
     @pytest.mark.asyncio
