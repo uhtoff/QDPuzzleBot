@@ -35,7 +35,7 @@ import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
+import { fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 
 interface Props {
   group: BoardGroupType;
@@ -68,6 +68,9 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
     ? group.puzzles.find((p) => p.id === group.target_puzzle_id) ?? null
     : null;
   const groupKind = targetPuzzle ? getKind(targetPuzzle) : null;
+  // Puzzles a full delete actually removes (excludes shared feeders and foreign
+  // targets, which are kept & relocated) — the warning must not over-promise.
+  const deleteCount = fullDeletePuzzleCount(group);
 
   // Reset the scope choice whenever the modal closes, so a reopen (this round
   // or another) starts from "keep" rather than a stale "all" selection.
@@ -384,14 +387,15 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         >
           <Group mt="xs">
             <Radio value="keep" label="Round only — keep its puzzles" />
-            <Radio value="all" label={`Round + all ${group.puzzles.length} puzzle${group.puzzles.length === 1 ? "" : "s"}`} />
+            <Radio value="all" label={`Round + all ${deleteCount} puzzle${deleteCount === 1 ? "" : "s"}`} />
           </Group>
         </Radio.Group>
         {deleteAllPuzzles ? (
           <Text size="sm" c="red">
-            ⚠️ This permanently deletes <b>{group.puzzles.length} puzzle{group.puzzles.length === 1 ? "" : "s"}</b>,
+            ⚠️ This permanently deletes <b>{deleteCount} puzzle{deleteCount === 1 ? "" : "s"}</b>,
             their Discord channels and Google sheet tabs, and the round&rsquo;s Discord category.
-            This cannot be undone.
+            Feeders shared with another round, and any puzzle that is another round&rsquo;s target,
+            are kept and moved to the hunt&rsquo;s general category. This cannot be undone.
           </Text>
         ) : (
           <Text size="sm" c="red">

@@ -44,7 +44,7 @@ import {
   type EdgeType,
   type RetagMode,
 } from "../api";
-import { notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
+import { fullDeletePuzzleCount, notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
 import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
 import { getKind, kindColorVar } from "./MetaBadge";
@@ -474,6 +474,9 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   // Group awaiting a delete confirm (null = modal closed).
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<BoardGroup | null>(null);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
+  // Puzzles a full delete actually removes (excludes shared feeders and foreign
+  // targets, which are kept & relocated) — so the warning doesn't over-promise.
+  const deleteGroupCount = deleteGroupTarget ? fullDeletePuzzleCount(deleteGroupTarget) : 0;
   // Group type change awaiting a confirm (null = modal closed).
   const [changeTypeConfirm, setChangeTypeConfirm] = useState<{ group: BoardGroup; type: string; message: string } | null>(null);
   const isOrganiser = detail.hunt.can_manage;
@@ -951,12 +954,12 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         >
           <Group mt="xs">
             <Radio value="keep" label="Group only — keep its puzzles" />
-            <Radio value="all" label={`Group + all ${deleteGroupTarget?.puzzles.length ?? 0} puzzle${(deleteGroupTarget?.puzzles.length ?? 0) === 1 ? "" : "s"}`} />
+            <Radio value="all" label={`Group + all ${deleteGroupCount} puzzle${deleteGroupCount === 1 ? "" : "s"}`} />
           </Group>
         </Radio.Group>
         <Text size="sm" c="red" mt="xs">
           {deleteAllPuzzles
-            ? "⚠️ This permanently deletes every puzzle in the group, their Discord channels and Google sheet tabs, and the group's Discord category. This cannot be undone."
+            ? `⚠️ This permanently deletes ${deleteGroupCount} puzzle${deleteGroupCount === 1 ? "" : "s"}, their Discord channels and Google sheet tabs, and the group's Discord category. Feeders shared with another round, and any puzzle that is another round's target, are kept and moved to the hunt's general category. This cannot be undone.`
             : "⚠️ This deletes the group's target puzzle (or its dedicated chat channel) and its Discord category. Other puzzles keep their sheet/channel and move to the hunt's general category. This cannot be undone."}
         </Text>
       </TypedConfirmModal>
