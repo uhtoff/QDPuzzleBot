@@ -73,6 +73,7 @@ class TestActivityEventVisible:
         channel = MagicMock()
         channel.permissions_for.return_value = MagicMock(view_channel=True)
         guild = MagicMock()
+        guild.chunked = False  # cache incomplete → must fall back to REST fetch
         guild.get_channel.return_value = channel
         guild.get_member.return_value = None
         guild.fetch_member = AsyncMock(return_value=fetched_member)
@@ -89,6 +90,7 @@ class TestActivityEventVisible:
         from bot.web.api import _activity_event_visible
 
         guild = MagicMock()
+        guild.chunked = False  # cache incomplete → REST fetch attempted, then fails
         guild.get_channel.return_value = MagicMock()
         guild.get_member.return_value = None
         guild.fetch_member = AsyncMock(side_effect=Exception("not found"))
@@ -99,6 +101,25 @@ class TestActivityEventVisible:
             result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
 
         assert result is False
+
+    async def test_no_rest_fetch_when_guild_chunked_and_not_a_member(self):
+        # Steady state: guild fully chunked, so a get_member miss is authoritative —
+        # the user isn't a member and we must NOT issue a REST fetch_member.
+        from bot.web.api import _activity_event_visible
+
+        guild = MagicMock()
+        guild.chunked = True
+        guild.get_channel.return_value = MagicMock()
+        guild.get_member.return_value = None
+        guild.fetch_member = AsyncMock()
+        bot = MagicMock()
+        bot.get_guild.return_value = guild
+
+        with patch("bot.web.api.bot_app", MagicMock(return_value=MagicMock(bot=bot))):
+            result = await _activity_event_visible({"channel_id": "111"}, user_id=7, guild_id=42)
+
+        assert result is False
+        guild.fetch_member.assert_not_awaited()
 
 
 class TestBoardEventVisible:
