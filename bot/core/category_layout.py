@@ -616,6 +616,14 @@ async def _consolidate_safely(guild, owner_id, dao):
         logger.exception("consolidate: background run failed for owner %s", owner_id)
 
 
+# Strong references to in-flight background consolidation tasks. asyncio's event
+# loop keeps only a WEAK reference to a bare create_task(), so a task no caller
+# holds can be garbage-collected before it ever runs — which silently dropped
+# every fold/un-split (all trigger sites discard the task). Hold the task here
+# until it finishes so it is guaranteed to run.
+_pending_consolidations: set = set()
+
+
 def maybe_consolidate(guild, owner_id, dao):
     """Eager detection, deferred execution: run the cheap candidate check now
     and, if worthwhile, spawn consolidate() as a background task so callers
@@ -629,7 +637,12 @@ def maybe_consolidate(guild, owner_id, dao):
         logger.exception("maybe_consolidate: candidate check failed for owner %s",
                          owner_id)
         return None
-    return asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
+    task = asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
+    # Keep a strong ref (see _pending_consolidations) so the loop can't GC the
+    # task mid-flight; drop it when done.
+    _pending_consolidations.add(task)
+    task.add_done_callback(_pending_consolidations.discard)
+    return task
 
 
 def maybe_consolidate_category(guild, category):
