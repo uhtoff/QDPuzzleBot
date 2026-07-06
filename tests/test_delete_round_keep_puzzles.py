@@ -568,6 +568,66 @@ async def test_full_delete_keeps_shared_feeder_deletes_exclusive_feeder():
 
 
 @pytest.mark.asyncio
+async def test_full_delete_relocates_kept_target_whose_home_is_doomed_to_general():
+    """A kept puzzle that is ANOTHER group's target, where that other group is
+    channel-home INTO the category being deleted (its target channel was
+    consolidated into this round's category), must be relocated to the hunt's
+    general category — not left behind. Previously move_channel_to_owner
+    resolved the other group's home back to the doomed category, returned a
+    false 'already placed' success, and the channel was orphaned to the guild
+    root ('unclassified') when the category was torn down."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
+
+    own_target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
+    # P is group 77's target (is_target) and also feeds group 10 (being deleted).
+    # Group 77 is channel-home: category_id points at P's own channel (903),
+    # which physically sits inside group 10's doomed category (100).
+    foreign_target = make_puzzle(
+        id=3, name="Foreign Meta", is_target=True, channel_id=903, tags=[10, 77])
+
+    own_ch = MagicMock(id=901); own_ch.delete = AsyncMock()
+    p_ch = MagicMock(id=903); p_ch.category_id = 100
+    p_ch.edit = AsyncMock(); p_ch.delete = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [own_ch, p_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    p_ch.category = round_cat          # its parent is the doomed category
+    general_cat = _general_category()
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(side_effect=lambda cid: {901: own_ch, 903: p_ch}.get(cid))
+
+    foreign_group = MagicMock(id=77, category_id=903)   # channel-home into cat 100
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [own_target, foreign_target]
+        pdb.get_by_attr.return_value = None
+        tgcdb.get_for_group.return_value = []
+        hcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.side_effect = lambda id: foreign_group if id == 77 else None
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=False)
+
+    pdb.delete.assert_called_once_with(1)                                    # only group 10's own target
+    p_ch.delete.assert_not_called()                                          # foreign target never destroyed
+    p_ch.edit.assert_awaited_once_with(category=general_cat, position=1)      # relocated to general, not orphaned
+    assert failed == []
+
+
+@pytest.mark.asyncio
 async def test_full_delete_relocates_foreign_channel_before_category_teardown():
     """A channel physically inside this round's owned category whose puzzle
     is NOT a member of this group at all (e.g. a channel-home meta that was

@@ -1580,7 +1580,8 @@ class PuzzleService:
                 channel = guild.get_channel(puzzle.channel_id)
                 if channel is None or channel.category_id not in owned_category_ids:
                     continue
-                if not await self._relocate_kept_puzzle(guild, hunt, tag_group, puzzle, channel):
+                if not await self._relocate_kept_puzzle(
+                        guild, hunt, tag_group, puzzle, channel, owned_category_ids):
                     failed_channels.append(puzzle.name)
                     relocation_failed_channel_ids.add(puzzle.channel_id)
 
@@ -1660,7 +1661,8 @@ class PuzzleService:
         TagGroupJsonDb.delete(tag_group.id)
         return failed_channels
 
-    async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel):
+    async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,
+                                    doomed_category_ids=frozenset()):
         """Relocate a kept puzzle's channel out of the category owned by the
         group being deleted (``tag_group``). Prefers moving it into a category
         belonging to another group ``puzzle`` is also tagged to — so a shared
@@ -1677,6 +1679,15 @@ class PuzzleService:
                 continue
             other_group = TagGroupJsonDb.get_by_attr(id=other_gid)
             if other_group is None:
+                continue
+            # Skip a group whose own home category is being deleted here: for a
+            # channel-home target consolidated INTO the doomed category,
+            # move_channel_to_owner would resolve the destination back to that
+            # same category and return a false 'already placed' success —
+            # leaving the channel to be swept up and orphaned. Fall through to
+            # the general fallback (or the next tagged group) instead.
+            home = category_layout._home_category(guild, other_group)
+            if home is not None and home.id in doomed_category_ids:
                 continue
             if await category_layout.move_channel_to_owner(
                 guild, other_group, TagGroupCategoryDb, channel, puzzle.solved
