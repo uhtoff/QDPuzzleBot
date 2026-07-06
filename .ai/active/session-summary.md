@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/message-bridge
 Started: 2026-07-06
-Status: ready for handoff — feat(bridge): exclude the initial welcome/info embed from capture @ 537b344
+Status: ready for handoff — refactor(bridge): share one activity WebSocket across board + chat viewer @ dd3baa6
 
 ## Capture-behavior follow-ups (from live testing) — DONE this session
 Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
@@ -11,14 +11,22 @@ Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
   serve in transcript + live payload, ChatViewer embed block, hook edit-merge fix.
 - c0479e2 #1 lazy channel tracking: per-channel DB check + negative cache; no ~60s delay.
 - 537b344 #2 welcome exclusion: skip first bot embed-only message in an empty channel.
-Verified: 1099 pytest pass; ruff clean; frontend tsc + build pass. basedpyright has one
-PRE-EXISTING error (puzzle_service.py:1584, unrelated, present at 4b1dba5).
+## Rendering-polish follow-ups (#4-6) — DONE this session
+- #5 non-image downloads: as_attachment=True so Content-Disposition carries the original
+  filename (images still inline). + route tests. (api.py)
+- #4 reply-quote render: quoted line (author + snippet) above a reply, or "replying to an
+  earlier message" when the referenced msg is outside the loaded window. (ChatViewer)
+- #6 shared WS: activityStream.ts ref-counted reconnecting socket; both useActivityFeed and
+  useChannelMessages subscribe to it (was two sockets; chat tail now reconnects too).
+
+Verified (final, all #1-6): 1101 pytest pass; ruff clean; frontend tsc + build pass.
+basedpyright has one PRE-EXISTING error (puzzle_service.py:1584, unrelated, at 4b1dba5).
 
 ## Remaining before/at merge
 - Live end-to-end smoke deferred (needs running bot + DB + archive_media_dir; bridge_enabled=true).
 - Apply migrations 027 AND 028 to target DB before enabling.
 - Rebase onto updated staging (after user's bug fixes); likely conflicts: api.py, data.py, mysqldb.py, migration 027/028 numbers.
-- STILL-deferred minor follow-ups (#4-6): reply-quote rendering (reference_id captured but not shown); send_file filename for non-image downloads; viewer opens own WS vs sharing useActivityFeed.
+- All planned follow-ups (#1-6) now landed; only live smoke + migration apply remain.
 - DO NOT merge to staging without user confirmation.
 
 ## Goal
