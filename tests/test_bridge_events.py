@@ -20,6 +20,17 @@ async def test_insert_publishes_message_event():
     assert ev["message"]["id"] == "1" and ev["message"]["content"] == "hi"
 
 
+async def test_edit_publishes_edit_event():
+    cog = _make_cog()
+    rec = {"op": "edit", "id": 1, "channel_id": 100, "guild_id": 42,
+           "content": "new", "edited_at": "2026-07-06 00:01:00"}
+    with patch("bot.cogs.bridge.MessageDb"), patch("bot.cogs.bridge.events.publish") as pub:
+        await cog._handle(rec)
+    ev = pub.call_args.args[0]
+    assert ev["type"] == "message_edit" and ev["channel_id"] == "100" and ev["guild_id"] == 42
+    assert ev["message"]["id"] == "1" and ev["message"]["content"] == "new"
+
+
 async def test_delete_publishes_delete_event():
     cog = _make_cog()
     with patch("bot.cogs.bridge.MessageDb") as db, patch("bot.cogs.bridge.events.publish") as pub, \

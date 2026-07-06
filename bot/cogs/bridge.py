@@ -127,6 +127,7 @@ class MessageBridge(commands.Cog):
             return  # embed-only / non-content edit
         edited = (payload.data or {}).get("edited_timestamp")
         self._enqueue({"op": "edit", "id": payload.message_id,
+                       "channel_id": payload.channel_id, "guild_id": payload.guild_id,
                        "content": content, "edited_at": _parse_iso(edited)})
 
     @commands.Cog.listener()
@@ -193,7 +194,9 @@ class MessageBridge(commands.Cog):
                            "guild_id": rec["guild_id"], "message": self._message_payload(rec)})
         elif op == "edit":
             await asyncio.to_thread(MessageDb.mark_edited, rec["id"], rec["content"], rec["edited_at"])
-            self._publish({"type": "message_edit", "channel_id": None, "guild_id": None,
+            self._publish({"type": "message_edit",
+                           "channel_id": str(rec["channel_id"]) if rec.get("channel_id") else None,
+                           "guild_id": rec.get("guild_id"),
                            "message": {"id": str(rec["id"]), "content": rec["content"]}})
         elif op == "delete":
             paths = await asyncio.to_thread(MessageDb.delete_message, rec["id"])
