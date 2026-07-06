@@ -2002,6 +2002,40 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(
+        description="Give this meta its own category (moves its target + exclusive feeders)")
+    @commands.has_any_role(*ORGANISER_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def extract_target_to_category(self, ctx):
+        """*Move this meta's target puzzle and its exclusive feeders into their own category.*
+
+        Usage: `!extract_target_to_category`
+        Run in the meta's own target-puzzle channel. Organisers/admins only.
+        Bang-only: no web-dashboard equivalent, by design (Discord plumbing)."""
+        hunt = self.get_hunt(ctx)
+        meta = self.get_tag_group(ctx)
+        if hunt is None or meta is None or not meta.has_target:
+            return await ctx.send(
+                ":x: Run this in a meta's own puzzle channel.")
+        try:
+            new_category = await self.service.extract_target_to_category(
+                ctx.guild, hunt, meta)
+        except RuntimeError as exc:
+            messages = {
+                "already_own_category":
+                    ":information_source: This meta already has its own category.",
+                "no_category_space":
+                    ":x: No free category slot on this server.",
+                "no_template_category":
+                    ":x: Couldn't find the hunt's template category.",
+                "no_target_puzzle":
+                    ":x: Couldn't find this meta's target puzzle.",
+            }
+            return await ctx.send(messages.get(str(exc), f":x: Couldn't extract ({exc})."))
+        await ctx.send(
+            f":white_check_mark: Extracted **{meta.name}** into its own category "
+            f"**{new_category.name}**.")
+
+    @commands.hybrid_command(
         description="Convert metapuzzle back to feeder",
         aliases=["convert_to_feeder"],
     )
