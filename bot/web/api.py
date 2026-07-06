@@ -176,7 +176,13 @@ async def attachment_bytes(attachment_id):
     root = media_root().resolve()
     if root not in path.parents:            # defense in depth vs path traversal
         return jsonify({"error": "not_found"}), 404
-    return await send_file(path, mimetype=att["content_type"] or "application/octet-stream",
+    content_type = att["content_type"] or "application/octet-stream"
+    # Images render inline in the viewer; everything else is a download, so force a
+    # Content-Disposition: attachment with the original filename (otherwise the
+    # browser names the saved file after the /api/attachments/<id> URL).
+    is_image = content_type.startswith("image/")
+    return await send_file(path, mimetype=content_type,
+                           as_attachment=not is_image,
                            attachment_filename=att["filename"])
 
 
