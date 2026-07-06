@@ -63,6 +63,7 @@ export interface Puzzle {
   url: string | null;
   channel_id: string | null;
   discord_url: string | null;
+  discord_deep_url: string | null;
   sheet_page: string | null;
   is_meta: boolean;
   meta_kind: "runaround" | "metameta" | "meta" | "capstone" | null;
@@ -125,6 +126,27 @@ export interface HuntDetail {
   meta_types: string[];
 }
 
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  content_type: string | null;
+  size: number;
+  url: string | null; // /api/attachments/<id>, or null if not downloaded
+}
+
+export interface ChatMessage {
+  id: string;
+  author_id: string;
+  author_name: string;
+  author_avatar: string | null;
+  kind: number; // 0 human, 1 this-bot, 2 other-bot, 3 command
+  content: string;
+  reference_id: string | null;
+  created_at: string;
+  edited_at: string | null;
+  attachments: ChatAttachment[];
+}
+
 export interface ActivityEvent {
   type: string;
   channel_id?: string;
@@ -132,6 +154,8 @@ export interface ActivityEvent {
   uid?: string;
   at?: string;
   author?: string;
+  message?: ChatMessage; // for type === "message" | "message_edit"
+  message_id?: string; // for type === "message_delete"
 }
 
 export interface RollupAnswer {

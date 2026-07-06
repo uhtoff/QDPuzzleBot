@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { EvidenceItem, Guild, HuntDetail, HuntList, RollupAnswers, User } from "./types";
+import type { ChatMessage, EvidenceItem, Guild, HuntDetail, HuntList, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -528,6 +528,13 @@ export function useRollupAnswers(roundId: number, enabled: boolean) {
     queryFn: () => apiGet<RollupAnswers>(`/api/rollups/${roundId}/answers`),
     enabled,
   });
+}
+
+export function fetchChannelMessages(channelId: string, before?: string): Promise<ChatMessage[]> {
+  const qs = before ? `?before=${before}` : "";
+  return apiGet<{ messages: ChatMessage[] }>(`/api/channels/${channelId}/messages${qs}`).then(
+    (d) => d.messages,
+  );
 }
 
 export function useEvidence(huntUid: string) {
