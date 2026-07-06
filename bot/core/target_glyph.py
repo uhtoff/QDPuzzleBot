@@ -24,13 +24,17 @@ def glyph_for_kind(kind):
 
 
 def glyphed_name(kind, clean_name):
-    """A channel name with *kind*'s glyph prefixed (or bare *clean_name*)."""
-    return glyph_for_kind(kind) + clean_name
+    """A channel name with *kind*'s glyph and a '-' separator prefixed (or bare
+    *clean_name* when the kind carries no glyph)."""
+    glyph = glyph_for_kind(kind)
+    return f"{glyph}-{clean_name}" if glyph else clean_name
 
 
 def strip_glyph(channel_name):
-    """*channel_name* with a leading known glyph removed (or unchanged)."""
+    """*channel_name* with a leading known glyph (and its '-' separator, if any)
+    removed; unchanged if there is no leading glyph."""
     for glyph in _STRIP_ORDER:
         if channel_name.startswith(glyph):
-            return channel_name[len(glyph):]
+            rest = channel_name[len(glyph):]
+            return rest[1:] if rest.startswith("-") else rest
     return channel_name

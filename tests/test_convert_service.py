@@ -389,8 +389,8 @@ class TestConvertTagGroupType:
     async def test_bare_group_promote_prerenames_chat_to_glyph_and_adopts(self, cog):
         # Regression: create_puzzle now computes a GLYPHED channel name, so the
         # bare-named general chat ("bag") no longer matches unless we pre-rename it
-        # to the glyphed name ("🧩bag") first. Without the pre-rename, create_puzzle
-        # would spawn a fresh 🧩bag channel and we'd wrongly DELETE the chat +
+        # to the glyphed name ("🧩-bag") first. Without the pre-rename, create_puzzle
+        # would spawn a fresh 🧩-bag channel and we'd wrongly DELETE the chat +
         # history. Assert we (a) pre-rename the chat to the glyph and (b) do NOT
         # retire it.
         group = make_round(id=42, name="Bag", target_puzzle_id=0, category_id=999)
@@ -416,7 +416,7 @@ class TestConvertTagGroupType:
             mrdb.commit.side_effect = lambda r: None
             mcl.group_chat_channel.return_value = chat
             await cog.service.convert_tag_group_type(guild, make_hunt(), group, "Metapuzzle")
-        cog.service.safe_rename.assert_awaited_once_with(chat, "🧩bag")  # pre-rename
+        cog.service.safe_rename.assert_awaited_once_with(chat, "🧩-bag")  # pre-rename
         cog.service._safe_delete_channel.assert_not_awaited()            # adopted, not retired
         assert new_meta.channel_id == 321
         assert group.target_puzzle_id == 99
