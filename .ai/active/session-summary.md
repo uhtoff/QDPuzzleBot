@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/message-bridge
 Started: 2026-07-06
-Status: ready for handoff — refactor(bridge): share one activity WebSocket across board + chat viewer @ dd3baa6
+Status: ready for handoff — fix(bridge): make "Open in Discord" default to the https link @ 5fde026
 
 ## Capture-behavior follow-ups (from live testing) — DONE this session
 Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
@@ -18,9 +18,12 @@ Design: docs/superpowers/specs/2026-07-06-bridge-capture-followups-design.md
   earlier message" when the referenced msg is outside the loaded window. (ChatViewer)
 - #6 shared WS: activityStream.ts ref-counted reconnecting socket; both useActivityFeed and
   useChannelMessages subscribe to it (was two sockets; chat tail now reconnects too).
+- (bug) 5fde026 "Open in Discord" defaulted to the discord:// deep link (no target) → did
+  nothing in-browser. Now defaults to the https channel URL (new tab); deep link demoted to "(app)".
 
-Verified (final, all #1-6): 1101 pytest pass; ruff clean; frontend tsc + build pass.
-basedpyright has one PRE-EXISTING error (puzzle_service.py:1584, unrelated, at 4b1dba5).
+Verified (final, all #1-6 + link fix): 1101 pytest pass; ruff clean; frontend tsc + build pass.
+The prior PRE-EXISTING pyright error (puzzle_service.py:1584) is fixed on staging by cd6f167
+(doomed_category_ids AbstractSet) — resolved after rebasing onto staging.
 
 ## Remaining before/at merge
 - Live end-to-end smoke deferred (needs running bot + DB + archive_media_dir; bridge_enabled=true).
