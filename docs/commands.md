@@ -46,6 +46,12 @@ disagree, **the code is the source of truth** — fix both.
 | `!extract_target_to_category` | | — | meta's target-puzzle channel | organisers/admins | Give this meta its own Discord category, moving its target puzzle and the puzzles that feed **only** it into a fresh category. Shared feeders and nested metas stay put. Useful when a meta promoted in place has outgrown the category it was sharing. Bang-only, by design. |
 | `!consolidate_to` | | `destination-code` | meta's target-puzzle channel | organisers/admins | Fold this meta back into `<destination>`'s category and delete this meta's own category (frees a category slot). Confirms first if the destination would overflow. Inverse of `!extract_target_to_category`. |
 
+> **Automatic category relief:** when adding a puzzle would fill a category past its limit,
+> the bot automatically gives a promoted-in-place meta its own category (rather than failing
+> or splitting) — the automatic counterpart to `!extract_target_to_category`. It extracts at
+> most one meta per puzzle, and only when doing so frees more than one channel. Toggle/tune
+> via `AUTO_EXTRACT_ON_OVERFLOW` and `EXTRACT_MIN_VALUE` in `bot/core/category_layout.py`.
+
 > `!round`/`!r`, `!mp`, `!cs`, `!ra`, `!group` are all aliases of one command;
 > the alias you type selects the type created.
 

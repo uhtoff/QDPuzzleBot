@@ -143,6 +143,11 @@ moves the meta and its puzzles into the destination round's category and deletes
 meta's category — handy when you're short on categories but have channel room to spare. If
 the destination would overflow, the bot asks you to confirm first.
 
+You usually won't need to run `!extract_target_to_category` by hand: when a category fills
+up, the bot automatically extracts a promoted-in-place meta into its own category (the one
+you're adding to, or the fullest nested meta in the round) so puzzle creation keeps working
+instead of erroring. It only does this when it actually frees up space.
+
 Renames: `!rename_puzzle New Name` (puzzle channel) and `!rename_group New Name`
 (group's channel). Deletion (`!delete_puzzle`, `!delete_round`, `!delete_hunt`) always
 asks for confirmation — and really does delete channels and sheets.
