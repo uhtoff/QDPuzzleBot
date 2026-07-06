@@ -2056,6 +2056,49 @@ class Puzzles(commands.Cog):
             f"**{new_category.name}**.")
 
     @commands.hybrid_command(
+        description="Fold this meta back into another category (frees a category slot)")
+    @app_commands.autocomplete(destination=group_code_autocomplete)
+    @commands.has_any_role(*ORGANISER_ROLES)
+    @commands.has_permissions(manage_channels=True)
+    async def consolidate_to(self, ctx, destination: str):
+        """*Fold this meta into <destination>'s category, freeing this meta's category.*
+
+        Usage: `!consolidate_to <destination-code>`
+        Run in the meta's own target-puzzle channel. Organisers/admins only.
+        Not done lightly: it deletes this meta's category and moves its puzzles."""
+        hunt = self.get_hunt(ctx)
+        meta = self.get_tag_group(ctx)
+        puzzle = self.get_puzzle(ctx)
+        if (hunt is None or meta is None or not meta.has_target
+                or puzzle is None or meta.target_puzzle_id != puzzle.id):
+            return await ctx.send(
+                ":x: Run this in a metapuzzle's own target-puzzle channel.")
+        dest = await self.resolve_target_group(ctx, destination)
+        if dest is None:
+            return  # resolve_target_group already replied
+        if dest.id == meta.id:
+            return await ctx.send(":x: Can't consolidate a meta into itself.")
+        try:
+            await self.service.consolidate_to(ctx.guild, hunt, meta, dest, force=False)
+        except RuntimeError as exc:
+            if str(exc) == "would_overflow":
+                if not await self._confirm_destructive(
+                        ctx,
+                        f"Consolidating **{meta.name}** into **{dest.name}** will overflow "
+                        f"it (it'll split into an extra category, reducing the saving). "
+                        f"Proceed?",
+                        sheets_deleted=False):
+                    return await ctx.send(":x: Consolidation cancelled.")
+                try:
+                    await self.service.consolidate_to(ctx.guild, hunt, meta, dest, force=True)
+                except RuntimeError as exc2:
+                    return await ctx.send(f":x: Couldn't consolidate ({exc2}).")
+            else:
+                return await ctx.send(f":x: Couldn't consolidate ({exc}).")
+        await ctx.send(
+            f":white_check_mark: Consolidated **{meta.name}** into **{dest.name}**.")
+
+    @commands.hybrid_command(
         description="Convert metapuzzle back to feeder",
         aliases=["convert_to_feeder"],
     )
