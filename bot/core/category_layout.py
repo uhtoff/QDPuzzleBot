@@ -46,6 +46,14 @@ layout_lock = asyncio.Lock()
 # whole range at test caps.
 CONSOLIDATE_MARGIN = 4
 
+# Auto-extract on overflow (Plan 4): when a create would overflow a category,
+# extract a channel-home meta into its own category rather than hard-failing
+# (Case A) or eagerly splitting a mixed category (Case B). EXTRACT_MIN_VALUE is
+# the smallest channel-saving that justifies spending a category on extraction
+# (value == 1 means the meta has no solely-attached feeders — not worth it).
+AUTO_EXTRACT_ON_OVERFLOW = True
+EXTRACT_MIN_VALUE = 2
+
 
 # ----------------------------------------------------------------- naming
 def solved_category_name(base_name):

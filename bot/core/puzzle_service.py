@@ -1885,6 +1885,64 @@ class PuzzleService:
 
         return new_round, puzzle
 
+    def _highest_value_nested_meta(self, guild, hunt, cat):
+        """The nested channel-home meta inside *cat* whose extraction frees the most
+        channels, as (meta, value), or None. value = 1 (target channel) + exclusive
+        plain feeders currently in *cat*."""
+        all_groups = TagGroupJsonDb.get_all(hunt.id)
+        target_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
+        best = None
+        for g in all_groups:
+            if category_layout.primary_category(guild, g) is not None or not g.category_id:
+                continue
+            home = guild.get_channel(g.category_id)
+            if home is None or getattr(home, "category", None) is not cat:
+                continue
+            target_puzzle = PuzzleJsonDb.get_by_attr(id=g.target_puzzle_id)
+            if target_puzzle is None:
+                continue
+            members = PuzzleJsonDb.get_all_from_tag_group(g.id)
+            feeders = select_extract_puzzles(g, target_puzzle, members, target_ids)[1:]
+            value = 1 + sum(
+                1 for p in feeders
+                if getattr(guild.get_channel(p.channel_id), "category", None) is cat)
+            if best is None or value > best[1]:
+                best = (g, value)
+        return best
+
+    async def _maybe_relieve_overflow(self, guild, hunt, round_data):
+        """Best-effort: before a create would overflow, auto-extract a channel-home
+        meta to relieve pressure (Plan 4). Any failure falls through to the normal
+        split / hard-fail path. At most one extraction; non-recursive."""
+        if not category_layout.AUTO_EXTRACT_ON_OVERFLOW or round_data is None:
+            return
+        primary = category_layout.primary_category(guild, round_data)
+        if primary is None:
+            host = category_layout._home_category(guild, round_data)
+            if (host is None
+                    or category_layout.puzzle_count(host) + 1
+                        <= category_layout.CATEGORY_SOFT_LIMIT):
+                return
+            try:
+                await self.extract_target_to_category(guild, hunt, round_data)
+            except RuntimeError:
+                logger.info("auto-extract (Case A) skipped for meta %s",
+                            getattr(round_data, "id", "?"))
+            return
+        if category_layout.is_split(round_data, TagGroupCategoryDb):
+            return
+        if (category_layout.puzzle_count(primary) + 1
+                <= category_layout.CATEGORY_SOFT_LIMIT):
+            return
+        best = self._highest_value_nested_meta(guild, hunt, primary)
+        if best is None or best[1] < category_layout.EXTRACT_MIN_VALUE:
+            return
+        try:
+            await self.extract_target_to_category(guild, hunt, best[0])
+        except RuntimeError:
+            logger.info("auto-extract (Case B) skipped for meta %s",
+                        getattr(best[0], "id", "?"))
+
     async def extract_target_to_category(self, guild, hunt, meta):
         """Give a channel-home *meta* its own Discord category.
 
