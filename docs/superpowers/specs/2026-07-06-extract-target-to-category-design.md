@@ -211,8 +211,10 @@ delete the vacated one, trading a category slot for channel density. "Not done l
   - **Hard refuse** only if the categories required to place the move would exceed
     `MAX_CATEGORIES` (`no_category_space`).
 
-- **Confirmation UX:** reuse the cog's existing confirmation pattern if one exists;
-  otherwise a react-to-confirm.
+- **Confirmation UX:** reuse the cog's `_confirm_destructive(ctx, description)` helper
+  (`bot/cogs/puzzles.py:3462`), which sends a `ConfirmView` (`bot/cogs/ui.py`) —
+  Confirm/Cancel **buttons**, the same button prompt used by `delete_puzzle`,
+  `delete_round`, and `archive_hunt`. (Not reaction-based.)
 
 ## Target identification — emoji channel-name prefixes
 
@@ -271,10 +273,12 @@ one source of truth and can't drift.
   channel-create, no extra rename), `convert_to_meta` / promote-in-place (add), unconvert
   to feeder (strip), a puzzle rename (rebuild the prefixed name if it is a target), and a
   meta↔metameta transition (swap 🧩↔🧩🧩).
-- **Optional one-time backfill** to prefix existing targets: many name edits, but each on
-  a different channel (per-channel bucket is fine); pace it for discord.py's global limit
-  and the `max_ratelimit_timeout` gotcha (removing that setting fixed earlier spurious
-  create rate-limit errors — do not reintroduce a small value).
+- **One-time backfill** to prefix existing targets (shipping, not optional): iterate the
+  hunt's targets and apply `target_channel_name`. Many name edits, but each on a different
+  channel (per-channel bucket is fine); pace it for discord.py's global limit and the
+  `max_ratelimit_timeout` gotcha (removing that setting fixed earlier spurious create
+  rate-limit errors — do not reintroduce a small value). Idempotent: skip a channel whose
+  name already carries the correct glyph so re-running is safe.
 
 ## Channel-ordering invariant (unsolved category)
 
@@ -290,6 +294,35 @@ Applied by `extract()` and `!consolidate_to` placement, and preserved by normal
 create/solve moves where practical. Treated as **best-effort/aspirational** for existing
 flows (ordering has proven flaky); the emoji prefix — not position — is the load-bearing
 identification signal.
+
+## Archive interaction
+
+Archive (`!archive_round` / `!archive_category` / `!archive_channel`,
+`bot/cogs/puzzles.py:3177-3284`; `bot/core/hunt_archive.py`) is the same family as
+split/consolidate: **category-based, owner-blind, and it deletes no DB rows** — a
+Discord-only teardown (channels condensed into threads, categories deleted; the only DB
+cleanup is dropping a split owner's join rows, `:3213`).
+
+- **Improvement (free):** after `!extract_target_to_category` a meta owns a real
+  category, so `!archive_round` resolves it via `_owner_for_channel` and archives it as
+  its own unit (all owned categories via the join table for a split owner). A
+  channel-home meta previously could only be archived as a passenger of its host.
+- **Accepted behaviour — passenger sweep + orphaned rows:** `_archive_category_channels`
+  iterates *every* channel in the category (`:3250`), owner-blind, and archive deletes no
+  DB rows. So archiving a category that hosts a **channel-home meta** archives+deletes
+  that meta's channels and leaves its `TagGroup`/puzzle rows pointing at dead channel
+  ids. This is already true today; the design makes it more prominent because
+  `!consolidate_to` deliberately creates a channel-home meta inside a destination, so a
+  later `!archive_round` on that destination sweeps the consolidated meta too.
+  **Decision: accept as-is** — it is consistent with archive's existing "channels gone,
+  DB rows persist" contract (the round's own rows orphan the same way). No special
+  handling; documented so the consolidate→archive sequence is not surprising.
+- **No emoji leakage (verified):** `thread_name_for_channel` names archive threads after
+  `puzzle.name` for puzzle channels (`hunt_archive.py:74-77`), and the stored
+  `puzzle.name` stays glyph-free (the emoji lives only on `channel_name`). Targets always
+  have a puzzle record, so archive thread names stay clean.
+- **No impact:** the ordering invariant (archive ignores order) and `archive_hunt`
+  (sweeps the whole guild owner-blind regardless).
 
 ## Non-goals
 
@@ -320,10 +353,13 @@ identification signal.
   by structural-kind precedence (runaround/metameta/meta/capstone; minimeta/feeder none);
   name-based lookups still resolve a prefixed target channel.
 
-## Open decisions / knobs
+## Resolved decisions / knobs
 
-- Feature 2 `value` threshold — default `> 1`.
-- `!consolidate_to` overflow-confirmation mechanism — reuse existing cog confirm vs
-  react-to-confirm.
-- Whether to ship the one-time emoji backfill for pre-existing targets, or only prefix
-  targets created/converted from here on.
+- **Feature 2 `value` threshold — `> 1`** (strictly greater; `value == 1` falls back to
+  the normal split). Single tunable.
+- **`!consolidate_to` overflow confirmation — `_confirm_destructive` / `ConfirmView`**
+  (button prompt), matching the other destructive commands.
+- **Emoji backfill — ship it.** A one-time, idempotent pass prefixes existing targets;
+  see the identification section.
+- **Archive passenger-sweep/orphan behaviour — accepted as-is** (consistent with
+  archive's Discord-only teardown); see the archive-interaction section.
