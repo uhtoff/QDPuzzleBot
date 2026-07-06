@@ -13,7 +13,7 @@ import datetime
 import functools
 import inspect
 import logging
-from typing import Any, Callable
+from typing import AbstractSet, Any, Callable
 
 import discord
 import pytz
@@ -1662,7 +1662,7 @@ class PuzzleService:
         return failed_channels
 
     async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,
-                                    doomed_category_ids=frozenset()):
+                                    doomed_category_ids: AbstractSet[int] = frozenset()):
         """Relocate a kept puzzle's channel out of the category owned by the
         group being deleted (``tag_group``). Prefers moving it into a category
         belonging to another group ``puzzle`` is also tagged to — so a shared
