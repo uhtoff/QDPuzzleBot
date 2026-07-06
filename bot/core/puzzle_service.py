@@ -2322,6 +2322,11 @@ class PuzzleService:
         notifier.  Raises the underlying exception on failure so edges can
         decide tolerance.
         """
+        # Auto-extract a channel-home meta if this create would otherwise
+        # overflow (Plan 4). Best-effort; a Case-A extraction flips
+        # round_data.category_id so the picks below see a real category.
+        await self._maybe_relieve_overflow(guild, hunt, round_data)
+
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
         forum_channel = None

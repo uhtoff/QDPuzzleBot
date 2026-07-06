@@ -152,3 +152,34 @@ def test_highest_value_nested_meta_picks_bigger():
     assert best is not None
     meta, value = best
     assert meta.id == 11 and value == 3
+
+
+async def test_create_puzzle_calls_relieve_overflow_before_placing():
+    """create_puzzle invokes _maybe_relieve_overflow before the capacity probe."""
+    import bot.core.puzzle_service as ps
+    svc = _svc()
+    guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
+    hunt.layout_mode = "channel"; hunt.url = None
+    round_group = _group(20, "Metapuzzle", 3, 900)
+    calls = []
+    svc._maybe_relieve_overflow = AsyncMock(side_effect=lambda *a, **k: calls.append("relieve"))
+
+    def _pick(*a, **k):
+        calls.append("pick")
+        return MagicMock()
+
+    with patch.object(ps.category_layout, "pick_unsolved_category", AsyncMock(side_effect=_pick)), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(), False))), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb"), \
+         patch.object(svc, "_gsheet_cog", return_value=None):
+        mpdb.check_duplicates_in_hunt.return_value = False
+        mpdb.commit.side_effect = lambda p: setattr(p, "id", 7)
+        try:
+            await svc.create_puzzle(guild, hunt, round_group, "new-feeder", is_meta=False)
+        except Exception:
+            pass  # downstream mocking may be incomplete; we assert ordering post-hoc
+    assert calls, "neither hook nor pick ran"
+    assert calls[0] == "relieve", f"expected relieve first, got {calls}"
+    assert "pick" in calls
