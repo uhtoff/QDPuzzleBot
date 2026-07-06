@@ -128,6 +128,11 @@ From the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_ca
 `!convert_to_puzzle` — promote a feeder to a meta, turn a meta back into a plain
 puzzle, and so on. Feeders and their tags survive the conversion.
 
+Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
+puzzle channel) moves that meta and the puzzles that feed *only* it into a fresh Discord
+category — useful when a meta you promoted in place has outgrown the category it was
+sharing. Shared feeders and nested metas stay where they are.
+
 Renames: `!rename_puzzle New Name` (puzzle channel) and `!rename_group New Name`
 (group's channel). Deletion (`!delete_puzzle`, `!delete_round`, `!delete_hunt`) always
 asks for confirmation — and really does delete channels and sheets.

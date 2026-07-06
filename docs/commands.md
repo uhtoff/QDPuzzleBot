@@ -43,6 +43,7 @@ disagree, **the code is the source of truth** — fix both.
 | `!group` | | `name` | Hunt channel | anyone | Create a group (no meta puzzle). |
 | `!rename_group` *(slash)* | `!rename_round`, `!rename_metapuzzle` | `new name` | group's target-puzzle or regular group channel | organisers/admins | Rename the group and its Discord category/channel. Does not rename the target puzzle. |
 | `!delete_round` | `!delete_metapuzzle`, `!delete_group` | — | group's main channel | organisers/admins | Delete a round/group, its puzzles, channels and sheets (confirms). |
+| `!extract_target_to_category` | | — | meta's target-puzzle channel | organisers/admins | Give this meta its own Discord category, moving its target puzzle and the puzzles that feed **only** it into a fresh category. Shared feeders and nested metas stay put. Useful when a meta promoted in place has outgrown the category it was sharing. Bang-only, by design. |
 
 > `!round`/`!r`, `!mp`, `!cs`, `!ra`, `!group` are all aliases of one command;
 > the alias you type selects the type created.
