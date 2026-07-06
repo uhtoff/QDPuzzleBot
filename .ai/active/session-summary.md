@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/message-bridge
 Started: 2026-07-06
-Status: ready for handoff — merge: staging bug fixes into feat/message-bridge @ 4b1dba5
+Status: ready for handoff — feat(bridge): capture and render Discord embeds (solve/partial messages) @ bfb2389
 
 ## Remaining before/at merge
 - Live end-to-end smoke deferred (needs running bot + DB + archive_media_dir; bridge_enabled=true).

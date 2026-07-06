@@ -38,6 +38,7 @@ class MessageBridge(commands.Cog):
         self._refresher: asyncio.Task | None = None
         self._session: aiohttp.ClientSession | None = None
         self._puzzle_channels: set[int] = set()
+        self._non_puzzle_channels: set[int] = set()  # negative cache for the lazy gate
 
     async def cog_load(self):
         if not config.web_bridge_enabled:
@@ -78,8 +79,32 @@ class MessageBridge(commands.Cog):
             await asyncio.sleep(_REFRESH_SECONDS)
             try:
                 self._puzzle_channels = await asyncio.to_thread(self._load_puzzle_channels)
+                self._non_puzzle_channels.clear()  # drop stale negatives so conversions re-check
             except Exception:
                 logger.exception("Failed to refresh bridge puzzle-channel set")
+
+    @staticmethod
+    def _lookup_puzzle_channel(channel_id: int) -> bool:
+        from bot.store import mydb
+        cur = mydb.dict_cursor()
+        try:
+            cur.execute("SELECT 1 FROM puzzles WHERE channel_id=%s LIMIT 1", (channel_id,))
+            return cur.fetchone() is not None
+        finally:
+            cur.close()
+
+    async def _is_puzzle_channel(self, channel_id: int) -> bool:
+        """Lazy gate: new puzzle channels are captured on their first message
+        instead of waiting up to _REFRESH_SECONDS for the periodic reload. The
+        positive set is checked first, so a conversion picked up by the refresh
+        always wins over a stale negative-cache entry."""
+        if channel_id in self._puzzle_channels:
+            return True
+        if channel_id in self._non_puzzle_channels:
+            return False
+        is_puzzle = await asyncio.to_thread(self._lookup_puzzle_channel, channel_id)
+        (self._puzzle_channels if is_puzzle else self._non_puzzle_channels).add(channel_id)
+        return is_puzzle
 
     def _kind_for(self, message: discord.Message) -> int:
         if message.author.id == self.bot.application_id:
@@ -95,7 +120,9 @@ class MessageBridge(commands.Cog):
     async def on_message(self, message: discord.Message):
         if self._worker is None:
             return  # bridge disabled / not started — stay inert
-        if message.guild is None or message.channel.id not in self._puzzle_channels:
+        if message.guild is None:
+            return
+        if not await self._is_puzzle_channel(message.channel.id):
             return
         author_name = (getattr(message.author, "display_name", None) or message.author.name)[:255]
         avatar = getattr(getattr(message.author, "display_avatar", None), "url", None)

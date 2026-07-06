@@ -40,8 +40,26 @@ def test_kind_human_bot_command():
 
 async def test_on_message_gate_drops_non_puzzle_channel():
     cog = _make_cog()
-    await cog.on_message(_msg(mid=1, cid=777, author_id=1, is_bot=False, content="hi"))
+    # 777 is unknown -> lazy DB lookup says "not a puzzle channel"; dropped + negative-cached.
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=False) as look:
+        await cog.on_message(_msg(mid=1, cid=777, author_id=1, is_bot=False, content="hi"))
     assert cog._queue.empty()
+    look.assert_called_once_with(777)
+    assert 777 in cog._non_puzzle_channels
+
+
+async def test_on_message_lazily_tracks_new_puzzle_channel():
+    cog = _make_cog()
+    # 200 isn't in the cached set yet; the lazy lookup finds it and captures immediately.
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=True) as look:
+        await cog.on_message(_msg(mid=9, cid=200, author_id=1, is_bot=False, content="hi"))
+    assert cog._queue.get_nowait()["channel_id"] == 200
+    assert 200 in cog._puzzle_channels
+    # Second message in the same channel is served from cache, no extra DB hit.
+    with patch.object(cog, "_lookup_puzzle_channel", return_value=True) as look2:
+        await cog.on_message(_msg(mid=10, cid=200, author_id=1, is_bot=False, content="again"))
+    look2.assert_not_called()
+    assert look.call_count == 1
 
 
 async def test_on_message_enqueues_insert_for_puzzle_channel():
