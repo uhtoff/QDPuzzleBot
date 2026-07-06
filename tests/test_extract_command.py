@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from bot.cogs.puzzles import Puzzles
 from bot.store.tag_group_data import TagGroupData
 
