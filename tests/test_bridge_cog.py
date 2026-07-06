@@ -143,6 +143,48 @@ async def test_worker_insert_passes_embeds():
     assert db.write.call_args.kwargs["embeds"] == '[{"title": "SOLVED!"}]'
 
 
+async def test_worker_skips_first_welcome_embed():
+    cog = _make_cog()
+    rec = {"op": "insert", "id": 1, "channel_id": 100, "guild_id": 42, "author_id": 999,
+           "author_name": "Bot", "author_avatar": None, "kind": 1, "content": "",
+           "embeds": '[{"description": "Welcome to the puzzle channel"}]',
+           "reference_id": None, "created_at": "t", "attachments": []}
+    with patch("bot.cogs.bridge.MessageDb") as db:
+        db.channel_has_messages.return_value = False  # empty channel -> this is the welcome
+        await cog._handle(rec)
+    db.write.assert_not_called()
+    assert 100 in cog._seen_channels
+
+
+async def test_worker_keeps_later_solve_embed_in_same_channel():
+    cog = _make_cog()
+    welcome = {"op": "insert", "id": 1, "channel_id": 100, "guild_id": 42, "author_id": 999,
+               "author_name": "Bot", "author_avatar": None, "kind": 1, "content": "",
+               "embeds": '[{"description": "Welcome"}]', "reference_id": None,
+               "created_at": "t", "attachments": []}
+    solve = {**welcome, "id": 2, "embeds": '[{"title": "SOLVED!"}]'}
+    with patch("bot.cogs.bridge.MessageDb") as db:
+        db.channel_has_messages.return_value = False
+        await cog._handle(welcome)  # skipped (marks channel seen)
+        await cog._handle(solve)    # channel already seen -> stored, no re-check
+    db.write.assert_called_once()
+    assert db.write.call_args.kwargs["id"] == 2
+    db.channel_has_messages.assert_called_once()  # only the first insert consulted the DB
+
+
+async def test_worker_keeps_human_first_message_on_rollout():
+    # Bridge newly enabled on an existing channel (DB empty), first captured message
+    # is a human line -> must NOT be swallowed.
+    cog = _make_cog()
+    rec = {"op": "insert", "id": 1, "channel_id": 100, "guild_id": 42, "author_id": 7,
+           "author_name": "Ann", "author_avatar": None, "kind": 0, "content": "hello",
+           "embeds": None, "reference_id": None, "created_at": "t", "attachments": []}
+    with patch("bot.cogs.bridge.MessageDb") as db:
+        db.channel_has_messages.return_value = False
+        await cog._handle(rec)
+    db.write.assert_called_once()
+
+
 async def test_worker_delete_unlinks_files(tmp_path):
     cog = _make_cog()
     f = tmp_path / "g" / "c" / "1_a.png"; f.parent.mkdir(parents=True); f.write_bytes(b"x")

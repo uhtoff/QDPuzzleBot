@@ -39,6 +39,7 @@ class MessageBridge(commands.Cog):
         self._session: aiohttp.ClientSession | None = None
         self._puzzle_channels: set[int] = set()
         self._non_puzzle_channels: set[int] = set()  # negative cache for the lazy gate
+        self._seen_channels: set[int] = set()  # channels whose first message we've already judged
 
     async def cog_load(self):
         if not config.web_bridge_enabled:
@@ -211,9 +212,27 @@ class MessageBridge(commands.Cog):
         except Exception:
             logger.exception("Bridge failed to publish %s", event.get("type"))
 
+    async def _is_first_welcome(self, rec: dict) -> bool:
+        """True when this insert is the channel's initial welcome/info embed, which
+        we deliberately exclude. It is always the first post to a brand-new puzzle
+        channel: a bot, embed-only, empty-text message in a channel with nothing
+        stored yet. The in-memory guard means skipping it (which leaves the DB
+        empty) doesn't re-trigger on the next bot embed; the DB check keeps it from
+        swallowing a real message after a restart."""
+        cid = rec["channel_id"]
+        if cid in self._seen_channels:
+            return False
+        self._seen_channels.add(cid)
+        is_bot = rec["kind"] in (KIND_THIS_BOT, KIND_OTHER_BOT)
+        if not is_bot or rec.get("content") or not rec.get("embeds"):
+            return False
+        return not await asyncio.to_thread(MessageDb.channel_has_messages, cid)
+
     async def _handle(self, rec: dict):
         op = rec["op"]
         if op == "insert":
+            if await self._is_first_welcome(rec):
+                return  # swallow the initial welcome/info embed
             await asyncio.to_thread(
                 MessageDb.write,
                 id=rec["id"], channel_id=rec["channel_id"], guild_id=rec["guild_id"],
