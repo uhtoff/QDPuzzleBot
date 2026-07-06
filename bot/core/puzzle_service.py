@@ -2063,6 +2063,7 @@ class PuzzleService:
 
             meta.category_id = new_category.id
             TagGroupJsonDb.commit(meta)
+            await self._refresh_channel_glyph(guild, hunt, target_puzzle)
 
         # Consolidate each vacated source so the previous owner folds/un-splits.
         for cid in sources:
@@ -2106,6 +2107,19 @@ class PuzzleService:
                 moves.append((ch, PuzzleJsonDb.get_by_attr(channel_id=ch.id)))
         return moves, owned
 
+    async def _place_channel_in_category(self, category, channel, solved):
+        """Reparent *channel* into *category*, honouring its solve divider (above the
+        divider if unsolved, below if solved). Keeps target channels in a category's
+        primary category rather than letting overflow scatter them."""
+        async with category_layout.layout_lock:
+            divider_pos = solve_divider_position(category)
+            if divider_pos is not False:
+                pos = (max((c.position for c in category.channels), default=0) + 1
+                       if solved else divider_pos)
+            else:
+                pos = max((c.position for c in category.channels), default=-1) + 1
+            await channel.edit(category=category, position=pos)
+
     async def consolidate_to(self, guild, hunt, meta, destination, force=False):
         """Fold *meta* into *destination*'s category, reverting meta to channel-home.
 
@@ -2133,8 +2147,12 @@ class PuzzleService:
         owned_ids = {c.id for c in owned}
         for channel, puzzle in moves:
             solved = getattr(puzzle, "status", "") == "solved"
-            moved = await category_layout.move_channel_to_owner(
-                guild, destination, TagGroupCategoryDb, channel, solved)
+            if getattr(puzzle, "is_target", False):
+                await self._place_channel_in_category(dest_primary, channel, solved)
+                moved = True
+            else:
+                moved = await category_layout.move_channel_to_owner(
+                    guild, destination, TagGroupCategoryDb, channel, solved)
             if not moved or getattr(channel, "category_id", None) in owned_ids:
                 keep_ids.add(channel.id)
                 logger.warning(
@@ -2166,6 +2184,7 @@ class PuzzleService:
 
         meta.category_id = target_puzzle.channel_id
         TagGroupJsonDb.commit(meta)
+        await self._refresh_channel_glyph(guild, hunt, target_puzzle)
         return destination
 
     @pushes_board()

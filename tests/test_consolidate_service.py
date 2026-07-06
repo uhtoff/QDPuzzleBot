@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from bot.core.discord_channels import SOLVE_DIVIDER
 from bot.core.puzzle_service import PuzzleService
 from bot.store.puzzle_data import PuzzleData
 from bot.store.tag_group_data import TagGroupData, EDGE_FEEDS, EDGE_TARGET
@@ -45,8 +46,10 @@ def env(monkeypatch):
     guild = MagicMock(); guild.categories = [owned_cat, dest_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {801: target_ch, 802: feeder_ch}.get(cid))
     target = _puzzle(1, 801, [(10, EDGE_TARGET)])
+    target.is_target = True
     feeder = _puzzle(2, 802, [(10, EDGE_FEEDS)])
     svc = PuzzleService(MagicMock())
+    svc._refresh_channel_glyph = AsyncMock()
     return dict(svc=svc, guild=guild, hunt=hunt, meta=meta, dest=dest,
                 owned_cat=owned_cat, dest_cat=dest_cat, target=target, feeder=feeder,
                 target_ch=target_ch, feeder_ch=feeder_ch)
@@ -54,6 +57,14 @@ def env(monkeypatch):
 
 async def test_consolidate_moves_channels_reverts_to_channel_home_and_deletes_category(env):
     svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
+    target_ch, dest_cat = env["target_ch"], env["dest_cat"]
+
+    async def _target_edit(*args, **kwargs):
+        # Mirror the real helper: reparenting the target out of the source cat.
+        if target_ch in env["owned_cat"].channels:
+            env["owned_cat"].channels.remove(target_ch)
+    target_ch.edit = AsyncMock(side_effect=_target_edit)
+
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.category_layout") as mcl:
@@ -71,9 +82,16 @@ async def test_consolidate_moves_channels_reverts_to_channel_home_and_deletes_ca
         mcl.puzzle_count.return_value = 0
         mcl.delete_group_categories = AsyncMock(return_value=False)  # single-category owner
         mcl.CATEGORY_SOFT_LIMIT = 48
-        mpdb.get_by_attr.side_effect = lambda **kw: env["target"] if kw.get("id") == 1 else None
+        mpdb.get_by_attr.side_effect = lambda **kw: (
+            env["target"] if kw.get("id") == 1 or kw.get("channel_id") == 801
+            else env["feeder"] if kw.get("channel_id") == 802
+            else None)
         await svc.consolidate_to(guild, hunt, meta, dest, force=False)
-    assert mcl.move_channel_to_owner.await_count == 2
+    # target is a target puzzle: routed via _place_channel_in_category, not
+    # move_channel_to_owner — only the feeder goes through the owner mover.
+    assert mcl.move_channel_to_owner.await_count == 1
+    target_ch.edit.assert_awaited_once_with(category=dest_cat, position=0)
+    svc._refresh_channel_glyph.assert_awaited_once_with(guild, hunt, env["target"])
     assert meta.category_id == env["target"].channel_id
     mrdb.commit.assert_any_call(meta)
     env["owned_cat"].delete.assert_awaited()
@@ -105,6 +123,7 @@ async def test_consolidate_raises_would_overflow_unless_forced(env):
 async def test_consolidate_channel_home_meta_moves_extract_set(env):
     svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
     meta.category_id = 801  # channel-home
+    target_ch, dest_cat = env["target_ch"], env["dest_cat"]
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
          patch("bot.core.puzzle_service.category_layout") as mcl:
@@ -119,8 +138,44 @@ async def test_consolidate_channel_home_meta_moves_extract_set(env):
         mpdb.get_all_from_tag_group.return_value = [env["target"], env["feeder"]]
         mrdb.get_all.return_value = [meta, dest]
         await svc.consolidate_to(guild, hunt, meta, dest, force=False)
-    assert mcl.move_channel_to_owner.await_count == 2
+    # target puzzle goes to the destination's primary category directly;
+    # only the feeder is routed via move_channel_to_owner.
+    assert mcl.move_channel_to_owner.await_count == 1
+    target_ch.edit.assert_awaited_once_with(category=dest_cat, position=0)
     env["owned_cat"].delete.assert_not_awaited()
+
+
+async def test_consolidate_solved_target_placed_below_divider_in_dest_primary(env):
+    svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
+    target_ch, dest_cat = env["target_ch"], env["dest_cat"]
+    env["target"].status = "solved"
+    divider_ch = MagicMock(); divider_ch.name = SOLVE_DIVIDER; divider_ch.position = 2
+    dest_cat.channels = [divider_ch]
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = asyncio.Lock()
+        mcl._category_by_id.side_effect = lambda g, cid: {900: env["owned_cat"], 800: dest_cat}.get(cid)
+        mcl.is_split.return_value = False
+        mcl.primary_category.side_effect = lambda g, grp: env["owned_cat"] if grp is meta else dest_cat
+        mcl.puzzle_count.return_value = 0
+        mcl.delete_group_categories = AsyncMock(return_value=False)
+        mcl.CATEGORY_SOFT_LIMIT = 48
+
+        async def _move(g, owner, dao, channel, solved):
+            if channel in env["owned_cat"].channels:
+                env["owned_cat"].channels.remove(channel)
+            return True
+        mcl.move_channel_to_owner = AsyncMock(side_effect=_move)
+        mpdb.get_by_attr.side_effect = lambda **kw: (
+            env["target"] if kw.get("id") == 1 or kw.get("channel_id") == 801
+            else env["feeder"] if kw.get("channel_id") == 802
+            else None)
+        await svc.consolidate_to(guild, hunt, meta, dest, force=True)
+    # solved target still goes to dest's PRIMARY category (below the divider),
+    # not scattered off to a separate solved/overflow category.
+    target_ch.edit.assert_awaited_once_with(category=dest_cat, position=3)
 
 
 async def test_consolidate_keeps_channel_that_fails_to_move(env):

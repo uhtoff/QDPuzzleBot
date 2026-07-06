@@ -66,6 +66,7 @@ def env(monkeypatch):
     feeder = _puzzle(2, 802, [(10, EDGE_FEEDS)])
 
     svc = PuzzleService(MagicMock())  # __init__(self, bot, notifier=None)
+    svc._refresh_channel_glyph = AsyncMock()
     return dict(svc=svc, guild=guild, hunt=hunt, meta=meta, template=template,
                 host=host, new_cat=new_cat, target=target, feeder=feeder,
                 target_ch=target_ch, feeder_ch=feeder_ch)
@@ -97,6 +98,7 @@ async def test_extract_clones_from_template_and_flips_category_id(env, monkeypat
     env["feeder_ch"].edit.assert_awaited()
     moved_to = {c.kwargs.get("category") for c in env["target_ch"].edit.await_args_list}
     assert env["new_cat"] in moved_to
+    svc._refresh_channel_glyph.assert_awaited_once_with(guild, hunt, env["target"])
 
 
 async def test_extract_triggers_consolidation_on_vacated_source(env):
