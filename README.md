@@ -22,6 +22,11 @@ read/write web view of the board with Discord-OAuth login. It is off by default;
 the `web` key in `config.json`. See [Deploying on a Linux server](#deploying-on-a-linux-server)
 for a full production walkthrough.
 
+An optional **message bridge** additionally mirrors each puzzle channel's Discord chat into the
+dashboard's in-app chat viewer, so an archived hunt keeps a self-contained transcript after its
+Discord channels are gone. It too is off by default — see
+[`docs/dashboard.md`](docs/dashboard.md#message-bridge-chat-viewer) to enable it.
+
 # Usage
 
 ## Creating a hunt

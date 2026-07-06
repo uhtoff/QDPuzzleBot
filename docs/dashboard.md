@@ -38,6 +38,48 @@ messages and pins as the matching `!` commands.
   `channel_activity` and publishes a live event.
 - `frontend/` — Vite + React + TS + Mantine SPA.
 
+## Message bridge (chat viewer)
+
+A forward-only mirror of hunt puzzle-channel messages into the web DB, so the dashboard can
+show each puzzle's Discord discussion in an in-app **chat viewer** — and an archived hunt
+keeps a self-contained transcript after its Discord channels are gone.
+
+- `bot/cogs/bridge.py` — the `MessageBridge` cog. Captures messages from puzzle channels via
+  gateway push events only (no REST calls, no rate-limit buckets), doing all DB writes and
+  attachment downloads on a background worker off the gateway path (mirrors
+  `bot/cogs/activity.py`). Lazily gates on puzzle channels (per-channel DB check + negative
+  cache), skips the initial welcome/info embed, and publishes live message/edit/delete events.
+- `bot/store` `MessageDb` — DAO for the `messages` / `message_attachments` tables and the
+  embeds column (migrations `027_message_bridge.sql`, `028_message_embeds.sql`).
+- `bot/core/message_media.py` — safe-filename + size-capped attachment downloader; bytes land
+  under `web.archive_media_dir`.
+- `bot/web/api.py` — read routes `/api/channels/<id>/messages` (transcript, behind the same
+  hunt-visibility gate) and `/api/attachments/<id>` (serves stored bytes — images inline,
+  other files as downloads). Live events fan out over the existing `/api/ws/activity` socket.
+- `frontend/src/components/ChatViewer.tsx` — a Discord-style modal (avatars, replies, images,
+  embeds, `:shortcode:` emoji) opened from each puzzle row's Discord icon
+  (`PuzzleLinks.tsx`): a live tail for active hunts, a static transcript for archived ones.
+
+**Off by default** — capture ships dark. When disabled the cog stays inert (its listeners
+no-op), the chat viewer simply has no history to show, and its "Open in Discord" button still
+works. Capture is forward-only: it mirrors messages posted *after* it is enabled and does not
+backfill channel history.
+
+### Enabling the bridge
+
+1. Apply the pending migrations (`python migrate.py`) — `027` and `028` add the message tables
+   and the embeds column.
+2. Add to the `web` block in `config.json`:
+   ```jsonc
+   "web": {
+     // ...existing dashboard keys...
+     "bridge_enabled": true,
+     "archive_media_dir": "/var/lib/puzzbot/media",  // where attachment bytes are stored; required when on
+     "attachment_max_bytes": 26214400                 // optional; skip attachments larger than this (default 25 MB)
+   }
+   ```
+3. Restart the bot. Capture begins for puzzle channels as new messages arrive.
+
 ## Hunt visibility
 
 - **Active** hunts are visible only to holders of the hunt's team `role_id`
