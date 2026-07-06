@@ -35,12 +35,18 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
 
   return (
     <Modal opened={opened} onClose={onClose} title={title} size="lg">
-      {live && (discordDeepUrl || discordUrl) && (
+      {live && (discordUrl || discordDeepUrl) && (
         <Group gap={6} mb="sm">
           <IconBrandDiscord size={16} />
-          <Anchor href={discordDeepUrl ?? discordUrl!} size="sm">Open in Discord</Anchor>
+          {/* Default to the https link: it opens in the browser everywhere and the
+              desktop app intercepts it when installed. The discord:// deep link only
+              works where the app has registered the protocol handler, so it is a
+              demoted secondary rather than the primary (silently-failing) action. */}
+          <Anchor href={discordUrl ?? discordDeepUrl!} target="_blank" rel="noopener noreferrer" size="sm">
+            Open in Discord
+          </Anchor>
           {discordDeepUrl && discordUrl && (
-            <Anchor href={discordUrl} target="_blank" size="xs" c="dimmed">(browser)</Anchor>
+            <Anchor href={discordDeepUrl} size="xs" c="dimmed">(app)</Anchor>
           )}
         </Group>
       )}
