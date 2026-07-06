@@ -2031,15 +2031,16 @@ class PuzzleService:
             raise RuntimeError("would_overflow")
 
         keep_ids = set()
+        owned_ids = {c.id for c in owned}
         for channel, puzzle in moves:
             solved = getattr(puzzle, "status", "") == "solved"
             moved = await category_layout.move_channel_to_owner(
                 guild, destination, TagGroupCategoryDb, channel, solved)
-            if not moved:
+            if not moved or getattr(channel, "category_id", None) in owned_ids:
                 keep_ids.add(channel.id)
                 logger.warning(
-                    "consolidate_to: could not move channel %s; leaving it in place",
-                    getattr(channel, "id", "?"))
+                    "consolidate_to: channel %s not relocated out of the source; "
+                    "leaving it in place", getattr(channel, "id", "?"))
 
         if owned:
             if not await category_layout.delete_group_categories(

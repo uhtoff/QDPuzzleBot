@@ -141,3 +141,32 @@ async def test_consolidate_keeps_channel_that_fails_to_move(env):
     # a channel that failed to move (and the category holding it) is NOT deleted
     env["feeder_ch"].delete.assert_not_awaited()
     env["owned_cat"].delete.assert_not_awaited()
+
+
+async def test_consolidate_protects_channel_that_did_not_physically_move(env):
+    svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
+    owned_cat = env["owned_cat"]; feeder_ch = env["feeder_ch"]
+    feeder_ch.category_id = owned_cat.id      # sub-meta stays in the source category
+
+    def _move(g, owner, dao, ch, solved):
+        if ch is feeder_ch:
+            return True                        # "already placed" no-op — did NOT move out
+        owned_cat.channels.remove(ch)          # a real move leaves the source category
+        ch.category_id = env["dest_cat"].id
+        return True
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.category_layout") as mcl:
+        mcl.layout_lock = __import__("asyncio").Lock()
+        mcl._category_by_id.side_effect = lambda g, cid: {900: owned_cat, 800: env["dest_cat"]}.get(cid)
+        mcl.is_split.return_value = False
+        mcl.primary_category.side_effect = lambda g, grp: owned_cat if grp is meta else env["dest_cat"]
+        mcl.puzzle_count.return_value = 0
+        mcl.CATEGORY_SOFT_LIMIT = 48
+        mcl.move_channel_to_owner = AsyncMock(side_effect=_move)
+        mcl.delete_group_categories = AsyncMock(return_value=False)
+        mpdb.get_by_attr.side_effect = lambda **kw: env["target"] if kw.get("id") == 1 else None
+        await svc.consolidate_to(guild, hunt, meta, dest, force=True)
+    # the un-moved sub-meta channel is NOT deleted (survives, orphaned at worst)
+    feeder_ch.delete.assert_not_awaited()
