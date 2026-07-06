@@ -519,6 +519,9 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
             (ch for ch in top_cat.text_channels if ch.name != SOLVE_DIVIDER),
             key=lambda ch: ch.position)
         free = sum(max(0, CATEGORY_SOFT_LIMIT - _count(c)) for c in lowers)
+        logger.info("fold-trace: Pass2 role=%s top=cat%s movers=%d free=%d threshold=%d -> %s",
+                    role, top.category_id, len(movers), free, free - CONSOLIDATE_MARGIN,
+                    "FOLD" if len(movers) <= free - CONSOLIDATE_MARGIN else "SKIP(margin)")
         if len(movers) > free - CONSOLIDATE_MARGIN:
             return
         try:
@@ -526,12 +529,15 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
                 target = next(c for c in lowers if _count(c) < CATEGORY_SOFT_LIMIT)
                 position = (max((c2.position for c2 in target.channels), default=-1)
                             + 1 + added.get(target.id, 0))
+                logger.info("fold-trace: moving ch=%s from cat%s to cat%s pos=%s",
+                            getattr(ch, "id", "?"), top.category_id, target.id, position)
                 await ch.edit(category=target, position=position)
                 added[target.id] = added.get(target.id, 0) + 1
             await top_cat.delete(reason=DELETE_REASON)
-        except Exception:
+        except Exception as exc:
             logger.exception("consolidate: fold of category %s failed midway "
                              "(safe: row survives, next run resumes)", top.category_id)
+            logger.info("fold-trace: FOLD FAILED cat=%s: %r", top.category_id, exc)
             return
         dao.delete(top.id)
         # Loop: a further fold may now be possible.
