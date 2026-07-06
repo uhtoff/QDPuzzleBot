@@ -89,12 +89,35 @@ def test_desired_channel_name_uses_passed_group_without_db_lookup():
         mrdb.get_by_attr.assert_not_called()
 
 
+def test_target_kind_metameta_beats_capstone():
+    svc = _svc()
+    hunt = MagicMock(); hunt.id = 1
+    cap = _puzzle(2, "cap", is_target=True)
+    grp = _group(10, "Capstone", 2)
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb"), \
+         patch.object(PuzzleService, "_is_metameta_group", return_value=True):
+        mrdb.get_by_attr.return_value = grp
+        assert svc._target_kind(hunt, cap) == "metameta"
+
+
+def test_target_kind_runaround():
+    svc = _svc()
+    hunt = MagicMock(); hunt.id = 1
+    ra = _puzzle(2, "run", is_target=True)
+    grp = _group(10, "Runaround", 2)
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+         patch.object(PuzzleService, "_is_metameta_group", return_value=False):
+        mrdb.get_by_attr.return_value = grp
+        assert svc._target_kind(hunt, ra) == "runaround"
+
+
 async def test_refresh_glyph_renames_when_name_differs():
     svc = _svc()
     guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
     meta = _puzzle(2, "Spooky Meta", is_target=True); meta.channel_id = 55
     channel = MagicMock(); channel.name = "spooky-meta"
-    guild.get_channel.return_value = channel
+    guild.get_channel_or_thread.return_value = channel
     svc.safe_rename = AsyncMock()
     with patch.object(PuzzleService, "desired_channel_name", return_value="🧩spooky-meta"):
         await svc._refresh_channel_glyph(guild, hunt, meta)
@@ -106,7 +129,7 @@ async def test_refresh_glyph_noop_when_already_correct():
     guild = MagicMock(); hunt = MagicMock()
     meta = _puzzle(2, "Spooky Meta", is_target=True); meta.channel_id = 55
     channel = MagicMock(); channel.name = "🧩spooky-meta"
-    guild.get_channel.return_value = channel
+    guild.get_channel_or_thread.return_value = channel
     svc.safe_rename = AsyncMock()
     with patch.object(PuzzleService, "desired_channel_name", return_value="🧩spooky-meta"):
         await svc._refresh_channel_glyph(guild, hunt, meta)

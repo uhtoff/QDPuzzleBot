@@ -316,7 +316,7 @@ class PuzzleService:
             return "runaround"
         if self._is_metameta_group(hunt, group):
             return "metameta"
-        if group.type in ("Round", "Metapuzzle"):
+        if group.type == "Metapuzzle":
             return "meta"
         if group.type == "Capstone":
             return "capstone"
@@ -332,7 +332,7 @@ class PuzzleService:
         """Rename *puzzle*'s channel to its desired glyphed name if it differs."""
         if guild is None or not getattr(puzzle, "channel_id", 0):
             return
-        channel = guild.get_channel(puzzle.channel_id)
+        channel = guild.get_channel_or_thread(puzzle.channel_id)
         if channel is None:
             return
         want = self.desired_channel_name(hunt, puzzle)
