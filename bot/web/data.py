@@ -642,8 +642,8 @@ async def get_channel_messages(channel_id, before=None, limit=50):
             "kind": r["kind"],
             "content": r["content"],
             "reference_id": (str(r["reference_id"]) if r["reference_id"] else None),
-            "created_at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else r["created_at"],
-            "edited_at": (r["edited_at"].isoformat() if hasattr(r["edited_at"], "isoformat") and r["edited_at"] else None),
+            "created_at": _iso(r["created_at"]) if isinstance(r["created_at"], datetime.datetime) else r["created_at"],
+            "edited_at": (_iso(r["edited_at"]) if isinstance(r["edited_at"], datetime.datetime) else None),
             "attachments": by_msg.get(r["id"], []),
         })
     return out
