@@ -123,6 +123,11 @@ gathers whatever feeds it: answers from `feeds` tags, facts from `informs` tags.
 
 ### Changing your mind about what a puzzle is
 
+Target channels carry a leading emoji so you can spot them in the channel list: 🧩 a
+metapuzzle, 🧩🧩 a meta whose feeders are themselves metas, 👑 a capstone, 🏃 a runaround.
+Plain feeders have none. New and converted targets get their glyph automatically; for a
+hunt created before this feature, an organiser can run `!backfill_glyphs` once to add them.
+
 From the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
 `!convert_to_runaround`, `!convert_to_group`, `!convert_to_metapuzzle`,
 `!convert_to_puzzle` — promote a feeder to a meta, turn a meta back into a plain

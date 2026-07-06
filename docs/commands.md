@@ -177,6 +177,7 @@ until it finishes.
 |---|---|---|---|---|---|
 | `!rebuild` *(slash)* | | — | round/meta or hunt | organisers/admins | Rebuild meta roll-up sheets (targeted in a round, else hunt-wide). |
 | `!rebuild_unassigned` *(slash)* | | `[show_round]` | hunt channel | organisers/admins | Reconcile the "Unassigned Feeders" sheet tab. |
+| `!backfill_glyphs` | | — | any hunt channel | organisers/admins | Prefix every target channel with its emoji glyph (🧩 meta, 🧩🧩 metameta, 👑 capstone, 🏃 runaround). Idempotent one-off; newly created or converted targets get their glyph automatically. |
 | `!reconcile` *(slash)* | | `[apply [orphans]]` | hunt channel | organisers/admins | Heal Discord + Sheets to match the DB; `apply` fixes, `apply orphans` deletes orphans (confirms). |
 | `!start_reminders` *(slash)* | | — | hunt channel | organisers/admins | Start the periodic reminder/tips loop. |
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
