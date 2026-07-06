@@ -537,6 +537,15 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 Metameta status (🧩→🧩🧩) is computed when the channel name is (re)computed — at create, convert, rename, `!backfill_glyphs`, and `reconcile`. It is **not** reactively refreshed on every feeder edge change, so a meta that becomes a metameta purely by gaining a sub-meta feeder shows 🧩 until it's next touched or `!backfill_glyphs`/`reconcile` runs. This keeps the change off the hot edge-mutation path; the design spec treats the glyph as identification, not a live status indicator.
 
+## Deferred follow-up (perf, non-blocking)
+
+`reconcile` calls `desired_channel_name` per target in its loop, and each call re-fetches
+`TagGroupJsonDb.get_all(hunt.id)` (+ `get_all_from_tag_group`) inside `_is_metameta_group`
+— an N+1 against a group list reconcile already has in hand. For a near-cap hunt (~50
+rounds) that's ~100 extra queries on a **manual, infrequent** admin action, so it was left
+as-is. If it ever matters, thread an optional precomputed `all_groups` through
+`desired_channel_name`/`_target_kind`/`_is_metameta_group` and pass reconcile's `rounds`.
+
 ## Out of scope (later plans)
 
 - `!consolidate_to` (Plan 3), auto-extract on overflow (Plan 4).
