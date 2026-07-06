@@ -1476,6 +1476,10 @@ class PuzzleService:
         # across both join tables, in the background. Best-effort: the guild
         # cache may not yet reflect the channel deletion (it updates on the
         # gateway event), in which case the next drop catches it instead.
+        logger.info("fold-trace: delete_puzzle %s channel=%s category=%s -> %s",
+                    puzzle.id, puzzle.channel_id,
+                    getattr(category, "id", None),
+                    "triggering consolidation" if category is not None else "no category, no fold")
         if category is not None:
             category_layout.maybe_consolidate_category(guild, category)
         if failed:
@@ -2092,6 +2096,8 @@ class PuzzleService:
             await self._refresh_channel_glyph(guild, hunt, target_puzzle)
 
         # Consolidate each vacated source so the previous owner folds/un-splits.
+        logger.info("fold-trace: extract of meta %s vacated sources=%s -> triggering consolidation",
+                    getattr(meta, "id", "?"), sorted(sources))
         for cid in sources:
             src = category_layout._category_by_id(guild, cid)
             if src is not None:

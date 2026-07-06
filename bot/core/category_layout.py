@@ -459,9 +459,21 @@ async def consolidate(guild, owner_id, dao):
         def _count(cat):
             return puzzle_count(cat) + added.get(cat.id, 0)
 
+        def _snapshot():
+            out = []
+            for r in sorted(dao.get_for_group(owner_id), key=lambda r: (r.role, r.seq)):
+                cat = _category_by_id(guild, r.category_id)
+                out.append(f"{r.role}#{r.seq}:cat={r.category_id}:"
+                           f"{'MISSING' if cat is None else _count(cat)}")
+            return out
+
+        logger.info("fold-trace: consolidate START owner=%s rows=[%s]",
+                    owner_id, ", ".join(_snapshot()))
         for role in (ROLE_UNSOLVED, ROLE_SOLVED):
             await _consolidate_role(guild, owner_id, dao, role, _count, added)
         await _maybe_unsplit(guild, owner_id, dao, _count)
+        logger.info("fold-trace: consolidate END owner=%s rows=[%s]",
+                    owner_id, ", ".join(_snapshot()))
 
 
 async def _consolidate_role(guild, owner_id, dao, role, _count, added):
@@ -631,11 +643,13 @@ def maybe_consolidate(guild, owner_id, dao):
     block on channel moves. Duplicate triggers are harmless — consolidate is
     idempotent and serialised on layout_lock. Returns the task, or None."""
     try:
-        if not _consolidation_candidate(guild, owner_id, dao):
-            return None
+        cand = _consolidation_candidate(guild, owner_id, dao)
     except Exception:
         logger.exception("maybe_consolidate: candidate check failed for owner %s",
                          owner_id)
+        return None
+    logger.info("fold-trace: maybe_consolidate owner=%s candidate=%s", owner_id, cand)
+    if not cand:
         return None
     task = asyncio.create_task(_consolidate_safely(guild, owner_id, dao))
     # Keep a strong ref (see _pending_consolidations) so the loop can't GC the
@@ -658,7 +672,11 @@ def maybe_consolidate_category(guild, category):
     for dao in (TagGroupCategoryDb, HuntCategoryDb):
         row = dao.get_by_category(category.id)
         if row is not None:
+            logger.info("fold-trace: maybe_consolidate_category cat=%s -> owner=%s via %s",
+                        category.id, row.group_id, type(dao).__name__)
             return maybe_consolidate(guild, row.group_id, dao)
+    logger.info("fold-trace: maybe_consolidate_category cat=%s not owned by any "
+                "tracked layout (no fold triggered)", category.id)
     return None
 
 
