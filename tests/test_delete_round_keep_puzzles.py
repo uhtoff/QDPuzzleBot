@@ -76,6 +76,7 @@ async def test_keep_puzzles_deletes_target_and_relocates_feeder():
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [target, feeder]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
 
@@ -124,6 +125,7 @@ async def test_keep_puzzles_prefers_sibling_group_category_over_general():
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [feeder]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
         tgdb.get_by_attr.return_value = sibling_group
@@ -169,6 +171,7 @@ async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_cate
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [feeder]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
         tgdb.get_by_attr.return_value = sibling_group
@@ -209,6 +212,7 @@ async def test_keep_puzzles_relocation_failure_reported():
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [feeder]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
         tgdb.get_by_attr.return_value = None
@@ -249,6 +253,7 @@ async def test_keep_puzzles_group_type_deletes_chat_channel_keeps_feeder():
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [feeder]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
 
@@ -323,6 +328,7 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
          patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
          patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb:
         pdb.get_all_from_tag_group.return_value = [feeder]
+        pdb.get_by_attr.return_value = None    # stray_ch has no puzzle record at all
         tgcdb.get_for_group.return_value = [
             TagGroupCategoryData(group_id=5, category_id=100, role="unsolved", seq=0),
         ]
@@ -418,6 +424,7 @@ async def test_full_delete_protects_foreign_target_puzzle():
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = [ordinary, nested_meta_target]
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
         hcdb.get_for_group.return_value = []
 
@@ -457,6 +464,7 @@ async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel()
          patch("bot.core.puzzle_service.category_layout.delete_group_categories",
                AsyncMock(return_value=False)):
         pdb.get_all_from_tag_group.return_value = []
+        pdb.get_by_attr.return_value = None
         tgcdb.get_for_group.return_value = []
 
         failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
@@ -503,19 +511,134 @@ async def test_full_delete_forum_mode_protects_foreign_target_puzzle():
 
 
 @pytest.mark.asyncio
-async def test_full_delete_refreshes_other_fed_targets():
-    """keep_puzzles=False deletes a feeder puzzle that also feeds ANOTHER
-    round's meta; that other meta's target must be refreshed so its
-    contribution table doesn't keep a stale row for the deleted puzzle
-    (review #29)."""
+async def test_full_delete_keeps_shared_feeder_deletes_exclusive_feeder():
+    """keep_puzzles=False must not delete a member puzzle that is ALSO tagged
+    to another group (a shared feeder) — that group still needs it. Only the
+    round's own target and members tagged EXCLUSIVELY to this group are fair
+    game for full delete; a shared feeder is relocated instead (data-loss
+    regression: previously any non-target member was deleted outright)."""
     svc = _svc()
     hunt = make_hunt(category_id=500, layout_mode="channel")
-    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
+    tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
+
+    target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
+    exclusive_feeder = make_puzzle(id=2, name="Exclusive", channel_id=902, tags=[10])
+    shared_feeder = make_puzzle(id=3, name="Shared", channel_id=903, tags=[10, 99])
+
+    target_ch = MagicMock(id=901); target_ch.delete = AsyncMock()
+    exclusive_ch = MagicMock(id=902); exclusive_ch.delete = AsyncMock()
+    shared_ch = MagicMock(id=903); shared_ch.category_id = 100; shared_ch.edit = AsyncMock()
+    shared_ch.delete = AsyncMock()
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [target_ch, exclusive_ch, shared_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    general_cat = _general_category()
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(
+        side_effect=lambda cid: {901: target_ch, 902: exclusive_ch, 903: shared_ch}.get(cid))
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [target, exclusive_feeder, shared_feeder]
+        pdb.get_by_attr.return_value = None
+        tgcdb.get_for_group.return_value = []
+        hcdb.get_for_group.return_value = []
+        tgdb.get_by_attr.return_value = None    # group 99 unresolvable -> falls back to general
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=False)
+
+    deleted_ids = {c.args[0] for c in pdb.delete.call_args_list}
+    assert deleted_ids == {1, 2}                                  # target + exclusive feeder only
+    target_ch.delete.assert_awaited_once()
+    exclusive_ch.delete.assert_awaited_once()
+    shared_ch.delete.assert_not_called()                          # shared feeder: never destroyed
+    shared_ch.edit.assert_awaited_once_with(category=general_cat, position=1)  # relocated instead
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_full_delete_relocates_foreign_channel_before_category_teardown():
+    """A channel physically inside this round's owned category whose puzzle
+    is NOT a member of this group at all (e.g. a channel-home meta that was
+    consolidated/promoted into this category, tagged to a different group)
+    must be relocated to the hunt's general category BEFORE the category
+    teardown sweep — not swept up and deleted along with the round's own
+    channels (data-loss regression)."""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
+
+    target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
+    foreign_puzzle = make_puzzle(id=900, name="Foreign", channel_id=555, tags=[77], solved=False)
+
+    target_ch = MagicMock(id=901); target_ch.delete = AsyncMock()
+    foreign_ch = MagicMock(id=555); foreign_ch.category_id = 100; foreign_ch.edit = AsyncMock()
+    foreign_ch.delete = AsyncMock()
+    foreign_ch.name = "foreign-puzzle"
+
+    round_cat = MagicMock(id=100)
+    round_cat.channels = [target_ch, foreign_ch]
+    round_cat.text_channels = []
+    round_cat.delete = AsyncMock()
+    general_cat = _general_category()
+
+    guild = MagicMock()
+    guild.categories = [round_cat, general_cat]
+    guild.get_channel = MagicMock(
+        side_effect=lambda cid: {901: target_ch, 555: foreign_ch}.get(cid))
+
+    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)):
+        pdb.get_all_from_tag_group.return_value = [target]
+        pdb.get_by_attr.side_effect = lambda channel_id: (
+            foreign_puzzle if channel_id == 555 else None)
+        tgcdb.get_for_group.return_value = []
+        hcdb.get_for_group.return_value = []
+
+        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=False)
+
+    pdb.delete.assert_called_once_with(1)              # only the round's own target deleted
+    target_ch.delete.assert_awaited_once()
+    foreign_ch.delete.assert_not_called()               # foreign channel: never destroyed
+    foreign_ch.edit.assert_awaited_once_with(category=general_cat, position=1)  # relocated out
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_full_delete_refreshes_other_fed_targets():
+    """keep_puzzles=False deletes this round's own target puzzle, which also
+    happens to feed ANOTHER round's meta; that other meta's target must be
+    refreshed so its contribution table doesn't keep a stale row for the
+    deleted puzzle (review #29). (A plain non-target member shared with
+    another group is now kept/relocated rather than deleted — see the
+    exclusivity fix — so this covers the still-deleted case: the round's own
+    target, which is also tagged elsewhere.)"""
+    svc = _svc()
+    hunt = make_hunt(category_id=500, layout_mode="channel")
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=2)
     other_group = make_round(id=9, category_id=200, target_puzzle_id=0)
 
-    # Feeder is tagged into both this round (5, being deleted) and another
+    # Target is tagged into both this round (5, being deleted) and another
     # round (9, NOT being deleted) — deleting it must refresh group 9.
-    feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 9])
+    feeder = make_puzzle(id=2, name="Feeder", is_target=True, channel_id=902, tags=[5, 9])
     feeder_ch = MagicMock(id=902); feeder_ch.delete = AsyncMock()
 
     round_cat = MagicMock(id=100)

@@ -1517,16 +1517,20 @@ class PuzzleService:
             to_delete = [target_puzzle] if target_puzzle else []
             to_keep = [p for p in all_puzzles if p is not target_puzzle]
         else:
-            # A member puzzle that is itself a DIFFERENT tag group's target (a
-            # nested meta whose target puzzle also happens to feed this round)
-            # must never be deleted here: that would orphan the nested group's
-            # target_puzzle_id, the same case delete_puzzle forbids outright.
-            # Only this round's own target (if any) is fair game for full delete.
+            # Delete only this round's own target and members tagged
+            # EXCLUSIVELY to this group. A member also tagged to another group
+            # (a shared feeder, or a nested meta whose target puzzle also
+            # happens to feed this round) is kept and relocated instead —
+            # deleting it would remove it from the other group too, or (for a
+            # nested meta's target) orphan that group's target_puzzle_id, the
+            # same case delete_puzzle forbids outright. Kept members are
+            # auto-untagged from this group when its row is deleted below.
             # Applies to forum layout too (which always takes this branch,
             # since keep_puzzles never yields narrow=True for forum).
             to_delete = [
                 p for p in all_puzzles
-                if not p.is_target or p.id == tag_group.target_puzzle_id
+                if p.id == tag_group.target_puzzle_id
+                or (not p.is_target and set(p.tags) <= {tag_group.id})
             ]
             to_keep = [p for p in all_puzzles if p not in to_delete]
 
@@ -1579,6 +1583,37 @@ class PuzzleService:
             if group_chat_ch is not None:
                 if not await self._safe_delete_channel(guild, group_chat_ch.id):
                     failed_channels.append(tag_group.name)
+
+        # Relocate FOREIGN channels — ones physically inside this group's owned
+        # categories whose puzzle is NOT a member of this group at all (e.g. a
+        # channel-home meta consolidated/promoted into this category, plus its
+        # feeders). all_puzzles/to_delete/to_keep only cover this group's own
+        # members, so these would otherwise be missed here and then swept up
+        # (deleted) by the blanket per-category delete below. Move them to the
+        # hunt's general category BEFORE that teardown; their DB rows/edges
+        # belong to another group and are left untouched.
+        if guild is not None and not is_forum:
+            foreign_owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
+            foreign_owned_category_ids |= {
+                row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
+            }
+            member_channel_ids = {p.channel_id for p in all_puzzles if p.channel_id}
+            for category_id in foreign_owned_category_ids:
+                category = category_layout._category_by_id(guild, category_id)
+                if category is None:
+                    continue
+                for channel in list(category.channels):
+                    if getattr(channel, "name", "") == self._SOLVE_DIVIDER_NAME:
+                        continue
+                    if channel.id in member_channel_ids:
+                        continue
+                    foreign_puzzle = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
+                    if foreign_puzzle is None:
+                        continue
+                    if not await category_layout.move_channel_to_owner(
+                            guild, hunt, HuntCategoryDb, channel, foreign_puzzle.solved):
+                        failed_channels.append(foreign_puzzle.name)
+                        relocation_failed_channel_ids.add(channel.id)
 
         if guild is not None:
             if hunt.layout_mode == "forum":
