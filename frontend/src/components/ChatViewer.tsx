@@ -1,6 +1,7 @@
 import { Modal, Stack, Group, Avatar, Text, Anchor, Image, Loader } from "@mantine/core";
-import { IconBrandDiscord } from "@tabler/icons-react";
+import { IconBrandDiscord, IconArrowBackUp } from "@tabler/icons-react";
 import { useChannelMessages } from "../hooks/useChannelMessages";
+import type { ChatMessage } from "../types";
 
 interface Props {
   opened: boolean;
@@ -20,8 +21,17 @@ function embedColor(color?: number): string {
   return `#${(color & 0xffffff).toString(16).padStart(6, "0")}`;
 }
 
+// One-line preview of a replied-to message for the quote row.
+function replySnippet(m: ChatMessage): string {
+  const text = m.content?.trim() || m.embeds?.[0]?.title || m.embeds?.[0]?.description;
+  if (text) return text.length > 80 ? text.slice(0, 80) + "…" : text;
+  if (m.attachments.length) return m.attachments[0].filename;
+  return "message";
+}
+
 export function ChatViewer({ opened, onClose, channelId, live, title, discordDeepUrl, discordUrl }: Props) {
   const { messages, loading } = useChannelMessages(opened ? channelId : null, live);
+  const byId = new Map(messages.map((m) => [m.id, m]));
 
   return (
     <Modal opened={opened} onClose={onClose} title={title} size="lg">
@@ -43,6 +53,19 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
           <Group key={m.id} align="flex-start" gap="xs" wrap="nowrap">
             <Avatar src={m.author_avatar} size={24} radius="xl" />
             <div style={{ minWidth: 0 }}>
+              {m.reference_id && (
+                <Group gap={4} wrap="nowrap" c="dimmed" style={{ overflow: "hidden" }}>
+                  <IconArrowBackUp size={12} style={{ flexShrink: 0 }} />
+                  {byId.has(m.reference_id) ? (
+                    <Text size="xs" truncate>
+                      <Text span size="xs" fw={600}>{byId.get(m.reference_id)!.author_name}</Text>
+                      {" "}{replySnippet(byId.get(m.reference_id)!)}
+                    </Text>
+                  ) : (
+                    <Text size="xs" fs="italic">replying to an earlier message</Text>
+                  )}
+                </Group>
+              )}
               <Group gap={6}>
                 <Text size="sm" fw={600}>{m.author_name}</Text>
                 <Text size="xs" c="dimmed">{new Date(m.created_at).toLocaleString()}</Text>
