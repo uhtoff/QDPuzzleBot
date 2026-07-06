@@ -375,6 +375,10 @@ async def ws_activity():
                 visible = await _activity_event_visible(event, user["id"], event["guild_id"])
             elif event.get("type") == "board":
                 visible = await _board_event_visible(event, membership, roles_by_guild)
+            elif event.get("type") in ("message", "message_edit", "message_delete"):
+                # Live channels only (archived channels emit no events); the live
+                # channel-permission check matches the same per-hunt role gate.
+                visible = await _activity_event_visible(event, user["id"], event["guild_id"])
 
             if visible:
                 await websocket.send_json(event)
