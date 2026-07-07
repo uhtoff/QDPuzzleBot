@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Box,
@@ -10,7 +10,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { IconTrash } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowsSort, IconArrowUp, IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
 import { useDeleteEvidence, useEditClueNote, useEvidence, useLogClue, useUpdateEvidence } from "../api";
 import { notifyError } from "../util";
@@ -21,6 +21,9 @@ interface Props {
   detail: HuntDetail;
 }
 
+type SortKey = "source_puzzle_name" | "note" | "target_puzzle_name" | "created_at";
+type SortDirection = "asc" | "desc";
+
 export function EvidencePanel({ uid, detail }: Props) {
   const { data: items = [], isLoading, error } = useEvidence(uid);
   const updateEvidence = useUpdateEvidence(uid);
@@ -28,6 +31,15 @@ export function EvidencePanel({ uid, detail }: Props) {
   const deleteEvidence = useDeleteEvidence(uid);
   const editClueNote = useEditClueNote(uid);
   const [filterSource, setFilterSource] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null);
+
+  function toggleSort(key: SortKey) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return null;
+    });
+  }
 
   const [cluePuzzleId, setCluePuzzleId] = useState<string | null>(null);
   const [clueNote, setClueNote] = useState("");
@@ -38,7 +50,9 @@ export function EvidencePanel({ uid, detail }: Props) {
     if (!cluePuzzleId || !clueNote.trim()) return;
     logClue.mutate(
       { puzzleId: Number(cluePuzzleId), note: clueNote.trim() },
-      { onSuccess: () => { setCluePuzzleId(null); setClueNote(""); }, onError: notifyError }
+      // Keep the source puzzle selected on success — logging several clues in a
+      // row for the same puzzle is the common case; only the note should clear.
+      { onSuccess: () => { setClueNote(""); }, onError: notifyError }
     );
   }
 
@@ -57,6 +71,19 @@ export function EvidencePanel({ uid, detail }: Props) {
   const filtered = filterSource
     ? items.filter((i) => String(i.source_puzzle_id) === filterSource)
     : items;
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    const { key, direction } = sort;
+    const dir = direction === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = a[key] ?? "";
+      const bv = b[key] ?? "";
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }, [filtered, sort]);
 
   if (isLoading) return <Text size="sm" c="dimmed">Loading evidence…</Text>;
   if (error) return <Text size="sm" c="red">Failed to load evidence.</Text>;
@@ -108,15 +135,15 @@ export function EvidencePanel({ uid, detail }: Props) {
         <Table striped highlightOnHover withTableBorder withColumnBorders fz="sm">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Source Puzzle</Table.Th>
-              <Table.Th>Note</Table.Th>
-              <Table.Th>Target Puzzle</Table.Th>
-              <Table.Th>Logged At</Table.Th>
+              <SortableTh sortKey="source_puzzle_name" sort={sort} onSort={toggleSort}>Source Puzzle</SortableTh>
+              <SortableTh sortKey="note" sort={sort} onSort={toggleSort}>Note</SortableTh>
+              <SortableTh sortKey="target_puzzle_name" sort={sort} onSort={toggleSort}>Target Puzzle</SortableTh>
+              <SortableTh sortKey="created_at" sort={sort} onSort={toggleSort}>Logged At</SortableTh>
               {editable && <Table.Th w={40} />}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {filtered.map((item) => (
+            {sorted.map((item) => (
               <EvidenceRow
                 key={item.id}
                 item={item}
@@ -137,6 +164,32 @@ export function EvidencePanel({ uid, detail }: Props) {
         </Table>
       )}
     </Stack>
+  );
+}
+
+function SortableTh({
+  sortKey,
+  sort,
+  onSort,
+  children,
+}: {
+  sortKey: SortKey;
+  sort: { key: SortKey; direction: SortDirection } | null;
+  onSort: (key: SortKey) => void;
+  children: ReactNode;
+}) {
+  const active = sort?.key === sortKey;
+  const Icon = active ? (sort!.direction === "asc" ? IconArrowUp : IconArrowDown) : IconArrowsSort;
+  return (
+    <Table.Th
+      onClick={() => onSort(sortKey)}
+      style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <Group gap={4} wrap="nowrap">
+        <Text size="sm" fw={active ? 700 : undefined}>{children}</Text>
+        <Icon size={12} opacity={active ? 1 : 0.4} />
+      </Group>
+    </Table.Th>
   );
 }
 
