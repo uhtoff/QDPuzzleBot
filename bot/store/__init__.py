@@ -142,3 +142,16 @@ if config.storage == 'mysql':
     )
     MessageDb = MySQLMessageDb(mydb=message_db_conn)
     EvidenceJsonDb = MySQLEvidenceDb(mydb=mydb)
+    # The bridge cog's puzzle-channel gate queries run on a background thread via
+    # asyncio.to_thread (bot/cogs/bridge.py _load_puzzle_channels/_lookup_puzzle_channel).
+    # A mysql.connector connection is not thread-safe to share, so give this its own
+    # dedicated connection rather than reusing the shared `mydb` (which every
+    # synchronous, event-loop-thread DB call above also uses) -- sharing it caused a
+    # SIGABRT heap-corruption crash under concurrent access.
+    bridge_channels_conn = MySQLReconnector(
+        host="localhost",
+        user=config.mysql_username,
+        password=config.mysql_password,
+        database=config.database,
+        charset="utf8mb4",
+    )

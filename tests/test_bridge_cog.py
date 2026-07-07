@@ -69,6 +69,43 @@ async def test_on_message_enqueues_insert_for_puzzle_channel():
     assert rec["op"] == "insert" and rec["id"] == 1 and rec["channel_id"] == 100
 
 
+# --- Dedicated DB connection (regression: shared `mydb` used from a background
+# thread caused a SIGABRT heap-corruption crash under concurrent access) --------
+
+def test_load_puzzle_channels_uses_dedicated_connection():
+    from bot.cogs.bridge import MessageBridge
+    import bot.store as store
+
+    dedicated = MagicMock()
+    dedicated.dict_cursor.return_value.fetchall.return_value = [{"channel_id": 100}]
+    shared_mydb = MagicMock()
+
+    with patch.object(store, "bridge_channels_conn", dedicated), \
+         patch.object(store, "mydb", shared_mydb):
+        result = MessageBridge._load_puzzle_channels()
+
+    assert result == {100}
+    dedicated.dict_cursor.assert_called_once()
+    shared_mydb.dict_cursor.assert_not_called()
+
+
+def test_lookup_puzzle_channel_uses_dedicated_connection():
+    from bot.cogs.bridge import MessageBridge
+    import bot.store as store
+
+    dedicated = MagicMock()
+    dedicated.dict_cursor.return_value.fetchone.return_value = {"1": 1}
+    shared_mydb = MagicMock()
+
+    with patch.object(store, "bridge_channels_conn", dedicated), \
+         patch.object(store, "mydb", shared_mydb):
+        result = MessageBridge._lookup_puzzle_channel(777)
+
+    assert result is True
+    dedicated.dict_cursor.assert_called_once()
+    shared_mydb.dict_cursor.assert_not_called()
+
+
 async def test_listeners_inert_when_worker_not_running():
     # Disabled/not-started state: cog_load never ran, so _worker is None.
     cog = _make_cog()

@@ -66,8 +66,12 @@ class MessageBridge(commands.Cog):
     # ---- gating -----------------------------------------------------------
     @staticmethod
     def _load_puzzle_channels() -> set[int]:
-        from bot.store import mydb
-        cur = mydb.dict_cursor()
+        # Runs on a background thread (asyncio.to_thread) -- use the bridge's own
+        # dedicated connection, never the shared `mydb` the event loop uses directly
+        # (mysql.connector connections aren't thread-safe to share; doing so caused a
+        # SIGABRT heap-corruption crash under concurrent access).
+        from bot.store import bridge_channels_conn
+        cur = bridge_channels_conn.dict_cursor()
         try:
             cur.execute("SELECT channel_id FROM puzzles WHERE channel_id IS NOT NULL")
             rows = cur.fetchall() or []
@@ -86,8 +90,9 @@ class MessageBridge(commands.Cog):
 
     @staticmethod
     def _lookup_puzzle_channel(channel_id: int) -> bool:
-        from bot.store import mydb
-        cur = mydb.dict_cursor()
+        # See _load_puzzle_channels above: dedicated connection, not the shared `mydb`.
+        from bot.store import bridge_channels_conn
+        cur = bridge_channels_conn.dict_cursor()
         try:
             cur.execute("SELECT 1 FROM puzzles WHERE channel_id=%s LIMIT 1", (channel_id,))
             return cur.fetchone() is not None
