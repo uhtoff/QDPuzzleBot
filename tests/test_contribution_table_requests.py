@@ -713,25 +713,22 @@ def test_label_cells_emit_bold_format():
     assert 0 in {r["repeatCell"]["range"]["startColumnIndex"] for r in feeder_reqs}
 
 
-def test_dynamic_name_and_solution_cells_emit_bold_format():
-    """The bot writes the puzzle name + solution as dynamic values with update_cell
-    (userEnteredValue only), so their cells must be bolded at tab creation. One
-    bold repeatCell per cell, shifted by the target offset."""
+def test_dynamic_solution_cell_emits_bold_format_not_name():
+    """The bot writes the solution as a dynamic value with update_cell
+    (userEnteredValue only), so its cell must be bolded at tab creation. The
+    title/name, flavour, and progress values stay unbolded -- only the static
+    labels and the solution are bold."""
     from bot.utils import config
 
     cog = _cog()
     reqs = cog._dynamic_bold_requests(page_id=901, offset=1)
-    assert len(reqs) == 2
-    cols = set()
-    for r in reqs:
-        rc = r["repeatCell"]
-        assert rc["range"]["sheetId"] == 901
-        assert rc["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
-        assert rc["fields"] == "userEnteredFormat.textFormat.bold"
-        cols.add(rc["range"]["startColumnIndex"])
-    # name (B1 -> col 1) + offset 1 = col 2; solution shifted likewise.
-    assert cog.get_column(config.puzzle_cell_name) + 1 in cols
-    assert cog.get_column(config.puzzle_cell_solution) + 1 in cols
+    assert len(reqs) == 1
+    rc = reqs[0]["repeatCell"]
+    assert rc["range"]["sheetId"] == 901
+    assert rc["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
+    assert rc["fields"] == "userEnteredFormat.textFormat.bold"
+    # solution (I1 -> col 8) + offset 1 = col 9.
+    assert rc["range"]["startColumnIndex"] == cog.get_column(config.puzzle_cell_solution) + 1
 
 
 def test_header_border_request_outlines_frozen_rows():

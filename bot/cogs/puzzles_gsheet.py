@@ -240,12 +240,13 @@ class GoogleSheets(commands.Cog):
         return reqs
 
     def _dynamic_bold_requests(self, page_id, offset):
-        """Bold the dynamic header values the bot writes at runtime — the puzzle
-        name and the solution. update_cell writes only userEnteredValue, so
-        bolding the cells here (at tab creation) makes those values render bold
-        and survives later value rewrites. `offset` matches the header shift."""
+        """Bold the dynamic header values the bot writes at runtime — the solution
+        only (title/flavour/progress stay unbolded; only the static labels are
+        bold). update_cell writes only userEnteredValue, so bolding the cell here
+        (at tab creation) makes the value render bold and survives later value
+        rewrites. `offset` matches the header shift."""
         reqs = []
-        for ref in (config.puzzle_cell_name, config.puzzle_cell_solution):
+        for ref in (config.puzzle_cell_solution,):
             row = self.get_row(ref)
             col = self.get_column(ref) + offset
             reqs.append({"repeatCell": {
