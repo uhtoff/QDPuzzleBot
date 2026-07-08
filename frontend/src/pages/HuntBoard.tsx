@@ -43,6 +43,7 @@ export default function HuntBoard() {
   });
   const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "manage">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
+  const [openGroups, setOpenGroups] = useState<string[] | null>(null);
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
   const allPuzzles = useMemo(() => {
@@ -137,12 +138,25 @@ export default function HuntBoard() {
         const firstSolved = rest.findIndex((g) => g.target_solved);
         const at = firstSolved === -1 ? rest.length : firstSolved;
         const boardGroups = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
+        const defaultOpen = boardGroups.filter((g) => !g.target_solved).map((g) => String(g.tag_group_id));
         return (
-          <Accordion variant="separated" multiple defaultValue={boardGroups.filter((g) => !g.target_solved).map((g) => String(g.tag_group_id))}>
-            {boardGroups.map((g) => (
-              <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
-            ))}
-          </Accordion>
+          <Stack gap="xs">
+            <Group justify="flex-end">
+              <Anchor component="button" type="button" size="sm" onClick={() => setOpenGroups([])}>
+                Collapse all
+              </Anchor>
+            </Group>
+            <Accordion
+              variant="separated"
+              multiple
+              value={openGroups ?? defaultOpen}
+              onChange={setOpenGroups}
+            >
+              {boardGroups.map((g) => (
+                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
+              ))}
+            </Accordion>
+          </Stack>
         );
       })()}
       {view === "all" && (
