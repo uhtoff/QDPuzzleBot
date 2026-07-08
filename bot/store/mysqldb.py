@@ -379,6 +379,24 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
             return None
 
+    def get_names_by_ids(self, ids) -> dict:
+        """Return {puzzle_id: name} for the given ids, skipping unknown ids.
+
+        A single query with no construct_puzzle hydration — for callers that only
+        need names (e.g. resolve_puzzle_names), not full PuzzleData objects.
+        """
+        ids = list(ids)
+        if not ids:
+            return {}
+        cursor = self.mydb.dict_cursor()
+        try:
+            placeholders = ",".join(["%s"] * len(ids))
+            cursor.execute(f"SELECT id, name FROM `{self.TABLE_NAME}` WHERE id IN ({placeholders})", tuple(ids))
+            rows = cursor.fetchall() or []
+        finally:
+            cursor.close()
+        return {row["id"]: row["name"] for row in rows}
+
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []

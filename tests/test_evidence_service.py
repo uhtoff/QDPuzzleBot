@@ -228,10 +228,7 @@ class TestRefreshEvidence:
         item.note = "a clue"
         item.created_at = datetime.datetime(2026, 6, 23, 12, 0)
         EvidenceDb.get_all.return_value = [item]
-        PuzzleDb.get_by_attr.side_effect = lambda id: {
-            1: make_puzzle(id=1, name="Feeder One"),
-            2: make_puzzle(id=2, name="Meta Two"),
-        }[id]
+        PuzzleDb.get_names_by_ids.return_value = {1: "Feeder One", 2: "Meta Two"}
 
         gsheet = MagicMock()
         gsheet.reconcile_table = AsyncMock()

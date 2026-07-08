@@ -99,13 +99,10 @@ def pushes_board(hunt: "str | Callable[[dict[str, Any]], Any]" = "hunt", when=No
 def resolve_puzzle_names(puzzle_ids):
     """Return a {puzzle_id: name} map with a 'Puzzle {id}' fallback for unknown ids.
 
-    Does a single PuzzleJsonDb.get_by_attr lookup per id (no double-lookup).
+    Does a single batched query for all ids (get_by_attr per id was N+1).
     """
-    names = {}
-    for pid in puzzle_ids:
-        p = PuzzleJsonDb.get_by_attr(id=pid)
-        names[pid] = p.name if p else f"Puzzle {pid}"
-    return names
+    found = PuzzleJsonDb.get_names_by_ids(puzzle_ids)
+    return {pid: found.get(pid, f"Puzzle {pid}") for pid in puzzle_ids}
 
 
 def is_fed(tag_group_id: int, puzzles_in_group: list) -> bool:
