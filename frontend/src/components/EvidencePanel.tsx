@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Box,
@@ -84,14 +84,17 @@ export function EvidencePanel({ uid, detail }: Props) {
     ];
   }, [items]);
 
-  const filtered = items
-    .filter((i) => !filterSource || String(i.source_puzzle_id) === filterSource)
-    .filter((i) => {
-      if (!filterTarget) return true;
-      if (filterTarget === "unassigned") return i.target_puzzle_id == null;
-      return String(i.target_puzzle_id) === filterTarget;
-    })
-    .filter((i) => !filterText.trim() || i.note.toLowerCase().includes(filterText.trim().toLowerCase()));
+  const filtered = useMemo(() => {
+    const text = filterText.trim().toLowerCase();
+    return items
+      .filter((i) => !filterSource || String(i.source_puzzle_id) === filterSource)
+      .filter((i) => {
+        if (!filterTarget) return true;
+        if (filterTarget === "unassigned") return i.target_puzzle_id == null;
+        return String(i.target_puzzle_id) === filterTarget;
+      })
+      .filter((i) => !text || i.note.toLowerCase().includes(text));
+  }, [items, filterSource, filterTarget, filterText]);
 
   const sorted = useMemo(() => {
     if (!sort) return filtered;
@@ -187,15 +190,9 @@ export function EvidencePanel({ uid, detail }: Props) {
                 item={item}
                 puzzleOptions={allPuzzles}
                 editable={editable}
-                onSetTarget={(targetId) =>
-                  updateEvidence.mutate({ itemId: item.id, targetPuzzleId: targetId }, { onError: notifyError })
-                }
-                onEditNote={(note) =>
-                  editClueNote.mutate({ itemId: item.id, note }, { onError: notifyError })
-                }
-                onDelete={() =>
-                  deleteEvidence.mutate(item.id, { onError: notifyError })
-                }
+                updateEvidence={updateEvidence}
+                editClueNote={editClueNote}
+                deleteEvidence={deleteEvidence}
               />
             ))}
           </Table.Tbody>
@@ -231,20 +228,20 @@ function SortableTh({
   );
 }
 
-function EvidenceRow({
+const EvidenceRow = memo(function EvidenceRow({
   item,
   puzzleOptions,
   editable,
-  onSetTarget,
-  onEditNote,
-  onDelete,
+  updateEvidence,
+  editClueNote,
+  deleteEvidence,
 }: {
   item: EvidenceItem;
   puzzleOptions: { value: string; label: string }[];
   editable: boolean;
-  onSetTarget: (targetId: number | null) => void;
-  onEditNote: (note: string) => void;
-  onDelete: () => void;
+  updateEvidence: ReturnType<typeof useUpdateEvidence>;
+  editClueNote: ReturnType<typeof useEditClueNote>;
+  deleteEvidence: ReturnType<typeof useDeleteEvidence>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -254,14 +251,39 @@ function EvidenceRow({
   // the viewer's local time, like every other dashboard timestamp.
   const loggedAt = item.created_at ? new Date(item.created_at).toLocaleString() : "";
 
+  const itemId = item.id;
+  const itemNote = item.note;
+
+  // Stable across re-renders (item/mutate refs don't change on unrelated
+  // keystrokes elsewhere on the page) so the memo above actually holds —
+  // otherwise every row's Select would re-render on every keystroke anywhere
+  // in EvidencePanel.
+  const updateEvidenceMutate = updateEvidence.mutate;
+  const editClueNoteMutate = editClueNote.mutate;
+  const deleteEvidenceMutate = deleteEvidence.mutate;
+
+  const onSetTarget = useCallback(
+    (targetId: number | null) =>
+      updateEvidenceMutate({ itemId, targetPuzzleId: targetId }, { onError: notifyError }),
+    [updateEvidenceMutate, itemId]
+  );
+  const onEditNote = useCallback(
+    (note: string) => editClueNoteMutate({ itemId, note }, { onError: notifyError }),
+    [editClueNoteMutate, itemId]
+  );
+  const onDelete = useCallback(
+    () => deleteEvidenceMutate(itemId, { onError: notifyError }),
+    [deleteEvidenceMutate, itemId]
+  );
+
   function startEdit() {
-    setDraft(item.note);
+    setDraft(itemNote);
     setEditing(true);
   }
 
   function commitEdit() {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== item.note) {
+    if (trimmed && trimmed !== itemNote) {
       onEditNote(trimmed);
     }
     setEditing(false);
@@ -336,4 +358,4 @@ function EvidenceRow({
       )}
     </Table.Tr>
   );
-}
+});
