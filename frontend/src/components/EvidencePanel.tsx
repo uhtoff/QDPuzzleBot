@@ -190,9 +190,9 @@ export function EvidencePanel({ uid, detail }: Props) {
                 item={item}
                 puzzleOptions={allPuzzles}
                 editable={editable}
-                updateEvidence={updateEvidence}
-                editClueNote={editClueNote}
-                deleteEvidence={deleteEvidence}
+                updateEvidenceMutate={updateEvidence.mutate}
+                editClueNoteMutate={editClueNote.mutate}
+                deleteEvidenceMutate={deleteEvidence.mutate}
               />
             ))}
           </Table.Tbody>
@@ -232,16 +232,16 @@ const EvidenceRow = memo(function EvidenceRow({
   item,
   puzzleOptions,
   editable,
-  updateEvidence,
-  editClueNote,
-  deleteEvidence,
+  updateEvidenceMutate,
+  editClueNoteMutate,
+  deleteEvidenceMutate,
 }: {
   item: EvidenceItem;
   puzzleOptions: { value: string; label: string }[];
   editable: boolean;
-  updateEvidence: ReturnType<typeof useUpdateEvidence>;
-  editClueNote: ReturnType<typeof useEditClueNote>;
-  deleteEvidence: ReturnType<typeof useDeleteEvidence>;
+  updateEvidenceMutate: ReturnType<typeof useUpdateEvidence>["mutate"];
+  editClueNoteMutate: ReturnType<typeof useEditClueNote>["mutate"];
+  deleteEvidenceMutate: ReturnType<typeof useDeleteEvidence>["mutate"];
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -254,14 +254,11 @@ const EvidenceRow = memo(function EvidenceRow({
   const itemId = item.id;
   const itemNote = item.note;
 
-  // Stable across re-renders (item/mutate refs don't change on unrelated
-  // keystrokes elsewhere on the page) so the memo above actually holds —
-  // otherwise every row's Select would re-render on every keystroke anywhere
-  // in EvidencePanel.
-  const updateEvidenceMutate = updateEvidence.mutate;
-  const editClueNoteMutate = editClueNote.mutate;
-  const deleteEvidenceMutate = deleteEvidence.mutate;
-
+  // updateEvidenceMutate/editClueNoteMutate/deleteEvidenceMutate must be the
+  // bare .mutate function (react-query keeps that reference-stable), not the
+  // useMutation() result object — that object is a fresh literal every
+  // render, which would defeat the memo() above and re-render every row on
+  // every keystroke anywhere in EvidencePanel.
   const onSetTarget = useCallback(
     (targetId: number | null) =>
       updateEvidenceMutate({ itemId, targetPuzzleId: targetId }, { onError: notifyError }),
