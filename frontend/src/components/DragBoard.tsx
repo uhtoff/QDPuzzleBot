@@ -366,6 +366,7 @@ function Column({
         outline: isOver ? "2px solid var(--mantine-color-blue-5)" : undefined,
         opacity: isUnassigned && !isOver ? 0.85 : 1,
         borderLeft: kind ? `4px solid ${kindColorVar(kind.color)}` : undefined,
+        backgroundColor: group.target_solved ? "var(--mantine-color-green-light)" : undefined,
       }}
     >
       <Group justify="space-between" mb="xs">
