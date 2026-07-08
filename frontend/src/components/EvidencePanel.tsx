@@ -31,6 +31,8 @@ export function EvidencePanel({ uid, detail }: Props) {
   const deleteEvidence = useDeleteEvidence(uid);
   const editClueNote = useEditClueNote(uid);
   const [filterSource, setFilterSource] = useState<string | null>(null);
+  const [filterTarget, setFilterTarget] = useState<string | null>(null);
+  const [filterText, setFilterText] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null);
 
   function toggleSort(key: SortKey) {
@@ -68,9 +70,28 @@ export function EvidencePanel({ uid, detail }: Props) {
     return [{ value: "", label: "All sources" }, ...Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name }))];
   }, [items]);
 
-  const filtered = filterSource
-    ? items.filter((i) => String(i.source_puzzle_id) === filterSource)
-    : items;
+  const targetOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    let hasUnassigned = false;
+    items.forEach((i) => {
+      if (i.target_puzzle_id == null) hasUnassigned = true;
+      else seen.set(i.target_puzzle_id, i.target_puzzle_name ?? "");
+    });
+    return [
+      { value: "", label: "All targets" },
+      ...(hasUnassigned ? [{ value: "unassigned", label: "Unassigned" }] : []),
+      ...Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name })),
+    ];
+  }, [items]);
+
+  const filtered = items
+    .filter((i) => !filterSource || String(i.source_puzzle_id) === filterSource)
+    .filter((i) => {
+      if (!filterTarget) return true;
+      if (filterTarget === "unassigned") return i.target_puzzle_id == null;
+      return String(i.target_puzzle_id) === filterTarget;
+    })
+    .filter((i) => !filterText.trim() || i.note.toLowerCase().includes(filterText.trim().toLowerCase()));
 
   const sorted = useMemo(() => {
     if (!sort) return filtered;
@@ -100,6 +121,23 @@ export function EvidencePanel({ uid, detail }: Props) {
           searchable
           clearable
           w={240}
+        />
+        <Select
+          size="xs"
+          placeholder="Filter by target puzzle"
+          data={targetOptions}
+          value={filterTarget ?? ""}
+          onChange={(v) => setFilterTarget(v || null)}
+          searchable
+          clearable
+          w={240}
+        />
+        <TextInput
+          size="xs"
+          placeholder="Search note text…"
+          value={filterText}
+          onChange={(e) => setFilterText(e.currentTarget.value)}
+          w={200}
         />
         <Text size="xs" c="dimmed">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</Text>
       </Group>
