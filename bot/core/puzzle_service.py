@@ -963,10 +963,6 @@ class PuzzleService:
             tag_group.type = new_type
             TagGroupJsonDb.commit(tag_group)
 
-        # Set source_mode from defaults
-        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
-        await self.set_source_mode(hunt, tag_group, default_sm)
-
         # Flip edges (unless Runaround or edge is "none")
         if new_type != "Runaround":
             default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
@@ -981,6 +977,16 @@ class PuzzleService:
         torn_down = already_grouped and new_type == "Group" and tag_group.target_puzzle_id == puzzle.id
         if torn_down:
             await self._teardown_group_target(guild, hunt, tag_group, puzzle)
+
+        # Set source_mode from defaults. Done last (after edges/teardown are
+        # committed) because it ends in a sheet refresh that can raise
+        # (SheetRefreshError): if that happens the type/edge/teardown state is
+        # already durable and only the sheet render is stale, matching the
+        # web caller's "saved, sheet warning" handling. Doing this earlier used
+        # to let a refresh failure skip the edge flip and teardown entirely,
+        # and rendered the sheet against the pre-flip membership regardless.
+        default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
+        await self.set_source_mode(hunt, tag_group, default_sm)
 
         # Update forum post tags (structural type may have changed).
         await self._update_forum_tags(guild, hunt, puzzle)
