@@ -2840,8 +2840,9 @@ class PuzzleService:
             await self.tag_with_edge(source, group, "informs")
 
     async def unlink_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
-        """Remove the auto-added 'informs' edge only if the source has no remaining
-        evidence routed to that target (a manual informs is preserved)."""
+        """Remove the 'informs' edge once the source has no remaining evidence
+        routed to that target. Edges aren't tagged with who created them, so
+        this also removes an edge a human added manually to the same pair."""
         if not (source_puzzle_id and target_puzzle_id):
             return
         remaining = EvidenceJsonDb.get_all(
