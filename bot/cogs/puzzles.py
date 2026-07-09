@@ -199,8 +199,12 @@ class Puzzles(commands.Cog):
                     tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                     if tag_group:
                         channel_type = tag_group.type
-                    elif channel_category is not None:
-                        tag_group = TagGroupJsonDb.get_by_attr(category_id=channel_category.id, )
+                    else:
+                        # Direct category_id lookup misses solved/overflow
+                        # categories (join-table-owned, not the group's
+                        # primary category) — use the split-layout-aware
+                        # resolver so a puzzle moved there still finds its group.
+                        tag_group = self._tag_group_for_channel(ctx.channel)
                     hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         print (f"Channel type: {channel_type}")
         gsheet_cog = self.bot.get_cog("GoogleSheets")
