@@ -25,11 +25,11 @@ export function useViewAs() {
  *   admin     -> unchanged
  *   organiser -> drop admin, keep organiser (can_manage) if real
  *   regular   -> drop both
- * Every gated site reads detail.hunt.can_manage / is_admin, so overriding those two
- * fields cascades to all of them with no per-component edits.
+ * Every gated site reads detail.hunt.can_manage / can_administer, so overriding those
+ * two fields cascades to all of them with no per-component edits.
  */
 export function applyViewAs(detail: HuntDetail, viewAs: ViewAs): HuntDetail {
   if (viewAs === "admin") return detail;
   const can_manage = viewAs === "organiser" ? detail.hunt.can_manage : false;
-  return { ...detail, hunt: { ...detail.hunt, can_manage, is_admin: false } };
+  return { ...detail, hunt: { ...detail.hunt, can_manage, can_administer: false } };
 }

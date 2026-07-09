@@ -64,8 +64,8 @@ export default function HuntBoard() {
     return <Text c="red">Could not load this hunt (you may not have access).</Text>;
   }
 
-  // Apply the Admin "view as" ceiling: overriding can_manage/is_admin here cascades
-  // to every gated child, since they all read detail.hunt.{can_manage,is_admin}.
+  // Apply the Admin "view as" ceiling: overriding can_manage/can_administer here
+  // cascades to every gated child, since they all read detail.hunt.{can_manage,can_administer}.
   const data = applyViewAs(rawData, viewAs);
 
   const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
@@ -119,9 +119,9 @@ export default function HuntBoard() {
             ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
             // Admins can always reach Manage (to unarchive) even when the hunt is
             // archived and can_manage is therefore false.
-            ...(data.hunt.can_manage || data.hunt.is_admin ? [{ label: "Manage", value: "manage" }] : []),
+            ...(data.hunt.can_manage || data.hunt.can_administer ? [{ label: "Manage", value: "manage" }] : []),
           ]}
-          w={360 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.is_admin ? 105 : 0)}
+          w={360 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
         />
         {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
       </Group>
@@ -164,10 +164,10 @@ export default function HuntBoard() {
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
-      {view === "manage" && (data.hunt.can_manage || data.hunt.is_admin) && (
+      {view === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (
         <Stack gap="md">
           {/* Admin settings panel — admin-gated; reachable even when archived */}
-          {data.hunt.is_admin && (
+          {data.hunt.can_administer && (
             <AdminSettingsPanel
               uid={uid!}
               huntName={data.hunt.name}
@@ -183,7 +183,7 @@ export default function HuntBoard() {
             />
           )}
           {/* Team-role gating — admin-gated; hidden on archived (read-only) hunts */}
-          {data.hunt.is_admin && !data.hunt.archived && (
+          {data.hunt.can_administer && !data.hunt.archived && (
             <GateHuntPanel
               uid={uid!}
               isGated={data.hunt.is_gated}

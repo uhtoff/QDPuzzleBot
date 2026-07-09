@@ -2,7 +2,7 @@ export interface Guild {
   id: number;
   guild_snowflake: string | null;
   guild_name: string;
-  is_admin: boolean;
+  can_administer: boolean;
 }
 
 export interface User {
@@ -113,7 +113,7 @@ export interface HuntDetail {
     sheet_base_url: string | null;
     solved_sheet_base_url: string | null;
     can_manage: boolean;
-    is_admin: boolean;
+    can_administer: boolean;
     start_timestamp: number | null;
     username: string;
     password: string;

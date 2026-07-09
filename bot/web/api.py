@@ -46,14 +46,14 @@ async def list_guilds():
         snowflake = info["guild_snowflake"]
         if snowflake not in membership:
             continue
-        is_admin = await user_can_manage(user["id"], snowflake, roles=ADMIN_ROLES)
-        if admin_only and not is_admin:
+        can_administer = await user_can_manage(user["id"], snowflake, roles=ADMIN_ROLES)
+        if admin_only and not can_administer:
             continue
         result.append({
             "id": guild_id,
             "guild_snowflake": str(snowflake) if snowflake else None,
             "guild_name": info["guild_name"],
-            "is_admin": is_admin,
+            "can_administer": can_administer,
         })
     return jsonify({"guilds": result})
 
@@ -110,7 +110,7 @@ async def hunt_detail(uid):
     solved = sum(1 for p in puzzles if p["solved"])
     # Archived hunts are read-only even for organisers.
     can_manage = (not hunt["archived"]) and await user_can_manage(user["id"], guild_snowflake)
-    admin = await user_can_manage(user["id"], guild_snowflake, roles=ADMIN_ROLES)
+    can_administer = await user_can_manage(user["id"], guild_snowflake, roles=ADMIN_ROLES)
     # Gating status: a non-zero role_id means the hunt is gated to a team role.
     # Resolve the role's name (best-effort) so the dashboard can show it.
     gating_role_id = hunt.get("role_id") or 0
@@ -134,7 +134,7 @@ async def hunt_detail(uid):
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
             "solved_sheet_base_url": _sheet_base(hunt["solved_sheet_id"]),
             "can_manage": can_manage,
-            "is_admin": admin,
+            "can_administer": can_administer,
             "start_timestamp": hunt.get("start_timestamp"),
             "username": hunt.get("username") or "",
             "password": hunt.get("password") or "",
