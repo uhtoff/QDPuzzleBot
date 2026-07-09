@@ -17,18 +17,19 @@ Integration branch: `staging` (not `main` — main is intentionally behind).
 
 A Discord puzzle-hunt manager: **Python / discord.py 2.7.1 + MySQL + Google Sheets**,
 plus a **React/Mantine SPA over an embedded Quart API** (`bot/web/`, `frontend/`).
-Core data model: `hunts → rounds → puzzles`, with the feeder→meta link expressed via
-the many-to-many `tags(puzzle_id, round_id)` table.
+Core data model: `hunts → tag_group → puzzles`, with the feeder→meta link expressed via
+the many-to-many `tags(puzzle_id, tag_group_id)` table.
 
 ## Domain vocabulary (canonical)
 
-Use these terms; this is the agreed model. (The `rounds` *table* is not the same as a
+Use these terms; this is the agreed model. (The `tag_group` *table* is not the same as a
 "round" the *label* — see below.)
 
 - **TagGroup** — a named, typed group of *puzzles*, identified by a tag; puzzles are
-  *tagged into* it (it is **not** "a group of tags"). Stored as a row in the `rounds`
-  table: `TagGroup` is the umbrella concept, `rounds` is just the table name.
-- **Target puzzle** — every TagGroup is built around one target puzzle (`rounds.meta_id`).
+  *tagged into* it (it is **not** "a group of tags"). Stored as a row in the `tag_group`
+  table.
+- **Target puzzle** — every TagGroup is built around one target puzzle
+  (`tag_group.target_puzzle_id`).
   A **TagGroup is solved when its target puzzle is solved** — that derived status is the
   only thing that happens automatically; the target itself is an ordinary puzzle a human
   solves like any other. A TagGroup with **no target** is a view / holding-pen; its
@@ -41,14 +42,15 @@ Use these terms; this is the agreed model. (The `rounds` *table* is not the same
     without** the member being solved.
   A target may take a mix of both. What the target's sheet shows — an answer list vs a
   dossier of facts — follows from which edge feeds it; it is not a separate mechanism.
-- **meta vs capstone** — *derived from the incoming edge, never declared.* A **meta** is
-  a target puzzle that is **fed** (receives `feeds` edges — feeders' answers); a
-  **capstone** is a target puzzle that is **informed** (receives `informs` edges —
-  information). Same group machinery, solved the same way — so **informing a puzzle makes
-  it a capstone**, with no separate kind and no precondition (strip the last `informs`
-  edge and it stops being one). The asymmetry: `feeds` carries one answer, shared with
-  every group it feeds, whereas `informs` carries **distinct information per target**, so
-  one puzzle can inform several capstones differently.
+- **meta vs capstone** — *follows from the incoming edge, and is stored as `tag_group.type`
+  (`"Metapuzzle"` / `"Capstone"`, see `TYPE_DEFAULTS`/`GROUP_TYPES` in
+  `bot/core/puzzle_service.py`).* A **meta** is a target puzzle that is **fed** (receives
+  `feeds` edges — feeders' answers); a **capstone** is a target puzzle that is **informed**
+  (receives `informs` edges — information). Same group machinery, solved the same way —
+  changing a group's edge type (`convert_to_type`) is what flips its stored `type` between
+  the two. The asymmetry: `feeds` carries one answer, shared with every group it feeds,
+  whereas `informs` carries **distinct information per target**, so one puzzle can inform
+  several capstones differently.
 
 These are **not** types — do not model them as kinds of TagGroup:
 

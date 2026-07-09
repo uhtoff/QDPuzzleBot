@@ -67,7 +67,10 @@ Caveats to resolve (this is what the feasibility pass checks):
 3. `meta_code` is typed `int` but holds a 6-char `str` (`round_data.py:20`) — latent bug either way.
 
 **→ RESOLVED (verified): keep the table named `rounds`, treat rows as typed groups; rename only at
-the UX edges.** `round_id` is the load-bearing membership key in raw SQL across
+the UX edges.** *(Superseded by migration `011_taggroup_rename.sql`: `rounds`→`tag_group`,
+`meta_id`→`target_puzzle_id`, `round_id`→`tag_group_id` were renamed in-DB after all — see
+AGENTS.md's domain vocabulary section for the current names.)* `round_id` is the load-bearing
+membership key in raw SQL across
 `mysqldb.py:204/279-288/317-360` — a full rename is ~360 edits across 19 files for *zero* feature
 payoff. Instead add columns **additively**: `rounds.kind` (backfilled from `rounds.type` + the puzzle
 flags), `rounds.status` (gives the solved-section a DB home it lacks today — currently only Discord
