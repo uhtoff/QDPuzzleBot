@@ -348,6 +348,15 @@ async def solve_puzzle(puzzle_id):
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
 
+        # State invariants (mirrors !solve/!partial/!change_solution/!add_solution):
+        # full/partial refuse an already-solved puzzle; change/add on a puzzle
+        # that isn't solved yet fall back to the solve/partial path instead of
+        # stamping solve_time or a "Partially Solved" status without solving.
+        if mode in ("full", "partial") and puzzle.solved:
+            return jsonify({"error": "already_solved"}), 400
+        if mode in ("change", "add") and not puzzle.solved:
+            mode = "full" if mode == "change" else "partial"
+
         # Empty-solution guards (mirrors cog's guards per mode).
         if mode == "full" and not solution and not puzzle.solution:
             return jsonify({"error": "empty_solution"}), 400
