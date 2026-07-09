@@ -79,19 +79,26 @@ user's roles at all.
 
 ### 4. "View as regular" reflects the real bypass state
 
-`frontend/src/context/ViewAsContext.tsx` currently strips `can_manage`/`is_admin`
-unconditionally when previewing as `"regular"`. Once the bypass ships, that preview
-would misrepresent guilds where the gate is inactive — a real regular user on such a
-guild actually has Organiser powers, so hiding them in the preview is inaccurate.
+In `frontend/src/context/ViewAsContext.tsx`, `detail.hunt.can_manage` is the
+Organiser-tier flag and `detail.hunt.is_admin` is the Admin-tier flag (there is no
+separate `is_organiser` field). `applyViewAs` currently strips both unconditionally
+when previewing as `"regular"`. Once the bypass ships, unconditionally stripping
+`can_manage` would misrepresent guilds where the gate is inactive — a real regular
+user on such a guild actually has Organiser powers, so hiding `can_manage` in the
+preview would be inaccurate. `is_admin` stripping is correct as-is and stays
+unconditional: the bypass never touches the Admin tier, so a real regular user never
+has admin powers regardless of gate state.
 
 - Backend: the handler in `bot/web/actions.py` that builds hunt-detail responses adds
   one boolean field, `hunt.organiser_gate_active`, computed via the same
   `organiser_gate_active(guild)` helper as parts 1–3. No new endpoint, no schema
   change, no migration — it rides along on the existing hunt-detail payload.
-- Frontend: `applyViewAs` in `ViewAsContext.tsx` only strips `can_manage`/`is_admin`
-  for `viewAs === "regular"` when `detail.hunt.organiser_gate_active` is `true`. When
-  the gate is inactive, `"regular"` preview leaves those flags as fetched — matching
-  what a real regular user would actually see.
+- Frontend: `applyViewAs` in `ViewAsContext.tsx` changes only the `"regular"` branch's
+  handling of `can_manage`: strip it (force `false`) when
+  `detail.hunt.organiser_gate_active` is `true` (existing behaviour), leave it as
+  fetched when the gate is inactive (matching what a real regular user would actually
+  see). `is_admin` stays forced `false` for `"regular"` in both cases, unchanged from
+  today.
 - `viewAs === "organiser"` is unaffected — that tier is never bypassed.
 
 ## Performance
@@ -109,9 +116,10 @@ already-cached, small (guild role count) list. Negligible cost.
 - Web: unit tests for `require_organiser`/`user_can_manage` covering: guild missing
   `Organisers` role → allowed regardless of caller's roles; guild has the role →
   existing behaviour; `require_admin` unaffected in both cases.
-- Frontend: test `applyViewAs` with `organiser_gate_active: true` (existing strip
-  behaviour preserved) and `organiser_gate_active: false` (regular view leaves
-  `can_manage`/`is_admin` untouched).
+- Frontend: test `applyViewAs` for `viewAs === "regular"` with
+  `organiser_gate_active: true` (`can_manage` stripped, existing behaviour preserved)
+  and `organiser_gate_active: false` (`can_manage` left as fetched); `is_admin` stays
+  forced `false` in both cases.
 
 ## Files touched (expected)
 
