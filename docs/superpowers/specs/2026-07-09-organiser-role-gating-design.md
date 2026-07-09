@@ -80,12 +80,12 @@ user's roles at all.
 ### 4. "View as regular" reflects the real bypass state
 
 In `frontend/src/context/ViewAsContext.tsx`, `detail.hunt.can_manage` is the
-Organiser-tier flag and `detail.hunt.is_admin` is the Admin-tier flag (there is no
+Organiser-tier flag and `detail.hunt.can_administer` is the Admin-tier flag (there is no
 separate `is_organiser` field). `applyViewAs` currently strips both unconditionally
 when previewing as `"regular"`. Once the bypass ships, unconditionally stripping
 `can_manage` would misrepresent guilds where the gate is inactive — a real regular
 user on such a guild actually has Organiser powers, so hiding `can_manage` in the
-preview would be inaccurate. `is_admin` stripping is correct as-is and stays
+preview would be inaccurate. `can_administer` stripping is correct as-is and stays
 unconditional: the bypass never touches the Admin tier, so a real regular user never
 has admin powers regardless of gate state.
 
@@ -97,7 +97,7 @@ has admin powers regardless of gate state.
   handling of `can_manage`: strip it (force `false`) when
   `detail.hunt.organiser_gate_active` is `true` (existing behaviour), leave it as
   fetched when the gate is inactive (matching what a real regular user would actually
-  see). `is_admin` stays forced `false` for `"regular"` in both cases, unchanged from
+  see). `can_administer` stays forced `false` for `"regular"` in both cases, unchanged from
   today.
 - `viewAs === "organiser"` is unaffected — that tier is never bypassed.
 
@@ -118,7 +118,7 @@ already-cached, small (guild role count) list. Negligible cost.
   existing behaviour; `require_admin` unaffected in both cases.
 - Frontend: test `applyViewAs` for `viewAs === "regular"` with
   `organiser_gate_active: true` (`can_manage` stripped, existing behaviour preserved)
-  and `organiser_gate_active: false` (`can_manage` left as fetched); `is_admin` stays
+  and `organiser_gate_active: false` (`can_manage` left as fetched); `can_administer` stays
   forced `false` in both cases.
 
 ## Files touched (expected)
@@ -130,3 +130,11 @@ already-cached, small (guild role count) list. Negligible cost.
   `require_organiser`/`user_can_manage`; add `organiser_gate_active` to hunt-detail
   response.
 - `frontend/src/context/ViewAsContext.tsx` — conditional strip in `applyViewAs`.
+
+## Prior rename (separate commit, already applied)
+
+The `is_admin` field (API response key + Python variable + frontend type field) was
+renamed to `can_administer` to read consistently alongside `can_manage`. This spec was
+updated to use the new name throughout. See commit history for the rename itself —
+it carries no behaviour change and is not part of the gating-bypass work described
+above.
