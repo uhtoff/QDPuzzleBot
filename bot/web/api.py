@@ -265,7 +265,7 @@ async def list_evidence():
 @login_required
 async def add_evidence():
     from quart import request
-    from bot.store import EvidenceJsonDb, HuntJsonDb, PuzzleJsonDb
+    from bot.store import HuntJsonDb, PuzzleJsonDb
     body = await request.get_json()
     hunt_uid = body.get("hunt_uid")
     source_puzzle_id = body.get("source_puzzle_id")
@@ -283,14 +283,18 @@ async def add_evidence():
     puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
     if puzzle is None or puzzle.hunt_id != hunt["id"]:
         return jsonify({"error": "puzzle not found in hunt"}), 404
-    items = [EvidenceJsonDb.log(hunt["id"], source_puzzle_id, n) for n in notes if n.strip()]
-    # Re-render the Evidence sheet tab (mirrors the bang !clue/!clues fire-and-forget
-    # refresh). Best-effort: the clues are already persisted in the DB.
+    clean_notes = [n for n in notes if n.strip()]
+    cog = puzzles_cog()
+    hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
+    if cog is None or hunt_obj is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    # Route through the same service call the bang !clue/!clues commands use,
+    # so API-submitted evidence gets auto-routed to a sole informs target and
+    # its contribution rollup, instead of just landing in the Evidence tab.
+    items = await cog.service.log_clues(hunt_obj, puzzle, clean_notes)
     if items:
-        cog = puzzles_cog()
-        hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
-        if cog is not None and hunt_obj is not None:
-            asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
+        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
+        asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 

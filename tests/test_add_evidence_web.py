@@ -23,6 +23,10 @@ def web():
 
     cog = MagicMock()
     cog.service.refresh_evidence_safe = AsyncMock()
+    cog.service.refresh_informs_targets = AsyncMock()
+    cog.service.log_clues = AsyncMock(
+        side_effect=lambda hunt, puzzle, notes: [SimpleNamespace(id=1, note=n) for n in notes]
+    )
     app.bot = MagicMock()
     app.bot.get_cog.return_value = cog
     app.register_blueprint(api_bp)
@@ -61,7 +65,7 @@ async def test_rejects_archived_hunt(web):
 
     assert resp.status_code == 403
     assert (await resp.get_json())["error"] == "hunt_archived"
-    web.edb.log.assert_not_called()
+    web.cog.service.log_clues.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -72,7 +76,7 @@ async def test_rejects_non_string_note_without_partial_write(web):
 
     assert resp.status_code == 400
     # Must not have already written "ok" before hitting the bad element.
-    web.edb.log.assert_not_called()
+    web.cog.service.log_clues.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -82,5 +86,6 @@ async def test_succeeds_with_valid_notes(web):
     )
 
     assert resp.status_code == 201
-    web.edb.log.assert_called_once()
+    web.cog.service.log_clues.assert_awaited_once()
     web.cog.service.refresh_evidence_safe.assert_awaited_once()
+    web.cog.service.refresh_informs_targets.assert_awaited_once()
