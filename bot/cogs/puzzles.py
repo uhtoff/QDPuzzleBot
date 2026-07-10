@@ -755,7 +755,7 @@ class Puzzles(commands.Cog):
     # --- legacy create twins removed (Phase 5 strangle) ---
 
     @commands.hybrid_command(description="Rebuild meta roll-up sheets (organiser only)")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def rebuild(self, ctx):
         """*Rebuild meta roll-up sheets from the current puzzle data.*
 
@@ -797,7 +797,7 @@ class Puzzles(commands.Cog):
         await ctx.send(msg)
 
     @commands.hybrid_command(name="rebuild_unassigned", description="Rebuild the Unassigned Feeders tab (organiser only)")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def rebuild_unassigned(self, ctx, *, show_round: bool = False):
         """*Reconcile the hunt's "Unassigned Feeders" sheet tab with current data.*
 
@@ -873,7 +873,7 @@ class Puzzles(commands.Cog):
         return "\n".join(lines)
 
     @commands.hybrid_command(description="Reconcile Discord + Sheets against the DB (organiser only)")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def reconcile(self, ctx, mode: str = "", scope: str = ""):
         """*Heal Discord channels and Sheets tabs to match the database.*
 
@@ -902,7 +902,7 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(
         description="Add/refresh emoji glyphs on every target channel in this hunt")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @commands.has_permissions(manage_channels=True)
     async def backfill_glyphs(self, ctx):
         """*One-off: prefix every meta/capstone/runaround channel with its glyph.*
@@ -1139,7 +1139,7 @@ class Puzzles(commands.Cog):
         return _channels.solve_divider_position(category)
 
     @commands.hybrid_command(description="Move the channel to the top of the unsolved section of the category (organisers only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def move_to_top(self, ctx):
         """*Move this channel to the top of the category's unsolved section.*
 
@@ -1156,7 +1156,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Channel moved to top of category")
 
     @commands.hybrid_command(description="Move the channel to the bottom of the unsolved section of the category (organisers only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def move_to_bottom(self, ctx):
         """*Move this channel to the bottom of the category's unsolved section.*
 
@@ -1171,7 +1171,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Channel moved to bottom of unsolved")
 
     @commands.hybrid_command(description="Move the channel to the solved section of the category (organisers only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def move_to_solved(self, ctx):
         """*Move this channel into the category's solved section (mini-puzzle threads are archived).*
 
@@ -1193,7 +1193,7 @@ class Puzzles(commands.Cog):
 
 
     @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def list_tags(self, ctx):
         """*List the tag IDs on this puzzle plus all available group tags (troubleshooting).*
 
@@ -1231,7 +1231,7 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @with_puzzle_mutex(wait=True)
     async def add_tag(self, ctx, *, arg):
         """*Manually add a group tag ID to this puzzle (troubleshooting — prefer !feeds/!informs).*
@@ -1257,7 +1257,7 @@ class Puzzles(commands.Cog):
         await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
 
     @commands.command()
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @with_puzzle_mutex(wait=True)
     async def remove_tag(self, ctx, *, arg):
         """*Manually remove a group tag ID from this puzzle (troubleshooting — prefer !remove_from).*
@@ -1544,7 +1544,7 @@ class Puzzles(commands.Cog):
         description="Sync all puzzles in the category to the group (organiser only)",
         aliases=["sync_meta", "sync_feeders", "sync_round"],
     )
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @with_puzzle_mutex(wait=True)
     async def sync(self, ctx):
         """*Tag every puzzle in this category to the category's group with its default edge.*
@@ -2040,7 +2040,7 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(
         description="Give this meta its own category (moves its target + exclusive feeders)")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @commands.has_permissions(manage_channels=True)
     async def extract_target_to_category(self, ctx):
         """*Move this meta's target puzzle and its exclusive feeders into their own category.*
@@ -2078,7 +2078,7 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(
         description="Fold this meta back into another category (frees a category slot)")
     @app_commands.autocomplete(destination=group_code_autocomplete)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @commands.has_permissions(manage_channels=True)
     async def consolidate_to(self, ctx, destination: str):
         """*Fold this meta into <destination>'s category, freeing this meta's category.*
@@ -2769,7 +2769,7 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
 
     @commands.hybrid_command(aliases=["rename_meta"], description="Rename this puzzle, its channel and its sheet tab")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @with_puzzle_mutex(wait=True)
     async def rename_puzzle(self, ctx, *, puzzle_name: str):
         """*Rename this puzzle, its channel and its sheet tab.*
@@ -2797,7 +2797,7 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(aliases=["rename_round", "rename_metapuzzle"],
                              description="Rename this group, its category and channel")
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def rename_group(self, ctx, *, group_name: str):
         """*Rename this group and its Discord category/channel.*
 
@@ -3488,7 +3488,7 @@ class Puzzles(commands.Cog):
             await ctx.send(summary)
 
     @commands.command()
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     @with_puzzle_mutex(wait=False)
     async def delete_puzzle(self, ctx):
         """*Permanently delete this puzzle: its channel and its Google sheet (asks to confirm).*
@@ -3540,7 +3540,7 @@ class Puzzles(commands.Cog):
             )
 
     @commands.command(aliases=['delete_metapuzzle','delete_group'])
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def delete_round(self, ctx):
         """*Permanently delete this round/group: all its puzzles, channels and sheets (asks to confirm).*
 
@@ -3691,7 +3691,7 @@ class Puzzles(commands.Cog):
         self.reminder_index += 1
 
     @commands.hybrid_command(description="Start the reminder loop (organisers only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def start_reminders(self, ctx):
         """*Start the periodic reminder loop that posts tips in the hunt channel.*
 
@@ -3706,7 +3706,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Reminder loop started.")
 
     @commands.hybrid_command(description="Stop the reminder loop (organisers only)",)
-    @commands.has_any_role(*ORGANISER_ROLES)
+    @is_organiser()
     async def stop_reminders(self, ctx):
         """*Stop the periodic reminder loop.*
 
