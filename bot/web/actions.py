@@ -26,6 +26,7 @@ from .auth import (
     current_user,
     hunt_visible,
     login_required,
+    organiser_tier_bypassed,
     resolve_membership,
     resolve_role_names,
 )
@@ -708,12 +709,15 @@ async def rename_puzzle(puzzle_id):
 # --- Shared helper for organiser-gated actions (used by retag/create next) ---
 
 async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
-    """Return None if the user holds an allowed role in the guild, else an error tuple."""
+    """Return None if the user holds an allowed role in the guild (or the
+    Organiser tier is bypassed for this guild), else an error tuple."""
     user = current_user()
     assert user is not None  # every calling route is behind @login_required
     names = await resolve_role_names(user["id"], guild_snowflake)
     if names is None:
         return jsonify({"error": "forbidden"}), 403
+    if organiser_tier_bypassed(guild_snowflake, roles):
+        return None
     if not any(r in names for r in roles):
         return jsonify({"error": "insufficient_role"}), 403
     return None

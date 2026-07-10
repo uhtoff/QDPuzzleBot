@@ -55,3 +55,56 @@ class TestUserCanManageBypass:
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["Organisers"]))), \
              patch("bot.web.auth.resolve_role_names", AsyncMock(return_value={"everyone"})):
             assert await auth.user_can_manage(1, 123) is False
+
+
+from bot.web import actions
+
+
+class TestRequireOrganiserBypass:
+    # require_organiser's error paths call Quart's jsonify(), which needs an
+    # active app context; a bare Quart app is enough since we only need
+    # jsonify() to resolve, not a running server.
+    async def test_bypassed_for_member_without_organiser_role(self):
+        from quart import Quart
+
+        async with Quart(__name__).app_context():
+            with patch("bot.web.actions.current_user", return_value={"id": 1}), \
+                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
+                 patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
+                assert await actions.require_organiser(123) is None
+
+    async def test_non_member_still_denied(self):
+        from quart import Quart
+
+        async with Quart(__name__).app_context():
+            with patch("bot.web.actions.current_user", return_value={"id": 1}), \
+                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value=None)), \
+                 patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
+                result = await actions.require_organiser(123)
+                assert result is not None
+                _, status = result
+                assert status == 403
+
+    async def test_require_admin_still_denied_when_organisers_role_absent(self):
+        from quart import Quart
+
+        async with Quart(__name__).app_context():
+            with patch("bot.web.actions.current_user", return_value={"id": 1}), \
+                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
+                 patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
+                result = await actions.require_admin(123)
+                assert result is not None
+                _, status = result
+                assert status == 403
+
+    async def test_existing_behaviour_preserved_when_organisers_role_present(self):
+        from quart import Quart
+
+        async with Quart(__name__).app_context():
+            with patch("bot.web.actions.current_user", return_value={"id": 1}), \
+                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
+                 patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["Organisers"]))):
+                result = await actions.require_organiser(123)
+                assert result is not None
+                _, status = result
+                assert status == 403
