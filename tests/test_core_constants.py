@@ -33,3 +33,25 @@ def test_actions_does_not_redefine_constants():
         "PUZZLE_STATUSES should be removed from actions — validation is in the service"
     assert not hasattr(actions_mod, "PUZZLE_PRIORITIES"), \
         "PUZZLE_PRIORITIES should be removed from actions — validation is in the service"
+
+
+from types import SimpleNamespace
+
+
+def _guild_with_roles(role_names):
+    return SimpleNamespace(roles=[SimpleNamespace(name=n) for n in role_names])
+
+
+def test_organiser_gate_active_when_organisers_role_present():
+    guild = _guild_with_roles(["everyone", "Organisers"])
+    assert core.organiser_gate_active(guild) is True
+
+
+def test_organiser_gate_inactive_when_no_organisers_role():
+    guild = _guild_with_roles(["everyone", "Moderator"])
+    assert core.organiser_gate_active(guild) is False
+
+
+def test_organiser_gate_inactive_when_guild_has_no_roles():
+    guild = _guild_with_roles([])
+    assert core.organiser_gate_active(guild) is False
