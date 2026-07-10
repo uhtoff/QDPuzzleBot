@@ -17,6 +17,7 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
+from bot.core.constants import organiser_gate_active
 
 logger = logging.getLogger(__name__)
 
@@ -111,16 +112,18 @@ async def hunt_detail(uid):
     # Archived hunts are read-only even for organisers.
     can_manage = (not hunt["archived"]) and await user_can_manage(user["id"], guild_snowflake)
     can_administer = await user_can_manage(user["id"], guild_snowflake, roles=ADMIN_ROLES)
+    _guild = bot_app().bot.get_guild(int(guild_snowflake)) if guild_snowflake else None
+    # Fail safe: an unresolvable guild is treated as gated (organiser_gate_active
+    # True), never as a bypass.
+    gate_active = organiser_gate_active(_guild) if _guild is not None else True
     # Gating status: a non-zero role_id means the hunt is gated to a team role.
     # Resolve the role's name (best-effort) so the dashboard can show it.
     gating_role_id = hunt.get("role_id") or 0
     gating_role_name = None
-    if gating_role_id and guild_snowflake:
-        _guild = bot_app().bot.get_guild(int(guild_snowflake))
-        if _guild is not None:
-            _role = _guild.get_role(gating_role_id)
-            if _role is not None:
-                gating_role_name = _role.name
+    if gating_role_id and _guild is not None:
+        _role = _guild.get_role(gating_role_id)
+        if _role is not None:
+            gating_role_name = _role.name
     from bot.core.puzzle_service import CREATE_META_TYPES
     return jsonify({
         "hunt": {
@@ -135,6 +138,7 @@ async def hunt_detail(uid):
             "solved_sheet_base_url": _sheet_base(hunt["solved_sheet_id"]),
             "can_manage": can_manage,
             "can_administer": can_administer,
+            "organiser_gate_active": gate_active,
             "start_timestamp": hunt.get("start_timestamp"),
             "username": hunt.get("username") or "",
             "password": hunt.get("password") or "",

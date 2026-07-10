@@ -4,6 +4,8 @@ guild has no role named 'Organisers'. The Admin tier is never bypassed."""
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 from bot.web import auth
 
@@ -108,3 +110,55 @@ class TestRequireOrganiserBypass:
                 assert result is not None
                 _, status = result
                 assert status == 403
+
+
+class TestHuntDetailOrganiserGateField:
+    @pytest.fixture
+    def hunt_web(self):
+        from quart import Quart
+        from bot.web.api import api_bp
+
+        app = Quart(__name__)
+        app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
+        app.register_blueprint(api_bp)
+
+        guild = SimpleNamespace(roles=[SimpleNamespace(name="everyone")])
+        bot = MagicMock()
+        bot.get_guild.return_value = guild
+
+        hunt_row = {
+            "id": 10, "uid": "U1", "name": "Hunt", "url": "http://x",
+            "archived": False, "guild_id": 1, "role_id": 0,
+            "google_sheet_id": None, "solved_sheet_id": None,
+        }
+
+        patches = [
+            patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+            patch("bot.web.api._load_visible_hunt", AsyncMock(return_value=(hunt_row, {"guild_snowflake": 123}))),
+            patch("bot.web.api.data.get_hunt_puzzles", AsyncMock(return_value=[])),
+            patch("bot.web.api.data.get_rollups_by_tag_group", AsyncMock(return_value={})),
+            patch("bot.web.api.data.get_all_tag_groups", AsyncMock(return_value=[])),
+            patch("bot.web.api.data.build_board", return_value=[]),
+            patch("bot.web.api.user_can_manage", AsyncMock(return_value=False)),
+            patch("bot.web.api.bot_app", return_value=MagicMock(bot=bot)),
+        ]
+        started = [p.start() for p in patches]
+        try:
+            yield SimpleNamespace(client=app.test_client(), guild=guild)
+        finally:
+            for p in patches:
+                p.stop()
+
+    async def test_true_when_organisers_role_present(self, hunt_web):
+        hunt_web.guild.roles = [SimpleNamespace(name="Organisers")]
+        resp = await hunt_web.client.get("/api/hunts/U1")
+        assert resp.status_code == 200
+        body = await resp.get_json()
+        assert body["hunt"]["organiser_gate_active"] is True
+
+    async def test_false_when_no_organisers_role(self, hunt_web):
+        hunt_web.guild.roles = [SimpleNamespace(name="everyone")]
+        resp = await hunt_web.client.get("/api/hunts/U1")
+        assert resp.status_code == 200
+        body = await resp.get_json()
+        assert body["hunt"]["organiser_gate_active"] is False
