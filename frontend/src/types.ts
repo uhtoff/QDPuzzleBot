@@ -114,6 +114,7 @@ export interface HuntDetail {
     solved_sheet_base_url: string | null;
     can_manage: boolean;
     can_administer: boolean;
+    organiser_gate_active: boolean;
     start_timestamp: number | null;
     username: string;
     password: string;
