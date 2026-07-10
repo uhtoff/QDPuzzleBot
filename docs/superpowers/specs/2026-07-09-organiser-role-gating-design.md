@@ -138,3 +138,14 @@ renamed to `can_administer` to read consistently alongside `can_manage`. This sp
 updated to use the new name throughout. See commit history for the rename itself —
 it carries no behaviour change and is not part of the gating-bypass work described
 above.
+
+## Follow-up: accepted role-name spellings (separate commit, already applied)
+
+The gate originally recognised only the literal name `Organisers`. It now recognises
+any of `Organiser`, `Organisers`, `Organizer`, `Organizers` (British/American spelling
+× singular/plural), mirroring `ADMIN_ROLES` already accepting a few equivalent names
+(`Moderator`/`mod`/`admin`). `ORGANISER_ROLE_NAMES` in `bot/core/constants.py` holds
+this list; `organiser_gate_active` and `organiser_tier_bypassed` both check membership
+against it instead of a single literal. No other behaviour changes — the Admin tier is
+still never bypassed, membership is still required, and the gate is still computed live
+from the guild's role list, never stored.

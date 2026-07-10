@@ -18,7 +18,7 @@ from quart import Blueprint, jsonify, redirect, request, session
 from .typed_app import bot_app
 
 from bot.utils import config
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, organiser_gate_active  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES, ORGANISER_ROLES, organiser_gate_active  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
 
 logger = logging.getLogger(__name__)
 
@@ -226,10 +226,11 @@ async def resolve_role_names(user_id, guild_snowflake):
 
 
 def organiser_tier_bypassed(guild_snowflake, roles):
-    """True if `roles` is the Organiser tier (contains 'Organisers') and the
-    guild has no role literally named 'Organisers' — Organiser-tier checks
-    then pass for every guild member. Always False for the Admin tier."""
-    if 'Organisers' not in roles:
+    """True if `roles` is the Organiser tier (contains any of
+    ORGANISER_ROLE_NAMES) and the guild has none of those roles —
+    Organiser-tier checks then pass for every guild member. Always False for
+    the Admin tier."""
+    if not any(name in roles for name in ORGANISER_ROLE_NAMES):
         return False
     bot = bot_app().bot
     guild = bot.get_guild(guild_snowflake)

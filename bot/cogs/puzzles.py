@@ -32,7 +32,7 @@ from bot.cogs.ui import ConfirmView
 
 def is_organiser():
     """Like commands.has_any_role(*ORGANISER_ROLES), but the check passes
-    unconditionally when the guild has no role named 'Organisers' — see
+    unconditionally when the guild has none of ORGANISER_ROLE_NAMES — see
     organiser_gate_active. Mirrors has_any_role's NoPrivateMessage/
     MissingAnyRole behaviour for parity outside a guild / when denied."""
     def predicate(ctx):

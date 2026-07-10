@@ -7,7 +7,8 @@ import bot.web.actions as actions_mod
 
 def test_core_defines_canonical_values():
     assert core.ADMIN_ROLES == ('Moderator', 'mod', 'admin')
-    assert core.ORGANISER_ROLES == core.ADMIN_ROLES + ('Organisers',)
+    assert core.ORGANISER_ROLE_NAMES == ('Organiser', 'Organisers', 'Organizer', 'Organizers')
+    assert core.ORGANISER_ROLES == core.ADMIN_ROLES + core.ORGANISER_ROLE_NAMES
     assert core.STATUSES == ["unstarted", "in progress", "stuck",
                              "needs extraction", "needs submission",
                              "solved", "backsolved"]
@@ -45,6 +46,12 @@ def _guild_with_roles(role_names):
 def test_organiser_gate_active_when_organisers_role_present():
     guild = _guild_with_roles(["everyone", "Organisers"])
     assert core.organiser_gate_active(guild) is True
+
+
+def test_organiser_gate_active_for_each_accepted_spelling():
+    for name in ("Organiser", "Organisers", "Organizer", "Organizers"):
+        guild = _guild_with_roles(["everyone", name])
+        assert core.organiser_gate_active(guild) is True, f"{name!r} should activate the gate"
 
 
 def test_organiser_gate_inactive_when_no_organisers_role():

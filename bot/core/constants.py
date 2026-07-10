@@ -8,14 +8,15 @@ locally for membership checks.
 """
 
 ADMIN_ROLES = ('Moderator', 'mod', 'admin')
-ORGANISER_ROLES = ADMIN_ROLES + ('Organisers',)
+ORGANISER_ROLE_NAMES = ('Organiser', 'Organisers', 'Organizer', 'Organizers')
+ORGANISER_ROLES = ADMIN_ROLES + ORGANISER_ROLE_NAMES
 
 
 def organiser_gate_active(guild) -> bool:
-    """False if the guild has no role literally named 'Organisers' — when
-    False, Organiser-tier permission checks pass for everyone. Never affects
-    the Admin tier (Moderator/mod/admin), which is always strictly gated."""
-    return any(r.name == 'Organisers' for r in guild.roles)
+    """False if the guild has none of ORGANISER_ROLE_NAMES — when False,
+    Organiser-tier permission checks pass for everyone. Never affects the
+    Admin tier (Moderator/mod/admin), which is always strictly gated."""
+    return any(r.name in ORGANISER_ROLE_NAMES for r in guild.roles)
 
 
 STATUSES = ["unstarted", "in progress", "stuck", "needs extraction",

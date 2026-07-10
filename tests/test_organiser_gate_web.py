@@ -26,6 +26,12 @@ class TestOrganiserTierBypassed:
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["Organisers"]))):
             assert auth.organiser_tier_bypassed(123, ORGANISER_ROLES) is False
 
+    def test_false_for_each_accepted_spelling(self):
+        for name in ("Organiser", "Organisers", "Organizer", "Organizers"):
+            with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild([name]))):
+                assert auth.organiser_tier_bypassed(123, ORGANISER_ROLES) is False, \
+                    f"{name!r} should not be bypassed"
+
     def test_false_for_admin_tier_regardless_of_organisers_role(self):
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
             assert auth.organiser_tier_bypassed(123, ADMIN_ROLES) is False
