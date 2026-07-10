@@ -49,7 +49,8 @@ def web():
         patch("bot.store.HuntJsonDb", hdb),
         patch("bot.store.PuzzleJsonDb", pdb),
     ]
-    started = [p.start() for p in patches]
+    for p in patches:
+        p.start()
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, pdb=pdb)
     finally:
