@@ -148,7 +148,8 @@ class TestHuntDetailOrganiserGateField:
             patch("bot.web.api.user_can_manage", AsyncMock(return_value=False)),
             patch("bot.web.api.bot_app", return_value=MagicMock(bot=bot)),
         ]
-        started = [p.start() for p in patches]
+        for p in patches:
+            p.start()
         try:
             yield SimpleNamespace(client=app.test_client(), guild=guild)
         finally:
