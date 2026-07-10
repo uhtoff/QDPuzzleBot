@@ -14,7 +14,7 @@ from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, 
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group
 from bot.utils.chunking import build_note_embeds
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -28,6 +28,22 @@ from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock
 from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
+
+
+def is_organiser():
+    """Like commands.has_any_role(*ORGANISER_ROLES), but the check passes
+    unconditionally when the guild has no role named 'Organisers' — see
+    organiser_gate_active. Mirrors has_any_role's NoPrivateMessage/
+    MissingAnyRole behaviour for parity outside a guild / when denied."""
+    def predicate(ctx):
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        if not organiser_gate_active(ctx.guild):
+            return True
+        if any(discord.utils.get(ctx.author.roles, name=item) is not None for item in ORGANISER_ROLES):
+            return True
+        raise commands.MissingAnyRole(list(ORGANISER_ROLES))
+    return commands.check(predicate)
 
 
 def with_puzzle_mutex(*, wait: bool = True):
