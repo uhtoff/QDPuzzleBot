@@ -246,9 +246,8 @@ been condensed into threads or deleted — it shows the **captured transcript**,
 discussion stays readable on the dashboard long after the hunt is over.
 
 You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
-feature an admin turns on when deploying (see [`docs/dashboard.md`](dashboard.md)); until
-it is enabled the viewer has no history to show, but the **Open in Discord** button always
-works.
+feature an admin turns on when deploying; until it is enabled the viewer has no history to
+show, but the **Open in Discord** button always works.
 
 ### Evidence
 
@@ -293,7 +292,7 @@ drawer:
 
 ## 7. For organisers and admins
 
-The full command reference is in [`docs/commands.md`](commands.md); highlights:
+The full [command reference](commands.md) lists every command; highlights:
 
 - **Starting a hunt:** `!hunt Hunt Name:https://hunt.example` in the bot channel.
   Append `, RoleName` to gate the hunt to a team role. Then `!set_start TIMESTAMP` and
