@@ -5,7 +5,7 @@ Status: design — approved direction, pending spec review
 
 ## Goal
 
-Two related capabilities, driven by Edric's hunt this year:
+Three related capabilities, the first two driven by Edric's hunt this year:
 
 1. **Evidence can be a picture.** Today `evidence_items` carries a text `note` and nothing
    else. A screenshot, a crop, a photo of a physical component — none of it can be logged
@@ -13,6 +13,10 @@ Two related capabilities, driven by Edric's hunt this year:
 2. **A hunt can hold a big image you mark up.** Draw rectangles on it, link each rectangle
    to a puzzle, and render the whole image tinted by progress so you can see at a glance
    what has been claimed, what is solved, and which parts of the art nobody has touched.
+3. **A working sheet need not belong to a puzzle.** Hunts hide things in alt text and in
+   odd corners of their websites, with no puzzle to attach them to. You want a scratch
+   sheet before you know what the thing is — and the option of naming that sheet as where
+   a piece of evidence came from.
 
 The second is the one general-purpose tools get wrong. Excalidraw and friends do far more
 (full drawing app) and far less (no idea what a puzzle is) than this needs. The value here
@@ -20,8 +24,9 @@ is precisely the link between a region of the picture and a live puzzle record.
 
 ## Decisions (locked)
 
-- **One design, two implementation plans.** Plan A (image evidence) ships independently of
-  Plan B (canvas) and is useful on its own.
+- **One design, three implementation plans.** Plan A (image evidence) ships independently
+  of Plan B (canvas) and Plan C (hunt-level sheets); each is useful on its own. All three
+  hang off the same generalisation: an evidence item's source becomes optional.
 - **"Canvas", never "board".** `board` already means the group/puzzle summary throughout
   this codebase (`HuntBoard`, `data.board`, `notifier.board_changed`, the "By group" view).
   Reusing it for the picture would make the word denote two things.
@@ -36,9 +41,12 @@ is precisely the link between a region of the picture and a live puzzle record.
   `puzzle_service` create path (Discord channel, sheet tab, tagged into a chosen round).
 - **Separate tables; informs-regions spawn real evidence rows**, so routing, the evidence
   panel, and the contribution table all work unchanged.
-- **Evidence sources become optional and three-way.** An evidence item's source is a
-  puzzle, a canvas region, or nothing. Sourceless evidence is wanted in its own right, not
-  merely as a consequence of canvas support.
+- **Evidence sources become optional and four-way.** An evidence item's source is a puzzle,
+  a canvas region, a hunt-level working sheet, or nothing. Sourceless evidence is wanted in
+  its own right, not merely as a consequence of canvas support.
+- **A working sheet need not belong to a puzzle.** Things turn up in a hunt's alt text or
+  loose on its website with no puzzle to pin them to; you want somewhere to work on them
+  before you know what they are.
 - **Every image-bearing thing carries optional free text**, with transcription as the
   headline use. One field, not a separate `transcription` column.
 - **No image thumbnails in Google Sheets.** A contribution cell shows the transcription
@@ -62,6 +70,11 @@ any automatic transcription. All are additive later; none are load-bearing now.
 - `bot/core/notifier.py` — `board_changed`; `@pushes_board()` in `puzzle_service`
 - `bot/web/api.py` — `/api/attachments/<id>` (~line 168), the model for media serving
 - `bot/web/auth.py` — `require_organiser`, `user_can_manage`
+- Plan C: `bot/store/mysqldb.py` (`MySQLAdditionalSheetsDb`, ~line 303 — `get_by_puzzle`
+  only), `bot/cogs/puzzles.py` (`add_sheet` ~1278, `remove_sheet` ~1299,
+  `list_additional_sheets` ~1316, `with_puzzle_mutex` ~49, `_PUZZLE_LOCKS`),
+  `bot/web/data.py:266` (the inner join to widen), `migrations/000_base_schema.sql:121`
+  (the `additional_sheets` table as it stands)
 - `frontend/src/pages/HuntBoard.tsx` — the `SegmentedControl` view switcher (~line 111)
 - `frontend/src/components/EvidencePanel.tsx`, `frontend/src/types.ts`, `frontend/src/api.ts`
 - `docs/commands.md` — command reference, kept in step with docstrings
@@ -97,7 +110,17 @@ Changes to `evidence_items`:
 
 - `source_puzzle_id` becomes **nullable**.
 - add `source_region_id INT NULL`.
+- add `source_sheet_id INT NULL`.
 - add `media_id INT NULL`.
+
+At most one of the three source columns is set. This is not enforced by a constraint —
+MySQL check constraints on this project's version are not used anywhere else in the schema,
+and the invariant is owned by the single service method that writes each kind.
+
+Changes to `additional_sheets`:
+
+- add `hunt_id INT NULL` with a FK to `hunts` and `ON DELETE CASCADE`, so a sheet that
+  belongs to no puzzle is still reachable and still gets cleaned up.
 
 Per the project's **migration → deploy → code** rule these ship as migrations first; the
 generic `commit()` in `mysqldb.py` writes every dataclass field by name, so adding the
@@ -154,6 +177,49 @@ hunt rather than to any one puzzle. Consequences:
   source must render as an em dash, not `Puzzle None`. Region-sourced rows render the
   region's label or its canvas name.
 
+### Hunt-level working sheets
+
+A working sheet can belong to the hunt rather than to a puzzle — somewhere to pick at
+something found in a page's alt text, or loose on the hunt site, before anyone knows which
+puzzle it belongs to (or whether it belongs to one at all).
+
+The groundwork is half-there and half-missing, which is worth knowing before estimating it:
+
+- `additional_sheets.puzzle_id` is **already nullable** (migration 022's cleanup explicitly
+  guards `WHERE a.puzzle_id IS NOT NULL`).
+- But there is **no `hunt_id` column**, so a puzzle-less row is unreachable. Every read path
+  goes through a puzzle: `MySQLAdditionalSheetsDb` exposes only `get_by_puzzle()`, the rows
+  load as `puzzle.additional_sheets` through `construct_puzzle`'s `SPECIAL_ATTR`, and
+  `!add_sheet` / `!list_sheets` / `!remove_sheet` all require a puzzle channel.
+- `bot/web/data.py:266` **inner**-joins `puzzles`, so hunt-level sheets would be invisible
+  to the dashboard until that becomes a left join.
+- `get_additional_sheet_spreadsheet(ctx, puzzle, hunt)` already accepts a hunt, so the
+  which-spreadsheet decision needs no new seam.
+
+So the change is: add `hunt_id`, add a `get_by_hunt()` that returns puzzle-less rows, let
+the three sheet commands run in a hunt channel, and widen that join.
+
+Confirmed by reading the command rather than inferring it: `!add_sheet`
+(`bot/cogs/puzzles.py:1284`) calls `get_puzzle(ctx)` and returns
+`send_not_puzzle_channel(ctx)` when it is None, so it refuses in the hunt general channel
+today.
+
+**Locking gap to close as part of this.** `with_puzzle_mutex` serialises on
+`_PUZZLE_LOCKS[puzzle.id]` but explicitly no-ops when there is no puzzle in context
+(`bot/cogs/puzzles.py:61` — *"If not in a puzzle context, just run"*). A hunt-level
+`!add_sheet` therefore runs unserialised, and two people adding one at once would race on
+the Sheets API. Needs a hunt-keyed lock mirroring `_PUZZLE_LOCKS`, not a reuse of the
+puzzle one.
+
+Such a sheet can then be **named as an evidence source** — `evidence_items.source_sheet_id`,
+nullable. This is the low-priority half by the user's own reckoning: sourceless evidence
+already covers the common case, and this exists so the option is there when the sheet really
+is the provenance. It costs one nullable column and one branch in
+`evidence_source_label()`, the seam Plan A already introduces for exactly this purpose.
+
+Like a canvas region, a sheet source creates **no `informs` edge** — an edge joins two
+puzzles, and a working sheet is not one.
+
 ### Contribution tables
 
 `contribution_rows` keys every row off a member puzzle (`informs:<pid>`), so evidence with
@@ -174,10 +240,24 @@ target gains a contribution row without gaining a member. This is intended. It a
 such a row cannot be reached by the subtree walk, which follows `feeds` edges only.
 
 Cell content is the evidence `note` (the transcription, where there is one). Where the item
-has `media_id`, the cell also carries a hyperlink to the dashboard's media view. No
-`=IMAGE()`, because Google fetches those unauthenticated and our media route requires a
-Discord session — and creating an unauthenticated URL would expose team working to anyone
-holding the link.
+has `media_id`, the cell also carries the dashboard media URL.
+
+Two constraints bite here, both deliberate and both left intact:
+
+- **No `=IMAGE()`.** Google fetches those from its own servers, unauthenticated, and our
+  media route requires a Discord session. Creating an unauthenticated URL to satisfy it
+  would expose team working to anyone holding the link.
+- **No `=HYPERLINK()` either.** `_values_update` writes `valueInputOption="RAW"`
+  (`bot/cogs/puzzles_gsheet.py:830`) specifically so a solved answer like `=A1` is stored as
+  text instead of becoming a live formula that resolves to `#REF` once the puzzle moves to
+  the solved sheet. A formula written under RAW appears verbatim as text. Switching the
+  content column to `USER_ENTERED` would reintroduce that bug, because that same column
+  carries arbitrary user-written notes.
+
+So the URL goes in as **plain text** to be copied. A genuinely clickable cell would need a
+rich-text write path (`updateCells` with `textFormatRuns[].format.link`) rather than
+`values().update`, which is a larger change to the roll-up writer than this earns. Noted as
+a possible follow-up, not built.
 
 ## Web API
 
@@ -269,7 +349,7 @@ service import site, `AsyncMock` for anything awaited.
    panel.
 2. An evidence item can be logged with no source puzzle, and routes to a target normally.
 3. A contribution table shows sourceless evidence with its transcription and, where there
-   is an image, a working link.
+   is an image, the media URL as plain text.
 4. `!clue` with an attached screenshot in a puzzle channel produces image evidence.
 5. A hunt can hold several canvases; each renders its image with its regions.
 6. Dragging a box creates a region; it can be linked to an existing puzzle as `locates` or
@@ -280,8 +360,18 @@ service import site, `AsyncMock` for anything awaited.
    and a claimed count, and leaves unclaimed art untinted.
 9. Two people annotating the same canvas see each other's regions without reloading.
 10. No unauthenticated URL serves any uploaded image.
+11. `!add_sheet` in a hunt channel creates a working sheet belonging to the hunt, not to a
+    puzzle, and two people running it at once do not race.
+12. `!list_sheets` in a hunt channel lists the hunt's own sheets, and the dashboard shows
+    them.
+13. An evidence item can name a hunt-level sheet as its source, and that name renders in
+    the evidence panel and in the target's contribution table.
 
 ## Build order
+
+Each plan is independently shippable. They share one generalisation — an optional evidence
+source — which Plan A introduces and the other two extend through the same
+`evidence_source_label()` seam.
 
 **Plan A — image evidence.** `media` table and migrations, upload and serve, nullable
 evidence source, `!clue` attachments, evidence panel rendering, contribution and Evidence
@@ -289,3 +379,11 @@ tab rendering. Ships and is useful with no canvas at all.
 
 **Plan B — canvas.** `hunt_canvases` and `canvas_regions`, the canvas service, the API, the
 canvas view and region modal, draw-to-create, the progress overlay.
+
+**Plan C — hunt-level working sheets.** `additional_sheets.hunt_id`, `get_by_hunt()`, a
+hunt-keyed command lock, `!add_sheet` / `!list_sheets` / `!remove_sheet` in a hunt channel,
+the dashboard's inner join widened to a left join, and `evidence_items.source_sheet_id`
+with its branch in `evidence_source_label()`.
+
+Plan C is the smallest of the three and depends on Plan A only for the source-label seam —
+the sheet work itself could land first if a hunt needs it sooner.
