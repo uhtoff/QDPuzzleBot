@@ -189,3 +189,28 @@ class TestSaveImageBytes:
              patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
             saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw)
         assert saved["content_type"] == "image/jpeg"
+
+    def test_origin_round_trips(self, tmp_path):
+        """Task 14 and the !clue path pass origin='upload'/'discord'; a
+        regression hardcoding it would otherwise go unnoticed."""
+        from bot.core.media_store import save_image_bytes
+        raw = b"\x89PNG\r\n\x1a\n"
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
+            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw,
+                                     origin="discord")
+        assert saved["origin"] == "discord"
+
+    def test_size_limit_boundary(self, tmp_path):
+        """Exactly at the limit is accepted; one byte over is rejected. Task 14
+        reads max_upload_bytes() + 1 from the request precisely so that the
+        over-limit case is detectable, so this boundary is a contract."""
+        from bot.core.media_store import save_image_bytes, MediaRejected
+        head = b"\x89PNG\r\n\x1a\n"
+        exact = head + b"\x00" * (100 - len(head))
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=100):
+            assert save_image_bytes(hunt_id=10, filename="a.png",
+                                    raw=exact)["size"] == 100
+            with pytest.raises(MediaRejected):
+                save_image_bytes(hunt_id=10, filename="a.png", raw=exact + b"\x00")
