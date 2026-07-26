@@ -556,20 +556,28 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
 # --- Activity ---------------------------------------------------------------
 
 def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
-    """Return evidence items for a hunt with resolved puzzle names."""
+    """Return evidence items for a hunt with resolved puzzle names.
+
+    source_puzzle_id/source_puzzle_name are None for evidence that belongs to
+    the hunt rather than to any one puzzle. media_url is relative so it works
+    on whichever origin is serving the SPA.
+    """
     from bot.store import EvidenceJsonDb
     from bot.core.puzzle_service import resolve_puzzle_names
     items = EvidenceJsonDb.get_all(hunt_id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
-    puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
+    puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
+                  | {i.target_puzzle_id for i in items if i.target_puzzle_id})
     names = resolve_puzzle_names(puzzle_ids)
     return [
         {
             "id": i.id,
             "source_puzzle_id": i.source_puzzle_id,
-            "source_puzzle_name": names.get(i.source_puzzle_id, ""),
+            "source_puzzle_name": names.get(i.source_puzzle_id, "") if i.source_puzzle_id else None,
             "target_puzzle_id": i.target_puzzle_id,
             "target_puzzle_name": names.get(i.target_puzzle_id, "") if i.target_puzzle_id else None,
             "note": i.note,
+            "media_id": i.media_id,
+            "media_url": f"/api/media/{i.media_id}" if i.media_id else None,
             "created_at": i.created_at.isoformat() if i.created_at else None,
         }
         for i in items

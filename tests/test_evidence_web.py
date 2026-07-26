@@ -178,3 +178,54 @@ async def test_delete_refreshes_old_target_and_unlinks_informs(web):
     assert resp.status_code == 200
     web.svc.refresh_target_for_puzzle.assert_any_call(web.hunt_obj, 33)
     web.svc.unlink_informs_for_evidence_safe.assert_any_call(web.hunt_obj, 1, 33)
+
+
+# --- get_evidence: null source, media fields ---------------------------------
+
+class TestGetEvidenceNullSource:
+    def test_null_source_serialises_as_null_name_alongside_a_real_source(self):
+        """Two items, not one: a fix that returns None for EVERY row's
+        source_puzzle_name (e.g. dropping the fallback lookup entirely) would
+        still pass a single sourceless-item test. Pinning a resolved name
+        alongside the null case rules that out, and also proves None never
+        reaches resolve_puzzle_names (asserted via call_args, not just by
+        patching it to return {})."""
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from bot.web import data
+
+        sourced = SimpleNamespace(id=5, source_puzzle_id=1, target_puzzle_id=2,
+                                  note="a clue", media_id=None, created_at=None)
+        sourceless = SimpleNamespace(id=9, source_puzzle_id=None, target_puzzle_id=None,
+                                     note="a fact", media_id=None, created_at=None)
+        with patch("bot.store.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names") as resolve:
+            edb.get_all.return_value = [sourced, sourceless]
+            resolve.return_value = {1: "Feeder One", 2: "Meta Two"}
+            out = data.get_evidence(10)
+
+        by_id = {o["id"]: o for o in out}
+        assert by_id[5]["source_puzzle_name"] == "Feeder One"  # real source still resolves
+        assert by_id[9]["source_puzzle_id"] is None
+        assert by_id[9]["source_puzzle_name"] is None
+        assert by_id[9]["media_id"] is None
+        assert by_id[9]["media_url"] is None
+
+        # None must never reach the batched name-lookup query.
+        queried_ids = resolve.call_args.args[0]
+        assert None not in queried_ids
+
+    def test_media_id_becomes_a_url(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from bot.web import data
+
+        item = SimpleNamespace(id=9, source_puzzle_id=None, target_puzzle_id=None,
+                               note="", media_id=7, created_at=None)
+        with patch("bot.store.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}):
+            edb.get_all.return_value = [item]
+            out = data.get_evidence(10)
+
+        assert out[0]["media_id"] == 7
+        assert out[0]["media_url"] == "/api/media/7"
