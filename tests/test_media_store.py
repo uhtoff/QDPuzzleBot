@@ -1,6 +1,6 @@
 """Plan A: media storage — dataclass, validation, and on-disk save."""
 import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -214,3 +214,49 @@ class TestSaveImageBytes:
                                     raw=exact)["size"] == 100
             with pytest.raises(MediaRejected):
                 save_image_bytes(hunt_id=10, filename="a.png", raw=exact + b"\x00")
+
+
+class TestMySQLMediaDb:
+    def _db(self):
+        from bot.store.mysqldb import MySQLMediaDb
+        mydb = MagicMock()
+        cursor = MagicMock()
+        cursor.lastrowid = 42
+        mydb.dict_cursor.return_value = cursor
+        return MySQLMediaDb(mydb=mydb), mydb, cursor
+
+    def test_create_inserts_and_returns_media_with_new_id(self):
+        db, mydb, cursor = self._db()
+        m = db.create(hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
+                      content_type="image/png", size=99, origin="upload")
+        assert m.id == 42
+        assert m.hunt_id == 10
+        assert m.path == "uploads/10/a_crop.png"
+        assert m.content_type == "image/png"
+        assert m.size == 99
+        assert cursor.execute.called
+        mydb.commit.assert_called_once()
+
+    def test_create_reattaches_utc_tzinfo(self):
+        """A freshly-created row must serialize like one read back from the DB."""
+        import datetime
+        db, _, _ = self._db()
+        m = db.create(hunt_id=10, path="p", filename="f",
+                      content_type="image/png", size=1, origin="upload")
+        assert m.created_at.tzinfo == datetime.timezone.utc
+
+    def test_get_by_id_returns_none_when_missing(self):
+        db, _, cursor = self._db()
+        cursor.fetchone.return_value = None
+        assert db.get_by_id(1) is None
+
+    def test_get_by_id_returns_media(self):
+        db, _, cursor = self._db()
+        cursor.fetchone.return_value = {
+            "id": 5, "hunt_id": 10, "path": "p", "filename": "f",
+            "content_type": "image/png", "size": 1, "origin": "upload",
+            "created_at": None,
+        }
+        m = db.get_by_id(5)
+        assert m.id == 5
+        assert m.hunt_id == 10

@@ -18,6 +18,7 @@ from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
 from .evidence_data import EvidenceData
+from .media_data import MediaData
 
 logger = logging.getLogger(__name__)
 
@@ -877,6 +878,49 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
+
+
+class MySQLMediaDb(_MySQLBaseDb):
+    TABLE_NAME = 'media'
+
+    def create(self, hunt_id: int, path: str, filename: str,
+               content_type: str, size: int, origin: str) -> 'MediaData':
+        """Insert one media row and return it."""
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO media"
+                " (hunt_id, path, filename, content_type, size, origin, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (hunt_id, path, filename, content_type, size, origin, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        m = MediaData()
+        m.id = new_id or 0
+        m.hunt_id = hunt_id
+        m.path = path
+        m.filename = filename
+        m.content_type = content_type
+        m.size = size
+        m.origin = origin
+        # Match import_dict's tzinfo-reattachment so a freshly-created row and one
+        # read back from the DB serialize identically (same as EvidenceData).
+        m.created_at = now.replace(tzinfo=datetime.timezone.utc)
+        return m
+
+    def get_by_id(self, media_id: int):
+        """Return one MediaData by id, or None if missing."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("SELECT * FROM media WHERE id = %s", (media_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return MediaData.import_dict(row) if row else None
 
 
 class MySQLGuildSettingsDb():
