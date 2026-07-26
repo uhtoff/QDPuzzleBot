@@ -80,8 +80,11 @@ dashboard:
   autocompletes types already used this hunt).
 - `!note some text` — add a note; `!notes` lists them; `!erase_note 2` removes one.
 - `!clue some fact` — log a clue/observation to the hunt's shared **Evidence** sheet
-  tab (`!clues "multi word one" second third` logs several at once). Use this for
-  hunt-wide facts that don't belong to any one puzzle's notes.
+  tab; attach an image to log a picture instead of or alongside the text
+  (`!clues "multi word one" second third` logs several text clues at once, still
+  from a puzzle channel). Unlike the rest of this list, `!clue` also works outside a
+  puzzle channel — use that for a hunt-wide fact that doesn't belong to any one
+  puzzle's notes; it's logged with no source puzzle.
 - `!list_puzzles` — list the puzzles in the current round with status and answers.
 
 ---

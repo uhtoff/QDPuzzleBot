@@ -52,7 +52,9 @@ keeps a self-contained transcript after its Discord channels are gone.
 - `bot/store` `MessageDb` — DAO for the `messages` / `message_attachments` tables and the
   embeds column (migrations `027_message_bridge.sql`, `028_message_embeds.sql`).
 - `bot/core/message_media.py` — safe-filename + size-capped attachment downloader; bytes land
-  under `web.archive_media_dir`.
+  under `web.archive_media_dir`. `bot/core/media_store.py` (image evidence — `!clue`
+  attachments, dashboard uploads) writes to the same directory and is independent of
+  `bridge_enabled`; see the config note below.
 - `bot/web/api.py` — read routes `/api/channels/<id>/messages` (transcript, behind the same
   hunt-visibility gate) and `/api/attachments/<id>` (serves stored bytes — images inline,
   other files as downloads). Live events fan out over the existing `/api/ws/activity` socket.
@@ -74,11 +76,19 @@ backfill channel history.
    "web": {
      // ...existing dashboard keys...
      "bridge_enabled": true,
-     "archive_media_dir": "/var/lib/puzzbot/media",  // where attachment bytes are stored; required when on
-     "attachment_max_bytes": 26214400                 // optional; skip attachments larger than this (default 25 MB)
+     "archive_media_dir": "/var/lib/puzzbot/media",  // required (see below); a real, writable path outside the checkout
+     "attachment_max_bytes": 26214400                 // optional; caps upload size, default 25 MB (see below)
    }
    ```
 3. Restart the bot. Capture begins for puzzle channels as new messages arrive.
+
+`archive_media_dir` is required whether or not `bridge_enabled` is true: image evidence
+(`!clue` with an attachment, and the dashboard's evidence image upload) stores to the same
+directory via `bot/core/media_store.py`, and refuses to store anything if it is unset — an
+unset dir would otherwise resolve to the process's working directory (the checkout itself).
+`attachment_max_bytes` caps both the message-bridge attachment size and evidence image
+uploads; it also sets Quart's own `MAX_CONTENT_LENGTH` request-body guard, so raising it
+raises both together.
 
 ## Hunt visibility
 

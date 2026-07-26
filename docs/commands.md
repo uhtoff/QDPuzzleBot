@@ -137,13 +137,13 @@ Run in a puzzle channel.
 
 ## Notes, clues & metadata
 
-Run in a puzzle channel.
+Run in a puzzle channel — except `!clue`, which also works elsewhere (see its row).
 
 | Command | Aliases | Arguments | Does |
 |---|---|---|---|
 | `!note` *(slash)* | `!notes` | `[text]` | Show notes, or add one if text is given. |
 | `!erase_note` *(slash)* | `!delete_note` | `note_index` | Remove a note by number (from `!notes`). |
-| `!clue` *(slash)* | | `text` | Log a freeform clue to the evidence sheet. |
+| `!clue` *(slash)* | | `text` *(optional if an image is attached)* | Log a freeform clue to the evidence sheet. Attach an image to log a picture. Outside a puzzle channel the clue is logged with no source puzzle. |
 | `!clues` *(slash)* | | `item ... "multi word" ...` | Log several clues at once (quote those with spaces). |
 
 ## Channel ordering
