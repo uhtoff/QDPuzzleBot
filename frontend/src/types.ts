@@ -49,6 +49,13 @@ export interface AdditionalSheet {
   page_id: string | null;
 }
 
+/** A working sheet belonging to the hunt rather than to any one puzzle. */
+export interface HuntSheet {
+  id: number;
+  name: string;
+  page_id: string | null;
+}
+
 export interface MiniPuzzle {
   id: number;
   name: string;
@@ -123,6 +130,8 @@ export interface HuntDetail {
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];
+  // The hunt's own working sheets — those belonging to no puzzle.
+  hunt_sheets: HuntSheet[];
   // Ordered create-meta type labels (CREATE_META_TYPES in puzzle_service.py).
   meta_types: string[];
 }
@@ -189,6 +198,10 @@ export interface EvidenceItem {
   id: number;
   source_puzzle_id: number | null;
   source_puzzle_name: string | null;
+  // Set instead of the puzzle source when the evidence came from a hunt-level
+  // working sheet. At most one of the two is ever non-null.
+  source_sheet_id: number | null;
+  source_sheet_name: string | null;
   target_puzzle_id: number | null;
   target_puzzle_name: string | null;
   note: string;

@@ -209,11 +209,12 @@ export function useUploadMedia(huntUid: string) {
 export function useAddEvidence(huntUid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ puzzleId, note, mediaId }:
-      { puzzleId: number | null; note: string; mediaId: number | null }) =>
+    mutationFn: ({ puzzleId, sheetId, note, mediaId }:
+      { puzzleId: number | null; sheetId: number | null; note: string; mediaId: number | null }) =>
       apiSend<{ id: number; note: string }[]>("/api/evidence", "POST", {
         hunt_uid: huntUid,
         source_puzzle_id: puzzleId,
+        source_sheet_id: sheetId,
         notes: note ? [note] : [],
         media_id: mediaId,
       }),
