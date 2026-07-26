@@ -463,8 +463,7 @@ class TestSaveImageBytes:
         raw = b"\xff\xd8\xff\xe0" + b"\x00" * 8
         with patch("bot.core.media_store.media_root", return_value=tmp_path), \
              patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
-            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw,
-                                     declared_type="image/png")
+            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw)
         assert saved["content_type"] == "image/jpeg"
 ```
 
@@ -483,13 +482,17 @@ class MediaRejected(Exception):
 
 
 def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
-                     declared_type: str = "", origin: str = "upload") -> dict:
+                     origin: str = "upload") -> dict:
     """Validate `raw` and write it under the media root.
 
     Returns the metadata a `media` row needs: path, filename, content_type,
     size, origin. Raises MediaRejected if the bytes are too large or are not an
-    allowed image. `declared_type` is accepted only so callers can pass what the
-    client claimed; it is recorded nowhere and never overrides the sniff.
+    allowed image.
+
+    There is deliberately no parameter for the client-declared content type.
+    Accepting one and ignoring it would be dead API surface that every call site
+    would keep faithfully passing; the magic bytes are the only input that
+    decides anything here.
     """
     limit = max_upload_bytes()
     if len(raw) > limit:
@@ -1719,7 +1722,6 @@ async def upload_media(uid):
             hunt_id=hunt["id"],
             filename=upload.filename or "image",
             raw=raw,
-            declared_type=upload.content_type or "",
             origin="upload",
         )
     except MediaRejected as exc:
@@ -1985,7 +1987,6 @@ Add a helper method on the cog, just above `clue`:
                 hunt_id=hunt.id,
                 filename=att.filename or "image",
                 raw=raw,
-                declared_type=getattr(att, "content_type", "") or "",
                 origin="discord",
             )
         except MediaRejected as exc:
