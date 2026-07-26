@@ -14,7 +14,11 @@
 
 `docs/superpowers/specs/2026-07-26-canvas-image-evidence-design.md` is authoritative. This plan implements **Plan A only**. Plan B (the Canvas) is a separate plan.
 
-**Deliberately deferred to Plan B:** the `source_region_id` column on `evidence_items` ships with the `canvas_regions` table it points at, not here.
+**Deliberately deferred:**
+
+- The `source_region_id` column on `evidence_items` ships with the `canvas_regions` table it points at, in Plan B.
+- The spec's media endpoint lists three intake shapes: multipart upload, `{"url": ...}`, and `{"attachment_id": ...}`. **Plan A implements multipart only.** The Discord path is covered better by `!clue` with an attachment (Task 16), which stores the bytes directly, and fetching by URL matters for pasting in a hunt's big canvas image — a Plan B need — not for a screenshot you already have on disk.
+- `source_sheet_id` and hunt-level working sheets are Plan C.
 
 ## Where this work happens
 
@@ -885,73 +889,67 @@ This is a pure function with no mocks — the easiest correctness win in the pla
 
 Append to `tests/test_contribution.py`:
 
+This file does **not** use `make_puzzle` from conftest — it has its own local `_p()` helper
+building a `PuzzleData` directly (`tests/test_contribution.py:12-18`). Use it, matching the
+file's existing style:
+
 ```python
-class TestSourcelessEvidence:
-    """Evidence with no source puzzle has no member row to hang from, so it is
-    appended under its own key namespace after the member loop."""
+# --- Sourceless evidence (Plan A) -----------------------------------------
+# Evidence with no source puzzle has no member row to hang from, so it is
+# appended under its own key namespace after the member loop.
 
-    def test_sourceless_evidence_gets_its_own_row(self):
-        from bot.core.contribution import contribution_rows
-        rows = contribution_rows(
-            tag_group_id=1,
-            members=[],
-            evidence=[{"id": 9, "source_puzzle_id": None,
-                       "source_label": "Harbour map", "content": "three anchors"}],
-        )
-        assert rows == [["informs:free:9", "Harbour map", "Information", "three anchors"]]
+def test_sourceless_evidence_gets_its_own_row():
+    rows = contribution_rows(
+        tag_group_id=5, members=[],
+        evidence=[{"id": 9, "source_puzzle_id": None,
+                   "source_label": "Harbour map", "content": "three anchors"}],
+    )
+    assert rows == [["informs:free:9", "Harbour map", "Information", "three anchors"]]
 
-    def test_sourceless_rows_come_after_member_rows(self):
-        from bot.core.contribution import contribution_rows
-        from tests.conftest import make_puzzle
-        p = make_puzzle(id=2, name="Feeder One", solution="ALPHA")
-        p.tag_edges = {1: {"feeds"}}
-        rows = contribution_rows(
-            tag_group_id=1,
-            members=[p],
-            evidence=[{"id": 9, "source_puzzle_id": None,
-                       "source_label": "Harbour map", "content": "three anchors"}],
-        )
-        assert rows[0][0] == "feeds:2"
-        assert rows[-1][0] == "informs:free:9"
 
-    def test_sourceless_label_falls_back_to_an_em_dash(self):
-        """Evidence with neither a source puzzle nor a label still renders."""
-        from bot.core.contribution import contribution_rows
-        rows = contribution_rows(
-            tag_group_id=1, members=[],
-            evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
-        )
-        assert rows[0][1] == "—"
+def test_sourceless_rows_come_after_member_rows():
+    feeder = _p(2, "Alpha", solution="WORD", tag_edges={5: {"feeds"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[feeder],
+        evidence=[{"id": 9, "source_puzzle_id": None,
+                   "source_label": "Harbour map", "content": "three anchors"}],
+    )
+    assert rows[0][0] == "feeds:2"
+    assert rows[-1][0] == "informs:free:9"
 
-    def test_sourced_evidence_is_unaffected(self):
-        """Rows with a source_puzzle_id keep their existing key and grouping."""
-        from bot.core.contribution import contribution_rows
-        from tests.conftest import make_puzzle
-        p = make_puzzle(id=3, name="Informer")
-        p.tag_edges = {1: {"informs"}}
-        rows = contribution_rows(
-            tag_group_id=1,
-            members=[p],
-            evidence=[{"id": 4, "source_puzzle_id": 3, "content": "a datum"}],
-        )
-        assert rows == [["informs:3:4", "Informer", "Information", "a datum"]]
 
-    def test_sourceless_evidence_does_not_leak_into_member_grouping(self):
-        """A sourceless item must not be grouped under a member with no evidence,
-        which would blank that member's own bare-edge row."""
-        from bot.core.contribution import contribution_rows
-        from tests.conftest import make_puzzle
-        p = make_puzzle(id=3, name="Informer")
-        p.tag_edges = {1: {"informs"}}
-        rows = contribution_rows(
-            tag_group_id=1, members=[p],
-            evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
-        )
-        assert rows[0] == ["informs:3", "Informer", "Information", ""]
-        assert rows[1][0] == "informs:free:9"
+def test_sourceless_label_falls_back_to_an_em_dash():
+    """Evidence with neither a source puzzle nor a label still renders."""
+    rows = contribution_rows(
+        tag_group_id=5, members=[],
+        evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
+    )
+    assert rows[0][1] == "—"
+
+
+def test_sourced_evidence_is_unaffected():
+    """Rows with a source_puzzle_id keep their existing key and grouping."""
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[inf],
+        evidence=[{"id": 4, "source_puzzle_id": 4, "content": "a datum"}],
+    )
+    assert rows == [["informs:4:4", "Gamma", "Information", "a datum"]]
+
+
+def test_sourceless_evidence_does_not_leak_into_member_grouping():
+    """A sourceless item must not be grouped under a member with no evidence,
+    which would blank that member's own bare-edge row."""
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[inf],
+        evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
+    )
+    assert rows[0] == ["informs:4", "Gamma", "Information", ""]
+    assert rows[1][0] == "informs:free:9"
 ```
 
-Check how `make_puzzle` sets edges before running: read `tests/conftest.py:41-68` and the existing tests in `tests/test_contribution.py` for the exact way `edges_for()` is populated, and match it. The `tag_edges` assignments above assume `edges_for(gid)` reads that dict — if the factory uses a different attribute, use the factory's own idiom.
+`contribution_rows` is already imported at the top of that file, so these need no imports.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1078,7 +1076,15 @@ class TestRollupEvidenceContent:
         assert evidence[0]["content"] == "a clue"
 ```
 
-Before writing these, check how `_render_rollup` is currently called in the existing tests and mirror their setup — the `PuzzleService.__new__` trick above avoids the constructor, but if the existing tests build the service differently, follow them. Also confirm `config` is imported into `puzzle_service`'s namespace; if it is not, import it there (`from bot.utils import config`) as part of Step 3 and patch that name.
+**`config` is not currently imported in `bot/core/puzzle_service.py`** — line 31 imports only `urls` from `bot.utils`. Add it as part of Step 3:
+
+```python
+from bot.utils import config
+```
+
+That is what makes `patch("bot.core.puzzle_service.config")` in the tests above bind — patch where the name is looked up, not where it is defined.
+
+The `PuzzleService.__new__` trick above skips the constructor so no DB or bot is needed. If the existing tests in this file build the service differently, follow them instead.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1854,7 +1860,7 @@ class TestClueWithAttachment:
             save.return_value = {"path": "uploads/10/a_crop.png", "filename": "crop.png",
                                  "content_type": "image/png", "size": 7, "origin": "discord"}
             mdb.create.return_value = MagicMock(id=7)
-            await cog.clue(cog, ctx, note="three anchors")
+            await Puzzles.clue.callback(cog, ctx, note="three anchors")
 
         assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
 
@@ -1869,7 +1875,7 @@ class TestClueWithAttachment:
 
         ctx = make_ctx()
         ctx.message.attachments = []
-        await cog.clue(cog, ctx, note="heard from another team")
+        await Puzzles.clue.callback(cog, ctx, note="heard from another team")
 
         assert cog.service.log_clues.await_args.args[1] is None
 
@@ -1887,7 +1893,7 @@ class TestClueWithAttachment:
 
         from bot.core.media_store import MediaRejected
         with patch("bot.cogs.puzzles.save_image_bytes", side_effect=MediaRejected("nope")):
-            await cog.clue(cog, ctx, note="x")
+            await Puzzles.clue.callback(cog, ctx, note="x")
 
         ctx.send.assert_awaited()
         cog.service.log_clues.assert_not_awaited()
@@ -1910,12 +1916,12 @@ class TestClueWithAttachment:
             save.return_value = {"path": "p", "filename": "crop.png",
                                  "content_type": "image/png", "size": 5, "origin": "discord"}
             mdb.create.return_value = MagicMock(id=7)
-            await cog.clue(cog, ctx, note="")
+            await Puzzles.clue.callback(cog, ctx, note="")
 
         cog.service.log_clues.assert_awaited()
 ```
 
-Read `tests/test_evidence_commands.py` first and follow how it invokes the command callback — a `hybrid_command` wraps the function, so existing tests will show whether to call `cog.clue(cog, ctx, ...)`, `cog.clue.callback(...)`, or something else. Use whatever those tests already do.
+Each test above needs `from bot.cogs.puzzles import Puzzles` — a `hybrid_command` wraps the function, so the callback is reached as `Puzzles.clue.callback(cog, ctx, ...)` with the cog passed explicitly. That is the idiom the existing tests in this file already use (`tests/test_evidence_commands.py:22`); do not call `cog.clue(...)`.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -2066,9 +2072,16 @@ export function useUploadMedia(huntUid: string) {
 
 Check how `apiSend` builds its request and whether it sets `credentials` — match it rather than the sketch above.
 
-- [ ] **Step 3: Widen the evidence-creation hook**
+- [ ] **Step 3: Add a hunt-scoped evidence hook**
 
-`useLogClue` posts to `/api/puzzles/${puzzleId}/clues`, a different route from `POST /api/evidence`. Read both and confirm which one `EvidencePanel`'s "log a clue" control actually uses, then widen that one to carry an optional `mediaId` and an optional `puzzleId`. If it is the per-puzzle route, add a sibling hook rather than contorting it:
+There are **two** evidence-creation endpoints, and the panel currently uses the wrong one for this feature:
+
+| | route | scope | lock | audit |
+| --- | --- | --- | --- | --- |
+| `useLogClue` — what the panel's "Log clue" button calls today | `POST /api/puzzles/<id>/clues` (`bot/web/actions.py:456`) | puzzle, **by URL** | `puzzle_lock(puzzle_id)` | `_audit("clue", ...)` |
+| widened in Task 15 | `POST /api/evidence` (`bot/web/api.py:268`) | hunt | none | none |
+
+A sourceless or image-only clue **cannot** go through the actions route — there is no puzzle id to put in the URL. So the panel moves to `/api/evidence`. Add a sibling hook rather than contorting `useLogClue`, which stays as it is for any other caller:
 
 ```ts
 export function useAddEvidence(huntUid: string) {
@@ -2089,6 +2102,20 @@ export function useAddEvidence(huntUid: string) {
   });
 }
 ```
+
+- [ ] **Step 3b: Close the audit gap the move opens**
+
+Moving the panel off the actions route drops its `_audit("clue", ...)` entry, which would silently lose the audit trail for every clue logged from the dashboard. Add the same call to `add_evidence` in `bot/web/api.py`, after the `log_clues` call:
+
+```python
+        from bot.web.actions import _audit
+        await _audit("clue", puzzle_id=puzzle.id if puzzle else None,
+                     hunt_uid=hunt["uid"])
+```
+
+Read `_audit`'s signature in `bot/web/actions.py` first and confirm it tolerates `puzzle_id=None` — if it does not, pass only `hunt_uid`. Import locally to avoid a circular import between the two blueprints.
+
+The `puzzle_lock` the actions route takes is **not** carried over, and that is correct: it serialises mutations of one puzzle, and appending an evidence row for a hunt is not one. `log_clues` is decorated `@pushes_board()` and does a plain insert.
 
 - [ ] **Step 4: Type-check**
 
@@ -2140,7 +2167,56 @@ Import `Anchor` and `Image` from `@mantine/core`, and add a matching header cell
 
 - [ ] **Step 4: Add the image picker to the log-a-clue control**
 
-The panel has `cluePuzzleId` / `clueNote` state and a puzzle `Select`. Add a `FileInput` beside them, upload on submit via `useUploadMedia`, then pass the returned id to the evidence-creation hook. The puzzle `Select` must allow an empty choice, since a clue no longer needs a source puzzle — check whether it is already `clearable`, and make it so if not.
+The panel has `cluePuzzleId` / `clueNote` state and a puzzle `Select` (lines ~46-47, ~154-167). `submitClue` currently reads:
+
+```tsx
+    if (!cluePuzzleId || !clueNote.trim()) return;
+    logClue.mutate(
+      { puzzleId: Number(cluePuzzleId), note: clueNote.trim() },
+```
+
+Both halves of that guard now block legitimate input — a clue needs neither a puzzle nor text, as long as it has one of text or an image. Replace the control's submit path:
+
+```tsx
+  const uploadMedia = useUploadMedia(uid);
+  const addEvidence = useAddEvidence(uid);
+  const [clueFile, setClueFile] = useState<File | null>(null);
+
+  async function submitClue() {
+    const note = clueNote.trim();
+    // Either alone is enough; neither is nothing at all.
+    if (!note && !clueFile) return;
+    try {
+      const media = clueFile ? await uploadMedia.mutateAsync(clueFile) : null;
+      await addEvidence.mutateAsync({
+        puzzleId: cluePuzzleId ? Number(cluePuzzleId) : null,
+        note,
+        mediaId: media ? media.id : null,
+      });
+      setClueNote("");
+      setClueFile(null);
+      setCluePuzzleId(null);
+    } catch (err) {
+      notifyError(err);
+    }
+  }
+```
+
+Add a `FileInput` beside the note field:
+
+```tsx
+          <FileInput
+            size="xs"
+            placeholder="Image (optional)"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            value={clueFile}
+            onChange={setClueFile}
+            clearable
+            w={180}
+          />
+```
+
+Import `FileInput` from `@mantine/core` and `useAddEvidence` / `useUploadMedia` from `../api`. Make the puzzle `Select` `clearable` if it is not already — a clue no longer needs a source puzzle. Update the `Button`'s `loading` prop, which currently reads `logClue.isPending`, to `uploadMedia.isPending || addEvidence.isPending`.
 
 - [ ] **Step 5: Type-check**
 
