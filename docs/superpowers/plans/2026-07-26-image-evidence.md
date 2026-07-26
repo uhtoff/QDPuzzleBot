@@ -47,6 +47,8 @@ Read `/tmp/test.log`. A timeout-killed run exits 124. Do not start until this is
 - **Factories, not fixtures.** `tests/conftest.py` exports plain functions — `make_hunt()`, `make_puzzle()`, `make_ctx()`, `make_cog()`. Import and call them.
 - **`asyncio_mode = auto`.** `async def test_*` needs no decorator.
 - **Anything awaited is an `AsyncMock`**; sync attributes stay `MagicMock`.
+- **`PuzzleService.__new__(PuzzleService)` needs a notifier.** Several tasks build the service without its constructor to avoid needing a DB or a bot. Any method decorated `@pushes_board()` dereferences `self.notifier` on success, so a bare `__new__` instance raises `AttributeError` — which surfaces as a crash rather than a clean assertion failure, and sends you hunting in the wrong place. Set `svc.notifier = MagicMock(board_changed=AsyncMock())`, as `tests/test_sheet_failure_isolation.py` already does.
+- **A test with one instance of a thing usually proves nothing about that thing.** Eight defects in this plan were tests that passed whether or not the code worked, and nearly all had this shape: one sourceless item (so order can't be wrong), one shallow traversal payload (absorbed by the path prefix), one returned object whose fields come from local parameters rather than from what the database saw. Before writing any test from this plan, ask what it would take for it to fail. If the answer is "nothing", fix the test.
 - Commit after every task.
 
 ## File structure
