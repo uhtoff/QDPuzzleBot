@@ -194,6 +194,40 @@ export interface RollupAnswers {
   answers: RollupAnswer[];
 }
 
+export type RegionRole = "locates" | "informs";
+
+export interface RegionShape {
+  type: "rect";
+  /** Normalised 0-1, top-left corner first: [[x1,y1],[x2,y2]].
+   *  Normalising is what lets the SVG overlay use these values directly at any
+   *  zoom level, and what lets a region survive the image being re-tiled. */
+  points: [[number, number], [number, number]];
+}
+
+export interface CanvasRegion {
+  id: number;
+  shape: RegionShape;
+  label: string;
+  note: string | null;
+  /** role is non-null exactly when puzzle_id is; the API rejects a half-set link. */
+  puzzle_id: number | null;
+  role: RegionRole | null;
+}
+
+export interface HuntCanvas {
+  id: number;
+  name: string;
+  note: string | null;
+  media_id: number;
+  regions: CanvasRegion[];
+  /** From the media row, so the viewer can size itself and choose a zoom level
+   *  before fetching a single tile. Optional only for the vanished-media case. */
+  width?: number;
+  height?: number;
+  tile_status?: "none" | "pending" | "ready" | "failed";
+  tile_levels?: number;
+}
+
 export interface EvidenceItem {
   id: number;
   source_puzzle_id: number | null;

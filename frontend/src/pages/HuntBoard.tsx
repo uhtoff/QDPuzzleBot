@@ -22,6 +22,7 @@ import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { EvidencePanel } from "../components/EvidencePanel";
+import { CanvasPanel } from "../components/CanvasPanel";
 import { ReconcilePanel } from "../components/ReconcilePanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
@@ -39,9 +40,10 @@ export default function HuntBoard() {
     if (u === uid) {
       qc.invalidateQueries({ queryKey: ["hunt", uid] });
       qc.invalidateQueries({ queryKey: ["evidence", uid] });
+      qc.invalidateQueries({ queryKey: ["canvases", uid] });
     }
   });
-  const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "manage">("board");
+  const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "canvas" | "manage">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
 
@@ -114,17 +116,20 @@ export default function HuntBoard() {
       <Group justify="space-between" align="center">
         <SegmentedControl
           value={view}
-          onChange={(v) => setView(v as "board" | "all" | "arrange" | "evidence" | "manage")}
+          onChange={(v) => setView(v as "board" | "all" | "arrange" | "evidence" | "canvas" | "manage")}
           data={[
             { label: "By group", value: "board" },
             { label: "All puzzles", value: "all" },
             { label: "Evidence", value: "evidence" },
+            { label: "Canvas", value: "canvas" },
             ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
             // Admins can always reach Manage (to unarchive) even when the hunt is
             // archived and can_manage is therefore false.
             ...(data.hunt.can_manage || data.hunt.can_administer ? [{ label: "Manage", value: "manage" }] : []),
           ]}
-          w={360 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
+          // Hard-coded width: each entry needs its own allowance or the control
+          // clips. "Canvas" adds 90 to the 360 base.
+          w={450 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
         />
         {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
       </Group>
@@ -167,6 +172,7 @@ export default function HuntBoard() {
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
+      {view === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
       {view === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (
         <Stack gap="md">
           {/* Admin settings panel — admin-gated; reachable even when archived */}

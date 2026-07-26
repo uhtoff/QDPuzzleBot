@@ -1,0 +1,334 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, Button, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
+import { IconCrop, IconMinus, IconPlus, IconRefresh } from "@tabler/icons-react";
+import type { CanvasRegion, HuntCanvas, Puzzle, RegionShape } from "../types";
+
+/** Tile edge in CSS pixels. Must match image_tiler.TILE_SIZE. */
+const TILE_SIZE = 512;
+
+/** Progress tint. The seven puzzle statuses collapse to four colours so the
+ *  picture stays readable — the point is to see at a glance what has been
+ *  claimed, not to encode every state. Regions with no puzzle are left
+ *  untinted, and untinted art is half the answer to "what have we not touched". */
+function tintFor(puzzle: Puzzle | undefined): string | null {
+  if (!puzzle) return null;
+  if (puzzle.solved) return "#2f9e44";                 // green
+  switch (puzzle.status) {
+    case "solved":
+    case "backsolved":
+      return "#2f9e44";
+    case "stuck":
+      return "#e03131";                                // red
+    case "in progress":
+    case "needs extraction":
+    case "needs submission":
+      return "#f08c00";                                // amber
+    default:
+      return "#868e96";                                // grey: unstarted
+  }
+}
+
+export const TINT_LEGEND: { colour: string; label: string }[] = [
+  { colour: "#2f9e44", label: "Solved" },
+  { colour: "#f08c00", label: "In progress" },
+  { colour: "#e03131", label: "Stuck" },
+  { colour: "#868e96", label: "Unstarted" },
+];
+
+type Props = {
+  canvas: HuntCanvas;
+  puzzlesById: Map<number, Puzzle>;
+  editable: boolean;
+  onOpenRegion: (region: CanvasRegion) => void;
+  onDraw: (shape: RegionShape) => void;
+};
+
+export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw }: Props) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [drawing, setDrawing] = useState(false);
+  const [drawRect, setDrawRect] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
+  const drag = useRef<null | { kind: "pan" | "draw"; sx: number; sy: number; ox: number; oy: number }>(null);
+
+  const width = canvas.width ?? 0;
+  const height = canvas.height ?? 0;
+  const levels = canvas.tile_levels ?? 0;
+  const tiled = canvas.tile_status === "ready" && levels > 0 && width > 0;
+
+  // Track the viewport so the visible-tile window can be computed. A
+  // ResizeObserver rather than a window listener: this panel sits inside a
+  // layout that can change width without the window resizing at all.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setViewport({ w: el.clientWidth, h: el.clientHeight });
+    });
+    ro.observe(el);
+    setViewport({ w: el.clientWidth, h: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  const fit = useCallback(() => {
+    if (!width || !height || !viewport.w) return;
+    setScale(Math.min(viewport.w / width, viewport.h / height));
+    setOffset({ x: 0, y: 0 });
+  }, [width, height, viewport.w, viewport.h]);
+
+  // Fit once the image dimensions and the viewport are both known.
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!fitted.current && width && viewport.w) {
+      fitted.current = true;
+      fit();
+    }
+  }, [fit, width, viewport.w]);
+
+  const dispW = width * scale;
+  const dispH = height * scale;
+
+  /** Which pyramid level to fetch.
+   *
+   *  Level `levels - 1` is native resolution and each step down halves. Pick the
+   *  smallest level whose own width still covers the displayed width, so tiles
+   *  are downscaled rather than blown up — upscaling a lower level is what makes
+   *  a tiled viewer look soft.
+   */
+  const level = useMemo(() => {
+    if (!tiled) return 0;
+    const native = levels - 1;
+    for (let z = 0; z <= native; z++) {
+      if (width / Math.pow(2, native - z) >= dispW) return z;
+    }
+    return native;
+  }, [tiled, levels, width, dispW]);
+
+  // Level `level` represents the image at this many pixels across, and its tiles
+  // are TILE_SIZE of THAT, so one tile covers this much of the displayed image.
+  const levelWidth = tiled ? width / Math.pow(2, levels - 1 - level) : width;
+  const levelScale = dispW / levelWidth;              // displayed px per level px
+  const tileDisp = TILE_SIZE * levelScale;
+  const cols = Math.ceil(levelWidth / TILE_SIZE);
+  const rows = Math.ceil((height / Math.pow(2, levels - 1 - level)) / TILE_SIZE);
+
+  /** Only the tiles intersecting the viewport, plus a one-tile margin so a pan
+   *  does not reveal blank space before the next fetch lands. Mounting all 940
+   *  tiles of a 14400px sheet would defeat the entire point of the pyramid. */
+  const visible = useMemo(() => {
+    if (!tiled || !tileDisp) return [];
+    const x0 = Math.max(0, Math.floor((-offset.x) / tileDisp) - 1);
+    const y0 = Math.max(0, Math.floor((-offset.y) / tileDisp) - 1);
+    const x1 = Math.min(cols - 1, Math.ceil((-offset.x + viewport.w) / tileDisp) + 1);
+    const y1 = Math.min(rows - 1, Math.ceil((-offset.y + viewport.h) / tileDisp) + 1);
+    const out: { x: number; y: number }[] = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push({ x, y });
+    return out;
+  }, [tiled, tileDisp, offset.x, offset.y, viewport.w, viewport.h, cols, rows]);
+
+  const zoomBy = (factor: number) => {
+    // Zoom about the viewport centre so the thing being looked at stays put.
+    const cx = viewport.w / 2, cy = viewport.h / 2;
+    setScale((s) => {
+      const next = Math.min(4, Math.max(0.02, s * factor));
+      setOffset((o) => ({
+        x: cx - ((cx - o.x) * next) / s,
+        y: cy - ((cy - o.y) * next) / s,
+      }));
+      return next;
+    });
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    if (drawing) {
+      drag.current = { kind: "draw", sx: px, sy: py, ox: offset.x, oy: offset.y };
+      setDrawRect({ x1: px, y1: py, x2: px, y2: py });
+    } else {
+      drag.current = { kind: "pan", sx: px, sy: py, ox: offset.x, oy: offset.y };
+    }
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!d || !rect) return;
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    if (d.kind === "pan") {
+      setOffset({ x: d.ox + (px - d.sx), y: d.oy + (py - d.sy) });
+    } else {
+      setDrawRect({ x1: d.sx, y1: d.sy, x2: px, y2: py });
+    }
+  };
+
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.kind !== "draw" || !drawRect) { setDrawRect(null); return; }
+    // Viewport pixels -> normalised image coordinates. The service normalises
+    // corner order and rejects zero-area, so a stray click is refused there
+    // rather than needing a second rule here.
+    const toNorm = (px: number, py: number) => ({
+      x: Math.min(1, Math.max(0, (px - offset.x) / dispW)),
+      y: Math.min(1, Math.max(0, (py - offset.y) / dispH)),
+    });
+    const a = toNorm(drawRect.x1, drawRect.y1);
+    const b = toNorm(drawRect.x2, drawRect.y2);
+    setDrawRect(null);
+    setDrawing(false);
+    if (Math.abs(a.x - b.x) < 0.001 || Math.abs(a.y - b.y) < 0.001) return;
+    onDraw({ type: "rect", points: [[a.x, a.y], [b.x, b.y]] });
+  };
+
+  if (canvas.tile_status === "pending") {
+    return (
+      <Stack align="center" py="xl" gap="xs">
+        <Loader />
+        <Text size="sm" c="dimmed">Preparing image — a large sheet takes a few seconds.</Text>
+      </Stack>
+    );
+  }
+
+  const claimed = canvas.regions.filter((r) => r.puzzle_id).length;
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between">
+        <Group gap="xs">
+          <Button size="xs" variant="default" onClick={() => zoomBy(1 / 1.4)}
+                  leftSection={<IconMinus size={14} />}>Out</Button>
+          <Button size="xs" variant="default" onClick={() => zoomBy(1.4)}
+                  leftSection={<IconPlus size={14} />}>In</Button>
+          <Button size="xs" variant="default" onClick={fit}
+                  leftSection={<IconRefresh size={14} />}>Fit</Button>
+          {editable && (
+            <Tooltip label="Drag a box around a puzzle on the image">
+              <Button size="xs" variant={drawing ? "filled" : "light"}
+                      onClick={() => setDrawing((d) => !d)}
+                      leftSection={<IconCrop size={14} />}>
+                {drawing ? "Drawing — drag a box" : "Draw a region"}
+              </Button>
+            </Tooltip>
+          )}
+        </Group>
+        <Group gap="lg">
+          <Text size="sm" c="dimmed">
+            {claimed}/{canvas.regions.length} regions linked
+          </Text>
+          <Group gap="sm">
+            {TINT_LEGEND.map((l) => (
+              <Group key={l.label} gap={4}>
+                <Box w={10} h={10} style={{ background: l.colour, borderRadius: 2 }} />
+                <Text size="xs" c="dimmed">{l.label}</Text>
+              </Group>
+            ))}
+          </Group>
+        </Group>
+      </Group>
+
+      <Box
+        ref={wrapRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          height: "70vh",
+          border: "1px solid var(--mantine-color-default-border)",
+          borderRadius: 4,
+          background: "var(--mantine-color-body)",
+          cursor: drawing ? "crosshair" : "grab",
+          touchAction: "none",
+        }}
+      >
+        <div style={{ position: "absolute", left: offset.x, top: offset.y, width: dispW, height: dispH }}>
+          {tiled ? (
+            visible.map((t) => (
+              <img
+                key={`${level}/${t.y}/${t.x}`}
+                // z/y/x — row before column, libvips' "google" layout. Swapping
+                // y and x transposes the whole image about its diagonal and
+                // looks almost plausible, which is why the server-side helper
+                // pins the order in a test with y != x.
+                src={`/api/media/${canvas.media_id}/tiles/${level}/${t.y}/${t.x}`}
+                alt=""
+                draggable={false}
+                style={{
+                  position: "absolute",
+                  left: t.x * tileDisp,
+                  top: t.y * tileDisp,
+                  // +1px kills the hairline seams that fractional scaling leaves
+                  // between neighbouring tiles.
+                  width: Math.ceil(tileDisp) + 1,
+                  height: Math.ceil(tileDisp) + 1,
+                }}
+              />
+            ))
+          ) : (
+            // tile_status none or failed: the original image is still stored and
+            // still served, so fall back to it rather than showing nothing.
+            <img
+              src={`/api/media/${canvas.media_id}`}
+              alt={canvas.name}
+              draggable={false}
+              style={{ width: "100%", height: "100%" }}
+            />
+          )}
+
+          {/* Normalised coordinates go straight in — this viewBox is the whole
+              payoff of storing regions as 0-1 rather than as pixels. */}
+          <svg
+            viewBox="0 0 1 1"
+            preserveAspectRatio="none"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+          >
+            {canvas.regions.map((r) => {
+              const [[x1, y1], [x2, y2]] = r.shape.points;
+              const tint = tintFor(r.puzzle_id ? puzzlesById.get(r.puzzle_id) : undefined);
+              return (
+                <rect
+                  key={r.id}
+                  x={x1} y={y1} width={x2 - x1} height={y2 - y1}
+                  fill={tint ?? "transparent"}
+                  fillOpacity={tint ? 0.28 : 0}
+                  stroke={tint ?? "#adb5bd"}
+                  strokeDasharray={r.puzzle_id ? undefined : "0.004"}
+                  // Stroke is in viewBox units, so it must be divided by the
+                  // display size or it scales with the zoom into a solid slab.
+                  strokeWidth={2 / Math.max(dispW, 1)}
+                  vectorEffect="non-scaling-stroke"
+                  style={{ cursor: "pointer", pointerEvents: "all" }}
+                  onPointerDown={(e) => {
+                    if (drawing) return;             // drawing over a region wins
+                    e.stopPropagation();             // don't start a pan
+                    onOpenRegion(r);
+                  }}
+                />
+              );
+            })}
+          </svg>
+        </div>
+
+        {drawRect && (
+          <div
+            style={{
+              position: "absolute",
+              left: Math.min(drawRect.x1, drawRect.x2),
+              top: Math.min(drawRect.y1, drawRect.y2),
+              width: Math.abs(drawRect.x2 - drawRect.x1),
+              height: Math.abs(drawRect.y2 - drawRect.y1),
+              border: "2px dashed var(--mantine-color-blue-6)",
+              background: "rgba(34,139,230,0.12)",
+              pointerEvents: "none",
+            }}
+          />
+        )}
+      </Box>
+    </Stack>
+  );
+}

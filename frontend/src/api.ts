@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChatMessage, EvidenceItem, Guild, HuntDetail, HuntList, RollupAnswers, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, RegionRole, RegionShape, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -221,7 +221,12 @@ export function useUploadMedia(huntUid: string) {
         };
         throw new Error(friendlyError(detail, res.status));
       }
-      return (await res.json()) as { id: number; url: string };
+      // width/height/tile_status come back too (B1): a caller creating a
+      // canvas needs them to know whether to wait for tiling.
+      return (await res.json()) as {
+        id: number; url: string; width: number; height: number;
+        tile_status: "none" | "pending" | "ready" | "failed";
+      };
     },
   });
 }
@@ -755,5 +760,110 @@ export function useDeleteHunt(uid: string) {
   return useMutation({
     mutationFn: () => apiSend<{ ok: boolean; failed_channels?: string[] }>(`/api/hunts/${uid}`, "DELETE"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunts"] }),
+  });
+}
+
+// --- Canvases and regions ---------------------------------------------------
+
+export function useCanvases(uid: string | undefined) {
+  return useQuery({
+    queryKey: ["canvases", uid],
+    queryFn: () => apiGet<{ canvases: HuntCanvas[] }>(`/api/hunts/${uid}/canvases`),
+    enabled: !!uid,
+  });
+}
+
+export function useCreateCanvas(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mediaId, name, note }: { mediaId: number; name: string; note?: string }) =>
+      apiSend<HuntCanvas>(`/api/hunts/${uid}/canvases`, "POST", {
+        media_id: mediaId,
+        name,
+        note: note ?? null,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
+  });
+}
+
+export function useUpdateCanvas(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ canvasId, name, note }: { canvasId: number; name?: string; note?: string | null }) =>
+      apiSend<HuntCanvas>(`/api/canvases/${canvasId}`, "PATCH", { name, note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
+  });
+}
+
+export function useDeleteCanvas(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (canvasId: number) =>
+      apiSend<{ ok: boolean }>(`/api/canvases/${canvasId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
+  });
+}
+
+/** The link fields a region write accepts. puzzle_id and role always travel
+ *  together — the API rejects a half-set link with a 400. */
+type RegionLink = {
+  shape?: RegionShape;
+  label?: string;
+  note?: string | null;
+  puzzle_id?: number | null;
+  role?: RegionRole | null;
+};
+
+export function useCreateRegion(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ canvasId, ...body }: { canvasId: number } & RegionLink) =>
+      apiSend<CanvasRegion>(`/api/canvases/${canvasId}/regions`, "POST", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
+  });
+}
+
+export function useUpdateRegion(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ canvasId, regionId, ...body }:
+      { canvasId: number; regionId: number } & RegionLink) =>
+      apiSend<CanvasRegion>(`/api/canvases/${canvasId}/regions/${regionId}`, "PATCH", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["canvases", uid] });
+      // An informs link creates or drops an evidence row, so the evidence views
+      // are stale too.
+      qc.invalidateQueries({ queryKey: ["evidence", uid] });
+    },
+  });
+}
+
+export function useDeleteRegion(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ canvasId, regionId }: { canvasId: number; regionId: number }) =>
+      apiSend<{ ok: boolean }>(`/api/canvases/${canvasId}/regions/${regionId}`, "DELETE"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["canvases", uid] });
+      qc.invalidateQueries({ queryKey: ["evidence", uid] });
+    },
+  });
+}
+
+export function useCreatePuzzleFromRegion(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ canvasId, regionId, name, roundId, role }: {
+      canvasId: number; regionId: number; name: string; roundId: number;
+      role: RegionRole;
+    }) =>
+      apiSend<CanvasRegion>(
+        `/api/canvases/${canvasId}/regions/${regionId}/create-puzzle`, "POST",
+        { name, round_id: roundId, role }),
+    onSuccess: () => {
+      // A new puzzle with a channel and a sheet tab: the board is stale too.
+      qc.invalidateQueries({ queryKey: ["canvases", uid] });
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+    },
   });
 }
