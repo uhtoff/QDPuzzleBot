@@ -133,6 +133,31 @@ def probe_dimensions(src: Path) -> tuple[int, int]:
     return _dims(_load(pyvips, src))
 
 
+def crop_bytes(src: Path, rect: tuple[float, float, float, float]) -> tuple[bytes, int, int]:
+    """Crop a normalised (x1, y1, x2, y2) rectangle out of `src`.
+
+    Returns (png_bytes, width, height) for the cropped image. Synchronous and
+    CPU-bound, like build_pyramid: libvips has no partial/strip decode for PNG,
+    so cropping any size out of a 207 MP source still means a full decode.
+    Callers MUST run this off the event loop.
+    """
+    import pyvips
+    im = _load(pyvips, src)
+    width, height = _dims(im)
+    x1, y1, x2, y2 = rect
+    left = round(x1 * width)
+    top = round(y1 * height)
+    # Clamped rather than trusted: canvas_shape guarantees 0<=coord<=1 and an
+    # ordered, non-zero rect, but rounding a sub-pixel-wide one on a huge image
+    # can still produce a 0-width/height crop, which libvips rejects outright.
+    w = max(1, min(round((x2 - x1) * width), width - left))
+    h = max(1, min(round((y2 - y1) * height), height - top))
+    cropped = im.crop(left, top, w, h)  # pyright: ignore[reportOptionalCall, reportCallIssue, reportAttributeAccessIssue]
+    buf = cropped.write_to_buffer(".png")  # pyright: ignore[reportOptionalCall, reportCallIssue, reportAttributeAccessIssue, reportOptionalMemberAccess]
+    assert isinstance(buf, bytes)
+    return buf, w, h
+
+
 def build_pyramid(src: Path, dest_dir: Path) -> tuple[int, int, int]:
     """Write a tile pyramid for `src` into `dest_dir`.
 

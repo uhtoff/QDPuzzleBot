@@ -2136,6 +2136,52 @@ async def _canvas_ctx(canvas_id, require_manage=False):
     return ctx, canvas_row, None
 
 
+async def _crop_region_media(canvas_row, shape):
+    """Crop `shape`'s rect out of the canvas's original image and save it as
+    its own media row, so an informs-region's evidence carries the actual
+    picture rather than a text-only reference.
+
+    Crops the canvas media's ORIGINAL (untiled) source file, not the tile
+    pyramid — that isn't a single re-openable image. Runs the decode+crop off
+    the event loop, the same reason media_tiling.tile_media does: PNG has no
+    partial/strip decode in libvips, so cropping any size out of a large sheet
+    still means a full decode, up to the same peak memory B1 already accepts
+    for the pyramid. This only runs on an explicit informs-link action (rare),
+    not per-tile-request, so the cost is bounded.
+
+    Never raises: a crop is a convenience layered on top of the evidence row,
+    not a precondition for it — same "never raises" contract as tile_media, so
+    a failure here degrades to a text-only evidence row rather than blocking
+    the region write.
+    """
+    from bot.core.canvas_shape import rect_bounds
+    from bot.core.image_tiler import crop_bytes
+    from bot.core.media_store import save_image_bytes
+    from bot.core.message_media import media_root
+    from bot.store import MediaJsonDb
+    media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    if media is None:
+        return None
+    try:
+        rect = rect_bounds(shape)
+        loop = asyncio.get_running_loop()
+        png, width, height = await loop.run_in_executor(
+            None, crop_bytes, media_root() / media.path, rect)
+        saved = save_image_bytes(
+            hunt_id=media.hunt_id, filename="region-crop.png", raw=png,
+            origin="canvas_crop")
+        crop = MediaJsonDb.create(
+            hunt_id=media.hunt_id, path=saved["path"], filename=saved["filename"],
+            content_type=saved["content_type"], size=saved["size"],
+            origin=saved["origin"], width=width, height=height,
+            tile_status="none")
+        return crop.id
+    except Exception:
+        logger.exception("could not crop region evidence for canvas media %s",
+                         canvas_row.media_id)
+        return None
+
+
 async def _push_board(hunt_id):
     """Tell connected dashboards the board changed.
 
@@ -2242,13 +2288,16 @@ async def create_region(canvas_id):
         return err
     assert ctx is not None and canvas_row is not None
     body = await request.get_json(silent=True) or {}
+    shape, role, puzzle_id = body.get("shape"), body.get("role"), body.get("puzzle_id")
+    media_id = None
+    if role == canvas_service.INFORMS and puzzle_id is not None:
+        media_id = await _crop_region_media(canvas_row, shape)
     try:
         region = canvas_service.create_region(
-            canvas_id=canvas_id, hunt_id=ctx["hunt"]["id"],
-            shape=body.get("shape"),
+            canvas_id=canvas_id, hunt_id=ctx["hunt"]["id"], shape=shape,
             label=(body.get("label") or "").strip()[:255],
             note=(body.get("note") or None),
-            puzzle_id=body.get("puzzle_id"), role=body.get("role"))
+            puzzle_id=puzzle_id, role=role, media_id=media_id)
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
     await _push_board(ctx["hunt"]["id"])
@@ -2279,11 +2328,15 @@ async def update_region(canvas_id, region_id):
     note = body.get("note") if "note" in body else existing.note
     puzzle_id = body.get("puzzle_id") if "puzzle_id" in body else existing.puzzle_id
     role = body.get("role") if "role" in body else existing.role
+    link_changed = (existing.puzzle_id != puzzle_id or existing.role != role)
+    media_id = None
+    if link_changed and role == canvas_service.INFORMS and puzzle_id is not None:
+        media_id = await _crop_region_media(canvas_row, shape)
     try:
         region = canvas_service.update_region(
             region_id=region_id, hunt_id=ctx["hunt"]["id"], shape=shape,
             label=label.strip()[:255], note=note or None,
-            puzzle_id=puzzle_id, role=role)
+            puzzle_id=puzzle_id, role=role, media_id=media_id)
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
     await _push_board(ctx["hunt"]["id"])
@@ -2379,11 +2432,16 @@ async def create_puzzle_from_region(canvas_id, region_id):
     # Link only after the puzzle really exists: a failed create must leave the
     # region exactly as it was, not pointing at a puzzle that was never made.
     import json as _json
+    shape = _json.loads(existing.shape)
+    link_changed = (existing.puzzle_id != puzzle.id or existing.role != role)
+    media_id = None
+    if link_changed and role == canvas_service.INFORMS:
+        media_id = await _crop_region_media(canvas_row, shape)
     try:
         region = canvas_service.update_region(
             region_id=region_id, hunt_id=hunt_obj.id,
-            shape=_json.loads(existing.shape), label=existing.label,
-            note=existing.note, puzzle_id=puzzle.id, role=role)
+            shape=shape, label=existing.label,
+            note=existing.note, puzzle_id=puzzle.id, role=role, media_id=media_id)
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
 

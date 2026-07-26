@@ -62,20 +62,26 @@ def _log_informs_evidence(hunt_id, region_id, puzzle_id, note, media_id=None):
 
 
 def create_region(canvas_id: int, hunt_id: int, shape, label: str = "",
-                  note=None, puzzle_id=None, role=None):
-    """Create one region, and its evidence row if it informs a puzzle."""
+                  note=None, puzzle_id=None, role=None, media_id=None):
+    """Create one region, and its evidence row if it informs a puzzle.
+
+    `media_id`, when given, is a crop of the canvas image already saved as its
+    own media row — the caller's job (an async, I/O-bound step this
+    lock-free/synchronous module does not do); this just forwards it onto the
+    evidence row.
+    """
     _check_link(puzzle_id, role)
     stored = parse_shape(shape)
     region = CanvasRegionJsonDb.create(
         canvas_id=canvas_id, shape=stored, label=label, note=note,
         puzzle_id=puzzle_id, role=role)
     if role == INFORMS:
-        _log_informs_evidence(hunt_id, region.id, puzzle_id, note)
+        _log_informs_evidence(hunt_id, region.id, puzzle_id, note, media_id=media_id)
     return region
 
 
 def update_region(region_id: int, hunt_id: int, shape, label: str = "",
-                  note=None, puzzle_id=None, role=None):
+                  note=None, puzzle_id=None, role=None, media_id=None):
     """Update one region, keeping its evidence row in step with its link.
 
     A change to the link — its role, its target, or clearing it — drops the old
@@ -85,6 +91,10 @@ def update_region(region_id: int, hunt_id: int, shape, label: str = "",
 
     An unchanged link is left alone: churning the row on a note or geometry edit
     would change its id and lose its place in the contribution table.
+
+    `media_id` is the same caller-supplied crop as create_region's; it is only
+    ever used when the link is changing INTO informs, alongside the new
+    evidence row that creates.
     """
     _check_link(puzzle_id, role)
     existing = CanvasRegionJsonDb.get_by_id(region_id)
@@ -97,7 +107,7 @@ def update_region(region_id: int, hunt_id: int, shape, label: str = "",
     if link_changed and existing.role == INFORMS:
         EvidenceJsonDb.delete_by_region(region_id)
     if link_changed and role == INFORMS:
-        _log_informs_evidence(hunt_id, region_id, puzzle_id, note)
+        _log_informs_evidence(hunt_id, region_id, puzzle_id, note, media_id=media_id)
     return CanvasRegionJsonDb.get_by_id(region_id)
 
 

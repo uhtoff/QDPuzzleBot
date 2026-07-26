@@ -54,6 +54,45 @@ def test_tile_relpath_uses_google_z_y_x_order():
     assert image_tiler.tile_relpath(3, 42, z=5, y=9, x=2) == "tiles/3/42/5/9/2.webp"
 
 
+def test_crop_bytes_returns_png_bytes_and_the_crop_dimensions(tmp_path):
+    src = tmp_path / "src.png"
+    _write_image(src, 200, 100)
+    png, w, h = image_tiler.crop_bytes(src, (0.0, 0.0, 0.5, 0.5))
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert (w, h) == (100, 50)
+
+
+def test_crop_bytes_selects_the_requested_region_not_a_fixed_one(tmp_path):
+    """Two crops of different corners of a gradient must decode to different
+    pixels -- proves the rect actually selects where it says, rather than e.g.
+    always returning the whole image or the same corner regardless of rect."""
+    import pyvips
+    src = tmp_path / "src.png"
+    _write_image(src, 200, 200)
+    top_left, _, _ = image_tiler.crop_bytes(src, (0.0, 0.0, 0.1, 0.1))
+    bottom_right, _, _ = image_tiler.crop_bytes(src, (0.9, 0.9, 1.0, 1.0))
+    top_left_avg = pyvips.Image.new_from_buffer(top_left, "").avg()
+    bottom_right_avg = pyvips.Image.new_from_buffer(bottom_right, "").avg()
+    assert top_left_avg != bottom_right_avg
+
+
+def test_crop_bytes_at_the_far_edge_stays_in_bounds(tmp_path):
+    src = tmp_path / "src.png"
+    _write_image(src, 100, 100)
+    _, w, h = image_tiler.crop_bytes(src, (0.5, 0.5, 1.0, 1.0))
+    assert (w, h) == (50, 50)
+
+
+def test_crop_bytes_clamps_a_sub_pixel_rect_to_one_pixel(tmp_path):
+    """canvas_shape guarantees an ordered, non-zero-area rect in 0-1, but
+    rounding one that thin on a small image can still hit 0 -- which libvips'
+    crop rejects outright rather than clamping itself."""
+    src = tmp_path / "src.png"
+    _write_image(src, 100, 100)
+    _, w, h = image_tiler.crop_bytes(src, (0.001, 0.001, 0.002, 0.002))
+    assert (w, h) == (1, 1)
+
+
 def test_build_pyramid_returns_dimensions_and_level_count(tmp_path):
     src = tmp_path / "src.png"
     _write_image(src, 1024, 1024)

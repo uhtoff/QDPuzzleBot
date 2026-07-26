@@ -56,3 +56,14 @@ def parse_shape(payload) -> str:
     if x1 == x2 or y1 == y2:
         raise ShapeRejected("A region needs a width and a height.")
     return json.dumps({"type": RECT, "points": [[x1, y1], [x2, y2]]})
+
+
+def rect_bounds(payload) -> tuple[float, float, float, float]:
+    """Validate `payload` and return its normalised (x1, y1, x2, y2) bounds.
+
+    Reuses parse_shape for validation and normalisation, for callers (cropping)
+    that need the numbers rather than the stored JSON blob.
+    """
+    stored = json.loads(parse_shape(payload))
+    (x1, y1), (x2, y2) = stored["points"]
+    return x1, y1, x2, y2

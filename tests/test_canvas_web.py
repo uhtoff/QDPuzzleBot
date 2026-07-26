@@ -229,6 +229,89 @@ class TestRegionWrites:
         assert resp.status_code == 401
 
 
+class TestRegionCropEvidence:
+    """An informs-region's evidence should carry the actual cropped image, not
+    just a text reference -- so linking one crops the canvas's original image
+    and wires the resulting media id through to the service call."""
+
+    async def test_creating_an_informs_region_crops_the_canvas_image(self, web):
+        with patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb"), \
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=99)) as crop:
+            rdb.create.return_value = _region(puzzle_id=9, role="informs")
+            resp = await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "informs"})
+        assert resp.status_code == 201
+        crop.assert_awaited_once_with(web.cdb.get_by_id.return_value, RECT)
+
+    async def test_the_cropped_media_id_reaches_the_service(self, web):
+        with patch("bot.core.canvas.create_region") as create, \
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=99)):
+            create.return_value = _region(puzzle_id=9, role="informs")
+            await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "informs"})
+        assert create.call_args.kwargs["media_id"] == 99
+
+    async def test_creating_a_locates_region_does_not_crop(self, web):
+        """Cropping is only ever worth doing for the evidence an informs link
+        creates -- a locates region has no evidence row to attach it to."""
+        with patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb"), \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            rdb.create.return_value = _region(puzzle_id=9, role="locates")
+            await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "locates"})
+        crop.assert_not_awaited()
+
+    async def test_a_half_set_informs_link_does_not_crop(self, web):
+        """This request is about to 400 for a half-set link -- cropping first
+        would waste a decode on a write that never lands."""
+        with patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            resp = await web.client.post(
+                "/api/canvases/3/regions", json={"shape": RECT, "role": "informs"})
+        assert resp.status_code == 400
+        crop.assert_not_awaited()
+
+    async def test_relinking_to_informs_crops(self, web):
+        web.rdb.get_by_id.return_value = _region(puzzle_id=9, role="locates")
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=77)) as crop:
+            upd.return_value = _region(puzzle_id=9, role="informs")
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "informs"})
+        crop.assert_awaited_once()
+        assert upd.call_args.kwargs["media_id"] == 77
+
+    async def test_editing_an_unchanged_informs_region_does_not_recrop(self, web):
+        """Only a link CHANGE into informs should pay for a crop -- editing the
+        label or geometry of an already-informs region must not redo it."""
+        web.rdb.get_by_id.return_value = _region(puzzle_id=9, role="informs")
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            upd.return_value = _region(puzzle_id=9, role="informs", label="moved")
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"label": "moved", "puzzle_id": 9, "role": "informs"})
+        crop.assert_not_awaited()
+
+    async def test_dropping_the_link_does_not_crop(self, web):
+        web.rdb.get_by_id.return_value = _region(puzzle_id=9, role="informs")
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            upd.return_value = _region()
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": None, "role": None})
+        crop.assert_not_awaited()
+
+
 class TestCreatePuzzleFromRegion:
     """Draw-to-create. Delegates to the SAME create path the board's create
     button uses, then links the region to what it returns."""
@@ -328,3 +411,76 @@ class TestCreatePuzzleFromRegion:
             "/api/canvases/3/regions/5/create-puzzle",
             json={"name": "Hex maze", "round_id": 2, "role": "locates"})
         assert resp.status_code == 404
+
+    async def test_informs_crops_the_region(self, web, create):
+        with patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=55)) as crop:
+            await web.client.post(
+                "/api/canvases/3/regions/5/create-puzzle",
+                json={"name": "Hex maze", "round_id": 2, "role": "informs"})
+        crop.assert_awaited_once()
+        assert create.upd.call_args.kwargs["media_id"] == 55
+
+    async def test_locates_does_not_crop(self, web, create):
+        """locates means the region IS the puzzle -- there is no evidence row
+        to attach a crop to."""
+        with patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            await web.client.post(
+                "/api/canvases/3/regions/5/create-puzzle",
+                json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        crop.assert_not_awaited()
+
+
+class TestCropRegionMedia:
+    """The crop-and-save helper itself: the canvas's ORIGINAL (untiled) source
+    file in, a new standalone media row out."""
+
+    async def test_crops_the_original_and_saves_a_new_media_row(self):
+        from bot.web.actions import _crop_region_media
+        canvas_row = SimpleNamespace(media_id=7)
+        media = SimpleNamespace(id=7, hunt_id=10, path="uploads/10/orig.png")
+        mdb = MagicMock()
+        mdb.get_by_id.return_value = media
+        mdb.create.return_value = SimpleNamespace(id=88)
+        with patch("bot.store.MediaJsonDb", mdb), \
+             patch("bot.core.image_tiler.crop_bytes",
+                   return_value=(b"PNGDATA", 40, 30)) as crop_bytes, \
+             patch("bot.core.media_store.save_image_bytes",
+                   return_value={"path": "uploads/10/crop.png",
+                                 "filename": "crop.png",
+                                 "content_type": "image/png", "size": 7,
+                                 "origin": "canvas_crop"}) as save:
+            media_id = await _crop_region_media(canvas_row, RECT)
+        assert media_id == 88
+        # The ORIGINAL upload, not a tile: the pyramid isn't a single
+        # re-openable image.
+        assert crop_bytes.call_args.args[0].name == "orig.png"
+        save.assert_called_once_with(
+            hunt_id=10, filename="region-crop.png", raw=b"PNGDATA",
+            origin="canvas_crop")
+        kwargs = mdb.create.call_args.kwargs
+        assert (kwargs["width"], kwargs["height"]) == (40, 30)
+        assert kwargs["tile_status"] == "none"
+        assert kwargs["hunt_id"] == 10
+
+    async def test_returns_none_when_the_canvas_media_row_is_missing(self):
+        from bot.web.actions import _crop_region_media
+        mdb = MagicMock()
+        mdb.get_by_id.return_value = None
+        with patch("bot.store.MediaJsonDb", mdb):
+            assert await _crop_region_media(SimpleNamespace(media_id=7), RECT) is None
+
+    async def test_never_raises_when_the_crop_itself_fails(self):
+        """A crop is a convenience layered on the evidence row, not a
+        precondition for it -- the same 'never raises' contract as
+        media_tiling.tile_media, so a bad source image degrades to a
+        text-only evidence row rather than blocking the region write."""
+        from bot.web.actions import _crop_region_media
+        media = SimpleNamespace(id=7, hunt_id=10, path="uploads/10/orig.png")
+        mdb = MagicMock()
+        mdb.get_by_id.return_value = media
+        with patch("bot.store.MediaJsonDb", mdb), \
+             patch("bot.core.image_tiler.crop_bytes",
+                   side_effect=RuntimeError("boom")):
+            result = await _crop_region_media(SimpleNamespace(media_id=7), RECT)
+        assert result is None

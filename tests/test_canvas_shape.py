@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from bot.core.canvas_shape import ShapeRejected, parse_shape
+from bot.core.canvas_shape import ShapeRejected, parse_shape, rect_bounds
 
 
 def test_a_plain_rect_round_trips():
@@ -76,3 +76,18 @@ def test_booleans_are_not_accepted_as_coordinates():
     1.0 and silently produces a full-width region."""
     with pytest.raises(ShapeRejected):
         parse_shape({"type": "rect", "points": [[True, 0.2], [0.3, 0.4]]})
+
+
+def test_rect_bounds_returns_the_normalised_numbers():
+    assert rect_bounds({"type": "rect", "points": [[0.1, 0.2], [0.3, 0.4]]}) == \
+        (0.1, 0.2, 0.3, 0.4)
+
+
+def test_rect_bounds_normalises_a_reversed_drag_like_parse_shape():
+    assert rect_bounds({"type": "rect", "points": [[0.8, 0.9], [0.2, 0.3]]}) == \
+        (0.2, 0.3, 0.8, 0.9)
+
+
+def test_rect_bounds_rejects_what_parse_shape_rejects():
+    with pytest.raises(ShapeRejected):
+        rect_bounds({"type": "rect", "points": [[0.5, 0.2], [0.5, 0.4]]})

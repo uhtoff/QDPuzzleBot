@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — fix(web): push a board update when tiling finishes, and stop the dashboard DB pool starving under a tile-viewer burst @ 7bd66e2
+Status: in progress — informs-region crop-to-evidence built and tested, uncommitted (last commit still dca0826)
 
 ## Goal
 
@@ -172,32 +172,75 @@ full suite green (1389 passed). Not yet redeployed to puzzbot.com — that's the
 7. ~~`!canvas` in a hunt channel.~~ Confirmed working (bug #3, not a code issue).
 8. Two browsers on the same canvas: confirm regions appear live without a reload. Not yet done.
 
-## Requested follow-up (not yet built)
+## Requested follow-up — DONE, uncommitted
 
 **Informs-region evidence should carry the actual cropped image, not just a text reference.**
 User: "When we carve out a part of the image as 'informs' evidence then that section of the image
 should be in the evidence table. I would treat it like we uploaded that image for that purpose."
 
-Current state: `_log_informs_evidence()` (`bot/core/canvas.py`) already accepts a `media_id`
-parameter and passes it through to `EvidenceJsonDb.log()` — but `create_region`/`update_region`
-never pass one, so every informs-region evidence row has `media_id=None` today (text-only,
-rendered via `evidence_source_label()`'s region-name fallback).
+Built exactly to the plan sketched earlier this session:
 
-Plan sketched but not implemented: crop the region's normalised rect out of the canvas media's
-**original** (untiled) source file — not the tile pyramid, which isn't a single re-openable
-image — via pyvips, off the event loop (`run_in_executor`, mirroring `media_tiling.py`), save it
-as its own untiled `media` row via the existing `save_image_bytes`/`MediaJsonDb.create` path, and
-wire the new `media_id` through to `_log_informs_evidence`. Deliberately NOT done as a change deep
-in `bot/core/canvas.py` — that module is synchronous/lock-free by convention, and libvips cropping
-is I/O+CPU-bound; the crop should happen in the async web layer (`bot/web/actions.py`'s
-`create_region`/`update_region`/`create_puzzle_from_region` routes) before calling into
-`canvas_service`, passing the resulting `media_id` down as an explicit argument — not inventing
-async in the core module.
+- `bot/core/image_tiler.py`: new `crop_bytes(src, rect) -> (png_bytes, width, height)`, pure and
+  synchronous like `build_pyramid`. Pixel bounds are rounded from the normalised rect and clamped
+  (`max(1, min(...))`) — a sub-pixel-wide rect on a huge image can round to a 0-width/height crop,
+  which libvips' `crop()` rejects outright; proved load-bearing by mutation (removing the clamp
+  reds the edge-case test with "parameter width not set", reverted).
+- `bot/core/canvas_shape.py`: new `rect_bounds(payload) -> (x1,y1,x2,y2)`, reusing `parse_shape`
+  for validation so there is exactly one place a rect is normalised.
+- `bot/core/canvas.py`: `create_region`/`update_region` gained a `media_id=None` parameter,
+  forwarded to `_log_informs_evidence`. Default `None` keeps every existing caller/test unchanged.
+- `bot/web/actions.py`: new `_crop_region_media(canvas_row, shape)` — looks up the canvas's
+  **original** (untiled) media row, runs `crop_bytes` in `run_in_executor`, then
+  `save_image_bytes`/`MediaJsonDb.create` (`origin="canvas_crop"`, `tile_status="none"`) to store
+  the crop as its own standalone media row. Never raises (mirrors `tile_media`'s contract): a
+  crop is a convenience on the evidence row, not a precondition for it, so a failure degrades to
+  a text-only evidence row. Wired into `create_region`, `update_region`, and
+  `create_puzzle_from_region`, each guarded so a crop only runs when the link is actually
+  *changing into* `informs` (checked via the same `existing.puzzle_id != x or existing.role != y`
+  comparison `canvas_service.update_region` uses internally) — not on every note/label edit of an
+  already-informs region, and not on a half-set link that's about to 400 anyway.
+- No frontend change needed: `bot/web/data.py`'s evidence serialisation already builds
+  `media_url` from `media_id` generically, and `EvidencePanel.tsx` already renders it — this was
+  pure backend wiring of a path that already existed for text-only evidence-with-attachment.
 
-Confirmed technical point: cropping a PNG needs a full decode regardless of crop size (PNG has no
-partial/strip decode in libvips) — same cost class B1 already accepts for building the tile
-pyramid (up to ~360 MB peak), not a new risk. This only runs on an explicit informs-link action
-(rare), not per-tile-request (frequent), so the cost is bounded and low-frequency.
+Tests added: `tests/test_image_tiler.py` (crop dimensions, a real gradient-image test that two
+different corners decode to different pixels — proves the rect actually selects where it says,
+not a fixed corner — edge clamp, sub-pixel clamp), `tests/test_canvas_shape.py` (`rect_bounds`),
+`tests/test_canvas_service.py` (`media_id` forwarding), `tests/test_canvas_web.py` (crop wiring
+across all three routes, plus direct unit tests of `_crop_region_media` including the
+never-raises path). All mutation-proved where the property mattered (the clamp; the
+locates/half-set-link "must not crop" guards — confirmed red for the right reason, reverted).
+
+Full suite green (1410 passed), ruff clean, basedpyright 0 errors on every touched file. Not yet
+committed — sitting as a working-tree diff across `bot/core/canvas.py`,
+`bot/core/canvas_shape.py`, `bot/core/image_tiler.py`, `bot/web/actions.py`, and their four test
+files. Not yet verified in a browser (draw an informs region on `puzzbot.com`, confirm the
+Evidence panel shows the cropped image).
+
+## OCR — asked about, not decided or built
+
+User asked (2026-07-26) whether OCR on the canvas/evidence images is possible at all. No existing
+OCR/vision infra in this codebase (grepped: no tesseract/ocr/vision/anthropic/openai hits). Three
+real options, with a real constraint already on record for this project
+([[pyvips-binary-on-plesk]]): the live host has **no root**, which is why `pyvips[binary]` was
+usable at all — it bundles libvips in the wheel — and is exactly the property `pytesseract` LACKS
+(it wraps the system `tesseract` binary, normally an apt package). Options, not yet evaluated in
+practice:
+
+1. **pytesseract** — free, lightest, but needs a system `tesseract-ocr` binary; likely blocked on
+   the current Plesk host without root, same class of problem B1 solved for libvips.
+2. **EasyOCR** — pure pip install (PyTorch-based), no root needed, so it should actually deploy
+   here; heavier dependency (pulls in torch) and slower/more memory per inference.
+2b. Not yet checked: whether a rootless tesseract path exists (a static/bundled binary, conda-less
+   wheel, or similar) — would be worth a quick check before ruling pytesseract out.
+3. **Cloud OCR/vision API** (e.g. Google Cloud Vision — the project already holds Google API
+   credentials for Sheets) — best accuracy, but a per-request cost and a new external network
+   dependency, unlike everything else in this feature which is local/offline.
+
+Nothing implemented. Next step if pursued: a small standalone spike (not wired into canvas.py or
+the evidence path) trying EasyOCR against a real puzzle-sheet crop, to see whether accuracy is
+even good enough on hunt-typical fonts/handwriting to be worth the dependency weight — before
+deciding whether it's worth building in at all.
 
 ## Known gaps and risks
 

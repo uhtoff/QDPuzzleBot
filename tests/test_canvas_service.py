@@ -68,6 +68,16 @@ def test_an_informs_region_creates_a_real_evidence_row(dbs):
     evidence.set_target.assert_called_once_with(77, 9)
 
 
+def test_an_informs_region_forwards_a_caller_supplied_media_id(dbs):
+    """The crop is the caller's job (an async, I/O-bound step this
+    lock-free/synchronous module does not do) -- this just has to pass it on."""
+    regions, evidence = dbs
+    regions.create.return_value = _region(region_id=5, puzzle_id=9, role="informs")
+    canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="informs", media_id=123)
+    assert evidence.log.call_args.kwargs["media_id"] == 123
+
+
 def test_an_informs_region_creates_no_informs_edge(dbs):
     """An informs EDGE joins two puzzles, and a region is not one. The target
     gains a contribution row without gaining a member — intended."""
@@ -133,6 +143,14 @@ def test_locates_to_informs_creates_the_evidence_row(dbs):
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="informs")
     assert evidence.log.call_args.kwargs["source_region_id"] == 5
+
+
+def test_relinking_an_informs_region_forwards_a_caller_supplied_media_id(dbs):
+    regions, evidence = dbs
+    regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
+                         puzzle_id=11, role="informs", media_id=456)
+    assert evidence.log.call_args.kwargs["media_id"] == 456
 
 
 def test_an_unchanged_informs_link_keeps_its_evidence_row(dbs):
