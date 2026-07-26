@@ -2274,6 +2274,11 @@ git commit -m "feat(web): frontend types and hooks for image evidence"
 
 `EvidencePanel` filters and sorts on `source_puzzle_name`. Read the `filterSource` and `sort` logic (lines ~30-45 and the `useMemo` that applies them) and make both null-safe — a sourceless item must not crash a `localeCompare`, and the source filter needs an explicit "no source" choice. Use `(item.source_puzzle_name ?? "")` for comparisons.
 
+Task 12's review found the two specific sites:
+
+- **`EvidencePanel.tsx:69`** — the `sourceOptions` builder does `seen.set(i.source_puzzle_id, i.source_puzzle_name)` with **no null guard**, unlike `targetOptions` on line 78 which already does. A sourceless item now reaches this. Give it the same treatment, and decide what a sourceless entry should look like in that dropdown — an explicit "No source" option is likely better than an empty label, since the filter is how someone would go looking for hunt-level evidence.
+- The sort comparator already does `a[key] ?? ""`, so it will not crash — but confirm that by reading it rather than trusting this note.
+
 - [ ] **Step 3: Add the thumbnail**
 
 Add a cell before the note, rendering the image at a small fixed height with a link to the full size:
