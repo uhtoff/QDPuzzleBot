@@ -3,13 +3,13 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(web): canvas and region API @ aa43fcd
+Status: in progress — feat(web): the Canvas view — tiled image with linked regions @ e3537e2
 
 ## Goal
 
 Canvas Plan B from `docs/superpowers/specs/2026-07-26-canvas-image-evidence-design.md`.
 Split into **B1 — tiled media pipeline** (done), **B2a — model/service/API** (done), and
-**B2b — the viewer, RegionModal, draw-to-create, `!canvas`** (next).
+**B2b — viewer, RegionModal, draw-to-create, `!canvas`** (code done, unverified in a browser).
 
 ## Current status
 
@@ -77,24 +77,49 @@ B1 ships no UI. Nothing consumes tiles until B2.
 - **`create-puzzle-from-region` deferred to B2b** on purpose: its arguments (round choice, meta
   type) are decided by UI that does not exist yet.
 
-## Next steps — B2b
+## B2b decisions (code done)
 
-1. Write `docs/superpowers/plans/2026-07-26-canvas-b2b-viewer.md`.
-2. Frontend: a **Canvas** entry in `HuntBoard.tsx`'s `SegmentedControl` (its width calculation
-   is hard-coded and must be updated), `CanvasPanel.tsx` (picker + upload), `CanvasView.tsx`
-   (tiled viewer), `RegionModal.tsx`.
-3. The viewer must mount **only the tiles intersecting the viewport** at the current level —
-   `GET /api/media/<id>/tiles/<z>/<y>/<x>`, google order (row before column) — and show
-   progress while `tile_status` is `pending`, falling back to `GET /api/media/<id>` when
-   `tile_status` is `none` or `failed`.
-4. Progress tint: green `solved`/`backsolved`, amber `in progress`/`needs extraction`/`needs
-   submission`, red `stuck`, grey `unstarted`; untinted = unclaimed art. Legend + claimed count.
-5. `POST /api/canvases/<id>/regions/<rid>/create-puzzle` — delegate to the existing
-   `puzzle_service` create path and then link the region. **Must not take a lock the create
-   path takes internally** (`bot/core` is lock-free by convention; callers lock).
-6. `!canvas` posts a link; update its docstring **and** `docs/commands.md` in the same change.
-   Drawing stays web-only — a deliberate parity exception like the archiving family.
+- **`CanvasView` mounts only the tiles intersecting the viewport** (plus a one-tile margin) at
+  a level chosen as the smallest one still covering the displayed width, so tiles downscale
+  rather than blow up. Tile URLs are `z/y/x` — row before column.
+- **The SVG overlay is `viewBox="0 0 1 1"`**, so region rects use their stored normalised
+  coordinates directly at any zoom. This is the payoff of B2a's coordinate choice.
+- **`tile_status` drives the fallbacks**: Loader while `pending`, plain `/api/media/<id>` when
+  `none` or `failed`.
+- **`meta_type` was dropped from draw-to-create**, not implemented. `create_puzzle` has no meta
+  concept — metas are a separate route that builds a category — so offering it would have meant
+  inventing behaviour.
+- **`create-puzzle-from-region` mirrors `/hunts/<uid>/puzzles`' `hunt_create_lock`** around
+  check+create, and links the region only after the puzzle exists.
+- **`!canvas` links, and drawing stays web-only** — recorded as a deliberate parity exception in
+  a new Canvas section of `docs/commands.md`.
 
-## Open questions
+## THE OUTSTANDING WORK — verification, not code
 
-- None blocking. See `open-questions.md`.
+Everything below B1/B2a/B2b is committed and gate-green, but **nothing has been looked at in a
+browser**. Before this can be called done:
+
+1. **Drive the real app.** Start it per `AGENTS.md`, log in, open a hunt's **Canvas** tab.
+2. Upload `images/extravaganza-14400x14400.png`. Confirm: the row goes in `pending`, the panel
+   shows "Preparing image", and it flips to the tiled view within ~10 s.
+3. **Pan and zoom.** Watch the network panel: only viewport tiles should be requested, and the
+   level should change as you zoom. Check for hairline seams between tiles (there is a +1px
+   fudge for this — confirm it is enough).
+4. **Draw a region.** Confirm the box lands where it was drawn *at several zoom levels* — a
+   coordinate bug would only show at non-default zoom, which is exactly what the typecheck
+   cannot catch.
+5. Link it as `locates`, confirm the tint matches the puzzle's status. Re-link as `informs`,
+   confirm a row appears in the **Evidence** panel, and that clearing the link removes it.
+6. **Draw-to-create** a puzzle; confirm the Discord channel and sheet tab appear.
+7. `!canvas` in a hunt channel.
+8. Two browsers on the same canvas: confirm regions appear live without a reload.
+
+## Known gaps and risks
+
+- **No frontend test runner exists** (`package.json` has no vitest/jest). The whole viewer is
+  typecheck-and-inspection only: `npm run build` cannot catch an inverted zoom, a wrong tile
+  URL, or a region drawn in the wrong place.
+- **Not deployed.** `pyvips[binary]` installing without root on the Plesk host is inference from
+  the wheel bundling libvips, not an observed deploy.
+- ~360 MB peak RSS per tiling job, with no cross-upload concurrency cap.
+- `MAX_DIRECT_PIXELS = 16_000_000` is a judgement call about mobile Safari, not a measurement.
