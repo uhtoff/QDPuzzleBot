@@ -1,4 +1,4 @@
-import { ActionIcon, Anchor, Button, Group, Stack, Text, TextInput } from "@mantine/core";
+import { ActionIcon, Anchor, Box, Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import {
   IconExternalLink,
@@ -111,15 +111,23 @@ export function HuntInfoPanel({
             const sheetUrl = sheet_base_url ? `${sheet_base_url}${s.page_id ?? ""}` : null;
             return (
               <Group key={s.id} gap={6} wrap="nowrap">
-                <IconExternalLink size={14} />
-                {sheetUrl ? (
-                  <Anchor href={sheetUrl} target="_blank" size="sm" lineClamp={1}
-                          style={{ flex: 1 }}>
-                    {s.name}
-                  </Anchor>
-                ) : (
-                  <Text size="sm" lineClamp={1} style={{ flex: 1 }}>{s.name}</Text>
-                )}
+                <IconExternalLink size={14} style={{ flexShrink: 0 }} />
+                {/* A fixed flex BASIS, not flex:1. flex:1 stretched every name to
+                    the panel edge, which lined the bins up but parked them a long
+                    way from the names they belong to. A basis keeps the bin next
+                    to the name while still aligning the bins down the column,
+                    because every row reserves the same width — and `1` for
+                    shrink means they stay aligned on a narrow viewport too. */}
+                <Box style={{ flex: "0 1 260px", minWidth: 0 }}>
+                  {sheetUrl ? (
+                    <Anchor href={sheetUrl} target="_blank" size="sm" lineClamp={1}
+                            title={s.name}>
+                      {s.name}
+                    </Anchor>
+                  ) : (
+                    <Text size="sm" lineClamp={1} title={s.name}>{s.name}</Text>
+                  )}
+                </Box>
                 {editable && (
                   <ActionIcon
                     variant="subtle"
