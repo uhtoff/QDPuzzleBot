@@ -63,3 +63,83 @@ class TestHuntSheetMutex:
         cog = make_cog(puzzle=None, hunt=make_hunt(id=10))
         cog.environment = {}
         assert await command(cog, make_ctx(), 3) == 6
+
+
+class TestAddSheetCommand:
+    async def test_hunt_channel_creates_a_hunt_level_sheet(self):
+        from bot.cogs.puzzles import Puzzles
+        hunt = make_hunt(id=10)
+        cog = make_cog(puzzle=None, hunt=hunt)
+        cog.environment = {}
+        cog.service.add_hunt_sheet = AsyncMock(
+            return_value=SimpleNamespace(id=1, puzzle_name="alt text"))
+        ctx = make_ctx()
+        await Puzzles.add_sheet(cog, ctx, "alt", "text")
+        cog.service.add_hunt_sheet.assert_awaited_once_with(hunt, "alt text")
+        assert ":white_check_mark:" in ctx.send.await_args[0][0]
+
+    async def test_puzzle_channel_is_unchanged(self):
+        from bot.cogs.puzzles import Puzzles
+        hunt = make_hunt(id=10)
+        puzzle = make_puzzle(id=5, hunt_id=10, name="Alpha")
+        cog = make_cog(puzzle=puzzle, hunt=hunt)
+        cog.environment = {}
+        cog.service.add_sheet = AsyncMock()
+        cog.service.add_hunt_sheet = AsyncMock()
+        cog.info = AsyncMock()
+        await Puzzles.add_sheet(cog, make_ctx(), "grid", "2")
+        cog.service.add_sheet.assert_awaited_once_with(hunt, puzzle, "grid 2")
+        cog.service.add_hunt_sheet.assert_not_awaited()
+
+    async def test_no_hunt_at_all_refuses(self):
+        """Outside any hunt category there is nothing to attach a sheet to."""
+        from bot.cogs.puzzles import Puzzles
+        cog = make_cog(puzzle=None, hunt=None)
+        cog.get_hunt = lambda ctx: None
+        cog.environment = {}
+        cog.service.add_hunt_sheet = AsyncMock()
+        ctx = make_ctx()
+        await Puzzles.add_sheet(cog, ctx, "alt")
+        cog.service.add_hunt_sheet.assert_not_awaited()
+        assert ":x:" in ctx.send.await_args[0][0]
+
+
+class TestRemoveSheetCommand:
+    async def test_hunt_channel_removes_by_index(self):
+        from bot.cogs.puzzles import Puzzles
+        hunt = make_hunt(id=10)
+        cog = make_cog(puzzle=None, hunt=hunt)
+        cog.environment = {}
+        sheet = SimpleNamespace(id=4, puzzle_name="alt text")
+        cog.service.get_hunt_sheets = MagicMock(return_value=[sheet])
+        cog.service.remove_hunt_sheet_by_index = AsyncMock()
+        ctx = make_ctx()
+        await Puzzles.remove_sheet(cog, ctx, 1)
+        cog.service.remove_hunt_sheet_by_index.assert_awaited_once_with(hunt, 1)
+        assert "alt text" in ctx.send.await_args[0][0]
+
+    async def test_hunt_channel_rejects_a_bad_index(self):
+        from bot.cogs.puzzles import Puzzles
+        cog = make_cog(puzzle=None, hunt=make_hunt(id=10))
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock(return_value=[])
+        cog.service.remove_hunt_sheet_by_index = AsyncMock()
+        ctx = make_ctx()
+        await Puzzles.remove_sheet(cog, ctx, 1)
+        cog.service.remove_hunt_sheet_by_index.assert_not_awaited()
+        assert ":x:" in ctx.send.await_args[0][0]
+
+    async def test_names_the_sheet_the_index_actually_points_at(self):
+        """Two sheets: with one, a message that always named sheets[0] would pass.
+        """
+        from bot.cogs.puzzles import Puzzles
+        cog = make_cog(puzzle=None, hunt=make_hunt(id=10))
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock(return_value=[
+            SimpleNamespace(id=7, puzzle_name="first"),
+            SimpleNamespace(id=2, puzzle_name="second"),
+        ])
+        cog.service.remove_hunt_sheet_by_index = AsyncMock()
+        ctx = make_ctx()
+        await Puzzles.remove_sheet(cog, ctx, 2)
+        assert "second" in ctx.send.await_args[0][0]

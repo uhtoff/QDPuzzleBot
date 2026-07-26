@@ -1308,40 +1308,68 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
+    @with_hunt_sheet_mutex()
     async def add_sheet(self, ctx, *args):
-        """*Add an extra working sheet (tab) to this puzzle.*
+        """*Add an extra working sheet (tab) to this puzzle, or to the hunt.*
 
         Usage: `!add_sheet sheet-name`
         Example: `!add_sheet grid attempt 2`
-        Run in a puzzle channel that isn't solved yet. List them with `!list_sheets`."""
+        Run in a puzzle channel that isn't solved yet to add a sheet to that
+        puzzle; run anywhere else in the hunt to add one that belongs to the hunt
+        itself — somewhere to pick at something found in the hunt's alt text
+        before you know which puzzle it belongs to. List them with `!list_sheets`."""
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
+        name = " ".join(args)
+
         if puzzle is None:
-            return await self.send_not_puzzle_channel(ctx)
+            if hunt is None:
+                return await ctx.send(
+                    ":x: This channel isn't part of a hunt, so there's nothing to "
+                    "add a sheet to.")
+            sheet = await self.service.add_hunt_sheet(hunt, name)
+            return await ctx.send(
+                f":white_check_mark: Added sheet {sheet.puzzle_name} to the hunt.")
 
         if puzzle.solved:
             return await ctx.send(":x: You can't add additional sheets to solved puzzles!")
 
-        name = " ".join(args)
-
-        await self.service.add_sheet(self.get_hunt(ctx), puzzle, name)
+        await self.service.add_sheet(hunt, puzzle, name)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
 
     @commands.command(aliases=['delete_sheet'])
     @with_puzzle_mutex(wait=True)
+    @with_hunt_sheet_mutex()
     async def remove_sheet(self, ctx, number: int):
-        """*Remove an additional sheet from this puzzle by its number.*
+        """*Remove an additional sheet by its number, from this puzzle or the hunt.*
 
         Usage: `!remove_sheet number`
         Example: `!remove_sheet 2`
-        Get the number from `!list_sheets`. Run in a puzzle channel. Alias: `!delete_sheet`."""
+        Get the number from `!list_sheets`. Run in a puzzle channel to remove one
+        of that puzzle's sheets, or anywhere else in the hunt to remove one of the
+        hunt's own. Alias: `!delete_sheet`."""
         puzzle = self.get_puzzle(ctx)
-        if not puzzle:
-            return await self.send_not_puzzle_channel(ctx)
+        hunt = self.get_hunt(ctx)
+
+        if puzzle is None:
+            if hunt is None:
+                return await ctx.send(
+                    ":x: This channel isn't part of a hunt, so there are no sheets "
+                    "to remove.")
+            sheets = self.service.get_hunt_sheets(hunt)
+            if number < 1 or number > len(sheets):
+                return await ctx.send(
+                    f":x: No hunt sheet #{number}. Use !list_sheets to see them.")
+            name = sheets[number - 1].puzzle_name
+            await self.service.remove_hunt_sheet_by_index(hunt, number)
+            return await ctx.send(
+                f":white_check_mark: Removed sheet {name} from the hunt.")
+
         if number < 1 or number > len(puzzle.additional_sheets):
             return await ctx.send(f":x: No additional sheet #{number}. Use !list_sheets to see them.")
         name = puzzle.additional_sheets[number - 1].puzzle_name
-        await self.service.remove_sheet_by_index(self.get_hunt(ctx), puzzle, number)
+        await self.service.remove_sheet_by_index(hunt, puzzle, number)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
