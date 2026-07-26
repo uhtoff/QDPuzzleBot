@@ -1,7 +1,9 @@
 # Image evidence + the hunt Canvas
 
 Date: 2026-07-26
-Status: design — approved direction, pending spec review
+Status: Plan A shipped. Plan C shipped. Plan B amended 2026-07-26 to serve a canvas as a
+tile pyramid (see "Tiling") after the real motivating image proved the single-`<img>` viewer
+unworkable; Plan B now splits into B1 (tiled media) and B2 (the canvas).
 
 ## Goal
 
@@ -36,6 +38,9 @@ is precisely the link between a region of the picture and a live puzzle record.
 - **Rectangles only**, but geometry is stored as a shape blob so other shapes are a later
   UI change, not a migration.
 - **Coordinates are normalised 0–1**, never pixels.
+- **A canvas image is served as a tile pyramid, not as one `<img>`.** Amended 2026-07-26
+  after measuring the real motivating image — see "Tiling" below. Normalised coordinates
+  are what make this a frontend-only concern.
 - **Many canvases per hunt, flat.** No round/TagGroup scoping.
 - **Draw-to-create.** Drawing a box can create a brand-new puzzle through the existing
   `puzzle_service` create path (Discord channel, sheet tab, tagged into a chosen round).
@@ -56,9 +61,12 @@ is precisely the link between a region of the picture and a live puzzle record.
 
 ## Out of scope (deliberate)
 
-Polygons, freehand, and any second drawing tool. Server-side PNG rendering of the canvas.
-Per-round canvas scoping. Public/tokenised media URLs. Undo history beyond delete. OCR or
-any automatic transcription. All are additive later; none are load-bearing now.
+Polygons, freehand, and any second drawing tool. Server-side compositing of the canvas
+*with its overlay* — the tint and the regions are drawn by the browser, and no rendered
+PNG of the marked-up canvas is ever produced. (Deriving tiles from the source image is
+*not* in this exclusion; see "Tiling".) Per-round canvas scoping. Public/tokenised media
+URLs. Undo history beyond delete. OCR or any automatic transcription. All are additive
+later; none are load-bearing now.
 
 ## Relevant files
 
@@ -95,9 +103,12 @@ canvas_regions  id, canvas_id, shape, label, note,
 - `media.path` is relative, resolved under `config.web_archive_media_dir` — the same root
   the message bridge already writes to.
 - `media.origin` records where the bytes came from (`upload`, `url`, `discord`).
-- No pixel dimensions are stored. The browser knows the image's natural size, and
-  normalised coordinates mean nothing server-side needs it — which is what keeps Pillow out
-  of the dependency list.
+- `media` stores `width`, `height`, `tile_status` and `tile_levels`. **This reverses the
+  original decision to store no pixel dimensions** (amended 2026-07-26). That decision was
+  justified by normalised coordinates — true for regions, but a tile pyramid needs the
+  source dimensions to know how many zoom levels exist and how many tiles occupy the
+  bottom one, and the browser cannot report the natural size of an image it is never able
+  to decode.
 - `canvas_regions.shape` is JSON: `{"type":"rect","points":[[x1,y1],[x2,y2]]}`, all values
   in 0–1.
 - `canvas_regions.label` is a short caption shown on the overlay and used as the source
@@ -129,6 +140,61 @@ fields to `EvidenceData` before the column exists breaks existing writes.
 Migration numbering starts at `030_`. Check for collisions with any parallel worktree
 before merging — parallel branches can both claim the same number and git will merge them
 cleanly without noticing.
+
+## Tiling
+
+Amended 2026-07-26. The original design served a canvas as a single `<img>` with a CSS
+transform for pan and zoom. Edric's extravaganza sheet — the image this feature exists for
+— is 14400×14400. That is 207 megapixels, roughly 830 MB decoded as RGBA. Desktop browsers
+thrash on it and mobile Safari refuses it outright, so the single-`<img>` viewer cannot
+display the one picture that motivated the feature. The hunt distributed 4800×4800 slices
+for downloading, but those are download chunks rather than tiles: 23 MP each, with no
+overview level, so a fit-to-screen view would still mean decoding all nine.
+
+So the server derives a tile pyramid at upload time.
+
+- **`pyvips`**, installed as `pyvips[binary]` — the wheel bundles libvips (8.18.4), so it
+  is a plain pip install needing no root and no system packages on the Plesk host. This is
+  the dependency the original design avoided; it is now warranted.
+- **`Image.dzsave`** with `layout="google"`, `tile_size=512`, `overlap=0`,
+  `depth="onetile"` — one call produces every zoom level down to a single tile.
+- **Lossless WebP.** Measured on the real image, lossless is both smaller *and* exact:
+  9.6 MB against 11 MB for lossy Q82. Flat white line art is the case where lossless wins
+  outright, and this content is small black lettering that must stay readable.
+- **`VIPS_CONCURRENCY=2`.** Measured: 13.6 s/224 MB at 1, 8.1 s/340 MB at 2, 6.7 s/563 MB
+  at 4, 6.9 s/982 MB unbounded on a 12-core box. Past 2 threads it buys about a second for
+  triple the memory, which is the wrong trade on a small VPS.
+- Result for the motivating image: **6 zoom levels, 940 tiles, 9.6 MB, in ~8 s.**
+
+Storage sits beside the uploads that Plan A already writes, under the same
+`config.web_archive_media_dir` root:
+
+```
+uploads/{hunt_id}/{uuid}_{name}.png          ← Plan A, exists
+tiles/{hunt_id}/{media_id}/{z}/{y}/{x}.webp  ← new (note: google layout is z/y/x)
+```
+
+- Keyed by **`media_id`, not filename**: regeneration is idempotent (remove one directory
+  and rebuild) and deleting a `media` row deletes exactly one directory. A uuid-keyed
+  layout would leave orphans that could never be swept with confidence.
+- A **sibling under the same root**, so the existing `resolve()`-against-root guard in
+  `bot/web/api.py` covers tiles with no second traversal check and no second backup target.
+  Sharing the root was decided for exactly this.
+- **Tiles get no `media` rows.** A pyramid is hundreds of files per canvas, and `media` is
+  hunt-scoped and FK-cascaded for user-facing images. Tiles are addressed by convention
+  from their source row instead.
+- `dzsave` **omits fully blank tiles** and writes a `blank.png` alongside. The tile route
+  must treat a missing tile as blank rather than as an error.
+
+**Tiling never runs on the event loop.** Eight seconds of CPU on the loop would stall the
+bot's gateway heartbeat, and this project already carries a known deferred issue about
+event-loop-blocking Sheets calls. The upload route validates, stores, inserts the row with
+`tile_status='pending'` and returns; tiling runs in an executor and flips the row to
+`ready` (or `failed`). The frontend shows progress until it is ready.
+
+The existing upload cap already admits the motivating file: `web_attachment_max_bytes`
+defaults to 25 MiB and the sheet is 16.5 MB. A larger sheet would not fit, so canvases may
+later want their own cap; not changed now.
 
 ## Behaviour
 
@@ -264,6 +330,10 @@ a possible follow-up, not built.
 - `GET /api/media/<id>` — serves bytes. Modelled directly on `/api/attachments/<id>`,
   including its `resolve()`-against-root traversal guard and inline-vs-download handling.
   Authenticated, hunt-scoped.
+- `GET /api/media/<id>/tiles/<z>/<y>/<x>` — serves one tile, authorised against the source
+  row's hunt exactly as `/api/media/<id>` is. `z`, `y` and `x` are integers and are never
+  interpolated into a path before validation. A tile absent because `dzsave` judged it blank
+  returns the blank tile, not a 404.
 - `POST /api/hunts/<uid>/media` — multipart upload, or `{"url": ...}` fetched server-side
   via `message_media.download_attachment`, or `{"attachment_id": ...}` to promote an image
   the message bridge has already captured into a `media` row.
@@ -296,9 +366,11 @@ Permissions:
 - A **Canvas** entry in the existing `SegmentedControl` in `HuntBoard.tsx`, alongside By
   group / All puzzles / Evidence. Its width calculation is hard-coded and must be updated.
 - `components/CanvasPanel.tsx` — canvas picker and upload.
-- `components/CanvasView.tsx` — an `<img>` with an absolutely-positioned SVG overlay at
-  `viewBox="0 0 1 1"` and `preserveAspectRatio="none"`, so normalised coordinates need no
-  arithmetic at all. Pan and zoom are a CSS transform on the wrapper.
+- `components/CanvasView.tsx` — a tiled viewer. Only the tiles intersecting the viewport at
+  the current zoom level are mounted, over an absolutely-positioned SVG overlay at
+  `viewBox="0 0 1 1"` and `preserveAspectRatio="none"`, so region coordinates still need no
+  arithmetic. Pan is a translate on the tile layer; zoom picks the pyramid level. While
+  `tile_status` is `pending` the panel shows progress instead of the image.
 - `components/RegionModal.tsx` — label, note, puzzle link, role, and the create-puzzle path.
 - Live updates over the existing websocket.
 
@@ -341,6 +413,11 @@ service import site, `AsyncMock` for anything awaited.
 - Upload validation: oversize rejected, disallowed content type rejected, SVG rejected,
   content-type spoofing caught by sniffing.
 - Media route: unauthenticated request rejected; path escaping the media root rejected.
+- Tiler: a small image produces the expected level count and tile paths; dimensions and
+  `tile_levels` are recorded on the row; a failure flips `tile_status` to `failed` and
+  leaves no half-written pyramid.
+- Tile route: unauthenticated request rejected; a blank (absent) tile serves the blank tile;
+  non-integer or negative `z`/`y`/`x` rejected before any path is built.
 - `!clue` with an attachment, and `!clue` outside a puzzle channel.
 
 ## Acceptance criteria
@@ -352,6 +429,8 @@ service import site, `AsyncMock` for anything awaited.
    is an image, the media URL as plain text.
 4. `!clue` with an attached screenshot in a puzzle channel produces image evidence.
 5. A hunt can hold several canvases; each renders its image with its regions.
+5a. A 14400×14400 upload is tiled without blocking the bot, and pans and zooms smoothly in
+    the browser at every level — including on a phone, which cannot decode the source at all.
 6. Dragging a box creates a region; it can be linked to an existing puzzle as `locates` or
    `informs`, or can create a new puzzle with a Discord channel and sheet tab.
 7. An `informs` region produces a real evidence row that appears in the evidence panel and
@@ -377,8 +456,14 @@ source — which Plan A introduces and the other two extend through the same
 evidence source, `!clue` attachments, evidence panel rendering, contribution and Evidence
 tab rendering. Ships and is useful with no canvas at all.
 
-**Plan B — canvas.** `hunt_canvases` and `canvas_regions`, the canvas service, the API, the
-canvas view and region modal, draw-to-create, the progress overlay.
+**Plan B — canvas.** Split in two once tiling entered the design; B1 is a clean subsystem
+with its own boundary (image in, tiles out, tiles served) and is useful before any canvas
+exists, since it is what makes a huge image viewable at all.
+
+- **B1 — tiled media pipeline.** The `pyvips` dependency, `media.width`/`height`/
+  `tile_status`/`tile_levels`, the tiler module, off-loop tiling at upload, the tile route.
+- **B2 — the canvas.** `hunt_canvases` and `canvas_regions`, the canvas service, the region
+  API, the canvas view and region modal, draw-to-create, the progress overlay, `!canvas`.
 
 **Plan C — hunt-level working sheets.** `additional_sheets.hunt_id`, `get_by_hunt()`, a
 hunt-keyed command lock, `!add_sheet` / `!list_sheets` / `!remove_sheet` in a hunt channel,

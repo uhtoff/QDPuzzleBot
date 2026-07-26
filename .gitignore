@@ -157,3 +157,6 @@ cardboard*.json
 
 # Visual brainstorming companion scratch
 .superpowers/
+
+# Sample hunt images used while designing the canvas (big binaries, not source)
+images/
