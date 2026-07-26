@@ -16,8 +16,10 @@ import {
   useCreatePuzzleFromRegion,
   useCreateRegion,
   useDeleteRegion,
+  useOcrCanvasRegion,
   useUpdateRegion,
 } from "../api";
+import { ConfirmModal } from "./ConfirmModal";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -54,6 +56,9 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const updateRegion = useUpdateRegion(uid);
   const deleteRegion = useDeleteRegion(uid);
   const createPuzzle = useCreatePuzzleFromRegion(uid);
+  const ocrRegion = useOcrCanvasRegion();
+  const [ocrConfirmOpen, setOcrConfirmOpen] = useState(false);
+  const [pendingOcrText, setPendingOcrText] = useState<string | null>(null);
 
   // Reset from whichever region (or blank shape) the modal was opened with.
   useEffect(() => {
@@ -84,6 +89,31 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
 
   const busy = createRegion.isPending || updateRegion.isPending ||
     deleteRegion.isPending || createPuzzle.isPending;
+
+  // Whichever shape is currently on screen: a freshly drawn one, or an
+  // existing region's. Exactly one of region/pendingShape is ever set (see
+  // the Props comment above), so this is never both.
+  const currentShape: RegionShape | null = pendingShape ?? region?.shape ?? null;
+
+  const extractText = async () => {
+    if (!currentShape) return;
+    setErr(null);
+    try {
+      const { text } = await ocrRegion.mutateAsync({ canvasId, shape: currentShape });
+      if (!text) {
+        setErr("No text found in that region.");
+        return;
+      }
+      if (note.trim()) {
+        setPendingOcrText(text);
+        setOcrConfirmOpen(true);
+      } else {
+        setNote(text);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not extract text.");
+    }
+  };
 
   const save = async () => {
     setErr(null);
@@ -154,10 +184,20 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
         <TextInput label="Label" placeholder="Hex maze, top left"
                    description="Shown on the picture, and as the source name in rendered tables."
                    value={label} onChange={(e) => setLabel(e.currentTarget.value)} />
-        <Textarea label="Notes" placeholder="Transcribe what the region says…"
-                  description="Free text. Transcription is the usual use."
-                  autosize minRows={3} maxRows={10}
-                  value={note} onChange={(e) => setNote(e.currentTarget.value)} />
+        <Textarea
+          label={
+            <Group justify="space-between" wrap="nowrap" gap="xs">
+              <span>Notes</span>
+              <Button size="xs" variant="subtle" onClick={extractText}
+                      loading={ocrRegion.isPending} disabled={!currentShape}>
+                Extract text
+              </Button>
+            </Group>
+          }
+          placeholder="Transcribe what the region says…"
+          description="Free text. Transcription is the usual use."
+          autosize minRows={3} maxRows={10}
+          value={note} onChange={(e) => setNote(e.currentTarget.value)} />
 
         <Divider label="Link to a puzzle" labelPosition="left" />
 
@@ -227,6 +267,17 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           </Group>
         </Group>
       </Stack>
+      <ConfirmModal
+        opened={ocrConfirmOpen}
+        onClose={() => setOcrConfirmOpen(false)}
+        onConfirm={() => {
+          if (pendingOcrText !== null) setNote(pendingOcrText);
+          setOcrConfirmOpen(false);
+        }}
+        title="Replace existing note?"
+        message="This will replace the current Notes text with the extracted text."
+        confirmLabel="Replace"
+      />
     </Modal>
   );
 }
