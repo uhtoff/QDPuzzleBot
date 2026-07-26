@@ -65,6 +65,30 @@ export function EvidencePanel({ uid, detail }: Props) {
   const [clueNote, setClueNote] = useState("");
   const [clueFile, setClueFile] = useState<File | null>(null);
 
+  /** Accept a screenshot pasted into the clue box.
+   *
+   *  Mantine's FileInput is a file picker with no clipboard handling, so
+   *  Ctrl+V did nothing here even though pasting a screenshot is the natural
+   *  flow — and the one Discord's !clue already supports. This reads the image
+   *  out of the paste and feeds it to the SAME upload path the picker uses, so
+   *  there is one code path and one set of validation.
+   *
+   *  Only swallows the event when an image was actually found: a plain text
+   *  paste must still land in the note field.
+   */
+  function onCluePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const image = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
+    if (!image) return;
+    const file = image.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    // A pasted screenshot usually arrives named "image.png" or unnamed. The
+    // server sniffs magic bytes and renames via safe_filename, so the name here
+    // is cosmetic — but give an unnamed blob something to show in the input.
+    setClueFile(file.name ? file : new File([file], "pasted.png", { type: file.type }));
+  }
+
   const editable = !detail.hunt.archived;
 
   async function submitClue() {
@@ -238,11 +262,12 @@ export function EvidencePanel({ uid, detail }: Props) {
             value={clueNote}
             onChange={(e) => setClueNote(e.currentTarget.value)}
             onKeyDown={(e) => e.key === "Enter" && submitClue()}
+            onPaste={onCluePaste}
             style={{ flex: 1 }}
           />
           <FileInput
             size="xs"
-            placeholder="Image (optional)"
+            placeholder="Image (or paste)"
             accept="image/png,image/jpeg,image/gif,image/webp"
             value={clueFile}
             onChange={setClueFile}
