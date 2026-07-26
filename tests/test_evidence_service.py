@@ -340,6 +340,7 @@ class TestRefreshEvidenceNullSource:
         # Explicit: an unset MagicMock attribute auto-vivifies TRUTHY, so
         # leaving it off makes refresh_evidence treat this as sheet-sourced.
         sourced.source_sheet_id = None
+        sourced.source_region_id = None
         sourced.created_at = datetime.datetime(2026, 6, 23, 12, 0)
 
         sourceless = MagicMock()
@@ -349,6 +350,7 @@ class TestRefreshEvidenceNullSource:
         sourceless.note = "a fact"
         sourceless.media_id = None
         sourceless.source_sheet_id = None
+        sourceless.source_region_id = None
         sourceless.created_at = None
 
         EvidenceDb.get_all.return_value = [sourced, sourceless]

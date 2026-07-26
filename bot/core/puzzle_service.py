@@ -19,7 +19,7 @@ import discord
 import pytz
 from googleapiclient.errors import HttpError
 
-from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -117,17 +117,22 @@ def evidence_cell_content(item) -> str:
     return f"{note}\n{url}" if note else url
 
 
-def evidence_source_label(item, sheet_names) -> str:
+def evidence_source_label(item, sheet_names, region_names=None) -> str:
     """Display name for an evidence item's source in a rendered table.
 
     Empty for puzzle-sourced items — contribution_rows uses the member puzzle's
     own name for those — and empty for items with no source at all, which fall
-    back to an em dash there. A hunt-level working sheet renders as its name.
+    back to an em dash there. A hunt-level working sheet renders as its name, and
+    a canvas region as its label (falling back to its canvas's name).
 
-    `sheet_names` is a {sheet_id: name} map resolved once for the whole batch;
-    looking each one up here would be an N+1 across a rendered table. Plan B
-    fills this in for canvas regions.
+    `sheet_names` and `region_names` are {id: name} maps resolved once for the
+    whole batch; looking each one up here would be an N+1 across a rendered table.
     """
+    region_id = getattr(item, "source_region_id", None)
+    if region_id:
+        # The DAO's join already applies the label-else-canvas-name fallback, so
+        # that rule lives in one place rather than being repeated here.
+        return (region_names or {}).get(region_id) or f"Region {region_id}"
     sheet_id = getattr(item, "source_sheet_id", None)
     if not sheet_id:
         return ""
@@ -142,6 +147,15 @@ def resolve_sheet_names(sheet_ids):
     if not ids:
         return {}
     return SheetsJsonDb.get_names_by_ids(ids)
+
+
+def resolve_region_names(region_ids):
+    """Return a {region_id: label-or-canvas-name} map for canvas regions, in one
+    query. Mirrors resolve_sheet_names; the label fallback lives in the DAO."""
+    ids = {i for i in region_ids if i}
+    if not ids:
+        return {}
+    return CanvasRegionJsonDb.get_names_by_ids(ids)
 
 
 def resolve_puzzle_names(puzzle_ids):
@@ -779,11 +793,13 @@ class PuzzleService:
             EvidenceJsonDb.get_all(rollup.hunt_id, target_puzzle_id=metapuzzle.id))
         sheet_names = resolve_sheet_names(
             getattr(e, "source_sheet_id", None) for e in raw_evidence)
+        region_names = resolve_region_names(
+            getattr(e, "source_region_id", None) for e in raw_evidence)
         evidence = [
             {
                 "id": e.id,
                 "source_puzzle_id": e.source_puzzle_id,
-                "source_label": evidence_source_label(e, sheet_names),
+                "source_label": evidence_source_label(e, sheet_names, region_names),
                 "content": evidence_cell_content(e),
             }
             for e in raw_evidence
@@ -2924,6 +2940,8 @@ class PuzzleService:
         names = resolve_puzzle_names(puzzle_ids)
         sheet_names = resolve_sheet_names(
             getattr(i, "source_sheet_id", None) for i in items)
+        region_names = resolve_region_names(
+            getattr(i, "source_region_id", None) for i in items)
         rows = [
             [
                 i.id,
@@ -2932,7 +2950,7 @@ class PuzzleService:
                 # hunt-level working sheet names itself.
                 (names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}")
                  if i.source_puzzle_id
-                 else (evidence_source_label(i, sheet_names) or "—")),
+                 else (evidence_source_label(i, sheet_names, region_names) or "—")),
                 evidence_cell_content(i),
                 names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
                 str(i.created_at)[:16] if i.created_at else "",

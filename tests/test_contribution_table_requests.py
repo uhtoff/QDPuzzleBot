@@ -1331,3 +1331,54 @@ class TestRollupSheetSource:
         sdb.get_names_by_ids.assert_called_once()
         evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
         assert [e["source_label"] for e in evidence] == ["alt text", "site source"]
+
+
+class TestEvidenceSourceLabelRegion:
+    """Plan B2a: a canvas region as an evidence source. The region branch is
+    checked BEFORE the sheet branch, so these also pin that precedence."""
+
+    def test_a_region_renders_its_resolved_name(self):
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None,
+                               source_region_id=4)
+        assert evidence_source_label(item, {}, {4: "Hex maze"}) == "Hex maze"
+
+    def test_two_regions_resolve_independently(self):
+        """One region cannot prove the map is consulted rather than a constant
+        returned -- two, with different names, can."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        names = {4: "Hex maze", 9: "Crayon box"}
+        a = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None,
+                            source_region_id=4)
+        b = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None,
+                            source_region_id=9)
+        assert evidence_source_label(a, {}, names) == "Hex maze"
+        assert evidence_source_label(b, {}, names) == "Crayon box"
+
+    def test_an_unresolvable_region_falls_back_to_its_id(self):
+        """ON DELETE CASCADE should make this impossible, but a row read in the
+        gap would otherwise render a blank Source cell."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None,
+                               source_region_id=4)
+        assert evidence_source_label(item, {}, {}) == "Region 4"
+
+    def test_a_missing_region_map_does_not_raise(self):
+        """region_names is optional so the two in-tree call sites are not the only
+        thing keeping older callers working."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None,
+                               source_region_id=4)
+        assert evidence_source_label(item, {}) == "Region 4"
+
+    def test_a_sheet_sourced_item_is_unaffected(self):
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=3,
+                               source_region_id=None)
+        assert evidence_source_label(item, {3: "Alt text scratch"}, {}) == \
+            "Alt text scratch"
