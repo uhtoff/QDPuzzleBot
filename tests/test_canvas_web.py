@@ -484,3 +484,58 @@ class TestCropRegionMedia:
                    side_effect=RuntimeError("boom")):
             result = await _crop_region_media(SimpleNamespace(media_id=7), RECT)
         assert result is None
+
+
+class TestCanvasOcrPreview:
+    """POST /api/canvases/<id>/ocr-preview -- extracts text from a rect without
+    saving anything. Same permission bar as drawing a region (not organiser-
+    gated), unlike the canvas create/delete routes."""
+
+    async def test_extracts_text_from_the_crop(self, web):
+        web.mdb.get_by_id.return_value = SimpleNamespace(
+            id=7, hunt_id=10, path="uploads/10/orig.png")
+        with patch("bot.core.image_tiler.crop_bytes",
+                   return_value=(b"PNGBYTES", 40, 30)), \
+             patch("bot.core.ocr.extract_text", return_value="HYDROGEN") as extract:
+            resp = await web.client.post(
+                "/api/canvases/3/ocr-preview", json={"shape": RECT})
+        assert resp.status_code == 200
+        assert (await resp.get_json())["text"] == "HYDROGEN"
+        extract.assert_called_once_with(b"PNGBYTES")
+
+    async def test_malformed_shape_is_a_400(self, web):
+        resp = await web.client.post(
+            "/api/canvases/3/ocr-preview",
+            json={"shape": {"type": "rect", "points": [[0.5, 0.1], [0.5, 0.9]]}})
+        assert resp.status_code == 400
+
+    async def test_extraction_failure_is_a_500_not_a_crash(self, web):
+        """Unlike _crop_region_media, this route must NOT swallow the error --
+        the whole point of the request is giving the user something back."""
+        web.mdb.get_by_id.return_value = SimpleNamespace(
+            id=7, hunt_id=10, path="uploads/10/orig.png")
+        with patch("bot.core.image_tiler.crop_bytes", side_effect=RuntimeError("boom")):
+            resp = await web.client.post(
+                "/api/canvases/3/ocr-preview", json={"shape": RECT})
+        assert resp.status_code == 500
+        assert (await resp.get_json())["error"] == "ocr_failed"
+
+    async def test_nothing_is_persisted(self, web):
+        web.mdb.get_by_id.return_value = SimpleNamespace(
+            id=7, hunt_id=10, path="uploads/10/orig.png")
+        with patch("bot.core.image_tiler.crop_bytes",
+                   return_value=(b"PNGBYTES", 40, 30)), \
+             patch("bot.core.ocr.extract_text", return_value="text"):
+            await web.client.post("/api/canvases/3/ocr-preview", json={"shape": RECT})
+        web.mdb.create.assert_not_called()
+
+    async def test_an_archived_hunt_is_403(self, web):
+        web.ctx["hunt"]["archived"] = True
+        resp = await web.client.post("/api/canvases/3/ocr-preview", json={"shape": RECT})
+        assert resp.status_code == 403
+
+    async def test_unauthenticated_is_401(self, web):
+        with patch("bot.web.auth.session", {}):
+            resp = await web.client.post(
+                "/api/canvases/3/ocr-preview", json={"shape": RECT})
+        assert resp.status_code == 401

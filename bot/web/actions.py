@@ -2451,3 +2451,53 @@ async def create_puzzle_from_region(canvas_id, region_id):
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
     assert region is not None
     return jsonify(web_data.region_to_json(region)), 201
+
+
+def _crop_and_extract_text(src, rect):
+    """Compose crop + OCR in one executor hop.
+
+    Two separate run_in_executor calls (crop, then OCR) would be two
+    thread-pool round trips for one interactive click, for no benefit --
+    both steps are CPU-bound and happen back to back regardless.
+    """
+    from bot.core.image_tiler import crop_bytes
+    from bot.core.ocr import extract_text
+    png, _, _ = crop_bytes(src, rect)
+    return extract_text(png)
+
+
+@actions_bp.route("/canvases/<int:canvas_id>/ocr-preview", methods=["POST"])
+@login_required
+async def ocr_canvas_region(canvas_id):
+    """Extract text from a region's rect, without saving anything.
+
+    Unlike _crop_region_media, failures here ARE surfaced to the caller: the
+    whole point of this route is handing the user something back, so a silent
+    failure would just look broken. Nothing is written to MediaJsonDb or
+    EvidenceJsonDb here -- this is a preview, called before the region is ever
+    submitted; the real (persisted) crop still only happens through the
+    existing create_region/update_region/create_puzzle_from_region routes.
+    """
+    from bot.core.canvas_shape import ShapeRejected, rect_bounds
+    from bot.core.message_media import media_root
+    from bot.store import MediaJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    body = await request.get_json(silent=True) or {}
+    try:
+        rect = rect_bounds(body.get("shape"))
+    except ShapeRejected as exc:
+        return jsonify({"error": str(exc)}), 400
+    media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    if media is None:
+        return jsonify({"error": "canvas_missing_media"}), 400
+    loop = asyncio.get_running_loop()
+    try:
+        text = await loop.run_in_executor(
+            None, _crop_and_extract_text, media_root() / media.path, rect)
+    except Exception:
+        logger.exception("OCR failed for canvas media %s", media.id)
+        return jsonify({"error": "ocr_failed"}), 500
+    return jsonify({"text": text})
