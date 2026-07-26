@@ -1891,6 +1891,89 @@ git commit -m "feat(web): accept image uploads at POST /api/hunts/<uid>/media"
 
 ---
 
+## Task 14b: Make the configured upload cap actually reachable
+
+**Files:**
+- Modify: `bot/web/__init__.py` (~line 97, `MAX_CONTENT_LENGTH`)
+- Modify: `bot/core/media_store.py`
+- Test: `tests/test_media_store.py`, `tests/test_media_web.py`
+
+Task 14's review found two settings that were harmless until something started writing uploads. Both are pre-existing; both make this feature fail on first real use.
+
+**Problem 1 — the cap is unreachable.** `bot/web/__init__.py:97` sets `MAX_CONTENT_LENGTH=1 * 1024 * 1024` app-wide, but `config.web_attachment_max_bytes` defaults to **25 MiB** and is what `max_upload_bytes()` enforces. Anything between 1 MiB and the configured cap is rejected by Quart's own body guard as a generic 413, never reaching the clean `MediaRejected` JSON path — and a typical phone screenshot is 2–5 MiB. The size-cap logic Task 14 built and tested is effectively dead above 1 MiB.
+
+**Problem 2 — an unset media dir writes to the working directory.** `config.web_archive_media_dir` is unset in this deployment, so `media_root()` returns `Path('')` and uploads land in the process's cwd — the repo checkout. Task 14's review reproduced exactly this, writing a real file into the project root. Silently scattering uploads into the working tree is worse than refusing to store them.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+def test_max_content_length_admits_the_configured_cap():
+    """MAX_CONTENT_LENGTH is Quart's own body guard and runs BEFORE any route.
+    If it is below web_attachment_max_bytes, the configured cap is unreachable
+    and the caller gets a bare 413 instead of our JSON error."""
+    from bot.web import _max_body_bytes
+    assert _max_body_bytes(26214400) > 26214400      # headroom for multipart overhead
+    assert _max_body_bytes(1024) >= 1024
+```
+
+```python
+def test_refuses_to_store_when_no_media_dir_is_configured(self, tmp_path):
+    """An unset archive_media_dir makes media_root() the process cwd. Writing
+    uploads into the working tree is worse than refusing them, and the message
+    has to tell an admin what to set."""
+    from bot.core.media_store import save_image_bytes, MediaRejected
+    from pathlib import Path
+    with patch("bot.core.media_store.media_root", return_value=Path("")):
+        with pytest.raises(MediaRejected) as exc:
+            save_image_bytes(hunt_id=10, filename="a.png",
+                             raw=b"\x89PNG\r\n\x1a\n")
+    assert "archive_media_dir" in str(exc.value)
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+- [ ] **Step 3: Implement**
+
+In `bot/web/__init__.py`, replace the hard-coded literal:
+
+```python
+def _max_body_bytes(attachment_cap: int) -> int:
+    """Quart's own body-size guard, in bytes.
+
+    It must sit ABOVE config.web_attachment_max_bytes, not below it: this check
+    runs before any route, so a lower value makes the configured attachment cap
+    unreachable and turns every large upload into a bare 413 instead of the
+    JSON error the API is documented to return. The extra megabyte covers
+    multipart boundary and header overhead around the file itself.
+    """
+    return attachment_cap + 1024 * 1024
+```
+
+and use `MAX_CONTENT_LENGTH=_max_body_bytes(config.web_attachment_max_bytes)`.
+
+In `bot/core/media_store.py`, guard `save_image_bytes` before it writes:
+
+```python
+    root = media_root()
+    if str(root) in ("", "."):
+        raise MediaRejected(
+            "Image storage is not configured on this server "
+            "(set web.archive_media_dir in config.json)."
+        )
+```
+
+Place it beside the other validation, before the file is written.
+
+- [ ] **Step 4: Run the tests, then the full suite**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "fix(web): make the configured upload cap reachable and refuse an unconfigured media dir"
+```
+
+**Deployment note for `docs/dashboard.md` (Task 19):** `web.archive_media_dir` must be set to a real writable path outside the checkout before image evidence works. Record it there.
+
 ## Task 15: `POST /api/evidence` accepts an optional source and a media id
 
 **Files:**
