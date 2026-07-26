@@ -117,13 +117,31 @@ def evidence_cell_content(item) -> str:
     return f"{note}\n{url}" if note else url
 
 
-def evidence_source_label(item) -> str:
+def evidence_source_label(item, sheet_names) -> str:
     """Display name for an evidence item's source in a rendered table.
 
     Empty for puzzle-sourced items — contribution_rows uses the member puzzle's
-    own name for those. Plan B fills this in for canvas regions.
+    own name for those — and empty for items with no source at all, which fall
+    back to an em dash there. A hunt-level working sheet renders as its name.
+
+    `sheet_names` is a {sheet_id: name} map resolved once for the whole batch;
+    looking each one up here would be an N+1 across a rendered table. Plan B
+    fills this in for canvas regions.
     """
-    return ""
+    sheet_id = getattr(item, "source_sheet_id", None)
+    if not sheet_id:
+        return ""
+    # ON DELETE SET NULL means a missing sheet should be impossible, but a row
+    # read in the gap would otherwise render a blank Source cell.
+    return sheet_names.get(sheet_id) or f"Sheet {sheet_id}"
+
+
+def resolve_sheet_names(sheet_ids):
+    """Return a {sheet_id: name} map for hunt-level working sheets, in one query."""
+    ids = {i for i in sheet_ids if i}
+    if not ids:
+        return {}
+    return SheetsJsonDb.get_names_by_ids(ids)
 
 
 def resolve_puzzle_names(puzzle_ids):
@@ -757,14 +775,18 @@ class PuzzleService:
         routed to this target (informs content) is fetched and passed through so
         informs members render one content row per datum."""
         members = await self.select_rollup_members(tag_group, rollup)
+        raw_evidence = list(
+            EvidenceJsonDb.get_all(rollup.hunt_id, target_puzzle_id=metapuzzle.id))
+        sheet_names = resolve_sheet_names(
+            getattr(e, "source_sheet_id", None) for e in raw_evidence)
         evidence = [
             {
                 "id": e.id,
                 "source_puzzle_id": e.source_puzzle_id,
-                "source_label": evidence_source_label(e),
+                "source_label": evidence_source_label(e, sheet_names),
                 "content": evidence_cell_content(e),
             }
-            for e in EvidenceJsonDb.get_all(rollup.hunt_id, target_puzzle_id=metapuzzle.id)
+            for e in raw_evidence
         ]
         await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=evidence)
 

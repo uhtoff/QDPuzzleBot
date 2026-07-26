@@ -1229,3 +1229,105 @@ class TestRollupEvidenceContent:
                 SimpleNamespace(note="", media_id=7))
         assert with_note == "three anchors"
         assert without_note == "[image]"
+
+
+class TestEvidenceSourceLabelSheet:
+    def test_puzzle_sourced_items_still_get_an_empty_label(self):
+        """contribution_rows uses the member puzzle's own name for those."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=5, source_sheet_id=None)
+        assert evidence_source_label(item, {}) == ""
+
+    def test_sheet_sourced_items_get_the_sheet_name(self):
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=4)
+        assert evidence_source_label(item, {4: "alt text"}) == "alt text"
+
+    def test_picks_the_right_name_out_of_several(self):
+        """One entry in the map cannot be the wrong entry."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        names = {4: "alt text", 9: "site source"}
+        a = SimpleNamespace(source_puzzle_id=None, source_sheet_id=9)
+        assert evidence_source_label(a, names) == "site source"
+
+    def test_a_deleted_sheet_falls_back_rather_than_blanking(self):
+        """source_sheet_id is ON DELETE SET NULL, but a row read between the
+        delete and the null would otherwise render an empty Source cell."""
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=4)
+        assert evidence_source_label(item, {}) == "Sheet 4"
+
+    def test_sourceless_items_get_an_empty_label(self):
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_source_label
+        item = SimpleNamespace(source_puzzle_id=None, source_sheet_id=None)
+        assert evidence_source_label(item, {}) == ""
+
+
+class TestRollupSheetSource:
+    async def test_rollup_passes_the_sheet_name_as_the_source_label(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_puzzle, make_round
+
+        target = make_puzzle(id=4, name="Capstone", hunt_id=10)
+        group = make_round(id=1, target_puzzle_id=4)
+        rollup = SimpleNamespace(hunt_id=10, source_mode="round",
+                                 edge_type_filter=None)
+        item = SimpleNamespace(id=9, source_puzzle_id=None, source_sheet_id=4,
+                               note="three anchors", media_id=None)
+
+        gsheet = MagicMock()
+        gsheet.render_contribution = AsyncMock()
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc.select_rollup_members = AsyncMock(return_value=[])
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            edb.get_all.return_value = [item]
+            sdb.get_names_by_ids.return_value = {4: "alt text"}
+            await svc._render_rollup(gsheet, group, rollup, target)
+
+        evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
+        assert evidence[0]["source_label"] == "alt text"
+
+    async def test_the_lookup_is_batched_not_per_item(self):
+        """A per-item query would be an N+1 across a rendered table. Two items so
+        a single call cannot be mistaken for one-call-per-item."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_puzzle, make_round
+
+        target = make_puzzle(id=4, name="Capstone", hunt_id=10)
+        group = make_round(id=1, target_puzzle_id=4)
+        rollup = SimpleNamespace(hunt_id=10, source_mode="round",
+                                 edge_type_filter=None)
+        items = [
+            SimpleNamespace(id=9, source_puzzle_id=None, source_sheet_id=4,
+                            note="a", media_id=None),
+            SimpleNamespace(id=8, source_puzzle_id=None, source_sheet_id=5,
+                            note="b", media_id=None),
+        ]
+
+        gsheet = MagicMock()
+        gsheet.render_contribution = AsyncMock()
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc.select_rollup_members = AsyncMock(return_value=[])
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            edb.get_all.return_value = items
+            sdb.get_names_by_ids.return_value = {4: "alt text", 5: "site source"}
+            await svc._render_rollup(gsheet, group, rollup, target)
+
+        sdb.get_names_by_ids.assert_called_once()
+        evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
+        assert [e["source_label"] for e in evidence] == ["alt text", "site source"]

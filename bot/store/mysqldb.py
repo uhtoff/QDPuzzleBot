@@ -338,6 +338,27 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
             sheets.append(sheet)
         return sheets
 
+    def get_names_by_ids(self, sheet_ids):
+        """Return a {sheet_id: puzzle_name} map for the given ids, in one query.
+
+        Mirrors MySQLPuzzleJsonDb.get_names_by_ids -- rendering a table calls this
+        once for the whole batch rather than once per row.
+        """
+        ids = [int(i) for i in sheet_ids if i]
+        if not ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(ids))
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                f"SELECT id, puzzle_name FROM additional_sheets WHERE id IN ({placeholders})",
+                tuple(ids),
+            )
+            rows = cursor.fetchall() or []
+        finally:
+            cursor.close()
+        return {r["id"]: r["puzzle_name"] for r in rows}
+
 
 class MySQLRollupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rollups'
