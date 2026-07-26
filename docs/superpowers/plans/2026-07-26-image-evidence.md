@@ -1540,6 +1540,26 @@ async def test_hunt_not_visible_is_forbidden(web):
     with patch("bot.web.api._load_visible_hunt", AsyncMock(return_value=(None, 403))):
         resp = await app.test_client().get("/api/media/7")
     assert resp.status_code in (403, 404)
+
+
+async def test_sets_nosniff(web):
+    """Sniffing validates only a prefix, so a stored file can carry an appended
+    payload. nosniff stops a browser MIME-sniffing that body into an executable
+    context if the URL is ever navigated to directly."""
+    app, _, _ = web
+    resp = await app.test_client().get("/api/media/7")
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+async def test_serves_the_stored_content_type_verbatim(web):
+    """Never re-derived from the file extension or from anything the client
+    sent — the sniffed type recorded at upload is the only source of truth."""
+    app, mdb, _ = web
+    mdb.get_by_id.return_value = SimpleNamespace(
+        id=7, hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
+        content_type="image/gif", size=13, origin="upload", created_at=None)
+    resp = await app.test_client().get("/api/media/7")
+    assert resp.headers["Content-Type"].startswith("image/gif")
 ```
 
 Before writing, read `tests/test_evidence_web.py` and `tests/test_add_evidence_web.py` and copy whichever app/fixture idiom they use — including how `login_required` is satisfied. The `patch("bot.web.auth.session", ...)` line above is taken from `test_add_evidence_web.py`; if the auth seam differs, follow the existing tests rather than this sketch.
@@ -1583,9 +1603,18 @@ async def media_bytes(media_id):
         return jsonify({"error": "not_found"}), 404
     if not path.is_file():
         return jsonify({"error": "not_found"}), 404
-    return await send_file(path, mimetype=media.content_type or "application/octet-stream",
+    resp = await send_file(path, mimetype=media.content_type or "application/octet-stream",
                            as_attachment=False,
                            attachment_filename=media.filename)
+    # sniff_image_type only validates a fixed-length PREFIX, so a stored file can
+    # be a byte-perfect PNG header with an arbitrary payload appended. That is
+    # harmless while the browser treats it as the type we stored, and dangerous
+    # the moment the browser is allowed to MIME-sniff the body into an
+    # executable context — which is exactly what nosniff forbids. The stored
+    # content_type above is used verbatim and never re-derived from the
+    # extension or from anything the client sent.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 ```
 
 - [ ] **Step 4: Run it to verify it passes**
