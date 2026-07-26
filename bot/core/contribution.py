@@ -5,6 +5,7 @@ One table per target group. Each row is [key, source_name, type, content]:
   none:<pid>             member name   Group        ""
   informs:<pid>          member name   Information  ""   (bare edge, nothing logged)
   informs:<pid>:<eid>    member name   Information  datum content (one per evidence row)
+  informs:free:<eid>     label or —    Information  datum with no source puzzle
 
 Keys are edge-anchored and stable, so the column-A diff survives re-tagging.
 """
@@ -22,12 +23,21 @@ def contribution_rows(tag_group_id, members, evidence):
                own 'target' self-edge matches no branch below and yields no row (the
                target heads the table, it is not a contribution of itself).
     evidence : list of dicts {"id","source_puzzle_id","content"} routed to this
-               target (may be empty). Used only for informs members.
-    Order: members in the given order; informs evidence in the given order.
+               target (may be empty). Used only for informs members. An item
+               with source_puzzle_id None belongs to the hunt rather than to
+               any one puzzle (optionally carrying a "source_label") and is
+               rendered after the member rows instead of being grouped under
+               a member.
+    Order: members in the given order; informs evidence in the given order;
+           sourceless evidence last, in the given order.
     """
     ev_by_source = {}
+    sourceless = []
     for e in evidence:
-        ev_by_source.setdefault(e["source_puzzle_id"], []).append(e)
+        if e.get("source_puzzle_id") is None:
+            sourceless.append(e)
+        else:
+            ev_by_source.setdefault(e["source_puzzle_id"], []).append(e)
 
     # Column order: key (hidden), Source (member name), Type, Content.
     rows = []
@@ -52,4 +62,14 @@ def contribution_rows(tag_group_id, members, evidence):
                 for e in data:
                     rows.append([f"informs:{p.id}:{e['id']}", p.name,
                                  "Information", e["content"]])
+
+    # Evidence with no source puzzle has no member row to hang from — a fact
+    # that belongs to the hunt, or (Plan B) one carved out of a canvas image.
+    # Its own key namespace keeps it clear of `informs:<pid>`, and the reconciler
+    # diffs purely on column A, so these rows survive re-tagging like any other.
+    # No `informs` edge exists for them: an edge joins two puzzles, and a picture
+    # or a bare observation is not one.
+    for e in sourceless:
+        rows.append([f"informs:free:{e['id']}", e.get("source_label") or "—",
+                     "Information", e["content"]])
     return rows

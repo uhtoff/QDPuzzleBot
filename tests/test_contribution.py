@@ -96,3 +96,58 @@ def test_diff_rows_handles_string_contribution_keys():
     assert appends == [["none:3", "Beta", "Group", ""]]
     assert updates == [["feeds:2", "Alpha", "Feeder", "WORD"]]
     assert prunes == ["informs:4"]                          # gone from desired
+
+
+# --- Sourceless evidence (Plan A) -----------------------------------------
+# Evidence with no source puzzle has no member row to hang from, so it is
+# appended under its own key namespace after the member loop.
+
+def test_sourceless_evidence_gets_its_own_row():
+    rows = contribution_rows(
+        tag_group_id=5, members=[],
+        evidence=[{"id": 9, "source_puzzle_id": None,
+                   "source_label": "Harbour map", "content": "three anchors"}],
+    )
+    assert rows == [["informs:free:9", "Harbour map", "Information", "three anchors"]]
+
+
+def test_sourceless_rows_come_after_member_rows():
+    feeder = _p(2, "Alpha", solution="WORD", tag_edges={5: {"feeds"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[feeder],
+        evidence=[{"id": 9, "source_puzzle_id": None,
+                   "source_label": "Harbour map", "content": "three anchors"}],
+    )
+    assert rows[0][0] == "feeds:2"
+    assert rows[-1][0] == "informs:free:9"
+
+
+def test_sourceless_label_falls_back_to_an_em_dash():
+    """Evidence with neither a source puzzle nor a label still renders."""
+    rows = contribution_rows(
+        tag_group_id=5, members=[],
+        evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
+    )
+    assert rows[0][1] == "—"
+
+
+def test_sourced_evidence_is_unaffected():
+    """Rows with a source_puzzle_id keep their existing key and grouping."""
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[inf],
+        evidence=[{"id": 4, "source_puzzle_id": 4, "content": "a datum"}],
+    )
+    assert rows == [["informs:4:4", "Gamma", "Information", "a datum"]]
+
+
+def test_sourceless_evidence_does_not_leak_into_member_grouping():
+    """A sourceless item must not be grouped under a member with no evidence,
+    which would blank that member's own bare-edge row."""
+    inf = _p(4, "Gamma", tag_edges={5: {"informs"}})
+    rows = contribution_rows(
+        tag_group_id=5, members=[inf],
+        evidence=[{"id": 9, "source_puzzle_id": None, "content": "a fact"}],
+    )
+    assert rows[0] == ["informs:4", "Gamma", "Information", ""]
+    assert rows[1][0] == "informs:free:9"
