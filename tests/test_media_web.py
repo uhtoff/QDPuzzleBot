@@ -436,6 +436,23 @@ class TestEvidenceOcrPreview:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_rejects_a_body_over_the_configured_limit(self, web):
+        """Pins the size cap AT THIS LAYER, same as
+        TestMediaUpload::test_rejects_a_body_over_the_configured_limit --
+        without this, deleting the cap check in this route (or never wiring
+        max_upload_bytes() into it) would leave every other test in this
+        class green.
+        """
+        app, _, _ = web
+        raw = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 100)
+        with patch("bot.core.media_store.max_upload_bytes", return_value=10):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("big.png", raw, "image/png")},
+            )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
     async def test_extraction_failure_is_a_500_not_a_crash(self, web):
         app, _, _ = web
         with patch("bot.core.ocr.extract_text", side_effect=RuntimeError("boom")):
