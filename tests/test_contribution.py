@@ -122,6 +122,23 @@ def test_sourceless_rows_come_after_member_rows():
     assert rows[-1][0] == "informs:free:9"
 
 
+def test_multiple_sourceless_items_keep_their_given_order():
+    """The docstring promises "sourceless evidence last, in the given order".
+    With a single item that clause is unfalsifiable — reversing the list changes
+    nothing observable — so it takes two to pin it. The ids descend so that a
+    stray sort by id would fail rather than accidentally agree.
+    """
+    rows = contribution_rows(
+        tag_group_id=5, members=[],
+        evidence=[
+            {"id": 9, "source_puzzle_id": None, "content": "first"},
+            {"id": 3, "source_puzzle_id": None, "content": "second"},
+        ],
+    )
+    assert [r[0] for r in rows] == ["informs:free:9", "informs:free:3"]
+    assert [r[3] for r in rows] == ["first", "second"]
+
+
 def test_sourceless_label_falls_back_to_an_em_dash():
     """Evidence with neither a source puzzle nor a label still renders."""
     rows = contribution_rows(
