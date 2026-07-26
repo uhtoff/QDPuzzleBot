@@ -166,6 +166,26 @@ export function useRemoveSheet(uid: string) {
   });
 }
 
+/** A working sheet belonging to the hunt rather than to a puzzle — the web
+ *  equivalent of `!add_sheet` run in a hunt channel. */
+export function useAddHuntSheet(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) =>
+      apiSend<{ ok: boolean }>(`/api/hunts/${uid}/sheets`, "POST", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useRemoveHuntSheet(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sheetId }: { sheetId: number }) =>
+      apiSend<{ ok: boolean }>(`/api/hunts/${uid}/sheets/${sheetId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useLogClue(uid: string) {
   const qc = useQueryClient();
   return useMutation({

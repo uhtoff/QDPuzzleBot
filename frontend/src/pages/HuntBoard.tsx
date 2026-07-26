@@ -100,6 +100,8 @@ export default function HuntBoard() {
 
       {/* Hunt info — visible to all users who can see the hunt */}
       <HuntInfoPanel
+        uid={uid!}
+        editable={!data.hunt.archived}
         url={data.hunt.url}
         start_timestamp={data.hunt.start_timestamp}
         sheet_base_url={data.hunt.sheet_base_url}
