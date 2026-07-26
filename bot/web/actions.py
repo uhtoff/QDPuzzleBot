@@ -30,7 +30,7 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.locks import puzzle_lock, puzzles_lock, hunt_create_lock
+from bot.core.locks import puzzle_lock, puzzles_lock, hunt_create_lock, hunt_sheet_lock
 from bot.core.errors import SheetRefreshError
 
 logger = logging.getLogger(__name__)
@@ -313,6 +313,84 @@ async def remove_sheet(puzzle_id, sheet_id):
             await cog.service.remove_sheet(hunt_obj, puzzle, sheet_id)
             await _audit("remove_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        return jsonify({"ok": True})
+
+
+@actions_bp.route("/hunts/<uid>/sheets", methods=["POST"])
+@login_required
+async def add_hunt_sheet(uid):
+    """Create a working sheet belonging to the HUNT rather than to a puzzle.
+
+    Same permission bar as adding one to a puzzle (any authenticated user who can
+    see the hunt, while it is unarchived) -- this is ordinary hunt work, not
+    administration. The web equivalent of `!add_sheet` in a hunt channel.
+    """
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+
+    from bot.store import HuntJsonDb
+
+    # The hunt-keyed sheet lock, not puzzle_lock: this write has no puzzle, and
+    # it must serialise against a concurrent !add_sheet in the hunt channel,
+    # which holds this same lock.
+    async with hunt_sheet_lock(ctx["hunt"]["id"]):
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        if hunt_obj is None:
+            return jsonify({"error": "hunt_not_found"}), 404
+        cog = puzzles_cog()
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        try:
+            sheet = await cog.service.add_hunt_sheet(hunt_obj, name)
+            await _audit("add_hunt_sheet", hunt_uid=ctx["hunt"]["uid"])
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+        return jsonify({
+            "ok": True,
+            "sheet": {"id": sheet.id, "name": sheet.puzzle_name,
+                      "page_id": sheet.google_page_id},
+        })
+
+
+@actions_bp.route("/hunts/<uid>/sheets/<int:sheet_id>", methods=["DELETE"])
+@login_required
+async def remove_hunt_sheet(uid, sheet_id):
+    """Remove one of the hunt's own working sheets (Google tab and DB row)."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.store import HuntJsonDb
+
+    async with hunt_sheet_lock(ctx["hunt"]["id"]):
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        if hunt_obj is None:
+            return jsonify({"error": "hunt_not_found"}), 404
+        cog = puzzles_cog()
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        try:
+            # remove_hunt_sheet looks the id up among THIS hunt's sheets and
+            # raises sheet_not_found otherwise, so a sheet id from another hunt
+            # cannot be deleted through this route.
+            await cog.service.remove_hunt_sheet(hunt_obj, sheet_id)
+            await _audit("remove_hunt_sheet", hunt_uid=ctx["hunt"]["uid"])
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 404
         except (discord.RateLimited, discord.HTTPException) as exc:
