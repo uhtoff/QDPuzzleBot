@@ -191,6 +191,49 @@ async def attachment_bytes(attachment_id):
                            attachment_filename=att["filename"])
 
 
+@api_bp.route("/media/<int:media_id>")
+@login_required
+async def media_bytes(media_id):
+    """Serve a stored image. Visibility is the owning hunt's.
+
+    Deliberately authenticated: nothing here is reachable without a Discord
+    session, which is why evidence images cannot be embedded in Google Sheets
+    with =IMAGE() (Google fetches those unauthenticated). Creating an
+    unauthenticated URL to satisfy Sheets would expose team working to anyone
+    holding the link.
+    """
+    from bot.store import HuntJsonDb, MediaJsonDb
+    media = MediaJsonDb.get_by_id(media_id)
+    if media is None:
+        return jsonify({"error": "not_found"}), 404
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
+    if hunt_row is None:
+        return jsonify({"error": "not_found"}), 404
+    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
+        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    from bot.core.message_media import media_root
+    path = (media_root() / media.path).resolve()
+    root = media_root().resolve()
+    if root not in path.parents:            # defense in depth vs path traversal
+        return jsonify({"error": "not_found"}), 404
+    if not path.is_file():
+        return jsonify({"error": "not_found"}), 404
+    resp = await send_file(path, mimetype=media.content_type or "application/octet-stream",
+                           as_attachment=False,
+                           attachment_filename=media.filename)
+    # sniff_image_type only validates a fixed-length PREFIX, so a stored file can
+    # be a byte-perfect PNG header with an arbitrary payload appended. That is
+    # harmless while the browser treats it as the type we stored, and dangerous
+    # the moment the browser is allowed to MIME-sniff the body into an
+    # executable context — which is exactly what nosniff forbids. The stored
+    # content_type above is used verbatim and never re-derived from the
+    # extension or from anything the client sent.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
 @api_bp.route("/hunts/<uid>/puzzles")
 @login_required
 async def hunt_puzzles(uid):
