@@ -234,6 +234,48 @@ async def media_bytes(media_id):
     return resp
 
 
+@api_bp.route("/hunts/<uid>/media", methods=["POST"])
+@login_required
+async def upload_media(uid):
+    """Store an uploaded image against a hunt and return its id and URL.
+
+    The client-declared Content-Type is not trusted; save_image_bytes sniffs
+    the magic bytes and rejects anything that is not PNG/JPEG/GIF/WebP. SVG is
+    refused outright — it is a scriptable document, and serving one from our
+    own origin would be stored XSS.
+    """
+    from bot.core.media_store import MediaRejected, max_upload_bytes, save_image_bytes
+    from bot.store import MediaJsonDb
+    hunt, guild_or_status = await _load_visible_hunt(uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
+        return jsonify({"error": "hunt not found"}), guild_or_status
+    if hunt["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    files = await request.files
+    upload = files.get("file")
+    if upload is None:
+        return jsonify({"error": "file required"}), 400
+    # Read one byte past the cap so an oversize body is detectable rather than
+    # silently truncated to the limit (which would make an oversize upload
+    # indistinguishable from one landing exactly on the boundary).
+    raw = upload.read(max_upload_bytes() + 1)
+    try:
+        saved = save_image_bytes(
+            hunt_id=hunt["id"],
+            filename=upload.filename or "image",
+            raw=raw,
+            origin="upload",
+        )
+    except MediaRejected as exc:
+        return jsonify({"error": str(exc)}), 400
+    media = MediaJsonDb.create(
+        hunt_id=hunt["id"], path=saved["path"], filename=saved["filename"],
+        content_type=saved["content_type"], size=saved["size"], origin=saved["origin"],
+    )
+    return jsonify({"id": media.id, "url": f"/api/media/{media.id}"}), 201
+
+
 @api_bp.route("/hunts/<uid>/puzzles")
 @login_required
 async def hunt_puzzles(uid):
