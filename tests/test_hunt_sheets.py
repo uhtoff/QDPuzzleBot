@@ -268,3 +268,28 @@ class TestRemoveHuntSheet:
             sdb.get_by_hunt.return_value = [self._sheet(4, "alt text", "P9")]
             await svc.remove_hunt_sheet(make_hunt(id=10), 4)
         sdb.delete.assert_called_once_with(4)
+
+
+class TestWebHuntSheets:
+    async def test_returns_the_hunts_own_sheets(self):
+        from bot.web import data
+        rows = [
+            {"id": 7, "puzzle_name": "alt text", "google_page_id": "P7"},
+            {"id": 2, "puzzle_name": "site source", "google_page_id": "P2"},
+        ]
+        with patch("bot.web.data.fetch_all", AsyncMock(return_value=rows)) as fa:
+            out = await data.get_hunt_sheets(10)
+        # Two rows, in query order: the frontend numbers them and !remove_sheet
+        # indexes the same list, so a reordering here is a real bug.
+        assert out == [
+            {"id": 7, "name": "alt text", "page_id": "P7"},
+            {"id": 2, "name": "site source", "page_id": "P2"},
+        ]
+        sql, params = fa.await_args[0]
+        assert "puzzle_id IS NULL" in sql
+        assert params == (10,)
+
+    async def test_empty_when_the_hunt_has_none(self):
+        from bot.web import data
+        with patch("bot.web.data.fetch_all", AsyncMock(return_value=[])):
+            assert await data.get_hunt_sheets(10) == []

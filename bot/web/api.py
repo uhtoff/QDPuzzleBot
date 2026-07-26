@@ -107,6 +107,7 @@ async def hunt_detail(uid):
     puzzles = await data.get_hunt_puzzles(hunt["id"], guild_snowflake)
     rollups = await data.get_rollups_by_tag_group(hunt["id"])
     all_groups = await data.get_all_tag_groups(hunt["id"])
+    hunt_sheets = await data.get_hunt_sheets(hunt["id"])
     board = data.build_board(puzzles, rollups, all_groups)
     solved = sum(1 for p in puzzles if p["solved"])
     # Archived hunts are read-only even for organisers.
@@ -147,6 +148,7 @@ async def hunt_detail(uid):
         },
         "summary": {"total": len(puzzles), "solved": solved},
         "board": board,
+        "hunt_sheets": hunt_sheets,
         "meta_types": list(CREATE_META_TYPES),
     })
 

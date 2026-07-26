@@ -310,6 +310,27 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
     return puzzle_list
 
 
+async def get_hunt_sheets(hunt_id):
+    """The hunt's OWN working sheets -- those belonging to no puzzle.
+
+    A separate query rather than a widening of the puzzle-sheet join in
+    get_hunt_puzzles: that join's output is attached to a puzzle dict, and these
+    rows have no puzzle. (Turning it into a LEFT JOIN would change nothing either
+    -- its `WHERE puzzles.hunt_id = %s` discards the null side.)
+
+    Ordered by id so the dashboard numbers them the same way !list_sheets does.
+    """
+    rows = await fetch_all(
+        "SELECT id, puzzle_name, google_page_id FROM additional_sheets "
+        "WHERE hunt_id = %s AND puzzle_id IS NULL ORDER BY id ASC",
+        (hunt_id,),
+    )
+    return [
+        {"id": r["id"], "name": r["puzzle_name"], "page_id": r["google_page_id"]}
+        for r in rows
+    ]
+
+
 def derive_meta_kind(puzzles):
     """Annotate each puzzle dict in-place with ``meta_kind`` — the single label
     shown for a target puzzle, derived (not stored on the puzzle) from the feeder
