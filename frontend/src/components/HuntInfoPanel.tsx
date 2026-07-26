@@ -117,7 +117,14 @@ export function HuntInfoPanel({
                     way from the names they belong to. A basis keeps the bin next
                     to the name while still aligning the bins down the column,
                     because every row reserves the same width — and `1` for
-                    shrink means they stay aligned on a narrow viewport too. */}
+                    shrink means they stay aligned on a narrow viewport too.
+
+                    The puzzle drawer's Sheets section keeps flex:1 ON PURPOSE and
+                    should NOT be "made consistent" with this: the drawer is a
+                    narrow panel on the right, so stretching leaves the bin beside
+                    the name anyway. This block is page-wide, which is the only
+                    reason it needs a basis. The "mirrors the drawer" note above is
+                    about structure, not about layout constraints. */}
                 <Box style={{ flex: "0 1 260px", minWidth: 0 }}>
                   {sheetUrl ? (
                     <Anchor href={sheetUrl} target="_blank" size="sm" lineClamp={1}
