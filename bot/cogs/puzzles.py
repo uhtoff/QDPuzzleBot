@@ -10,9 +10,10 @@ import asyncio
 from functools import wraps
 
 from bot.utils import urls
+from bot.utils import config
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
-    resolve_group, MediaJsonDb
+    resolve_group, MediaJsonDb, CanvasJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
 from bot.core.media_store import MediaRejected, save_image_bytes
@@ -1372,6 +1373,36 @@ class Puzzles(commands.Cog):
         await self.service.remove_sheet_by_index(hunt, puzzle, number)
         await self.info(ctx, update=True)
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
+
+    @commands.command(aliases=['canvases'])
+    async def canvas(self, ctx):
+        """*Link to this hunt's marked-up images.*
+
+        Usage: `!canvas`
+        Example: `!canvas`
+        Posts a link to the hunt's Canvas view, where a big image can be marked
+        up with a box round each puzzle. Drawing itself is web-only. Alias:
+        `!canvases`."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            return await ctx.send(
+                ":x: This channel isn't part of a hunt, so there are no canvases.")
+        base = (config.web_frontend_url or "").rstrip("/")
+        if not base:
+            return await ctx.send(
+                ":x: The dashboard URL isn't configured, so I can't link to it "
+                "(set web.frontend_url in config.json).")
+        url = f"{base}/hunts/{hunt.uid}"
+        canvases = CanvasJsonDb.get_by_hunt(hunt.id)
+        if not canvases:
+            return await ctx.send(
+                f":x: No canvases yet for **{hunt.name}**. An organiser can "
+                f"upload the hunt's big image on the Canvas tab: {url}")
+        names = ", ".join(c.name or f"Canvas {c.id}" for c in canvases)
+        return await ctx.send(
+            f":frame_photo: **{hunt.name}** has {len(canvases)} "
+            f"canvas{'es' if len(canvases) != 1 else ''} ({names}). "
+            f"Mark them up on the Canvas tab: {url}")
 
     @commands.command(aliases=['list_sheets'])
     async def list_additional_sheets(self, ctx):

@@ -137,6 +137,16 @@ which puzzle it belongs to.
 | `!list_sheets` | `!list_additional_sheets` | — | List the puzzle's sheets, or the hunt's own, with links and numbers. |
 | `!remove_sheet` | `!delete_sheet` | `number` | Remove a sheet by its number, from this puzzle or from the hunt. |
 
+## Canvas
+
+A canvas is one of the hunt's own images with boxes drawn round the puzzles on
+it. **Drawing is web-only** — a deliberate parity exception, in the same class as
+the archiving family: marking up a picture needs a picture in front of you.
+
+| Command | Aliases | Arguments | Does |
+|---|---|---|---|
+| `!canvas` | `!canvases` | — | Link to the hunt's Canvas view, and name the canvases it has. |
+
 ## Notes, clues & metadata
 
 Run in a puzzle channel — except `!clue`, which also works elsewhere (see its row).
