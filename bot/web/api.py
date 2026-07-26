@@ -358,21 +358,30 @@ async def add_evidence():
     body = await request.get_json()
     hunt_uid = body.get("hunt_uid")
     source_puzzle_id = body.get("source_puzzle_id")
+    media_id = body.get("media_id")
     notes = body.get("notes", [])
-    if not hunt_uid or not source_puzzle_id or not notes:
-        return jsonify({"error": "hunt_uid, source_puzzle_id, and notes required"}), 400
+    if not hunt_uid:
+        return jsonify({"error": "hunt_uid required"}), 400
     if not all(isinstance(n, str) for n in notes):
         return jsonify({"error": "notes must be strings"}), 400
+    clean_notes = [n for n in notes if n.strip()]
+    # An item with neither text nor an image is nothing at all. Either alone is
+    # fine: a transcription with no picture, or a picture with no transcription.
+    if not clean_notes and not media_id:
+        return jsonify({"error": "a note or an image is required"}), 400
     hunt, guild_or_status = await _load_visible_hunt(hunt_uid)
     if hunt is None:
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
-    puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
-    if puzzle is None or puzzle.hunt_id != hunt["id"]:
-        return jsonify({"error": "puzzle not found in hunt"}), 404
-    clean_notes = [n for n in notes if n.strip()]
+    # source_puzzle_id is optional: evidence can belong to the hunt rather
+    # than to any one puzzle.
+    puzzle = None
+    if source_puzzle_id:
+        puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+        if puzzle is None or puzzle.hunt_id != hunt["id"]:
+            return jsonify({"error": "puzzle not found in hunt"}), 404
     cog = puzzles_cog()
     hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
     if cog is None or hunt_obj is None:
@@ -380,10 +389,14 @@ async def add_evidence():
     # Route through the same service call the bang !clue/!clues commands use,
     # so API-submitted evidence gets auto-routed to a sole informs target and
     # its contribution rollup, instead of just landing in the Evidence tab.
-    items = await cog.service.log_clues(hunt_obj, puzzle, clean_notes)
+    # An image with no transcription still needs one row, so fall back to a
+    # single empty note rather than logging nothing.
+    items = await cog.service.log_clues(hunt_obj, puzzle, clean_notes or [""],
+                                        media_id=media_id)
     if items:
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
-        asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
+        if puzzle is not None:
+            asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 
