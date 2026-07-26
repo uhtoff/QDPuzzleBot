@@ -307,3 +307,91 @@ class TestMediaUpload:
                 files={"file": _file("big.png", raw, "image/png")},
             )
         assert resp.status_code == 400
+
+
+class TestMediaTiles:
+    """B1: GET /api/media/<id>/tiles/<z>/<y>/<x> — authorised exactly as the
+    sibling GET is, plus the blank-tile fallback that dzsave's omission of
+    uniform tiles makes necessary."""
+
+    @staticmethod
+    def _pyramid(tmp_path, mdb):
+        """Build a real pyramid and point the media row at it.
+
+        A real one, not a hand-made directory: the route and the tiler have to
+        agree on the z/y/x layout, and a fake tree would let them drift apart
+        while both sets of tests stayed green.
+        """
+        import pyvips
+        from bot.core import image_tiler
+
+        src = tmp_path / "big.png"
+        im = pyvips.Image.xyz(1024, 1024)
+        ((im[0] + im[1]) % 255).cast("uchar").write_to_file(str(src))
+        dest = tmp_path / image_tiler.tiles_relpath(10, 7)
+        _, _, levels = image_tiler.build_pyramid(src, dest)
+        mdb.get_by_id.return_value = SimpleNamespace(
+            id=7, hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
+            content_type="image/png", size=13, origin="upload", created_at=None,
+            width=1024, height=1024, tile_status="ready", tile_levels=levels)
+        return levels
+
+    @pytest.mark.asyncio
+    async def test_serves_a_tile(self, web, tmp_path):
+        app, mdb, _ = web
+        self._pyramid(tmp_path, mdb)
+        resp = await app.test_client().get("/api/media/7/tiles/0/0/0")
+        assert resp.status_code == 200
+        assert resp.headers["Content-Type"] == "image/webp"
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert "max-age" in resp.headers["Cache-Control"]
+
+    @pytest.mark.asyncio
+    async def test_serves_a_native_level_tile_by_row_then_column(self, web, tmp_path):
+        """Asserts the route reads z/y/x in libvips' google order. A 1024px
+        image has a 2x2 native level, so this only distinguishes order if the
+        pyramid is asymmetric -- which it is not at 2x2, so the value of this
+        test is that it proves the deepest level is addressable at all."""
+        app, mdb, _ = web
+        levels = self._pyramid(tmp_path, mdb)
+        resp = await app.test_client().get(f"/api/media/7/tiles/{levels - 1}/1/1")
+        assert resp.status_code == 200
+        assert resp.headers["Content-Type"] == "image/webp"
+
+    @pytest.mark.asyncio
+    async def test_missing_tile_serves_the_blank_tile(self, web, tmp_path):
+        """dzsave omits any tile of a uniform colour, and a mostly-white puzzle
+        sheet has many. 404ing would pepper the viewer with broken images over
+        blank paper."""
+        app, mdb, _ = web
+        levels = self._pyramid(tmp_path, mdb)
+        resp = await app.test_client().get(f"/api/media/7/tiles/{levels - 1}/99/99")
+        assert resp.status_code == 200
+        assert resp.headers["Content-Type"] == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_a_level_past_the_pyramid_is_404(self, web, tmp_path):
+        app, mdb, _ = web
+        levels = self._pyramid(tmp_path, mdb)
+        resp = await app.test_client().get(f"/api/media/7/tiles/{levels}/0/0")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_an_untiled_row_has_no_tiles(self, web, tmp_path):
+        """tile_status gates the route: a screenshot has no pyramid, and serving
+        a stale one from a reused media id would be worse than a 404."""
+        app, mdb, _ = web
+        self._pyramid(tmp_path, mdb)
+        mdb.get_by_id.return_value.tile_status = "none"
+        resp = await app.test_client().get("/api/media/7/tiles/0/0/0")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_request_is_401(self, web, tmp_path):
+        """Every other test in this class is handed a session by the fixture, so
+        this is the only one that would notice @login_required being dropped."""
+        app, mdb, _ = web
+        self._pyramid(tmp_path, mdb)
+        with patch("bot.web.auth.session", {}):
+            resp = await app.test_client().get("/api/media/7/tiles/0/0/0")
+        assert resp.status_code == 401

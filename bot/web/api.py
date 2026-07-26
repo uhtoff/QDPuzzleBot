@@ -243,6 +243,57 @@ async def media_bytes(media_id):
     return resp
 
 
+@api_bp.route("/media/<int:media_id>/tiles/<int:z>/<int:y>/<int:x>")
+@login_required
+async def media_tile(media_id, z, y, x):
+    """Serve one pyramid tile. Authorised exactly as /api/media/<id> is.
+
+    z/y/x is libvips' "google" layout order — row before column. The <int:>
+    converters reject anything that is not a non-negative integer, which is what
+    makes building the path by interpolation safe; the resolve()-against-root
+    check below is the same defence in depth the sibling routes carry.
+    """
+    from bot.store import HuntJsonDb, MediaJsonDb
+    media = MediaJsonDb.get_by_id(media_id)
+    # tile_status gates this: an untiled row must not serve a pyramid left over
+    # from anything else, and a pending one has no complete pyramid yet.
+    if media is None or media.tile_status != "ready":
+        return jsonify({"error": "not_found"}), 404
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
+    if hunt_row is None:
+        return jsonify({"error": "not_found"}), 404
+    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
+        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    if z >= media.tile_levels:
+        return jsonify({"error": "not_found"}), 404
+    from bot.core.image_tiler import BLANK_TILE_NAME, tile_relpath, tiles_relpath
+    from bot.core.message_media import media_root
+    root = media_root().resolve()
+    path = (media_root() / tile_relpath(media.hunt_id, media.id, z, y, x)).resolve()
+    if root not in path.parents:            # defense in depth vs path traversal
+        return jsonify({"error": "not_found"}), 404
+    content_type = "image/webp"
+    if not path.is_file():
+        # dzsave omits any tile of a uniform colour. That is a legitimate hole in
+        # the grid rather than an error — a mostly-white puzzle sheet has many —
+        # so serve the blank tile it writes for exactly this purpose.
+        path = (media_root() / tiles_relpath(media.hunt_id, media.id)
+                / BLANK_TILE_NAME).resolve()
+        if root not in path.parents or not path.is_file():
+            return jsonify({"error": "not_found"}), 404
+        content_type = "image/png"
+    resp = await send_file(path, mimetype=content_type, as_attachment=False)
+    # Same reasoning as media_bytes: the type is ours, and the browser is never
+    # allowed to sniff the body into an executable context.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    # Tiles are immutable for a given media id, so they cache hard. This is what
+    # makes panning a 940-tile sheet feel instant on a second pass.
+    resp.headers["Cache-Control"] = "private, max-age=86400, immutable"
+    return resp
+
+
 @api_bp.route("/hunts/<uid>/media", methods=["POST"])
 @login_required
 async def upload_media(uid):
