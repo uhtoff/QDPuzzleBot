@@ -6,13 +6,11 @@ under the same media root the Discord message bridge writes to
 (config.web_archive_media_dir), so there is one directory to back up and one
 serving guard to get right.
 """
-import logging
+import datetime
 import uuid
 
-from bot.core.message_media import safe_filename
+from bot.core.message_media import media_root, safe_filename
 from bot.utils import config
-
-logger = logging.getLogger(__name__)
 
 # Raster formats only. SVG is deliberately absent: it is a scriptable document,
 # and serving one from our own origin would be stored XSS.
@@ -46,3 +44,38 @@ def upload_relpath(hunt_id: int, filename: str) -> str:
     serving. The uuid prefix means two people uploading `screenshot.png` never
     collide, and the stored path is never taken from user input directly."""
     return f"uploads/{hunt_id}/{uuid.uuid4().hex}_{safe_filename(filename)}"
+
+
+class MediaRejected(Exception):
+    """An upload failed validation. The message is safe to show a user."""
+
+
+def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
+                     declared_type: str = "", origin: str = "upload") -> dict:
+    """Validate `raw` and write it under the media root.
+
+    Returns the metadata a `media` row needs: path, filename, content_type,
+    size, origin. Raises MediaRejected if the bytes are too large or are not an
+    allowed image. `declared_type` is accepted only so callers can pass what the
+    client claimed; it is recorded nowhere and never overrides the sniff.
+    """
+    limit = max_upload_bytes()
+    if len(raw) > limit:
+        raise MediaRejected(f"Image too large (limit {limit} bytes).")
+    content_type = sniff_image_type(raw[:16])
+    if content_type is None or content_type not in ALLOWED_IMAGE_TYPES:
+        raise MediaRejected(
+            "Not a supported image. Allowed: PNG, JPEG, GIF, WebP."
+        )
+    relpath = upload_relpath(hunt_id, filename)
+    dest = media_root() / relpath
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(raw)
+    return {
+        "path": relpath,
+        "filename": safe_filename(filename),
+        "content_type": content_type,
+        "size": len(raw),
+        "origin": origin,
+        "created_at": datetime.datetime.utcnow(),
+    }

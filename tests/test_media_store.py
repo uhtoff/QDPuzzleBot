@@ -1,5 +1,8 @@
 """Plan A: media storage — dataclass, validation, and on-disk save."""
 import datetime
+from unittest.mock import patch
+
+import pytest
 
 
 class TestMediaData:
@@ -98,3 +101,79 @@ class TestSniffImageType:
         from bot.core.media_store import sniff_image_type
         assert sniff_image_type(b"") is None
         assert sniff_image_type(b"\x89PN") is None
+
+    def test_riff_shorter_than_twelve_bytes(self):
+        """The WEBP check slices rather than indexes, so a truncated RIFF
+        header must return None rather than raising."""
+        from bot.core.media_store import sniff_image_type
+        assert sniff_image_type(b"RIFF") is None
+        assert sniff_image_type(b"RIFF\x00\x00\x00\x00") is None
+
+
+class TestUploadRelpath:
+    def test_shape_and_uniqueness(self):
+        from bot.core.media_store import upload_relpath
+        a = upload_relpath(10, "crop.png")
+        b = upload_relpath(10, "crop.png")
+        assert a.startswith("uploads/10/")
+        assert a.endswith("_crop.png")
+        assert a != b            # uuid prefix prevents collisions
+
+    def test_hostile_filename_cannot_add_path_segments(self):
+        from bot.core.media_store import upload_relpath
+        p = upload_relpath(10, "../../etc/passwd")
+        assert p.count("/") == 2          # only uploads/ and the hunt id
+        assert ".." not in p
+
+
+class TestSaveImageBytes:
+    """save_image_bytes validates, then writes under the media root."""
+
+    def test_rejects_bytes_that_are_not_an_allowed_image(self, tmp_path):
+        from bot.core.media_store import save_image_bytes, MediaRejected
+        with patch("bot.core.media_store.media_root", return_value=tmp_path):
+            with pytest.raises(MediaRejected) as exc:
+                save_image_bytes(hunt_id=10, filename="x.svg",
+                                 raw=b"<svg xmlns='http://www.w3.org/2000/svg'>")
+        assert "image" in str(exc.value).lower()
+
+    def test_rejects_oversize(self, tmp_path):
+        from bot.core.media_store import save_image_bytes, MediaRejected
+        raw = b"\x89PNG\r\n\x1a\n" + b"\x00" * 1000
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=10):
+            with pytest.raises(MediaRejected) as exc:
+                save_image_bytes(hunt_id=10, filename="big.png", raw=raw)
+        assert "large" in str(exc.value).lower()
+
+    def test_writes_file_and_returns_metadata(self, tmp_path):
+        from bot.core.media_store import save_image_bytes
+        raw = b"\x89PNG\r\n\x1a\n" + b"payload"
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
+            saved = save_image_bytes(hunt_id=10, filename="crop.png", raw=raw)
+        assert saved["content_type"] == "image/png"
+        assert saved["size"] == len(raw)
+        assert saved["filename"] == "crop.png"
+        assert saved["path"].startswith("uploads/10/")
+        assert (tmp_path / saved["path"]).read_bytes() == raw
+
+    def test_filename_cannot_escape_the_media_root(self, tmp_path):
+        """A traversal filename must not write outside the root."""
+        from bot.core.media_store import save_image_bytes
+        raw = b"\x89PNG\r\n\x1a\n"
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
+            saved = save_image_bytes(hunt_id=10, filename="../../etc/passwd", raw=raw)
+        written = (tmp_path / saved["path"]).resolve()
+        assert tmp_path.resolve() in written.parents
+
+    def test_content_type_is_sniffed_not_taken_from_the_caller(self, tmp_path):
+        """A caller claiming image/png for JPEG bytes gets image/jpeg stored."""
+        from bot.core.media_store import save_image_bytes
+        raw = b"\xff\xd8\xff\xe0" + b"\x00" * 8
+        with patch("bot.core.media_store.media_root", return_value=tmp_path), \
+             patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
+            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw,
+                                     declared_type="image/png")
+        assert saved["content_type"] == "image/jpeg"
