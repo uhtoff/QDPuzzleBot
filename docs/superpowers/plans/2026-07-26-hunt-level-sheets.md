@@ -50,9 +50,12 @@ the right job — its output is attached to a puzzle dict (`puzzles.get(s["puzzl
 a hunt-level sheet has no puzzle to attach to. Hunt-level sheets therefore get **their own
 query**, keyed on `s.hunt_id`, feeding a new top-level `hunt_sheets` array. Task 10.
 
-**Deliberately deferred:** creating and deleting hunt-level sheets from the dashboard. The
-project's command-parity principle wants it eventually; this plan ships the read side
-(AC 12) and leaves write to Discord, matching how `!add_sheet` works for puzzles today.
+**Added after the plan was written (Task 21):** creating and deleting hunt-level sheets from
+the dashboard. Originally deferred, then pulled in — the puzzle drawer already has add/remove
+for a puzzle's sheets, so leaving the hunt's own read-only would have been the odd one out.
+Same permission bar as the puzzle-sheet routes (any user who can see the hunt, while
+unarchived), same hunt-keyed lock as the Discord edge, and it sits with the Google Sheet
+link in `HuntInfoPanel`.
 
 ## Where this work happens
 
@@ -2660,8 +2663,7 @@ once do not race" true). AC 12 → Tasks 9, 10, 18. AC 13 → Tasks 11–15, 17.
 `evidence_source_label()`" → Tasks 11 and 13. The spec's "widen the inner join to a left
 join" is deliberately **not** implemented as written; see the deviation note at the top.
 
-**Not covered, deliberately.** Creating or deleting a hunt-level sheet from the dashboard
-(the project's command-parity principle wants it; this plan ships read-only, as noted above).
+**Not covered, deliberately.**
 `get_additional_sheet_spreadsheet(ctx, puzzle, hunt)` is left alone — the spec observed it
 already accepts a hunt, but hunt-level sheets always live on `hunt.google_sheet_id`, so the
 service reads that directly and the helper keeps its `assert puzzle is not None`.
