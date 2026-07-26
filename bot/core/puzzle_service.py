@@ -2457,6 +2457,43 @@ class PuzzleService:
         SheetsJsonDb.commit(sheet)
         return sheet
 
+    def get_hunt_sheets(self, hunt):
+        """The hunt's own working sheets, ordered as !list_sheets numbers them."""
+        return SheetsJsonDb.get_by_hunt(hunt.id)
+
+    @pushes_board()
+    async def remove_hunt_sheet(self, hunt, sheet_id):
+        """Remove one of the hunt's own working sheets by id. Raises
+        RuntimeError("sheet_not_found") if absent.
+
+        Not _delete_additional_sheet: that reads puzzle.solved to pick the
+        spreadsheet and mutates puzzle.additional_sheets, and a hunt sheet has
+        neither a puzzle nor a solved state.
+        """
+        sheet = next((s for s in SheetsJsonDb.get_by_hunt(hunt.id)
+                      if s.id == sheet_id), None)
+        if sheet is None:
+            raise RuntimeError("sheet_not_found")
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is not None:
+            try:
+                # archive=False: a hunt sheet is never on the solved spreadsheet.
+                await gsheet_cog.delete_sheet(sheet.google_page_id, False)
+            except Exception:
+                # Idempotent, as _delete_additional_sheet is: a tab someone
+                # already removed by hand must not leave an undeletable row.
+                logger.exception(
+                    "Failed to delete Google tab for hunt sheet %s", sheet.id)
+        SheetsJsonDb.delete(sheet.id)
+
+    async def remove_hunt_sheet_by_index(self, hunt, index):
+        """Remove one of the hunt's own sheets by its 1-based !list_sheets number.
+        Raises IndexError if out of bounds."""
+        sheets = SheetsJsonDb.get_by_hunt(hunt.id)
+        if index < 1 or index > len(sheets):
+            raise IndexError(f"Sheet index {index} out of range (1–{len(sheets)})")
+        await self.remove_hunt_sheet(hunt, sheets[index - 1].id)
+
     # -------------------------------------------------------------------------
     # Create helpers (M3.5) — canonical paths used by bang + web edges
     # -------------------------------------------------------------------------

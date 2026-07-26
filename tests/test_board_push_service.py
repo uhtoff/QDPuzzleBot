@@ -24,6 +24,7 @@ EXPECTED_PUSH_METHODS = {
     "convert_to_puzzle", "convert_to_type",
     "create_mini", "create_puzzle", "create_tag_group", "delete_hunt",
     "delete_puzzle", "delete_round", "erase_note", "log_clues", "make_minimeta",
+    "remove_hunt_sheet",
     "remove_minimeta", "remove_sheet", "rename_group", "rename_puzzle",
     "set_hunt_role", "set_puzzle_url", "solve", "tag_with_edge", "unsolve",
     "untag_from", "update_hunt_settings", "update_puzzle_field",

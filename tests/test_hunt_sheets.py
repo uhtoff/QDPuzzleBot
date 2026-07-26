@@ -185,3 +185,86 @@ class TestAddHuntSheet:
             sheet = await svc.add_hunt_sheet(make_hunt(id=10), "alt text")
         assert sheet.google_page_id == ""
         sdb.commit.assert_called_once()
+
+
+class TestRemoveHuntSheet:
+    def _svc(self, gsheet):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        return svc
+
+    def _sheet(self, id, name, page_id):
+        from bot.store.puzzle_data import AdditionalSheetData
+        return AdditionalSheetData(id=id, hunt_id=10, puzzle_name=name,
+                                   google_page_id=page_id)
+
+    async def test_get_hunt_sheets_delegates_to_the_dao(self):
+        from tests.conftest import make_hunt
+        svc = self._svc(None)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = [self._sheet(1, "a", "P1")]
+            sheets = svc.get_hunt_sheets(make_hunt(id=10))
+        sdb.get_by_hunt.assert_called_once_with(10)
+        assert [s.puzzle_name for s in sheets] == ["a"]
+
+    async def test_remove_deletes_the_tab_and_the_row(self):
+        from tests.conftest import make_hunt
+        gsheet = MagicMock()
+        gsheet.delete_sheet = AsyncMock()
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = [self._sheet(4, "alt text", "P9")]
+            await svc.remove_hunt_sheet(make_hunt(id=10), 4)
+        # archive=False: a hunt sheet is never on the solved spreadsheet.
+        gsheet.delete_sheet.assert_awaited_once_with("P9", False)
+        sdb.delete.assert_called_once_with(4)
+
+    async def test_remove_by_index_picks_the_right_sheet(self):
+        """Two sheets, because with one the index cannot be wrong. The ids are
+        NOT in index order, so an implementation that passed the index straight
+        through as an id would fail rather than accidentally agree.
+        """
+        from tests.conftest import make_hunt
+        gsheet = MagicMock()
+        gsheet.delete_sheet = AsyncMock()
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = [self._sheet(7, "first", "P7"),
+                                            self._sheet(2, "second", "P2")]
+            await svc.remove_hunt_sheet_by_index(make_hunt(id=10), 2)
+        gsheet.delete_sheet.assert_awaited_once_with("P2", False)
+        sdb.delete.assert_called_once_with(2)
+
+    async def test_remove_by_index_rejects_out_of_range(self):
+        import pytest
+        from tests.conftest import make_hunt
+        svc = self._svc(MagicMock())
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = [self._sheet(7, "first", "P7")]
+            with pytest.raises(IndexError):
+                await svc.remove_hunt_sheet_by_index(make_hunt(id=10), 2)
+            with pytest.raises(IndexError):
+                await svc.remove_hunt_sheet_by_index(make_hunt(id=10), 0)
+
+    async def test_remove_unknown_id_raises(self):
+        import pytest
+        from tests.conftest import make_hunt
+        svc = self._svc(MagicMock())
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = []
+            with pytest.raises(RuntimeError, match="sheet_not_found"):
+                await svc.remove_hunt_sheet(make_hunt(id=10), 4)
+
+    async def test_a_missing_tab_does_not_stop_the_row_being_deleted(self):
+        """Idempotent, exactly as _delete_additional_sheet is: a tab someone
+        already deleted by hand must not leave an unremovable row behind."""
+        from tests.conftest import make_hunt
+        gsheet = MagicMock()
+        gsheet.delete_sheet = AsyncMock(side_effect=Exception("boom"))
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sdb.get_by_hunt.return_value = [self._sheet(4, "alt text", "P9")]
+            await svc.remove_hunt_sheet(make_hunt(id=10), 4)
+        sdb.delete.assert_called_once_with(4)
