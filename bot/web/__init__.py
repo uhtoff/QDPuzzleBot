@@ -37,6 +37,18 @@ def _valid_session_secret(secret):
     return secret.lower() not in {"changeme", "insecure", "secret", "password"}
 
 
+def _max_body_bytes(attachment_cap: int) -> int:
+    """Quart's own body-size guard, in bytes.
+
+    It must sit ABOVE config.web_attachment_max_bytes, not below it: this check
+    runs before any route, so a lower value makes the configured attachment cap
+    unreachable and turns every large upload into a bare 413 instead of the
+    JSON error the API is documented to return. The extra megabyte covers
+    multipart boundary and header overhead around the file itself.
+    """
+    return attachment_cap + 1024 * 1024
+
+
 def _dist_dir():
     """Resolve the built SPA directory (config override or default frontend/dist)."""
     if config.web_frontend_dist:
@@ -94,7 +106,7 @@ def create_app(bot):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.web_oauth_redirect_uri.startswith("https://"),
-        MAX_CONTENT_LENGTH=1 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=_max_body_bytes(config.web_attachment_max_bytes),
     )
     # Make the live bot reachable from request handlers.
     app.bot = bot

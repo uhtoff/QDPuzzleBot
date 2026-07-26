@@ -21,6 +21,19 @@ def _file(filename, data, content_type):
     return FileStorage(stream=BytesIO(data), filename=filename, content_type=content_type)
 
 
+def test_max_content_length_admits_the_configured_cap():
+    """MAX_CONTENT_LENGTH is Quart's own body guard and runs BEFORE any route.
+    If it is below web_attachment_max_bytes, the configured cap is unreachable
+    and the caller gets a bare 413 instead of our JSON error."""
+    from bot.web import _max_body_bytes
+    assert _max_body_bytes(26214400) > 26214400      # headroom for multipart overhead
+    assert _max_body_bytes(1024) >= 1024
+    # Pin the exact headroom (1 MiB), not just "some": a mutation that adds a
+    # trivial few bytes of slack would still satisfy the two asserts above,
+    # but would not actually cover multipart boundary/header overhead.
+    assert _max_body_bytes(26214400) == 26214400 + 1024 * 1024
+
+
 @pytest.fixture
 def web(tmp_path):
     from quart import Quart

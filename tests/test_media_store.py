@@ -201,6 +201,30 @@ class TestSaveImageBytes:
                                      origin="discord")
         assert saved["origin"] == "discord"
 
+    def test_refuses_to_store_when_no_media_dir_is_configured(self, tmp_path, monkeypatch):
+        """An unset archive_media_dir makes media_root() the process cwd
+        (Path('') normalises to Path('.')). Writing uploads into the working
+        tree is worse than refusing them, and the message has to tell an
+        admin what to set.
+
+        Safety net: chdir into tmp_path BEFORE calling save_image_bytes, so
+        that if the guard is absent (or a regression removes it) the stray
+        write lands in a throwaway directory instead of the real repo
+        checkout -- exactly the hazard this task exists to close.
+        """
+        from bot.core.media_store import save_image_bytes, MediaRejected
+        from pathlib import Path
+        monkeypatch.chdir(tmp_path)
+        with patch("bot.core.media_store.media_root", return_value=Path("")):
+            with pytest.raises(MediaRejected) as exc:
+                save_image_bytes(hunt_id=10, filename="a.png",
+                                 raw=b"\x89PNG\r\n\x1a\n")
+        assert "archive_media_dir" in str(exc.value)
+        # Nothing must be written even into the throwaway cwd -- the guard
+        # has to fire before any path allocation/write, not merely raise
+        # after already touching disk.
+        assert not (tmp_path / "uploads").exists()
+
     def test_size_limit_boundary(self, tmp_path):
         """Exactly at the limit is accepted; one byte over is rejected. Task 14
         reads max_upload_bytes() + 1 from the request precisely so that the

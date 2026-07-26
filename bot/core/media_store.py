@@ -90,8 +90,17 @@ def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
         raise MediaRejected(
             "Not a supported image. Allowed: PNG, JPEG, GIF, WebP."
         )
+    root = media_root()
+    if str(root) in ("", "."):
+        # An unset web.archive_media_dir makes media_root() the process cwd
+        # (Path('') normalises to Path('.')). Silently scattering uploads
+        # into the working directory is worse than refusing them outright.
+        raise MediaRejected(
+            "Image storage is not configured on this server "
+            "(set web.archive_media_dir in config.json)."
+        )
     relpath = upload_relpath(hunt_id, filename)
-    dest = media_root() / relpath
+    dest = root / relpath
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         dest.write_bytes(raw)
