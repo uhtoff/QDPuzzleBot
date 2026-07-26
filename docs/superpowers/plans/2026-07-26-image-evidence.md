@@ -47,6 +47,7 @@ Read `/tmp/test.log`. A timeout-killed run exits 124. Do not start until this is
 - **Factories, not fixtures.** `tests/conftest.py` exports plain functions — `make_hunt()`, `make_puzzle()`, `make_ctx()`, `make_cog()`. Import and call them.
 - **`asyncio_mode = auto`.** `async def test_*` needs no decorator.
 - **Anything awaited is an `AsyncMock`**; sync attributes stay `MagicMock`.
+- **Patching `media_root` requires the right module — and getting it wrong writes to the real filesystem.** `bot/core/media_store.py` does `from bot.core.message_media import media_root` at import, binding its own name. Patching `bot.core.message_media.media_root` therefore does **not** affect `save_image_bytes`, which calls its own reference. Any test exercising an upload must patch **`bot.core.media_store.media_root`**, or it will write into the real `config.web_archive_media_dir` (or the working directory, if that is unset). This is the house "patch where the name is looked up" rule, in the one place where getting it wrong has effects outside the test process.
 - **`PuzzleService.__new__(PuzzleService)` needs a notifier.** Several tasks build the service without its constructor to avoid needing a DB or a bot. Any method decorated `@pushes_board()` dereferences `self.notifier` on success, so a bare `__new__` instance raises `AttributeError` — which surfaces as a crash rather than a clean assertion failure, and sends you hunting in the wrong place. Set `svc.notifier = MagicMock(board_changed=AsyncMock())`, as `tests/test_sheet_failure_isolation.py` already does.
 - **A test with one instance of a thing usually proves nothing about that thing.** Eight defects in this plan were tests that passed whether or not the code worked, and nearly all had this shape: one sourceless item (so order can't be wrong), one shallow traversal payload (absorbed by the path prefix), one returned object whose fields come from local parameters rather than from what the database saw. Before writing any test from this plan, ask what it would take for it to fail. If the answer is "nothing", fix the test.
 - Commit after every task.
@@ -1793,6 +1794,33 @@ class TestMediaUpload:
     async def test_missing_file_is_400(self, web):
         app, _, _ = web
         resp = await app.test_client().post("/api/hunts/U1/media")
+        assert resp.status_code == 400
+
+    async def test_unauthenticated_request_is_401(self, web):
+        """The fixture hands every other test a valid session, so none of them
+        would notice @login_required being removed. This one would. (The sibling
+        GET route shipped without this and the gap was only caught by mutation.)
+        """
+        app, _, _ = web
+        with patch("bot.web.auth.session", {}):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/media",
+                files={"file": _file(b"\x89PNG\r\n\x1a\np", "crop.png")},
+            )
+        assert resp.status_code == 401
+
+    async def test_rejects_a_body_over_the_configured_limit(self, web):
+        """The size cap is pinned in test_media_store.py at the service layer,
+        but nothing pinned it at the route — where the read(limit + 1) decision
+        actually lives.
+        """
+        app, _, _ = web
+        with patch("bot.core.media_store.max_upload_bytes", return_value=10):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/media",
+                files={"file": _file(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100,
+                                     "big.png")},
+            )
         assert resp.status_code == 400
 ```
 
