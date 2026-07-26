@@ -941,16 +941,25 @@ class MySQLMediaDb(_MySQLBaseDb):
     TABLE_NAME = 'media'
 
     def create(self, hunt_id: int, path: str, filename: str,
-               content_type: str, size: int, origin: str) -> 'MediaData':
-        """Insert one media row and return it."""
+               content_type: str, size: int, origin: str,
+               width: int = 0, height: int = 0,
+               tile_status: str = "none") -> 'MediaData':
+        """Insert one media row and return it.
+
+        Dimensions are recorded for every image, tiled or not: they cost one
+        cheap header read, and the frontend needs them to lay out a viewport
+        before any bytes arrive.
+        """
         now = datetime.datetime.utcnow()
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "INSERT INTO media"
-                " (hunt_id, path, filename, content_type, size, origin, created_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (hunt_id, path, filename, content_type, size, origin, now),
+                " (hunt_id, path, filename, content_type, size, origin, created_at,"
+                "  width, height, tile_status, tile_levels)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)",
+                (hunt_id, path, filename, content_type, size, origin, now,
+                 width, height, tile_status),
             )
             new_id = cursor.lastrowid
         finally:
@@ -964,10 +973,31 @@ class MySQLMediaDb(_MySQLBaseDb):
         m.content_type = content_type
         m.size = size
         m.origin = origin
+        m.width = width
+        m.height = height
+        m.tile_status = tile_status
+        m.tile_levels = 0
         # Match import_dict's tzinfo-reattachment so a freshly-created row and one
         # read back from the DB serialize identically (same as EvidenceData).
         m.created_at = now.replace(tzinfo=datetime.timezone.utc)
         return m
+
+    def update_tiles(self, media_id: int, tile_status: str,
+                     tile_levels: int = 0) -> None:
+        """Move one row's pyramid state on.
+
+        media_tiling is the only writer, which is what keeps the pyramid on disk
+        and the row from drifting apart.
+        """
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "UPDATE media SET tile_status = %s, tile_levels = %s WHERE id = %s",
+                (tile_status, tile_levels, media_id),
+            )
+        finally:
+            cursor.close()
+        self.mydb.commit()
 
     def get_by_id(self, media_id: int):
         """Return one MediaData by id, or None if missing."""

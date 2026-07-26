@@ -270,14 +270,22 @@ class TestMySQLMediaDb:
         Assert on what was actually sent to execute.
         """
         db, _, cursor = self._db()
+        # width != height deliberately: they are adjacent and both ints, so a
+        # transposed pair is exactly the corruption this test exists to catch,
+        # and equal values would hide it.
         db.create(hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
-                  content_type="image/png", size=99, origin="upload")
+                  content_type="image/png", size=99, origin="upload",
+                  width=14400, height=9000, tile_status="pending")
         sql, params = cursor.execute.call_args[0]
         assert params[:6] == (10, "uploads/10/a_crop.png", "crop.png",
                               "image/png", 99, "upload")
+        # params[6] is created_at; tile_levels is the literal 0 in the SQL and so
+        # is not a parameter at all.
+        assert params[7:] == (14400, 9000, "pending")
         columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
         assert columns == ["hunt_id", "path", "filename", "content_type",
-                           "size", "origin", "created_at"]
+                           "size", "origin", "created_at",
+                           "width", "height", "tile_status", "tile_levels"]
 
     def test_create_reattaches_utc_tzinfo(self):
         """A freshly-created row must serialize like one read back from the DB."""
