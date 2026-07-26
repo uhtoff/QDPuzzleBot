@@ -168,12 +168,11 @@ class TestSaveImageBytes:
         written = (tmp_path / saved["path"]).resolve()
         assert tmp_path.resolve() in written.parents
 
-    def test_content_type_is_sniffed_not_taken_from_the_caller(self, tmp_path):
-        """A caller claiming image/png for JPEG bytes gets image/jpeg stored."""
+    def test_content_type_is_sniffed_not_taken_from_the_filename(self, tmp_path):
+        """JPEG bytes behind a `.png` filename are still stored as image/jpeg."""
         from bot.core.media_store import save_image_bytes
         raw = b"\xff\xd8\xff\xe0" + b"\x00" * 8
         with patch("bot.core.media_store.media_root", return_value=tmp_path), \
              patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
-            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw,
-                                     declared_type="image/png")
+            saved = save_image_bytes(hunt_id=10, filename="a.png", raw=raw)
         assert saved["content_type"] == "image/jpeg"
