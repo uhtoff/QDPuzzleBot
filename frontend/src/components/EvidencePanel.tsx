@@ -1,9 +1,12 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   ActionIcon,
+  Anchor,
   Box,
   Button,
+  FileInput,
   Group,
+  Image,
   Select,
   Stack,
   Table,
@@ -12,7 +15,14 @@ import {
 } from "@mantine/core";
 import { IconArrowDown, IconArrowsSort, IconArrowUp, IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
-import { useDeleteEvidence, useEditClueNote, useEvidence, useLogClue, useUpdateEvidence } from "../api";
+import {
+  useAddEvidence,
+  useDeleteEvidence,
+  useEditClueNote,
+  useEvidence,
+  useUpdateEvidence,
+  useUploadMedia,
+} from "../api";
 import { notifyError } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -27,7 +37,8 @@ type SortDirection = "asc" | "desc";
 export function EvidencePanel({ uid, detail }: Props) {
   const { data: items = [], isLoading, error } = useEvidence(uid);
   const updateEvidence = useUpdateEvidence(uid);
-  const logClue = useLogClue(uid);
+  const uploadMedia = useUploadMedia(uid);
+  const addEvidence = useAddEvidence(uid);
   const deleteEvidence = useDeleteEvidence(uid);
   const editClueNote = useEditClueNote(uid);
   const [filterSource, setFilterSource] = useState<string | null>(null);
@@ -45,17 +56,27 @@ export function EvidencePanel({ uid, detail }: Props) {
 
   const [cluePuzzleId, setCluePuzzleId] = useState<string | null>(null);
   const [clueNote, setClueNote] = useState("");
+  const [clueFile, setClueFile] = useState<File | null>(null);
 
   const editable = !detail.hunt.archived;
 
-  function submitClue() {
-    if (!cluePuzzleId || !clueNote.trim()) return;
-    logClue.mutate(
-      { puzzleId: Number(cluePuzzleId), note: clueNote.trim() },
-      // Keep the source puzzle selected on success — logging several clues in a
-      // row for the same puzzle is the common case; only the note should clear.
-      { onSuccess: () => { setClueNote(""); }, onError: notifyError }
-    );
+  async function submitClue() {
+    const note = clueNote.trim();
+    // Either alone is enough; neither is nothing at all.
+    if (!note && !clueFile) return;
+    try {
+      const media = clueFile ? await uploadMedia.mutateAsync(clueFile) : null;
+      await addEvidence.mutateAsync({
+        puzzleId: cluePuzzleId ? Number(cluePuzzleId) : null,
+        note,
+        mediaId: media ? media.id : null,
+      });
+      setClueNote("");
+      setClueFile(null);
+      setCluePuzzleId(null);
+    } catch (err) {
+      notifyError(err);
+    }
   }
 
   const allPuzzles = useMemo(() => {
@@ -66,8 +87,18 @@ export function EvidencePanel({ uid, detail }: Props) {
 
   const sourceOptions = useMemo(() => {
     const seen = new Map<number, string>();
-    items.forEach((i) => seen.set(i.source_puzzle_id, i.source_puzzle_name));
-    return [{ value: "", label: "All sources" }, ...Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name }))];
+    let hasSourceless = false;
+    items.forEach((i) => {
+      if (i.source_puzzle_id == null) hasSourceless = true;
+      else seen.set(i.source_puzzle_id, i.source_puzzle_name ?? "");
+    });
+    return [
+      { value: "", label: "All sources" },
+      // The filter is how someone would go looking for hunt-level evidence, so
+      // give it an explicit label rather than an empty one.
+      ...(hasSourceless ? [{ value: "none", label: "No source" }] : []),
+      ...Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name })),
+    ];
   }, [items]);
 
   const targetOptions = useMemo(() => {
@@ -87,7 +118,11 @@ export function EvidencePanel({ uid, detail }: Props) {
   const filtered = useMemo(() => {
     const text = filterText.trim().toLowerCase();
     return items
-      .filter((i) => !filterSource || String(i.source_puzzle_id) === filterSource)
+      .filter((i) => {
+        if (!filterSource) return true;
+        if (filterSource === "none") return i.source_puzzle_id == null;
+        return String(i.source_puzzle_id) === filterSource;
+      })
       .filter((i) => {
         if (!filterTarget) return true;
         if (filterTarget === "unassigned") return i.target_puzzle_id == null;
@@ -154,6 +189,7 @@ export function EvidencePanel({ uid, detail }: Props) {
             value={cluePuzzleId ?? ""}
             onChange={(v) => setCluePuzzleId(v || null)}
             searchable
+            clearable
             w={240}
           />
           <TextInput
@@ -164,7 +200,22 @@ export function EvidencePanel({ uid, detail }: Props) {
             onKeyDown={(e) => e.key === "Enter" && submitClue()}
             style={{ flex: 1 }}
           />
-          <Button size="xs" onClick={submitClue} loading={logClue.isPending}>Log clue</Button>
+          <FileInput
+            size="xs"
+            placeholder="Image (optional)"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            value={clueFile}
+            onChange={setClueFile}
+            clearable
+            w={180}
+          />
+          <Button
+            size="xs"
+            onClick={submitClue}
+            loading={uploadMedia.isPending || addEvidence.isPending}
+          >
+            Log clue
+          </Button>
         </Group>
       )}
 
@@ -177,6 +228,7 @@ export function EvidencePanel({ uid, detail }: Props) {
           <Table.Thead>
             <Table.Tr>
               <SortableTh sortKey="source_puzzle_name" sort={sort} onSort={toggleSort}>Source Puzzle</SortableTh>
+              <Table.Th>Image</Table.Th>
               <SortableTh sortKey="note" sort={sort} onSort={toggleSort}>Note</SortableTh>
               <SortableTh sortKey="target_puzzle_name" sort={sort} onSort={toggleSort}>Target Puzzle</SortableTh>
               <SortableTh sortKey="created_at" sort={sort} onSort={toggleSort}>Logged At</SortableTh>
@@ -292,7 +344,20 @@ const EvidenceRow = memo(function EvidenceRow({
 
   return (
     <Table.Tr>
-      <Table.Td>{item.source_puzzle_name}</Table.Td>
+      <Table.Td>{item.source_puzzle_name ?? "—"}</Table.Td>
+      <Table.Td>
+        {item.media_url ? (
+          <Anchor href={item.media_url} target="_blank" rel="noreferrer">
+            <Image
+              src={item.media_url}
+              alt={item.note || "evidence image"}
+              h={40}
+              w="auto"
+              fit="contain"
+            />
+          </Anchor>
+        ) : null}
+      </Table.Td>
       <Table.Td>
         {editable && editing ? (
           <TextInput
