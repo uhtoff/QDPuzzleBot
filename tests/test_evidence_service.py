@@ -89,6 +89,21 @@ class TestEvidenceData:
         assert e.source_puzzle_id is None
         assert e.media_id == 7
 
+    def test_source_sheet_id_defaults_to_none(self):
+        from bot.store.evidence_data import EvidenceData
+        assert EvidenceData().source_sheet_id is None
+
+    def test_import_dict_reads_the_source_sheet(self):
+        from bot.store.evidence_data import EvidenceData
+        e = EvidenceData.import_dict({
+            "id": 1, "hunt_id": 10, "source_puzzle_id": None,
+            "source_sheet_id": 4, "target_puzzle_id": 9,
+            "note": "found in the alt text", "media_id": None,
+            "created_at": None,
+        })
+        assert e.source_sheet_id == 4
+        assert e.source_puzzle_id is None
+
 
 class TestLogClues:
     """PuzzleService.log_clues — inserts one item per note."""
@@ -553,8 +568,12 @@ class TestEvidenceDbLog:
         db.log(hunt_id=10, source_puzzle_id=None, note="seen on the poster", media_id=7)
         sql, params = cursor.execute.call_args[0]
         columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
-        assert columns == ["hunt_id", "source_puzzle_id", "note", "media_id", "created_at"]
-        assert params[:4] == (10, None, "seen on the poster", 7)
+        # source_sheet_id (Plan C) is the sixth column: evidence can name a
+        # hunt-level working sheet as its source. Still an EXACT match, not a
+        # subset -- the point of this test is that the tuple's order is pinned.
+        assert columns == ["hunt_id", "source_puzzle_id", "note", "media_id",
+                           "source_sheet_id", "created_at"]
+        assert params[:5] == (10, None, "seen on the poster", 7, None)
 
 
 class TestLogCluesSourceless:
@@ -646,3 +665,40 @@ class TestLogCluesSourceless:
             await svc.unlink_informs_for_evidence(make_hunt(id=10), None, 4)
         edb.get_all.assert_not_called()
         tgdb.get_by_attr.assert_not_called()
+
+
+class TestEvidenceDbLogSourceSheet:
+    def _db(self):
+        from bot.store.mysqldb import MySQLEvidenceDb
+        mydb = MagicMock()
+        cursor = MagicMock()
+        cursor.lastrowid = 11
+        mydb.dict_cursor.return_value = cursor
+        return MySQLEvidenceDb(mydb=mydb), cursor
+
+    def test_log_with_a_source_sheet(self):
+        db, _ = self._db()
+        e = db.log(hunt_id=10, source_puzzle_id=None, note="alt text",
+                   source_sheet_id=4)
+        assert e.source_sheet_id == 4
+        assert e.source_puzzle_id is None
+
+    def test_log_writes_the_source_sheet_in_column_order(self):
+        """Every other assertion here reads fields off the RETURNED object, built
+        from log()'s own parameters -- so a SQL tuple that transposed two adjacent
+        int columns (media_id and source_sheet_id are both nullable ints) would
+        corrupt every row and stay green. Assert on what reached execute."""
+        db, cursor = self._db()
+        db.log(hunt_id=10, source_puzzle_id=None, note="n", media_id=7,
+               source_sheet_id=4)
+        sql, params = cursor.execute.call_args[0]
+        columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
+        assert dict(zip(columns, params))["media_id"] == 7
+        assert dict(zip(columns, params))["source_sheet_id"] == 4
+
+    def test_source_sheet_defaults_to_none(self):
+        db, cursor = self._db()
+        db.log(hunt_id=10, source_puzzle_id=5, note="n")
+        sql, params = cursor.execute.call_args[0]
+        columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
+        assert dict(zip(columns, params))["source_sheet_id"] is None

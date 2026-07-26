@@ -813,20 +813,21 @@ class MySQLEvidenceDb(_MySQLBaseDb):
     TABLE_NAME = 'evidence_items'
 
     def log(self, hunt_id: int, source_puzzle_id, note: str,
-            media_id=None) -> 'EvidenceData':
+            media_id=None, source_sheet_id=None) -> 'EvidenceData':
         """Insert one evidence item and return it.
 
         source_puzzle_id may be None: evidence can belong to the hunt rather
         than to any one puzzle. media_id may be None: evidence can be text only.
+        source_sheet_id names a hunt-level working sheet as the provenance.
         """
         now = datetime.datetime.utcnow()
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "INSERT INTO evidence_items"
-                " (hunt_id, source_puzzle_id, note, media_id, created_at)"
-                " VALUES (%s, %s, %s, %s, %s)",
-                (hunt_id, source_puzzle_id, note, media_id, now),
+                " (hunt_id, source_puzzle_id, note, media_id, source_sheet_id, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (hunt_id, source_puzzle_id, note, media_id, source_sheet_id, now),
             )
             new_id = cursor.lastrowid
         finally:
@@ -838,6 +839,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         e.source_puzzle_id = source_puzzle_id
         e.note = note
         e.media_id = media_id
+        e.source_sheet_id = source_sheet_id
         # Match import_dict's tzinfo-reattachment so a freshly-logged item and one
         # read back from the DB serialize identically (#33).
         e.created_at = now.replace(tzinfo=datetime.timezone.utc)

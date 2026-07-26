@@ -10,6 +10,10 @@ class EvidenceData:
     # None when the evidence belongs to the hunt rather than to a source puzzle
     # (e.g. an observation nobody has pinned to a specific puzzle yet).
     source_puzzle_id: Optional[int] = None
+    # None unless the evidence came from a hunt-level working sheet. At most one
+    # of source_puzzle_id / source_sheet_id is set; the service methods that write
+    # each kind own that invariant.
+    source_sheet_id: Optional[int] = None
     target_puzzle_id: Optional[int] = None
     note: str = ""
     media_id: Optional[int] = None
