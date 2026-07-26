@@ -611,6 +611,24 @@ class TestMySQLMediaDb:
         assert cursor.execute.called
         mydb.commit.assert_called_once()
 
+    def test_create_sends_parameters_in_column_order(self):
+        """Every other assertion in this class reads fields off the RETURNED
+        MediaData, and those are built from `create`'s own local parameters —
+        never read back from the cursor. So a SQL tuple that transposes two
+        adjacent same-typed columns (`path` and `filename` are both strings)
+        would corrupt every written row while leaving all of them green.
+        Assert on what was actually sent to execute.
+        """
+        db, _, cursor = self._db()
+        db.create(hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
+                  content_type="image/png", size=99, origin="upload")
+        sql, params = cursor.execute.call_args[0]
+        assert params[:6] == (10, "uploads/10/a_crop.png", "crop.png",
+                              "image/png", 99, "upload")
+        columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
+        assert columns == ["hunt_id", "path", "filename", "content_type",
+                           "size", "origin", "created_at"]
+
     def test_create_reattaches_utc_tzinfo(self):
         """A freshly-created row must serialize like one read back from the DB."""
         import datetime
