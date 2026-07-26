@@ -2309,3 +2309,87 @@ async def delete_region(canvas_id, region_id):
     await _push_board(ctx["hunt"]["id"])
     await _audit("delete_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
+
+
+@actions_bp.route("/canvases/<int:canvas_id>/regions/<int:region_id>/create-puzzle",
+                  methods=["POST"])
+@login_required
+async def create_puzzle_from_region(canvas_id, region_id):
+    """Create a puzzle from a drawn region, then link the region to it.
+
+    Delegates to the SAME PuzzleService.create_puzzle the board's create button
+    uses — Discord channel, sheet tab, tagged into the chosen round — so there is
+    no duplicate creation logic and no "half-real puzzle" concept.
+
+    Permission is the create path's, not the looser region-drawing bar: making a
+    channel and a sheet tab is not the same act as drawing a box. It is not
+    organiser-gated, because creating a puzzle from the board is not either.
+
+    Locking mirrors the /hunts/<uid>/puzzles route exactly: hunt_create_lock
+    around check+create, because create_puzzle does NOT take that lock itself
+    (bot/core is lock-free by convention and callers lock). Taking a second,
+    different lock here would be the documented self-deadlock shape.
+    """
+    from bot.core import canvas as canvas_service
+    from bot.core.canvas_shape import ShapeRejected
+    from bot.store import CanvasRegionJsonDb, HuntJsonDb, PuzzleJsonDb, TagGroupJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    existing = CanvasRegionJsonDb.get_by_id(region_id)
+    if existing is None or existing.canvas_id != canvas_id:
+        return jsonify({"error": "region_not_found"}), 404
+
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    role = body.get("role") or canvas_service.LOCATES
+    if not name:
+        return jsonify({"error": "empty_name"}), 400
+    if role not in canvas_service.ROLES:
+        return jsonify({"error": "bad_role"}), 400
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    assert hunt_obj is not None  # row exists: the visible-hunt check just passed
+    target_group = None
+    if body.get("round_id"):
+        target_group = TagGroupJsonDb.get_by_attr(id=int(body["round_id"]))
+        if target_group is None or target_group.hunt_id != hunt_obj.id:
+            return jsonify({"error": "bad_round"}), 400
+
+    bot = bot_app().bot
+    cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    try:
+        from bot.core.notifier import DiscordNotifier
+        async with hunt_create_lock(hunt_obj.id):
+            if PuzzleJsonDb.check_duplicates_in_hunt(name, hunt_obj.id):
+                return jsonify({"error": "duplicate_name"}), 409
+            puzzle = await cog.service.create_puzzle(
+                guild, hunt_obj, target_group, name,
+                notifier=DiscordNotifier(bot_app().bot),
+            )
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    # Link only after the puzzle really exists: a failed create must leave the
+    # region exactly as it was, not pointing at a puzzle that was never made.
+    import json as _json
+    try:
+        region = canvas_service.update_region(
+            region_id=region_id, hunt_id=hunt_obj.id,
+            shape=_json.loads(existing.shape), label=existing.label,
+            note=existing.note, puzzle_id=puzzle.id, role=role)
+    except (ShapeRejected, canvas_service.RegionRejected) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    await _push_board(hunt_obj.id)
+    await _audit("create_puzzle_from_region", puzzle_id=puzzle.id,
+                 hunt_uid=hunt_obj.uid, detail=name)
+    asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
+    assert region is not None
+    return jsonify(web_data.region_to_json(region)), 201

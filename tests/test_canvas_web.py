@@ -227,3 +227,92 @@ class TestRegionWrites:
             resp = await web.client.post("/api/canvases/3/regions",
                                          json={"shape": RECT})
         assert resp.status_code == 401
+
+
+class TestCreatePuzzleFromRegion:
+    """Draw-to-create. Delegates to the SAME create path the board's create
+    button uses, then links the region to what it returns."""
+
+    @pytest.fixture
+    def create(self, web):
+        puzzle = SimpleNamespace(id=42, name="Hex maze")
+        web.cog.service.create_puzzle = AsyncMock(return_value=puzzle)
+        web.cog.service.refresh_unassigned_safe = AsyncMock()
+        group = SimpleNamespace(id=2, hunt_id=10)
+        pdb, gdb = MagicMock(), MagicMock()
+        pdb.check_duplicates_in_hunt.return_value = False
+        gdb.get_by_attr.return_value = group
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.store.TagGroupJsonDb", gdb), \
+             patch("bot.web.actions.bot_app") as ba, \
+             patch("bot.core.canvas.update_region") as upd:
+            ba.return_value.bot.get_guild.return_value = MagicMock()
+            upd.return_value = _region(puzzle_id=42, role="locates")
+            yield SimpleNamespace(puzzle=puzzle, pdb=pdb, gdb=gdb, upd=upd)
+
+    async def test_delegates_to_the_existing_create_path(self, web, create):
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 201
+        web.cog.service.create_puzzle.assert_awaited_once()
+        args = web.cog.service.create_puzzle.await_args[0]
+        # (guild, hunt, target_group, name) — the group is passed through, so the
+        # new puzzle lands in the chosen round rather than unassigned.
+        assert args[3] == "Hex maze"
+        assert args[2] is create.gdb.get_by_attr.return_value
+
+    async def test_links_the_region_to_the_new_puzzle(self, web, create):
+        await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "informs"})
+        kwargs = create.upd.call_args.kwargs
+        assert kwargs["puzzle_id"] == 42
+        assert kwargs["role"] == "informs"
+        assert kwargs["region_id"] == 5
+
+    async def test_does_not_link_when_creation_fails(self, web, create):
+        """A failed create must leave the region exactly as it was, not pointing
+        at a puzzle that was never made."""
+        web.cog.service.create_puzzle = AsyncMock(side_effect=RuntimeError("no room"))
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 400
+        create.upd.assert_not_called()
+
+    async def test_rejects_a_round_from_another_hunt(self, web, create):
+        create.gdb.get_by_attr.return_value = SimpleNamespace(id=2, hunt_id=99)
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error"] == "bad_round"
+
+    async def test_rejects_a_duplicate_name(self, web, create):
+        create.pdb.check_duplicates_in_hunt.return_value = True
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 409
+        web.cog.service.create_puzzle.assert_not_awaited()
+
+    async def test_rejects_an_empty_name(self, web, create):
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "  ", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 400
+
+    async def test_rejects_an_unknown_role(self, web, create):
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "banana"})
+        assert resp.status_code == 400
+        web.cog.service.create_puzzle.assert_not_awaited()
+
+    async def test_rejects_a_region_from_another_canvas(self, web, create):
+        web.rdb.get_by_id.return_value = _region(canvas_id=999)
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 404
