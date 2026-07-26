@@ -187,10 +187,12 @@ export interface RollupAnswers {
 
 export interface EvidenceItem {
   id: number;
-  source_puzzle_id: number;
-  source_puzzle_name: string;
+  source_puzzle_id: number | null;
+  source_puzzle_name: string | null;
   target_puzzle_id: number | null;
   target_puzzle_name: string | null;
   note: string;
+  media_id: number | null;
+  media_url: string | null;
   created_at: string | null;
 }

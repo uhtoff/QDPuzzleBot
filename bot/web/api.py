@@ -397,6 +397,15 @@ async def add_evidence():
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         if puzzle is not None:
             asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
+        # This route replaces the actions blueprint's /clues endpoint as the
+        # dashboard's clue-logging path (it is the only one that can log a
+        # sourceless or image-only clue, since there is no puzzle id for a
+        # URL). Carry over its audit entry so moving the panel here does not
+        # silently drop the audit trail. Imported locally to avoid a circular
+        # import between the api and actions blueprints.
+        from bot.web.actions import _audit
+        await _audit("clue", puzzle_id=puzzle.id if puzzle else None,
+                     hunt_uid=hunt["uid"])
     return jsonify([{"id": i.id, "note": i.note} for i in items]), 201
 
 

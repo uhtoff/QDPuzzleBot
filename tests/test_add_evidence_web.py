@@ -171,3 +171,31 @@ class TestSourcelessAndImageEvidence:
 
         assert resp.status_code == 400
         web.cog.service.log_clues.assert_not_awaited()
+
+
+class TestAddEvidenceAudit:
+    """Task 17 Step 3b: moving the dashboard's clue-logging off the actions
+    blueprint's /clues route (which calls _audit("clue", ...)) must not
+    silently drop the audit trail. /api/evidence carries the same call."""
+
+    async def test_audits_a_sourced_clue(self, web):
+        audit = AsyncMock()
+        with patch("bot.web.actions._audit", audit):
+            resp = await web.client.post(
+                "/api/evidence",
+                json={"hunt_uid": "U1", "source_puzzle_id": 9, "notes": ["a clue"]},
+            )
+
+        assert resp.status_code == 201
+        audit.assert_awaited_once_with("clue", puzzle_id=9, hunt_uid="U1")
+
+    async def test_audits_a_sourceless_clue(self, web):
+        audit = AsyncMock()
+        with patch("bot.web.actions._audit", audit):
+            resp = await web.client.post(
+                "/api/evidence",
+                json={"hunt_uid": "U1", "notes": ["seen on the poster"]},
+            )
+
+        assert resp.status_code == 201
+        audit.assert_awaited_once_with("clue", puzzle_id=None, hunt_uid="U1")

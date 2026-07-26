@@ -178,6 +178,52 @@ export function useLogClue(uid: string) {
   });
 }
 
+export function useUploadMedia(huntUid: string) {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      // Not apiSend: that sets a JSON Content-Type, and multipart needs the
+      // browser to set its own boundary. Match apiSend's credentials/CSRF
+      // handling otherwise, since the CSRF guard applies to this route too.
+      const res = await fetch(`/api/hunts/${huntUid}/media`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: form,
+      });
+      if (res.status === 401) throw new AuthError();
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          retry_after?: number;
+          detail?: string;
+        };
+        throw new Error(friendlyError(detail, res.status));
+      }
+      return (await res.json()) as { id: number; url: string };
+    },
+  });
+}
+
+export function useAddEvidence(huntUid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ puzzleId, note, mediaId }:
+      { puzzleId: number | null; note: string; mediaId: number | null }) =>
+      apiSend<{ id: number; note: string }[]>("/api/evidence", "POST", {
+        hunt_uid: huntUid,
+        source_puzzle_id: puzzleId,
+        notes: note ? [note] : [],
+        media_id: mediaId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", huntUid] });
+      qc.invalidateQueries({ queryKey: ["evidence", huntUid] });
+    },
+  });
+}
+
 export function useSetPuzzleLink(uid: string) {
   const qc = useQueryClient();
   return useMutation({
