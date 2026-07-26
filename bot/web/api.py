@@ -35,6 +35,20 @@ _WS_AUTH_REFRESH_SECONDS = 60
 _tiling_tasks: set = set()
 
 
+async def _tile_and_push(media, db, hunt_id):
+    """Tile an upload, then tell connected dashboards it's ready.
+
+    Without this, a canvas's own upload never learns tiling finished: the
+    canvases query is invalidated once, at creation time, while tile_status is
+    still 'pending', and nothing else refetches it — the panel is stuck on
+    "Preparing image" even after the row flips to 'ready' in the DB.
+    """
+    from bot.core.media_tiling import tile_media
+    await tile_media(media, db)
+    from bot.web.actions import _push_board
+    await _push_board(hunt_id)
+
+
 def _sheet_base(sheet_id):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid=" if sheet_id else None
 
@@ -330,7 +344,6 @@ async def upload_media(uid):
     except MediaRejected as exc:
         return jsonify({"error": str(exc)}), 400
     from bot.core.image_tiler import needs_tiling, probe_dimensions
-    from bot.core.media_tiling import tile_media
     from bot.core.message_media import media_root
     # Dimensions for every image, tiled or not: one cheap header read, and the
     # frontend needs them to lay out a viewport before any bytes arrive.
@@ -350,7 +363,7 @@ async def upload_media(uid):
         tile_status="pending" if tiled else "none",
     )
     if tiled:
-        task = asyncio.create_task(tile_media(media, MediaJsonDb))
+        task = asyncio.create_task(_tile_and_push(media, MediaJsonDb, hunt["id"]))
         _tiling_tasks.add(task)
         task.add_done_callback(_tiling_tasks.discard)
     return jsonify({

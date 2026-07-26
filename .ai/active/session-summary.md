@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(web): the Canvas view — tiled image with linked regions @ e3537e2
+Status: in progress — feat(web): paste a screenshot straight into the clue box @ 5657fde
 
 ## Goal
 
@@ -96,15 +96,42 @@ B1 ships no UI. Nothing consumes tiles until B2.
 
 ## THE OUTSTANDING WORK — verification, not code
 
-Everything below B1/B2a/B2b is committed and gate-green, but **nothing has been looked at in a
-browser**. Before this can be called done:
+Browser verification is IN PROGRESS on `puzzbot.com` (the Plesk `blissful-bot` test subscription,
+AlmaLinux VPS — confirmed the same box as [[plesk-deploy-needs-nonchroot-shell]]'s test
+subscription, distinct from the *live* `quarantinedecrypters.com`/`puzzbot` subscription on the
+same host). Two real bugs were found and fixed this session (uncommitted — see below):
 
-1. **Drive the real app.** Start it per `AGENTS.md`, log in, open a hunt's **Canvas** tab.
+1. **Upload → "Preparing image" never cleared, even past the DB showing `tile_status='ready'`.**
+   `tile_media()` (`bot/core/media_tiling.py`) updates the row on completion but never notified
+   anyone; the `canvases` react-query has no poll and is invalidated only once, at canvas-creation
+   time while still `pending`. Fixed: `bot/web/api.py` now wraps the background tiling task in
+   `_tile_and_push()`, which calls the existing `_push_board()` (the same WS "board" push region
+   mutations already use) once tiling finishes.
+2. **Intermittent broken/black tiles under the pan/zoom burst.** `/api/media/<id>/tiles/...`
+   calls `_load_visible_hunt()` per request, which hits `bot/web/data.py`'s dashboard connection
+   pool — hardcoded `pool_size=3`, and mysql-connector's pool is non-blocking
+   (`queue.get(block=False)`), so a burst of ~40 near-simultaneous tile requests reliably exhausted
+   it and threw `PoolError` → bare 500s. Confirmed via `discord.log` (NOT `bot.log` — the root
+   logger's `FileHandler` in `bot/__init__.py:setup_logger` targets `discord.log`; Hypercorn's own
+   access-log lines go to `bot.log`/stdout directly, so this app has two separate log files and a
+   500's traceback only ever shows up in the former). Fixed: pool size raised to 10, plus a small
+   bounded retry (`_get_connection()`, 5 attempts / 50ms) so a still-larger burst degrades to a
+   short wait instead of a hard failure.
+
+Both fixes are **uncommitted** as of this handoff — ruff/basedpyright clean on both changed files,
+full suite green (1388 passed). Waiting on user decision to commit before redeploying to
+puzzbot.com to resume the walkthrough below.
+
+1. ~~Drive the real app.~~ Done — bot running on `puzzweb.home.meldon.net` (redhat, stale test DB,
+   not used further) and on `puzzbot.com` (the live walkthrough).
 2. Upload `images/extravaganza-14400x14400.png`. Confirm: the row goes in `pending`, the panel
-   shows "Preparing image", and it flips to the tiled view within ~10 s.
+   shows "Preparing image", and it flips to the tiled view within ~10 s. **Tiling itself works
+   (confirmed via DB + pyvips fast-path check); the frontend not noticing was bug #1 above — retest
+   once the fix is deployed.**
 3. **Pan and zoom.** Watch the network panel: only viewport tiles should be requested, and the
    level should change as you zoom. Check for hairline seams between tiles (there is a +1px
-   fudge for this — confirm it is enough).
+   fudge for this — confirm it is enough). **Broken/black tiles under a pan/zoom burst were bug #2
+   above — retest once the fix is deployed.**
 4. **Draw a region.** Confirm the box lands where it was drawn *at several zoom levels* — a
    coordinate bug would only show at non-default zoom, which is exactly what the typecheck
    cannot catch.

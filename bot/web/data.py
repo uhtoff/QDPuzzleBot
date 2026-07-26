@@ -9,8 +9,10 @@ import asyncio
 import datetime
 import json
 import logging
+import time
 
 from mysql.connector import pooling
+from mysql.connector.errors import PoolError
 
 from bot.utils import config
 
@@ -18,13 +20,23 @@ logger = logging.getLogger(__name__)
 
 _pool = None
 
+# mysql-connector's pool queue is non-blocking (a bare queue.get(block=False)):
+# get_connection() raises PoolError the instant every connection is checked out,
+# rather than waiting for one to free up. The canvas tile viewer requests dozens
+# of tiles in a burst, and each one calls _load_visible_hunt (2 pooled queries),
+# so a low pool size turned "briefly busy" into hard 500s on some tiles. 10 gives
+# headroom for that burst; the retry below covers whatever size still isn't enough.
+_POOL_SIZE = 10
+_POOL_RETRY_ATTEMPTS = 5
+_POOL_RETRY_DELAY_SECONDS = 0.05
+
 
 def _get_pool():
     global _pool
     if _pool is None:
         _pool = pooling.MySQLConnectionPool(
             pool_name="dashboard",
-            pool_size=3,
+            pool_size=_POOL_SIZE,
             host="localhost",
             user=config.mysql_username,
             password=config.mysql_password,
@@ -35,8 +47,20 @@ def _get_pool():
     return _pool
 
 
+def _get_connection():
+    """Acquire a pooled connection, retrying briefly if the pool is momentarily
+    exhausted rather than failing the request outright (see _POOL_SIZE above).
+    The final attempt is unguarded, so a PoolError still propagates."""
+    for _ in range(_POOL_RETRY_ATTEMPTS - 1):
+        try:
+            return _get_pool().get_connection()
+        except PoolError:
+            time.sleep(_POOL_RETRY_DELAY_SECONDS)
+    return _get_pool().get_connection()
+
+
 def _run(sql, params=(), *, one=False):
-    conn = _get_pool().get_connection()
+    conn = _get_connection()
     try:
         cursor = conn.cursor(dictionary=True)
         try:
@@ -50,7 +74,7 @@ def _run(sql, params=(), *, one=False):
 
 def _run_write(sql, params=()):
     """Run a writing statement on a pooled connection and commit."""
-    conn = _get_pool().get_connection()
+    conn = _get_connection()
     try:
         cursor = conn.cursor()
         try:
