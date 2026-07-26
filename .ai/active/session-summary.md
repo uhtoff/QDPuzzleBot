@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(web): paste a screenshot straight into the clue box @ 5657fde
+Status: in progress — fix(web): push a board update when tiling finishes, and stop the dashboard DB pool starving under a tile-viewer burst @ 7bd66e2
 
 ## Goal
 
@@ -118,28 +118,86 @@ same host). Two real bugs were found and fixed this session (uncommitted — see
    bounded retry (`_get_connection()`, 5 attempts / 50ms) so a still-larger burst degrades to a
    short wait instead of a hard failure.
 
-Both fixes are **uncommitted** as of this handoff — ruff/basedpyright clean on both changed files,
-full suite green (1388 passed). Waiting on user decision to commit before redeploying to
-puzzbot.com to resume the walkthrough below.
+Committed as `7bd66e2`. Three more real issues turned up in the same live walkthrough, all fixed
+and committed:
 
-1. ~~Drive the real app.~~ Done — bot running on `puzzweb.home.meldon.net` (redhat, stale test DB,
-   not used further) and on `puzzbot.com` (the live walkthrough).
-2. Upload `images/extravaganza-14400x14400.png`. Confirm: the row goes in `pending`, the panel
-   shows "Preparing image", and it flips to the tiled view within ~10 s. **Tiling itself works
-   (confirmed via DB + pyvips fast-path check); the frontend not noticing was bug #1 above — retest
-   once the fix is deployed.**
-3. **Pan and zoom.** Watch the network panel: only viewport tiles should be requested, and the
-   level should change as you zoom. Check for hairline seams between tiles (there is a +1px
-   fudge for this — confirm it is enough). **Broken/black tiles under a pan/zoom burst were bug #2
-   above — retest once the fix is deployed.**
+3. **`!canvas` printed a stray "isn't part of a hunt" error alongside the real embed, then the
+   real embed twice.** NOT a code bug — two separate causes stacked: (a) I had left a bot process
+   running on `redhat` since earlier in the session, against the stale local test DB, using the
+   SAME Discord bot token as `puzzbot.com` (both log in as `Puzzle Hunt Bot Test#9255` in the same
+   test guilds) — stopped it; (b) `puzzbot.com` itself had two `python run.py` processes running
+   (an old one left over from an earlier test session) — user killed the extra one. No code change.
+4. **Draw-to-create forced a round; should allow an unattached puzzle.** The backend route
+   (`create_puzzle_from_region`, `bot/web/actions.py`) already treated a missing `round_id` as
+   `target_group=None` — the restriction was frontend-only: `RegionModal.tsx` hard-required
+   `roundId` and its Round `<Select>` had no "unassigned" option, unlike the board's own
+   `CreateControls.tsx` (`"Unassigned (no meta)"`). Fixed to match that existing pattern
+   (`UNASSIGNED` sentinel, `useCreatePuzzleFromRegion` omits `round_id` when unset). Added
+   `test_an_omitted_round_creates_an_unattached_puzzle` — no prior test covered this path.
+5. **Tiles that should be blank/white rendered as solid black**, in *light* mode too (ruling out
+   my first theory of a dark-mode background bleeding through a transparent placeholder). Actual
+   cause, confirmed by building a real pyramid and inspecting the bytes: dzsave's own
+   `blank.png` — written for any tile it omits as uniform-colour — is a **degenerate single-band,
+   near-zero-value placeholder that does not reflect the tile's real colour**, not a transparent or
+   white one. `media_tile` was serving it verbatim. Fixed: `bot/core/image_tiler.py` now has
+   `blank_tile_bytes()`, a real opaque white tile built once via pyvips and cached in memory;
+   `bot/web/api.py`'s tile route serves that instead of reading dzsave's `blank.png` off disk.
+   Strengthened `test_missing_tile_serves_a_white_tile` to decode the actual pixel (the old
+   status/content-type-only assertions would not have caught this — dzsave's blank.png is also a
+   200 `image/png`) — proved load-bearing by mutation (near-black constant → red, for the right
+   assertion; reverted).
+6. **Requested: ctrl-scroll (and trackpad pinch) to zoom, plus real multi-touch pinch on mobile.**
+   Added to `CanvasView.tsx`: a raw (non-passive) `wheel` listener anchored on the cursor —
+   React's synthetic `onWheel` is passive, so `preventDefault()` silently no-ops there and the
+   browser's own page-zoom fires underneath — plus Pointer-Events-based two-finger pinch (anchored
+   on the live midpoint, so a simultaneous two-finger pan works too). `zoomBy`/the toolbar buttons
+   now go through the same anchored `zoomAt()` helper (anchor = viewport centre for those).
+
+All four verified: `ruff`/`basedpyright` clean, frontend `tsc --noEmit` and `npm run build` clean,
+full suite green (1389 passed). Not yet redeployed to puzzbot.com — that's the next step.
+
+1. ~~Drive the real app.~~ Done.
+2. ~~Upload, confirm "Preparing image" clears.~~ Confirmed root-caused (bug #1) and fixed.
+3. ~~Pan and zoom; check for tile seams/artifacts.~~ Confirmed root-caused (bug #2 pool exhaustion,
+   bug #5 black tiles) and fixed. **Still to verify: hairline seams (the +1px fudge) — not yet
+   checked.**
 4. **Draw a region.** Confirm the box lands where it was drawn *at several zoom levels* — a
    coordinate bug would only show at non-default zoom, which is exactly what the typecheck
-   cannot catch.
+   cannot catch. Not yet done.
 5. Link it as `locates`, confirm the tint matches the puzzle's status. Re-link as `informs`,
-   confirm a row appears in the **Evidence** panel, and that clearing the link removes it.
-6. **Draw-to-create** a puzzle; confirm the Discord channel and sheet tab appear.
-7. `!canvas` in a hunt channel.
-8. Two browsers on the same canvas: confirm regions appear live without a reload.
+   confirm a row appears in the **Evidence** panel, and that clearing the link removes it. Not yet
+   done. **User has also asked for a follow-up feature here — see below.**
+6. ~~Draw-to-create a puzzle.~~ Confirmed working; round-forcing bug (#4) found and fixed there.
+   Confirm the Discord channel and sheet tab appear — not yet explicitly checked.
+7. ~~`!canvas` in a hunt channel.~~ Confirmed working (bug #3, not a code issue).
+8. Two browsers on the same canvas: confirm regions appear live without a reload. Not yet done.
+
+## Requested follow-up (not yet built)
+
+**Informs-region evidence should carry the actual cropped image, not just a text reference.**
+User: "When we carve out a part of the image as 'informs' evidence then that section of the image
+should be in the evidence table. I would treat it like we uploaded that image for that purpose."
+
+Current state: `_log_informs_evidence()` (`bot/core/canvas.py`) already accepts a `media_id`
+parameter and passes it through to `EvidenceJsonDb.log()` — but `create_region`/`update_region`
+never pass one, so every informs-region evidence row has `media_id=None` today (text-only,
+rendered via `evidence_source_label()`'s region-name fallback).
+
+Plan sketched but not implemented: crop the region's normalised rect out of the canvas media's
+**original** (untiled) source file — not the tile pyramid, which isn't a single re-openable
+image — via pyvips, off the event loop (`run_in_executor`, mirroring `media_tiling.py`), save it
+as its own untiled `media` row via the existing `save_image_bytes`/`MediaJsonDb.create` path, and
+wire the new `media_id` through to `_log_informs_evidence`. Deliberately NOT done as a change deep
+in `bot/core/canvas.py` — that module is synchronous/lock-free by convention, and libvips cropping
+is I/O+CPU-bound; the crop should happen in the async web layer (`bot/web/actions.py`'s
+`create_region`/`update_region`/`create_puzzle_from_region` routes) before calling into
+`canvas_service`, passing the resulting `media_id` down as an explicit argument — not inventing
+async in the core module.
+
+Confirmed technical point: cropping a PNG needs a full decode regardless of crop size (PNG has no
+partial/strip decode in libvips) — same cost class B1 already accepts for building the tile
+pyramid (up to ~360 MB peak), not a new risk. This only runs on an explicit informs-link action
+(rare), not per-tile-request (frequent), so the cost is bounded and low-frequency.
 
 ## Known gaps and risks
 

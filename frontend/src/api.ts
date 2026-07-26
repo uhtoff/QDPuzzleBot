@@ -854,12 +854,14 @@ export function useCreatePuzzleFromRegion(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ canvasId, regionId, name, roundId, role }: {
-      canvasId: number; regionId: number; name: string; roundId: number;
+      canvasId: number; regionId: number; name: string; roundId: number | null;
       role: RegionRole;
     }) =>
       apiSend<CanvasRegion>(
         `/api/canvases/${canvasId}/regions/${regionId}/create-puzzle`, "POST",
-        { name, round_id: roundId, role }),
+        // Omitting round_id (rather than sending null) is what the API reads as
+        // "no round" — an unattached, hunt-level puzzle.
+        roundId ? { name, round_id: roundId, role } : { name, role }),
     onSuccess: () => {
       // A new puzzle with a channel and a sheet tab: the board is stale too.
       qc.invalidateQueries({ queryKey: ["canvases", uid] });

@@ -262,6 +262,18 @@ class TestCreatePuzzleFromRegion:
         assert args[3] == "Hex maze"
         assert args[2] is create.gdb.get_by_attr.return_value
 
+    async def test_an_omitted_round_creates_an_unattached_puzzle(self, web, create):
+        """The frontend's "Unassigned" option sends no round_id at all — this
+        must reach create_puzzle as target_group=None, not fail or default to
+        some round, matching how the board's own create control works."""
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "role": "locates"})
+        assert resp.status_code == 201
+        args = web.cog.service.create_puzzle.await_args[0]
+        assert args[2] is None
+        create.gdb.get_by_attr.assert_not_called()
+
     async def test_links_the_region_to_the_new_puzzle(self, web, create):
         await web.client.post(
             "/api/canvases/3/regions/5/create-puzzle",

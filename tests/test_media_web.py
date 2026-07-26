@@ -359,15 +359,23 @@ class TestMediaTiles:
         assert resp.headers["Content-Type"] == "image/webp"
 
     @pytest.mark.asyncio
-    async def test_missing_tile_serves_the_blank_tile(self, web, tmp_path):
+    async def test_missing_tile_serves_a_white_tile(self, web, tmp_path):
         """dzsave omits any tile of a uniform colour, and a mostly-white puzzle
         sheet has many. 404ing would pepper the viewer with broken images over
-        blank paper."""
+        blank paper.
+
+        Decodes the actual pixel rather than stopping at status/content-type:
+        dzsave's OWN blank.png is also a 200 image/png, but its pixels are a
+        degenerate near-black placeholder — checking only the envelope would
+        not have caught that regression."""
+        import pyvips
         app, mdb, _ = web
         levels = self._pyramid(tmp_path, mdb)
         resp = await app.test_client().get(f"/api/media/7/tiles/{levels - 1}/99/99")
         assert resp.status_code == 200
         assert resp.headers["Content-Type"] == "image/png"
+        img = pyvips.Image.new_from_buffer(await resp.get_data(), "")
+        assert img(0, 0)[0] > 200
 
     @pytest.mark.asyncio
     async def test_a_level_past_the_pyramid_is_404(self, web, tmp_path):

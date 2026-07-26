@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 
-from quart import Blueprint, jsonify, request, send_file, session, websocket
+from quart import Blueprint, jsonify, make_response, request, send_file, session, websocket
 
 from .typed_app import bot_app, puzzles_cog
 
@@ -282,23 +282,24 @@ async def media_tile(media_id, z, y, x):
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
     if z >= media.tile_levels:
         return jsonify({"error": "not_found"}), 404
-    from bot.core.image_tiler import BLANK_TILE_NAME, tile_relpath, tiles_relpath
+    from bot.core.image_tiler import blank_tile_bytes, tile_relpath
     from bot.core.message_media import media_root
     root = media_root().resolve()
     path = (media_root() / tile_relpath(media.hunt_id, media.id, z, y, x)).resolve()
     if root not in path.parents:            # defense in depth vs path traversal
         return jsonify({"error": "not_found"}), 404
-    content_type = "image/webp"
     if not path.is_file():
         # dzsave omits any tile of a uniform colour. That is a legitimate hole in
         # the grid rather than an error — a mostly-white puzzle sheet has many —
-        # so serve the blank tile it writes for exactly this purpose.
-        path = (media_root() / tiles_relpath(media.hunt_id, media.id)
-                / BLANK_TILE_NAME).resolve()
-        if root not in path.parents or not path.is_file():
-            return jsonify({"error": "not_found"}), 404
-        content_type = "image/png"
-    resp = await send_file(path, mimetype=content_type, as_attachment=False)
+        # but dzsave's OWN blank.png for this is a degenerate near-black
+        # placeholder that does not reflect the tile's real colour (renders as
+        # solid black in the viewer). Serve a real white tile instead.
+        resp = await make_response(blank_tile_bytes())
+        resp.headers["Content-Type"] = "image/png"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Cache-Control"] = "private, max-age=86400, immutable"
+        return resp
+    resp = await send_file(path, mimetype="image/webp", as_attachment=False)
     # Same reasoning as media_bytes: the type is ours, and the browser is never
     # allowed to sniff the body into an executable context.
     resp.headers["X-Content-Type-Options"] = "nosniff"

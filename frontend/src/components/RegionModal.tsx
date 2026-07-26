@@ -20,6 +20,10 @@ import {
 } from "../api";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
+// Sentinel dropdown value for "no round" — matches CreateControls' pattern,
+// sent to the API as no round_id at all (an unattached, hunt-level puzzle).
+const UNASSIGNED = "__unassigned__";
+
 type Props = {
   uid: string;
   canvasId: number;
@@ -43,7 +47,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const [role, setRole] = useState<RegionRole>("locates");
   const [mode, setMode] = useState<"link" | "create">("link");
   const [newName, setNewName] = useState("");
-  const [roundId, setRoundId] = useState<string | null>(null);
+  const [roundId, setRoundId] = useState<string | null>(UNASSIGNED);
   const [err, setErr] = useState<string | null>(null);
 
   const createRegion = useCreateRegion(uid);
@@ -60,7 +64,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setRole(region?.role ?? "locates");
     setMode("link");
     setNewName("");
-    setRoundId(null);
+    setRoundId(UNASSIGNED);
     setErr(null);
   }, [open, region]);
 
@@ -71,9 +75,12 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     .filter((o, i, all) => all.findIndex((x) => x.value === o.value) === i)
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const roundOptions = detail.board
-    .filter((g) => g.tag_group_id !== 0)
-    .map((g) => ({ value: String(g.tag_group_id), label: g.name }));
+  const roundOptions = [
+    { value: UNASSIGNED, label: "Unassigned (hunt-level puzzle)" },
+    ...detail.board
+      .filter((g) => g.tag_group_id !== 0)
+      .map((g) => ({ value: String(g.tag_group_id), label: g.name })),
+  ];
 
   const busy = createRegion.isPending || updateRegion.isPending ||
     deleteRegion.isPending || createPuzzle.isPending;
@@ -103,8 +110,8 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
 
   const createAndLink = async () => {
     setErr(null);
-    if (!newName.trim() || !roundId) {
-      setErr("A new puzzle needs a name and a round.");
+    if (!newName.trim()) {
+      setErr("A new puzzle needs a name.");
       return;
     }
     try {
@@ -120,7 +127,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       if (!target) return;
       await createPuzzle.mutateAsync({
         canvasId, regionId: target.id, name: newName.trim(),
-        roundId: Number(roundId), role,
+        roundId: roundId && roundId !== UNASSIGNED ? Number(roundId) : null, role,
       });
       onClose();
     } catch (e) {

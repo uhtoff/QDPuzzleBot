@@ -37,8 +37,34 @@ TILE_SUFFIX = ".webp[lossless=true]"
 TILE_EXT = ".webp"
 
 # dzsave omits a tile that is entirely blank and writes this alongside the
-# pyramid for viewers to fall back on. A mostly-white puzzle sheet has many.
+# pyramid. NOT what gets served, though — see blank_tile_bytes() below.
 BLANK_TILE_NAME = "blank.png"
+
+_blank_tile_cache: "bytes | None" = None
+
+
+def blank_tile_bytes() -> bytes:
+    """A plain opaque white TILE_SIZE² tile, built once and cached in memory.
+
+    dzsave's own blank.png — the file BLANK_TILE_NAME names — is NOT this: it
+    is a degenerate single-band, near-zero-value placeholder that does not
+    reflect the omitted tile's actual colour (confirmed by inspecting a real
+    build_pyramid() output). Serving it verbatim renders every "uniform
+    colour, nothing here" hole in the grid as solid black, in any theme —
+    exactly the spot a mostly-white puzzle sheet has the most of. Nearly every
+    canvas is white paper, so a real white tile is the correct fallback.
+    """
+    global _blank_tile_cache
+    if _blank_tile_cache is None:
+        import pyvips
+        # pyvips builds its API at runtime from libvips introspection, so no
+        # static checker can see these signatures — same reasoning as the
+        # dzsave() suppression in build_pyramid() below.
+        img = pyvips.Image.black(TILE_SIZE, TILE_SIZE, bands=3) + 255  # pyright: ignore[reportOperatorIssue]
+        buf = img.write_to_buffer(".png")  # pyright: ignore[reportOptionalCall, reportCallIssue, reportAttributeAccessIssue]
+        assert isinstance(buf, bytes)
+        _blank_tile_cache = buf
+    return _blank_tile_cache
 
 # Above this many pixels an image gets a pyramid. 16 MP is about where mobile
 # Safari stops being willing to decode an image at all, and a 4000x4000 sheet is

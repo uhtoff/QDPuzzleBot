@@ -51,6 +51,9 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
   const [drawing, setDrawing] = useState(false);
   const [drawRect, setDrawRect] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
   const drag = useRef<null | { kind: "pan" | "draw"; sx: number; sy: number; ox: number; oy: number }>(null);
+  // Active pointers by id, for pinch: two fingers down means pinch, never pan/draw.
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinch = useRef<null | { dist: number; mx: number; my: number }>(null);
 
   const width = canvas.width ?? 0;
   const height = canvas.height ?? 0;
@@ -127,37 +130,100 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
     return out;
   }, [tiled, tileDisp, offset.x, offset.y, viewport.w, viewport.h, cols, rows]);
 
-  const zoomBy = (factor: number) => {
-    // Zoom about the viewport centre so the thing being looked at stays put.
-    const cx = viewport.w / 2, cy = viewport.h / 2;
+  /** Zoom about an arbitrary anchor point (in wrapper-local pixels), keeping
+   *  whatever is under the anchor fixed on screen. The button controls anchor
+   *  on the viewport centre; wheel and pinch anchor on the cursor/fingers. */
+  const zoomAt = useCallback((factor: number, anchorX: number, anchorY: number) => {
     setScale((s) => {
       const next = Math.min(4, Math.max(0.02, s * factor));
       setOffset((o) => ({
-        x: cx - ((cx - o.x) * next) / s,
-        y: cy - ((cy - o.y) * next) / s,
+        x: anchorX - ((anchorX - o.x) * next) / s,
+        y: anchorY - ((anchorY - o.y) * next) / s,
       }));
       return next;
     });
-  };
+  }, []);
+
+  const zoomBy = (factor: number) => zoomAt(factor, viewport.w / 2, viewport.h / 2);
+
+  // Ctrl+wheel zooms about the cursor. Trackpad pinch is reported by browsers
+  // as a wheel event with ctrlKey set, so this covers both gestures with one
+  // handler; a plain scroll is left alone so the page can still scroll past
+  // the canvas. A raw DOM listener, not React's onWheel: React's synthetic
+  // wheel listener is passive, and preventDefault silently no-ops on a
+  // passive listener — ctrl+wheel would still trigger the browser's own page
+  // zoom underneath.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const factor = Math.exp(-e.deltaY * 0.01);
+      zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    pointers.current.set(e.pointerId, { x: px, y: py });
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    if (pointers.current.size === 2) {
+      // A second finger landing always means pinch, cancelling any
+      // single-finger pan/draw the first finger had started.
+      drag.current = null;
+      setDrawRect(null);
+      const [a, b] = [...pointers.current.values()];
+      pinch.current = {
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+      };
+      return;
+    }
+    if (pointers.current.size > 2) return;   // ignore a third finger
     if (drawing) {
       drag.current = { kind: "draw", sx: px, sy: py, ox: offset.x, oy: offset.y };
       setDrawRect({ x1: px, y1: py, x2: px, y2: py });
     } else {
       drag.current = { kind: "pan", sx: px, sy: py, ox: offset.x, oy: offset.y };
     }
-    (e.target as Element).setPointerCapture?.(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    const d = drag.current;
     const rect = wrapRef.current?.getBoundingClientRect();
-    if (!d || !rect) return;
+    if (!rect) return;
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: px, y: py });
+    }
+    if (pointers.current.size === 2 && pinch.current) {
+      const [a, b] = [...pointers.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const prev = pinch.current;
+      // Two-finger pan: translate by the midpoint's own movement first, then
+      // zoom anchored at the new midpoint — matching a finger moving apart
+      // (zoom) or two fingers sliding together (pan) or both at once.
+      const dx = mx - prev.mx, dy = my - prev.my;
+      const factor = dist / prev.dist;
+      setScale((s) => {
+        const next = Math.min(4, Math.max(0.02, s * factor));
+        setOffset((o) => ({
+          x: mx - ((mx - (o.x + dx)) * next) / s,
+          y: my - ((my - (o.y + dy)) * next) / s,
+        }));
+        return next;
+      });
+      pinch.current = { dist, mx, my };
+      return;
+    }
+    const d = drag.current;
+    if (!d) return;
     if (d.kind === "pan") {
       setOffset({ x: d.ox + (px - d.sx), y: d.oy + (py - d.sy) });
     } else {
@@ -165,7 +231,17 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (pointers.current.size >= 1) {
+      // A finger lifted out of a pinch: the remaining finger's drag state is
+      // stale (it never started a pan/draw of its own), so drop it rather
+      // than falling through into the single-pointer end-of-drag logic below.
+      drag.current = null;
+      setDrawRect(null);
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     if (d?.kind !== "draw" || !drawRect) { setDrawRect(null); return; }
