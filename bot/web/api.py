@@ -360,6 +360,30 @@ async def upload_media(uid):
     }), 201
 
 
+@api_bp.route("/hunts/<uid>/canvases")
+@login_required
+async def hunt_canvases(uid):
+    """A hunt's canvases, regions inline.
+
+    One query per canvas for its regions rather than a join: a canvas has tens of
+    regions, a hunt has a handful of canvases, and the flat shape the viewer wants
+    would need regrouping anyway.
+    """
+    from bot.store import CanvasJsonDb, CanvasRegionJsonDb, MediaJsonDb
+    hunt, guild_or_status = await _load_visible_hunt(uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
+        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    canvases = []
+    for row in CanvasJsonDb.get_by_hunt(hunt["id"]):
+        canvases.append(data.canvas_to_json(
+            row,
+            CanvasRegionJsonDb.get_by_canvas(row.id),
+            MediaJsonDb.get_by_id(row.media_id),
+        ))
+    return jsonify({"canvases": canvases})
+
+
 @api_bp.route("/hunts/<uid>/puzzles")
 @login_required
 async def hunt_puzzles(uid):

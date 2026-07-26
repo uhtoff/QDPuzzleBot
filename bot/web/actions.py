@@ -125,6 +125,10 @@ async def _visible_hunt_for_evidence(item_id):
     return await _resolve_visible_hunt(data.get_hunt_for_evidence(item_id), "not_found")
 
 
+async def _visible_hunt_for_canvas(canvas_id):
+    return await _resolve_visible_hunt(data.get_hunt_for_canvas(canvas_id), "canvas_not_found")
+
+
 # --- Notes (any member of the hunt's guild) ---------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/notes", methods=["POST"])
@@ -2102,4 +2106,206 @@ async def delete_evidence(item_id):
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
+    return jsonify({"ok": True})
+
+
+# --- Canvases and regions ---------------------------------------------------
+#
+# Two different permission bars, deliberately. Creating or deleting a canvas is
+# organiser-level: it uploads or destroys a shared image everyone works on.
+# Drawing, linking and editing REGIONS is open to any member who can see the
+# hunt, exactly like logging evidence — everyone marks the picture up during a
+# hunt, and gating that would defeat the point of the feature.
+
+async def _canvas_ctx(canvas_id, require_manage=False):
+    """(ctx, canvas_row, err) for a canvas the current user may act on."""
+    from bot.store import CanvasJsonDb
+    ctx, err = await _visible_hunt_for_canvas(canvas_id)
+    if err:
+        return None, None, err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return None, None, (jsonify({"error": "hunt_archived"}), 403)
+    if require_manage:
+        perm = await require_organiser(ctx["guild_snowflake"])
+        if perm is not None:
+            return None, None, perm
+    canvas_row = CanvasJsonDb.get_by_id(canvas_id)
+    if canvas_row is None:
+        return None, None, (jsonify({"error": "canvas_not_found"}), 404)
+    return ctx, canvas_row, None
+
+
+async def _push_board(hunt_id):
+    """Tell connected dashboards the board changed.
+
+    Region mutations go through this so a second person annotating the same
+    canvas sees rectangles appear without reloading.
+    """
+    from bot.store import HuntJsonDb
+    cog = puzzles_cog()
+    hunt_obj = HuntJsonDb.get_by_attr(id=hunt_id)
+    if cog is not None and hunt_obj is not None:
+        asyncio.create_task(cog.service.notifier.board_changed(hunt_obj))
+
+
+@actions_bp.route("/hunts/<uid>/canvases", methods=["POST"])
+@login_required
+async def create_canvas(uid):
+    from bot.store import CanvasJsonDb, MediaJsonDb
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+    body = await request.get_json(silent=True) or {}
+    media_id = body.get("media_id")
+    if not media_id:
+        return jsonify({"error": "media_id required"}), 400
+    media = MediaJsonDb.get_by_id(int(media_id))
+    # Without this a canvas could point at another hunt's image, and the tile
+    # route would then serve that hunt's bytes to anyone who can see this one.
+    if media is None or media.hunt_id != ctx["hunt"]["id"]:
+        return jsonify({"error": "unknown_media"}), 400
+    row = CanvasJsonDb.create(
+        hunt_id=ctx["hunt"]["id"], media_id=media.id,
+        name=(body.get("name") or "").strip()[:255],
+        note=(body.get("note") or None))
+    await _audit("create_canvas", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify(web_data.canvas_to_json(row, [], media)), 201
+
+
+@actions_bp.route("/canvases/<int:canvas_id>", methods=["PATCH"])
+@login_required
+async def update_canvas(canvas_id):
+    from bot.store import CanvasJsonDb, CanvasRegionJsonDb, MediaJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id, require_manage=True)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    body = await request.get_json(silent=True) or {}
+    name = (body.get("name") if "name" in body else canvas_row.name) or ""
+    note = body.get("note") if "note" in body else canvas_row.note
+    CanvasJsonDb.update(canvas_id, name=name.strip()[:255], note=note or None)
+    row = CanvasJsonDb.get_by_id(canvas_id)
+    assert row is not None
+    await _audit("update_canvas", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify(web_data.canvas_to_json(
+        row, CanvasRegionJsonDb.get_by_canvas(canvas_id),
+        MediaJsonDb.get_by_id(row.media_id)))
+
+
+@actions_bp.route("/canvases/<int:canvas_id>", methods=["DELETE"])
+@login_required
+async def delete_canvas(canvas_id):
+    """Delete a canvas, its regions, their evidence rows, and its tiles.
+
+    B1 deliberately left tile sweeping to whoever added the first delete path,
+    because `media` rows only ever cascaded from `hunts` before now. This is that
+    path: without the rmtree, deleting canvases would leak a 9.6 MB pyramid every
+    time.
+    """
+    import shutil
+    from bot.core.image_tiler import tiles_relpath
+    from bot.core.message_media import media_root
+    from bot.store import CanvasJsonDb, MediaJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id, require_manage=True)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    # Regions and their evidence rows go by FK cascade from hunt_canvases.
+    CanvasJsonDb.delete(canvas_id)
+    if media is not None:
+        tiles = media_root() / tiles_relpath(media.hunt_id, media.id)
+        # Best effort: a failure here leaks disk, which is far better than
+        # refusing the delete and leaving a canvas nobody can remove.
+        try:
+            shutil.rmtree(tiles, ignore_errors=True)
+        except Exception:
+            logger.exception("could not remove tiles for media %s", media.id)
+    await _audit("delete_canvas", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify({"ok": True})
+
+
+@actions_bp.route("/canvases/<int:canvas_id>/regions", methods=["POST"])
+@login_required
+async def create_region(canvas_id):
+    from bot.core import canvas as canvas_service
+    from bot.core.canvas_shape import ShapeRejected
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    body = await request.get_json(silent=True) or {}
+    try:
+        region = canvas_service.create_region(
+            canvas_id=canvas_id, hunt_id=ctx["hunt"]["id"],
+            shape=body.get("shape"),
+            label=(body.get("label") or "").strip()[:255],
+            note=(body.get("note") or None),
+            puzzle_id=body.get("puzzle_id"), role=body.get("role"))
+    except (ShapeRejected, canvas_service.RegionRejected) as exc:
+        return jsonify({"error": str(exc)}), 400
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("create_region", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify(web_data.region_to_json(region)), 201
+
+
+@actions_bp.route("/canvases/<int:canvas_id>/regions/<int:region_id>",
+                  methods=["PATCH"])
+@login_required
+async def update_region(canvas_id, region_id):
+    from bot.core import canvas as canvas_service
+    from bot.core.canvas_shape import ShapeRejected
+    from bot.store import CanvasRegionJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    existing = CanvasRegionJsonDb.get_by_id(region_id)
+    # Checking the parent explicitly: without it, a region id from another hunt's
+    # canvas would be edited under this hunt's visibility check.
+    if existing is None or existing.canvas_id != canvas_id:
+        return jsonify({"error": "region_not_found"}), 404
+    body = await request.get_json(silent=True) or {}
+    import json as _json
+    shape = body["shape"] if "shape" in body else _json.loads(existing.shape)
+    label = (body.get("label") if "label" in body else existing.label) or ""
+    note = body.get("note") if "note" in body else existing.note
+    puzzle_id = body.get("puzzle_id") if "puzzle_id" in body else existing.puzzle_id
+    role = body.get("role") if "role" in body else existing.role
+    try:
+        region = canvas_service.update_region(
+            region_id=region_id, hunt_id=ctx["hunt"]["id"], shape=shape,
+            label=label.strip()[:255], note=note or None,
+            puzzle_id=puzzle_id, role=role)
+    except (ShapeRejected, canvas_service.RegionRejected) as exc:
+        return jsonify({"error": str(exc)}), 400
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("update_region", hunt_uid=ctx["hunt"]["uid"])
+    assert region is not None
+    return jsonify(web_data.region_to_json(region))
+
+
+@actions_bp.route("/canvases/<int:canvas_id>/regions/<int:region_id>",
+                  methods=["DELETE"])
+@login_required
+async def delete_region(canvas_id, region_id):
+    from bot.core import canvas as canvas_service
+    from bot.store import CanvasRegionJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    existing = CanvasRegionJsonDb.get_by_id(region_id)
+    if existing is None or existing.canvas_id != canvas_id:
+        return jsonify({"error": "region_not_found"}), 404
+    canvas_service.delete_region(region_id)
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("delete_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})

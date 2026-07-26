@@ -151,6 +151,60 @@ async def get_hunt_for_evidence(item_id):
     )
 
 
+def region_to_json(region):
+    """One canvas region as the dashboard sees it.
+
+    `shape` is parsed back to an object rather than passed through as a JSON
+    string, so the viewer never has to double-decode. It was written by
+    canvas_shape.parse_shape, which is the only thing that produces the column.
+    """
+    import json as _json
+    return {
+        "id": region.id,
+        "shape": _json.loads(region.shape),
+        "label": region.label,
+        "note": region.note,
+        "puzzle_id": region.puzzle_id,
+        "role": region.role,
+    }
+
+
+def canvas_to_json(canvas_row, regions, media=None):
+    """One canvas with its regions inline.
+
+    The media dimensions and tile state ride along so the viewer can size its
+    viewport and choose a zoom level before fetching a single tile — and can show
+    progress instead of a broken image while tiling is still pending.
+    """
+    out = {
+        "id": canvas_row.id,
+        "name": canvas_row.name,
+        "note": canvas_row.note,
+        "media_id": canvas_row.media_id,
+        "regions": [region_to_json(r) for r in regions],
+    }
+    if media is not None:
+        out.update({
+            "width": media.width,
+            "height": media.height,
+            "tile_status": media.tile_status,
+            "tile_levels": media.tile_levels,
+        })
+    return out
+
+
+async def get_hunt_for_canvas(canvas_id):
+    """The hunt row a canvas belongs to, for write-action access checks."""
+    return await fetch_one(
+        "SELECT hunts.id, hunts.uid, hunts.name, hunts.url, hunts.guild_id, "
+        "hunts.role_id, hunts.archived, hunts.google_sheet_id, "
+        "hunts.solved_sheet_id "
+        "FROM hunts JOIN hunt_canvases ON hunt_canvases.hunt_id = hunts.id "
+        "WHERE hunt_canvases.id = %s",
+        (canvas_id,),
+    )
+
+
 async def get_hunt_by_channel_id(channel_id):
     """Resolve the hunt that owns a puzzle channel. Works for archived hunts too
     (the hunt row persists after the channel is deleted), so it authorizes frozen
