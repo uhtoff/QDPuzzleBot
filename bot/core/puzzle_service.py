@@ -28,7 +28,7 @@ from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock, puzzle_lock
 from bot.core.errors import SheetRefreshError
-from bot.utils import urls
+from bot.utils import config, urls
 from bot.core.discord_channels import (
     clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
     MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
@@ -94,6 +94,36 @@ def pushes_board(hunt: "str | Callable[[dict[str, Any]], Any]" = "hunt", when=No
         return wrapper
 
     return decorator
+
+
+def evidence_cell_content(item) -> str:
+    """Text for one evidence datum in a rendered sheet cell.
+
+    Where the item has an image, the dashboard media URL is appended as PLAIN
+    TEXT, not =HYPERLINK(...): the roll-up writer uses valueInputOption="RAW"
+    on purpose (puzzles_gsheet._values_update) so a solved answer like "=A1" is
+    stored literally instead of becoming a live formula that resolves to #REF
+    once the puzzle moves to the solved sheet. A formula written under RAW is
+    shown verbatim, so it would be noise rather than a link.
+    """
+    note = item.note or ""
+    media_id = getattr(item, "media_id", None)
+    if not media_id:
+        return note
+    base = (config.web_frontend_url or "").rstrip("/")
+    if not base:
+        return note or "[image]"
+    url = f"{base}/api/media/{media_id}"
+    return f"{note}\n{url}" if note else url
+
+
+def evidence_source_label(item) -> str:
+    """Display name for an evidence item's source in a rendered table.
+
+    Empty for puzzle-sourced items — contribution_rows uses the member puzzle's
+    own name for those. Plan B fills this in for canvas regions.
+    """
+    return ""
 
 
 def resolve_puzzle_names(puzzle_ids):
@@ -728,7 +758,12 @@ class PuzzleService:
         informs members render one content row per datum."""
         members = await self.select_rollup_members(tag_group, rollup)
         evidence = [
-            {"id": e.id, "source_puzzle_id": e.source_puzzle_id, "content": e.note}
+            {
+                "id": e.id,
+                "source_puzzle_id": e.source_puzzle_id,
+                "source_label": evidence_source_label(e),
+                "content": evidence_cell_content(e),
+            }
             for e in EvidenceJsonDb.get_all(rollup.hunt_id, target_puzzle_id=metapuzzle.id)
         ]
         await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=evidence)

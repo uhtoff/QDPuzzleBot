@@ -1112,3 +1112,99 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     with pytest.raises(RuntimeError):
         asyncio.run(cog.render_contribution(meta, tag_group_id=5, members=[meta], evidence=[]))
     assert reconciled == []   # no data written when the table couldn't be made
+
+
+# --- Task 9: _render_rollup evidence content (Plan A image evidence) -------
+# These exercise bot.core.puzzle_service._render_rollup directly (not the
+# GoogleSheets cog above) -- it builds the evidence dicts contribution_rows
+# consumes, and is the one place the media URL gets appended.
+
+class TestRollupEvidenceContent:
+    """_render_rollup builds the evidence dicts contribution_rows consumes."""
+
+    async def test_image_evidence_appends_the_media_url_as_plain_text(self):
+        """Not =HYPERLINK(): the roll-up writer is RAW on purpose, so a formula
+        would be written out verbatim as text."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_puzzle, make_round
+
+        target = make_puzzle(id=4, name="Capstone", hunt_id=10)
+        group = make_round(id=1, target_puzzle_id=4)
+        rollup = SimpleNamespace(hunt_id=10, source_mode="round",
+                                 edge_type_filter=None)
+        item = SimpleNamespace(id=9, source_puzzle_id=None, note="three anchors",
+                               media_id=7)
+
+        gsheet = MagicMock()
+        gsheet.render_contribution = AsyncMock()
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.select_rollup_members = AsyncMock(return_value=[])
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.config") as cfg:
+            cfg.web_frontend_url = "https://puzzweb.example"
+            edb.get_all.return_value = [item]
+            await svc._render_rollup(gsheet, group, rollup, target)
+
+        evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
+        assert evidence[0]["source_puzzle_id"] is None
+        assert "three anchors" in evidence[0]["content"]
+        assert "https://puzzweb.example/api/media/7" in evidence[0]["content"]
+        assert "=HYPERLINK" not in evidence[0]["content"]
+
+    async def test_text_evidence_content_is_unchanged(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_puzzle, make_round
+
+        target = make_puzzle(id=4, name="Capstone", hunt_id=10)
+        group = make_round(id=1, target_puzzle_id=4)
+        rollup = SimpleNamespace(hunt_id=10, source_mode="round",
+                                 edge_type_filter=None)
+        item = SimpleNamespace(id=9, source_puzzle_id=3, note="a clue", media_id=None)
+
+        gsheet = MagicMock()
+        gsheet.render_contribution = AsyncMock()
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.select_rollup_members = AsyncMock(return_value=[])
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.get_all.return_value = [item]
+            await svc._render_rollup(gsheet, group, rollup, target)
+
+        evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
+        assert evidence[0]["content"] == "a clue"
+
+    async def test_image_evidence_with_no_note_is_the_bare_url(self):
+        """Strengthened beyond the plan: the plan's two cases (note+media,
+        note-only) never exercise the 'if note else url' branch of
+        evidence_cell_content, so a bug that always prepends the note (e.g.
+        producing 'None\\nhttps://...' or a stray leading newline) would pass
+        both plan tests. A note-less image item pins the bare-URL branch."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_puzzle, make_round
+
+        target = make_puzzle(id=4, name="Capstone", hunt_id=10)
+        group = make_round(id=1, target_puzzle_id=4)
+        rollup = SimpleNamespace(hunt_id=10, source_mode="round",
+                                 edge_type_filter=None)
+        item = SimpleNamespace(id=9, source_puzzle_id=None, note="", media_id=7)
+
+        gsheet = MagicMock()
+        gsheet.render_contribution = AsyncMock()
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.select_rollup_members = AsyncMock(return_value=[])
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.config") as cfg:
+            cfg.web_frontend_url = "https://puzzweb.example"
+            edb.get_all.return_value = [item]
+            await svc._render_rollup(gsheet, group, rollup, target)
+
+        evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
+        assert evidence[0]["content"] == "https://puzzweb.example/api/media/7"

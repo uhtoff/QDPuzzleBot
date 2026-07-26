@@ -103,7 +103,8 @@ class TestRefreshMetaFires:
                 await svc.refresh_target(_hunt(), meta_round)
         gsheet.render_contribution.assert_awaited_once_with(
             metapuzzle, 5, [informer],
-            evidence=[{"id": 11, "source_puzzle_id": 2, "content": "is blue"}])
+            evidence=[{"id": 11, "source_puzzle_id": 2, "source_label": "",
+                      "content": "is blue"}])
         edb.get_all.assert_called_once_with(10, target_puzzle_id=1)
 
     @pytest.mark.asyncio
