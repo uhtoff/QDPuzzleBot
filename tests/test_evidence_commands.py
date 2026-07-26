@@ -1,6 +1,6 @@
 """Tests for M9 evidence board — !clue and !clues bang commands."""
 import shlex
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tests.conftest import make_cog, make_ctx, make_hunt, make_puzzle
@@ -16,13 +16,14 @@ class TestClueCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
+        ctx.message.attachments = []
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
         cog.service.refresh_evidence_safe = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="Suspect 3 likes Bourbon biscuits")
 
         cog.service.log_clues.assert_called_once_with(
-            hunt, puzzle, ["Suspect 3 likes Bourbon biscuits"]
+            hunt, puzzle, ["Suspect 3 likes Bourbon biscuits"], media_id=None
         )
         ctx.send.assert_called_once()
         msg = ctx.send.call_args[0][0]
@@ -35,6 +36,7 @@ class TestClueCommand:
         hunt = make_hunt()
         cog = make_cog(puzzle, hunt)
         ctx = make_ctx()
+        ctx.message.attachments = []
         cog.service.log_clues = AsyncMock(return_value=[MagicMock()])
         cog.service.refresh_evidence_safe = AsyncMock()
 
@@ -51,6 +53,7 @@ class TestClueCommand:
         puzzle = make_puzzle(id=5, hunt_id=10)
         cog = make_cog(puzzle)
         ctx = make_ctx()
+        ctx.message.attachments = []
         cog.service.log_clues = AsyncMock()
 
         await Puzzles.clue.callback(cog, ctx, note="")
@@ -119,6 +122,99 @@ class TestCluesCommand:
 
         cog.service.log_clues.assert_not_called()
         ctx.send.assert_called_once()
+
+
+class TestClueWithAttachment:
+    """!clue with an image attachment, and !clue outside a puzzle channel."""
+
+    @pytest.mark.asyncio
+    async def test_stores_an_attached_image_and_links_it(self):
+        puzzle = make_puzzle(id=5, name="Rusty Anchor", hunt_id=10)
+        hunt = make_hunt(id=10)
+        cog = make_cog(puzzle=puzzle, hunt=hunt)
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
+        cog.service.refresh_evidence_safe = AsyncMock()
+
+        ctx = make_ctx()
+        att = MagicMock()
+        att.filename = "crop.png"
+        att.content_type = "image/png"
+        att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\npayload")
+        ctx.message.attachments = [att]
+
+        with patch("bot.cogs.puzzles.save_image_bytes") as save, \
+             patch("bot.cogs.puzzles.MediaJsonDb") as mdb:
+            save.return_value = {"path": "uploads/10/a_crop.png", "filename": "crop.png",
+                                 "content_type": "image/png", "size": 7, "origin": "discord"}
+            mdb.create.return_value = MagicMock(id=7)
+            await Puzzles.clue.callback(cog, ctx, note="three anchors")
+
+        # The wiring, not just the final id: the bytes read from the attachment
+        # and the hunt they belong to must reach save_image_bytes ...
+        assert save.call_args.kwargs["raw"] == b"\x89PNG\r\n\x1a\npayload"
+        assert save.call_args.kwargs["filename"] == "crop.png"
+        assert save.call_args.kwargs["hunt_id"] == 10
+        # ... and what save_image_bytes returns must be what gets persisted,
+        # not some other value — a prior defect in this run dropped an id on
+        # the way from a save call to the DAO despite the surface call succeeding.
+        assert mdb.create.call_args.kwargs["path"] == "uploads/10/a_crop.png"
+        assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
+
+    @pytest.mark.asyncio
+    async def test_logs_sourceless_outside_a_puzzle_channel(self):
+        hunt = make_hunt(id=10)
+        cog = make_cog(puzzle=None, hunt=hunt)
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
+        cog.service.refresh_evidence_safe = AsyncMock()
+
+        ctx = make_ctx()
+        ctx.message.attachments = []
+        await Puzzles.clue.callback(cog, ctx, note="heard from another team")
+
+        cog.service.log_clues.assert_awaited()
+        assert cog.service.log_clues.await_args.args[1] is None
+        # A sourceless clue has no informs target to refresh.
+        cog.service.refresh_informs_targets.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejects_a_non_image_attachment(self):
+        cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
+        cog.service.log_clues = AsyncMock()
+        ctx = make_ctx()
+        att = MagicMock()
+        att.filename = "notes.pdf"
+        att.read = AsyncMock(return_value=b"%PDF-1.4")
+        ctx.message.attachments = [att]
+
+        from bot.core.media_store import MediaRejected
+        with patch("bot.cogs.puzzles.save_image_bytes", side_effect=MediaRejected("nope")):
+            await Puzzles.clue.callback(cog, ctx, note="x")
+
+        ctx.send.assert_awaited()
+        msg = ctx.send.call_args[0][0]
+        assert "nope" in msg
+        cog.service.log_clues.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_note_is_optional_when_an_image_is_attached(self):
+        cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
+        cog.service.refresh_evidence_safe = AsyncMock()
+        ctx = make_ctx()
+        att = MagicMock()
+        att.filename = "crop.png"
+        att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\np")
+        ctx.message.attachments = [att]
+
+        with patch("bot.cogs.puzzles.save_image_bytes") as save, \
+             patch("bot.cogs.puzzles.MediaJsonDb") as mdb:
+            save.return_value = {"path": "p", "filename": "crop.png",
+                                 "content_type": "image/png", "size": 5, "origin": "discord"}
+            mdb.create.return_value = MagicMock(id=7)
+            await Puzzles.clue.callback(cog, ctx, note="")
+
+        cog.service.log_clues.assert_awaited()
+        assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
 
 
 class TestShlex:

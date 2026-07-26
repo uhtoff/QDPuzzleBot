@@ -12,9 +12,10 @@ from functools import wraps
 from bot.utils import urls
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
-    resolve_group
+    resolve_group, MediaJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
+from bot.core.media_store import MediaRejected, save_image_bytes
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -1477,24 +1478,57 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
-    @commands.hybrid_command(name="clue", description="Log a freeform clue/observation to the evidence sheet")
-    async def clue(self, ctx, *, note: str):
-        """*Log a freeform clue/observation from this puzzle to the evidence sheet.*
+    async def _store_clue_attachment(self, ctx, hunt):
+        """Store the first image attached to ctx.message, if any.
 
-        Usage: `!clue text`
+        Returns (media_id, error_message). media_id is None when there is no
+        attachment; error_message is None unless the attachment was refused.
+        """
+        attachments = getattr(ctx.message, "attachments", None) or []
+        if not attachments:
+            return None, None
+        att = attachments[0]
+        raw = await att.read()
+        try:
+            saved = save_image_bytes(
+                hunt_id=hunt.id,
+                filename=att.filename or "image",
+                raw=raw,
+                origin="discord",
+            )
+        except MediaRejected as exc:
+            return None, str(exc)
+        media = MediaJsonDb.create(
+            hunt_id=hunt.id, path=saved["path"], filename=saved["filename"],
+            content_type=saved["content_type"], size=saved["size"],
+            origin=saved["origin"],
+        )
+        return media.id, None
+
+    @commands.hybrid_command(name="clue", description="Log a freeform clue/observation, optionally with an image")
+    async def clue(self, ctx, *, note: str = ""):
+        """*Log a freeform clue/observation to the evidence sheet.*
+
+        Usage: `!clue text` (attach an image to log a picture too)
         Example: `!clue every answer starts with a chemical element`
-        Run in a puzzle channel. For several at once use `!clues`."""
+        Run in a puzzle channel to log the clue from that puzzle; run anywhere
+        else in the hunt to log it with no source puzzle. The text is optional
+        when you attach an image. For several at once use `!clues`."""
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
-        if puzzle is None:
-            return await self.send_not_puzzle_channel(ctx)
-        if not note.strip():
-            await ctx.send(":warning: No clue text provided.")
+        media_id, error = await self._store_clue_attachment(ctx, hunt)
+        if error:
+            return await ctx.send(f":warning: {error}")
+        if not note.strip() and media_id is None:
+            await ctx.send(":warning: No clue text or image provided.")
             return
-        await self.service.log_clues(hunt, puzzle, [note.strip()])
+        await self.service.log_clues(hunt, puzzle, [note.strip()], media_id=media_id)
         asyncio.create_task(self.service.refresh_evidence_safe(hunt))
-        asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
-        await ctx.send(f":pencil: Clue logged from **{puzzle.name}**.")
+        if puzzle is not None:
+            asyncio.create_task(self.service.refresh_informs_targets(hunt, puzzle))
+        where = f" from **{puzzle.name}**" if puzzle is not None else ""
+        what = "Clue" if media_id is None else "Clue with image"
+        await ctx.send(f":pencil: {what} logged{where}.")
 
     @commands.hybrid_command(name="clues", description="Log several clues at once (quote any clue with spaces)")
     async def clues(self, ctx, *, items: str):
