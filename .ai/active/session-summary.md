@@ -3,12 +3,13 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — B1 complete (Task 8 @ 53f9055); B2 not started
+Status: in progress — feat(web): canvas and region API @ aa43fcd
 
 ## Goal
 
 Canvas Plan B from `docs/superpowers/specs/2026-07-26-canvas-image-evidence-design.md`.
-Split into **B1 — tiled media pipeline** (done) and **B2 — the canvas itself** (next).
+Split into **B1 — tiled media pipeline** (done), **B2a — model/service/API** (done), and
+**B2b — the viewer, RegionModal, draw-to-create, `!canvas`** (next).
 
 ## Current status
 
@@ -55,17 +56,44 @@ B1 ships no UI. Nothing consumes tiles until B2.
   gap noted in the plan's self-review — a SIGKILL mid-dzsave leaves a partial tree with
   `tile_status='pending'`, which the route 404s, so the viewer falls back to the whole image.
 
-## Next steps
+## B2a decisions (done)
 
-1. Write `docs/superpowers/plans/2026-07-26-canvas-b2-canvas.md`.
-2. B2 scope per the design: `hunt_canvases` + `canvas_regions` (migration 033), the canvas
-   service in a new `bot/core/canvas.py` (**not** `puzzle_service`, which is ~2,900 lines),
-   region CRUD API, `CanvasPanel`/`CanvasView`/`RegionModal`, draw-to-create-puzzle, the
-   progress tint overlay, websocket live updates, `!canvas`.
-3. The B2 viewer must mount only the tiles intersecting the viewport, and show progress while
-   `tile_status` is `pending`.
-4. **B2 must `rmtree(tiles_relpath(...))` when a canvas is deleted** — B1 deliberately left
-   that out because no single-media delete path exists yet.
+- **`bot/core/canvas.py` owns both sides of the region-link/evidence coupling.** A role change,
+  relink, or cleared link drops the evidence row and recreates it only if the new link still
+  informs. An **unchanged** link is left alone — churning the row on a note or geometry edit
+  would change its id and lose its place in the contribution table.
+- **`evidence_items.source_region_id` is ON DELETE CASCADE**, unlike the sheet (031) and media
+  (030) source columns which SET NULL. An informs-region's evidence row is created *by* the
+  link and is meaningless without it.
+- **No informs edge** for a region source: an edge joins two puzzles, a region is not one.
+- **Geometry is validated in a pure module** (`canvas_shape.py`), normalising the drag to
+  top-left-first on each axis independently, rejecting out-of-range and zero-area rectangles,
+  and refusing booleans as coordinates (bool is an int subclass).
+- **Two permission bars.** Canvas create/delete = organiser. Region draw/link/edit = any
+  member who can see an unarchived hunt, same as logging evidence. Both pinned by tests that
+  go red if collapsed.
+- **`DELETE /api/canvases/<id>` rmtrees the tile directory** — this was B1's deferred gap and
+  it is now closed.
+- **`create-puzzle-from-region` deferred to B2b** on purpose: its arguments (round choice, meta
+  type) are decided by UI that does not exist yet.
+
+## Next steps — B2b
+
+1. Write `docs/superpowers/plans/2026-07-26-canvas-b2b-viewer.md`.
+2. Frontend: a **Canvas** entry in `HuntBoard.tsx`'s `SegmentedControl` (its width calculation
+   is hard-coded and must be updated), `CanvasPanel.tsx` (picker + upload), `CanvasView.tsx`
+   (tiled viewer), `RegionModal.tsx`.
+3. The viewer must mount **only the tiles intersecting the viewport** at the current level —
+   `GET /api/media/<id>/tiles/<z>/<y>/<x>`, google order (row before column) — and show
+   progress while `tile_status` is `pending`, falling back to `GET /api/media/<id>` when
+   `tile_status` is `none` or `failed`.
+4. Progress tint: green `solved`/`backsolved`, amber `in progress`/`needs extraction`/`needs
+   submission`, red `stuck`, grey `unstarted`; untinted = unclaimed art. Legend + claimed count.
+5. `POST /api/canvases/<id>/regions/<rid>/create-puzzle` — delegate to the existing
+   `puzzle_service` create path and then link the region. **Must not take a lock the create
+   path takes internally** (`bot/core` is lock-free by convention; callers lock).
+6. `!canvas` posts a link; update its docstring **and** `docs/commands.md` in the same change.
+   Drawing stays web-only — a deliberate parity exception like the archiving family.
 
 ## Open questions
 
