@@ -31,3 +31,52 @@ class TestAdditionalSheetData:
         fields = [f.strip(" `") for f in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
         assert dict(zip(fields, params))["puzzle_id"] is None
         assert dict(zip(fields, params))["hunt_id"] == 10
+
+
+class TestGetByHunt:
+    def _db(self):
+        from bot.store.mysqldb import MySQLAdditionalSheetsDb
+        mydb = MagicMock()
+        cursor = MagicMock()
+        mydb.dict_cursor.return_value = cursor
+        return MySQLAdditionalSheetsDb(mydb=mydb), cursor
+
+    def _row(self, id, name, page_id="P1"):
+        return {"id": id, "google_page_id": page_id, "puzzle_id": None,
+                "hunt_id": 10, "puzzle": 0, "puzzle_name": name,
+                "solution": "", "solved": 0}
+
+    def test_returns_sheet_objects(self):
+        db, cursor = self._db()
+        cursor.fetchall.return_value = [self._row(3, "alt text")]
+        sheets = db.get_by_hunt(10)
+        assert [s.id for s in sheets] == [3]
+        assert sheets[0].puzzle_name == "alt text"
+        assert sheets[0].hunt_id == 10
+        assert sheets[0].puzzle_id is None
+
+    def test_excludes_puzzle_owned_sheets(self):
+        """A puzzle's sheet also belongs to a hunt transitively; only sheets with
+        NO puzzle are hunt-level, and the query -- not the caller -- must say so."""
+        db, cursor = self._db()
+        cursor.fetchall.return_value = []
+        db.get_by_hunt(10)
+        sql, params = cursor.execute.call_args[0]
+        assert "puzzle_id IS NULL" in sql
+        assert params == (10,)
+
+    def test_orders_by_id_so_the_list_is_stable(self):
+        """!remove_sheet takes a 1-based index off !list_sheets, so two calls that
+        disagree about order would delete the wrong sheet. Two rows, because one
+        cannot have a wrong order."""
+        db, cursor = self._db()
+        cursor.fetchall.return_value = [self._row(3, "first"), self._row(9, "second")]
+        sheets = db.get_by_hunt(10)
+        assert [s.puzzle_name for s in sheets] == ["first", "second"]
+        sql, _ = cursor.execute.call_args[0]
+        assert "ORDER BY" in sql and "id" in sql.split("ORDER BY", 1)[1]
+
+    def test_returns_empty_list_when_there_are_none(self):
+        db, cursor = self._db()
+        cursor.fetchall.return_value = None
+        assert db.get_by_hunt(10) == []

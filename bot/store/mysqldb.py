@@ -311,6 +311,33 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
         cursor.close()
         return rows
 
+    def get_by_hunt(self, hunt_id):
+        """Return the hunt's OWN working sheets -- those with no puzzle.
+
+        A puzzle's sheets belong to the hunt transitively and are loaded through
+        the puzzle (construct_puzzle -> get_additional_sheets); they are
+        deliberately excluded here. Ordered by id so !list_sheets and the index
+        !remove_sheet takes from it always agree.
+        """
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM additional_sheets"
+                " WHERE hunt_id = %s AND puzzle_id IS NULL ORDER BY id ASC",
+                (hunt_id,),
+            )
+            rows = cursor.fetchall() or []
+        finally:
+            cursor.close()
+        sheets = []
+        for row in rows:
+            sheet = AdditionalSheetData()
+            for attr in sheet.__dict__:
+                if attr in row:
+                    setattr(sheet, attr, row[attr])
+            sheets.append(sheet)
+        return sheets
+
 
 class MySQLRollupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'rollups'
