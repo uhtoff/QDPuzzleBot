@@ -121,3 +121,67 @@ class TestHuntSheetLock:
 async def _take_and_release(lock_cm, key):
     async with lock_cm(key):
         return True
+
+
+class TestAddHuntSheet:
+    def _svc(self, gsheet):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        return svc
+
+    def _gsheet(self):
+        g = MagicMock()
+        g.get_unique_tab_name = AsyncMock(side_effect=lambda name, sid=None: name)
+        g.create_blank_tab = AsyncMock(return_value=555)
+        return g
+
+    async def test_creates_a_blank_tab_on_the_hunt_sheet_and_commits_a_row(self):
+        from tests.conftest import make_hunt
+        hunt = make_hunt(id=10, google_sheet_id="SHEET1", solved_sheet_id="ARCHIVE1")
+        gsheet = self._gsheet()
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sheet = await svc.add_hunt_sheet(hunt, "alt text")
+        gsheet.create_blank_tab.assert_awaited_once()
+        args = gsheet.create_blank_tab.await_args[0]
+        # The hunt's MAIN spreadsheet, never the solved one -- a hunt sheet is
+        # never solved, and the solved sheet is a different spreadsheet id.
+        assert args[0] == "SHEET1"
+        assert args[1] == "alt text"
+        assert sheet.hunt_id == 10
+        assert sheet.puzzle_id is None
+        assert sheet.puzzle_name == "alt text"
+        assert sheet.google_page_id == 555
+        sdb.commit.assert_called_once_with(sheet)
+
+    async def test_dedupes_the_tab_name(self):
+        """create_blank_tab does not dedupe (add_new_sheet does), and Sheets
+        rejects a duplicate tab title, so a second 'scratch' would blow up."""
+        from tests.conftest import make_hunt
+        gsheet = self._gsheet()
+        gsheet.get_unique_tab_name = AsyncMock(return_value="scratch (2)")
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb"):
+            sheet = await svc.add_hunt_sheet(make_hunt(id=10), "scratch")
+        assert gsheet.create_blank_tab.await_args[0][1] == "scratch (2)"
+        assert sheet.puzzle_name == "scratch (2)"
+
+    async def test_blank_name_falls_back_to_a_default(self):
+        from tests.conftest import make_hunt
+        gsheet = self._gsheet()
+        svc = self._svc(gsheet)
+        with patch("bot.core.puzzle_service.SheetsJsonDb"):
+            sheet = await svc.add_hunt_sheet(make_hunt(id=10, name="Edric 2026"), "")
+        assert sheet.puzzle_name == "Sheet for Edric 2026"
+
+    async def test_no_gsheet_cog_still_records_the_sheet(self):
+        """Mirrors add_sheet: a hunt with no Google integration still gets its
+        row, just with no tab behind it."""
+        from tests.conftest import make_hunt
+        svc = self._svc(None)
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sheet = await svc.add_hunt_sheet(make_hunt(id=10), "alt text")
+        assert sheet.google_page_id == ""
+        sdb.commit.assert_called_once()

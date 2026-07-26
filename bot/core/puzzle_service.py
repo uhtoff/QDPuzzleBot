@@ -2426,6 +2426,37 @@ class PuzzleService:
         sheet_id = sheets[index - 1].id
         await self.remove_sheet(hunt, puzzle, sheet_id)
 
+    @pushes_board()
+    async def add_hunt_sheet(self, hunt, name):
+        """Create a working sheet that belongs to the HUNT, not to a puzzle.
+
+        Somewhere to pick at something found in a page's alt text, or loose on the
+        hunt site, before anyone knows which puzzle it belongs to. Returns the
+        AdditionalSheetData.
+
+        A plain blank tab, not the PUZZLE_SHEET template: create_additional_
+        spreadsheet derives its insert index from the puzzle's own tab and writes
+        a header hyperlink from the puzzle's url/name, none of which means
+        anything here. Always on the hunt's MAIN spreadsheet -- a hunt sheet is
+        never solved, so the solved spreadsheet is never the target.
+        """
+        gsheet_cog = self._gsheet_cog(hunt)
+        sheet = AdditionalSheetData(
+            hunt_id=hunt.id,
+            puzzle_name=name or f"Sheet for {hunt.name}",
+        )
+        if gsheet_cog is not None:
+            # create_blank_tab does NOT dedupe the way add_new_sheet does, and the
+            # Sheets API rejects a duplicate tab title, so uniquify first and keep
+            # the name we actually used.
+            unique = await gsheet_cog.get_unique_tab_name(
+                sheet.puzzle_name, hunt.google_sheet_id)
+            sheet.puzzle_name = unique
+            sheet.google_page_id = await gsheet_cog.create_blank_tab(
+                hunt.google_sheet_id, unique)
+        SheetsJsonDb.commit(sheet)
+        return sheet
+
     # -------------------------------------------------------------------------
     # Create helpers (M3.5) — canonical paths used by bang + web edges
     # -------------------------------------------------------------------------
