@@ -360,6 +360,7 @@ async def add_evidence():
     body = await request.get_json()
     hunt_uid = body.get("hunt_uid")
     source_puzzle_id = body.get("source_puzzle_id")
+    source_sheet_id = body.get("source_sheet_id")
     media_id = body.get("media_id")
     notes = body.get("notes", [])
     if not hunt_uid:
@@ -377,6 +378,10 @@ async def add_evidence():
         return jsonify({"error": "hunt not found"}), guild_or_status
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
+    # At most one source. Both set is a client bug -- silently preferring one
+    # would attribute the evidence to something the user did not pick.
+    if source_puzzle_id and source_sheet_id:
+        return jsonify({"error": "only one source may be given"}), 400
     # source_puzzle_id is optional: evidence can belong to the hunt rather
     # than to any one puzzle.
     puzzle = None
@@ -384,6 +389,13 @@ async def add_evidence():
         puzzle = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
         if puzzle is None or puzzle.hunt_id != hunt["id"]:
             return jsonify({"error": "puzzle not found in hunt"}), 404
+    if source_sheet_id:
+        # The id comes from the client; confirm it is one of THIS hunt's sheets
+        # before attributing anything to it.
+        from bot.store import SheetsJsonDb
+        if not any(s.id == int(source_sheet_id)
+                   for s in SheetsJsonDb.get_by_hunt(hunt["id"])):
+            return jsonify({"error": "sheet not found in hunt"}), 404
     cog = puzzles_cog()
     hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
     if cog is None or hunt_obj is None:
@@ -394,7 +406,8 @@ async def add_evidence():
     # An image with no transcription still needs one row, so fall back to a
     # single empty note rather than logging nothing.
     items = await cog.service.log_clues(hunt_obj, puzzle, clean_notes or [""],
-                                        media_id=media_id)
+                                        media_id=media_id,
+                                        source_sheet_id=source_sheet_id)
     if items:
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
         if puzzle is not None:

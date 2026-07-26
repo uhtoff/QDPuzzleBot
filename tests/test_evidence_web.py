@@ -194,9 +194,11 @@ class TestGetEvidenceNullSource:
         from types import SimpleNamespace
         from bot.web import data
 
-        sourced = SimpleNamespace(id=5, source_puzzle_id=1, target_puzzle_id=2,
+        sourced = SimpleNamespace(id=5, source_puzzle_id=1, source_sheet_id=None,
+                                  target_puzzle_id=2,
                                   note="a clue", media_id=None, created_at=None)
-        sourceless = SimpleNamespace(id=9, source_puzzle_id=None, target_puzzle_id=None,
+        sourceless = SimpleNamespace(id=9, source_puzzle_id=None, source_sheet_id=None,
+                                     target_puzzle_id=None,
                                      note="a fact", media_id=None, created_at=None)
         with patch("bot.store.EvidenceJsonDb") as edb, \
              patch("bot.core.puzzle_service.resolve_puzzle_names") as resolve:
@@ -220,7 +222,8 @@ class TestGetEvidenceNullSource:
         from types import SimpleNamespace
         from bot.web import data
 
-        item = SimpleNamespace(id=9, source_puzzle_id=None, target_puzzle_id=None,
+        item = SimpleNamespace(id=9, source_puzzle_id=None, source_sheet_id=None,
+                               target_puzzle_id=None,
                                note="", media_id=7, created_at=None)
         with patch("bot.store.EvidenceJsonDb") as edb, \
              patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}):

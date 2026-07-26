@@ -25,7 +25,7 @@ def web():
     cog.service.refresh_evidence_safe = AsyncMock()
     cog.service.refresh_informs_targets = AsyncMock()
     cog.service.log_clues = AsyncMock(
-        side_effect=lambda hunt, puzzle, notes, media_id=None: [
+        side_effect=lambda hunt, puzzle, notes, media_id=None, source_sheet_id=None: [
             SimpleNamespace(id=1, note=n) for n in notes
         ]
     )
@@ -199,3 +199,80 @@ class TestAddEvidenceAudit:
 
         assert resp.status_code == 201
         audit.assert_awaited_once_with("clue", puzzle_id=None, hunt_uid="U1")
+
+
+class TestEvidenceSheetSourceSerialisation:
+    def test_serialises_the_sheet_source(self):
+        from bot.web import data
+        items = [SimpleNamespace(id=1, source_puzzle_id=None, source_sheet_id=4,
+                                 target_puzzle_id=None, note="n", media_id=None,
+                                 created_at=None)]
+        edb = MagicMock()
+        edb.get_all.return_value = items
+        with patch("bot.store.EvidenceJsonDb", edb), \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}), \
+             patch("bot.core.puzzle_service.resolve_sheet_names",
+                   return_value={4: "alt text"}):
+            out = data.get_evidence(10)
+        assert out[0]["source_sheet_id"] == 4
+        assert out[0]["source_sheet_name"] == "alt text"
+
+    def test_a_puzzle_sourced_item_has_no_sheet_source(self):
+        from bot.web import data
+        items = [SimpleNamespace(id=1, source_puzzle_id=5, source_sheet_id=None,
+                                 target_puzzle_id=None, note="n", media_id=None,
+                                 created_at=None)]
+        edb = MagicMock()
+        edb.get_all.return_value = items
+        with patch("bot.store.EvidenceJsonDb", edb), \
+             patch("bot.core.puzzle_service.resolve_puzzle_names",
+                   return_value={5: "Alpha"}), \
+             patch("bot.core.puzzle_service.resolve_sheet_names", return_value={}):
+            out = data.get_evidence(10)
+        assert out[0]["source_sheet_id"] is None
+        assert out[0]["source_sheet_name"] is None
+        assert out[0]["source_puzzle_name"] == "Alpha"
+
+
+@pytest.mark.asyncio
+class TestAddEvidenceSheetSource:
+    async def test_accepts_a_source_sheet(self, web):
+        sdb = MagicMock()
+        sdb.get_by_hunt.return_value = [SimpleNamespace(id=4, puzzle_name="alt text")]
+        with patch("bot.store.SheetsJsonDb", sdb):
+            res = await web.client.post("/api/evidence", json={
+                "hunt_uid": "U1", "notes": ["found in the alt text"],
+                "source_sheet_id": 4,
+            })
+        assert res.status_code == 201
+        assert web.cog.service.log_clues.await_args.kwargs["source_sheet_id"] == 4
+
+    async def test_rejects_a_sheet_from_another_hunt(self, web):
+        """The sheet id comes from the client. Without this check anyone could
+        attribute their evidence to another team's sheet."""
+        sdb = MagicMock()
+        sdb.get_by_hunt.return_value = []
+        with patch("bot.store.SheetsJsonDb", sdb):
+            res = await web.client.post("/api/evidence", json={
+                "hunt_uid": "U1", "notes": ["x"], "source_sheet_id": 999,
+            })
+        assert res.status_code == 404
+        web.cog.service.log_clues.assert_not_awaited()
+
+    async def test_a_puzzle_source_and_a_sheet_source_are_mutually_exclusive(self, web):
+        """At most one source. Sending both is a client bug; silently preferring
+        one would attribute the evidence to something nobody picked."""
+        res = await web.client.post("/api/evidence", json={
+            "hunt_uid": "U1", "notes": ["x"],
+            "source_puzzle_id": 9, "source_sheet_id": 4,
+        })
+        assert res.status_code == 400
+        web.cog.service.log_clues.assert_not_awaited()
+
+    async def test_a_puzzle_source_alone_still_works(self, web):
+        """The mutual-exclusion guard must not break the common case."""
+        res = await web.client.post("/api/evidence", json={
+            "hunt_uid": "U1", "notes": ["x"], "source_puzzle_id": 9,
+        })
+        assert res.status_code == 201
+        assert web.cog.service.log_clues.await_args.kwargs["source_sheet_id"] is None

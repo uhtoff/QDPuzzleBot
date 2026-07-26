@@ -577,23 +577,29 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
 # --- Activity ---------------------------------------------------------------
 
 def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
-    """Return evidence items for a hunt with resolved puzzle names.
+    """Return evidence items for a hunt with resolved source and target names.
 
     source_puzzle_id/source_puzzle_name are None for evidence that belongs to
-    the hunt rather than to any one puzzle. media_url is relative so it works
+    the hunt rather than to any one puzzle; source_sheet_id/source_sheet_name
+    name a hunt-level working sheet instead. media_url is relative so it works
     on whichever origin is serving the SPA.
     """
     from bot.store import EvidenceJsonDb
-    from bot.core.puzzle_service import resolve_puzzle_names
+    from bot.core.puzzle_service import resolve_puzzle_names, resolve_sheet_names
     items = EvidenceJsonDb.get_all(hunt_id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
     puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
                   | {i.target_puzzle_id for i in items if i.target_puzzle_id})
     names = resolve_puzzle_names(puzzle_ids)
+    sheet_names = resolve_sheet_names(
+        getattr(i, "source_sheet_id", None) for i in items)
     return [
         {
             "id": i.id,
             "source_puzzle_id": i.source_puzzle_id,
             "source_puzzle_name": names.get(i.source_puzzle_id, "") if i.source_puzzle_id else None,
+            "source_sheet_id": i.source_sheet_id,
+            "source_sheet_name": (sheet_names.get(i.source_sheet_id) or f"Sheet {i.source_sheet_id}")
+                                 if i.source_sheet_id else None,
             "target_puzzle_id": i.target_puzzle_id,
             "target_puzzle_name": names.get(i.target_puzzle_id, "") if i.target_puzzle_id else None,
             "note": i.note,
