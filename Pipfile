@@ -19,6 +19,9 @@ google-api-python-client = "*"
 quart = "*"
 aiohttp = "*"
 python-slugify = "*"
+# The "binary" extra is load-bearing: the wheel bundles libvips, so tiling needs
+# no apt package and no root on the deploy host.
+pyvips = {extras = ["binary"], version = "*"}
 
 [requires]
 python_version = "3.12"
