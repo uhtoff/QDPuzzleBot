@@ -448,14 +448,27 @@ class TestSaveImageBytes:
         assert (tmp_path / saved["path"]).read_bytes() == raw
 
     def test_filename_cannot_escape_the_media_root(self, tmp_path):
-        """A traversal filename must not write outside the root."""
+        """A traversal filename must not add path segments at all.
+
+        Assert on the stored relative path, not merely on where the file landed.
+        A `tmp_path in written.parents` check is VACUOUS here: the fixed
+        `uploads/<hunt_id>/` prefix plus the `{uuid}_` concatenation absorbs a
+        two-level `../..`, so that assertion passes even with no sanitisation
+        whatsoever. The payload below is also deeper than the prefix for the
+        same reason.
+        """
         from bot.core.media_store import save_image_bytes
         raw = b"\x89PNG\r\n\x1a\n"
         with patch("bot.core.media_store.media_root", return_value=tmp_path), \
              patch("bot.core.media_store.max_upload_bytes", return_value=1_000_000):
-            saved = save_image_bytes(hunt_id=10, filename="../../etc/passwd", raw=raw)
+            saved = save_image_bytes(hunt_id=10, filename="../../../../etc/passwd",
+                                     raw=raw)
+        assert ".." not in saved["path"]
+        assert saved["path"].startswith("uploads/10/")
+        assert saved["path"].count("/") == 2      # only uploads/ and the hunt id
         written = (tmp_path / saved["path"]).resolve()
-        assert tmp_path.resolve() in written.parents
+        assert written.parent == (tmp_path / "uploads" / "10").resolve()
+        assert written.read_bytes() == raw
 
     def test_content_type_is_sniffed_not_taken_from_the_caller(self, tmp_path):
         """A caller claiming image/png for JPEG bytes gets image/jpeg stored."""
