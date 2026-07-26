@@ -839,7 +839,7 @@ git commit -m "feat(store): EvidenceData carries media_id and an optional source
 - Modify: `bot/store/mysqldb.py:787` (`MySQLEvidenceDb.log`)
 - Test: `tests/test_evidence_service.py` (new class)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/test_evidence_service.py`:
 
@@ -881,12 +881,12 @@ class TestEvidenceDbLog:
         assert 7 in params
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `timeout 120 pipenv run python -m pytest tests/test_evidence_service.py -q -k EvidenceDbLog > /tmp/test.log 2>&1`
 Expected: FAIL — `TypeError: log() got an unexpected keyword argument 'media_id'`.
 
-- [ ] **Step 3: Widen the DAO method**
+- [x] **Step 3: Widen the DAO method**
 
 Replace `MySQLEvidenceDb.log` in `bot/store/mysqldb.py`:
 
@@ -923,12 +923,12 @@ Replace `MySQLEvidenceDb.log` in `bot/store/mysqldb.py`:
         return e
 ```
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `timeout 120 pipenv run python -m pytest tests/test_evidence_service.py -q > /tmp/test.log 2>&1`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/store/mysqldb.py tests/test_evidence_service.py

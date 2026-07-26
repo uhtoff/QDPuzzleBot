@@ -410,3 +410,53 @@ class TestMySQLEvidenceDbMethods:
         result = db.log(10, 5, "a clue")
 
         assert result.created_at.tzinfo == datetime.timezone.utc
+
+
+class TestEvidenceDbLog:
+    """MySQLEvidenceDb.log widened to accept a null source puzzle and an
+    optional media id (Plan A: evidence can belong to the hunt rather than
+    to any one puzzle, and can carry an image)."""
+
+    def _db(self):
+        from bot.store.mysqldb import MySQLEvidenceDb
+        mydb = MagicMock()
+        cursor = MagicMock()
+        cursor.lastrowid = 11
+        mydb.dict_cursor.return_value = cursor
+        return MySQLEvidenceDb(mydb=mydb), cursor
+
+    def test_log_with_a_source_puzzle(self):
+        db, _ = self._db()
+        e = db.log(hunt_id=10, source_puzzle_id=5, note="a clue")
+        assert e.id == 11
+        assert e.source_puzzle_id == 5
+        assert e.note == "a clue"
+        assert e.media_id is None
+
+    def test_log_without_a_source_puzzle(self):
+        db, _ = self._db()
+        e = db.log(hunt_id=10, source_puzzle_id=None, note="seen on the poster")
+        assert e.source_puzzle_id is None
+        assert e.note == "seen on the poster"
+
+    def test_log_with_a_media_id(self):
+        db, _ = self._db()
+        e = db.log(hunt_id=10, source_puzzle_id=None, note="", media_id=7)
+        assert e.media_id == 7
+        assert e.note == ""
+
+    def test_log_sends_parameters_in_column_order(self):
+        """Every other assertion in this class reads fields off the RETURNED
+        EvidenceData, and those are built from log's own local parameters --
+        never read back from the cursor. So a SQL tuple that transposes two
+        adjacent columns (note/media_id, both nullable) would corrupt every
+        written row while leaving all of them green. Assert on what was
+        actually sent to execute, in the order the columns are declared,
+        the same standard applied to MySQLMediaDb.create in test_media_store.py.
+        """
+        db, cursor = self._db()
+        db.log(hunt_id=10, source_puzzle_id=None, note="seen on the poster", media_id=7)
+        sql, params = cursor.execute.call_args[0]
+        columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
+        assert columns == ["hunt_id", "source_puzzle_id", "note", "media_id", "created_at"]
+        assert params[:4] == (10, None, "seen on the poster", 7)
