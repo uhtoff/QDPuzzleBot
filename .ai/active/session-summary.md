@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — informs-region crop-to-evidence built and tested, uncommitted (last commit still dca0826)
+Status: in progress — feat(web): crop an informs-region's rect into its own evidence image @ 008d4ac
 
 ## Goal
 
@@ -220,27 +220,30 @@ Evidence panel shows the cropped image).
 ## OCR — asked about, not decided or built
 
 User asked (2026-07-26) whether OCR on the canvas/evidence images is possible at all. No existing
-OCR/vision infra in this codebase (grepped: no tesseract/ocr/vision/anthropic/openai hits). Three
-real options, with a real constraint already on record for this project
-([[pyvips-binary-on-plesk]]): the live host has **no root**, which is why `pyvips[binary]` was
-usable at all — it bundles libvips in the wheel — and is exactly the property `pytesseract` LACKS
-(it wraps the system `tesseract` binary, normally an apt package). Options, not yet evaluated in
+OCR/vision infra in this codebase (grepped: no tesseract/ocr/vision/anthropic/openai hits).
+
+I initially assumed no root on the Plesk host (generalising from [[pyvips-binary-on-plesk]], which
+is about the *wheel not needing root* — not a claim that root is unavailable) and steered toward
+EasyOCR. **User corrected this: they have root on the box** — see [[plesk-root-access]]. That
+makes a plain system-package install a normal option, not a last resort — though the host is
+**AlmaLinux** (RHEL-based, confirmed in [[plesk-deploy-needs-nonchroot-shell]]), so it's
+`dnf`/EPEL, not `apt`: `dnf install epel-release && dnf install tesseract
+tesseract-langpack-eng`, not the Debian-style command I gave first. Options, not yet evaluated in
 practice:
 
-1. **pytesseract** — free, lightest, but needs a system `tesseract-ocr` binary; likely blocked on
-   the current Plesk host without root, same class of problem B1 solved for libvips.
-2. **EasyOCR** — pure pip install (PyTorch-based), no root needed, so it should actually deploy
-   here; heavier dependency (pulls in torch) and slower/more memory per inference.
-2b. Not yet checked: whether a rootless tesseract path exists (a static/bundled binary, conda-less
-   wheel, or similar) — would be worth a quick check before ruling pytesseract out.
+1. **pytesseract** (now the natural default, given root) — wraps the system `tesseract` binary,
+   free, lightest pip footprint, mature/well-understood; needs `dnf install tesseract` (via EPEL)
+   on the host, which is no longer a blocker.
+2. **EasyOCR** — pure pip install (PyTorch-based), no root needed either way; heavier dependency
+   (pulls in torch) and slower/more memory per inference — only worth it if pytesseract's accuracy
+   on hunt-typical fonts/handwriting turns out to be poor.
 3. **Cloud OCR/vision API** (e.g. Google Cloud Vision — the project already holds Google API
    credentials for Sheets) — best accuracy, but a per-request cost and a new external network
    dependency, unlike everything else in this feature which is local/offline.
 
 Nothing implemented. Next step if pursued: a small standalone spike (not wired into canvas.py or
-the evidence path) trying EasyOCR against a real puzzle-sheet crop, to see whether accuracy is
-even good enough on hunt-typical fonts/handwriting to be worth the dependency weight — before
-deciding whether it's worth building in at all.
+the evidence path) trying pytesseract against a real puzzle-sheet crop, to see whether accuracy is
+even good enough on hunt-typical fonts/handwriting to be worth building in at all.
 
 ## Known gaps and risks
 
