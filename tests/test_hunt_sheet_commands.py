@@ -143,3 +143,61 @@ class TestRemoveSheetCommand:
         ctx = make_ctx()
         await Puzzles.remove_sheet(cog, ctx, 2)
         assert "second" in ctx.send.await_args[0][0]
+
+
+class TestListSheetsCommand:
+    async def test_hunt_channel_lists_the_hunt_sheets(self):
+        from bot.cogs.puzzles import Puzzles
+        hunt = make_hunt(id=10, google_sheet_id="SHEET1")
+        cog = make_cog(puzzle=None, hunt=hunt)
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock(return_value=[
+            SimpleNamespace(id=7, puzzle_name="alt text", google_page_id="P7"),
+            SimpleNamespace(id=2, puzzle_name="site source", google_page_id="P2"),
+        ])
+        ctx = make_ctx()
+        await Puzzles.list_additional_sheets(cog, ctx)
+        embed = ctx.send.await_args.kwargs["embed"]
+        value = embed.fields[0].value
+        # Two sheets, numbered in the order !remove_sheet will index them.
+        assert "1: [alt text]" in value
+        assert "2: [site source]" in value
+        assert value.index("1: [alt text]") < value.index("2: [site source]")
+
+    async def test_hunt_channel_with_no_sheets_says_so(self):
+        from bot.cogs.puzzles import Puzzles
+        cog = make_cog(puzzle=None, hunt=make_hunt(id=10))
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock(return_value=[])
+        ctx = make_ctx()
+        await Puzzles.list_additional_sheets(cog, ctx)
+        # Must be the "none yet" message, not the old "not a puzzle channel"
+        # refusal -- a bare ":x:" check passes on either and proves nothing.
+        assert "hunt sheet" in ctx.send.await_args[0][0].lower()
+        cog.service.get_hunt_sheets.assert_called_once()
+
+    async def test_links_point_at_the_hunt_spreadsheet(self):
+        from bot.cogs.puzzles import Puzzles
+        cog = make_cog(puzzle=None, hunt=make_hunt(id=10, google_sheet_id="SHEET1"))
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock(return_value=[
+            SimpleNamespace(id=7, puzzle_name="alt text", google_page_id="P7"),
+        ])
+        ctx = make_ctx()
+        await Puzzles.list_additional_sheets(cog, ctx)
+        value = ctx.send.await_args.kwargs["embed"].fields[0].value
+        assert "SHEET1" in value
+        assert "P7" in value
+
+    async def test_puzzle_channel_is_unchanged(self):
+        from bot.cogs.puzzles import Puzzles
+        puzzle = make_puzzle(id=5, hunt_id=10, name="Alpha")
+        puzzle.additional_sheets = [
+            SimpleNamespace(id=1, puzzle_name="grid 2", google_page_id="P1")]
+        cog = make_cog(puzzle=puzzle, hunt=make_hunt(id=10))
+        cog.environment = {}
+        cog.service.get_hunt_sheets = MagicMock()
+        ctx = make_ctx()
+        await Puzzles.list_additional_sheets(cog, ctx)
+        cog.service.get_hunt_sheets.assert_not_called()
+        assert "grid 2" in ctx.send.await_args.kwargs["embed"].fields[0].value

@@ -1375,14 +1375,32 @@ class Puzzles(commands.Cog):
 
     @commands.command(aliases=['list_sheets'])
     async def list_additional_sheets(self, ctx):
-        """*List this puzzle's additional sheets with links and their numbers.*
+        """*List additional sheets with links and their numbers.*
 
         Usage: `!list_sheets`
         Example: `!list_sheets`
-        Run in a puzzle channel. Alias: `!list_additional_sheets`. Numbers feed `!remove_sheet`."""
+        Run in a puzzle channel for that puzzle's sheets, or anywhere else in the
+        hunt for the hunt's own. Alias: `!list_additional_sheets`. Numbers feed
+        `!remove_sheet`."""
         puzzle = self.get_puzzle(ctx)
+        hunt = self.get_hunt(ctx)
+
         if puzzle is None:
-            return await self.send_not_puzzle_channel(ctx)
+            if hunt is None:
+                return await ctx.send(
+                    ":x: This channel isn't part of a hunt, so there are no sheets "
+                    "to list.")
+            sheets = self.service.get_hunt_sheets(hunt)
+            if not sheets:
+                return await ctx.send(':x: No hunt sheets found!')
+            embed = discord.Embed()
+            embed.add_field(
+                name="Hunt Sheet Links",
+                value=self.create_hunt_sheet_list(hunt, sheets),
+                inline=False,
+            )
+            return await ctx.send(embed=embed)
+
         if len(puzzle.additional_sheets) == 0:
             return await ctx.send(':x: No additional sheets found!')
 
@@ -1631,6 +1649,20 @@ class Puzzles(commands.Cog):
                                                    sheet.google_page_id)
             sheet_links += f"{count}: [{sheet.puzzle_name}]({spreadsheet_url})\n"
             count+=1
+        return sheet_links
+
+    def create_hunt_sheet_list(self, hunt, sheets):
+        """Numbered markdown links for a hunt's OWN working sheets.
+
+        Sibling of create_additional_sheet_list rather than a widening of it: that
+        one picks the spreadsheet from puzzle.solved, and a hunt sheet is never
+        solved -- it always lives on the hunt's main spreadsheet.
+        """
+        sheet_links = ""
+        for count, sheet in enumerate(sheets, start=1):
+            spreadsheet_url = urls.spreadsheet_url(hunt.google_sheet_id,
+                                                   sheet.google_page_id)
+            sheet_links += f"{count}: [{sheet.puzzle_name}]({spreadsheet_url})\n"
         return sheet_links
 
     @commands.command(
