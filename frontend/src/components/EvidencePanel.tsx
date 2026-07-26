@@ -73,7 +73,10 @@ export function EvidencePanel({ uid, detail }: Props) {
       });
       setClueNote("");
       setClueFile(null);
-      setCluePuzzleId(null);
+      // The source puzzle deliberately stays selected: logging several clues
+      // from the same puzzle in a row is the common case during a hunt, and
+      // re-picking it every time is the kind of friction that stops people
+      // logging things at all.
     } catch (err) {
       notifyError(err);
     }
