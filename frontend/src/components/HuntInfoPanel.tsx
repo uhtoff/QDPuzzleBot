@@ -1,12 +1,14 @@
 import { Anchor, Button, Group, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 import { IconExternalLink, IconEye, IconEyeOff } from "@tabler/icons-react";
+import type { HuntSheet } from "../types";
 
 interface HuntInfoPanelProps {
   url: string;
   start_timestamp: number | null;
   sheet_base_url: string | null;
   solved_sheet_base_url: string | null;
+  hunt_sheets: HuntSheet[];
   username: string;
   password: string;
 }
@@ -16,6 +18,7 @@ export function HuntInfoPanel({
   start_timestamp,
   sheet_base_url,
   solved_sheet_base_url,
+  hunt_sheets,
   username,
   password,
 }: HuntInfoPanelProps) {
@@ -68,6 +71,26 @@ export function HuntInfoPanel({
         </Group>
       )}
 
+      {/* The hunt's own working sheets — somewhere to pick at something found in
+          the hunt's alt text before anyone knows which puzzle it belongs to.
+          Added with !add_sheet in the hunt's general channel. */}
+      {hunt_sheets.length > 0 && sheet_base_url && (
+        <Group gap={6} align="flex-start">
+          <IconExternalLink size={14} />
+          <Text size="sm">
+            Hunt working sheets:{" "}
+            {hunt_sheets.map((s, i) => (
+              <span key={s.id}>
+                {i > 0 && ", "}
+                <Anchor href={`${sheet_base_url}${s.page_id ?? ""}`} target="_blank" inherit>
+                  {s.name}
+                </Anchor>
+              </span>
+            ))}
+          </Text>
+        </Group>
+      )}
+
       {username && (
         <Text size="sm">Username: {username}</Text>
       )}
@@ -89,6 +112,7 @@ export function HuntInfoPanel({
       )}
 
       {!url && !startTimeStr && !sheet_base_url && !solved_sheet_base_url && !username && !password
+        && hunt_sheets.length === 0
         && <Text size="sm" c="dimmed">No hunt settings configured yet.</Text>
       }
     </Stack>
