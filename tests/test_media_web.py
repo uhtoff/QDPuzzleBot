@@ -403,3 +403,82 @@ class TestMediaTiles:
         with patch("bot.web.auth.session", {}):
             resp = await app.test_client().get("/api/media/7/tiles/0/0/0")
         assert resp.status_code == 401
+
+
+class TestEvidenceOcrPreview:
+    """POST /api/hunts/<uid>/evidence/ocr-preview -- extracts text from an
+    about-to-be-logged clue image, without saving it anywhere. Reuses
+    upload_media's own sniffing/size validation, on the same permission bar
+    (any member who can see an unarchived hunt)."""
+
+    @pytest.mark.asyncio
+    async def test_extracts_text_from_the_upload(self, web):
+        app, _, _ = web
+        with patch("bot.core.ocr.extract_text", return_value="HYDROGEN") as extract:
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 200
+        assert (await resp.get_json())["text"] == "HYDROGEN"
+        extract.assert_called_once_with(b"\x89PNG\r\n\x1a\npayload")
+
+    @pytest.mark.asyncio
+    async def test_rejects_an_svg(self, web):
+        """Same sniffing as the real upload route -- the declared content type
+        is not trusted, only the magic bytes are."""
+        app, _, _ = web
+        resp = await app.test_client().post(
+            "/api/hunts/U1/evidence/ocr-preview",
+            files={"file": _file("x.svg", b"<svg xmlns='http://www.w3.org/2000/svg'>",
+                                  "image/svg+xml")},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_extraction_failure_is_a_500_not_a_crash(self, web):
+        app, _, _ = web
+        with patch("bot.core.ocr.extract_text", side_effect=RuntimeError("boom")):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 500
+        assert (await resp.get_json())["error"] == "ocr_failed"
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_persisted(self, web):
+        app, mdb, _ = web
+        with patch("bot.core.ocr.extract_text", return_value="text"):
+            await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        mdb.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rejects_an_archived_hunt(self, web):
+        app, _, _ = web
+        with patch("bot.web.api._load_visible_hunt",
+                   AsyncMock(return_value=(_hunt(archived=True), {}))):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\np", "image/png")},
+            )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_missing_file_is_400(self, web):
+        app, _, _ = web
+        resp = await app.test_client().post("/api/hunts/U1/evidence/ocr-preview")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_request_is_401(self, web):
+        app, _, _ = web
+        with patch("bot.web.auth.session", {}):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\np", "image/png")},
+            )
+        assert resp.status_code == 401
