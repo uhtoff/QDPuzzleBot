@@ -7,9 +7,12 @@ from typing import Optional
 class EvidenceData:
     id: int = 0
     hunt_id: int = 0
-    source_puzzle_id: int = 0
+    # None when the evidence belongs to the hunt rather than to a source puzzle
+    # (e.g. an observation nobody has pinned to a specific puzzle yet).
+    source_puzzle_id: Optional[int] = None
     target_puzzle_id: Optional[int] = None
     note: str = ""
+    media_id: Optional[int] = None
     created_at: Optional[datetime.datetime] = None
 
     @classmethod

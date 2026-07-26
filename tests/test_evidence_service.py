@@ -13,7 +13,7 @@ class TestEvidenceData:
         e = EvidenceData()
         assert e.id == 0
         assert e.hunt_id == 0
-        assert e.source_puzzle_id == 0
+        assert e.source_puzzle_id is None
         assert e.target_puzzle_id is None
         assert e.note == ""
         assert e.created_at is None
@@ -65,6 +65,29 @@ class TestEvidenceData:
         row = {"id": 1, "hunt_id": 10, "source_puzzle_id": 5, "note": "n", "created_at": None}
         e = EvidenceData.import_dict(row)
         assert e.created_at is None
+
+    def test_media_id_defaults_to_none(self):
+        from bot.store.evidence_data import EvidenceData
+        assert EvidenceData().media_id is None
+
+    def test_source_puzzle_id_defaults_to_none(self):
+        """Evidence can belong to the hunt rather than to any one puzzle, so the
+        default source is 'none', not the sentinel 0."""
+        from bot.store.evidence_data import EvidenceData
+        assert EvidenceData().source_puzzle_id is None
+
+    def test_import_dict_reads_null_source_and_media(self):
+        from bot.store.evidence_data import EvidenceData
+        e = EvidenceData.import_dict({
+            "id": 1, "hunt_id": 10,
+            "source_puzzle_id": None,
+            "target_puzzle_id": 4,
+            "note": "found on the poster",
+            "media_id": 7,
+            "created_at": None,
+        })
+        assert e.source_puzzle_id is None
+        assert e.media_id == 7
 
 
 class TestLogClues:
