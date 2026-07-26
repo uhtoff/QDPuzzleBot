@@ -27,9 +27,18 @@ instructions, the project wins.
   `service.py` does `from store import Db`, patch `"service.Db"`, not
   `"store.Db"` — patching the source module leaves the service's own reference
   untouched and the mock silently never engages.
+- Mis-targeting a patch on something with **side effects** does not merely fail
+  the assertion — it escapes the test process. A suite patching the wrong
+  module's `media_root` wrote real uploaded files into the repository checkout.
+  Where the patched thing touches the filesystem, the network, or a real
+  service, confirm the patch actually engages before trusting the test.
 - `MagicMock().name` is a Mock, not a string — `Mock(name=...)` sets the mock's
   repr, not the attribute. Set `.name` (and `.id`, `.position`, etc.) explicitly
   after construction when code reads them as data.
+- The same applies to **collection** attributes the code tests for truthiness.
+  An unset `mock.message.attachments` auto-vivifies to a truthy Mock, so the
+  "nothing attached" path silently takes the "something attached" branch and
+  then fails somewhere unrelated. Set `[]` explicitly.
 - Anything awaited must be an `AsyncMock`; sync attributes stay `MagicMock`.
   Assert with `assert_awaited_once()`, `assert_awaited_once_with(...)`,
   `assert_not_awaited()`.
