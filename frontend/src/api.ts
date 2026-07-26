@@ -72,6 +72,8 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
       return `Discord error — please try again.`;
+    case "ocr_failed":
+      return "Couldn't extract text from that image — try typing the note by hand.";
     case "already_gated":
       return "This hunt already has a team role.";
     case "role_not_applied":
@@ -866,6 +868,36 @@ export function useCreatePuzzleFromRegion(uid: string) {
       // A new puzzle with a channel and a sheet tab: the board is stale too.
       qc.invalidateQueries({ queryKey: ["canvases", uid] });
       qc.invalidateQueries({ queryKey: ["hunt", uid] });
+    },
+  });
+}
+
+export function useOcrCanvasRegion() {
+  return useMutation({
+    mutationFn: ({ canvasId, shape }: { canvasId: number; shape: RegionShape }) =>
+      apiSend<{ text: string }>(`/api/canvases/${canvasId}/ocr-preview`, "POST", { shape }),
+  });
+}
+
+export function useOcrEvidenceImage(huntUid: string) {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      // Not apiSend: multipart needs the browser's own boundary, same
+      // reasoning as useUploadMedia above.
+      const res = await fetch(`/api/hunts/${huntUid}/evidence/ocr-preview`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: form,
+      });
+      if (res.status === 401) throw new AuthError();
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(friendlyError(detail, res.status));
+      }
+      return (await res.json()) as { text: string };
     },
   });
 }
