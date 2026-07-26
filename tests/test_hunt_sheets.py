@@ -80,3 +80,44 @@ class TestGetByHunt:
         db, cursor = self._db()
         cursor.fetchall.return_value = None
         assert db.get_by_hunt(10) == []
+
+
+class TestHuntSheetLock:
+    async def test_second_holder_waits_for_the_first(self):
+        import asyncio
+        from bot.core.locks import hunt_sheet_lock
+        order = []
+
+        async def hold(tag, delay):
+            async with hunt_sheet_lock(10):
+                order.append(f"{tag}-in")
+                await asyncio.sleep(delay)
+                order.append(f"{tag}-out")
+
+        await asyncio.gather(hold("a", 0.02), hold("b", 0))
+        # Whichever ran first, its critical section is not interleaved with the
+        # other's -- that is the whole point of the lock.
+        assert order in (["a-in", "a-out", "b-in", "b-out"],
+                         ["b-in", "b-out", "a-in", "a-out"])
+
+    async def test_different_hunts_do_not_block_each_other(self):
+        import asyncio
+        from bot.core.locks import hunt_sheet_lock
+        async with hunt_sheet_lock(10):
+            # A second hunt's lock must be free while hunt 10's is held; a shared
+            # registry keyed on a bare int would deadlock this.
+            await asyncio.wait_for(
+                asyncio.shield(_take_and_release(hunt_sheet_lock, 11)), timeout=1)
+
+    async def test_registry_is_separate_from_the_puzzle_locks(self):
+        """A hunt id and a puzzle id are different int spaces. Sharing one
+        registry would make hunt 5 and puzzle 5 serialise against each other."""
+        from bot.core.locks import _HUNT_SHEET_LOCKS, _PUZZLE_LOCKS
+        assert _HUNT_SHEET_LOCKS is not _PUZZLE_LOCKS
+        async with _PUZZLE_LOCKS[5]:
+            assert not _HUNT_SHEET_LOCKS[5].locked()
+
+
+async def _take_and_release(lock_cm, key):
+    async with lock_cm(key):
+        return True

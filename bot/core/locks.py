@@ -28,6 +28,14 @@ _ROLLUP_LOCKS = defaultdict(asyncio.Lock)
 # Separate registry (hunt id is yet another int space) for the same reason as above.
 _HUNT_CREATE_LOCKS = defaultdict(asyncio.Lock)
 
+# One asyncio.Lock per HUNT id, serializing writes to that hunt's OWN working
+# sheets. Needed because with_puzzle_mutex no-ops when there is no puzzle in
+# context, so a hunt-level !add_sheet would otherwise race another on the Sheets
+# API. Separate registry again (hunt id is a different int space from puzzle id),
+# and separate from _HUNT_CREATE_LOCKS: that one guards puzzle/group creation, and
+# reusing it would make adding a scratch sheet block someone creating a puzzle.
+_HUNT_SHEET_LOCKS = defaultdict(asyncio.Lock)
+
 
 @asynccontextmanager
 async def puzzle_lock(puzzle_id):
@@ -64,6 +72,21 @@ async def hunt_create_lock(hunt_id):
     take deeper locks (category_layout.layout_lock, rollup_lock) only AFTER this
     one and never the reverse, so there is no lock-ordering cycle."""
     async with _HUNT_CREATE_LOCKS[hunt_id]:
+        yield
+
+
+@asynccontextmanager
+async def hunt_sheet_lock(hunt_id):
+    """Serialize writes to a hunt's own working sheets (add/remove), so two
+    people running !add_sheet in the hunt channel at once cannot race on the
+    Sheets API.
+
+    Held at the edge (the cog decorator), like the puzzle lock, so the lock-free
+    PuzzleService it calls never re-acquires it. Never held at the same time as a
+    puzzle lock: a sheet command has either a puzzle or a hunt in context, never
+    both, so there is no lock-ordering cycle to reason about.
+    """
+    async with _HUNT_SHEET_LOCKS[hunt_id]:
         yield
 
 
