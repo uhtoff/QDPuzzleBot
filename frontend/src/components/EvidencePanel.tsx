@@ -34,6 +34,11 @@ interface Props {
 type SortKey = "source_puzzle_name" | "note" | "target_puzzle_name" | "created_at";
 type SortDirection = "asc" | "desc";
 
+/** The one thing a row's Source column shows: a puzzle, a hunt sheet, or nothing. */
+function sourceLabel(item: EvidenceItem): string {
+  return item.source_puzzle_name ?? item.source_sheet_name ?? "—";
+}
+
 export function EvidencePanel({ uid, detail }: Props) {
   const { data: items = [], isLoading, error } = useEvidence(uid);
   const updateEvidence = useUpdateEvidence(uid);
@@ -54,7 +59,9 @@ export function EvidencePanel({ uid, detail }: Props) {
     });
   }
 
-  const [cluePuzzleId, setCluePuzzleId] = useState<string | null>(null);
+  // "p:<puzzle id>" | "s:<hunt sheet id>" | null. Namespaced because a source is
+  // now one of two kinds and a bare id could mean either.
+  const [clueSource, setClueSource] = useState<string | null>(null);
   const [clueNote, setClueNote] = useState("");
   const [clueFile, setClueFile] = useState<File | null>(null);
 
@@ -67,14 +74,15 @@ export function EvidencePanel({ uid, detail }: Props) {
     try {
       const media = clueFile ? await uploadMedia.mutateAsync(clueFile) : null;
       await addEvidence.mutateAsync({
-        puzzleId: cluePuzzleId ? Number(cluePuzzleId) : null,
+        puzzleId: clueSource?.startsWith("p:") ? Number(clueSource.slice(2)) : null,
+        sheetId: clueSource?.startsWith("s:") ? Number(clueSource.slice(2)) : null,
         note,
         mediaId: media ? media.id : null,
       });
       setClueNote("");
       setClueFile(null);
-      // The source puzzle deliberately stays selected: logging several clues
-      // from the same puzzle in a row is the common case during a hunt, and
+      // The source deliberately stays selected: logging several clues from the
+      // same puzzle or sheet in a row is the common case during a hunt, and
       // re-picking it every time is the kind of friction that stops people
       // logging things at all.
     } catch (err) {
@@ -82,25 +90,51 @@ export function EvidencePanel({ uid, detail }: Props) {
     }
   }
 
+  // Target options stay puzzles only, with bare-id values: a hunt sheet can be
+  // where a datum came FROM, but never a puzzle it is routed TO.
   const allPuzzles = useMemo(() => {
     const seen = new Map<number, string>();
     detail.board.forEach((g) => g.puzzles.forEach((p) => seen.set(p.id, p.name)));
     return Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name }));
   }, [detail]);
 
+  // Everything an evidence item can be sourced from. Built off `detail`, not
+  // `items`: the picker must offer every puzzle and sheet, not only the ones
+  // that already have evidence. The Map de-duplicates a puzzle that appears in
+  // more than one group.
+  const sourceChoices = useMemo(() => {
+    const puzzles = new Map<number, string>();
+    detail.board.forEach((g) => g.puzzles.forEach((p) => puzzles.set(p.id, p.name)));
+    return [
+      ...Array.from(puzzles.entries()).map(([id, name]) => ({
+        value: `p:${id}`, label: name,
+      })),
+      // A sheet and a puzzle can share a name, and the picker is the only place
+      // the difference is visible before the item is logged.
+      ...detail.hunt_sheets.map((s) => ({
+        value: `s:${s.id}`, label: `${s.name} (hunt sheet)`,
+      })),
+    ];
+  }, [detail]);
+
   const sourceOptions = useMemo(() => {
-    const seen = new Map<number, string>();
+    const puzzles = new Map<number, string>();
+    const sheets = new Map<number, string>();
     let hasSourceless = false;
     items.forEach((i) => {
-      if (i.source_puzzle_id == null) hasSourceless = true;
-      else seen.set(i.source_puzzle_id, i.source_puzzle_name ?? "");
+      if (i.source_puzzle_id != null) puzzles.set(i.source_puzzle_id, i.source_puzzle_name ?? "");
+      else if (i.source_sheet_id != null) sheets.set(i.source_sheet_id, i.source_sheet_name ?? "");
+      else hasSourceless = true;
     });
     return [
       { value: "", label: "All sources" },
       // The filter is how someone would go looking for hunt-level evidence, so
       // give it an explicit label rather than an empty one.
       ...(hasSourceless ? [{ value: "none", label: "No source" }] : []),
-      ...Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name })),
+      ...Array.from(puzzles.entries()).map(([id, name]) => ({ value: `p:${id}`, label: name })),
+      ...Array.from(sheets.entries()).map(([id, name]) => ({
+        value: `s:${id}`, label: `${name} (hunt sheet)`,
+      })),
     ];
   }, [items]);
 
@@ -123,8 +157,9 @@ export function EvidencePanel({ uid, detail }: Props) {
     return items
       .filter((i) => {
         if (!filterSource) return true;
-        if (filterSource === "none") return i.source_puzzle_id == null;
-        return String(i.source_puzzle_id) === filterSource;
+        if (filterSource === "none") return i.source_puzzle_id == null && i.source_sheet_id == null;
+        if (filterSource.startsWith("p:")) return String(i.source_puzzle_id) === filterSource.slice(2);
+        return String(i.source_sheet_id) === filterSource.slice(2);
       })
       .filter((i) => {
         if (!filterTarget) return true;
@@ -139,8 +174,10 @@ export function EvidencePanel({ uid, detail }: Props) {
     const { key, direction } = sort;
     const dir = direction === "asc" ? 1 : -1;
     return [...filtered].sort((a, b) => {
-      const av = a[key] ?? "";
-      const bv = b[key] ?? "";
+      // The Source column can hold a puzzle name OR a hunt sheet name, so the
+      // sort must compare the same string the cell shows.
+      const av = key === "source_puzzle_name" ? sourceLabel(a) : (a[key] ?? "");
+      const bv = key === "source_puzzle_name" ? sourceLabel(b) : (b[key] ?? "");
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
@@ -187,10 +224,10 @@ export function EvidencePanel({ uid, detail }: Props) {
         <Group gap="sm">
           <Select
             size="xs"
-            placeholder="Source puzzle …"
-            data={allPuzzles}
-            value={cluePuzzleId ?? ""}
-            onChange={(v) => setCluePuzzleId(v || null)}
+            placeholder="Source …"
+            data={sourceChoices}
+            value={clueSource ?? ""}
+            onChange={(v) => setClueSource(v || null)}
             searchable
             clearable
             w={240}
@@ -230,7 +267,7 @@ export function EvidencePanel({ uid, detail }: Props) {
         <Table striped highlightOnHover withTableBorder withColumnBorders fz="sm">
           <Table.Thead>
             <Table.Tr>
-              <SortableTh sortKey="source_puzzle_name" sort={sort} onSort={toggleSort}>Source Puzzle</SortableTh>
+              <SortableTh sortKey="source_puzzle_name" sort={sort} onSort={toggleSort}>Source</SortableTh>
               <Table.Th>Image</Table.Th>
               <SortableTh sortKey="note" sort={sort} onSort={toggleSort}>Note</SortableTh>
               <SortableTh sortKey="target_puzzle_name" sort={sort} onSort={toggleSort}>Target Puzzle</SortableTh>
@@ -347,7 +384,7 @@ const EvidenceRow = memo(function EvidenceRow({
 
   return (
     <Table.Tr>
-      <Table.Td>{item.source_puzzle_name ?? "—"}</Table.Td>
+      <Table.Td>{sourceLabel(item)}</Table.Td>
       <Table.Td>
         {item.media_url ? (
           <Anchor href={item.media_url} target="_blank" rel="noreferrer">
