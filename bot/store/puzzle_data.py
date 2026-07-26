@@ -15,7 +15,12 @@ class MissingPuzzleError(RuntimeError):
 class AdditionalSheetData:
     id: int = 0
     google_page_id: str = ""
-    puzzle_id: int = 0
+    # None when the sheet belongs to the hunt rather than to a puzzle. NOT 0:
+    # the AdditionalSheetPuzzleID FK (migration 022) would reject that.
+    puzzle_id: Optional[int] = None
+    # Set only for hunt-level sheets; a puzzle's own sheets reach their hunt
+    # through the puzzle.
+    hunt_id: Optional[int] = None
     puzzle: bool = False
     puzzle_name: str = ""
     solution: str = ""
