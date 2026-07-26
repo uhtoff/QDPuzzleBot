@@ -249,6 +249,9 @@ class TestRefreshEvidence:
         item.source_puzzle_id = 1
         item.target_puzzle_id = 2
         item.note = "a clue"
+        # Text-only evidence: the Note cell now goes through evidence_cell_content
+        # (Task 10), which only appends a media URL when media_id is truthy.
+        item.media_id = None
         item.created_at = datetime.datetime(2026, 6, 23, 12, 0)
         EvidenceDb.get_all.return_value = [item]
         PuzzleDb.get_names_by_ids.return_value = {1: "Feeder One", 2: "Meta Two"}
@@ -288,6 +291,98 @@ class TestRefreshEvidence:
 
         # Must not raise
         await svc.refresh_evidence(hunt)
+
+
+class TestRefreshEvidenceNullSource:
+    """A null source_puzzle_id must not render as the literal 'Puzzle None'
+    (the old fallback interpolated it blindly), and the Note column should be
+    backed by evidence_cell_content (Task 9) so the media URL surfaces here too."""
+
+    @patch("bot.core.puzzle_service.HuntJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.EvidenceJsonDb")
+    async def test_null_source_is_an_em_dash_but_a_real_source_still_resolves(
+        self, EvidenceDb, PuzzleDb, HuntDb
+    ):
+        """Two items, not one: a fix that renders EVERY row's source cell as
+        '—' -- real source included -- would still pass a single-item test.
+        Pinning a resolved name alongside the null case rules that out.
+        """
+        from bot.core.puzzle_service import PuzzleService
+        hunt = make_hunt()
+        hunt.evidence_sheet_page_id = 99
+        hunt.evidence_table_id = 7
+
+        sourced = MagicMock()
+        sourced.id = 5
+        sourced.source_puzzle_id = 1
+        sourced.target_puzzle_id = 2
+        sourced.note = "a clue"
+        sourced.media_id = None
+        sourced.created_at = datetime.datetime(2026, 6, 23, 12, 0)
+
+        sourceless = MagicMock()
+        sourceless.id = 9
+        sourceless.source_puzzle_id = None
+        sourceless.target_puzzle_id = None
+        sourceless.note = "a fact"
+        sourceless.media_id = None
+        sourceless.created_at = None
+
+        EvidenceDb.get_all.return_value = [sourced, sourceless]
+        PuzzleDb.get_names_by_ids.return_value = {1: "Feeder One", 2: "Meta Two"}
+
+        gsheet = MagicMock()
+        gsheet.reconcile_table = AsyncMock()
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+        svc = PuzzleService(bot)
+
+        await svc.refresh_evidence(hunt)
+
+        rows = gsheet.reconcile_table.call_args.kwargs["desired_rows"]
+        by_id = {r[0]: r for r in rows}
+        assert by_id[5][1] == "Feeder One"   # real source still resolves
+        assert by_id[9][1] == "—"            # null source, not "Puzzle None"
+
+        # None must never reach the batched name-lookup query.
+        queried_ids = PuzzleDb.get_names_by_ids.call_args.args[0]
+        assert None not in queried_ids
+
+    @patch("bot.core.puzzle_service.HuntJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    @patch("bot.core.puzzle_service.EvidenceJsonDb")
+    async def test_note_column_uses_evidence_cell_content(self, EvidenceDb, PuzzleDb, HuntDb):
+        """Task 10 also swaps the Note cell for evidence_cell_content (Task 9),
+        so the media URL surfaces on the hunt-wide Evidence tab too."""
+        from bot.core.puzzle_service import PuzzleService
+        hunt = make_hunt()
+        hunt.evidence_sheet_page_id = 99
+        hunt.evidence_table_id = 7
+
+        item = MagicMock()
+        item.id = 9
+        item.source_puzzle_id = None
+        item.target_puzzle_id = None
+        item.note = "a fact"
+        item.media_id = 7
+        item.created_at = None
+
+        EvidenceDb.get_all.return_value = [item]
+        PuzzleDb.get_names_by_ids.return_value = {}
+
+        gsheet = MagicMock()
+        gsheet.reconcile_table = AsyncMock()
+        bot = MagicMock()
+        bot.get_cog.return_value = gsheet
+        svc = PuzzleService(bot)
+
+        with patch("bot.core.puzzle_service.config") as cfg:
+            cfg.web_frontend_url = "https://puzzweb.example"
+            await svc.refresh_evidence(hunt)
+
+        rows = gsheet.reconcile_table.call_args.kwargs["desired_rows"]
+        assert "https://puzzweb.example/api/media/7" in rows[0][2]
 
 
 class TestRefreshInformsTargets:

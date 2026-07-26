@@ -1208,3 +1208,24 @@ class TestRollupEvidenceContent:
 
         evidence = gsheet.render_contribution.await_args.kwargs["evidence"]
         assert evidence[0]["content"] == "https://puzzweb.example/api/media/7"
+
+    def test_falls_back_when_no_frontend_url_is_configured(self):
+        """web_frontend_url is empty on any install without a public dashboard
+        URL. Emitting a bare "/api/media/7" into a spreadsheet cell there would
+        be a dead relative link, so the note stands alone -- or "[image]" when
+        there is no note, so the row is not silently blank.
+
+        Two cases in one test: a fix that always falls back to the note (never
+        appending a URL at all) would still pass a with-note-only test, so the
+        no-note "[image]" branch has to be pinned alongside it.
+        """
+        from types import SimpleNamespace
+        from bot.core.puzzle_service import evidence_cell_content
+        with patch("bot.core.puzzle_service.config") as cfg:
+            cfg.web_frontend_url = ""
+            with_note = evidence_cell_content(
+                SimpleNamespace(note="three anchors", media_id=7))
+            without_note = evidence_cell_content(
+                SimpleNamespace(note="", media_id=7))
+        assert with_note == "three anchors"
+        assert without_note == "[image]"

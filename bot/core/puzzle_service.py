@@ -2817,13 +2817,17 @@ class PuzzleService:
         # the Source Puzzle name. Columns: id, Source Puzzle, Note, Target Puzzle,
         # Logged At.
         items = EvidenceJsonDb.get_all(hunt.id)
-        puzzle_ids = {i.source_puzzle_id for i in items} | {i.target_puzzle_id for i in items if i.target_puzzle_id}
+        puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
+                      | {i.target_puzzle_id for i in items if i.target_puzzle_id})
         names = resolve_puzzle_names(puzzle_ids)
         rows = [
             [
                 i.id,
-                names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}"),
-                i.note,
+                # A null source is evidence belonging to the hunt rather than to
+                # a puzzle; the old fallback rendered it as "Puzzle None".
+                (names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}")
+                 if i.source_puzzle_id else "—"),
+                evidence_cell_content(i),
                 names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
                 str(i.created_at)[:16] if i.created_at else "",
             ]
