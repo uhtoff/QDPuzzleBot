@@ -168,7 +168,8 @@ class TestMediaUpload:
     async def test_uploads_a_png(self, web):
         app, _, _ = web
         with patch("bot.store.MediaJsonDb") as mdb:
-            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10)
+            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
+                                                      tile_status="none")
             resp = await app.test_client().post(
                 "/api/hunts/U1/media",
                 files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
@@ -177,6 +178,70 @@ class TestMediaUpload:
         body = await resp.get_json()
         assert body["id"] == 7
         assert body["url"] == "/api/media/7"
+
+    @pytest.mark.asyncio
+    async def test_a_screenshot_is_stored_untiled(self, web):
+        """Below the direct-decode ceiling a pyramid would be hundreds of files
+        serving no purpose, so no tiling task is scheduled at all."""
+        app, _, _ = web
+        with patch("bot.store.MediaJsonDb") as mdb, \
+             patch("bot.core.image_tiler.probe_dimensions",
+                   return_value=(1920, 1080)), \
+             patch("bot.core.media_tiling.tile_media") as tile:
+            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
+                                                      tile_status="none")
+            resp = await app.test_client().post(
+                "/api/hunts/U1/media",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 201
+        body = await resp.get_json()
+        assert (body["width"], body["height"]) == (1920, 1080)
+        assert body["tile_status"] == "none"
+        assert mdb.create.call_args.kwargs["tile_status"] == "none"
+        tile.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_huge_sheet_is_recorded_pending_and_tiled(self, web):
+        """The row goes in as pending and the response returns immediately —
+        tiling the motivating image takes about eight seconds, which must not
+        happen inside the request."""
+        app, _, _ = web
+        with patch("bot.store.MediaJsonDb") as mdb, \
+             patch("bot.core.image_tiler.probe_dimensions",
+                   return_value=(14400, 14400)), \
+             patch("bot.core.media_tiling.tile_media") as tile:
+            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
+                                                      tile_status="pending")
+            resp = await app.test_client().post(
+                "/api/hunts/U1/media",
+                files={"file": _file("big.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 201
+        body = await resp.get_json()
+        assert (body["width"], body["height"]) == (14400, 14400)
+        assert body["tile_status"] == "pending"
+        assert mdb.create.call_args.kwargs["tile_status"] == "pending"
+        tile.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_an_unprobeable_image_is_still_stored(self, web):
+        """save_image_bytes already sniffed the magic bytes, so a probe failure
+        means a valid allowed type libvips cannot open. Losing the upload over
+        that would be worse than storing it without a pyramid."""
+        app, _, _ = web
+        with patch("bot.store.MediaJsonDb") as mdb, \
+             patch("bot.core.image_tiler.probe_dimensions",
+                   side_effect=RuntimeError("vips said no")):
+            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
+                                                      tile_status="none")
+            resp = await app.test_client().post(
+                "/api/hunts/U1/media",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 201
+        body = await resp.get_json()
+        assert (body["width"], body["height"]) == (0, 0)
 
     @pytest.mark.asyncio
     async def test_rejects_an_svg(self, web):

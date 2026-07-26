@@ -27,6 +27,13 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 # belongs to a guild (so a kick/role-change ends the stream within this window).
 _WS_AUTH_REFRESH_SECONDS = 60
 
+# Strong references to in-flight tiling tasks. asyncio only holds a weak
+# reference to a running task, so one with no other referent can be collected
+# mid-flight. The refresh_* create_task calls elsewhere get away with it because
+# they finish in milliseconds; tiling a large sheet takes seconds, which is long
+# enough for a collection to land in the middle of it.
+_tiling_tasks: set = set()
+
 
 def _sheet_base(sheet_id):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid=" if sheet_id else None
@@ -271,11 +278,35 @@ async def upload_media(uid):
         )
     except MediaRejected as exc:
         return jsonify({"error": str(exc)}), 400
+    from bot.core.image_tiler import needs_tiling, probe_dimensions
+    from bot.core.media_tiling import tile_media
+    from bot.core.message_media import media_root
+    # Dimensions for every image, tiled or not: one cheap header read, and the
+    # frontend needs them to lay out a viewport before any bytes arrive.
+    try:
+        width, height = probe_dimensions(media_root() / saved["path"])
+    except Exception:
+        # save_image_bytes already sniffed the magic bytes, so this is a valid
+        # image of an allowed type that libvips still cannot open. Keep the
+        # upload rather than lose it; it simply gets no pyramid.
+        logger.exception("could not probe dimensions for %s", saved["path"])
+        width, height = 0, 0
+    tiled = needs_tiling(width, height)
     media = MediaJsonDb.create(
         hunt_id=hunt["id"], path=saved["path"], filename=saved["filename"],
         content_type=saved["content_type"], size=saved["size"], origin=saved["origin"],
+        width=width, height=height,
+        tile_status="pending" if tiled else "none",
     )
-    return jsonify({"id": media.id, "url": f"/api/media/{media.id}"}), 201
+    if tiled:
+        task = asyncio.create_task(tile_media(media, MediaJsonDb))
+        _tiling_tasks.add(task)
+        task.add_done_callback(_tiling_tasks.discard)
+    return jsonify({
+        "id": media.id, "url": f"/api/media/{media.id}",
+        "width": width, "height": height,
+        "tile_status": media.tile_status,
+    }), 201
 
 
 @api_bp.route("/hunts/<uid>/puzzles")
