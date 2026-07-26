@@ -494,8 +494,27 @@ class MediaRejected(Exception):
     """An upload failed validation. The message is safe to show a user."""
 
 
+class SavedMedia(TypedDict):
+    """What a validated, stored image needs for its `media` row.
+
+    A TypedDict rather than a bare dict because two call sites (the web upload
+    route and the Discord attachment path) index these keys by name, and a typo
+    on either side would otherwise be caught by nothing — not the type checker,
+    not the tests. Deliberately not `MediaData`: that carries `id` and `hunt_id`,
+    which do not exist until the row is inserted.
+
+    No `created_at`: the DAO stamps its own on insert, so generating one here
+    would be a second source of truth that every caller then discards.
+    """
+    path: str
+    filename: str
+    content_type: str
+    size: int
+    origin: str
+
+
 def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
-                     origin: str = "upload") -> dict:
+                     origin: str = "upload") -> SavedMedia:
     """Validate `raw` and write it under the media root.
 
     Returns the metadata a `media` row needs: path, filename, content_type,
@@ -518,16 +537,25 @@ def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
     relpath = upload_relpath(hunt_id, filename)
     dest = media_root() / relpath
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(raw)
+    try:
+        dest.write_bytes(raw)
+    except Exception:
+        # Leave no partial file behind on a full disk or a permission error.
+        # Mirrors download_attachment in message_media.py, which already solved
+        # this; the exception still propagates, so no media row is ever created
+        # pointing at a truncated image.
+        dest.unlink(missing_ok=True)
+        raise
     return {
         "path": relpath,
         "filename": safe_filename(filename),
         "content_type": content_type,
         "size": len(raw),
         "origin": origin,
-        "created_at": datetime.datetime.utcnow(),
     }
 ```
+
+`datetime` is no longer needed in this module once `created_at` is gone — drop the import if nothing else uses it. `TypedDict` comes from `typing`.
 
 Note the test asserts `saved["filename"] == "crop.png"` — `safe_filename("crop.png")` returns `"crop.png"` unchanged, and `safe_filename("../../etc/passwd")` collapses to `"etc_passwd"`, which is why the traversal test passes.
 
