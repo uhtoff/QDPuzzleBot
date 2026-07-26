@@ -2837,13 +2837,18 @@ class PuzzleService:
         return targets[0] if len(targets) == 1 else None
 
     @pushes_board()
-    async def log_clues(self, hunt, puzzle, notes: list, media_id=None) -> list:
+    async def log_clues(self, hunt, puzzle, notes: list, media_id=None,
+                        source_sheet_id=None) -> list:
         """Insert one evidence_item per note. Returns list of EvidenceData.
 
         `puzzle` may be None: evidence can belong to the hunt rather than to any
         one puzzle (e.g. something found in the hunt's alt text). With no source
         there is no informs edge to follow, so such items are created untargeted
         for manual routing via the Evidence panel.
+
+        `source_sheet_id` names a hunt-level working sheet as the provenance. Like
+        a sourceless item it creates no informs edge -- an edge joins two puzzles,
+        and a working sheet is not one.
 
         If the source puzzle informs exactly one target, each clue is auto-routed
         to that informed target (target_puzzle_id) so it surfaces in the target's
@@ -2854,7 +2859,8 @@ class PuzzleService:
         items = []
         for note in notes:
             item = EvidenceJsonDb.log(hunt.id, puzzle.id if puzzle else None, note,
-                                      media_id=media_id)
+                                      media_id=media_id,
+                                      source_sheet_id=source_sheet_id)
             if target_id is not None:
                 item = EvidenceJsonDb.set_target(item.id, target_id) or item
             items.append(item)

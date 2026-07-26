@@ -121,8 +121,10 @@ class TestLogClues:
         result = await svc.log_clues(hunt, puzzle, ["note A", "note B"])
 
         assert EvidenceDb.log.call_count == 2
-        EvidenceDb.log.assert_any_call(10, 5, "note A", media_id=None)
-        EvidenceDb.log.assert_any_call(10, 5, "note B", media_id=None)
+        EvidenceDb.log.assert_any_call(10, 5, "note A", media_id=None,
+                                       source_sheet_id=None)
+        EvidenceDb.log.assert_any_call(10, 5, "note B", media_id=None,
+                                       source_sheet_id=None)
         assert result == [item1, item2]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
@@ -134,7 +136,8 @@ class TestLogClues:
         svc = PuzzleService(MagicMock())
         result = await svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
 
-        EvidenceDb.log.assert_called_once_with(10, 3, "solo note", media_id=None)
+        EvidenceDb.log.assert_called_once_with(10, 3, "solo note", media_id=None,
+                                               source_sheet_id=None)
         assert result == [item]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
@@ -591,8 +594,8 @@ class TestLogCluesSourceless:
         svc.notifier = MagicMock(board_changed=AsyncMock())
 
         with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
-            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None: \
-                MagicMock(id=1, note=note)
+            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None, \
+                source_sheet_id=None: MagicMock(id=1, note=note)
             items = await svc.log_clues(hunt, None, ["seen on the poster"])
 
         assert len(items) == 1
@@ -609,8 +612,8 @@ class TestLogCluesSourceless:
         svc = PuzzleService.__new__(PuzzleService)
         svc.notifier = MagicMock(board_changed=AsyncMock())
         with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
-            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None: \
-                MagicMock(id=1, note=note, media_id=media_id)
+            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None, \
+                source_sheet_id=None: MagicMock(id=1, note=note, media_id=media_id)
             items = await svc.log_clues(make_hunt(id=10), None, [""], media_id=7)
 
         assert items[0].media_id == 7
@@ -702,3 +705,41 @@ class TestEvidenceDbLogSourceSheet:
         sql, params = cursor.execute.call_args[0]
         columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
         assert dict(zip(columns, params))["source_sheet_id"] is None
+
+
+class TestLogCluesSourceSheet:
+    def _svc(self):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        return svc
+
+    async def test_passes_the_source_sheet_through(self):
+        from types import SimpleNamespace
+        svc = self._svc()
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.log.return_value = SimpleNamespace(id=1, note="n")
+            await svc.log_clues(make_hunt(id=10), None, ["n"], source_sheet_id=4)
+        assert edb.log.call_args.kwargs["source_sheet_id"] == 4
+
+    async def test_a_sheet_source_creates_no_informs_edge(self):
+        """An informs edge joins two puzzles, and a working sheet is not one. The
+        auto-routing derived from a source puzzle's sole informs target must not
+        fire for a sheet-sourced item."""
+        from types import SimpleNamespace
+        svc = self._svc()
+        svc._sole_informs_target = MagicMock(return_value=99)
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.log.return_value = SimpleNamespace(id=1, note="n")
+            await svc.log_clues(make_hunt(id=10), None, ["n"], source_sheet_id=4)
+        svc._sole_informs_target.assert_not_called()
+        edb.set_target.assert_not_called()
+
+    async def test_default_is_no_source_sheet(self):
+        from types import SimpleNamespace
+        svc = self._svc()
+        svc._sole_informs_target = MagicMock(return_value=None)
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.log.return_value = SimpleNamespace(id=1, note="n")
+            await svc.log_clues(make_hunt(id=10), make_puzzle(id=5, hunt_id=10), ["n"])
+        assert edb.log.call_args.kwargs["source_sheet_id"] is None
