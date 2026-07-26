@@ -1625,13 +1625,31 @@ async def test_missing_media_is_404(web):
 
 async def test_path_escaping_the_media_root_is_404(web):
     """Defence in depth: a stored path that resolves outside the root is refused
-    even though save_image_bytes should never produce one."""
+    even though save_image_bytes should never produce one.
+
+    The payload is ABSOLUTE on purpose. A relative "../../etc/passwd" under
+    tmp_path resolves to somewhere that does not exist, so the plain is_file()
+    check returns 404 whether or not the traversal guard is present — the test
+    would pass with the guard deleted and prove nothing. pathlib's `/` discards
+    the left operand when the right is absolute, so this genuinely escapes to a
+    real file, and deleting the guard really does serve it.
+    """
     app, mdb, _ = web
     mdb.get_by_id.return_value = SimpleNamespace(
-        id=7, hunt_id=10, path="../../etc/passwd", filename="passwd",
+        id=7, hunt_id=10, path="/etc/passwd", filename="passwd",
         content_type="image/png", size=1, origin="upload", created_at=None)
     resp = await app.test_client().get("/api/media/7")
     assert resp.status_code == 404
+
+
+async def test_unauthenticated_request_is_401(web):
+    """Every other test in this file is handed a valid session by the fixture,
+    so none of them would notice @login_required being removed. This one would.
+    """
+    app, _, _ = web
+    with patch("bot.web.auth.session", {}):
+        resp = await app.test_client().get("/api/media/7")
+    assert resp.status_code == 401
 
 
 async def test_hunt_not_visible_is_forbidden(web):
