@@ -958,8 +958,11 @@ def with_hunt_sheet_mutex():
     def decorator(func):
         @wraps(func)
         async def wrapper(self, ctx: commands.Context, *args, **kwargs):
-            env = getattr(ctx, "env", None) or self.environment.get(ctx.message.id)
-            if (env or {}).get("puzzle"):
+            # get_puzzle/get_hunt rather than with_puzzle_mutex's
+            # `getattr(ctx, "env", ...)`: nothing in the bot ever sets ctx.env, so
+            # that branch is vestigial there, and the cog's own accessors read the
+            # same environment cog_before_invoke populated.
+            if self.get_puzzle(ctx) is not None:
                 return await func(self, ctx, *args, **kwargs)
             hunt = self.get_hunt(ctx)
             if hunt is None:
@@ -978,9 +981,13 @@ Widen the locks import on `bot/cogs/puzzles.py:28`:
 from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock, hunt_sheet_lock
 ```
 
-Note the decorator reads the puzzle from `env` rather than `self.get_puzzle(ctx)`, matching
-`with_puzzle_mutex` exactly — `make_cog` stubs `get_puzzle`, and the third test above (no
-hunt) relies on `get_hunt` being the stub too.
+The decorator deliberately does **not** copy `with_puzzle_mutex`'s
+`getattr(ctx, "env", None)` fallback. `grep -rn "ctx.env" bot/` finds nothing — nothing in
+the bot ever sets it, so on a real `commands.Context` that expression is always `None` and
+the branch is dead. It is worse than dead in tests: `make_ctx()` returns a `MagicMock`, whose
+`.env` auto-vivifies to a truthy Mock, so `(env or {}).get("puzzle")` is truthy and the
+decorator concludes there is a puzzle when there is none. That is the house
+"a MagicMock collection attribute is truthy" gotcha, and it silently disables the lock.
 
 - [ ] **Step 4: Run it to verify it passes**
 

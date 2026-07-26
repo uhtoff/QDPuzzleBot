@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
 # dashboard write serializes against the matching bang-command (see M4).
-from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock
+from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock, hunt_sheet_lock
 from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
@@ -83,6 +83,38 @@ def with_puzzle_mutex(*, wait: bool = True):
 
         return wrapper
     return decorator
+
+
+def with_hunt_sheet_mutex():
+    """Serialize a sheet command that has NO puzzle in context, on its hunt.
+
+    with_puzzle_mutex no-ops without a puzzle ("If not in a puzzle context, just
+    run"), so a hunt-level !add_sheet would otherwise run unserialised and two
+    people running it at once would race on the Sheets API.
+
+    Stacked BENEATH with_puzzle_mutex on the sheet commands, and deliberately
+    inert when there IS a puzzle: exactly one lock is taken either way, so the
+    two decorators never both hold and there is no lock-ordering cycle.
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, ctx: commands.Context, *args, **kwargs):
+            # get_puzzle/get_hunt rather than with_puzzle_mutex's
+            # `getattr(ctx, "env", ...)`: nothing in the bot ever sets ctx.env, so
+            # that branch is vestigial there, and the cog's own accessors read the
+            # same environment cog_before_invoke populated.
+            if self.get_puzzle(ctx) is not None:
+                return await func(self, ctx, *args, **kwargs)
+            hunt = self.get_hunt(ctx)
+            if hunt is None:
+                # No hunt resolved -- the command will refuse anyway; nothing to
+                # serialise on.
+                return await func(self, ctx, *args, **kwargs)
+            async with hunt_sheet_lock(hunt.id):
+                return await func(self, ctx, *args, **kwargs)
+        return wrapper
+    return decorator
+
 
 class Puzzles(commands.Cog):
     MAX_CHANNELS_PER_CATEGORY = _channels.MAX_CHANNELS_PER_CATEGORY
