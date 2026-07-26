@@ -783,10 +783,18 @@ call to its `return` (currently lines 274-278) with:
         tile_status="pending" if tiled else "none",
     )
     if tiled:
-        # add_background_task, not create_task: Quart then owns the task's
-        # lifetime and logs what it raises, instead of the coroutine being
-        # garbage-collected mid-tile when the request context goes away.
-        current_app.add_background_task(tile_media, media, MediaJsonDb)
+        # AS BUILT: asyncio.create_task, not Quart's add_background_task, because
+        # create_task is what the eight existing fire-and-forget call sites in
+        # bot/web use (refresh_evidence_safe and friends) and tile_media follows
+        # the same never-raises contract as those *_safe coroutines.
+        #
+        # The reference set IS a deviation from that pattern and is deliberate:
+        # asyncio holds only a weak reference to a running task, and ~8 s of
+        # tiling is long enough for a collection to land mid-run. Those refreshes
+        # get away with it because they finish in milliseconds.
+        task = asyncio.create_task(tile_media(media, MediaJsonDb))
+        _tiling_tasks.add(task)
+        task.add_done_callback(_tiling_tasks.discard)
     return jsonify({
         "id": media.id, "url": f"/api/media/{media.id}",
         "width": width, "height": height,
@@ -794,17 +802,19 @@ call to its `return` (currently lines 274-278) with:
     }), 201
 ```
 
-- [ ] **Step 2: Check the imports the new code needs**
+- [ ] **Step 2: Add the task reference set**
 
-Run: `grep -n "^from quart\|^import logging\|logger = " bot/web/api.py | head -5`
-Expected: `current_app` appears in the quart import list and a module `logger` exists. If
-`current_app` is absent, add it to the existing `from quart import ...` line. If there is no
-module-level `logger`, add after the imports:
+`asyncio` and `logger` are already imported in `bot/web/api.py`; nothing new is needed from
+quart. Add near `_WS_AUTH_REFRESH_SECONDS`:
 
 ```python
-logger = logging.getLogger(__name__)
+# Strong references to in-flight tiling tasks. asyncio only holds a weak
+# reference to a running task, so one with no other referent can be collected
+# mid-flight. The refresh_* create_task calls elsewhere get away with it because
+# they finish in milliseconds; tiling a large sheet takes seconds, which is long
+# enough for a collection to land in the middle of it.
+_tiling_tasks: set = set()
 ```
-(with `import logging` alongside the other stdlib imports).
 
 - [ ] **Step 3: Verify nothing regressed**
 
@@ -825,7 +835,14 @@ git commit -m "feat(web): record image dimensions and tile large uploads"
 
 **Files:**
 - Modify: `bot/web/api.py` — new route immediately after `media_bytes` (after line 236)
-- Test: `tests/test_media_tile_route.py`
+- Test: `tests/test_media_web.py` — a `TestMediaTiles` class
+
+**AS BUILT:** the tests went into `tests/test_media_web.py` rather than a new
+`tests/test_media_tile_route.py`. That file already owns the `web` fixture with every patch
+this route needs (session, `_load_visible_hunt`, `MediaJsonDb`, `HuntJsonDb`, and `media_root`
+at *both* lookup sites), and reusing it beats copying it. `TestMediaTiles` builds a real
+pyramid with `image_tiler.build_pyramid` rather than a hand-made directory tree, so the route
+and the tiler cannot drift apart on the z/y/x layout while both stay green.
 
 - [ ] **Step 1: Write the failing tests**
 
