@@ -572,15 +572,21 @@ class TestEvidenceDbLog:
         the same standard applied to MySQLMediaDb.create in test_media_store.py.
         """
         db, cursor = self._db()
-        db.log(hunt_id=10, source_puzzle_id=None, note="seen on the poster", media_id=7)
+        # source_sheet_id and source_region_id are given DIFFERENT values: they
+        # are adjacent, both nullable ints, and so are exactly the pair a
+        # transposition would swap unnoticed. Passing None for either would hide
+        # that -- and passing both is legal here only because this test drives the
+        # DAO directly; the service methods above enforce at-most-one-source.
+        db.log(hunt_id=10, source_puzzle_id=None, note="seen on the poster",
+               media_id=7, source_sheet_id=3, source_region_id=5)
         sql, params = cursor.execute.call_args[0]
         columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
-        # source_sheet_id (Plan C) is the sixth column: evidence can name a
-        # hunt-level working sheet as its source. Still an EXACT match, not a
-        # subset -- the point of this test is that the tuple's order is pinned.
+        # source_sheet_id (Plan C) is sixth and source_region_id (Plan B2a)
+        # seventh. Still an EXACT match, not a subset -- the point of this test is
+        # that the tuple's order is pinned.
         assert columns == ["hunt_id", "source_puzzle_id", "note", "media_id",
-                           "source_sheet_id", "created_at"]
-        assert params[:5] == (10, None, "seen on the poster", 7, None)
+                           "source_sheet_id", "source_region_id", "created_at"]
+        assert params[:6] == (10, None, "seen on the poster", 7, 3, 5)
 
 
 class TestLogCluesSourceless:

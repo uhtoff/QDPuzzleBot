@@ -11,9 +11,13 @@ class EvidenceData:
     # (e.g. an observation nobody has pinned to a specific puzzle yet).
     source_puzzle_id: Optional[int] = None
     # None unless the evidence came from a hunt-level working sheet. At most one
-    # of source_puzzle_id / source_sheet_id is set; the service methods that write
-    # each kind own that invariant.
+    # of source_puzzle_id / source_sheet_id / source_region_id is set; the service
+    # methods that write each kind own that invariant.
     source_sheet_id: Optional[int] = None
+    # None unless the evidence came from a region drawn on a canvas. Unlike the
+    # other two sources this row is created BY the link, so canvas.py deletes it
+    # when the link changes and the FK cascades it when the region goes.
+    source_region_id: Optional[int] = None
     target_puzzle_id: Optional[int] = None
     note: str = ""
     media_id: Optional[int] = None

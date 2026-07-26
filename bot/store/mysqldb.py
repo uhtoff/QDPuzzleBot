@@ -19,6 +19,7 @@ from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
 from .evidence_data import EvidenceData
 from .media_data import MediaData
+from .canvas_data import CanvasRegionData, HuntCanvasData
 
 logger = logging.getLogger(__name__)
 
@@ -834,21 +835,25 @@ class MySQLEvidenceDb(_MySQLBaseDb):
     TABLE_NAME = 'evidence_items'
 
     def log(self, hunt_id: int, source_puzzle_id, note: str,
-            media_id=None, source_sheet_id=None) -> 'EvidenceData':
+            media_id=None, source_sheet_id=None,
+            source_region_id=None) -> 'EvidenceData':
         """Insert one evidence item and return it.
 
         source_puzzle_id may be None: evidence can belong to the hunt rather
         than to any one puzzle. media_id may be None: evidence can be text only.
-        source_sheet_id names a hunt-level working sheet as the provenance.
+        source_sheet_id names a hunt-level working sheet as the provenance;
+        source_region_id names a region drawn on a canvas.
         """
         now = datetime.datetime.utcnow()
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "INSERT INTO evidence_items"
-                " (hunt_id, source_puzzle_id, note, media_id, source_sheet_id, created_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s)",
-                (hunt_id, source_puzzle_id, note, media_id, source_sheet_id, now),
+                " (hunt_id, source_puzzle_id, note, media_id, source_sheet_id,"
+                "  source_region_id, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (hunt_id, source_puzzle_id, note, media_id, source_sheet_id,
+                 source_region_id, now),
             )
             new_id = cursor.lastrowid
         finally:
@@ -861,10 +866,26 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         e.note = note
         e.media_id = media_id
         e.source_sheet_id = source_sheet_id
+        e.source_region_id = source_region_id
         # Match import_dict's tzinfo-reattachment so a freshly-logged item and one
         # read back from the DB serialize identically (#33).
         e.created_at = now.replace(tzinfo=datetime.timezone.utc)
         return e
+
+    def delete_by_region(self, region_id: int) -> None:
+        """Remove the evidence row(s) an informs-region spawned.
+
+        Called by canvas.py when a link's role changes, its target changes, or it
+        is cleared. The FK cascade covers deleting the region itself; this covers
+        the cases where the region survives but its link does not.
+        """
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM evidence_items WHERE source_region_id = %s", (region_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
 
     def get_all(self, hunt_id: int, source_puzzle_id=None, target_puzzle_id=None):
         """Return evidence items for a hunt, optionally filtered."""
@@ -1008,6 +1029,161 @@ class MySQLMediaDb(_MySQLBaseDb):
         finally:
             cursor.close()
         return MediaData.import_dict(row) if row else None
+
+
+class MySQLHuntCanvasDb(_MySQLBaseDb):
+    TABLE_NAME = 'hunt_canvases'
+
+    def create(self, hunt_id: int, media_id: int, name: str,
+               note=None) -> 'HuntCanvasData':
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO hunt_canvases (hunt_id, media_id, name, note, created_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (hunt_id, media_id, name, note, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        c = HuntCanvasData()
+        c.id = new_id or 0
+        c.hunt_id, c.media_id, c.name, c.note = hunt_id, media_id, name, note
+        c.created_at = now.replace(tzinfo=datetime.timezone.utc)
+        return c
+
+    def get_by_id(self, canvas_id: int):
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("SELECT * FROM hunt_canvases WHERE id = %s", (canvas_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return HuntCanvasData.import_dict(row) if row else None
+
+    def get_by_hunt(self, hunt_id: int) -> list:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM hunt_canvases WHERE hunt_id = %s"
+                " ORDER BY created_at, id", (hunt_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [HuntCanvasData.import_dict(r) for r in rows]
+
+    def update(self, canvas_id: int, name: str, note) -> None:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "UPDATE hunt_canvases SET name = %s, note = %s WHERE id = %s",
+                (name, note, canvas_id))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete(self, canvas_id: int) -> None:
+        """Regions, and the evidence rows they spawned, go with it by FK cascade."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("DELETE FROM hunt_canvases WHERE id = %s", (canvas_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+
+class MySQLCanvasRegionDb(_MySQLBaseDb):
+    TABLE_NAME = 'canvas_regions'
+
+    def create(self, canvas_id: int, shape: str, label: str = "", note=None,
+               puzzle_id=None, role=None) -> 'CanvasRegionData':
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO canvas_regions"
+                " (canvas_id, shape, label, note, puzzle_id, role, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (canvas_id, shape, label, note, puzzle_id, role, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        r = CanvasRegionData()
+        r.id = new_id or 0
+        r.canvas_id, r.shape, r.label, r.note = canvas_id, shape, label, note
+        r.puzzle_id, r.role = puzzle_id, role
+        r.created_at = now.replace(tzinfo=datetime.timezone.utc)
+        return r
+
+    def get_by_id(self, region_id: int):
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("SELECT * FROM canvas_regions WHERE id = %s", (region_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return CanvasRegionData.import_dict(row) if row else None
+
+    def get_by_canvas(self, canvas_id: int) -> list:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM canvas_regions WHERE canvas_id = %s"
+                " ORDER BY created_at, id", (canvas_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [CanvasRegionData.import_dict(r) for r in rows]
+
+    def update(self, region_id: int, shape: str, label: str, note,
+               puzzle_id, role) -> None:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "UPDATE canvas_regions SET shape = %s, label = %s, note = %s,"
+                " puzzle_id = %s, role = %s WHERE id = %s",
+                (shape, label, note, puzzle_id, role, region_id))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete(self, region_id: int) -> None:
+        """Any evidence row sourced from this region goes with it by FK cascade."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("DELETE FROM canvas_regions WHERE id = %s", (region_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def get_names_by_ids(self, region_ids) -> dict:
+        """{region_id: label-or-canvas-name} for rendered Source columns, in one
+        query.
+
+        A region with no label falls back to its canvas's name, which is why this
+        joins rather than reading canvas_regions alone — the fallback then lives
+        in one place instead of being repeated by every caller.
+        """
+        ids = [int(i) for i in region_ids if i]
+        if not ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(ids))
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT r.id AS id,"
+                " CASE WHEN r.label <> '' THEN r.label ELSE c.name END AS name"
+                " FROM canvas_regions r"
+                " JOIN hunt_canvases c ON c.id = r.canvas_id"
+                f" WHERE r.id IN ({placeholders})", tuple(ids))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return {r["id"]: r["name"] for r in rows}
 
 
 class MySQLGuildSettingsDb():
