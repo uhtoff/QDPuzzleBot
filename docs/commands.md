@@ -127,13 +127,15 @@ commands in the minimeta's channel; numbers come from `!list_minis`.
 
 ## Sheets
 
-Run in a puzzle channel.
+Run in a puzzle channel for that puzzle's sheets, or anywhere else in the hunt for the
+hunt's own — somewhere to work on something found in the hunt's alt text before you know
+which puzzle it belongs to.
 
 | Command | Aliases | Arguments | Does |
 |---|---|---|---|
-| `!add_sheet` | | `sheet-name` | Add an extra working sheet (puzzle must be unsolved). |
-| `!list_sheets` | `!list_additional_sheets` | — | List additional sheets with links and numbers. |
-| `!remove_sheet` | `!delete_sheet` | `number` | Remove an additional sheet by number. |
+| `!add_sheet` | | `sheet-name` | Add an extra working sheet. In a puzzle channel it belongs to that puzzle (which must be unsolved); anywhere else in the hunt it belongs to the hunt. |
+| `!list_sheets` | `!list_additional_sheets` | — | List the puzzle's sheets, or the hunt's own, with links and numbers. |
+| `!remove_sheet` | `!delete_sheet` | `number` | Remove a sheet by its number, from this puzzle or from the hunt. |
 
 ## Notes, clues & metadata
 
