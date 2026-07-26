@@ -1130,6 +1130,24 @@ class TestRollupEvidenceContent:
         assert "https://puzzweb.example/api/media/7" in evidence[0]["content"]
         assert "=HYPERLINK" not in evidence[0]["content"]
 
+    async def test_falls_back_when_no_frontend_url_is_configured(self):
+        """web_frontend_url is empty on any install without a public dashboard
+        URL. Emitting a bare "/api/media/7" into a spreadsheet cell there would
+        be a dead relative link, so the note stands alone — or "[image]" when
+        there is no note, so the row is not silently blank.
+        """
+        from unittest.mock import patch
+        from bot.core.puzzle_service import evidence_cell_content
+        from types import SimpleNamespace
+        with patch("bot.core.puzzle_service.config") as cfg:
+            cfg.web_frontend_url = ""
+            with_note = evidence_cell_content(
+                SimpleNamespace(note="three anchors", media_id=7))
+            without_note = evidence_cell_content(
+                SimpleNamespace(note="", media_id=7))
+        assert with_note == "three anchors"
+        assert without_note == "[image]"
+
     async def test_text_evidence_content_is_unchanged(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock, MagicMock, patch
