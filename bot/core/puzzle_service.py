@@ -2922,13 +2922,17 @@ class PuzzleService:
         puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
                       | {i.target_puzzle_id for i in items if i.target_puzzle_id})
         names = resolve_puzzle_names(puzzle_ids)
+        sheet_names = resolve_sheet_names(
+            getattr(i, "source_sheet_id", None) for i in items)
         rows = [
             [
                 i.id,
                 # A null source is evidence belonging to the hunt rather than to
-                # a puzzle; the old fallback rendered it as "Puzzle None".
+                # a puzzle; the old fallback rendered it as "Puzzle None". A
+                # hunt-level working sheet names itself.
                 (names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}")
-                 if i.source_puzzle_id else "—"),
+                 if i.source_puzzle_id
+                 else (evidence_source_label(i, sheet_names) or "—")),
                 evidence_cell_content(i),
                 names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
                 str(i.created_at)[:16] if i.created_at else "",

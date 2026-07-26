@@ -337,6 +337,9 @@ class TestRefreshEvidenceNullSource:
         sourced.target_puzzle_id = 2
         sourced.note = "a clue"
         sourced.media_id = None
+        # Explicit: an unset MagicMock attribute auto-vivifies TRUTHY, so
+        # leaving it off makes refresh_evidence treat this as sheet-sourced.
+        sourced.source_sheet_id = None
         sourced.created_at = datetime.datetime(2026, 6, 23, 12, 0)
 
         sourceless = MagicMock()
@@ -345,6 +348,7 @@ class TestRefreshEvidenceNullSource:
         sourceless.target_puzzle_id = None
         sourceless.note = "a fact"
         sourceless.media_id = None
+        sourceless.source_sheet_id = None
         sourceless.created_at = None
 
         EvidenceDb.get_all.return_value = [sourced, sourceless]
@@ -743,3 +747,39 @@ class TestLogCluesSourceSheet:
             edb.log.return_value = SimpleNamespace(id=1, note="n")
             await svc.log_clues(make_hunt(id=10), make_puzzle(id=5, hunt_id=10), ["n"])
         assert edb.log.call_args.kwargs["source_sheet_id"] is None
+
+
+class TestRefreshEvidenceSheetSource:
+    """A sheet-sourced item names the sheet in the Source column; a sourceless
+    one still renders the em dash Plan A introduced."""
+
+    def _svc(self, gsheet):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        return svc
+
+    def _item(self, id, source_sheet_id):
+        from types import SimpleNamespace
+        return SimpleNamespace(id=id, source_puzzle_id=None,
+                               source_sheet_id=source_sheet_id,
+                               target_puzzle_id=None, note="n", media_id=None,
+                               created_at=None)
+
+    async def test_source_column_shows_the_sheet_name_and_the_em_dash(self):
+        """Both rows in one render: a fix that blanked every source cell, or one
+        that showed the sheet name for all of them, would pass a single-item
+        test of either case alone."""
+        gsheet = MagicMock()
+        gsheet.reconcile_table = AsyncMock()
+        svc = self._svc(gsheet)
+        hunt = make_hunt(id=10, evidence_sheet_page_id=1, evidence_table_id=2)
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.SheetsJsonDb") as sdb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}):
+            edb.get_all.return_value = [self._item(9, 4), self._item(8, None)]
+            sdb.get_names_by_ids.return_value = {4: "alt text"}
+            await svc.refresh_evidence(hunt)
+        rows = gsheet.reconcile_table.await_args.kwargs["desired_rows"]
+        assert [r[1] for r in rows] == ["alt text", "—"]
