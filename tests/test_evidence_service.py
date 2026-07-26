@@ -106,8 +106,8 @@ class TestLogClues:
         result = await svc.log_clues(hunt, puzzle, ["note A", "note B"])
 
         assert EvidenceDb.log.call_count == 2
-        EvidenceDb.log.assert_any_call(10, 5, "note A")
-        EvidenceDb.log.assert_any_call(10, 5, "note B")
+        EvidenceDb.log.assert_any_call(10, 5, "note A", media_id=None)
+        EvidenceDb.log.assert_any_call(10, 5, "note B", media_id=None)
         assert result == [item1, item2]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
@@ -119,7 +119,7 @@ class TestLogClues:
         svc = PuzzleService(MagicMock())
         result = await svc.log_clues(make_hunt(), make_puzzle(id=3, hunt_id=10), ["solo note"])
 
-        EvidenceDb.log.assert_called_once_with(10, 3, "solo note")
+        EvidenceDb.log.assert_called_once_with(10, 3, "solo note", media_id=None)
         assert result == [item]
 
     @patch("bot.core.puzzle_service.EvidenceJsonDb")
@@ -555,3 +555,94 @@ class TestEvidenceDbLog:
         columns = [c.strip() for c in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
         assert columns == ["hunt_id", "source_puzzle_id", "note", "media_id", "created_at"]
         assert params[:4] == (10, None, "seen on the poster", 7)
+
+
+class TestLogCluesSourceless:
+    """PuzzleService.log_clues(hunt, puzzle=None, ...) — evidence that belongs
+    to the hunt rather than to any one puzzle. No source means no informs edge
+    to auto-route from, so the item is created untargeted."""
+
+    async def test_logs_with_a_null_source_and_no_auto_routing(self):
+        from unittest.mock import MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_hunt
+
+        hunt = make_hunt(id=10)
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None: \
+                MagicMock(id=1, note=note)
+            items = await svc.log_clues(hunt, None, ["seen on the poster"])
+
+        assert len(items) == 1
+        edb.log.assert_called_once()
+        assert edb.log.call_args.args[1] is None or \
+            edb.log.call_args.kwargs.get("source_puzzle_id") is None
+        edb.set_target.assert_not_called()
+
+    async def test_passes_media_id_through(self):
+        from unittest.mock import MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_hunt
+
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb:
+            edb.log.side_effect = lambda hunt_id, source_puzzle_id, note, media_id=None: \
+                MagicMock(id=1, note=note, media_id=media_id)
+            items = await svc.log_clues(make_hunt(id=10), None, [""], media_id=7)
+
+        assert items[0].media_id == 7
+        # Guard against the call silently losing media_id on the way to the DAO
+        # (e.g. never forwarding the kwarg at all): read back what was actually
+        # sent, not just what the side_effect happened to echo.
+        assert edb.log.call_args.kwargs.get("media_id") == 7
+
+    async def test_auto_routing_still_happens_for_a_sourced_clue(self):
+        """Regression guard: the None-source early-exit in log_clues must not
+        also swallow the existing sole-informs-target auto-routing for clues
+        that DO have a source puzzle."""
+        from unittest.mock import MagicMock, patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_hunt
+
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        item = MagicMock(); item.id = 77
+        puzzle = make_puzzle(id=5, hunt_id=10, tags=[3])
+        puzzle.tag_edges = {3: {"informs"}}
+        group = MagicMock(); group.target_puzzle_id = 99
+
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb:
+            edb.log.return_value = item
+            tgdb.get_by_attr.return_value = group
+            await svc.log_clues(make_hunt(id=10), puzzle, ["clue"])
+
+        edb.set_target.assert_called_once_with(77, 99)
+
+    async def test_link_informs_is_skipped_without_a_source(self):
+        """An informs edge joins two puzzles; a bare observation is not one."""
+        from unittest.mock import patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_hunt
+
+        svc = PuzzleService.__new__(PuzzleService)
+        with patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb:
+            await svc.link_informs_for_evidence(make_hunt(id=10), None, 4)
+        tgdb.get_by_attr.assert_not_called()
+
+    async def test_unlink_informs_is_skipped_without_a_source(self):
+        """Same guard on the removal path — nothing to look up or untag."""
+        from unittest.mock import patch
+        from bot.core.puzzle_service import PuzzleService
+        from tests.conftest import make_hunt
+
+        svc = PuzzleService.__new__(PuzzleService)
+        with patch("bot.core.puzzle_service.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb:
+            await svc.unlink_informs_for_evidence(make_hunt(id=10), None, 4)
+        edb.get_all.assert_not_called()
+        tgdb.get_by_attr.assert_not_called()

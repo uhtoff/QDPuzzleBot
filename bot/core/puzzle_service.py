@@ -2769,18 +2769,24 @@ class PuzzleService:
         return targets[0] if len(targets) == 1 else None
 
     @pushes_board()
-    async def log_clues(self, hunt, puzzle, notes: list) -> list:
+    async def log_clues(self, hunt, puzzle, notes: list, media_id=None) -> list:
         """Insert one evidence_item per note. Returns list of EvidenceData.
+
+        `puzzle` may be None: evidence can belong to the hunt rather than to any
+        one puzzle (e.g. something found in the hunt's alt text). With no source
+        there is no informs edge to follow, so such items are created untargeted
+        for manual routing via the Evidence panel.
 
         If the source puzzle informs exactly one target, each clue is auto-routed
         to that informed target (target_puzzle_id) so it surfaces in the target's
         roll-up contribution table. Zero or several informs targets -> left
         untargeted for manual routing via the Evidence panel.
         """
-        target_id = self._sole_informs_target(puzzle)
+        target_id = self._sole_informs_target(puzzle) if puzzle is not None else None
         items = []
         for note in notes:
-            item = EvidenceJsonDb.log(hunt.id, puzzle.id, note)
+            item = EvidenceJsonDb.log(hunt.id, puzzle.id if puzzle else None, note,
+                                      media_id=media_id)
             if target_id is not None:
                 item = EvidenceJsonDb.set_target(item.id, target_id) or item
             items.append(item)
@@ -2868,7 +2874,12 @@ class PuzzleService:
 
     async def link_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
         """Auto-add an 'informs' edge from the source puzzle to the group whose target
-        is target_puzzle_id, so routed evidence renders. Never evicts feeds. Best-effort."""
+        is target_puzzle_id, so routed evidence renders. Never evicts feeds. Best-effort.
+
+        An informs edge joins two puzzles, so a sourceless (hunt-level) evidence
+        item -- source_puzzle_id is None -- has no edge to create; the falsy
+        check below already covers that case, along with a missing target.
+        """
         if not (source_puzzle_id and target_puzzle_id):
             return
         group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
@@ -2881,7 +2892,12 @@ class PuzzleService:
     async def unlink_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
         """Remove the 'informs' edge once the source has no remaining evidence
         routed to that target. Edges aren't tagged with who created them, so
-        this also removes an edge a human added manually to the same pair."""
+        this also removes an edge a human added manually to the same pair.
+
+        Same reasoning as link_informs_for_evidence: a sourceless evidence item
+        (source_puzzle_id is None) never had an edge to begin with, and the
+        falsy check below already returns early for it.
+        """
         if not (source_puzzle_id and target_puzzle_id):
             return
         remaining = EvidenceJsonDb.get_all(
