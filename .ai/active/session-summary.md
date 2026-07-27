@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(puzzle-images): show a puzzle's images in the drawer @ ba04719
+Status: in progress — feat(images): paste a screenshot to replace or add an image @ 53cf512
 
 ## Goal
 
@@ -301,7 +301,7 @@ The remaining three non-design items. Backend work here IS test-covered.
 Mutation-proved: the filename fallback branch, the cross-hunt media guard, and the
 absent-key semantics — each red for the right reason, each restored.
 
-## Image markup — code complete 2026-07-27, NOT browser-verified
+## Image markup — DONE and browser-verified 2026-07-27
 
 Design: `docs/superpowers/specs/2026-07-27-canvas-markup-design.md`.
 Plan: `docs/superpowers/plans/2026-07-27-image-markup.md` (12 tasks; 11 implemented, 1 dropped).
@@ -352,7 +352,7 @@ ctrl+wheel zooms without triggering the browser's own page zoom.
 crops for `locates` regions, the region↔puzzle_images sync, the `PuzzleDrawer` strip). Spec is
 written; it reuses `MarkupModal` unchanged.
 
-## Puzzle images — code complete 2026-07-27, NOT browser-verified
+## Puzzle images — DONE and browser-verified 2026-07-27
 
 Plan: `docs/superpowers/plans/2026-07-27-puzzle-images.md` (9 tasks, 8 implemented + verification).
 Commits `79e9440` → `ba04719`. Suite **1508 passed**, ruff clean, basedpyright 0, `tsc`/`npm run
