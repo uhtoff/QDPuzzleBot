@@ -266,17 +266,6 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
     onDraw({ type: "rect", points: [[a.x, a.y], [b.x, b.y]] });
   };
 
-  if (canvas.tile_status === "pending") {
-    return (
-      <Stack align="center" py="xl" gap="xs">
-        <Loader />
-        <Text size="sm" c="dimmed">Preparing image — a large sheet takes a few seconds.</Text>
-      </Stack>
-    );
-  }
-
-  const claimed = canvas.regions.filter((r) => r.puzzle_id).length;
-
   /** Only puzzles that actually have regions on THIS canvas. Offering the
    *  hunt's whole board would mostly be choices that highlight nothing. */
   const puzzleHighlightOptions = useMemo(() => {
@@ -288,6 +277,21 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
       .map(([id, name]) => ({ value: String(id), label: name }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [canvas.regions, puzzlesById]);
+
+  // Every hook must run above this line. An early return placed before one
+  // changes the hook count between renders, and this branch is not static: a
+  // freshly uploaded canvas flips pending -> ready underneath us, which threw
+  // "Rendered more hooks than during the previous render".
+  if (canvas.tile_status === "pending") {
+    return (
+      <Stack align="center" py="xl" gap="xs">
+        <Loader />
+        <Text size="sm" c="dimmed">Preparing image — a large sheet takes a few seconds.</Text>
+      </Stack>
+    );
+  }
+
+  const claimed = canvas.regions.filter((r) => r.puzzle_id).length;
 
   const highlightedCount = canvas.regions.filter((r) => r.puzzle_id === highlightPuzzleId).length;
 
