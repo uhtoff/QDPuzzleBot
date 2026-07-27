@@ -24,8 +24,9 @@ The **big canvas is out of scope**. It keeps its tile pyramid, its regions and i
 and gains no ink.
 
 This is the decision that makes the frontend ordinary. An extracted crop is a normal image, so
-every markup surface is a plain `<img>` with an SVG overlay on top — no tile pyramid, no
-pan/zoom, no gesture negotiation, and **no change to `CanvasView.tsx` at all**. An earlier
+every markup surface is a plain `<img>` with an SVG overlay on top — no tile pyramid, no level
+selection, no touch-gesture state machine, and **no change to `CanvasView.tsx` at all**. (Zoom
+and pan still exist, as a CSS transform; see the frontend section.) An earlier
 draft of this design put markup on the canvas too, which forced extracting `CanvasView`'s
 pan/zoom/pinch/tile machinery into a reusable viewer: the largest, riskiest and least
 verifiable piece of the whole feature, in code that is inspection-verified only. Restricting
@@ -156,9 +157,9 @@ No change to `CanvasView.tsx`. Two new components, both plain React.
 ### `MarkupCanvas.tsx`
 
 An `<img>` (`/api/media/<id>`) with an SVG overlay at `viewBox="0 0 1 1"` absolutely positioned
-over it, sized by the media's aspect ratio. Pointer coordinates normalise straight off
-`getBoundingClientRect()` — there is no offset or scale to account for, because the image is
-displayed whole at a fixed size.
+over it, sized by the media's aspect ratio. Pointer coordinates normalise straight off the
+image's `getBoundingClientRect()` — which already reflects any CSS transform, so the same
+one-line conversion is correct at every zoom level.
 
 Owns:
 
@@ -171,13 +172,32 @@ Owns:
 an annotation *on the image*. (The opposite of the region overlay, whose strokes use
 `vectorEffect="non-scaling-stroke"` to stay hairline at any canvas zoom.)
 
-Since every drag means drawing, there is no pan gesture to negotiate with — the single
-hardest part of putting this on the canvas does not arise here.
+### Zoom and pan
 
-**Oversized crops.** A crop of a huge sheet can itself be large. The image is displayed
-fit-to-width, so an oversized crop costs decode time and memory rather than correctness. If a
-region's crop exceeds a sensible pixel budget the crop is downscaled at creation — markup
-coordinates are normalised, so a downscale changes nothing about the stored ink.
+Marking up something you cannot read clearly is the failure mode, so the modal zooms:
+
+- **Ctrl/wheel zoom anchored on the cursor**, plus zoom in / out / fit buttons.
+- **Drag pans when no tool is selected**; with a tool selected, a drag draws.
+
+Implemented as a CSS transform (`scale` + `translate`) on the image wrapper. There is no
+pyramid here, so none of `CanvasView`'s hard parts apply: no level selection, no visible-tile
+window, no seam arithmetic. The SVG overlay is inside the transformed wrapper, so existing ink
+scales with the image and stays glued to what it points at, with no coordinate work at all.
+
+Two things carry over from `CanvasView` and should be lifted from it rather than rediscovered:
+
+- The wheel listener must be a **raw non-passive DOM listener**, not React's `onWheel` —
+  the synthetic one is passive, so `preventDefault()` silently no-ops and the browser's own
+  page zoom fires underneath.
+- The anchored-zoom arithmetic in `zoomAt` (keep the point under the cursor fixed) is the same
+  formula; copy it.
+
+**Touch gestures are out of scope.** Two-finger pinch/pan via Pointer Events is the part of
+`CanvasView` that took the most getting right, and re-implementing it here is only worth it if
+people mark up on tablets. Listed as an open question.
+
+**Oversized crops** need no special handling now that the modal zooms: a large crop opens
+fit-to-view and is zoomed into for detail. It costs decode time and memory, not correctness.
 
 ### `MarkupModal.tsx`
 
@@ -248,6 +268,6 @@ cannot regress the canvas.
   images outside the dashboard.
 - **Eraser granularity.** The design erases a whole mark on click. Partial-stroke erasing would
   need stroke splitting and is not proposed.
-- **Zoom inside the markup modal.** Not proposed: a crop is displayed whole. If crops of dense
-  sheets turn out to be unreadable fit-to-width, a simple CSS scale (no tiles, no pyramid) is
-  the cheap answer.
+- **Touch gestures in the markup modal.** Wheel zoom and drag-pan cover desktop. Pinch-zoom
+  would need a second implementation of `CanvasView`'s Pointer-Events state machine; deferred
+  until someone actually marks up on a tablet.
