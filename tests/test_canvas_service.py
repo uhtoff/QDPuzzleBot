@@ -239,6 +239,19 @@ def test_updating_a_region_stores_its_crop_on_the_region(dbs):
     assert regions.update.call_args.kwargs["crop_media_id"] == 456
 
 
+def test_a_note_edit_keeps_the_regions_existing_crop(dbs):
+    """An absent crop means "no new crop", not "clear it". The caller only
+    crops when a link is CHANGING, so writing None through on a note edit
+    would orphan the crop and disarm the never-re-crop-under-ink guard."""
+    regions, _, _ = dbs
+    existing = _region(puzzle_id=9, role="locates")
+    existing.crop_media_id = 456
+    regions.get_by_id.return_value = existing
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT, note="a note",
+                         puzzle_id=9, role="locates", media_id=None)
+    assert regions.update.call_args.kwargs["crop_media_id"] == 456
+
+
 def test_updating_a_missing_region_is_rejected(dbs):
     regions, _, _ = dbs
     regions.get_by_id.return_value = None

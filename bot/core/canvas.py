@@ -104,9 +104,16 @@ def update_region(region_id: int, hunt_id: int, shape, label: str = "",
         raise RegionRejected("That region no longer exists.")
     stored = parse_shape(shape)
     link_changed = (existing.puzzle_id != puzzle_id or existing.role != role)
+    # A None media_id means "no new crop", NOT "clear the crop". The caller
+    # only crops when a link is changing, so writing it through unconditionally
+    # would blank crop_media_id on every note or label edit — orphaning the
+    # crop and disarming the guard that stops a crop being regenerated under
+    # existing markup. Same absent-means-unchanged rule the evidence image
+    # replace route follows.
     CanvasRegionJsonDb.update(region_id, shape=stored, label=label, note=note,
                               puzzle_id=puzzle_id, role=role,
-                              crop_media_id=media_id)
+                              crop_media_id=(existing.crop_media_id
+                                             if media_id is None else media_id))
     if link_changed and existing.role == INFORMS:
         EvidenceJsonDb.delete_by_region(region_id)
     if link_changed and role == INFORMS:
