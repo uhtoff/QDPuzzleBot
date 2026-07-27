@@ -309,6 +309,27 @@ async def media_tile(media_id, z, y, x):
     return resp
 
 
+@api_bp.route("/media/<int:media_id>/markup")
+@login_required
+async def media_markup(media_id):
+    """Every mark on one image. Authorised exactly as /api/media/<id> is."""
+    from bot.core import markup as markup_service
+    from bot.store import HuntJsonDb, MediaJsonDb
+    from bot.web import data as web_data
+    media = MediaJsonDb.get_by_id(media_id)
+    if media is None:
+        return jsonify({"error": "not_found"}), 404
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
+    if hunt_row is None:
+        return jsonify({"error": "not_found"}), 404
+    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)
+        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    return jsonify([web_data.mark_to_json(m)
+                    for m in markup_service.list_marks(media_id)])
+
+
 @api_bp.route("/hunts/<uid>/media", methods=["POST"])
 @login_required
 async def upload_media(uid):

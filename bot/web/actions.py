@@ -2151,6 +2151,32 @@ async def _canvas_ctx(canvas_id, require_manage=False):
     return ctx, canvas_row, None
 
 
+async def _media_ctx(media_id):
+    """(ctx, media_row, err) for an image the current user may mark up.
+
+    The hunt comes from the media row rather than the URL, which is what stops
+    a media id from another hunt being acted on under this hunt's visibility
+    check — the same shape /api/media/<id> uses to serve the bytes.
+
+    Marking up is NOT organiser-gated: it is the same bar as logging evidence,
+    because marking up the picture is what everyone does during a hunt.
+    """
+    from bot.store import HuntJsonDb, MediaJsonDb
+    media = MediaJsonDb.get_by_id(media_id)
+    if media is None:
+        return None, None, (jsonify({"error": "media_not_found"}), 404)
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
+    if hunt_row is None:
+        return None, None, (jsonify({"error": "media_not_found"}), 404)
+    ctx, err = await _visible_hunt_by_uid(hunt_row.uid)
+    if err:
+        return None, None, err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return None, None, (jsonify({"error": "hunt_archived"}), 403)
+    return ctx, media, None
+
+
 async def _crop_region_media(canvas_row, shape):
     """Crop `shape`'s rect out of the canvas's original image and save it as
     its own media row, so an informs-region's evidence carries the actual
@@ -2376,6 +2402,64 @@ async def delete_region(canvas_id, region_id):
     canvas_service.delete_region(region_id)
     await _push_board(ctx["hunt"]["id"])
     await _audit("delete_region", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify({"ok": True})
+
+
+@actions_bp.route("/media/<int:media_id>/markup", methods=["POST"])
+@login_required
+async def create_mark(media_id):
+    from bot.core import markup as markup_service
+    from bot.core.markup_shape import MarkupRejected
+    ctx, media, err = await _media_ctx(media_id)
+    if err:
+        return err
+    assert ctx is not None and media is not None
+    body = await request.get_json(silent=True) or {}
+    try:
+        mark = markup_service.create_mark(
+            media_id=media_id, mark=body.get("mark"), style=body.get("style"))
+    except MarkupRejected as exc:
+        return jsonify({"error": str(exc)}), 400
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("create_mark", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify(web_data.mark_to_json(mark)), 201
+
+
+@actions_bp.route("/media/<int:media_id>/markup/<int:mark_id>", methods=["PATCH"])
+@login_required
+async def update_mark(media_id, mark_id):
+    from bot.core import markup as markup_service
+    from bot.core.markup_shape import MarkupRejected
+    ctx, media, err = await _media_ctx(media_id)
+    if err:
+        return err
+    assert ctx is not None and media is not None
+    body = await request.get_json(silent=True) or {}
+    try:
+        mark = markup_service.update_mark(
+            mark_id=mark_id, media_id=media_id,
+            style=body.get("style"), text=body.get("text"))
+    except markup_service.MarkNotFound as exc:
+        return jsonify({"error": str(exc)}), 404
+    except MarkupRejected as exc:
+        return jsonify({"error": str(exc)}), 400
+    await _push_board(ctx["hunt"]["id"])
+    return jsonify(web_data.mark_to_json(mark))
+
+
+@actions_bp.route("/media/<int:media_id>/markup/<int:mark_id>", methods=["DELETE"])
+@login_required
+async def delete_mark(media_id, mark_id):
+    from bot.core import markup as markup_service
+    ctx, media, err = await _media_ctx(media_id)
+    if err:
+        return err
+    assert ctx is not None and media is not None
+    try:
+        markup_service.delete_mark(mark_id=mark_id, media_id=media_id)
+    except markup_service.MarkNotFound as exc:
+        return jsonify({"error": str(exc)}), 404
+    await _push_board(ctx["hunt"]["id"])
     return jsonify({"ok": True})
 
 
