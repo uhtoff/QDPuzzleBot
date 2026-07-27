@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — docs: mark evidence OCR feature complete in the session summary @ c6043af
+Status: in progress — docs: point session-summary Status hash at the OCR-complete commit @ bdccac5
 
 ## Goal
 
