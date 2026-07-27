@@ -13,19 +13,19 @@ const TILE_SIZE = 512;
 function tintFor(puzzle: Puzzle | undefined): string | null {
   if (!puzzle) return null;
   if (puzzle.solved) return "#2f9e44";                 // green
-  switch (puzzle.status) {
-    case "solved":
-    case "backsolved":
-      return "#2f9e44";
-    case "stuck":
-      return "#e03131";                                // red
-    case "in progress":
-    case "needs extraction":
-    case "needs submission":
-      return "#f08c00";                                // amber
-    default:
-      return "#868e96";                                // grey: unstarted
-  }
+  // Matched case-insensitively on a SUBSTRING, the same way util.statusColor
+  // does, because a status's spelling depends on where it was set: the bot
+  // writes constants.py's lowercase values ("in progress"), while the
+  // dashboard's own dropdown writes title case ("In Progress"). An exact
+  // lowercase switch silently greyed out every status set from the web —
+  // solved rows still tinted, because the boolean above catches those first,
+  // which is what made this look like "some statuses have no colour".
+  const status = (puzzle.status || "").toLowerCase();
+  if (status.includes("solved")) return "#2f9e44";     // solved, backsolved
+  if (status.includes("stuck")) return "#e03131";      // red
+  // "needs extraction" and "needs submission" are both work-in-flight.
+  if (status.includes("progress") || status.includes("needs")) return "#f08c00";
+  return "#868e96";                                    // grey: unstarted
 }
 
 export const TINT_LEGEND: { colour: string; label: string }[] = [
