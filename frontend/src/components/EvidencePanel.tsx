@@ -14,6 +14,7 @@ import {
   Text,
   TextInput,
   Textarea,
+  UnstyledButton,
 } from "@mantine/core";
 import { IconArrowDown, IconArrowsSort, IconArrowUp, IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
@@ -517,27 +518,38 @@ const EvidenceRow = memo(function EvidenceRow({
       <Table.Td>
         <Stack gap={4} align="flex-start">
           {item.media_url ? (
-            <Anchor href={item.media_url} target="_blank" rel="noreferrer">
-              <Image
-                src={item.media_url}
-                alt={item.note || "evidence image"}
-                h={40}
-                w="auto"
-                fit="contain"
-              />
-            </Anchor>
+            // The thumbnail IS the affordance: clicking it opens the markup
+            // view, which shows the image far larger than the browser's own
+            // image view did and can annotate it. No separate button.
+            //
+            // The archived fallback is the native link, not a disabled
+            // thumbnail: marking up WRITES, and the markup routes refuse an
+            // archived hunt with a 403, so on an archived hunt the click must
+            // still do the one useful thing left — show the picture. (A
+            // read-only markup view would need a mode MarkupCanvas does not
+            // have yet.)
+            editable ? (
+              <UnstyledButton onClick={() => onMarkup(item)} title="Mark up">
+                <Image
+                  src={item.media_url}
+                  alt={item.note || "evidence image"}
+                  h={40}
+                  w="auto"
+                  fit="contain"
+                />
+              </UnstyledButton>
+            ) : (
+              <Anchor href={item.media_url} target="_blank" rel="noreferrer">
+                <Image
+                  src={item.media_url}
+                  alt={item.note || "evidence image"}
+                  h={40}
+                  w="auto"
+                  fit="contain"
+                />
+              </Anchor>
+            )
           ) : null}
-          {editable && item.media_url && (
-            // Gated on `editable` (i.e. not archived) like the Replace control
-            // below, because marking up WRITES: the markup routes refuse an
-            // archived hunt with a 403, so an ungated button would open a
-            // modal where every stroke silently failed. Viewing existing ink
-            // read-only on an archived hunt would need a read-only mode in
-            // MarkupCanvas, which does not exist yet.
-            <Button size="compact-xs" variant="subtle" onClick={() => onMarkup(item)}>
-              Mark up
-            </Button>
-          )}
           {editable && (
             // Swapping the picture keeps the note, the target and the row's
             // place in the table — previously the only way to attach a clearer
