@@ -211,6 +211,21 @@ def mark_to_json(mark):
     }
 
 
+def puzzle_image_to_json(image):
+    """One puzzle image as the dashboard sees it.
+
+    media_url is built the same way get_evidence builds it: string
+    interpolation from the id, with no media row lookup on this path.
+    """
+    return {
+        "id": image.id,
+        "media_id": image.media_id,
+        "media_url": f"/api/media/{image.media_id}",
+        "source_region_id": image.source_region_id,
+        "position": image.position,
+    }
+
+
 def canvas_to_json(canvas_row, regions, media=None):
     """One canvas with its regions inline.
 

@@ -2473,6 +2473,103 @@ async def delete_mark(media_id, mark_id):
     return jsonify({"ok": True})
 
 
+# --- Puzzle images (any member of the hunt's guild, like logging evidence) --
+#
+# A puzzle's ordered strip of images: canvas `locates` crops plus direct
+# uploads. Same permission bar as notes/evidence — any member who can see an
+# unarchived hunt, not organiser-gated.
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/images", methods=["GET"])
+@login_required
+async def get_puzzle_images(puzzle_id):
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    assert ctx is not None
+
+    from bot.core import puzzle_images
+    images = puzzle_images.list_images(puzzle_id)
+    return jsonify([web_data.puzzle_image_to_json(i) for i in images])
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/images", methods=["POST"])
+@login_required
+async def add_puzzle_image(puzzle_id):
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.core import puzzle_images
+    from bot.store import MediaJsonDb, PuzzleJsonDb
+    body = await request.get_json(silent=True) or {}
+    media_id = body.get("media_id")
+    if not media_id:
+        return jsonify({"error": "media_id required"}), 400
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+
+    # The media must belong to the same hunt as the puzzle, so a client-supplied
+    # id can't cross-link another hunt's private upload onto this puzzle's
+    # strip — same guard update_evidence carries for its image swap.
+    media = MediaJsonDb.get_by_id(media_id)
+    if media is None or media.hunt_id != puzzle.hunt_id:
+        return jsonify({"error": "cross_hunt_media"}), 400
+
+    image = puzzle_images.attach_upload(puzzle_id, media_id)
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("add_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
+    return jsonify(web_data.puzzle_image_to_json(image)), 201
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/images", methods=["PATCH"])
+@login_required
+async def reorder_puzzle_images(puzzle_id):
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.core import puzzle_images
+    body = await request.get_json(silent=True) or {}
+    ordered_ids = body.get("ordered_ids") or []
+    try:
+        puzzle_images.reorder(puzzle_id, ordered_ids)
+    except puzzle_images.ImageNotFound as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("reorder_puzzle_images", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
+    return jsonify({"ok": True})
+
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/images/<int:image_id>", methods=["DELETE"])
+@login_required
+async def delete_puzzle_image(puzzle_id, image_id):
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+
+    from bot.core import puzzle_images
+    try:
+        puzzle_images.detach(image_id, puzzle_id)
+    except puzzle_images.ImageNotFound as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("delete_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
+    return jsonify({"ok": True})
+
+
 @actions_bp.route("/canvases/<int:canvas_id>/regions/<int:region_id>/create-puzzle",
                   methods=["POST"])
 @login_required
