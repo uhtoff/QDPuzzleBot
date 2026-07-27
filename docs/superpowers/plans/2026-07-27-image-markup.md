@@ -316,8 +316,17 @@ Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Prove the point cap is load-bearing by mutation**
 
-Temporarily change `MAX_POINTS = 2000` to `MAX_POINTS = 10_000` and re-run.
-Expected: `test_too_many_points_are_rejected_not_truncated` FAILS at the `pytest.raises` line (not at the earlier assert). Restore `2000` by editing the line back — **not** with `git checkout`, which would take the whole file.
+Mutate the **implementation**, not the constant. (Changing `MAX_POINTS` proves nothing: the test builds its input *from* `MAX_POINTS`, so it stays green at any value — the property under test is "over-cap is refused rather than silently shortened", which is a property of `_points`.)
+
+In `_points`, replace the length check with a truncating one:
+
+```python
+    if not isinstance(raw, list) or len(raw) < least:
+        raise MarkupRejected("That mark has the wrong number of points.")
+    raw = raw[:most]
+```
+
+Expected: `test_too_many_points_are_rejected_not_truncated` and `test_a_line_needs_exactly_two_points` both FAIL with `Failed: DID NOT RAISE MarkupRejected`. Restore by editing the check back — **not** with `git checkout`, which would take the whole file.
 
 - [ ] **Step 6: Lint, typecheck and commit**
 
