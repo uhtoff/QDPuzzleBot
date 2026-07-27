@@ -186,6 +186,11 @@ def build_pyramid(src: Path, dest_dir: Path) -> tuple[int, int, int]:
     opts = {
         "suffix": TILE_SUFFIX,
         "tile_size": TILE_SIZE,
+        # Nothing to tune here: the "google" layout below writes uniform
+        # tile_size² tiles and ignores overlap entirely (verified by building the
+        # same source at overlap 0 and 1 — the interior tiles come out
+        # byte-identical). Tiles therefore share no border pixels, which is why
+        # CanvasView snaps them to an integer grid rather than overdrawing.
         "overlap": 0,
         # Keep halving until the whole image fits in a single tile, so level 0 is
         # always a complete thumbnail and the viewer has something to show

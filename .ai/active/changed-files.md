@@ -1,5 +1,13 @@
 # Changed Files
 
+> NOTE: the tables below are B1-era and were not refreshed through B2a/B2b or the OCR work
+> — `git log --oneline` on `staging` is the accurate record. Latest change: tile-seam
+> content-loss fix (2026-07-27), touching `frontend/src/components/CanvasView.tsx` (integer
+> tile grid + clip the image div), `bot/core/image_tiler.py` (comment only — google layout
+> ignores `overlap`), and the design doc / open-questions handoff notes. Checks run:
+> `tsc --noEmit` clean, `npm run build` clean, `pytest tests/test_image_tiler.py` 15 passed,
+> `ruff` clean. Not browser-verified.
+
 ## Git status
 
 Branch `staging`. Working tree clean apart from untracked `images/` (now gitignored).

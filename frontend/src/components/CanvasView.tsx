@@ -322,29 +322,50 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
           touchAction: "none",
         }}
       >
-        <div style={{ position: "absolute", left: offset.x, top: offset.y, width: dispW, height: dispH }}>
+        {/* overflow hidden because the pyramid's last column and row are padded
+            out to a full 512px tile with white, so those tiles render past the
+            image's real edge unless they are clipped to it. */}
+        <div style={{ position: "absolute", left: offset.x, top: offset.y, width: dispW, height: dispH, overflow: "hidden" }}>
           {tiled ? (
-            visible.map((t) => (
-              <img
-                key={`${level}/${t.y}/${t.x}`}
-                // z/y/x — row before column, libvips' "google" layout. Swapping
-                // y and x transposes the whole image about its diagonal and
-                // looks almost plausible, which is why the server-side helper
-                // pins the order in a test with y != x.
-                src={`/api/media/${canvas.media_id}/tiles/${level}/${t.y}/${t.x}`}
-                alt=""
-                draggable={false}
-                style={{
-                  position: "absolute",
-                  left: t.x * tileDisp,
-                  top: t.y * tileDisp,
-                  // +1px kills the hairline seams that fractional scaling leaves
-                  // between neighbouring tiles.
-                  width: Math.ceil(tileDisp) + 1,
-                  height: Math.ceil(tileDisp) + 1,
-                }}
-              />
-            ))
+            visible.map((t) => {
+              // Snap every tile to a shared integer grid: a tile's right edge is
+              // computed from the SAME expression as its neighbour's left edge,
+              // so the two are equal by construction and no seam can open up at
+              // any fractional zoom.
+              //
+              // The obvious alternative — sizing each tile ceil(tileDisp) + 1 —
+              // does hide the seams, but destructively. Tiles carry no shared
+              // border pixels (libvips' "google" layout writes uniform 512px
+              // tiles and ignores dzsave's `overlap` entirely, confirmed by
+              // building a pyramid both ways and diffing the bytes), so the
+              // extra pixel is not a real neighbouring pixel: it stretches the
+              // whole tile raster, and because browsers paint later siblings on
+              // top, the bottom/right neighbour's genuine edge content is
+              // overwritten by the earlier tile's interpolated overflow — at
+              // every one of hundreds of boundaries, worst on the hairline
+              // rules and small print a puzzle sheet is made of.
+              const left = Math.round(t.x * tileDisp);
+              const top = Math.round(t.y * tileDisp);
+              return (
+                <img
+                  key={`${level}/${t.y}/${t.x}`}
+                  // z/y/x — row before column, libvips' "google" layout. Swapping
+                  // y and x transposes the whole image about its diagonal and
+                  // looks almost plausible, which is why the server-side helper
+                  // pins the order in a test with y != x.
+                  src={`/api/media/${canvas.media_id}/tiles/${level}/${t.y}/${t.x}`}
+                  alt=""
+                  draggable={false}
+                  style={{
+                    position: "absolute",
+                    left,
+                    top,
+                    width: Math.round((t.x + 1) * tileDisp) - left,
+                    height: Math.round((t.y + 1) * tileDisp) - top,
+                  }}
+                />
+              );
+            })
           ) : (
             // tile_status none or failed: the original image is still stored and
             // still served, so fall back to it rather than showing nothing.

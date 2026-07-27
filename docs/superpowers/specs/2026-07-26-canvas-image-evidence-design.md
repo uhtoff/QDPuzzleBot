@@ -68,6 +68,96 @@ PNG of the marked-up canvas is ever produced. (Deriving tiles from the source im
 URLs. Undo history beyond delete. OCR or any automatic transcription. All are additive
 later; none are load-bearing now.
 
+## Known bugs
+
+- ~~**The tile-seam fix loses real image content, not just cosmetic.**~~ **Fixed
+  2026-07-27.** The diagnosis below was right; the proposed fix shape was not available.
+  `layout: "google"` writes uniform `tile_size²` tiles and **ignores `overlap` outright** —
+  building the same source at `overlap=0` and `overlap=1` gives byte-identical interior
+  tiles — so there are no shared border pixels to be had without abandoning the google
+  layout and rewriting tile addressing. Fixed client-side instead, in `CanvasView.tsx`:
+  every tile is snapped to a shared integer grid, its right/bottom edge computed from the
+  same expression as its neighbour's left/top edge, so the two are equal by construction and
+  no seam can open at any fractional zoom. Checked across 7 fractional tile scales × 40
+  boundaries: the old sizing overdrew up to 1.99px onto the next tile, the new one abuts
+  exactly (0px gap or overlap, every pair). Same change clips the image div (`overflow:
+  hidden`), because the pyramid's last column and row are padded to a full tile with white
+  and were rendering past the image's real edge.
+
+  Original diagnosis, kept for the reasoning:
+- **The tile-seam fix loses real image content, not just cosmetic.** `dzsave` is called
+  with `"overlap": 0` (`image_tiler.py` ~line 189) — tile files carry no shared border
+  pixels. The viewer papers over the resulting hairline seams entirely in CSS: each tile
+  `<img>` is sized `Math.ceil(tileDisp) + 1` (`CanvasView.tsx` ~line 341) so it overlaps its
+  neighbour by ~1px. But that stretches the *whole tile raster* slightly to fill the extra
+  pixel — it doesn't reveal real neighbouring pixels, because none exist in the file. Since
+  browsers paint later DOM siblings on top, whichever tile is later in `visible.map()`'s
+  order (bottom/right neighbours) has its own real edge content silently overwritten by the
+  earlier tile's stretched, interpolated overflow. Net effect: up to ~1px of genuine image
+  content is lost at every one of the hundreds of tile boundaries, worst on fine detail
+  (hairline rules, small print) that happens to fall near a 512px-aligned edge — which is
+  common on a puzzle sheet.
+  - **Fix shape:** give `dzsave` a real `overlap` (e.g. `overlap=1`, the libvips-standard
+    value for exactly this problem) so tile files genuinely contain a border of true
+    neighbouring pixels, then have the viewer crop that border into view instead of
+    CSS-stretching a whole tile. That's a coordinated change to both `image_tiler.py` (tile
+    dimensions grow by `2 × overlap`, so `_tile_bounds`-style math and the "tiles get no
+    `media` rows" tile addressing need to account for it) and `CanvasView.tsx` (source-crop
+    instead of blind stretch). Not a one-line change — needs its own pass.
+
+## Future enhancements (requested 2026-07-27, not started)
+
+User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
+
+- **Explicit "no puzzle" option in the region link control.** `RegionModal.tsx`'s
+  `SegmentedControl` (~line 205) only offers "Existing puzzle" / "Create a new puzzle".
+  Leaving a region unlinked is *technically* possible today — the "Existing puzzle" mode's
+  `Select` is `clearable` with a "Not linked" placeholder — but there is no direct
+  "don't link this" choice, so a user in "Create a new puzzle" mode has no way back to
+  unlinked without switching modes and clearing the select. Worth a third segment.
+- **Highlight all regions linked to one puzzle.** `CanvasView.tsx` tints each region
+  independently by its own linked puzzle's status (`tintFor`, ~line 13); there's no way to
+  see, at a glance, which regions on a busy sheet all belong to the same puzzle (e.g. on
+  hover/click of one region, or from the puzzle side).
+- **Carriage returns in evidence "log a clue".** `EvidencePanel.tsx`'s clue note field is a
+  single-line `TextInput` that submits on Enter (see the comment above `extractClueText`,
+  ~line 96), so OCR results — which do get newlines right — are collapsed to spaces on
+  entry. This was a deliberate simplification when the note field was single-purpose; now
+  that OCR feeds it, a multi-line `Textarea` (matching `RegionModal`'s notes field) with a
+  separate submit affordance (e.g. mod+Enter) would preserve them.
+- **Overlapping region shading.** Regions render as independent semi-transparent fills
+  (`fillOpacity={tint ? 0.28 : 0}` in `CanvasView.tsx` ~line 374); where two regions
+  overlap, their fills simply stack, darkening the overlap with no indication of which
+  puzzle(s) own it. Not yet designed — could be flagged as a warning, drawn with a distinct
+  hatch, or left as-is if overlaps turn out to be rare in practice.
+- **Freehand/line/text-box annotations.** Explicitly out of scope above ("Polygons,
+  freehand, and any second drawing tool"). A simple coloured-pen layer (freehand strokes,
+  straight lines, text boxes) is a materially different feature from region-linking — it
+  would need its own storage shape (stroke paths / text position, not a 0-1 box) and its
+  own render layer alongside the region overlay. Feasible, but a separate design pass, not
+  a small addition to B2.
+- **Replace an evidence row's image in place.** Today an evidence item's media can't be
+  swapped — `EvidencePanel.tsx`'s row actions (~line 439, `onDelete`) only support deleting
+  the whole clue and re-logging a new one. A user attaching a clearer version of the same
+  clue (via clipboard paste or file upload, reusing the existing `onCluePaste`/upload path)
+  should be able to update just the image and keep the note/history. Needs a decision on
+  whether the old `media` row is deleted or orphaned/kept for history.
+- **Show the canvas as the source on the web Evidence board.** Two gaps, not one:
+  - The web dashboard doesn't show it at all. `get_evidence` (`bot/web/data.py` ~line
+    656–681) resolves `source_puzzle_name` and `source_sheet_name` but never looks at
+    `source_region_id`, so a canvas-sourced clue's `sourceLabel()`
+    (`EvidencePanel.tsx` ~line 39) falls through to the em-dash case — the Google Sheet
+    contribution table already gets this right (see next point) but the web board doesn't.
+  - Even where it *is* resolved (`evidence_source_label`, `puzzle_service.py` ~line 119,
+    and `MySQLCanvasRegionDb.get_names_by_ids`, `mysqldb.py` ~line 1163), the fallback is
+    "region label, else `hunt_canvases.name`" — and `name` defaults to `''`
+    (`033_canvases.sql` ~line 12), so an unrenamed, unlabelled region renders as a *blank*
+    source today, not a filename. Requested behaviour: fall back further to
+    `Canvas ({media.filename})` (media's `filename` column,
+    `030_media_and_sourceless_evidence.sql` ~line 25) when the canvas has no `name`, and to
+    the canvas's `name` when it has been renamed. Needs the same fallback wired into both
+    the web board (new gap) and the Sheets label (existing but wrong fallback).
+
 ## Relevant files
 
 - `bot/store/evidence_data.py`, `bot/store/mysqldb.py` (`MySQLEvidenceDb`, ~line 784)

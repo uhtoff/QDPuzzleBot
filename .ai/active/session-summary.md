@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: ready for handoff — evidence OCR feature complete, gates green, browser check owed @ 834bfc5
+Status: in progress — tile-seam content-loss bug fixed; next is the requested feature list
 
 ## Goal
 
@@ -251,6 +251,20 @@ frontend `tsc --noEmit`/`npm run build` clean.
 either "Extract text" button in a live browser — both routes and both frontend wire-ups are
 verified only by unit test and typecheck. This needs a human or a live browser session against
 a real puzzle-sheet crop, the same gap the canvas/region work above already carries.
+
+## Tile-seam content loss — fixed 2026-07-27
+
+The `overlap=1` fix shape the design doc proposed **does not exist**: `layout: "google"`
+ignores dzsave's `overlap` (interior tiles byte-identical at 0 and 1, all uniform 512²), so
+no shared border pixels are obtainable without changing layout and rewriting addressing.
+Fixed client-side in `CanvasView.tsx` by snapping tiles to a shared integer grid — a tile's
+far edge is computed from the same expression as its neighbour's near edge, so they abut by
+construction. Verified arithmetically over 7 fractional tile scales × 40 boundaries: old
+sizing overdrew up to 1.99px onto the next tile, new sizing is exactly 0 gap/overlap on
+every pair. Also clipped the image div (`overflow: hidden`) — the pyramid's last column and
+row are white-padded to a full tile and were painting past the image's real edge.
+
+Still wants an eyeball on the motivating sheet during the outstanding B2b browser pass.
 
 ## Known gaps and risks
 
