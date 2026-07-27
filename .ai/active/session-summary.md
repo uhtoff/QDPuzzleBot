@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — docs: OCR feature marked complete in session summary (verification done, browser check still owed) @ b9070f3
+Status: in progress — docs: mark evidence OCR feature complete in the session summary @ c6043af
 
 ## Goal
 
