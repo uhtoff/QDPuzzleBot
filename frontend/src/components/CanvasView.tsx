@@ -53,6 +53,9 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
   // set, and the toolbar picker pins a puzzle so the set stays lit while you
   // pan around looking for the rest of it. Hover wins while it is active.
   const [hoverPuzzleId, setHoverPuzzleId] = useState<number | null>(null);
+  // The region the pointer is actually over, tracked separately from its
+  // puzzle: it is the one region that must NOT be reordered. See paintOrder.
+  const [hoverRegionId, setHoverRegionId] = useState<number | null>(null);
   const [pinnedPuzzleId, setPinnedPuzzleId] = useState<number | null>(null);
   const highlightPuzzleId = hoverPuzzleId ?? pinnedPuzzleId;
   const [drawRect, setDrawRect] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
@@ -295,6 +298,35 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
 
   const highlightedCount = canvas.regions.filter((r) => r.puzzle_id === highlightPuzzleId).length;
 
+  /** SVG has no z-index — paint order IS document order, so "bring the
+   *  highlighted set to the front" is a reorder of this list. Beyond looks,
+   *  this is what makes a region buried under a larger one reachable: pin its
+   *  puzzle and it comes forward, taking the pointer events with it.
+   *
+   *  The exception exists to avoid a flicker loop. Moving a rect that sits
+   *  under the cursor — or moving one so that it now covers the cursor — fires
+   *  pointerout/pointerover, which clears the hover, which reverts the order,
+   *  which fires them again. So the hover source and anything overlapping it
+   *  stay exactly where they are. The pin path has no hover source, so there
+   *  the whole set comes forward. */
+  const paintOrder = (() => {
+    if (highlightPuzzleId == null) return canvas.regions;
+    const hovered = hoverRegionId == null
+      ? undefined
+      : canvas.regions.find((r) => r.id === hoverRegionId);
+    const overlapsHover = (r: CanvasRegion) => {
+      if (!hovered) return false;
+      if (r.id === hovered.id) return true;
+      const [[ax1, ay1], [ax2, ay2]] = r.shape.points;
+      const [[bx1, by1], [bx2, by2]] = hovered.shape.points;
+      return ax1 < bx2 && bx1 < ax2 && ay1 < by2 && by1 < ay2;
+    };
+    const front = canvas.regions.filter((r) => r.puzzle_id === highlightPuzzleId && !overlapsHover(r));
+    if (front.length === 0) return canvas.regions;
+    const frontIds = new Set(front.map((r) => r.id));
+    return [...canvas.regions.filter((r) => !frontIds.has(r.id)), ...front];
+  })();
+
   return (
     <Stack gap="xs">
       <Group justify="space-between">
@@ -422,7 +454,7 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
             preserveAspectRatio="none"
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
           >
-            {canvas.regions.map((r) => {
+            {paintOrder.map((r) => {
               const [[x1, y1], [x2, y2]] = r.shape.points;
               const tint = tintFor(r.puzzle_id ? puzzlesById.get(r.puzzle_id) : undefined);
               // Every region linked to the hovered region's puzzle lights up
@@ -446,8 +478,8 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
                   strokeWidth={(grouped ? 4 : 2) / Math.max(dispW, 1)}
                   vectorEffect="non-scaling-stroke"
                   style={{ cursor: "pointer", pointerEvents: "all" }}
-                  onPointerEnter={() => setHoverPuzzleId(r.puzzle_id ?? null)}
-                  onPointerLeave={() => setHoverPuzzleId(null)}
+                  onPointerEnter={() => { setHoverPuzzleId(r.puzzle_id ?? null); setHoverRegionId(r.id); }}
+                  onPointerLeave={() => { setHoverPuzzleId(null); setHoverRegionId(null); }}
                   onPointerDown={(e) => {
                     if (drawing) return;             // drawing over a region wins
                     e.stopPropagation();             // don't start a pan
