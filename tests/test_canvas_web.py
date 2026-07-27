@@ -357,6 +357,26 @@ class TestCreatePuzzleFromRegion:
         assert args[2] is None
         create.gdb.get_by_attr.assert_not_called()
 
+    async def test_an_omitted_role_defaults_to_informs(self, web, create):
+        """Nothing covered the default in either direction before. It matters:
+        a locates region is geometry only — no crop, no evidence row, nothing
+        the puzzle can see — so defaulting to it silently discarded the part of
+        the picture the user had just drawn a box around."""
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2})
+        assert resp.status_code == 201
+        assert create.upd.call_args.kwargs["role"] == "informs"
+
+    async def test_an_explicit_locates_is_still_honoured(self, web, create):
+        """Paired with the default test above: a version that hard-coded
+        informs, rather than defaulting to it, would pass that one alone."""
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 201
+        assert create.upd.call_args.kwargs["role"] == "locates"
+
     async def test_links_the_region_to_the_new_puzzle(self, web, create):
         await web.client.post(
             "/api/canvases/3/regions/5/create-puzzle",

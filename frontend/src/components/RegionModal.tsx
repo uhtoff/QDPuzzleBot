@@ -51,7 +51,10 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
   const [puzzleId, setPuzzleId] = useState<string | null>(null);
-  const [role, setRole] = useState<RegionRole>("locates");
+  // Informs by default: it keeps a crop of the region as evidence on the
+  // puzzle, where locates stores geometry and nothing else. Matches the
+  // server-side default in create_puzzle_from_region.
+  const [role, setRole] = useState<RegionRole>("informs");
   const [mode, setMode] = useState<LinkMode>("link");
   const [newName, setNewName] = useState("");
   const [roundId, setRoundId] = useState<string | null>(UNASSIGNED);
@@ -71,7 +74,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setLabel(region?.label ?? "");
     setNote(region?.note ?? "");
     setPuzzleId(region?.puzzle_id ? String(region.puzzle_id) : null);
-    setRole(region?.role ?? "locates");
+    setRole(region?.role ?? "informs");
     // Reflect an existing region's actual state, so an unlinked region does not
     // open showing "Existing puzzle". A freshly drawn shape still opens on
     // "link" — drawing a box in order to link it is the common case, and
@@ -259,9 +262,10 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
             <SegmentedControl
               value={role}
               onChange={(v) => setRole(v as RegionRole)}
+              // Default first.
               data={[
-                { label: "Locates", value: "locates" },
                 { label: "Informs", value: "informs" },
+                { label: "Locates", value: "locates" },
               ]}
             />
             <Text size="xs" c="dimmed">{ROLE_HELP[role]}</Text>

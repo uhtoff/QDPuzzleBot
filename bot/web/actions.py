@@ -2411,7 +2411,13 @@ async def create_puzzle_from_region(canvas_id, region_id):
 
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
-    role = body.get("role") or canvas_service.LOCATES
+    # Informs, not locates, when the client says nothing. A locates region is
+    # geometry and nothing else — it produces no crop, no evidence row and
+    # nothing the puzzle itself can see — so defaulting to it quietly threw away
+    # the part of the picture the user had just drawn a box around. Informs
+    # keeps that crop as evidence against the puzzle, which is recoverable;
+    # picking locates on purpose is not lossy in the same way.
+    role = body.get("role") or canvas_service.INFORMS
     if not name:
         return jsonify({"error": "empty_name"}), 400
     if role not in canvas_service.ROLES:

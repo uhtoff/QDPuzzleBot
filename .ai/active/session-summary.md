@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(canvas): highlight every region belonging to one puzzle @ f9ddc9a
+Status: in progress — docs: park the informs-edge/capstone question with its findings @ cf13043
 
 ## Goal
 

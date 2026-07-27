@@ -105,6 +105,31 @@ later; none are load-bearing now.
     `media` rows" tile addressing need to account for it) and `CanvasView.tsx` (source-crop
     instead of blind stretch). Not a one-line change — needs its own pass.
 
+## Region role default (changed 2026-07-27)
+
+**Informs is now the default role**, in `RegionModal` and in
+`create_puzzle_from_region`'s `body.get("role") or ...` fallback. It was locates.
+
+The reason is asymmetry of loss. A `locates` region is **geometry and nothing else**:
+every crop is gated on `role == INFORMS` (`actions.py` ~2308/2348/2453, `canvas.py` ~78),
+so locates produces no crop, no `media` row and no evidence row, and the puzzle itself
+cannot see the region at all — no thumbnail on the board, nothing in its channel or sheet
+tab. The link is one-directional, canvas → puzzle. Defaulting to it therefore discarded
+the part of the picture the user had just drawn a box around, whereas defaulting to
+informs keeps that crop as evidence, which is recoverable. Choosing locates deliberately
+is not lossy in the same way.
+
+Parked, deliberately, until the markup work shakes it out: **where a locates crop should
+surface** if it ever gets one (board thumbnail? the puzzle's channel? the sheet tab?), and
+**re-cropping on geometry edits** — a locates crop would need redoing whenever the box
+moves, unlike the informs crop, which is only redone when the *link* changes. The pieces
+exist already: `crop_bytes` is role-agnostic and `_crop_region_media` stores a standalone
+media row (`origin="canvas_crop"`).
+
+Nothing covered the old default in either direction, so two paired tests now pin it: an
+omitted role defaults to informs, and an explicit locates is still honoured (the pair is
+what rules out a hard-coded informs). Mutation-proved.
+
 ## Future enhancements (requested 2026-07-27, not started)
 
 User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
