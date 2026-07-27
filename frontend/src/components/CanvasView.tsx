@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button, Group, Loader, Stack, Text, Tooltip } from "@mantine/core";
+import { Box, Button, Group, Loader, Select, Stack, Text, Tooltip } from "@mantine/core";
 import { IconCrop, IconMinus, IconPlus, IconRefresh } from "@tabler/icons-react";
 import type { CanvasRegion, HuntCanvas, Puzzle, RegionShape } from "../types";
 
@@ -49,6 +49,12 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);
+  // Two ways in, one effect: hovering any region highlights its puzzle's whole
+  // set, and the toolbar picker pins a puzzle so the set stays lit while you
+  // pan around looking for the rest of it. Hover wins while it is active.
+  const [hoverPuzzleId, setHoverPuzzleId] = useState<number | null>(null);
+  const [pinnedPuzzleId, setPinnedPuzzleId] = useState<number | null>(null);
+  const highlightPuzzleId = hoverPuzzleId ?? pinnedPuzzleId;
   const [drawRect, setDrawRect] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
   const drag = useRef<null | { kind: "pan" | "draw"; sx: number; sy: number; ox: number; oy: number }>(null);
   // Active pointers by id, for pinch: two fingers down means pinch, never pan/draw.
@@ -271,6 +277,20 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
 
   const claimed = canvas.regions.filter((r) => r.puzzle_id).length;
 
+  /** Only puzzles that actually have regions on THIS canvas. Offering the
+   *  hunt's whole board would mostly be choices that highlight nothing. */
+  const puzzleHighlightOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    canvas.regions.forEach((r) => {
+      if (r.puzzle_id) seen.set(r.puzzle_id, puzzlesById.get(r.puzzle_id)?.name ?? `Puzzle ${r.puzzle_id}`);
+    });
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ value: String(id), label: name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [canvas.regions, puzzlesById]);
+
+  const highlightedCount = canvas.regions.filter((r) => r.puzzle_id === highlightPuzzleId).length;
+
   return (
     <Stack gap="xs">
       <Group justify="space-between">
@@ -290,10 +310,24 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
               </Button>
             </Tooltip>
           )}
+          {puzzleHighlightOptions.length > 0 && (
+            <Select
+              size="xs"
+              w={220}
+              placeholder="Highlight a puzzle…"
+              data={puzzleHighlightOptions}
+              value={pinnedPuzzleId != null ? String(pinnedPuzzleId) : null}
+              onChange={(v) => setPinnedPuzzleId(v ? Number(v) : null)}
+              searchable
+              clearable
+            />
+          )}
         </Group>
         <Group gap="lg">
           <Text size="sm" c="dimmed">
-            {claimed}/{canvas.regions.length} regions linked
+            {highlightPuzzleId != null
+              ? `${highlightedCount} region${highlightedCount === 1 ? "" : "s"} on this puzzle`
+              : `${claimed}/${canvas.regions.length} regions linked`}
           </Text>
           <Group gap="sm">
             {TINT_LEGEND.map((l) => (
@@ -387,19 +421,29 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
             {canvas.regions.map((r) => {
               const [[x1, y1], [x2, y2]] = r.shape.points;
               const tint = tintFor(r.puzzle_id ? puzzlesById.get(r.puzzle_id) : undefined);
+              // Every region linked to the hovered region's puzzle lights up
+              // together, which is the only way to see at a glance that four
+              // boxes scattered across a big sheet are all one puzzle.
+              // Deliberately keyed on the puzzle and not on the region id: an
+              // unlinked region has no siblings to gather, so hovering one
+              // highlights nothing extra rather than lighting up every other
+              // unlinked region on the canvas.
+              const grouped = highlightPuzzleId != null && r.puzzle_id === highlightPuzzleId;
               return (
                 <rect
                   key={r.id}
                   x={x1} y={y1} width={x2 - x1} height={y2 - y1}
                   fill={tint ?? "transparent"}
-                  fillOpacity={tint ? 0.28 : 0}
-                  stroke={tint ?? "#adb5bd"}
+                  fillOpacity={tint ? (grouped ? 0.45 : 0.28) : 0}
+                  stroke={grouped ? "#1971c2" : (tint ?? "#adb5bd")}
                   strokeDasharray={r.puzzle_id ? undefined : "0.004"}
                   // Stroke is in viewBox units, so it must be divided by the
                   // display size or it scales with the zoom into a solid slab.
-                  strokeWidth={2 / Math.max(dispW, 1)}
+                  strokeWidth={(grouped ? 4 : 2) / Math.max(dispW, 1)}
                   vectorEffect="non-scaling-stroke"
                   style={{ cursor: "pointer", pointerEvents: "all" }}
+                  onPointerEnter={() => setHoverPuzzleId(r.puzzle_id ?? null)}
+                  onPointerLeave={() => setHoverPuzzleId(null)}
                   onPointerDown={(e) => {
                     if (drawing) return;             // drawing over a region wins
                     e.stopPropagation();             // don't start a pan

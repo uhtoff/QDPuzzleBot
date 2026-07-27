@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(canvas,evidence): explicit "no puzzle" link, multi-line clue notes @ 6f59ac1
+Status: in progress — feat(evidence): name the canvas as a source, on the board and in Sheets @ be30da5
 
 ## Goal
 
