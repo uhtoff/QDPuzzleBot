@@ -73,14 +73,25 @@ def sync_region_image(region_id: int, puzzle_id, role: str, media_id) -> None:
     if puzzle_id is None or role != LOCATES:
         PuzzleImageJsonDb.delete_by_region(region_id)
         return
+    existing = PuzzleImageJsonDb.get_by_region(region_id)
+    if existing is not None:
+        if existing.puzzle_id == puzzle_id:
+            # The same link as before — leave the row completely alone so it
+            # keeps its place in the user's ordering. A note or label edit
+            # must not shuffle the strip.
+            return
+        # Relinked to a DIFFERENT puzzle. The row sits in the old puzzle's
+        # strip and cannot stay there: the unique index on source_region_id
+        # means there is only ever one row, so leaving it would show this
+        # section on the wrong puzzle rather than merely duplicating it.
+        PuzzleImageJsonDb.delete_by_region(region_id)
     if media_id is None:
-        # No crop yet (or it failed). Leave whatever link already exists
-        # alone rather than treat a crop failure as a reason to unlink.
-        return
-    if PuzzleImageJsonDb.get_by_region(region_id) is not None:
-        # Already linked — leave the existing row alone so it keeps its
-        # position in the strip.
+        # No crop yet, or it failed. Nothing to point a row at — and a crop
+        # failure must never fail the link that triggered it.
         return
     PuzzleImageJsonDb.create(
         puzzle_id=puzzle_id, media_id=media_id, source_region_id=region_id,
-        position=0)
+        # Appended, like a direct upload: a section arriving from the canvas
+        # should land at the end of the strip rather than jumping to the front
+        # of an order someone chose.
+        position=len(PuzzleImageJsonDb.get_by_puzzle(puzzle_id)))

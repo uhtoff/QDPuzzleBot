@@ -94,11 +94,37 @@ def test_detach_refuses_a_missing_image(db):
 
 def test_sync_region_image_creates_a_row_for_a_new_locates_link(db):
     db.get_by_region.return_value = None
+    db.get_by_puzzle.return_value = []
     puzzle_images.sync_region_image(
         region_id=7, puzzle_id=5, role="locates", media_id=10)
     db.create.assert_called_once_with(
         puzzle_id=5, media_id=10, source_region_id=7, position=0)
     db.delete_by_region.assert_not_called()
+
+
+def test_a_region_image_lands_at_the_end_of_an_existing_strip(db):
+    """Appended like a direct upload, not inserted at the front. Asserted
+    against a NON-EMPTY strip, because position 0 is indistinguishable from
+    'append' when the strip is empty — which is what the test above shows."""
+    db.get_by_region.return_value = None
+    db.get_by_puzzle.return_value = [_image(1), _image(2)]
+    puzzle_images.sync_region_image(
+        region_id=7, puzzle_id=5, role="locates", media_id=10)
+    assert db.create.call_args.kwargs["position"] == 2
+
+
+def test_relinking_a_locates_region_to_another_puzzle_moves_its_image(db):
+    """The row carries the OLD puzzle. There is only ever one row per region
+    (unique index), so leaving it would show this section on the wrong puzzle
+    rather than merely duplicating it."""
+    db.get_by_region.return_value = _image(
+        1, puzzle_id=5, media_id=10, source_region_id=7, position=3)
+    db.get_by_puzzle.return_value = []
+    puzzle_images.sync_region_image(
+        region_id=7, puzzle_id=9, role="locates", media_id=11)
+    db.delete_by_region.assert_called_once_with(7)
+    assert db.create.call_args.kwargs["puzzle_id"] == 9
+    assert db.create.call_args.kwargs["media_id"] == 11
 
 
 def test_sync_region_image_leaves_an_unchanged_locates_link_alone(db):
