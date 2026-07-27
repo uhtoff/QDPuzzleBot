@@ -476,13 +476,22 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
                 <rect
                   key={r.id}
                   x={x1} y={y1} width={x2 - x1} height={y2 - y1}
-                  fill={tint ?? "transparent"}
-                  fillOpacity={tint ? (grouped ? 0.45 : 0.28) : 0}
-                  stroke={grouped ? "#1971c2" : (tint ?? "#adb5bd")}
-                  strokeDasharray={r.puzzle_id ? undefined : "0.004"}
-                  // Stroke is in viewBox units, so it must be divided by the
-                  // display size or it scales with the zoom into a solid slab.
-                  strokeWidth={(grouped ? 4 : 2) / Math.max(dispW, 1)}
+                  // An unlinked region gets the unstarted grey rather than no
+                  // fill at all: with nothing drawn it was invisible, so a box
+                  // drawn before deciding what it is could not be found again.
+                  // Fainter than a linked one, and still dashed, so "nothing
+                  // claimed here" stays distinguishable from "a puzzle nobody
+                  // has started".
+                  fill={tint ?? "#868e96"}
+                  fillOpacity={tint ? (grouped ? 0.45 : 0.28) : 0.16}
+                  stroke={grouped ? "#1971c2" : (tint ?? "#868e96")}
+                  // Screen pixels, both of these: vectorEffect below takes the
+                  // stroke out of the viewBox's coordinate system entirely, so
+                  // it must NOT also be divided by the display width — doing
+                  // both gave a stroke ~0.002px wide, which is why no region
+                  // has ever shown a visible outline.
+                  strokeDasharray={r.puzzle_id ? undefined : "6 4"}
+                  strokeWidth={grouped ? 3 : 1.5}
                   vectorEffect="non-scaling-stroke"
                   style={{ cursor: "pointer", pointerEvents: "all" }}
                   onPointerEnter={() => { setHoverPuzzleId(r.puzzle_id ?? null); setHoverRegionId(r.id); }}
