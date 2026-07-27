@@ -26,9 +26,11 @@ def _canvas(id=3, hunt_id=10, media_id=7):
                            name="Extravaganza", note=None)
 
 
-def _region(id=5, canvas_id=3, puzzle_id=None, role=None, label=""):
+def _region(id=5, canvas_id=3, puzzle_id=None, role=None, label="",
+            crop_media_id=None):
     return SimpleNamespace(id=id, canvas_id=canvas_id, shape=json.dumps(RECT),
-                           label=label, note=None, puzzle_id=puzzle_id, role=role)
+                           label=label, note=None, puzzle_id=puzzle_id, role=role,
+                           crop_media_id=crop_media_id)
 
 
 @pytest.fixture
@@ -45,13 +47,19 @@ def web():
     app.register_blueprint(actions_bp)
 
     ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
-    cdb, rdb, mdb, hdb = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+    cdb, rdb, mdb, hdb, pidb = (MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+                               MagicMock())
     cdb.get_by_id.return_value = _canvas()
     cdb.create.return_value = _canvas()
     rdb.get_by_id.return_value = _region()
     rdb.get_by_canvas.return_value = [_region()]
     mdb.get_by_id.return_value = _media()
     hdb.get_by_attr.return_value = make_hunt(id=10)
+    # canvas_service.{create,update}_region always call
+    # puzzle_images.sync_region_image; without this it hits the real DAO and a
+    # real DB, whether or not the test cares about puzzle images.
+    pidb.get_by_region.return_value = None
+    pidb.get_by_puzzle.return_value = []
 
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
@@ -65,12 +73,13 @@ def web():
         patch("bot.store.CanvasRegionJsonDb", rdb),
         patch("bot.store.MediaJsonDb", mdb),
         patch("bot.store.HuntJsonDb", hdb),
+        patch("bot.core.puzzle_images.PuzzleImageJsonDb", pidb),
     ]
     for p in patches:
         p.start()
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
-                             cdb=cdb, rdb=rdb, mdb=mdb)
+                             cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb)
     finally:
         for p in patches:
             p.stop()
@@ -256,17 +265,19 @@ class TestRegionCropEvidence:
                 json={"shape": RECT, "puzzle_id": 9, "role": "informs"})
         assert create.call_args.kwargs["media_id"] == 99
 
-    async def test_creating_a_locates_region_does_not_crop(self, web):
-        """Cropping is only ever worth doing for the evidence an informs link
-        creates -- a locates region has no evidence row to attach it to."""
+    async def test_creating_a_locates_region_crops(self, web):
+        """A locates region IS the puzzle image -- without a crop it produces a
+        puzzle image row with nothing to show."""
         with patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
              patch("bot.core.canvas.EvidenceJsonDb"), \
-             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=99)) as crop:
             rdb.create.return_value = _region(puzzle_id=9, role="locates")
-            await web.client.post(
+            resp = await web.client.post(
                 "/api/canvases/3/regions",
                 json={"shape": RECT, "puzzle_id": 9, "role": "locates"})
-        crop.assert_not_awaited()
+        assert resp.status_code == 201
+        crop.assert_awaited_once_with(web.cdb.get_by_id.return_value, RECT)
 
     async def test_a_half_set_informs_link_does_not_crop(self, web):
         """This request is about to 400 for a half-set link -- cropping first
@@ -310,6 +321,55 @@ class TestRegionCropEvidence:
                 "/api/canvases/3/regions/5",
                 json={"puzzle_id": None, "role": None})
         crop.assert_not_awaited()
+
+    async def test_relinking_to_locates_crops(self, web):
+        """A locates link is what a puzzle image points at -- without a crop it
+        produces an image row with nothing to show."""
+        web.rdb.get_by_id.return_value = _region(puzzle_id=None, role=None)
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=88)) as crop:
+            upd.return_value = _region(puzzle_id=9, role="locates")
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "locates"})
+        crop.assert_awaited_once()
+        assert upd.call_args.kwargs["media_id"] == 88
+
+    async def test_relinking_to_locates_with_inked_existing_crop_does_not_recrop(
+            self, web):
+        """Ink is drawn on one specific image -- regenerating the crop under it
+        would leave every mark pointing at nothing it was drawn against."""
+        web.rdb.get_by_id.return_value = _region(
+            puzzle_id=None, role=None, crop_media_id=61)
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop, \
+             patch("bot.core.markup.list_marks", return_value=[SimpleNamespace(id=1)]):
+            upd.return_value = _region(puzzle_id=9, role="locates",
+                                       crop_media_id=61)
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "locates"})
+        crop.assert_not_awaited()
+        assert upd.call_args.kwargs["media_id"] == 61
+
+    async def test_relinking_to_locates_with_uninked_existing_crop_recrops(
+            self, web):
+        """Paired with the inked-crop test above: without this pairing, a guard
+        that never re-crops would pass the previous test alone."""
+        web.rdb.get_by_id.return_value = _region(
+            puzzle_id=None, role=None, crop_media_id=61)
+        with patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=88)) as crop, \
+             patch("bot.core.markup.list_marks", return_value=[]):
+            upd.return_value = _region(puzzle_id=9, role="locates",
+                                       crop_media_id=88)
+            await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "locates"})
+        crop.assert_awaited_once()
+        assert upd.call_args.kwargs["media_id"] == 88
 
 
 class TestCreatePuzzleFromRegion:
@@ -441,14 +501,16 @@ class TestCreatePuzzleFromRegion:
         crop.assert_awaited_once()
         assert create.upd.call_args.kwargs["media_id"] == 55
 
-    async def test_locates_does_not_crop(self, web, create):
-        """locates means the region IS the puzzle -- there is no evidence row
-        to attach a crop to."""
-        with patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+    async def test_locates_crops(self, web, create):
+        """locates means the region IS the puzzle image -- without a crop it
+        produces a puzzle image row with nothing to show."""
+        with patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=55)) as crop:
             await web.client.post(
                 "/api/canvases/3/regions/5/create-puzzle",
                 json={"name": "Hex maze", "round_id": 2, "role": "locates"})
-        crop.assert_not_awaited()
+        crop.assert_awaited_once()
+        assert create.upd.call_args.kwargs["media_id"] == 55
 
 
 class TestCropRegionMedia:
