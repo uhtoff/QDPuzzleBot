@@ -8,6 +8,27 @@
 
 ## Non-blocking
 
+- **Does an informs edge imply a Capstone? — raised 2026-07-27, parked, no code
+  changed.** Prompted by "when you create a puzzle with an informs edge that puzzle
+  should be a capstone surely?". Findings, so they are not re-derived later:
+  - A capstone is a property of a **group**, not a puzzle: `group.type == "Capstone"`,
+    with member puzzles carrying `informs` edges *at* it. `convert_to_capstone` flips a
+    meta's feeder edges `feeds → informs`. A capstone is fed by many.
+  - A region's `informs` **role is not a graph edge** — B2a: "an edge joins two puzzles,
+    a region is not one". `create_puzzle_from_region` (`bot/web/actions.py` ~2438) makes
+    a plain puzzle in the chosen round and logs evidence; no edge is created. Making that
+    puzzle a capstone would build an empty Capstone category around a new leaf puzzle.
+  - Informs edges are auto-created only in `link_informs_for_evidence`
+    (`puzzle_service.py` ~2993), and only when the target is **already** a group target —
+    otherwise `group is None` and it returns. So it never creates a capstone either.
+  - **The plausible real gap:** a `Metapuzzle` group that gains an informs edge via
+    evidence routing is a capstone by the codebase's own definition — `is_informed()`
+    (`puzzle_service.py:182`) says "a group with any informs-edge member is a 'capstone'
+    in the design vocabulary" — but its `type` stays `Metapuzzle`, so glyph and behaviour
+    stay meta. `is_informed()` is also **dead code: defined, called from nowhere.**
+    Whether to retype such groups, and whether to delete or wire up `is_informed`, is the
+    open decision.
+
 - **Concurrency limit on tiling.** Each job peaks around 360 MB. Nothing stops several
   uploads tiling at once. A semaphore in `media_tiling` would cap it; not added because no
   real load has demonstrated the need.
