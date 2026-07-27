@@ -27,6 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system packages
+        # pytesseract is only a wrapper — it shells out to the real `tesseract`
+        # binary, which the runner image does not ship, so tests/test_ocr.py
+        # fails with TesseractNotFoundError without this. The English language
+        # data is named explicitly rather than relied on as a recommended
+        # dependency: without it tesseract runs but reads nothing.
+        #
+        # libvips is NOT needed here — pyvips[binary] bundles its own.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
+          tesseract --version
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
