@@ -28,7 +28,7 @@ import {
   useUpdateEvidence,
   useUploadMedia,
 } from "../api";
-import { notifyError } from "../util";
+import { imageFromClipboard, notifyError } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -89,16 +89,10 @@ export function EvidencePanel({ uid, detail }: Props) {
    *  paste must still land in the note field.
    */
   function onCluePaste(e: React.ClipboardEvent) {
-    const items = Array.from(e.clipboardData?.items ?? []);
-    const image = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
-    if (!image) return;
-    const file = image.getAsFile();
+    const file = imageFromClipboard(e.clipboardData);
     if (!file) return;
     e.preventDefault();
-    // A pasted screenshot usually arrives named "image.png" or unnamed. The
-    // server sniffs magic bytes and renames via safe_filename, so the name here
-    // is cosmetic — but give an unnamed blob something to show in the input.
-    setClueFile(file.name ? file : new File([file], "pasted.png", { type: file.type }));
+    setClueFile(file);
   }
 
   /** OCR the attached/pasted image and fill the clue note with the result.
@@ -516,7 +510,24 @@ const EvidenceRow = memo(function EvidenceRow({
     <Table.Tr>
       <Table.Td>{sourceLabel(item)}</Table.Td>
       <Table.Td>
-        <Stack gap={4} align="flex-start">
+        {/* Focus this cell (click the blank space beside the thumbnail, or Tab
+            to it) and Ctrl+V to swap the picture. A paste fires only at the
+            focused element, and a table of rows has no other way to say WHICH
+            row a pasted screenshot belongs to — so the cell has to be the
+            target rather than the panel. */}
+        <Stack
+          gap={4}
+          align="flex-start"
+          tabIndex={editable ? 0 : undefined}
+          title={editable ? "Paste an image here to replace it" : undefined}
+          onPaste={editable ? (e) => {
+            const file = imageFromClipboard(e.clipboardData);
+            if (!file) return;
+            e.preventDefault();
+            onReplaceImage(item.id, file);
+          } : undefined}
+          style={{ outlineOffset: 2 }}
+        >
           {item.media_url ? (
             // The thumbnail IS the affordance: clicking it opens the markup
             // view, which shows the image far larger than the browser's own
@@ -559,7 +570,8 @@ const EvidenceRow = memo(function EvidenceRow({
               accept="image/png,image/jpeg,image/gif,image/webp"
             >
               {(props) => (
-                <Button {...props} size="compact-xs" variant="subtle">
+                <Button {...props} size="compact-xs" variant="subtle"
+                        title="Pick a file, or focus this cell and paste">
                   {item.media_url ? "Replace" : "Add image"}
                 </Button>
               )}

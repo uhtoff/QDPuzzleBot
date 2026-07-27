@@ -2,6 +2,39 @@ import { notifications } from "@mantine/notifications";
 import type { BoardGroup, Puzzle } from "./types";
 
 /**
+ * The image file in a clipboard payload, or null if there wasn't one.
+ *
+ * Mantine's FileInput and FileButton are file pickers with no clipboard
+ * handling, so every place that accepts an uploaded image needs this to
+ * support Ctrl+V — which is the natural flow for a screenshot, and the one
+ * Discord's !clue already supports.
+ *
+ * A pasted screenshot usually arrives unnamed or as "image.png". The server
+ * sniffs magic bytes and renames via safe_filename, so the name is cosmetic —
+ * but an unnamed blob needs something to show in the UI.
+ */
+export function imageFromClipboard(data: DataTransfer | null): File | null {
+  const items = Array.from(data?.items ?? []);
+  const image = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
+  const file = image?.getAsFile();
+  if (!file) return null;
+  return file.name ? file : new File([file], "pasted.png", { type: file.type });
+}
+
+/**
+ * Whether a paste landed in something the user is typing into.
+ *
+ * A panel-level paste listener must ignore these, or pasting text into a note
+ * or a rename field would be hijacked by whatever the panel does with images.
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || el.isContentEditable;
+}
+
+/**
  * How many puzzles a full "delete round + all its puzzles" actually deletes.
  *
  * Mirrors the backend delete predicate (puzzle_service.delete_round with

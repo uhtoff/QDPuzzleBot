@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -32,7 +32,7 @@ import {
   useReorderPuzzleImages,
   useUploadMedia,
 } from "../api";
-import { notifyError } from "../util";
+import { imageFromClipboard, isTextEntryTarget, notifyError } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -133,7 +133,7 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  async function onAddImage(file: File | null) {
+  const onAddImage = useCallback(async (file: File | null) => {
     if (!file) return;
     try {
       const media = await uploadMedia.mutateAsync(file);
@@ -141,7 +141,31 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
     } catch (err) {
       notifyError(err);
     }
-  }
+  }, [uploadMedia, attach]);
+
+  /** Paste a screenshot anywhere in the open drawer to add it.
+   *
+   *  A document listener rather than one on the strip: a paste fires at the
+   *  focused element, and focus is almost never inside a thumbnail strip. The
+   *  drawer traps focus while it is open and this component only exists while
+   *  it is open, so the listener is scoped in practice to exactly that.
+   *
+   *  Pastes into a text field are left alone — the drawer holds the rename box
+   *  and the note field, and hijacking those would be worse than not having
+   *  this at all.
+   */
+  useEffect(() => {
+    if (!editable) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (isTextEntryTarget(e.target)) return;
+      const file = imageFromClipboard(e.clipboardData);
+      if (!file) return;
+      e.preventDefault();
+      void onAddImage(file);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [editable, onAddImage]);
 
   function onDragEnd(e: DragEndEvent) {
     const { active, over } = e;
