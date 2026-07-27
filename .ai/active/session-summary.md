@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — docs: park the informs-edge/capstone question with its findings @ cf13043
+Status: in progress — fix(markup): gate the Mark up button on an unarchived hunt @ c6fb31f
 
 ## Goal
 
@@ -300,6 +300,57 @@ The remaining three non-design items. Backend work here IS test-covered.
 
 Mutation-proved: the filename fallback branch, the cross-hunt media guard, and the
 absent-key semantics — each red for the right reason, each restored.
+
+## Image markup — code complete 2026-07-27, NOT browser-verified
+
+Design: `docs/superpowers/specs/2026-07-27-canvas-markup-design.md`.
+Plan: `docs/superpowers/plans/2026-07-27-image-markup.md` (12 tasks; 11 implemented, 1 dropped).
+Built subagent-driven, cheap models for mechanical tasks, each task verified by the controller
+rather than on the implementer's report. Commits `8dc986b` → `c6fb31f`.
+
+**What shipped.** Purely-visual markup — pen, line, arrow, highlighter, text box, eraser, undo —
+on any stored image, reachable today from a "Mark up" button on an evidence row.
+
+- `media_markup` (034), keyed on `media_id`, normalised 0-1 coordinates. Highlighter is a style
+  preset, arrow is a style flag: neither is a `kind`.
+- `bot/core/markup_shape.py` — pure validator. Over-cap strokes are **refused, not truncated**
+  (`MAX_POINTS = 2000`); colours matched against strict hex because they land in an SVG attribute.
+- `bot/core/markup.py` — service. Ownership (`mark belongs to media`) is checked here, not only
+  in the route, because a mark id is client-supplied.
+- Routes on `/api/media/<id>/markup` — GET in `api.py`, mutations in `actions.py`, gated by the
+  same bar as the image bytes (visible unarchived hunt, NOT organiser) and pushing `_push_board`.
+- `MarkupCanvas.tsx` / `MarkupModal.tsx`, plus the entry point in `EvidencePanel.tsx`.
+
+**Decisions taken during implementation, both recorded in the spec:**
+
+1. **Task 7 dropped.** It would have serialised media dimensions onto the evidence payload, but
+   `get_evidence` never loads a media row and `MySQLMediaDb` has no batched lookup — it would
+   have cost a DAO method, a resolver and a second query on every board load. The browser knows
+   the image's natural size; the container shrink-wraps the `<img>` and the overlay is `inset: 0`.
+2. **The image must NOT use `object-fit: contain`.** It letterboxes inside the element box, so
+   `getBoundingClientRect()` returns the padded box and every stroke lands offset from the
+   cursor. Sized with `max-width`/`max-height` instead. This is the single most breakable thing
+   in the component and it is inspection-only.
+
+**Structure that must not be "simplified":** frame (70vh, clips, owns pointer handlers) →
+shrink-wrap div (`inline-block`, carries the zoom transform) → `<img>` + `<svg viewBox="0 0 1 1">`.
+`toNorm` reads the *image's* rect, which already includes the transform — adding zoom arithmetic
+there would double-apply it.
+
+**Gates:** full suite **1472 passed**, ruff clean, basedpyright 0 errors, `tsc --noEmit` and
+`npm run build` clean. Mutation-proved: the point cap (mutate `_points` to truncate — mutating
+`MAX_POINTS` proves nothing, the test derives its input from it), the service ownership check,
+and the archived-hunt bar.
+
+**THE OUTSTANDING WORK: the browser pass (plan Task 12).** No one has drawn a single stroke in a
+real browser. The critical check is **draw while zoomed in, then zoom out** — a coordinate bug
+only shows at non-default zoom, and no automated check in this repo can catch it. Also unchecked:
+arrowhead direction, eraser hitting the right mark, live sync between two browsers, and whether
+ctrl+wheel zooms without triggering the browser's own page zoom.
+
+**Follow-up plan, not started:** puzzle images (`puzzle_images`, `canvas_regions.crop_media_id`,
+crops for `locates` regions, the region↔puzzle_images sync, the `PuzzleDrawer` strip). Spec is
+written; it reuses `MarkupModal` unchanged.
 
 ## Known gaps and risks
 
