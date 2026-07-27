@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — fix(markup): gate the Mark up button on an unarchived hunt @ c6fb31f
+Status: in progress — feat(puzzle-images): show a puzzle's images in the drawer @ ba04719
 
 ## Goal
 
@@ -351,6 +351,47 @@ ctrl+wheel zooms without triggering the browser's own page zoom.
 **Follow-up plan, not started:** puzzle images (`puzzle_images`, `canvas_regions.crop_media_id`,
 crops for `locates` regions, the region↔puzzle_images sync, the `PuzzleDrawer` strip). Spec is
 written; it reuses `MarkupModal` unchanged.
+
+## Puzzle images — code complete 2026-07-27, NOT browser-verified
+
+Plan: `docs/superpowers/plans/2026-07-27-puzzle-images.md` (9 tasks, 8 implemented + verification).
+Commits `79e9440` → `ba04719`. Suite **1508 passed**, ruff clean, basedpyright 0, `tsc`/`npm run
+build` clean.
+
+A puzzle now carries an **ordered set of images** from two sources — a `locates` region's crop and
+a direct upload — shown as a strip in `PuzzleDrawer`, each thumbnail opening the markup view.
+
+- `puzzle_images` (035) is **materialised**, not derived from `canvas_regions`: the list mixes two
+  sources and has a user-chosen order. `UNIQUE(source_region_id)` makes the sync idempotent.
+- `canvas_regions.crop_media_id` (035) records a region's crop so it can be found at all.
+- `bot/core/puzzle_images.py` — attach/reorder/detach/list + `sync_region_image`. Defines
+  `LOCATES` locally to keep the import direction `canvas.py → puzzle_images.py`.
+- `canvas.py` calls the sync beside its existing evidence coupling, on a link change only.
+- Crops now run for `locates` as well as `informs`, with a **never re-crop under ink** guard.
+- Routes `/api/puzzles/<id>/images` (GET/POST/PATCH/DELETE) via `_visible_hunt_for_puzzle`, the
+  helper the other puzzle routes already use. Cross-hunt media guard + archived bar, both
+  mutation-proved.
+- `@dnd-kit/sortable@10.0.0` added (15-line lockfile diff, nothing else bumped).
+
+**Two real bugs found by review, not by the implementers:**
+
+1. `sync_region_image` treated ANY existing row as "already linked" — relinking a locates region
+   from puzzle A to B left the image on **A**. One row per region (unique index), so it showed on
+   the wrong puzzle rather than duplicating. Fixed `3e46fdd`.
+2. `update_region` wrote `crop_media_id` through unconditionally, so a note or label edit passed
+   `None` and **blanked the column** — orphaning the crop and disarming the ink guard, which would
+   then silently protect nothing. Absent now means unchanged. Fixed `87bc543`.
+
+**Latent hazard found on the way:** `tests/test_canvas_web.py`'s fixture only isolates the DAOs
+someone named. Once locates started cropping, `sync_region_image` attempted a **real MySQL
+insert** in those tests. Patched, but the fixture is not proof against the next unpatched DAO.
+
+**THE OUTSTANDING WORK — the browser pass (plan Task 9).** Nothing in the strip is behaviourally
+verified. Critical: **drag to reorder, then RELOAD** — a reorder that never persisted looks
+identical until you reload. Also unverified: click-vs-drag (5px activation constraint), the
+canvas-source badge, `FileButton` resetting between uploads, and relink/role-change moving or
+removing an image live. Still open from the markup work too: arrowhead direction, and two-browser
+live sync.
 
 ## Known gaps and risks
 
