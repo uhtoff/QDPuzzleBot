@@ -9,6 +9,7 @@ path will take again internally.
 """
 import logging
 
+from bot.core import puzzle_images
 from bot.core.canvas_shape import parse_shape
 from bot.store import CanvasRegionJsonDb, EvidenceJsonDb
 
@@ -74,9 +75,10 @@ def create_region(canvas_id: int, hunt_id: int, shape, label: str = "",
     stored = parse_shape(shape)
     region = CanvasRegionJsonDb.create(
         canvas_id=canvas_id, shape=stored, label=label, note=note,
-        puzzle_id=puzzle_id, role=role)
+        puzzle_id=puzzle_id, role=role, crop_media_id=media_id)
     if role == INFORMS:
         _log_informs_evidence(hunt_id, region.id, puzzle_id, note, media_id=media_id)
+    puzzle_images.sync_region_image(region.id, puzzle_id, role or "", media_id)
     return region
 
 
@@ -103,11 +105,14 @@ def update_region(region_id: int, hunt_id: int, shape, label: str = "",
     stored = parse_shape(shape)
     link_changed = (existing.puzzle_id != puzzle_id or existing.role != role)
     CanvasRegionJsonDb.update(region_id, shape=stored, label=label, note=note,
-                              puzzle_id=puzzle_id, role=role)
+                              puzzle_id=puzzle_id, role=role,
+                              crop_media_id=media_id)
     if link_changed and existing.role == INFORMS:
         EvidenceJsonDb.delete_by_region(region_id)
     if link_changed and role == INFORMS:
         _log_informs_evidence(hunt_id, region_id, puzzle_id, note, media_id=media_id)
+    if link_changed:
+        puzzle_images.sync_region_image(region_id, puzzle_id, role or "", media_id)
     return CanvasRegionJsonDb.get_by_id(region_id)
 
 

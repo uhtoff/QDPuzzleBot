@@ -25,16 +25,17 @@ def _region(region_id=5, puzzle_id=None, role=None, canvas_id=2):
 
 @pytest.fixture
 def dbs():
-    regions, evidence = MagicMock(), MagicMock()
+    regions, evidence, images = MagicMock(), MagicMock(), MagicMock()
     # log() returns the row so the service can set_target on it, as log_clues does.
     evidence.log.return_value = MagicMock(id=77)
     with patch.object(canvas, "CanvasRegionJsonDb", regions), \
-         patch.object(canvas, "EvidenceJsonDb", evidence):
-        yield regions, evidence
+         patch.object(canvas, "EvidenceJsonDb", evidence), \
+         patch.object(canvas, "puzzle_images", images):
+        yield regions, evidence, images
 
 
 def test_creating_an_unlinked_region_stores_normalised_geometry(dbs):
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.create.return_value = _region()
     canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT)
     assert json.loads(regions.create.call_args.kwargs["shape"]) == RECT
@@ -44,17 +45,34 @@ def test_creating_an_unlinked_region_stores_normalised_geometry(dbs):
 
 def test_a_locates_region_creates_no_evidence(dbs):
     """locates means the region IS the puzzle. There is no fact to record."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.create.return_value = _region(puzzle_id=9, role="locates")
     canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="locates")
     evidence.log.assert_not_called()
 
 
+def test_a_locates_region_syncs_its_puzzle_image(dbs):
+    regions, evidence, images = dbs
+    regions.create.return_value = _region(region_id=5, puzzle_id=9, role="locates")
+    canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="locates", media_id=123)
+    images.sync_region_image.assert_called_once_with(5, 9, "locates", 123)
+
+
+def test_creating_a_locates_region_stores_its_crop_on_the_region(dbs):
+    """The column records the region's own crop, not the evidence's."""
+    regions, evidence, images = dbs
+    regions.create.return_value = _region(region_id=5, puzzle_id=9, role="locates")
+    canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="locates", media_id=123)
+    assert regions.create.call_args.kwargs["crop_media_id"] == 123
+
+
 def test_an_informs_region_creates_a_real_evidence_row(dbs):
     """So routing, the evidence panel and the contribution table need no special
     cases: an informs-region IS a piece of evidence about its target."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.create.return_value = _region(region_id=5, puzzle_id=9, role="informs")
     canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT, note="TRANSCRIPTION",
                          puzzle_id=9, role="informs")
@@ -71,17 +89,37 @@ def test_an_informs_region_creates_a_real_evidence_row(dbs):
 def test_an_informs_region_forwards_a_caller_supplied_media_id(dbs):
     """The crop is the caller's job (an async, I/O-bound step this
     lock-free/synchronous module does not do) -- this just has to pass it on."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.create.return_value = _region(region_id=5, puzzle_id=9, role="informs")
     canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="informs", media_id=123)
     assert evidence.log.call_args.kwargs["media_id"] == 123
 
 
+def test_an_informs_region_still_forwards_to_sync_which_removes_any_image_row(dbs):
+    """canvas.py never decides for itself whether a row should exist --
+    sync_region_image (tested on its own in test_puzzle_images.py) owns that;
+    here we only confirm the informs role and media are forwarded to it."""
+    regions, evidence, images = dbs
+    regions.create.return_value = _region(region_id=5, puzzle_id=9, role="informs")
+    canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="informs", media_id=123)
+    images.sync_region_image.assert_called_once_with(5, 9, "informs", 123)
+
+
+def test_an_informs_region_still_stores_its_crop_on_the_region(dbs):
+    """crop_media_id records the region's crop for either role."""
+    regions, evidence, images = dbs
+    regions.create.return_value = _region(region_id=5, puzzle_id=9, role="informs")
+    canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="informs", media_id=123)
+    assert regions.create.call_args.kwargs["crop_media_id"] == 123
+
+
 def test_an_informs_region_creates_no_informs_edge(dbs):
     """An informs EDGE joins two puzzles, and a region is not one. The target
     gains a contribution row without gaining a member — intended."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.create.return_value = _region(puzzle_id=9, role="informs")
     canvas.create_region(canvas_id=2, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="informs")
@@ -111,7 +149,7 @@ def test_bad_geometry_propagates(dbs):
 def test_changing_informs_to_locates_deletes_the_evidence_row(dbs):
     """The evidence row exists BECAUSE of the informs link. Leaving it would
     strand a fact about a puzzle the region no longer informs."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="locates")
@@ -119,8 +157,36 @@ def test_changing_informs_to_locates_deletes_the_evidence_row(dbs):
     evidence.log.assert_not_called()
 
 
+def test_changing_locates_to_informs_syncs_the_puzzle_image(dbs):
+    """Relinking away from locates must drop the image row -- delegated to
+    sync_region_image, which canvas.py must actually call on this link change."""
+    regions, evidence, images = dbs
+    regions.get_by_id.return_value = _region(puzzle_id=9, role="locates")
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="informs")
+    images.sync_region_image.assert_called_once_with(5, 9, "informs", None)
+
+
+def test_clearing_the_link_syncs_the_puzzle_image(dbs):
+    regions, evidence, images = dbs
+    regions.get_by_id.return_value = _region(puzzle_id=9, role="locates")
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
+                         puzzle_id=None, role=None)
+    images.sync_region_image.assert_called_once_with(5, None, "", None)
+
+
+def test_an_unchanged_locates_link_does_not_touch_the_puzzle_image(dbs):
+    """A note/label edit with the link unchanged must not call sync_region_image
+    at all -- the image row's position must not be disturbed."""
+    regions, evidence, images = dbs
+    regions.get_by_id.return_value = _region(puzzle_id=9, role="locates")
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT, label="moved",
+                         puzzle_id=9, role="locates")
+    images.sync_region_image.assert_not_called()
+
+
 def test_relinking_an_informs_region_replaces_its_evidence_row(dbs):
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=11, role="informs")
@@ -129,7 +195,7 @@ def test_relinking_an_informs_region_replaces_its_evidence_row(dbs):
 
 
 def test_clearing_the_link_deletes_the_evidence_row(dbs):
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=None, role=None)
@@ -138,7 +204,7 @@ def test_clearing_the_link_deletes_the_evidence_row(dbs):
 
 
 def test_locates_to_informs_creates_the_evidence_row(dbs):
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="locates")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=9, role="informs")
@@ -146,7 +212,7 @@ def test_locates_to_informs_creates_the_evidence_row(dbs):
 
 
 def test_relinking_an_informs_region_forwards_a_caller_supplied_media_id(dbs):
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
                          puzzle_id=11, role="informs", media_id=456)
@@ -157,7 +223,7 @@ def test_an_unchanged_informs_link_keeps_its_evidence_row(dbs):
     """Editing only the note or the rectangle must not churn the evidence row --
     deleting and recreating it would change its id and lose its place in the
     contribution table."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     regions.get_by_id.return_value = _region(puzzle_id=9, role="informs")
     canvas.update_region(region_id=5, hunt_id=1, shape=RECT, label="moved",
                          puzzle_id=9, role="informs")
@@ -165,8 +231,16 @@ def test_an_unchanged_informs_link_keeps_its_evidence_row(dbs):
     evidence.log.assert_not_called()
 
 
+def test_updating_a_region_stores_its_crop_on_the_region(dbs):
+    regions, evidence, images = dbs
+    regions.get_by_id.return_value = _region(puzzle_id=9, role="locates")
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
+                         puzzle_id=9, role="locates", media_id=456)
+    assert regions.update.call_args.kwargs["crop_media_id"] == 456
+
+
 def test_updating_a_missing_region_is_rejected(dbs):
-    regions, _ = dbs
+    regions, _, _ = dbs
     regions.get_by_id.return_value = None
     with pytest.raises(canvas.RegionRejected):
         canvas.update_region(region_id=5, hunt_id=1, shape=RECT)
@@ -175,7 +249,7 @@ def test_updating_a_missing_region_is_rejected(dbs):
 def test_deleting_a_region_relies_on_the_fk_cascade(dbs):
     """No explicit evidence delete: evidence_items.source_region_id is ON DELETE
     CASCADE, so a second delete here would be dead code pretending to matter."""
-    regions, evidence = dbs
+    regions, evidence, images = dbs
     canvas.delete_region(5)
     regions.delete.assert_called_once_with(5)
     evidence.delete_by_region.assert_not_called()
