@@ -36,6 +36,8 @@ class CanvasRegionData:
     puzzle_id: Optional[int] = None
     # 'locates' or 'informs'; None exactly when puzzle_id is None.
     role: Optional[str] = None
+    # The region's extracted crop, written by the web layer.
+    crop_media_id: Optional[int] = None
     created_at: Optional[datetime.datetime] = None
 
     @classmethod

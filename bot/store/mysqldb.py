@@ -21,6 +21,7 @@ from .evidence_data import EvidenceData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
+from .puzzle_image_data import PuzzleImageData
 
 logger = logging.getLogger(__name__)
 
@@ -1139,15 +1140,15 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
     TABLE_NAME = 'canvas_regions'
 
     def create(self, canvas_id: int, shape: str, label: str = "", note=None,
-               puzzle_id=None, role=None) -> 'CanvasRegionData':
+               puzzle_id=None, role=None, crop_media_id=None) -> 'CanvasRegionData':
         now = datetime.datetime.utcnow()
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "INSERT INTO canvas_regions"
-                " (canvas_id, shape, label, note, puzzle_id, role, created_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (canvas_id, shape, label, note, puzzle_id, role, now),
+                " (canvas_id, shape, label, note, puzzle_id, role, crop_media_id, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (canvas_id, shape, label, note, puzzle_id, role, crop_media_id, now),
             )
             new_id = cursor.lastrowid
         finally:
@@ -1157,6 +1158,7 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         r.id = new_id or 0
         r.canvas_id, r.shape, r.label, r.note = canvas_id, shape, label, note
         r.puzzle_id, r.role = puzzle_id, role
+        r.crop_media_id = crop_media_id
         r.created_at = now.replace(tzinfo=datetime.timezone.utc)
         return r
 
@@ -1181,13 +1183,13 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         return [CanvasRegionData.import_dict(r) for r in rows]
 
     def update(self, region_id: int, shape: str, label: str, note,
-               puzzle_id, role) -> None:
+               puzzle_id, role, crop_media_id=None) -> None:
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
                 "UPDATE canvas_regions SET shape = %s, label = %s, note = %s,"
-                " puzzle_id = %s, role = %s WHERE id = %s",
-                (shape, label, note, puzzle_id, role, region_id))
+                " puzzle_id = %s, role = %s, crop_media_id = %s WHERE id = %s",
+                (shape, label, note, puzzle_id, role, crop_media_id, region_id))
         finally:
             cursor.close()
         self.mydb.commit()
@@ -1238,6 +1240,95 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         finally:
             cursor.close()
         return {r["id"]: _region_display_name(r) for r in rows}
+
+
+class MySQLPuzzleImageDb(_MySQLBaseDb):
+    TABLE_NAME = 'puzzle_images'
+
+    def create(self, puzzle_id: int, media_id: int, source_region_id=None,
+               position: int = 0) -> 'PuzzleImageData':
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO puzzle_images"
+                " (puzzle_id, media_id, source_region_id, position, created_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (puzzle_id, media_id, source_region_id, position, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        p = PuzzleImageData()
+        p.id = new_id or 0
+        p.puzzle_id, p.media_id = puzzle_id, media_id
+        p.source_region_id, p.position = source_region_id, position
+        p.created_at = now.replace(tzinfo=datetime.timezone.utc)
+        return p
+
+    def get_by_puzzle(self, puzzle_id: int) -> list:
+        """The puzzle's images in display order. `position` first, then id, so
+        rows created before anyone reordered still have a stable order."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM puzzle_images WHERE puzzle_id = %s"
+                " ORDER BY position, id", (puzzle_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [PuzzleImageData.import_dict(r) for r in rows]
+
+    def get_by_id(self, image_id: int):
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("SELECT * FROM puzzle_images WHERE id = %s", (image_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return PuzzleImageData.import_dict(row) if row else None
+
+    def get_by_region(self, region_id: int):
+        """At most one row per region — enforced by the unique index."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM puzzle_images WHERE source_region_id = %s", (region_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return PuzzleImageData.import_dict(row) if row else None
+
+    def set_positions(self, ordered_ids) -> None:
+        """Write a whole ordering at once. Whole-list rather than per-item so a
+        half-applied reorder cannot leave the list in an order nobody chose."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            for index, image_id in enumerate(ordered_ids):
+                cursor.execute(
+                    "UPDATE puzzle_images SET position = %s WHERE id = %s",
+                    (index, image_id))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete(self, image_id: int) -> None:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("DELETE FROM puzzle_images WHERE id = %s", (image_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete_by_region(self, region_id: int) -> None:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM puzzle_images WHERE source_region_id = %s", (region_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
 
 
 class MySQLMediaMarkupDb(_MySQLBaseDb):
