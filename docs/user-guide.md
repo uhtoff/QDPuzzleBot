@@ -300,6 +300,8 @@ An organiser uploads the image, and then anyone on the team can draw boxes round
 puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
 sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
 
+![Canvas](img/userguide/11-canvas.jpg)
+
 Click **Draw a region** and drag a box round something. You are then asked what it is:
 
 - **this section is the puzzle** — the box *is* a puzzle. Its picture appears on that
