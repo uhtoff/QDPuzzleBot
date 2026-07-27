@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Button, ColorSwatch, Group, Slider, Stack, Text, Textarea } from "@mantine/core";
 import {
   IconArrowUpRight, IconEraser, IconHighlight, IconLine, IconPencil,
@@ -63,6 +63,39 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const drawing = useRef(false);
 
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panning = useRef<null | { sx: number; sy: number; ox: number; oy: number }>(null);
+
+  /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
+   *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
+  const zoomAt = useCallback((factor: number, ax: number, ay: number) => {
+    setZoom((z) => {
+      const next = Math.min(8, Math.max(1, z * factor));
+      setPan((p) => ({
+        x: ax - ((ax - p.x) * next) / z,
+        y: ay - ((ay - p.y) * next) / z,
+      }));
+      return next;
+    });
+  }, []);
+
+  // A raw non-passive DOM listener, NOT React's onWheel: the synthetic wheel
+  // listener is passive, so preventDefault silently no-ops there and the
+  // browser's own page zoom fires underneath. This bit the canvas viewer.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;               // plain scroll still scrolls the modal
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - rect.left, e.clientY - rect.top);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
+
   /** Pointer position as normalised image coordinates. getBoundingClientRect
    *  already reflects any CSS transform, so this stays correct at every zoom. */
   const toNorm = useCallback((e: React.PointerEvent): [number, number] | null => {
@@ -85,6 +118,13 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   }, [createMark, tool, colour, width_]);
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (!tool) {
+      const rect = frameRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      panning.current = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
     const at = toNorm(e);
     if (!at || !tool) return;
     if (tool === "eraser") return;                    // handled per-mark below
@@ -102,6 +142,11 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (panning.current) {
+      const p = panning.current;
+      setPan({ x: p.ox + (e.clientX - p.sx), y: p.oy + (e.clientY - p.sy) });
+      return;
+    }
     if (!drawing.current) return;
     const at = toNorm(e);
     if (!at) return;
@@ -116,6 +161,7 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   };
 
   const onPointerUp = () => {
+    if (panning.current) { panning.current = null; return; }
     if (!drawing.current) return;
     drawing.current = false;
     const points = stroke;
@@ -169,6 +215,12 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
                 onClick={() => setTool("eraser")}>Erase</Button>
         <Button size="xs" variant="default" leftSection={<IconArrowBackUp size={14} />}
                 onClick={undo}>Undo</Button>
+        <Button size="xs" variant={tool === null ? "filled" : "light"}
+                onClick={() => setTool(null)}>Pan</Button>
+        <Button size="xs" variant="default" onClick={() => zoomAt(1.4, 0, 0)}>+</Button>
+        <Button size="xs" variant="default" onClick={() => zoomAt(1 / 1.4, 0, 0)}>−</Button>
+        <Button size="xs" variant="default"
+                onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</Button>
         <Group gap={4}>
           {COLOURS.map((c) => (
             <ColorSwatch key={c} color={c} size={18} style={{ cursor: "pointer" }}
@@ -195,12 +247,15 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
         style={{ position: "relative", width: "100%", height: "70vh",
                  overflow: "hidden", display: "flex",
                  alignItems: "center", justifyContent: "center",
-                 touchAction: "none", cursor: tool === "eraser" ? "pointer" : "crosshair" }}
+                 touchAction: "none",
+                 cursor: tool === null ? "grab" : tool === "eraser" ? "pointer" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
-       <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                     transformOrigin: "0 0" }}>
         <img ref={imgRef} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
              style={{ display: "block", maxWidth: "100%", maxHeight: "70vh",
                       width: "auto", height: "auto", userSelect: "none" }} />
