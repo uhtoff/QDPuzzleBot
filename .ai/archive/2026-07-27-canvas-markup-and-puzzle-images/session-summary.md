@@ -3,7 +3,8 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(images): paste a screenshot to replace or add an image @ 53cf512
+Status: COMPLETE — canvas markup, puzzle images and the user guide all shipped,
+browser-verified and merged to main @ e9f1afc. Archived 2026-07-27.
 
 ## Goal
 
