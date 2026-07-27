@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, RegionRole, RegionShape, RollupAnswers, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -910,6 +910,43 @@ export function useDeleteMark(mediaId: number) {
     mutationFn: (markId: number) =>
       apiSend<{ ok: boolean }>(`/api/media/${mediaId}/markup/${markId}`, "DELETE"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["markup", mediaId] }),
+  });
+}
+
+// --- Puzzle images -------------------------------------------------------
+
+export function usePuzzleImages(puzzleId: number | null) {
+  return useQuery({
+    queryKey: ["puzzle-images", puzzleId],
+    queryFn: () => apiGet<PuzzleImage[]>(`/api/puzzles/${puzzleId}/images`),
+    enabled: puzzleId != null,
+  });
+}
+
+export function useAttachPuzzleImage(puzzleId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mediaId: number) =>
+      apiSend<PuzzleImage>(`/api/puzzles/${puzzleId}/images`, "POST", { media_id: mediaId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["puzzle-images", puzzleId] }),
+  });
+}
+
+export function useReorderPuzzleImages(puzzleId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderedIds: number[]) =>
+      apiSend<PuzzleImage[]>(`/api/puzzles/${puzzleId}/images`, "PATCH", { ordered_ids: orderedIds }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["puzzle-images", puzzleId] }),
+  });
+}
+
+export function useDetachPuzzleImage(puzzleId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (imageId: number) =>
+      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/images/${imageId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["puzzle-images", puzzleId] }),
   });
 }
 

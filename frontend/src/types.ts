@@ -234,6 +234,14 @@ export interface MediaMark {
   text: string | null;
 }
 
+export interface PuzzleImage {
+  id: number;
+  media_id: number;
+  media_url: string;
+  source_region_id: number | null;
+  position: number;
+}
+
 export interface HuntCanvas {
   id: number;
   name: string;
