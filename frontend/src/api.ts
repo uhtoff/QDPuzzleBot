@@ -628,6 +628,22 @@ export function useUpdateEvidence(huntUid: string) {
   });
 }
 
+/** Swap the image on an existing evidence row, keeping its note and its place.
+ *  The previous media row is left alone server-side — see
+ *  MySQLEvidenceDb.update_media. */
+export function useReplaceClueImage(huntUid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, mediaId }: { itemId: number; mediaId: number | null }) =>
+      apiSend<{ id: number; media_id: number | null }>(
+        `/api/evidence/${itemId}`,
+        "PATCH",
+        { media_id: mediaId }
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["evidence", huntUid] }),
+  });
+}
+
 export function useDeleteEvidence(huntUid: string) {
   const qc = useQueryClient();
   return useMutation({

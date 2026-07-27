@@ -43,7 +43,8 @@ def web():
     app.register_blueprint(actions_bp)
 
     # Evidence item id=5 lives in hunt 10, sourced from puzzle 1.
-    item = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=None, note="old")
+    item = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=None,
+                           note="old", media_id=None)
 
     edb = MagicMock()
     edb.get_by_id.return_value = item
@@ -157,7 +158,8 @@ async def test_target_change_refreshes_old_and_new(web):
     """Moving evidence to a new target must refresh BOTH the old target (loses
     the row) and the new target (gains it)."""
     web.item.target_puzzle_id = 11  # old target
-    moved = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=22, note="old")
+    moved = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=22,
+                            note="old", media_id=None)
     web.edb.set_target.return_value = moved
 
     resp = await web.client.patch("/api/evidence/5", json={"target_puzzle_id": 22})
@@ -322,3 +324,75 @@ class TestResolveRegionNames:
 
         assert out == {}
         db.get_names_by_ids.assert_not_called()
+
+
+# --- replacing an evidence item's image in place -----------------------------
+
+@pytest.mark.asyncio
+async def test_patch_replaces_the_media_and_keeps_the_old_row(web):
+    """Swapping the image points the evidence row at the new media. The OLD
+    media row is deliberately untouched — nothing on the evidence path garbage-
+    collects media (deleting an item leaves its file too), and a replacement
+    must never destroy the only copy of an image."""
+    swapped = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1,
+                              target_puzzle_id=None, note="old", media_id=77)
+    web.edb.update_media.return_value = swapped
+    media = SimpleNamespace(id=77, hunt_id=10)
+
+    with patch("bot.store.MediaJsonDb") as mdb:
+        mdb.get_by_id.return_value = media
+        resp = await web.client.patch("/api/evidence/5", json={"media_id": 77})
+
+    assert resp.status_code == 200
+    assert (await resp.get_json())["media_id"] == 77
+    web.edb.update_media.assert_called_once_with(5, 77)
+    web.edb.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_media_from_another_hunt(web):
+    """The id comes from the client. The media route is hunt-visibility gated,
+    so attaching a foreign media row here is the one way to read past it."""
+    with patch("bot.store.MediaJsonDb") as mdb:
+        mdb.get_by_id.return_value = SimpleNamespace(id=77, hunt_id=99)
+        resp = await web.client.patch("/api/evidence/5", json={"media_id": 77})
+
+    assert resp.status_code == 400
+    assert (await resp.get_json())["error"] == "cross_hunt_media"
+    web.edb.update_media.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_a_media_id_that_does_not_exist(web):
+    with patch("bot.store.MediaJsonDb") as mdb:
+        mdb.get_by_id.return_value = None
+        resp = await web.client.patch("/api/evidence/5", json={"media_id": 12345})
+
+    assert resp.status_code == 400
+    web.edb.update_media.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_patch_can_detach_the_image_without_a_lookup(web):
+    """An explicit null detaches, leaving a text-only item. There is no media to
+    validate in that case, so it must not 400 on a missing row."""
+    detached = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1,
+                               target_puzzle_id=None, note="old", media_id=None)
+    web.edb.update_media.return_value = detached
+
+    with patch("bot.store.MediaJsonDb") as mdb:
+        resp = await web.client.patch("/api/evidence/5", json={"media_id": None})
+
+    assert resp.status_code == 200
+    mdb.get_by_id.assert_not_called()
+    web.edb.update_media.assert_called_once_with(5, None)
+
+
+@pytest.mark.asyncio
+async def test_a_note_only_patch_leaves_the_image_alone(web):
+    """The key must be ABSENT to mean 'no change'. Treating a missing key as
+    None would silently strip the image off every note edit."""
+    resp = await web.client.patch("/api/evidence/5", json={"note": "fresh"})
+
+    assert resp.status_code == 200
+    web.edb.update_media.assert_not_called()

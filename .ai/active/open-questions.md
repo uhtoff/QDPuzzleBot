@@ -27,13 +27,12 @@
 - **Stray venv to remove:** `/home/russ/.local/share/virtualenvs/scratchpad-rNTSXSjM`, created
   by a `pipenv` invocation that ran from the scratchpad directory by mistake. Deleting it was
   refused by the sandbox, so it is still there. Safe to `rm -rf`.
-- **User feedback on the canvas, 2026-07-27 — 2 of 7 done.** Seven items logged in the
+- **User feedback on the canvas, 2026-07-27 — 5 of 7 done.** Seven items logged in the
   design doc's "Future enhancements" section. **Done:** the explicit no-link option in
-  `RegionModal`, and the multi-line clue note (entry field, inline editor, OCR, and
-  display). **Remaining:** a highlight-regions-by-puzzle view, overlapping-region shading
-  behaviour, freehand/line/text-box annotations, in-place image replacement on an evidence
-  row (currently delete-and-relog only), and showing the canvas as source on the web
-  Evidence board (currently not resolved there at all; the Sheets contribution table
-  resolves it but falls back to a blank canvas name instead of "Canvas (filename)"). See
+  `RegionModal`; the multi-line clue note (entry field, inline editor, OCR, and display);
+  highlight-regions-by-puzzle; in-place evidence image replacement; and the canvas source
+  label on both the web board and the Sheets table. **Remaining, both needing a design
+  conversation before code:** overlapping-region shading behaviour, and freehand/line/
+  text-box annotations. See
   `docs/superpowers/specs/2026-07-26-canvas-image-evidence-design.md#future-enhancements-requested-2026-07-27-not-started`
   for detail and file references.

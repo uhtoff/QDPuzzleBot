@@ -957,6 +957,28 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
+    def update_media(self, item_id: int, media_id):
+        """Point an evidence item at a different image. Returns it, or None.
+
+        The previous media row and its file are deliberately left alone. That
+        matches what already happens when an evidence item is deleted — nothing
+        on this path garbage-collects media — and it means a replacement can
+        never destroy the only copy of an image someone still wanted. media_id
+        may be None, which detaches the image and leaves a text-only item.
+        """
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "UPDATE evidence_items SET media_id = %s WHERE id = %s",
+                (media_id, item_id),
+            )
+            cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        return EvidenceData.import_dict(row) if row else None
+
 
 class MySQLMediaDb(_MySQLBaseDb):
     TABLE_NAME = 'media'

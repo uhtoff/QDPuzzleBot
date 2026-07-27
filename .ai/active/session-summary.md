@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(evidence): name the canvas as a source, on the board and in Sheets @ be30da5
+Status: in progress — feat(canvas): highlight every region belonging to one puzzle @ f9ddc9a
 
 ## Goal
 
@@ -280,6 +280,26 @@ Frontend-only, no backend change. Both from the design doc's "Future enhancement
   and **Ctrl/⌘+Enter** submits, in both editors.
 
 Both are inspection-and-typecheck only — still no frontend test runner.
+
+## Requested-feature tranche 2 — done 2026-07-27
+
+The remaining three non-design items. Backend work here IS test-covered.
+
+- **Canvas as an evidence source** (`be30da5`). `get_evidence` resolves `source_region_id`;
+  the DAO fallback chain is now `label → canvas name → "Canvas (filename)" → "Canvas <id>"`
+  and is composed in Python, not as a SQL `CASE`, so the branch a row lands on is testable.
+  Fixed two adjacent Source-filter bugs that only became visible once regions were shown.
+- **Highlight regions by puzzle** (`f9ddc9a`). Hover a region or pin a puzzle in the new
+  toolbar picker; the whole set lights up. Frontend only.
+- **Replace an evidence image in place.** `PATCH /api/evidence/<id>` takes `media_id`.
+  **Decision, from precedent rather than a new rule:** the old media row and file are
+  KEPT. Deleting an evidence item already leaves its media behind, so keeping it is both
+  consistent and the option that cannot destroy the last copy of an image. An absent key
+  means "no change" (a missing key read as `None` would strip the image off every note
+  edit); an explicit `null` detaches. New same-hunt guard on the client-supplied media id.
+
+Mutation-proved: the filename fallback branch, the cross-hunt media guard, and the
+absent-key semantics — each red for the right reason, each restored.
 
 ## Known gaps and risks
 

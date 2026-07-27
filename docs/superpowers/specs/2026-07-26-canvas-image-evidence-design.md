@@ -124,6 +124,13 @@ User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
   `Select` is `clearable` with a "Not linked" placeholder — but there is no direct
   "don't link this" choice, so a user in "Create a new puzzle" mode has no way back to
   unlinked without switching modes and clearing the select. Worth a third segment.
+- ~~**Highlight all regions linked to one puzzle.**~~ **Done 2026-07-27.** Two ways in,
+  one effect: hovering a region lights up its puzzle's whole set (heavier stroke, stronger
+  fill), and a toolbar picker pins a puzzle so the set stays lit while panning around
+  looking for the rest of it — hover wins while active. The picker lists only puzzles with
+  regions on *this* canvas. Keyed on the puzzle rather than the region, so hovering an
+  unlinked region highlights nothing extra instead of lighting up every other unlinked
+  region. Original note:
 - **Highlight all regions linked to one puzzle.** `CanvasView.tsx` tints each region
   independently by its own linked puzzle's status (`tintFor`, ~line 13); there's no way to
   see, at a glance, which regions on a busy sheet all belong to the same puzzle (e.g. on
@@ -156,12 +163,36 @@ User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
   would need its own storage shape (stroke paths / text position, not a 0-1 box) and its
   own render layer alongside the region overlay. Feasible, but a separate design pass, not
   a small addition to B2.
+- ~~**Replace an evidence row's image in place.**~~ **Done 2026-07-27.** `PATCH
+  /api/evidence/<id>` now takes `media_id`; the row's Image cell gains a Replace button
+  (Add image when there is none), which uploads through the existing media route and then
+  points the row at the new id. Note, target and table position are all kept.
+  - **The open question is answered by precedent, not by a new rule:** the old media row
+    and its file are left alone. Deleting an evidence item *already* leaves its media
+    behind — nothing on this path garbage-collects media — so keeping it is both the
+    consistent behaviour and the one that cannot destroy the last copy of an image.
+  - The key must be **absent** to mean "no change": treating a missing `media_id` as
+    `None` would silently strip the image off every note edit. An explicit `null` detaches.
+    Both pinned by tests, and both proved by mutation.
+  - New guard: the media must belong to the same hunt. The id comes from the client and
+    the media route itself is hunt-visibility gated, so this was the one way to read past
+    it. Also mutation-proved.
 - **Replace an evidence row's image in place.** Today an evidence item's media can't be
   swapped — `EvidencePanel.tsx`'s row actions (~line 439, `onDelete`) only support deleting
   the whole clue and re-logging a new one. A user attaching a clearer version of the same
   clue (via clipboard paste or file upload, reusing the existing `onCluePaste`/upload path)
   should be able to update just the image and keep the note/history. Needs a decision on
   whether the old `media` row is deleted or orphaned/kept for history.
+- ~~**Show the canvas as the source on the web Evidence board.**~~ **Done 2026-07-27.**
+  `get_evidence` now batches a `resolve_region_names` lookup alongside the puzzle and
+  sheet ones and serialises `source_region_id`/`source_region_name`; the DAO's fallback
+  chain runs `label → canvas name → "Canvas (filename)" → "Canvas <id>"`, so the Sheets
+  label gets the deeper fallback too. The chain is composed in Python rather than as a SQL
+  `CASE`, so which branch a row lands on is testable; mutation-proved by deleting the
+  filename branch (reds three tests, on that branch). Showing regions also surfaced two
+  adjacent bugs in the board's Source *filter*, fixed at the same time: region-sourced
+  rows fell into the `else` and were offered under "No source", and the `none` predicate
+  matched them too. Original note:
 - **Show the canvas as the source on the web Evidence board.** Two gaps, not one:
   - The web dashboard doesn't show it at all. `get_evidence` (`bot/web/data.py` ~line
     656–681) resolves `source_puzzle_name` and `source_sheet_name` but never looks at

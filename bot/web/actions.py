@@ -2042,6 +2042,20 @@ async def update_evidence(item_id):
     if note:
         item = EvidenceJsonDb.update_note(item_id, note) or item
 
+    # Apply an image swap if the key is present (value may be None to detach).
+    # The media must already exist and belong to THIS item's hunt: the id comes
+    # from the client, and without the check an item could be pointed at another
+    # hunt's private upload — the media route itself is hunt-visibility gated,
+    # so this is the only place that would leak.
+    if "media_id" in body:
+        from bot.store import MediaJsonDb
+        new_media_id = body.get("media_id")
+        if new_media_id is not None:
+            media = MediaJsonDb.get_by_id(new_media_id)
+            if media is None or media.hunt_id != old.hunt_id:
+                return jsonify({"error": "cross_hunt_media"}), 400
+        item = EvidenceJsonDb.update_media(item_id, new_media_id) or item
+
     # Apply target reassignment if the key is present (value may be None to clear)
     cog = puzzles_cog()
     hunt_obj = HuntJsonDb.get_by_attr(id=item.hunt_id)
@@ -2070,7 +2084,8 @@ async def update_evidence(item_id):
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
     await _audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=ctx["hunt"]["uid"])
-    return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id, "note": item.note})
+    return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id,
+                    "note": item.note, "media_id": item.media_id})
 
 
 @actions_bp.route("/evidence/<int:item_id>", methods=["DELETE"])

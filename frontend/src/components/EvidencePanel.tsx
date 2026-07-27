@@ -4,6 +4,7 @@ import {
   Anchor,
   Box,
   Button,
+  FileButton,
   FileInput,
   Group,
   Image,
@@ -22,6 +23,7 @@ import {
   useEditClueNote,
   useEvidence,
   useOcrEvidenceImage,
+  useReplaceClueImage,
   useUpdateEvidence,
   useUploadMedia,
 } from "../api";
@@ -50,6 +52,7 @@ export function EvidencePanel({ uid, detail }: Props) {
   const deleteEvidence = useDeleteEvidence(uid);
   const editClueNote = useEditClueNote(uid);
   const ocrClueImage = useOcrEvidenceImage(uid);
+  const replaceClueImage = useReplaceClueImage(uid);
   const [clueOcrConfirmOpen, setClueOcrConfirmOpen] = useState(false);
   const [pendingClueOcrText, setPendingClueOcrText] = useState<string | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
@@ -123,6 +126,18 @@ export function EvidencePanel({ uid, detail }: Props) {
   }
 
   const editable = !detail.hunt.archived;
+
+  /** Upload the new picture, then point the existing row at it. Two steps
+   *  because the media route is what sniffs and stores the bytes; the PATCH
+   *  only ever takes an id. */
+  const onReplaceImage = useCallback(async (itemId: number, file: File) => {
+    try {
+      const media = await uploadMedia.mutateAsync(file);
+      await replaceClueImage.mutateAsync({ itemId, mediaId: media.id });
+    } catch (err) {
+      notifyError(err);
+    }
+  }, [uploadMedia, replaceClueImage]);
 
   async function submitClue() {
     const note = clueNote.trim();
@@ -375,6 +390,7 @@ export function EvidencePanel({ uid, detail }: Props) {
                 updateEvidenceMutate={updateEvidence.mutate}
                 editClueNoteMutate={editClueNote.mutate}
                 deleteEvidenceMutate={deleteEvidence.mutate}
+                onReplaceImage={onReplaceImage}
               />
             ))}
           </Table.Tbody>
@@ -428,6 +444,7 @@ const EvidenceRow = memo(function EvidenceRow({
   updateEvidenceMutate,
   editClueNoteMutate,
   deleteEvidenceMutate,
+  onReplaceImage,
 }: {
   item: EvidenceItem;
   puzzleOptions: { value: string; label: string }[];
@@ -435,6 +452,7 @@ const EvidenceRow = memo(function EvidenceRow({
   updateEvidenceMutate: ReturnType<typeof useUpdateEvidence>["mutate"];
   editClueNoteMutate: ReturnType<typeof useEditClueNote>["mutate"];
   deleteEvidenceMutate: ReturnType<typeof useDeleteEvidence>["mutate"];
+  onReplaceImage: (itemId: number, file: File) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -487,17 +505,34 @@ const EvidenceRow = memo(function EvidenceRow({
     <Table.Tr>
       <Table.Td>{sourceLabel(item)}</Table.Td>
       <Table.Td>
-        {item.media_url ? (
-          <Anchor href={item.media_url} target="_blank" rel="noreferrer">
-            <Image
-              src={item.media_url}
-              alt={item.note || "evidence image"}
-              h={40}
-              w="auto"
-              fit="contain"
-            />
-          </Anchor>
-        ) : null}
+        <Stack gap={4} align="flex-start">
+          {item.media_url ? (
+            <Anchor href={item.media_url} target="_blank" rel="noreferrer">
+              <Image
+                src={item.media_url}
+                alt={item.note || "evidence image"}
+                h={40}
+                w="auto"
+                fit="contain"
+              />
+            </Anchor>
+          ) : null}
+          {editable && (
+            // Swapping the picture keeps the note, the target and the row's
+            // place in the table — previously the only way to attach a clearer
+            // version of a clue was to delete the item and log it again.
+            <FileButton
+              onChange={(f) => { if (f) onReplaceImage(item.id, f); }}
+              accept="image/png,image/jpeg,image/gif,image/webp"
+            >
+              {(props) => (
+                <Button {...props} size="compact-xs" variant="subtle">
+                  {item.media_url ? "Replace" : "Add image"}
+                </Button>
+              )}
+            </FileButton>
+          )}
+        </Stack>
       </Table.Td>
       <Table.Td>
         {editable && editing ? (
