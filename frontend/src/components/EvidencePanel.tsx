@@ -527,7 +527,13 @@ const EvidenceRow = memo(function EvidenceRow({
               />
             </Anchor>
           ) : null}
-          {item.media_url && (
+          {editable && item.media_url && (
+            // Gated on `editable` (i.e. not archived) like the Replace control
+            // below, because marking up WRITES: the markup routes refuse an
+            // archived hunt with a 403, so an ungated button would open a
+            // modal where every stroke silently failed. Viewing existing ink
+            // read-only on an archived hunt would need a read-only mode in
+            // MarkupCanvas, which does not exist yet.
             <Button size="compact-xs" variant="subtle" onClick={() => onMarkup(item)}>
               Mark up
             </Button>
