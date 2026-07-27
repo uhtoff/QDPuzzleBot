@@ -169,7 +169,11 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
       if (!e.ctrlKey) return;
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      const factor = Math.exp(-e.deltaY * 0.01);
+      // 0.0015, not 0.01: a mouse wheel reports deltaY of ~100 per detent, so
+      // the old factor was e^1 — one click zoomed 2.7x and flew straight past
+      // whatever you were aiming at. ~1.16x per detent, and trackpad deltas
+      // (which are much smaller) stay smooth.
+      const factor = Math.exp(-e.deltaY * 0.0015);
       zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
     };
     el.addEventListener("wheel", onWheel, { passive: false });

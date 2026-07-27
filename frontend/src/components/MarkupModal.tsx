@@ -13,7 +13,9 @@ type Props = {
 export function MarkupModal({ mediaId, alt, onClose }: Props) {
   return (
     <Modal opened={mediaId != null} onClose={onClose} fullScreen title="Mark up">
-      {mediaId != null && <MarkupCanvas mediaId={mediaId} alt={alt} />}
+      {mediaId != null && (
+        <MarkupCanvas mediaId={mediaId} alt={alt} onSave={onClose} />
+      )}
     </Modal>
   );
 }

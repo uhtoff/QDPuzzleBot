@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Button, ColorSwatch, Group, Slider, Stack, Text, Textarea } from "@mantine/core";
+import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } from "@mantine/core";
 import {
-  IconArrowUpRight, IconEraser, IconHighlight, IconLine, IconPencil,
-  IconTextSize, IconArrowBackUp,
+  IconArrowUpRight, IconDeviceFloppy, IconEraser, IconHighlight, IconLine,
+  IconPencil, IconTextSize, IconArrowBackUp,
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
@@ -36,9 +36,13 @@ function kindFor(tool: Tool): MarkKind {
 type Props = {
   mediaId: number;
   alt: string;
+  /** Called by the Save button. Marks are already stored as they are drawn;
+   *  this commits any half-typed text box and hands control back to the
+   *  surface that opened the canvas (the modal closes). */
+  onSave?: () => void;
 };
 
-export function MarkupCanvas({ mediaId, alt }: Props) {
+export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const marks = useMarkup(mediaId);
   const createMark = useCreateMark(mediaId);
   const deleteMark = useDeleteMark(mediaId);
@@ -66,6 +70,23 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panning = useRef<null | { sx: number; sy: number; ox: number; oy: number }>(null);
+  /** The in-progress text editor, so pointer events inside it can be ignored by
+   *  the frame's handlers rather than starting a new mark under the cursor. */
+  const editorRef = useRef<HTMLDivElement>(null);
+  /** The image's rendered size in CSS pixels, before the zoom transform.
+   *  Text marks are HTML, so their font size has to be a real pixel value; the
+   *  transform then scales them with everything else. */
+  const [imgBox, setImgBox] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const measure = () => setImgBox({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
    *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
@@ -90,7 +111,11 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
       if (!e.ctrlKey) return;               // plain scroll still scrolls the modal
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - rect.left, e.clientY - rect.top);
+      // 0.0015, not 0.01: a mouse wheel reports deltaY of ~100 per detent, so
+      // the original factor was e^1 — one click zoomed 2.7x, which overshoots
+      // whatever you were aiming at. This gives ~1.16x per detent, and a
+      // trackpad's small deltas stay smooth.
+      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -118,6 +143,10 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   }, [createMark, tool, colour, width_]);
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // A click inside the open text editor is the editor's own business. Without
+    // this the frame would start a fresh mark under the cursor and move the
+    // editor there mid-typing.
+    if (editorRef.current?.contains(e.target as Node)) return;
     if (!tool) {
       const rect = frameRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -129,6 +158,12 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
     if (!at || !tool) return;
     if (tool === "eraser") return;                    // handled per-mark below
     if (tool === "text") {
+      // preventDefault is load-bearing, not tidiness. Without it the browser's
+      // own mousedown default moves focus to the element under the cursor
+      // AFTER React has mounted the autoFocused Textarea — the textarea blurs
+      // immediately, onBlur commits an empty draft, and the editor vanishes the
+      // instant it appears. That is why the text tool did nothing at all.
+      e.preventDefault();
       const frame = frameRef.current?.getBoundingClientRect();
       setTextAt({
         x: at[0], y: at[1],
@@ -152,6 +187,11 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
     if (!at) return;
     setStroke((s) => {
       if (tool === "line" || tool === "arrow") return [s[0], at];
+      // Shift straightens a pen or highlighter stroke: the mark collapses to
+      // start-point → cursor for as long as the key is held, and releasing it
+      // resumes freehand from there. Held for the whole drag, this stores a
+      // two-point "pen" mark, which the validator already accepts.
+      if (e.shiftKey) return [s[0], at];
       const last = s[s.length - 1];
       // Thin as we capture, not on commit: the in-progress path is re-rendered
       // on every move, so an unthinned stroke costs frames as well as bytes.
@@ -230,6 +270,14 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
         </Group>
         <Slider w={90} min={0.001} max={0.01} step={0.001} value={width_}
                 onChange={setWidth} label={null} />
+        {onSave && (
+          <Tooltip label="Marks are saved as you draw — this closes the image">
+            <Button size="xs" leftSection={<IconDeviceFloppy size={14} />}
+                    onClick={() => { void commitText(); onSave(); }}>
+              Save
+            </Button>
+          </Tooltip>
+        )}
       </Group>
 
       {/* Three nested boxes, and the nesting is load-bearing:
@@ -275,7 +323,7 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
               </marker>
             ))}
           </defs>
-          {(marks.data ?? []).map((m) => (
+          {(marks.data ?? []).filter((m) => m.kind !== "text").map((m) => (
             <MarkShape key={m.id} mark={m} erasing={tool === "eraser"}
                        onErase={() => deleteMark.mutate(m.id)} />
           ))}
@@ -287,10 +335,45 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
                       strokeLinecap="round" strokeLinejoin="round" />
           )}
         </svg>
+
+        {/* Text marks are HTML, not SVG <text>. The overlay above is
+            viewBox="0 0 1 1" with preserveAspectRatio="none", which scales x
+            and y independently — fine for strokes, which are geometry that
+            should follow the image, but it stretches glyphs by the image's
+            aspect ratio. This layer sits in the same shrink-wrapped box, so it
+            still lines up with the image and still scales with the zoom
+            transform, while the type stays the shape it was drawn as. */}
+        <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+                      lineHeight: 1.2 }}>
+          {(marks.data ?? []).filter((m) => m.kind === "text").map((m) => {
+            const [[x, y]] = m.shape.points;
+            return (
+              <div
+                key={m.id}
+                style={{
+                  position: "absolute",
+                  left: `${x * 100}%`, top: `${y * 100}%`,
+                  // Font size is stored normalised against the image's height,
+                  // so ink scales with the picture rather than the viewport.
+                  fontSize: (m.shape.size ?? 0.04) * (imgBox.h || 0),
+                  color: m.style.colour, opacity: m.style.opacity,
+                  whiteSpace: "pre-wrap", userSelect: "none",
+                  pointerEvents: tool === "eraser" ? "auto" : "none",
+                  cursor: tool === "eraser" ? "pointer" : undefined,
+                }}
+                onPointerDown={tool === "eraser"
+                  ? () => deleteMark.mutate(m.id) : undefined}
+              >
+                {m.text}
+              </div>
+            );
+          })}
+        </div>
        </div>
 
         {textAt && (
-          <Box style={{ position: "absolute", left: textAt.px, top: textAt.py,
+          <Box ref={editorRef}
+               style={{ position: "absolute", left: textAt.px, top: textAt.py,
                         width: 220, zIndex: 5 }}>
             <Textarea autoFocus autosize minRows={1} maxRows={4} value={draftText}
                       onChange={(e) => setDraftText(e.currentTarget.value)}
@@ -305,10 +388,6 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
           </Box>
         )}
       </Box>
-
-      <Text size="xs" c="dimmed">
-        Markup is visual only — it is not a clue and does not appear in the evidence table.
-      </Text>
     </Stack>
   );
 }
@@ -319,16 +398,9 @@ function MarkShape({ mark, erasing, onErase }:
   const hit = erasing
     ? { pointerEvents: "all" as const, cursor: "pointer" }
     : { pointerEvents: "none" as const };
-  if (mark.kind === "text") {
-    const [[x, y]] = mark.shape.points;
-    return (
-      <text x={x} y={y} fill={colour} fillOpacity={opacity}
-            fontSize={mark.shape.size ?? 0.04} style={hit}
-            onPointerDown={erasing ? onErase : undefined}>
-        {mark.text}
-      </text>
-    );
-  }
+  // Text marks never reach here — they render in the HTML layer, because this
+  // SVG's preserveAspectRatio="none" would stretch glyphs by the image's
+  // aspect ratio. The caller filters them out.
   return (
     <polyline
       points={mark.shape.points.map(([x, y]) => `${x},${y}`).join(" ")}
