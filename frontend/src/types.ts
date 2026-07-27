@@ -236,6 +236,9 @@ export interface EvidenceItem {
   // working sheet. At most one of the two is ever non-null.
   source_sheet_id: number | null;
   source_sheet_name: string | null;
+  source_region_id: number | null;
+  /** Region label, else its canvas's name, else "Canvas (filename)". */
+  source_region_name: string | null;
   target_puzzle_id: number | null;
   target_puzzle_name: string | null;
   note: string;

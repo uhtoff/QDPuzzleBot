@@ -232,3 +232,93 @@ class TestGetEvidenceNullSource:
 
         assert out[0]["media_id"] == 7
         assert out[0]["media_url"] == "/api/media/7"
+
+
+# --- get_evidence: canvas-region source --------------------------------------
+
+class TestGetEvidenceRegionSource:
+    def _item(self, **kw):
+        from types import SimpleNamespace
+        base = dict(id=1, source_puzzle_id=None, source_sheet_id=None,
+                    source_region_id=None, target_puzzle_id=None,
+                    note="", media_id=None, created_at=None)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_a_region_source_resolves_to_its_name(self):
+        """Two region-sourced items with DIFFERENT names, not one: serialising
+        every row with the first (or any single) resolved name would satisfy a
+        one-item test while mapping the whole board to one label."""
+        from unittest.mock import patch
+        from bot.web import data
+
+        a = self._item(id=5, source_region_id=3)
+        b = self._item(id=6, source_region_id=4)
+        with patch("bot.store.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}), \
+             patch("bot.core.puzzle_service.resolve_region_names") as regions:
+            edb.get_all.return_value = [a, b]
+            regions.return_value = {3: "Hex maze", 4: "Canvas (sheet.png)"}
+            out = data.get_evidence(10)
+
+        by_id = {o["id"]: o for o in out}
+        assert by_id[5]["source_region_id"] == 3
+        assert by_id[5]["source_region_name"] == "Hex maze"
+        assert by_id[6]["source_region_id"] == 4
+        assert by_id[6]["source_region_name"] == "Canvas (sheet.png)"
+
+    def test_a_non_region_item_carries_a_null_region_and_is_not_looked_up(self):
+        from unittest.mock import patch
+        from bot.web import data
+
+        item = self._item(id=9, source_puzzle_id=1)
+        with patch("bot.store.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={1: "P"}), \
+             patch("bot.core.puzzle_service.resolve_region_names") as regions:
+            edb.get_all.return_value = [item]
+            regions.return_value = {}
+            out = data.get_evidence(10)
+
+        assert out[0]["source_region_id"] is None
+        assert out[0]["source_region_name"] is None
+        # Unlike the puzzle ids, region ids are handed over unfiltered — the
+        # resolver drops the Nones, exactly as it does for sheets. That contract
+        # is pinned on resolve_region_names itself, below.
+        assert regions.called
+
+    def test_an_unresolvable_region_still_names_itself(self):
+        """The region row vanished between the two queries. A blank Source cell
+        would read as 'no source', which is a different and wrong claim."""
+        from unittest.mock import patch
+        from bot.web import data
+
+        with patch("bot.store.EvidenceJsonDb") as edb, \
+             patch("bot.core.puzzle_service.resolve_puzzle_names", return_value={}), \
+             patch("bot.core.puzzle_service.resolve_region_names", return_value={}):
+            edb.get_all.return_value = [self._item(id=9, source_region_id=12)]
+            out = data.get_evidence(10)
+
+        assert out[0]["source_region_name"] == "Region 12"
+
+
+class TestResolveRegionNames:
+    def test_none_and_zero_never_reach_the_query(self):
+        from unittest.mock import patch
+        from bot.core import puzzle_service
+
+        with patch("bot.core.puzzle_service.CanvasRegionJsonDb") as db:
+            db.get_names_by_ids.return_value = {3: "Hex maze"}
+            out = puzzle_service.resolve_region_names([3, None, 0, 3])
+
+        assert out == {3: "Hex maze"}
+        assert db.get_names_by_ids.call_args.args[0] == {3}
+
+    def test_an_all_empty_batch_skips_the_query_entirely(self):
+        from unittest.mock import patch
+        from bot.core import puzzle_service
+
+        with patch("bot.core.puzzle_service.CanvasRegionJsonDb") as db:
+            out = puzzle_service.resolve_region_names([None, None])
+
+        assert out == {}
+        db.get_names_by_ids.assert_not_called()

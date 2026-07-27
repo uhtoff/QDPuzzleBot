@@ -36,9 +36,10 @@ interface Props {
 type SortKey = "source_puzzle_name" | "note" | "target_puzzle_name" | "created_at";
 type SortDirection = "asc" | "desc";
 
-/** The one thing a row's Source column shows: a puzzle, a hunt sheet, or nothing. */
+/** The one thing a row's Source column shows: a puzzle, a hunt sheet, a canvas
+ *  region, or nothing. The three sources are mutually exclusive server-side. */
 function sourceLabel(item: EvidenceItem): string {
-  return item.source_puzzle_name ?? item.source_sheet_name ?? "—";
+  return item.source_puzzle_name ?? item.source_sheet_name ?? item.source_region_name ?? "—";
 }
 
 export function EvidencePanel({ uid, detail }: Props) {
@@ -176,10 +177,15 @@ export function EvidencePanel({ uid, detail }: Props) {
   const sourceOptions = useMemo(() => {
     const puzzles = new Map<number, string>();
     const sheets = new Map<number, string>();
+    const regions = new Map<number, string>();
     let hasSourceless = false;
     items.forEach((i) => {
       if (i.source_puzzle_id != null) puzzles.set(i.source_puzzle_id, i.source_puzzle_name ?? "");
       else if (i.source_sheet_id != null) sheets.set(i.source_sheet_id, i.source_sheet_name ?? "");
+      // Before regions were resolved at all they landed in the else below and
+      // were offered under "No source", which is exactly wrong: an
+      // informs-region clue has a very specific source.
+      else if (i.source_region_id != null) regions.set(i.source_region_id, i.source_region_name ?? "");
       else hasSourceless = true;
     });
     return [
@@ -190,6 +196,9 @@ export function EvidencePanel({ uid, detail }: Props) {
       ...Array.from(puzzles.entries()).map(([id, name]) => ({ value: `p:${id}`, label: name })),
       ...Array.from(sheets.entries()).map(([id, name]) => ({
         value: `s:${id}`, label: `${name} (hunt sheet)`,
+      })),
+      ...Array.from(regions.entries()).map(([id, name]) => ({
+        value: `r:${id}`, label: `${name} (canvas)`,
       })),
     ];
   }, [items]);
@@ -213,8 +222,12 @@ export function EvidencePanel({ uid, detail }: Props) {
     return items
       .filter((i) => {
         if (!filterSource) return true;
-        if (filterSource === "none") return i.source_puzzle_id == null && i.source_sheet_id == null;
+        if (filterSource === "none") {
+          return i.source_puzzle_id == null && i.source_sheet_id == null
+            && i.source_region_id == null;
+        }
         if (filterSource.startsWith("p:")) return String(i.source_puzzle_id) === filterSource.slice(2);
+        if (filterSource.startsWith("r:")) return String(i.source_region_id) === filterSource.slice(2);
         return String(i.source_sheet_id) === filterSource.slice(2);
       })
       .filter((i) => {

@@ -179,3 +179,78 @@ def test_deleting_a_region_relies_on_the_fk_cascade(dbs):
     canvas.delete_region(5)
     regions.delete.assert_called_once_with(5)
     evidence.delete_by_region.assert_not_called()
+
+
+class TestRegionDisplayNames:
+    """The label -> canvas name -> "Canvas (filename)" -> "Canvas <id>" chain.
+
+    Composed in Python rather than as a SQL CASE precisely so the branch a row
+    lands on is testable without a database.
+    """
+
+    def _row(self, **kw):
+        base = {"id": 1, "label": "", "canvas_id": 7,
+                "canvas_name": "", "filename": ""}
+        base.update(kw)
+        return base
+
+    def test_a_label_wins_over_everything_else(self):
+        from bot.store.mysqldb import _region_display_name
+        row = self._row(label="Hex maze", canvas_name="Big sheet", filename="sheet.png")
+        assert _region_display_name(row) == "Hex maze"
+
+    def test_no_label_falls_back_to_the_canvas_name(self):
+        from bot.store.mysqldb import _region_display_name
+        row = self._row(canvas_name="Big sheet", filename="sheet.png")
+        assert _region_display_name(row) == "Big sheet"
+
+    def test_no_label_and_an_unnamed_canvas_falls_back_to_the_filename(self):
+        """hunt_canvases.name defaults to '' and nothing forces a rename, so
+        this is the COMMON case, not an edge one. It used to render blank."""
+        from bot.store.mysqldb import _region_display_name
+        assert _region_display_name(self._row(filename="sheet.png")) == "Canvas (sheet.png)"
+
+    def test_whitespace_only_values_do_not_count_as_names(self):
+        from bot.store.mysqldb import _region_display_name
+        row = self._row(label="   ", canvas_name="\t", filename="sheet.png")
+        assert _region_display_name(row) == "Canvas (sheet.png)"
+
+    def test_nothing_at_all_still_says_canvas(self):
+        """A blank Source cell reads as 'no source', which is a different and
+        wrong claim about the item."""
+        from bot.store.mysqldb import _region_display_name
+        assert _region_display_name(self._row(canvas_id=7)) == "Canvas 7"
+
+    def test_a_null_filename_from_the_left_join_does_not_crash(self):
+        from bot.store.mysqldb import _region_display_name
+        row = self._row(canvas_name=None, filename=None, canvas_id=7)
+        assert _region_display_name(row) == "Canvas 7"
+
+    def test_get_names_by_ids_maps_each_id_to_its_own_name(self):
+        """Two rows landing on DIFFERENT branches of the chain: a version that
+        applied one row's name to the whole batch, or transposed the mapping,
+        would still pass a single-row test."""
+        from bot.store.mysqldb import MySQLCanvasRegionDb
+        mydb, cursor = MagicMock(), MagicMock()
+        mydb.dict_cursor.return_value = cursor
+        cursor.fetchall.return_value = [
+            {"id": 3, "label": "Hex maze", "canvas_id": 7,
+             "canvas_name": "", "filename": "sheet.png"},
+            {"id": 4, "label": "", "canvas_id": 7,
+             "canvas_name": "", "filename": "sheet.png"},
+        ]
+
+        out = MySQLCanvasRegionDb(mydb=mydb).get_names_by_ids([3, 4])
+
+        assert out == {3: "Hex maze", 4: "Canvas (sheet.png)"}
+        # The filename can only come from the media join.
+        sql = cursor.execute.call_args.args[0]
+        assert "LEFT JOIN media" in sql
+
+    def test_an_empty_id_list_runs_no_query(self):
+        from bot.store.mysqldb import MySQLCanvasRegionDb
+        mydb, cursor = MagicMock(), MagicMock()
+        mydb.dict_cursor.return_value = cursor
+
+        assert MySQLCanvasRegionDb(mydb=mydb).get_names_by_ids([None, 0]) == {}
+        cursor.execute.assert_not_called()

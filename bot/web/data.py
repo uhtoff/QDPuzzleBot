@@ -659,17 +659,23 @@ def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
 
     source_puzzle_id/source_puzzle_name are None for evidence that belongs to
     the hunt rather than to any one puzzle; source_sheet_id/source_sheet_name
-    name a hunt-level working sheet instead. media_url is relative so it works
-    on whichever origin is serving the SPA.
+    name a hunt-level working sheet instead, and source_region_id/
+    source_region_name a region drawn on a canvas. media_url is relative so it
+    works on whichever origin is serving the SPA.
     """
     from bot.store import EvidenceJsonDb
-    from bot.core.puzzle_service import resolve_puzzle_names, resolve_sheet_names
+    from bot.core.puzzle_service import (
+        resolve_puzzle_names, resolve_region_names, resolve_sheet_names)
     items = EvidenceJsonDb.get_all(hunt_id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
     puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
                   | {i.target_puzzle_id for i in items if i.target_puzzle_id})
     names = resolve_puzzle_names(puzzle_ids)
     sheet_names = resolve_sheet_names(
         getattr(i, "source_sheet_id", None) for i in items)
+    # Batched like the other two: a canvas with many informs-regions would
+    # otherwise be an N+1 down the length of the evidence board.
+    region_names = resolve_region_names(
+        getattr(i, "source_region_id", None) for i in items)
     return [
         {
             "id": i.id,
@@ -678,6 +684,13 @@ def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
             "source_sheet_id": i.source_sheet_id,
             "source_sheet_name": (sheet_names.get(i.source_sheet_id) or f"Sheet {i.source_sheet_id}")
                                  if i.source_sheet_id else None,
+            "source_region_id": getattr(i, "source_region_id", None),
+            # Same shape and same last-ditch fallback as the sheet above: the
+            # DAO already applies the label/canvas-name/filename chain, so a
+            # miss here means the region row itself went away.
+            "source_region_name": (region_names.get(getattr(i, "source_region_id", None))
+                                   or f"Region {i.source_region_id}")
+                                  if getattr(i, "source_region_id", None) else None,
             "target_puzzle_id": i.target_puzzle_id,
             "target_puzzle_name": names.get(i.target_puzzle_id, "") if i.target_puzzle_id else None,
             "note": i.note,

@@ -1094,6 +1094,24 @@ class MySQLHuntCanvasDb(_MySQLBaseDb):
         self.mydb.commit()
 
 
+def _region_display_name(row) -> str:
+    """The label-else-canvas-else-filename chain for one joined region row.
+
+    Module-level and pure so the branch order is testable without a database.
+    See MySQLCanvasRegionDb.get_names_by_ids for why the chain runs this far.
+    """
+    label = (row.get("label") or "").strip()
+    if label:
+        return label
+    canvas_name = (row.get("canvas_name") or "").strip()
+    if canvas_name:
+        return canvas_name
+    filename = (row.get("filename") or "").strip()
+    if filename:
+        return f"Canvas ({filename})"
+    return f"Canvas {row.get('canvas_id')}"
+
+
 class MySQLCanvasRegionDb(_MySQLBaseDb):
     TABLE_NAME = 'canvas_regions'
 
@@ -1161,12 +1179,20 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         self.mydb.commit()
 
     def get_names_by_ids(self, region_ids) -> dict:
-        """{region_id: label-or-canvas-name} for rendered Source columns, in one
-        query.
+        """{region_id: display name} for rendered Source columns, in one query.
 
-        A region with no label falls back to its canvas's name, which is why this
-        joins rather than reading canvas_regions alone — the fallback then lives
-        in one place instead of being repeated by every caller.
+        The fallback chain is the region's label, then its canvas's name, then
+        "Canvas (the image's filename)", then "Canvas <id>". It has to run past
+        the canvas name because hunt_canvases.name defaults to '' and nothing
+        forces a canvas to be renamed, so an unlabelled region on an unnamed
+        canvas used to render as a BLANK Source cell — which reads as "no
+        source" rather than "a source nobody bothered to name". The filename is
+        what the uploader actually recognises the picture by.
+
+        This joins rather than reading canvas_regions alone so the chain lives in
+        one place instead of being repeated by every caller. The chain itself is
+        composed here in Python rather than as a SQL CASE: the branch a given row
+        lands on is then something a test can actually exercise.
         """
         ids = [int(i) for i in region_ids if i]
         if not ids:
@@ -1175,15 +1201,20 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
-                "SELECT r.id AS id,"
-                " CASE WHEN r.label <> '' THEN r.label ELSE c.name END AS name"
+                "SELECT r.id AS id, r.label AS label, r.canvas_id AS canvas_id,"
+                " c.name AS canvas_name, m.filename AS filename"
                 " FROM canvas_regions r"
                 " JOIN hunt_canvases c ON c.id = r.canvas_id"
+                # LEFT, though hunt_canvases.media_id is NOT NULL with an FK:
+                # a row read in the gap of a cascading media delete would
+                # otherwise drop out of the result set entirely and render as
+                # "Region <id>" rather than as a canvas.
+                " LEFT JOIN media m ON m.id = c.media_id"
                 f" WHERE r.id IN ({placeholders})", tuple(ids))
             rows = cursor.fetchall()
         finally:
             cursor.close()
-        return {r["id"]: r["name"] for r in rows}
+        return {r["id"]: _region_display_name(r) for r in rows}
 
 
 class MySQLGuildSettingsDb():

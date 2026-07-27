@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — fix(canvas): abut tiles on an integer grid instead of overdrawing @ 29dd116
+Status: in progress — feat(canvas,evidence): explicit "no puzzle" link, multi-line clue notes @ 6f59ac1
 
 ## Goal
 
