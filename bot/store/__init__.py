@@ -32,7 +32,8 @@ from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
 from .evidence_data import EvidenceData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb
+from .markup_data import MediaMarkupData
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb
 
 from bot.utils import config
 
@@ -147,6 +148,7 @@ if config.storage == 'mysql':
     MediaJsonDb = MySQLMediaDb(mydb=mydb)
     CanvasJsonDb = MySQLHuntCanvasDb(mydb=mydb)
     CanvasRegionJsonDb = MySQLCanvasRegionDb(mydb=mydb)
+    MediaMarkupJsonDb = MySQLMediaMarkupDb(mydb=mydb)
     # The bridge cog's puzzle-channel gate queries run on a background thread via
     # asyncio.to_thread (bot/cogs/bridge.py _load_puzzle_channels/_lookup_puzzle_channel).
     # A mysql.connector connection is not thread-safe to share, so give this its own

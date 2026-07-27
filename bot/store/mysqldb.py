@@ -20,6 +20,7 @@ from .puzzle_settings import GuildSettings
 from .evidence_data import EvidenceData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
+from .markup_data import MediaMarkupData
 
 logger = logging.getLogger(__name__)
 
@@ -1237,6 +1238,74 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         finally:
             cursor.close()
         return {r["id"]: _region_display_name(r) for r in rows}
+
+
+class MySQLMediaMarkupDb(_MySQLBaseDb):
+    TABLE_NAME = 'media_markup'
+
+    def create(self, media_id: int, kind: str, shape: str, style: str,
+               text=None) -> 'MediaMarkupData':
+        now = datetime.datetime.utcnow()
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO media_markup"
+                " (media_id, kind, shape, style, text, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (media_id, kind, shape, style, text, now),
+            )
+            new_id = cursor.lastrowid
+        finally:
+            cursor.close()
+        self.mydb.commit()
+        m = MediaMarkupData()
+        m.id = new_id or 0
+        m.media_id, m.kind, m.shape, m.style, m.text = media_id, kind, shape, style, text
+        m.created_at = now.replace(tzinfo=datetime.timezone.utc)
+        return m
+
+    def get_by_id(self, mark_id: int):
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("SELECT * FROM media_markup WHERE id = %s", (mark_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+        return MediaMarkupData.import_dict(row) if row else None
+
+    def get_by_media(self, media_id: int) -> list:
+        """Oldest first: paint order IS document order in SVG, so a later mark
+        must draw on top of an earlier one."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "SELECT * FROM media_markup WHERE media_id = %s"
+                " ORDER BY created_at, id", (media_id,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+        return [MediaMarkupData.import_dict(r) for r in rows]
+
+    def update(self, mark_id: int, style: str, text) -> None:
+        """Only style and text are editable. Geometry is not: a redrawn stroke
+        is a new mark, and allowing a shape rewrite would mean re-validating a
+        kind the row already committed to."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "UPDATE media_markup SET style = %s, text = %s WHERE id = %s",
+                (style, text, mark_id))
+        finally:
+            cursor.close()
+        self.mydb.commit()
+
+    def delete(self, mark_id: int) -> None:
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute("DELETE FROM media_markup WHERE id = %s", (mark_id,))
+        finally:
+            cursor.close()
+        self.mydb.commit()
 
 
 class MySQLGuildSettingsDb():
