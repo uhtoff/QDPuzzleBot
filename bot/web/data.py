@@ -193,6 +193,24 @@ def region_to_json(region):
     }
 
 
+def mark_to_json(mark):
+    """One markup mark as the dashboard sees it.
+
+    shape and style are parsed back to objects rather than passed through as
+    JSON strings, so the viewer never has to double-decode. Both were written
+    by markup_shape, which is the only thing that produces those columns.
+    """
+    import json as _json
+    return {
+        "id": mark.id,
+        "media_id": mark.media_id,
+        "kind": mark.kind,
+        "shape": _json.loads(mark.shape),
+        "style": _json.loads(mark.style),
+        "text": mark.text,
+    }
+
+
 def canvas_to_json(canvas_row, regions, media=None):
     """One canvas with its regions inline.
 
