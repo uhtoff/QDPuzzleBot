@@ -29,6 +29,7 @@ import {
 } from "../api";
 import { notifyError } from "../util";
 import { ConfirmModal } from "./ConfirmModal";
+import { MarkupModal } from "./MarkupModal";
 
 interface Props {
   uid: string;
@@ -55,6 +56,7 @@ export function EvidencePanel({ uid, detail }: Props) {
   const replaceClueImage = useReplaceClueImage(uid);
   const [clueOcrConfirmOpen, setClueOcrConfirmOpen] = useState(false);
   const [pendingClueOcrText, setPendingClueOcrText] = useState<string | null>(null);
+  const [markupItem, setMarkupItem] = useState<EvidenceItem | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
   const [filterTarget, setFilterTarget] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
@@ -391,6 +393,7 @@ export function EvidencePanel({ uid, detail }: Props) {
                 editClueNoteMutate={editClueNote.mutate}
                 deleteEvidenceMutate={deleteEvidence.mutate}
                 onReplaceImage={onReplaceImage}
+                onMarkup={setMarkupItem}
               />
             ))}
           </Table.Tbody>
@@ -406,6 +409,11 @@ export function EvidencePanel({ uid, detail }: Props) {
         title="Replace existing note?"
         message="This will replace the current note text with the extracted text."
         confirmLabel="Replace"
+      />
+      <MarkupModal
+        mediaId={markupItem?.media_id ?? null}
+        alt={markupItem?.note ?? "Evidence image"}
+        onClose={() => setMarkupItem(null)}
       />
     </Stack>
   );
@@ -445,6 +453,7 @@ const EvidenceRow = memo(function EvidenceRow({
   editClueNoteMutate,
   deleteEvidenceMutate,
   onReplaceImage,
+  onMarkup,
 }: {
   item: EvidenceItem;
   puzzleOptions: { value: string; label: string }[];
@@ -453,6 +462,7 @@ const EvidenceRow = memo(function EvidenceRow({
   editClueNoteMutate: ReturnType<typeof useEditClueNote>["mutate"];
   deleteEvidenceMutate: ReturnType<typeof useDeleteEvidence>["mutate"];
   onReplaceImage: (itemId: number, file: File) => void;
+  onMarkup: (item: EvidenceItem) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -517,6 +527,11 @@ const EvidenceRow = memo(function EvidenceRow({
               />
             </Anchor>
           ) : null}
+          {item.media_url && (
+            <Button size="compact-xs" variant="subtle" onClick={() => onMarkup(item)}>
+              Mark up
+            </Button>
+          )}
           {editable && (
             // Swapping the picture keeps the note, the target and the row's
             // place in the table — previously the only way to attach a clearer
