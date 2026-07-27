@@ -20,6 +20,25 @@ const MIN_STEP = 0.001;
  *  image and keeps the JSON blob small. */
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
+/** The size slider's own bounds. Named so the text mapping below cannot drift
+ *  out of step with the control that feeds it. */
+const WIDTH_MIN = 0.001;
+const WIDTH_MAX = 0.01;
+
+/** The slider drives stroke width AND text size, because it is the one "how
+ *  big" control — but they are different quantities: 0.003 is a fine line,
+ *  while a font 0.3% of the image's height is unreadable. Text was previously
+ *  fixed at 0.04, so the range is anchored around that: half of it at the
+ *  bottom of the slider, half again as large at the top. */
+const TEXT_MIN = 0.02;
+const TEXT_MAX = 0.06;
+
+/** Slider position → font size as a fraction of the image's height. */
+function textSizeFor(width: number): number {
+  const t = (width - WIDTH_MIN) / (WIDTH_MAX - WIDTH_MIN);
+  return TEXT_MIN + Math.min(1, Math.max(0, t)) * (TEXT_MAX - TEXT_MIN);
+}
+
 function styleFor(tool: Tool, colour: string, width: number): Partial<MarkStyle> {
   // A highlighter is not a kind — it is a fat, low-opacity pen, and the server
   // stores exactly that.
@@ -216,11 +235,17 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     setDraftText("");
     if (!body || !at) return;
     const mark = await createMark.mutateAsync({
-      mark: { kind: "text", points: [[round4(at.x), round4(at.y)]], text: body, size: 0.04 },
+      mark: {
+        kind: "text", points: [[round4(at.x), round4(at.y)]], text: body,
+        size: round4(textSize),
+      },
       style: styleFor("text", colour, width_),
     });
     mine.current.push(mark.id);
   };
+
+  /** Font size as a fraction of the image's height, from the size slider. */
+  const textSize = textSizeFor(width_);
 
   const undo = () => {
     const last = mine.current.pop();
@@ -268,7 +293,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                          withShadow={c === colour} />
           ))}
         </Group>
-        <Slider w={90} min={0.001} max={0.01} step={0.001} value={width_}
+        <Slider w={90} min={WIDTH_MIN} max={WIDTH_MAX} step={0.001} value={width_}
                 onChange={setWidth} label={null} />
         {onSave && (
           <Tooltip label="Marks are saved as you draw — this closes the image">
@@ -375,7 +400,16 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           <Box ref={editorRef}
                style={{ position: "absolute", left: textAt.px, top: textAt.py,
                         width: 220, zIndex: 5 }}>
+            {/* The editor previews the size the mark will actually be: the
+                image's rendered height times the chosen fraction, times the
+                zoom (the editor sits outside the transformed div, so it does
+                not inherit the scale). Floored at 11px so a small setting on a
+                zoomed-out image is still typeable. */}
             <Textarea autoFocus autosize minRows={1} maxRows={4} value={draftText}
+                      styles={{ input: {
+                        fontSize: Math.max(11, textSize * (imgBox.h || 0) * zoom),
+                        lineHeight: 1.2,
+                      } }}
                       onChange={(e) => setDraftText(e.currentTarget.value)}
                       onKeyDown={(e) => {
                         // Matches EvidencePanel's multi-line notes: Enter breaks
