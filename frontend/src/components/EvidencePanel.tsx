@@ -20,6 +20,7 @@ import {
   useDeleteEvidence,
   useEditClueNote,
   useEvidence,
+  useOcrEvidenceImage,
   useUpdateEvidence,
   useUploadMedia,
 } from "../api";
@@ -46,6 +47,9 @@ export function EvidencePanel({ uid, detail }: Props) {
   const addEvidence = useAddEvidence(uid);
   const deleteEvidence = useDeleteEvidence(uid);
   const editClueNote = useEditClueNote(uid);
+  const ocrClueImage = useOcrEvidenceImage(uid);
+  const [clueOcrConfirmOpen, setClueOcrConfirmOpen] = useState(false);
+  const [pendingClueOcrText, setPendingClueOcrText] = useState<string | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
   const [filterTarget, setFilterTarget] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
@@ -87,6 +91,33 @@ export function EvidencePanel({ uid, detail }: Props) {
     // server sniffs magic bytes and renames via safe_filename, so the name here
     // is cosmetic — but give an unnamed blob something to show in the input.
     setClueFile(file.name ? file : new File([file], "pasted.png", { type: file.type }));
+  }
+
+  /** OCR the attached/pasted image and fill the clue note with the result.
+   *
+   *  Unlike RegionModal's Textarea, this note field is a single-line
+   *  TextInput that submits on Enter, so newlines in the OCR result are
+   *  collapsed to spaces rather than preserved -- a multi-line result would
+   *  otherwise just run together invisibly in a one-line box anyway.
+   */
+  async function extractClueText() {
+    if (!clueFile) return;
+    try {
+      const { text } = await ocrClueImage.mutateAsync(clueFile);
+      const collapsed = text.replace(/\s+/g, " ").trim();
+      if (!collapsed) {
+        notifyError(new Error("No text found in that image."));
+        return;
+      }
+      if (clueNote.trim()) {
+        setPendingClueOcrText(collapsed);
+        setClueOcrConfirmOpen(true);
+      } else {
+        setClueNote(collapsed);
+      }
+    } catch (err) {
+      notifyError(err);
+    }
   }
 
   const editable = !detail.hunt.archived;
@@ -276,6 +307,15 @@ export function EvidencePanel({ uid, detail }: Props) {
           />
           <Button
             size="xs"
+            variant="light"
+            onClick={extractClueText}
+            loading={ocrClueImage.isPending}
+            disabled={!clueFile}
+          >
+            Extract text
+          </Button>
+          <Button
+            size="xs"
             onClick={submitClue}
             loading={uploadMedia.isPending || addEvidence.isPending}
           >
@@ -315,6 +355,17 @@ export function EvidencePanel({ uid, detail }: Props) {
           </Table.Tbody>
         </Table>
       )}
+      <ConfirmModal
+        opened={clueOcrConfirmOpen}
+        onClose={() => setClueOcrConfirmOpen(false)}
+        onConfirm={() => {
+          if (pendingClueOcrText !== null) setClueNote(pendingClueOcrText);
+          setClueOcrConfirmOpen(false);
+        }}
+        title="Replace existing note?"
+        message="This will replace the current note text with the extracted text."
+        confirmLabel="Replace"
+      />
     </Stack>
   );
 }
