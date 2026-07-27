@@ -236,7 +236,7 @@ Click a puzzle's notes icon to open its drawer: set status, priority and type, f
 its links, mark it solved, add working sheets, and read or add notes — the same notes as
 `!note` in Discord.
 
-![Puzzle drawer](img/userguide/05-puzzle-drawer.png)
+![Puzzle drawer](img/userguide/05-puzzle-drawer.jpg)
 
 The drawer also holds the puzzle's **images** — the puzzle as a picture, rather than
 clues about it. Two things put an image here:
@@ -272,7 +272,7 @@ The hunt-wide clue log — everything recorded with `!clue`/`!clues`, filterable
 puzzle, and you can log new clues from here too. It mirrors the Evidence tab on the hunt
 spreadsheet.
 
-![Evidence](img/userguide/06-evidence.png)
+![Evidence](img/userguide/06-evidence.jpg)
 
 **Clues can be pictures.** When logging one, attach a file or simply **paste a
 screenshot** into the clue box — the usual way you'll capture a chunk of a puzzle. A
@@ -324,6 +324,8 @@ In Discord, `!canvas` links to this view and lists the hunt's canvases.
 
 Any image the dashboard holds — a clue's picture, or a puzzle's own picture in the drawer
 — can be drawn on. Click its thumbnail to open it full-screen.
+
+![Marking up an image](img/userguide/12-markup.jpg)
 
 The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter**,
 **text** and an **eraser**, plus a colour and a size. Some details worth knowing:
