@@ -214,6 +214,26 @@ export interface CanvasRegion {
   role: RegionRole | null;
 }
 
+export type MarkKind = "pen" | "line" | "text";
+
+export interface MarkStyle {
+  colour: string;
+  width: number;
+  opacity: number;
+  arrow: boolean;
+}
+
+/** One purely-visual mark on an image. Coordinates are normalised 0-1, so the
+ *  SVG overlay uses them directly at any zoom. */
+export interface MediaMark {
+  id: number;
+  media_id: number;
+  kind: MarkKind;
+  shape: { points: [number, number][]; size?: number };
+  style: MarkStyle;
+  text: string | null;
+}
+
 export interface HuntCanvas {
   id: number;
   name: string;

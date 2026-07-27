@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, RegionRole, RegionShape, RollupAnswers, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, RegionRole, RegionShape, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -865,6 +865,51 @@ export function useDeleteRegion(uid: string) {
       qc.invalidateQueries({ queryKey: ["canvases", uid] });
       qc.invalidateQueries({ queryKey: ["evidence", uid] });
     },
+  });
+}
+
+export function useMarkup(mediaId: number | null) {
+  return useQuery({
+    queryKey: ["markup", mediaId],
+    queryFn: () => apiGet<MediaMark[]>(`/api/media/${mediaId}/markup`),
+    enabled: mediaId != null,
+  });
+}
+
+/** The geometry half of a write. Style travels separately because it is the
+ *  only part an existing mark can change. */
+type MarkPayload = {
+  kind: MarkKind;
+  points: [number, number][];
+  text?: string;
+  size?: number;
+};
+
+export function useCreateMark(mediaId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mark, style }: { mark: MarkPayload; style: Partial<MarkStyle> }) =>
+      apiSend<MediaMark>(`/api/media/${mediaId}/markup`, "POST", { mark, style }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["markup", mediaId] }),
+  });
+}
+
+export function useUpdateMark(mediaId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ markId, style, text }:
+      { markId: number; style: Partial<MarkStyle>; text?: string }) =>
+      apiSend<MediaMark>(`/api/media/${mediaId}/markup/${markId}`, "PATCH", { style, text }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["markup", mediaId] }),
+  });
+}
+
+export function useDeleteMark(mediaId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (markId: number) =>
+      apiSend<{ ok: boolean }>(`/api/media/${mediaId}/markup/${markId}`, "DELETE"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["markup", mediaId] }),
   });
 }
 
