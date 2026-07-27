@@ -3,7 +3,9 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — docs: point session-summary Status hash at the OCR-complete commit @ bdccac5
+Status: ready for handoff — evidence OCR feature complete, all automated gates green (backend
+suite, ruff, basedpyright, frontend tsc/build); manual browser verification still owed for both
+new "Extract text" buttons and for the earlier B2b canvas UI (see "Known gaps and risks")
 
 ## Goal
 
