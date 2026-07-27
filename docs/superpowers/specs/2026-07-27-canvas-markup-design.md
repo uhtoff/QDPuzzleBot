@@ -243,12 +243,24 @@ visibility.
 
 Mutations push via `_push_board()` like every other board-affecting change.
 
-### Prerequisite: media dimensions on the evidence payload
+### No media dimensions are needed — resolved during implementation
 
-`get_evidence` (`bot/web/data.py`) serialises a `media_url` but no dimensions. The overlay needs
-the image's aspect ratio to lay out, so the attached media's `width` and `height` must be
-serialised too (or exposed by a small `GET /api/media/<id>/meta`). Every `media` row already
-carries these — `MediaJsonDb.create` records them at upload regardless of tiling.
+An earlier draft made "serialise `width`/`height` on the evidence payload" a prerequisite, so the
+overlay could set an aspect ratio. **Dropped**, on evidence found while building it:
+
+`get_evidence` never loads a media row — it interpolates the id into a URL — and `MySQLMediaDb`
+has no batched lookup, only `get_by_id`. Serving dimensions would have meant a new DAO batch
+method, a new resolver, and a second query on every evidence board load, forever.
+
+The browser already knows an image's natural size. The overlay's container shrink-wraps the
+`<img>` and the SVG is `position: absolute; inset: 0`, so the image defines the box at every
+size with no dimensions and no arithmetic. Two consequences worth pinning:
+
+- The image is sized with `max-width`/`max-height`, **not** `object-fit: contain` — object-fit
+  letterboxes inside the element box, so `getBoundingClientRect()` would return the padded box
+  and every mark would land offset from the cursor.
+- A tiled *canvas* viewer genuinely does need dimensions ahead of load (to pick a pyramid
+  level), which is why `HuntCanvas` carries them. That is not this surface.
 
 ## Frontend
 
@@ -355,7 +367,7 @@ pan/zoom/tile machinery are not touched, so a markup bug cannot regress the canv
 | 1 | Migration (`media_markup`, `puzzle_images`, `canvas_regions.crop_media_id`) + `markup_shape.py` + DAOs | small, fully tested |
 | 2 | Markup routes + permission + WS push | small, fully tested |
 | 3 | `locates` crops, the regenerate-under-ink guard, the region ↔ `puzzle_images` sync in `canvas.py` | medium, fully tested |
-| 4 | Puzzle image routes (list/attach/reorder/detach) + media dimensions on the payloads | small, fully tested |
+| 4 | Puzzle image routes (list/attach/reorder/detach) | small, fully tested |
 | 5 | `MarkupCanvas` + `MarkupModal`, wired into `EvidencePanel` and the region | medium, inspection-verified |
 | 6 | `PuzzleImages` strip in `PuzzleDrawer`: thumbnails, upload, dnd-kit reorder, remove | medium, inspection-verified |
 

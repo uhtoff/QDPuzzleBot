@@ -1044,66 +1044,29 @@ git commit -m "feat(markup): add the markup routes"
 
 ---
 
-### Task 7: Media dimensions on the evidence payload
+### Task 7: DROPPED — the image sizes itself
 
-The markup overlay needs the image's aspect ratio to lay itself out, and the evidence payload carries only a URL today.
+**No code. Nothing to implement. Skip to Task 8.**
 
-**Files:**
-- Modify: `bot/web/data.py` (`get_evidence`, ~line 656–681)
-- Test: `tests/test_evidence_web.py` if it exists, else add to `tests/test_media_web.py`
+This task was to add `media_width`/`media_height` to the evidence payload so the overlay could set an `aspectRatio`. It was written on a false assumption, found when the task was attempted:
 
-- [ ] **Step 1: Find the serialisation and its existing test**
-
-Run: `grep -n "media_url" bot/web/data.py` and `grep -rn "media_url" tests/ | head`
-Use whichever test file already covers `get_evidence`'s media fields; add to it rather than creating a new one.
-
-- [ ] **Step 2: Write the failing test**
+**`get_evidence` never loads a media row.** It builds the URL straight from the id (`bot/web/data.py` ~line 675):
 
 ```python
-async def test_evidence_carries_its_images_dimensions():
-    """The markup overlay sizes itself from these; without them it cannot lay
-    out at all. Asserted as a pair with DIFFERENT values, so a transposed
-    width/height cannot pass."""
-    # Build the same fixtures the neighbouring get_evidence tests use, with a
-    # media row of width=1200, height=900 attached to the evidence item.
-    rows = await web_data.get_evidence(hunt_uid="U1")
-    assert rows[0]["media_width"] == 1200
-    assert rows[0]["media_height"] == 900
+"media_id": i.media_id,
+"media_url": f"/api/media/{i.media_id}" if i.media_id else None,
 ```
 
-Match the surrounding tests' fixture style exactly — read the neighbouring test before writing this one, and set width and height to different values so a swap is caught.
+There is no batched media lookup like `resolve_puzzle_names` / `resolve_sheet_names` / `resolve_region_names`, and `MySQLMediaDb` has only a single-row `get_by_id` — no `get_names_by_ids`-style batch method. So serving dimensions would mean **either** a new DAO batch method plus a resolver plus a second query on every evidence board load, forever, **or** an N+1 `get_by_id` per row.
 
-- [ ] **Step 3: Run the test to verify it fails**
+**Decision: neither. The dimensions are not needed.** The browser already knows an image's natural size. If the container shrink-wraps the `<img>` and the SVG overlay is `position: absolute; inset: 0`, the image defines the box and the overlay matches it exactly at every size — no aspect ratio, no layout maths, no backend change. The only thing dimensions bought was reserving layout space before the image loads; that is a brief shift inside a modal the user just opened, and a `minHeight` on the frame covers it.
 
-Run: `timeout 180 pipenv run python -m pytest <that file> -q -k dimensions > /tmp/test.log 2>&1`
-Expected: FAIL — `KeyError: 'media_width'`.
+Consequences, already folded into the tasks below:
+- Task 8 does **not** add `media_width`/`media_height` to `EvidenceItem`.
+- `MarkupCanvas` takes **no** `width`/`height` props and computes no `aspect`.
+- `MarkupModal` and the `EvidencePanel` call site pass only `mediaId` and `alt`.
 
-- [ ] **Step 4: Add the fields**
-
-In `get_evidence`, wherever `media_url` is built from the batched media lookup, add alongside it:
-
-```python
-        # The markup overlay lays itself out from the image's aspect ratio, so
-        # the dimensions travel with the URL. Every media row has them:
-        # MediaJsonDb.create records them at upload whether or not the image is
-        # later tiled.
-        "media_width": media_row.width if media_row else None,
-        "media_height": media_row.height if media_row else None,
-```
-
-- [ ] **Step 5: Run the test to verify it passes**
-
-Run the same command. Expected: PASS.
-
-- [ ] **Step 6: Run the full suite and commit**
-
-```bash
-timeout 300 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
-pipenv run ruff check
-pipenv run basedpyright bot/
-git add bot/web/data.py tests/
-git commit -m "feat(markup): carry image dimensions on the evidence payload"
-```
+(If a future surface genuinely needs dimensions before load — a tiled canvas viewer does, which is why `HuntCanvas` carries them — the batched resolver is the right way to add it, as its own change with its own justification.)
 
 ---
 
@@ -1139,12 +1102,7 @@ export interface MediaMark {
 }
 ```
 
-And on the `EvidenceItem` interface (~line 245), beside `media_url`:
-
-```ts
-  media_width: number | null;
-  media_height: number | null;
-```
+Nothing is added to `EvidenceItem` — see Task 7. The image sizes its own container, so `media_url` and `media_id` are all the modal needs.
 
 - [ ] **Step 2: Add the hooks**
 
@@ -1258,12 +1216,10 @@ function kindFor(tool: Tool): MarkKind {
 
 type Props = {
   mediaId: number;
-  width: number;
-  height: number;
   alt: string;
 };
 
-export function MarkupCanvas({ mediaId, width, height, alt }: Props) {
+export function MarkupCanvas({ mediaId, alt }: Props) {
   const marks = useMarkup(mediaId);
   const createMark = useCreateMark(mediaId);
   const deleteMark = useDeleteMark(mediaId);
@@ -1277,6 +1233,9 @@ export function MarkupCanvas({ mediaId, width, height, alt }: Props) {
   /** Ids created in this session, newest last — undo pops from here. */
   const mine = useRef<number[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
+  /** The clipping viewport. Task 10 anchors zoom on it; declared here because
+   *  the frame Box below already needs the ref. */
+  const frameRef = useRef<HTMLDivElement>(null);
   const drawing = useRef(false);
 
   /** Pointer position as normalised image coordinates. getBoundingClientRect
@@ -1350,7 +1309,9 @@ export function MarkupCanvas({ mediaId, width, height, alt }: Props) {
     if (last != null) deleteMark.mutate(last);
   };
 
-  const aspect = useMemo(() => (width && height ? width / height : 1), [width, height]);
+  // No aspect ratio is computed: the <img> below is a block element at
+  // width:100%, so it sets the frame's height itself and the absolutely
+  // positioned SVG overlay inherits exactly that box. See Task 7.
 
   return (
     <Stack gap="xs">
@@ -1386,20 +1347,34 @@ export function MarkupCanvas({ mediaId, width, height, alt }: Props) {
                 onChange={setWidth} label={null} />
       </Group>
 
+      {/* Three nested boxes, and the nesting is load-bearing:
+          - frame: fixed viewport height, clips, owns the pointer handlers;
+          - fit:   shrink-wraps the image, so it IS the image's box;
+          - img:   sized by max-width/max-height, NOT object-fit.
+
+          object-fit: contain would letterbox INSIDE the element box, so
+          getBoundingClientRect() would return the padded box and every stroke
+          would land offset from the cursor by the letterbox. Sizing with
+          max-width/max-height instead means the element box and the painted
+          image are the same rectangle, which is what makes toNorm correct. */}
       <Box
-        style={{ position: "relative", width: "100%", aspectRatio: String(aspect),
+        ref={frameRef}
+        style={{ position: "relative", width: "100%", height: "70vh",
+                 overflow: "hidden", display: "flex",
+                 alignItems: "center", justifyContent: "center",
                  touchAction: "none", cursor: tool === "eraser" ? "pointer" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
         <img ref={imgRef} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
-             style={{ width: "100%", height: "100%", objectFit: "contain",
-                      display: "block", userSelect: "none" }} />
+             style={{ display: "block", maxWidth: "100%", maxHeight: "70vh",
+                      width: "auto", height: "auto", userSelect: "none" }} />
 
         {/* Normalised coordinates go straight in — the same payoff the region
-            overlay gets from viewBox="0 0 1 1". preserveAspectRatio="none"
-            because the box above already matches the image's aspect ratio. */}
+            overlay gets from viewBox="0 0 1 1". The parent shrink-wraps the
+            image, so inset:0 is exactly the image's rectangle. */}
         <svg viewBox="0 0 1 1" preserveAspectRatio="none"
              style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
                       pointerEvents: "none" }}>
@@ -1424,6 +1399,7 @@ export function MarkupCanvas({ mediaId, width, height, alt }: Props) {
                       strokeLinecap="round" strokeLinejoin="round" />
           )}
         </svg>
+       </div>
 
         {textAt && (
           <Box style={{ position: "absolute", left: `${textAt.x * 100}%`,
@@ -1506,8 +1482,8 @@ Add these imports: `useEffect` from react. Inside the component, above `toNorm`:
 ```tsx
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const frameRef = useRef<HTMLDivElement>(null);
   const panning = useRef<null | { sx: number; sy: number; ox: number; oy: number }>(null);
+  // frameRef is already declared in Task 9 — do not declare it twice.
 
   /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
    *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
@@ -1582,27 +1558,27 @@ Toolbar addition, next to the other tool buttons:
 
 - [ ] **Step 3: Wrap the image and overlay in the transformed frame**
 
-Replace the outer `<Box style={{ position: "relative", ... }}>` with a clipping frame plus a transformed inner div. The image and the SVG both live inside the transform, so ink scales with the picture:
+Task 9 already built the three-box structure (frame → shrink-wrap div → img + svg). **Do not restructure it.** The only change is to put the transform on the middle, shrink-wrapping div — the one that already wraps the `<img>` and the `<svg>`:
 
 ```tsx
-      <Box ref={frameRef}
-           style={{ position: "relative", width: "100%", aspectRatio: String(aspect),
-                    overflow: "hidden", touchAction: "none",
-                    cursor: tool === null ? "grab" : tool === "eraser" ? "pointer" : "crosshair" }}
-           onPointerDown={onPointerDown}
-           onPointerMove={onPointerMove}
-           onPointerUp={onPointerUp}>
-        <div style={{ position: "absolute", inset: 0,
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                      transformOrigin: "0 0" }}>
-          {/* the existing <img> and <svg> go here, unchanged — toNorm reads the
-              image's own getBoundingClientRect, which already includes this
-              transform, so no coordinate maths changes */}
-        </div>
-        {/* the text editor Box stays OUTSIDE the transform: its position is a
-            percentage of the frame, and inside it would be scaled twice */}
-      </Box>
+       <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
+                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                     transformOrigin: "0 0" }}>
+         {/* the existing <img> and <svg> stay exactly as they are — toNorm reads
+             the image's own getBoundingClientRect, which already includes this
+             transform, so no coordinate maths changes */}
+       </div>
 ```
+
+Do **not** give that div `position: absolute; inset: 0`: it must keep shrink-wrapping the image, or the SVG overlay stops matching the image's rectangle and every mark lands offset.
+
+Also update the frame's cursor to account for the new Pan tool:
+
+```tsx
+                 cursor: tool === null ? "grab" : tool === "eraser" ? "pointer" : "crosshair",
+```
+
+The in-progress text editor Box stays **outside** the transformed div (it is a sibling of it, inside the frame) — inside, it would be scaled along with the image and the textarea would render at the wrong size.
 
 The in-progress text editor's `left`/`top` must be computed from the transform when zoomed: `left: pan.x + textAt.x * frameWidth * zoom`. Simplest correct version — read the frame's width once at open time and store the editor's position in **frame pixels** rather than normalised units:
 
@@ -1641,8 +1617,6 @@ import { MarkupCanvas } from "./MarkupCanvas";
 
 type Props = {
   mediaId: number | null;
-  width: number | null;
-  height: number | null;
   alt: string;
   onClose: () => void;
 };
@@ -1654,7 +1628,7 @@ export function MarkupModal({ mediaId, width, height, alt, onClose }: Props) {
   return (
     <Modal opened={mediaId != null} onClose={onClose} fullScreen title="Mark up">
       {mediaId != null && (
-        <MarkupCanvas mediaId={mediaId} width={width ?? 0} height={height ?? 0} alt={alt} />
+        <MarkupCanvas mediaId={mediaId} alt={alt} />
       )}
     </Modal>
   );
@@ -1674,8 +1648,6 @@ Render the modal once, next to the panel's other modals:
 ```tsx
       <MarkupModal
         mediaId={markupItem?.media_id ?? null}
-        width={markupItem?.media_width ?? null}
-        height={markupItem?.media_height ?? null}
         alt={markupItem?.note ?? "Evidence image"}
         onClose={() => setMarkupItem(null)}
       />
