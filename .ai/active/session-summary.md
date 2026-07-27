@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — feat(web): crop an informs-region's rect into its own evidence image @ 008d4ac
+Status: in progress — docs: OCR feature marked complete in session summary (verification done, browser check still owed) @ b9070f3
 
 ## Goal
 
@@ -217,33 +217,40 @@ committed — sitting as a working-tree diff across `bot/core/canvas.py`,
 files. Not yet verified in a browser (draw an informs region on `puzzbot.com`, confirm the
 Evidence panel shows the cropped image).
 
-## OCR — asked about, not decided or built
+## OCR — built
 
-User asked (2026-07-26) whether OCR on the canvas/evidence images is possible at all. No existing
-OCR/vision infra in this codebase (grepped: no tesseract/ocr/vision/anthropic/openai hits).
+Followed up on the 2026-07-26 "is OCR possible" question (see the design doc at
+`docs/superpowers/specs/` and the plan in `.ai/plans/` — pytesseract chosen over EasyOCR/cloud
+vision per the options weighed earlier: system `tesseract` via EPEL/`dnf` on the AlmaLinux host,
+which is viable now that the user confirmed root access). Built across 8 tasks, all committed on
+`staging`:
 
-I initially assumed no root on the Plesk host (generalising from [[pyvips-binary-on-plesk]], which
-is about the *wheel not needing root* — not a claim that root is unavailable) and steered toward
-EasyOCR. **User corrected this: they have root on the box** — see [[plesk-root-access]]. That
-makes a plain system-package install a normal option, not a last resort — though the host is
-**AlmaLinux** (RHEL-based, confirmed in [[plesk-deploy-needs-nonchroot-shell]]), so it's
-`dnf`/EPEL, not `apt`: `dnf install epel-release && dnf install tesseract
-tesseract-langpack-eng`, not the Debian-style command I gave first. Options, not yet evaluated in
-practice:
+- **`bot/core/ocr.py`** (`f5b7cf1`) — pure `extract_text(image_bytes) -> str`, wraps
+  `pytesseract.image_to_string` via PIL. Raises on a corrupt image or tesseract failure by design:
+  unlike `image_tiler`/`media_tiling`'s "never raises" helpers, an OCR request exists purely to
+  hand the user something back, so callers must surface the failure rather than swallow it.
+  `pytesseract` added as a dependency (`9eb1f65`).
+- **`POST /api/canvases/<id>/ocr-preview`** (`bot/web/actions.py`, `fc87132`) — crops the canvas's
+  original (untiled) media via the existing `crop_bytes`, then OCRs the crop. Same permission bar
+  as drawing a region (not organiser-gated). Nothing is persisted; a bad shape is a 400, an OCR
+  failure a 500 with `{"error": "ocr_failed"}`.
+- **`POST /api/hunts/<uid>/evidence/ocr-preview`** (`bot/web/api.py`, `5b8c16c` +
+  size-cap fix `43802e0`) — OCRs an about-to-be-logged clue image (upload or paste) before it's
+  logged, same permission bar as logging evidence, same never-persists contract.
+- **Frontend wire-ups** (`b13ee5e` hooks, `a449240` RegionModal, `b9070f3` EvidencePanel) — both
+  `RegionModal.tsx` and `EvidencePanel.tsx` gained an "Extract text" button that calls the
+  respective preview route and, on success, opens a confirm dialog to accept the OCR'd text into
+  the note/clue field rather than overwriting it silently.
 
-1. **pytesseract** (now the natural default, given root) — wraps the system `tesseract` binary,
-   free, lightest pip footprint, mature/well-understood; needs `dnf install tesseract` (via EPEL)
-   on the host, which is no longer a blocker.
-2. **EasyOCR** — pure pip install (PyTorch-based), no root needed either way; heavier dependency
-   (pulls in torch) and slower/more memory per inference — only worth it if pytesseract's accuracy
-   on hunt-typical fonts/handwriting turns out to be poor.
-3. **Cloud OCR/vision API** (e.g. Google Cloud Vision — the project already holds Google API
-   credentials for Sheets) — best accuracy, but a per-request cost and a new external network
-   dependency, unlike everything else in this feature which is local/offline.
+Tests: `tests/test_ocr.py` (3), `TestCanvasOcrPreview` in `tests/test_canvas_web.py` (6),
+`TestEvidenceOcrPreview` in `tests/test_media_web.py` (8, one more than originally planned —
+added during review). Full suite green, ruff/basedpyright clean on every touched backend file,
+frontend `tsc --noEmit`/`npm run build` clean.
 
-Nothing implemented. Next step if pursued: a small standalone spike (not wired into canvas.py or
-the evidence path) trying pytesseract against a real puzzle-sheet crop, to see whether accuracy is
-even good enough on hunt-typical fonts/handwriting to be worth building in at all.
+**Not done: manual browser verification.** No subagent across any of the 8 tasks has clicked
+either "Extract text" button in a live browser — both routes and both frontend wire-ups are
+verified only by unit test and typecheck. This needs a human or a live browser session against
+a real puzzle-sheet crop, the same gap the canvas/region work above already carries.
 
 ## Known gaps and risks
 
