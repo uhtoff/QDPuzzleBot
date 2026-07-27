@@ -13,6 +13,13 @@ boxes — drawn on top of an image and stored with it.
 The motivating use is **not** marking up the whole hunt sheet. It is marking up a section
 already identified as a puzzle, and marking up an evidence image.
 
+Two features, and the second is what makes the first reachable:
+
+1. **Markup** on any extracted image.
+2. **Puzzle images** — a puzzle carries an ordered set of images, shown in `PuzzleDrawer`,
+   populated from its `locates` regions' crops and by direct upload. This is where you open a
+   puzzle's section to mark it up, rather than hunting for its box on a 14400px sheet.
+
 ## Scope: extracted images only
 
 Markup applies to **already-extracted images** — images that are their own `media` row:
@@ -39,10 +46,18 @@ need the viewer extraction at that point.
 
 Markup is **purely visual**. A mark is never linked to a puzzle, never carries a `locates` or
 `informs` role, never spawns an `evidence_items` row, is never cropped, and is never OCR'd.
-
-`canvas_regions`, `bot/core/canvas.py` and the whole region/evidence coupling (role changes
-creating and dropping evidence rows, `resolve_region_names`, the Source filter) are untouched.
 A region is a first-class linked object; ink is not.
+
+**A `locates` region does not create evidence.** An informs region spawns an `evidence_items`
+row because it is a clue *for* a puzzle; a locates region says the section *is* that puzzle,
+which is not a clue about anything. The region/evidence coupling in `canvas.py`
+(`_log_informs_evidence`, its drop-and-recreate on role change) and the `evidence_items`
+schema are **unchanged**. The puzzle's own picture belongs to the puzzle, not to the evidence
+table.
+
+`canvas.py` is not untouched, though: it gains the region ↔ `puzzle_images` sync described
+below, alongside the evidence one. An earlier draft of this spec claimed the module was
+untouched; that was true only while locates regions produced nothing.
 
 ## Data model
 
@@ -78,6 +93,70 @@ which cascades to media — takes the markup with it, so there is no separate cl
 **Highlighter is a style preset**, not a `kind` — a fat, low-opacity pen. **Arrow is a style
 flag on `line`**, not a fourth kind — the geometry is identical. Nothing server-side
 distinguishes either.
+
+## Puzzle images
+
+A puzzle carries an **ordered set of images**, from two sources:
+
+- a **`locates` region's crop** — a section of a canvas that is this puzzle;
+- a **direct upload** — a photo or screenshot that came from no canvas at all.
+
+Because the two sources mix in one ordered list, the list is **materialised**, not derived by
+querying regions: you cannot order a list where half the entries exist only as a query result.
+
+```sql
+CREATE TABLE `puzzle_images` (
+  `id`               INT(11)  NOT NULL AUTO_INCREMENT,
+  `puzzle_id`        INT(11)  NOT NULL,
+  `media_id`         INT(11)  NOT NULL,
+  -- Set when this image came from a locates region; NULL for a direct upload.
+  `source_region_id` INT(11)  DEFAULT NULL,
+  `position`         INT(11)  NOT NULL DEFAULT 0,
+  `created_at`       DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_puzzle_images_region` (`source_region_id`),
+  KEY `idx_puzzle_images_puzzle` (`puzzle_id`),
+  CONSTRAINT `PuzzleImagePuzzleID` FOREIGN KEY (`puzzle_id`)
+      REFERENCES `puzzles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `PuzzleImageMediaID` FOREIGN KEY (`media_id`)
+      REFERENCES `media` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `PuzzleImageRegionID` FOREIGN KEY (`source_region_id`)
+      REFERENCES `canvas_regions` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+);
+```
+
+- **`source_region_id` CASCADE**, matching `evidence_items.source_region_id` (033): a
+  section image is created *by* the link and is meaningless without the region. A directly
+  uploaded image has `source_region_id` NULL and so is never touched by any region change.
+- **`UNIQUE` on `source_region_id`** — one region yields at most one image row, which is what
+  makes the sync idempotent. (MySQL allows many NULLs in a unique index, so direct uploads are
+  unaffected.)
+- **`media_id` CASCADE** — a row pointing at a deleted image has nothing to show.
+- **`position`** orders the list; reorder is a single route taking the ordered ids.
+
+### The region ↔ puzzle_images sync, in `canvas.py`
+
+Mirroring the evidence coupling that already lives there, and for the same reason — one module
+owning both sides so they cannot drift:
+
+- Linking a region as **`locates`** creates the crop and a `puzzle_images` row at the end of
+  that puzzle's list.
+- **Relinking** to another puzzle moves the row (or drops and recreates it, matching however
+  `_log_informs_evidence` handles the same case).
+- Changing the role to **`informs`**, or clearing the link, deletes the row — the FK enforces
+  the region-deleted case anyway.
+- An **unchanged** link does nothing, exactly as the evidence path already does: churning the
+  row on a note or label edit would lose its place in the ordering.
+
+### Adding `canvas_regions.crop_media_id`
+
+`ALTER TABLE canvas_regions ADD COLUMN crop_media_id INT(11) DEFAULT NULL` with an FK to
+`media` `ON DELETE SET NULL` — a region survives losing its crop.
+
+This is load-bearing for more than convenience. The "don't regenerate a crop that has ink"
+guard below needs a way to *find* a region's crop, and today the only record of one is the
+`media_id` on an informs region's evidence row — a locates region would have had no route back
+to its own crop at all.
 
 ## Backend work: a crop for `locates` regions
 
@@ -143,6 +222,27 @@ why a single JSON document column was rejected — every save would be a whole-d
 **Undo is client-side**: the session remembers the ids it created and undo issues the
 corresponding `DELETE`. No server-side history.
 
+### Puzzle image routes
+
+- `GET    /api/puzzles/<id>/images` — the ordered list (also folded into the puzzle detail
+  payload `PuzzleDrawer` already fetches, so the drawer needs no extra request).
+- `POST   /api/puzzles/<id>/images` — attach an uploaded media id, appended to the end.
+  Uploading goes through the existing media route first, exactly as evidence images do.
+- `PATCH  /api/puzzles/<id>/images` — reorder, taking the full ordered list of ids. Whole-list
+  rather than per-item so the result cannot be a partial ordering; ids not belonging to the
+  puzzle are rejected.
+- `DELETE /api/puzzles/<id>/images/<iid>` — detach. For a directly uploaded image this is the
+  only way to remove it. For a region-sourced one, removal normally happens by changing the
+  region's link; deleting it directly is allowed and does **not** delete the region — it is a
+  "stop showing this here" action.
+
+Same permission bar as the rest: any member who can see an unarchived hunt. The media must
+belong to the same hunt as the puzzle — the same cross-hunt guard the evidence image-replace
+route already carries, and the same one that would otherwise be the way to read past media
+visibility.
+
+Mutations push via `_push_board()` like every other board-affecting change.
+
 ### Prerequisite: media dimensions on the evidence payload
 
 `get_evidence` (`bot/web/data.py`) serialises a `media_url` but no dimensions. The overlay needs
@@ -201,11 +301,24 @@ fit-to-view and is zoomed into for detail. It costs decode time and memory, not 
 
 ### `MarkupModal.tsx`
 
-A full-screen modal wrapping `MarkupCanvas`, opened from two places:
+A full-screen modal wrapping `MarkupCanvas`, opened from three places:
 
 1. **`EvidencePanel`** — a "Mark up" action on a row with an image.
-2. **`RegionModal` / the canvas** — an "Open section" action on a `locates` region, opening its
+2. **`PuzzleDrawer`** — clicking one of the puzzle's images.
+3. **`RegionModal` / the canvas** — an "Open section" action on a `locates` region, opening its
    crop.
+
+### `PuzzleImages.tsx` — a strip in `PuzzleDrawer`
+
+Thumbnails of the puzzle's ordered images. Each opens `MarkupModal`; a region-sourced one is
+marked as such (it points back at its canvas). Plus:
+
+- **Add an image** — file picker or paste, through the existing media upload path, then
+  `POST /api/puzzles/<id>/images`.
+- **Reorder by dragging**, using `@dnd-kit/core` — already a dependency and already the board's
+  drag implementation (`DragBoard.tsx`), so this follows existing practice rather than adding a
+  second drag library. Drop commits the whole order in one `PATCH`.
+- **Remove**, with the region-sourced caveat above spelled out in the confirm.
 
 ## Testing
 
@@ -218,23 +331,36 @@ A full-screen modal wrapping `MarkupCanvas`, opened from two places:
   firing on each mutation.
 - The `locates` crop: created on a locates link, and **not** regenerated when the crop already
   has markup.
+- The region ↔ `puzzle_images` sync, held to the same bar as the evidence coupling it mirrors:
+  a row on locates link, moved on relink, gone on role change to informs and on clearing the
+  link, and **untouched** on a note/label edit that leaves the link alone.
+- Reordering: at least **three** images, asserted as a sequence. Two images cannot distinguish
+  a real reorder from a reversal or a no-op, and one proves nothing at all.
+- A direct upload survives every region change, and a cross-hunt media id is refused.
 - Mutation-proved where the property matters — at minimum the point cap, the permission bar,
-  and the regenerate guard, all of which fail silently if they regress.
+  the regenerate guard, the unchanged-link no-op, and the reorder sequence, all of which fail
+  silently if they regress.
 
 **Frontend: inspection and typecheck only.** There is still no frontend test runner, so
 `tsc --noEmit` and `npm run build` cannot catch ink landing in the wrong place or an eraser
-that hits the wrong mark. The containment here is that no existing frontend code changes:
-`CanvasView` and its verified-by-hand pan/zoom/tile machinery are not touched, so a markup bug
-cannot regress the canvas.
+that hits the wrong mark. The containment is that existing components gain only *entry points*
+— a button in `EvidencePanel`, a strip in `PuzzleDrawer`, an action on a region — while all the
+new behaviour lives in new files. In particular `CanvasView` and its verified-by-hand
+pan/zoom/tile machinery are not touched, so a markup bug cannot regress the canvas.
 
 ## Stages
 
 | # | What | Scale |
 |---|------|-------|
-| 1 | Migration + `markup_shape.py` + DAO | small, fully tested |
-| 2 | Routes + permission + WS push | small, fully tested |
-| 3 | `locates` crops + the regenerate-under-ink guard + media dimensions on the evidence payload | small, fully tested |
-| 4 | `MarkupCanvas` + `MarkupModal`, wired into `EvidencePanel` and the region | medium, inspection-verified |
+| 1 | Migration (`media_markup`, `puzzle_images`, `canvas_regions.crop_media_id`) + `markup_shape.py` + DAOs | small, fully tested |
+| 2 | Markup routes + permission + WS push | small, fully tested |
+| 3 | `locates` crops, the regenerate-under-ink guard, the region ↔ `puzzle_images` sync in `canvas.py` | medium, fully tested |
+| 4 | Puzzle image routes (list/attach/reorder/detach) + media dimensions on the payloads | small, fully tested |
+| 5 | `MarkupCanvas` + `MarkupModal`, wired into `EvidencePanel` and the region | medium, inspection-verified |
+| 6 | `PuzzleImages` strip in `PuzzleDrawer`: thumbnails, upload, dnd-kit reorder, remove | medium, inspection-verified |
+
+Stages 1–4 are backend and fully covered; 5 and 6 are the inspection-only frontend, and neither
+touches existing frontend code beyond adding an entry point.
 
 ## Rejected approaches
 
@@ -254,6 +380,16 @@ cannot regress the canvas.
 - **Linkable markup** (a stroke carrying `locates`/`informs`). Would reuse the region
   machinery, but arbitrary geometry has to answer "what area do I crop?", and it would fill the
   evidence table with scribbles.
+- **An evidence row for a locates region.** The obvious way to make a puzzle's section
+  reachable from the puzzle side, and it would have reused machinery that already exists — but
+  a locates region is not a clue, and every region on a sheet would have produced a row.
+  Puzzle images do the same job without overloading what evidence means.
+- **A single `puzzles.image_media_id` column.** Cannot express a puzzle whose sections are
+  scattered across the sheet in several regions — which is precisely what highlight-by-puzzle
+  exists for — and has nowhere to put an ordering.
+- **Deriving a puzzle's images from its regions by query**, with no table. Works right up until
+  you want a directly-uploaded image or a custom order, neither of which a query over
+  `canvas_regions` can hold.
 - **Per-author layers with visibility toggles.** Powerful on a crowded image, but it needs a
   `created_by` column, author filtering and a layer UI, none of which regions needed. Revisit
   if a real image gets crowded.
