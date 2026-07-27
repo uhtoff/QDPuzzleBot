@@ -238,6 +238,20 @@ its links, mark it solved, add working sheets, and read or add notes — the sam
 
 ![Puzzle drawer](img/userguide/05-puzzle-drawer.png)
 
+The drawer also holds the puzzle's **images** — the puzzle as a picture, rather than
+clues about it. Two things put an image here:
+
+- drawing a box round the puzzle on a **canvas** and linking it as *this section is the
+  puzzle* (see [Canvas](#canvas)), which crops that part of the sheet automatically;
+- adding one yourself: use **Add image**, or just **paste a screenshot** anywhere in the
+  open drawer.
+
+Click any of them to open it full-screen and **mark it up** (see [Marking up an
+image](#marking-up-an-image)). Drag the thumbnails to reorder them — useful when a
+puzzle is spread across several bits of a sheet and you want them in reading order.
+Removing an image that came from a canvas only takes it off the puzzle; the region stays
+on the sheet, and the image comes back if that region is still linked.
+
 ### Reading a puzzle's chat
 
 Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
@@ -259,6 +273,75 @@ puzzle, and you can log new clues from here too. It mirrors the Evidence tab on 
 spreadsheet.
 
 ![Evidence](img/userguide/06-evidence.png)
+
+**Clues can be pictures.** When logging one, attach a file or simply **paste a
+screenshot** into the clue box — the usual way you'll capture a chunk of a puzzle. A
+clue can be an image with no text at all.
+
+- **Extract text** runs the image through text recognition and offers the result for the
+  note, so you don't retype a wall of letters. It asks before replacing anything you have
+  already typed. It is a machine reading a picture: expect to correct it.
+- Notes can run to **several lines** — Enter starts a new line, **Ctrl/⌘+Enter** logs the
+  clue. That matters because extracted text usually arrives as lines that mean something.
+- **Click a clue's thumbnail** to open it full-screen and mark it up (see below).
+- **Replace** swaps the picture while keeping the note, the target and the row's place in
+  the table — for when someone produces a clearer scan of the same thing. You can also
+  click the image cell and paste. The old picture is kept, not deleted.
+
+The **Source** column says where a clue came from: a puzzle, a sheet, or a **canvas**
+region, so a clue carved off a hunt sheet still says which part of which sheet it was.
+
+### Canvas
+
+Some hunts hand you one enormous image — an extravaganza sheet with forty puzzles printed
+on it — rather than a puzzle per page. The **Canvas** view is for those.
+
+An organiser uploads the image, and then anyone on the team can draw boxes round the
+puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
+sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
+
+Click **Draw a region** and drag a box round something. You are then asked what it is:
+
+- **this section is the puzzle** — the box *is* a puzzle. Its picture appears on that
+  puzzle in the drawer, ready to work on.
+- **this is a clue for a puzzle** — the box is evidence about some puzzle elsewhere. It
+  becomes a row in the Evidence log, carrying the cropped picture with it.
+- **no puzzle** — just a box for now. Perfectly reasonable while you are still working
+  out what is on the sheet.
+
+You can also **create a new puzzle straight from a box**, naming it and choosing its round
+in one go; the bot makes the channel and the sheet as usual. **Extract text** works here
+too, reading whatever is inside the box.
+
+Boxes are tinted by their puzzle's status, so a glance at the sheet shows what is solved,
+in progress, stuck, or not started. Hovering a box lights up every other box belonging to
+the same puzzle, and the toolbar's puzzle picker pins that highlight while you hunt around
+a busy sheet for the rest of it. Boxes are shared: everyone sees them as they are drawn.
+
+In Discord, `!canvas` links to this view and lists the hunt's canvases.
+
+### Marking up an image
+
+Any image the dashboard holds — a clue's picture, or a puzzle's own picture in the drawer
+— can be drawn on. Click its thumbnail to open it full-screen.
+
+The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter**,
+**text** and an **eraser**, plus a colour and a size. Some details worth knowing:
+
+- Hold **Shift** while drawing with the pen or highlighter to snap the stroke straight.
+- The **size** slider sets both line thickness and text size.
+- **Text**: click where you want it, type, then **Ctrl/⌘+Enter**.
+- **Ctrl+scroll** zooms about the pointer; choose **Pan** to drag the image around; **Fit**
+  returns to the whole picture.
+- **Undo** removes what you just drew. The **eraser** removes a whole mark in one click.
+- **Save** closes the image. Marks are saved as you draw them, so nothing is lost if you
+  close it another way.
+
+Markup is **shared and live**: two people can annotate the same image at once and each
+sees the other's marks appear. It is also purely visual — a circle round an answer is not
+a clue, and never turns into one. Marks belong to the image you drew them on, so ink on a
+clue's picture does not appear on the puzzle's picture, even when the two came from the
+same sheet.
 
 ### Arrange (organisers)
 
