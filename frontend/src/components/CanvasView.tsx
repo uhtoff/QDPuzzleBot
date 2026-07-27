@@ -21,11 +21,14 @@ function tintFor(puzzle: Puzzle | undefined): string | null {
   // solved rows still tinted, because the boolean above catches those first,
   // which is what made this look like "some statuses have no colour".
   const status = (puzzle.status || "").toLowerCase();
-  if (status.includes("solved")) return "#2f9e44";     // solved, backsolved
   if (status.includes("stuck")) return "#e03131";      // red
   // "needs extraction" and "needs submission" are both work-in-flight.
   if (status.includes("progress") || status.includes("needs")) return "#f08c00";
-  return "#868e96";                                    // grey: unstarted
+  // "unsolved" is a real stored value in this database and CONTAINS "solved",
+  // so it has to be excluded explicitly or every unsolved puzzle tints green.
+  // "backsolved" must still match.
+  if (status.includes("solved") && !status.includes("unsolved")) return "#2f9e44";
+  return "#868e96";                                    // grey: unstarted, unset
 }
 
 export const TINT_LEGEND: { colour: string; label: string }[] = [
