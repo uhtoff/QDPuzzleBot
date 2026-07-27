@@ -30,6 +30,7 @@ import {
 } from "../api";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { ConfirmModal } from "./ConfirmModal";
+import { PuzzleImages } from "./PuzzleImages";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { notifyError, showSheetWarning } from "../util";
 
@@ -251,6 +252,9 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
               </Button>
             )
           )}
+
+          <Divider label="Images" labelPosition="left" />
+          <PuzzleImages puzzleId={puzzle.id} puzzleName={puzzle.name} uid={uid} editable={editable} />
 
           <Divider label="Sheets" labelPosition="left" />
           <Stack gap="xs">
