@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-07-26
-Status: in progress — tile-seam content-loss bug fixed; next is the requested feature list
+Status: in progress — fix(canvas): abut tiles on an integer grid instead of overdrawing @ 29dd116
 
 ## Goal
 
@@ -265,6 +265,21 @@ every pair. Also clipped the image div (`overflow: hidden`) — the pyramid's la
 row are white-padded to a full tile and were painting past the image's real edge.
 
 Still wants an eyeball on the motivating sheet during the outstanding B2b browser pass.
+
+## Requested-feature tranche 1 — done 2026-07-27
+
+Frontend-only, no backend change. Both from the design doc's "Future enhancements" list.
+
+- **"No puzzle" segment in `RegionModal`.** Uses the existing clear-the-link path
+  (`puzzle_id: null` / `role: null`), already covered backend-side by
+  `test_clearing_the_link_deletes_the_evidence_row`.
+- **Multi-line clue notes in `EvidencePanel`.** Wider than the doc's note: the entry field,
+  the OCR collapse, the row's inline editor (single-line, commits on blur — would have
+  flattened a multi-line note on any edit) and the read-only render (`pre-wrap`) all had to
+  change or the line breaks would not have survived a round trip. Enter now inserts a break
+  and **Ctrl/⌘+Enter** submits, in both editors.
+
+Both are inspection-and-typecheck only — still no frontend test runner.
 
 ## Known gaps and risks
 

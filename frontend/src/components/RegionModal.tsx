@@ -36,6 +36,11 @@ type Props = {
   onClose: () => void;
 };
 
+/** What the region's puzzle link should end up as when the modal is saved.
+ *  "none" is explicit rather than implied by an empty Select: from "create"
+ *  mode there was previously no way back to unlinked at all. */
+type LinkMode = "none" | "link" | "create";
+
 const ROLE_HELP: Record<RegionRole, string> = {
   locates: "This part of the picture IS that puzzle.",
   informs: "This part of the picture is a CLUE FOR that puzzle — it also logs a piece of evidence against it.",
@@ -47,7 +52,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const [note, setNote] = useState("");
   const [puzzleId, setPuzzleId] = useState<string | null>(null);
   const [role, setRole] = useState<RegionRole>("locates");
-  const [mode, setMode] = useState<"link" | "create">("link");
+  const [mode, setMode] = useState<LinkMode>("link");
   const [newName, setNewName] = useState("");
   const [roundId, setRoundId] = useState<string | null>(UNASSIGNED);
   const [err, setErr] = useState<string | null>(null);
@@ -67,7 +72,11 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setNote(region?.note ?? "");
     setPuzzleId(region?.puzzle_id ? String(region.puzzle_id) : null);
     setRole(region?.role ?? "locates");
-    setMode("link");
+    // Reflect an existing region's actual state, so an unlinked region does not
+    // open showing "Existing puzzle". A freshly drawn shape still opens on
+    // "link" — drawing a box in order to link it is the common case, and
+    // costing that flow an extra click to gain the escape hatch is a bad trade.
+    setMode(region && !region.puzzle_id ? "none" : "link");
     setNewName("");
     setRoundId(UNASSIGNED);
     setErr(null);
@@ -119,7 +128,10 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setErr(null);
     // puzzle_id and role travel together: the API rejects a half-set link, so
     // clearing the puzzle must clear the role rather than send a stale one.
-    const linked = puzzleId ? Number(puzzleId) : null;
+    // "none" wins over whatever the Select still holds — flipping to "No
+    // puzzle" and saving is how an existing link gets cleared, and the Select
+    // deliberately keeps its value so flipping back restores the choice.
+    const linked = mode === "none" || !puzzleId ? null : Number(puzzleId);
     const body = {
       label,
       note: note || null,
@@ -203,14 +215,21 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
 
         <SegmentedControl
           value={mode}
-          onChange={(v) => setMode(v as "link" | "create")}
+          onChange={(v) => setMode(v as LinkMode)}
           data={[
+            { label: "No puzzle", value: "none" },
             { label: "Existing puzzle", value: "link" },
             { label: "Create a new puzzle", value: "create" },
           ]}
         />
 
-        {mode === "link" ? (
+        {mode === "none" ? (
+          <Text size="xs" c="dimmed">
+            {region?.puzzle_id
+              ? "Saving will unlink this region from its puzzle. The region, its label and its notes stay."
+              : "The region is kept on the picture with no puzzle attached. Link it later by reopening it."}
+          </Text>
+        ) : mode === "link" ? (
           <Select
             label="Puzzle"
             placeholder="Not linked"
@@ -234,7 +253,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           </Stack>
         )}
 
-        {(puzzleId || mode === "create") && (
+        {((mode === "link" && puzzleId) || mode === "create") && (
           <Stack gap={4}>
             <Text size="sm" fw={500}>Role</Text>
             <SegmentedControl

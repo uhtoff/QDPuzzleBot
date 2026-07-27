@@ -109,6 +109,15 @@ later; none are load-bearing now.
 
 User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
 
+- ~~**Explicit "no puzzle" option in the region link control.**~~ **Done 2026-07-27.** A
+  third `SegmentedControl` segment, "No puzzle", now precedes the other two. Saving in
+  that mode sends `puzzle_id: null` / `role: null` regardless of what the Select still
+  holds, which is the existing clearing path (backend already covered by
+  `test_clearing_the_link_deletes_the_evidence_row`); the Select keeps its value so
+  flipping back restores the choice. An existing *unlinked* region now opens on "No
+  puzzle" rather than misreporting itself as "Existing puzzle", but a freshly drawn shape
+  still opens on "Existing puzzle" — drawing in order to link is the common case and it
+  should not cost an extra click. Original note:
 - **Explicit "no puzzle" option in the region link control.** `RegionModal.tsx`'s
   `SegmentedControl` (~line 205) only offers "Existing puzzle" / "Create a new puzzle".
   Leaving a region unlinked is *technically* possible today — the "Existing puzzle" mode's
@@ -119,6 +128,17 @@ User feedback on the shipped B1/B2 canvas, not yet designed or scheduled:
   independently by its own linked puzzle's status (`tintFor`, ~line 13); there's no way to
   see, at a glance, which regions on a busy sheet all belong to the same puzzle (e.g. on
   hover/click of one region, or from the puzzle side).
+- ~~**Carriage returns in evidence "log a clue".**~~ **Done 2026-07-27.** Three changes,
+  not one — the field alone would not have held the line breaks:
+  - The entry field is an autosizing `Textarea` (1–8 rows). Enter inserts a break,
+    **Ctrl/⌘+Enter logs**; Enter cannot do both.
+  - `extractClueText` no longer collapses whitespace, so OCR's line structure survives.
+  - The row's *inline editor* was also a single-line `TextInput` that commits on blur, so
+    merely clicking a multi-line note to edit it would have flattened it. Now a matching
+    `Textarea`, same Ctrl/⌘+Enter commit, Escape still cancels.
+  - The read-only note now renders `white-space: pre-wrap`; HTML collapses the breaks
+    otherwise. No backend change: the routes only `.strip()`, and the note travels as a
+    single string.
 - **Carriage returns in evidence "log a clue".** `EvidencePanel.tsx`'s clue note field is a
   single-line `TextInput` that submits on Enter (see the comment above `extractClueText`,
   ~line 96), so OCR results — which do get newlines right — are collapsed to spaces on

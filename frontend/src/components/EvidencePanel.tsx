@@ -12,6 +12,7 @@ import {
   Table,
   Text,
   TextInput,
+  Textarea,
 } from "@mantine/core";
 import { IconArrowDown, IconArrowsSort, IconArrowUp, IconTrash } from "@tabler/icons-react";
 import type { EvidenceItem, HuntDetail } from "../types";
@@ -95,25 +96,25 @@ export function EvidencePanel({ uid, detail }: Props) {
 
   /** OCR the attached/pasted image and fill the clue note with the result.
    *
-   *  Unlike RegionModal's Textarea, this note field is a single-line
-   *  TextInput that submits on Enter, so newlines in the OCR result are
-   *  collapsed to spaces rather than preserved -- a multi-line result would
-   *  otherwise just run together invisibly in a one-line box anyway.
+   *  Line breaks are preserved. They used to be collapsed to spaces because
+   *  the note field was a single-line TextInput that submitted on Enter; it is
+   *  an autosizing Textarea now, and OCR gets the line structure of a grid or
+   *  a verse right, which is exactly the part worth keeping.
    */
   async function extractClueText() {
     if (!clueFile) return;
     try {
       const { text } = await ocrClueImage.mutateAsync(clueFile);
-      const collapsed = text.replace(/\s+/g, " ").trim();
-      if (!collapsed) {
+      const extracted = text.trim();
+      if (!extracted) {
         notifyError(new Error("No text found in that image."));
         return;
       }
       if (clueNote.trim()) {
-        setPendingClueOcrText(collapsed);
+        setPendingClueOcrText(extracted);
         setClueOcrConfirmOpen(true);
       } else {
-        setClueNote(collapsed);
+        setClueNote(extracted);
       }
     } catch (err) {
       notifyError(err);
@@ -287,13 +288,24 @@ export function EvidencePanel({ uid, detail }: Props) {
             clearable
             w={240}
           />
-          <TextInput
+          <Textarea
             size="xs"
-            placeholder="Log a clue…"
+            placeholder="Log a clue… (Ctrl/⌘+Enter to log)"
             value={clueNote}
             onChange={(e) => setClueNote(e.currentTarget.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitClue()}
+            // Enter inserts a line break; Ctrl/Cmd+Enter logs. Enter cannot do
+            // both, and a clue transcribed off a grid or a verse is worth more
+            // with its line structure intact than with a one-keystroke submit.
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                submitClue();
+              }
+            }}
             onPaste={onCluePaste}
+            autosize
+            minRows={1}
+            maxRows={8}
             style={{ flex: 1 }}
           />
           <FileInput
@@ -476,21 +488,33 @@ const EvidenceRow = memo(function EvidenceRow({
       </Table.Td>
       <Table.Td>
         {editable && editing ? (
-          <TextInput
+          <Textarea
             size="xs"
             value={draft}
             onChange={(e) => setDraft(e.currentTarget.value)}
+            // Same bargain as the clue entry box above: Enter is a line break,
+            // Ctrl/Cmd+Enter commits. A single-line input here would flatten a
+            // multi-line note the moment anyone opened it for editing.
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                commitEdit();
+              }
               if (e.key === "Escape") cancelEdit();
             }}
             onBlur={commitEdit}
+            autosize
+            minRows={1}
+            maxRows={8}
             autoFocus
           />
         ) : (
           <Text
             size="sm"
-            style={editable ? { cursor: "pointer" } : undefined}
+            // Line breaks in a note are content: HTML would collapse them.
+            style={editable
+              ? { cursor: "pointer", whiteSpace: "pre-wrap" }
+              : { whiteSpace: "pre-wrap" }}
             onClick={editable ? startEdit : undefined}
             title={editable ? "Click to edit" : undefined}
           >
