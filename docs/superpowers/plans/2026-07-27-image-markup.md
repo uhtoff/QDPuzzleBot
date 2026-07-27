@@ -1059,7 +1059,7 @@ This task was to add `media_width`/`media_height` to the evidence payload so the
 
 There is no batched media lookup like `resolve_puzzle_names` / `resolve_sheet_names` / `resolve_region_names`, and `MySQLMediaDb` has only a single-row `get_by_id` — no `get_names_by_ids`-style batch method. So serving dimensions would mean **either** a new DAO batch method plus a resolver plus a second query on every evidence board load, forever, **or** an N+1 `get_by_id` per row.
 
-**Decision: neither. The dimensions are not needed.** The browser already knows an image's natural size. If the container shrink-wraps the `<img>` and the SVG overlay is `position: absolute; inset: 0`, the image defines the box and the overlay matches it exactly at every size — no aspect ratio, no layout maths, no backend change. The only thing dimensions bought was reserving layout space before the image loads; that is a brief shift inside a modal the user just opened, and a `minHeight` on the frame covers it.
+**Decision: neither. The dimensions are not needed.** The browser already knows an image's natural size. If the container shrink-wraps the `<img>` and the SVG overlay is `position: absolute; inset: 0`, the image defines the box and the overlay matches it exactly at every size — no aspect ratio, no layout maths, no backend change. The only thing dimensions bought was reserving layout space before the image loads; that is a brief shift inside a modal the user just opened, and the frame's fixed `70vh` height covers it — the frame does not resize when the image arrives, only the image inside it appears.
 
 Consequences, already folded into the tasks below:
 - Task 8 does **not** add `media_width`/`media_height` to `EvidenceItem`.
@@ -1179,7 +1179,7 @@ No frontend test runner exists in this repo (`package.json` has no vitest/jest),
 - [ ] **Step 1: Write the component**
 
 ```tsx
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Box, Button, ColorSwatch, Group, Slider, Stack, Text, Textarea } from "@mantine/core";
 import {
   IconArrowUpRight, IconEraser, IconHighlight, IconLine, IconPencil,
@@ -1228,7 +1228,13 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
   const [colour, setColour] = useState(COLOURS[0]);
   const [width_, setWidth] = useState(0.003);
   const [stroke, setStroke] = useState<[number, number][]>([]);
-  const [textAt, setTextAt] = useState<null | { x: number; y: number }>(null);
+  /** Where an in-progress text box sits. Two coordinate systems on purpose:
+   *  x/y are normalised (what gets stored), px/py are frame-relative pixels
+   *  (where the editor renders). The editor lives outside the transformed div,
+   *  so a percentage of the frame would not track the image once it is panned
+   *  or the image is letterboxed inside the frame. */
+  const [textAt, setTextAt] =
+    useState<null | { x: number; y: number; px: number; py: number }>(null);
   const [draftText, setDraftText] = useState("");
   /** Ids created in this session, newest last — undo pops from here. */
   const mine = useRef<number[]>([]);
@@ -1263,7 +1269,14 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
     const at = toNorm(e);
     if (!at || !tool) return;
     if (tool === "eraser") return;                    // handled per-mark below
-    if (tool === "text") { setTextAt({ x: at[0], y: at[1] }); return; }
+    if (tool === "text") {
+      const frame = frameRef.current?.getBoundingClientRect();
+      setTextAt({
+        x: at[0], y: at[1],
+        px: e.clientX - (frame?.left ?? 0), py: e.clientY - (frame?.top ?? 0),
+      });
+      return;
+    }
     drawing.current = true;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     setStroke([at]);
@@ -1309,9 +1322,10 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
     if (last != null) deleteMark.mutate(last);
   };
 
-  // No aspect ratio is computed: the <img> below is a block element at
-  // width:100%, so it sets the frame's height itself and the absolutely
-  // positioned SVG overlay inherits exactly that box. See Task 7.
+  // No aspect ratio is computed and no dimensions are fetched: the <img> is
+  // sized by max-width/max-height inside a shrink-wrapping div, so that div IS
+  // the image's rectangle and the SVG overlay at inset:0 matches it exactly.
+  // See Task 7 for why the server does not send dimensions.
 
   return (
     <Stack gap="xs">
@@ -1402,8 +1416,8 @@ export function MarkupCanvas({ mediaId, alt }: Props) {
        </div>
 
         {textAt && (
-          <Box style={{ position: "absolute", left: `${textAt.x * 100}%`,
-                        top: `${textAt.y * 100}%`, width: 220, zIndex: 5 }}>
+          <Box style={{ position: "absolute", left: textAt.px, top: textAt.py,
+                        width: 220, zIndex: 5 }}>
             <Textarea autoFocus autosize minRows={1} maxRows={4} value={draftText}
                       onChange={(e) => setDraftText(e.currentTarget.value)}
                       onKeyDown={(e) => {
@@ -1580,12 +1594,7 @@ Also update the frame's cursor to account for the new Pan tool:
 
 The in-progress text editor Box stays **outside** the transformed div (it is a sibling of it, inside the frame) — inside, it would be scaled along with the image and the textarea would render at the wrong size.
 
-The in-progress text editor's `left`/`top` must be computed from the transform when zoomed: `left: pan.x + textAt.x * frameWidth * zoom`. Simplest correct version — read the frame's width once at open time and store the editor's position in **frame pixels** rather than normalised units:
-
-```tsx
-  const [textAt, setTextAt] = useState<null | { x: number; y: number; px: number; py: number }>(null);
-```
-setting `px`/`py` from `e.clientX - rect.left` / `e.clientY - rect.top` at pointer-down, and rendering the editor at `left: textAt.px, top: textAt.py`. The stored mark still uses the normalised `x`/`y`.
+Nothing more is needed for the text editor: Task 9 already stores its position as frame-relative pixels (`px`/`py`) alongside the normalised `x`/`y`, precisely so it keeps working once a transform exists. Leave it alone.
 
 - [ ] **Step 4: Typecheck and build**
 
