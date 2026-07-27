@@ -41,6 +41,15 @@ export default function HuntBoard() {
       qc.invalidateQueries({ queryKey: ["hunt", uid] });
       qc.invalidateQueries({ queryKey: ["evidence", uid] });
       qc.invalidateQueries({ queryKey: ["canvases", uid] });
+      // Markup and puzzle images are keyed by media/puzzle id, not by hunt, so
+      // they need a PREFIX invalidation — react-query matches partial keys.
+      // Without these two the server's push arrives and every client ignores
+      // it: two people marking up the same image would not see each other's
+      // ink until a reload, even though the mutation pushed correctly.
+      // At most a couple of these queries are ever mounted (one open modal,
+      // one open drawer), so invalidating the whole prefix is cheap.
+      qc.invalidateQueries({ queryKey: ["markup"] });
+      qc.invalidateQueries({ queryKey: ["puzzle-images"] });
     }
   });
   const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "canvas" | "manage">("board");
