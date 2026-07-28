@@ -217,6 +217,38 @@ class TestClueWithAttachment:
         assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
 
 
+class TestClueOutsideHunt:
+    """!clue outside any hunt channel: friendly refusal, never a crash (review 2026-07-28)."""
+
+    async def test_clue_outside_a_hunt_sends_a_friendly_error(self):
+        cog = make_cog()
+        cog.get_hunt = lambda ctx: None   # make_cog would return MagicMock(); force no-hunt
+        ctx = make_ctx()
+        ctx.message.attachments = []      # unset Mock attrs are truthy — must be a real []
+        cog.service.log_clues = AsyncMock()
+        cog.service.refresh_evidence_safe = AsyncMock()
+
+        await Puzzles.clue.callback(cog, ctx, note="some note")
+
+        cog.service.log_clues.assert_not_called()
+        msg = ctx.send.call_args[0][0]
+        assert "hunt" in msg.lower()
+
+    async def test_clue_with_attachment_outside_a_hunt_does_not_crash(self):
+        cog = make_cog()
+        cog.get_hunt = lambda ctx: None
+        ctx = make_ctx()
+        att = MagicMock()
+        att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\n" + b"x" * 16)
+        ctx.message.attachments = [att]
+        cog.service.log_clues = AsyncMock()
+
+        await Puzzles.clue.callback(cog, ctx, note="")
+
+        cog.service.log_clues.assert_not_called()
+        assert "hunt" in ctx.send.call_args[0][0].lower()
+
+
 class TestShlex:
     """Confirm shlex.split tokenises exactly as expected — no hidden dep on Python version."""
 

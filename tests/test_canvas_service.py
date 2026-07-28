@@ -252,6 +252,24 @@ def test_a_note_edit_keeps_the_regions_existing_crop(dbs):
     assert regions.update.call_args.kwargs["crop_media_id"] == 456
 
 
+def test_a_suppressed_recrop_syncs_the_existing_crop(dbs):
+    """The DB write resolves crop_media_id = existing when media_id is None;
+    sync_region_image must receive that SAME resolved id. Otherwise a relinked
+    locates region whose re-crop was suppressed (ink guard, or a failed crop)
+    is deleted from the old puzzle's strip and never recreated on the new one,
+    while its crop still exists in the DB. (Review 2026-07-28.)"""
+    regions, evidence, images = dbs
+    existing = _region(puzzle_id=9, role="locates")
+    existing.crop_media_id = 42
+    regions.get_by_id.return_value = existing
+
+    canvas.update_region(region_id=5, hunt_id=1, shape=RECT,
+                         puzzle_id=11, role="locates")   # relink 9 -> 11, no new crop
+
+    images.sync_region_image.assert_called_once_with(5, 11, "locates", 42)
+    assert regions.update.call_args.kwargs["crop_media_id"] == 42
+
+
 def test_updating_a_missing_region_is_rejected(dbs):
     regions, _, _ = dbs
     regions.get_by_id.return_value = None

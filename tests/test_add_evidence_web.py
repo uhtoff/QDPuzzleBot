@@ -276,3 +276,36 @@ class TestAddEvidenceSheetSource:
         })
         assert res.status_code == 201
         assert web.cog.service.log_clues.await_args.kwargs["source_sheet_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_media_id_from_another_hunt_is_refused(web):
+    """Create must hold the same invariant update_evidence documents: an item
+    may never cite another hunt's private upload. (Review 2026-07-28.)"""
+    mdb = MagicMock()
+    mdb.get_by_id.return_value = SimpleNamespace(id=55, hunt_id=999)  # ctx hunt is id 10
+
+    with patch("bot.store.MediaJsonDb", mdb):
+        resp = await web.client.post(
+            "/api/evidence",
+            json={"hunt_uid": "U1", "notes": ["a clue"], "media_id": 55},
+        )
+
+    assert resp.status_code == 400
+    assert (await resp.get_json())["error"] == "cross_hunt_media"
+    web.cog.service.log_clues.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_media_id_is_refused(web):
+    mdb = MagicMock()
+    mdb.get_by_id.return_value = None
+
+    with patch("bot.store.MediaJsonDb", mdb):
+        resp = await web.client.post(
+            "/api/evidence",
+            json={"hunt_uid": "U1", "notes": ["a clue"], "media_id": 55},
+        )
+
+    assert resp.status_code == 400
+    web.cog.service.log_clues.assert_not_awaited()
