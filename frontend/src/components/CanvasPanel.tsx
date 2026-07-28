@@ -136,6 +136,7 @@ export function CanvasPanel({ uid, detail }: Props) {
         </Alert>
       ) : (
         <CanvasView
+          key={canvas.id}
           canvas={canvas}
           puzzlesById={puzzlesById}
           editable={editable}

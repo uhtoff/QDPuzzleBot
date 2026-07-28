@@ -157,6 +157,7 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
   useEffect(() => {
     if (!editable) return;
     const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
       if (isTextEntryTarget(e.target)) return;
       const file = imageFromClipboard(e.clipboardData);
       if (!file) return;

@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
+import { notifyError } from "../util";
 
 type Tool = "pen" | "line" | "arrow" | "highlighter" | "text" | "eraser" | null;
 
@@ -154,11 +155,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const commitStroke = useCallback(async (points: [number, number][]) => {
     if (points.length < 2) return;
     const rounded = points.map(([x, y]) => [round4(x), round4(y)]) as [number, number][];
-    const mark = await createMark.mutateAsync({
-      mark: { kind: kindFor(tool), points: rounded },
-      style: styleFor(tool, colour, width_),
-    });
-    mine.current.push(mark.id);
+    try {
+      const mark = await createMark.mutateAsync({
+        mark: { kind: kindFor(tool), points: rounded },
+        style: styleFor(tool, colour, width_),
+      });
+      mine.current.push(mark.id);
+    } catch (e) {
+      notifyError(e);
+    }
   }, [createMark, tool, colour, width_]);
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -234,14 +239,18 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     setTextAt(null);
     setDraftText("");
     if (!body || !at) return;
-    const mark = await createMark.mutateAsync({
-      mark: {
-        kind: "text", points: [[round4(at.x), round4(at.y)]], text: body,
-        size: round4(textSize),
-      },
-      style: styleFor("text", colour, width_),
-    });
-    mine.current.push(mark.id);
+    try {
+      const mark = await createMark.mutateAsync({
+        mark: {
+          kind: "text", points: [[round4(at.x), round4(at.y)]], text: body,
+          size: round4(textSize),
+        },
+        style: styleFor("text", colour, width_),
+      });
+      mine.current.push(mark.id);
+    } catch (e) {
+      notifyError(e);
+    }
   };
 
   /** Font size as a fraction of the image's height, from the size slider. */
@@ -249,7 +258,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
 
   const undo = () => {
     const last = mine.current.pop();
-    if (last != null) deleteMark.mutate(last);
+    if (last != null) deleteMark.mutate(last, { onError: (e) => notifyError(e) });
   };
 
   // No aspect ratio is computed and no dimensions are fetched: the <img> is
@@ -350,7 +359,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           </defs>
           {(marks.data ?? []).filter((m) => m.kind !== "text").map((m) => (
             <MarkShape key={m.id} mark={m} erasing={tool === "eraser"}
-                       onErase={() => deleteMark.mutate(m.id)} />
+                       onErase={() => deleteMark.mutate(m.id, { onError: (e) => notifyError(e) })} />
           ))}
           {stroke.length > 1 && (
             <polyline points={stroke.map(([x, y]) => `${x},${y}`).join(" ")}
@@ -387,7 +396,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                   cursor: tool === "eraser" ? "pointer" : undefined,
                 }}
                 onPointerDown={tool === "eraser"
-                  ? () => deleteMark.mutate(m.id) : undefined}
+                  ? () => deleteMark.mutate(m.id, { onError: (e) => notifyError(e) }) : undefined}
               >
                 {m.text}
               </div>
