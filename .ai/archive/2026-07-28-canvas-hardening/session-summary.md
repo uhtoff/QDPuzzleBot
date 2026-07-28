@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — refactor(frontend): extract canvasMath, stabilise deps, add a retile button @ 7592e30
+Status: COMPLETE — all 5 phases landed and merged into `staging` @ 8796fd4
 
 ## Goal
 
