@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — feat: cap concurrent tiling, and add a retile route for stuck canvases @ abe50bb
+Status: ready for handoff — refactor(frontend): extract canvasMath, stabilise deps, add a retile button @ 7592e30
 
 ## Goal
 
@@ -82,10 +82,14 @@ Full phased plan: `.ai/active/current-spec.md` (authoritative).
     spec pins for `canvasMath.ts`. Added a scoped `!frontend/src/lib/` negation rather
     than committing source with `git add -f`.
 
+- **Phase 5 DONE** — all gates clean (1525 pytest, ruff, basedpyright 0/0, vitest 6, build),
+  and all three guards mutation-proved then restored. See `changed-files.md` for the table.
+
 ## Next steps
 
-1. Phases 2–5 in order, committing per phase, gates per spec.
-2. Merge `working-2` → `staging`; user pulls staging → main for live later.
+1. `working-2` merged into `staging`. Nothing outstanding in this tranche.
+2. User pulls `staging` → `main` for live when ready. Do not push `main` from here.
+3. `.ai/active/` is ready to archive.
 
 ## What NOT to touch
 
