@@ -2543,6 +2543,10 @@ async def reorder_puzzle_images(puzzle_id):
         puzzle_images.reorder(puzzle_id, ordered_ids)
     except puzzle_images.ImageNotFound as exc:
         return jsonify({"error": str(exc)}), 404
+    except puzzle_images.BadReorder as exc:
+        # 400, not 404: every id named does exist and is owned — the list
+        # itself is malformed, which is a client bug rather than a stale id.
+        return jsonify({"error": str(exc)}), 400
 
     await _push_board(ctx["hunt"]["id"])
     await _audit("reorder_puzzle_images", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])

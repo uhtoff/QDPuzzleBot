@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — docs: land the canvas hardening tranche handoff @ ee10ffc
+Status: ready for handoff — test: pin the canvas hardening tranche (failing) @ 9a1fed9
 
 ## Goal
 
@@ -56,6 +56,13 @@ Full phased plan: `.ai/active/current-spec.md` (authoritative).
 
 - Branching done: `staging` fast-forwarded to `main` (0048d9f); `working-2` was already level.
 - **Phase 1 DONE** — 11 red backend tests + Vitest with a red `canvasMath` suite.
+- **Phase 2 DONE** — `BadReorder` + 400, nosniff on `/api/attachments/<id>`, `data.py`
+  comment. The `data.py` item was verification only and held: `_get_connection` is called
+  from `_run` (data.py:63) and `_run_write` (data.py:77) and nowhere else in the repo, and
+  those two are referenced only by the `asyncio.to_thread` calls at data.py:90/94/99.
+  Adding nosniff broke the two existing attachment tests: their shared helper stubbed
+  `send_file` with the string `"RESP"`, which cannot carry headers. Fixed the double
+  (`MagicMock(headers={})`) — both assertions are unchanged and still on send_file's kwargs.
 - Two env/repo facts found while running Phase 1, both fixed here:
   - the worktree venv was missing `pytesseract` (declared in the Pipfile), so the two
     pre-existing `TestCanvasOcrPreview` tests failed at HEAD. `pipenv sync` fixed it —

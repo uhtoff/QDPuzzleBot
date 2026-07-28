@@ -27,7 +27,8 @@ async def _call_attachment_bytes(content_type, filename, tmp_path):
          patch("bot.web.api.resolve_membership", new=AsyncMock(return_value=({42}, {}))), \
          patch("bot.web.api._channel_messages_visible", new=AsyncMock(return_value=True)), \
          patch("bot.core.message_media.media_root", return_value=tmp_path), \
-         patch("bot.web.api.send_file", new=AsyncMock(return_value="RESP")) as sf:
+         patch("bot.web.api.send_file",
+               new=AsyncMock(return_value=MagicMock(headers={}))) as sf:
         # Call the undecorated view (bypasses @login_required's request-context lookup).
         await api.attachment_bytes.__wrapped__(9)
     return sf.call_args.kwargs

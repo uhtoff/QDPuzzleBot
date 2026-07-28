@@ -55,6 +55,12 @@ def _get_connection():
         try:
             return _get_pool().get_connection()
         except PoolError:
+            # A BLOCKING sleep, deliberately: this function is only ever
+            # reached from _run / _run_write, and those are only ever entered
+            # through the asyncio.to_thread calls below — so it runs on a
+            # worker thread, never the event loop. Calling _get_connection
+            # from a coroutine directly would stall the Discord gateway
+            # heartbeat here; use fetch_all / fetch_one / execute instead.
             time.sleep(_POOL_RETRY_DELAY_SECONDS)
     return _get_pool().get_connection()
 

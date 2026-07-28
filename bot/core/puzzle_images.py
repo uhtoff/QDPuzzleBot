@@ -20,6 +20,11 @@ class ImageNotFound(Exception):
     """No such image on that puzzle. The message is safe to show a user."""
 
 
+class BadReorder(Exception):
+    """The new order isn't a permutation of the puzzle's images. The message is
+    safe to show a user."""
+
+
 def list_images(puzzle_id: int) -> list:
     """The puzzle's images, in the DAO's own order."""
     return PuzzleImageJsonDb.get_by_puzzle(puzzle_id)
@@ -39,11 +44,18 @@ def reorder(puzzle_id: int, ordered_ids: list) -> None:
     The ids are client-supplied, so every one of them is checked against the
     puzzle before anything is written — a stray id from another puzzle must
     not let a caller reorder (or expose the existence of) images it doesn't own.
+
+    It must also be a full permutation, not merely a subset of owned ids:
+    set_positions renumbers only the rows it is given, so a short or duplicated
+    list leaves the unlisted images sharing positions with the listed ones, and
+    the strip's order becomes whatever the DAO's tie-break happens to be.
     """
     owned_ids = {img.id for img in PuzzleImageJsonDb.get_by_puzzle(puzzle_id)}
     for image_id in ordered_ids:
         if image_id not in owned_ids:
             raise ImageNotFound("That image no longer exists.")
+    if len(ordered_ids) != len(owned_ids) or set(ordered_ids) != owned_ids:
+        raise BadReorder("Reorder must list every image exactly once.")
     PuzzleImageJsonDb.set_positions(ordered_ids)
 
 

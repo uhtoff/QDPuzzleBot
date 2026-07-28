@@ -209,9 +209,15 @@ async def attachment_bytes(attachment_id):
     # Content-Disposition: attachment with the original filename (otherwise the
     # browser names the saved file after the /api/attachments/<id> URL).
     is_image = content_type.startswith("image/")
-    return await send_file(path, mimetype=content_type,
+    resp = await send_file(path, mimetype=content_type,
                            as_attachment=not is_image,
                            attachment_filename=att["filename"])
+    # These are arbitrary user-uploaded bytes served from the dashboard's own
+    # origin, and the content type is Discord's claim about them, not ours:
+    # without nosniff a file uploaded as image/* but sniffed as HTML executes
+    # as script here. The media routes already set it; this one lagged.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 @api_bp.route("/media/<int:media_id>")
