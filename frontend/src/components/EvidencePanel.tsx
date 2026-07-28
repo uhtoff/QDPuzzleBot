@@ -127,14 +127,21 @@ export function EvidencePanel({ uid, detail }: Props) {
   /** Upload the new picture, then point the existing row at it. Two steps
    *  because the media route is what sniffs and stores the bytes; the PATCH
    *  only ever takes an id. */
+  //  Depend on the mutateAsync functions, not the mutation objects: react-query
+  //  returns a NEW mutation object on every state change (including each
+  //  upload's own pending/success transitions), so depending on those rebuilds
+  //  this callback constantly and defeats the memo on the rows below it.
+  //  mutateAsync itself is referentially stable.
+  const { mutateAsync: uploadMediaAsync } = uploadMedia;
+  const { mutateAsync: replaceClueImageAsync } = replaceClueImage;
   const onReplaceImage = useCallback(async (itemId: number, file: File) => {
     try {
-      const media = await uploadMedia.mutateAsync(file);
-      await replaceClueImage.mutateAsync({ itemId, mediaId: media.id });
+      const media = await uploadMediaAsync(file);
+      await replaceClueImageAsync({ itemId, mediaId: media.id });
     } catch (err) {
       notifyError(err);
     }
-  }, [uploadMedia, replaceClueImage]);
+  }, [uploadMediaAsync, replaceClueImageAsync]);
 
   async function submitClue() {
     const note = clueNote.trim();

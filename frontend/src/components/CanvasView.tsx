@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, Group, Loader, Select, Stack, Text, Tooltip } from "@mantine/core";
 import { IconCrop, IconMinus, IconPlus, IconRefresh } from "@tabler/icons-react";
 import type { CanvasRegion, HuntCanvas, Puzzle, RegionShape } from "../types";
+import { clampScale, tileRect, zoomAt as zoomTransform } from "../lib/canvasMath";
+import { useRetileCanvas } from "../api";
+import { notifyError } from "../util";
 
 /** Tile edge in CSS pixels. Must match image_tiler.TILE_SIZE. */
 const TILE_SIZE = 512;
@@ -40,14 +43,17 @@ export const TINT_LEGEND: { colour: string; label: string }[] = [
 
 type Props = {
   canvas: HuntCanvas;
+  /** Only needed to key the canvases query the retile button invalidates. */
+  uid: string;
   puzzlesById: Map<number, Puzzle>;
   editable: boolean;
   onOpenRegion: (region: CanvasRegion) => void;
   onDraw: (shape: RegionShape) => void;
 };
 
-export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw }: Props) {
+export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, onDraw }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const retile = useRetileCanvas(uid);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -147,12 +153,11 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
    *  on the viewport centre; wheel and pinch anchor on the cursor/fingers. */
   const zoomAt = useCallback((factor: number, anchorX: number, anchorY: number) => {
     setScale((s) => {
-      const next = Math.min(4, Math.max(0.02, s * factor));
-      setOffset((o) => ({
-        x: anchorX - ((anchorX - o.x) * next) / s,
-        y: anchorY - ((anchorY - o.y) * next) / s,
-      }));
-      return next;
+      // The arithmetic lives in lib/canvasMath so it can be tested without a
+      // DOM; only the paired setState stays here. Both branches derive from
+      // the same clamped scale, so the anchor cannot drift apart from it.
+      setOffset((o) => zoomTransform({ scale: s, offset: o }, factor, anchorX, anchorY).offset);
+      return clampScale(s * factor);
     });
   }, []);
 
@@ -292,11 +297,20 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
   // changes the hook count between renders, and this branch is not static: a
   // freshly uploaded canvas flips pending -> ready underneath us, which threw
   // "Rendered more hooks than during the previous render".
+  /** Kick off a rebuild of the pyramid. The route only accepts 'pending' and
+   *  'failed', so the button is only offered in those two states. */
+  const onRetile = () => { retile.mutateAsync(canvas.id).catch(notifyError); };
+
   if (canvas.tile_status === "pending") {
     return (
       <Stack align="center" py="xl" gap="xs">
         <Loader />
         <Text size="sm" c="dimmed">Preparing image — a large sheet takes a few seconds.</Text>
+        {/* 'pending' is also how a canvas looks when the process died
+            mid-build, and nothing else will ever clear it — so the escape
+            hatch has to be offered here, not only on an outright failure. */}
+        <Button size="xs" variant="default" onClick={onRetile} loading={retile.isPending}
+                leftSection={<IconRefresh size={14} />}>Regenerate tiles</Button>
       </Stack>
     );
   }
@@ -344,6 +358,17 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
                   leftSection={<IconPlus size={14} />}>In</Button>
           <Button size="xs" variant="default" onClick={fit}
                   leftSection={<IconRefresh size={14} />}>Fit</Button>
+          {/* Deliberately in the toolbar rather than beside the fallback image
+              below: that image lives inside the pan/zoom container, so a
+              control there would inherit the CSS transform and shrink to an
+              unclickable speck at low zoom. */}
+          {canvas.tile_status === "failed" && (
+            <Tooltip label="Tiling failed for this image — showing the original. Rebuilding gives back smooth zooming.">
+              <Button size="xs" variant="light" color="red" onClick={onRetile}
+                      loading={retile.isPending}
+                      leftSection={<IconRefresh size={14} />}>Regenerate tiles</Button>
+            </Tooltip>
+          )}
           {editable && (
             <Tooltip label="Drag a box around a puzzle on the image">
               <Button size="xs" variant={drawing ? "filled" : "light"}
@@ -421,8 +446,7 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
               // overwritten by the earlier tile's interpolated overflow — at
               // every one of hundreds of boundaries, worst on the hairline
               // rules and small print a puzzle sheet is made of.
-              const left = Math.round(t.x * tileDisp);
-              const top = Math.round(t.y * tileDisp);
+              const rect = tileRect(t.x, t.y, tileDisp);
               return (
                 <img
                   key={`${level}/${t.y}/${t.x}`}
@@ -433,13 +457,7 @@ export function CanvasView({ canvas, puzzlesById, editable, onOpenRegion, onDraw
                   src={`/api/media/${canvas.media_id}/tiles/${level}/${t.y}/${t.x}`}
                   alt=""
                   draggable={false}
-                  style={{
-                    position: "absolute",
-                    left,
-                    top,
-                    width: Math.round((t.x + 1) * tileDisp) - left,
-                    height: Math.round((t.y + 1) * tileDisp) - top,
-                  }}
+                  style={{ position: "absolute", ...rect }}
                 />
               );
             })

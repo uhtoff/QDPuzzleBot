@@ -822,6 +822,18 @@ export function useDeleteCanvas(uid: string) {
   });
 }
 
+/** Rebuild the tile pyramid for a canvas whose tiling failed, or which is
+ *  stuck 'pending' because the process died mid-build. Returns 409 if the
+ *  canvas is not in one of those two states. */
+export function useRetileCanvas(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (canvasId: number) =>
+      apiSend<{ ok: boolean; tile_status: string }>(`/api/canvases/${canvasId}/retile`, "POST"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
+  });
+}
+
 /** The link fields a region write accepts. puzzle_id and role always travel
  *  together — the API rejects a half-set link with a 400. */
 type RegionLink = {

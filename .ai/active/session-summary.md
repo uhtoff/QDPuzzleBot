@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — fix: reject non-permutation reorders, and set nosniff on attachments @ 089a2f6
+Status: ready for handoff — feat: cap concurrent tiling, and add a retile route for stuck canvases @ abe50bb
 
 ## Goal
 
@@ -65,6 +65,15 @@ Full phased plan: `.ai/active/current-spec.md` (authoritative).
   (`MagicMock(headers={})`) — both assertions are unchanged and still on send_file's kwargs.
 - **Phase 3 DONE** — `MAX_CONCURRENT_TILING = 2` + module-level semaphore around the
   `run_in_executor` call only; `POST /api/canvases/<id>/retile` after `delete_canvas`.
+- **Phase 4 DONE** — `canvasMath.ts` extracted and wired into all three call sites (6
+  Vitest tests green), `mutateAsync` deps, retile mutation + button. Two judgement calls:
+  - `CanvasView` gained a `uid` prop. It had no API access at all, and the spec pins the
+    button inside it; `CanvasPanel` already passes `uid` to `RegionModal` the same way.
+  - The failed-state button sits in the toolbar, NOT beside the fallback `<img>` as the
+    spec suggested: that image is inside the pan/zoom container, so a control there would
+    inherit the CSS transform and shrink to an unclickable speck at low zoom.
+  - Steps 4–5 (useCallback deps, retile button) have NO test coverage — typecheck and
+    inspection only. There is still no component-level runner.
 - Two env/repo facts found while running Phase 1, both fixed here:
   - the worktree venv was missing `pytesseract` (declared in the Pipfile), so the two
     pre-existing `TestCanvasOcrPreview` tests failed at HEAD. `pipenv sync` fixed it —

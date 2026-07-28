@@ -133,15 +133,20 @@ export function PuzzleImages({ puzzleId, puzzleName, uid, editable }: Props) {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
+  // mutateAsync, not the mutation object: react-query hands back a new object
+  // on every state change, so depending on those rebuilds this callback (and
+  // re-renders the memoised thumbnails) on each upload transition.
+  const { mutateAsync: uploadMediaAsync } = uploadMedia;
+  const { mutateAsync: attachAsync } = attach;
   const onAddImage = useCallback(async (file: File | null) => {
     if (!file) return;
     try {
-      const media = await uploadMedia.mutateAsync(file);
-      await attach.mutateAsync(media.id);
+      const media = await uploadMediaAsync(file);
+      await attachAsync(media.id);
     } catch (err) {
       notifyError(err);
     }
-  }, [uploadMedia, attach]);
+  }, [uploadMediaAsync, attachAsync]);
 
   /** Paste a screenshot anywhere in the open drawer to add it.
    *

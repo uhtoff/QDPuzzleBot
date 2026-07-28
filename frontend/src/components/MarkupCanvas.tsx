@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
+import { normPoint } from "../lib/canvasMath";
 import { notifyError } from "../util";
 
 type Tool = "pen" | "line" | "arrow" | "highlighter" | "text" | "eraser" | null;
@@ -145,11 +146,8 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
    *  already reflects any CSS transform, so this stays correct at every zoom. */
   const toNorm = useCallback((e: React.PointerEvent): [number, number] | null => {
     const rect = imgRef.current?.getBoundingClientRect();
-    if (!rect || !rect.width || !rect.height) return null;
-    return [
-      Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
-      Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
-    ];
+    if (!rect) return null;
+    return normPoint(e.clientX, e.clientY, rect);
   }, []);
 
   const commitStroke = useCallback(async (points: [number, number][]) => {

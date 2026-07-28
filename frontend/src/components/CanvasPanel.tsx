@@ -138,6 +138,7 @@ export function CanvasPanel({ uid, detail }: Props) {
         <CanvasView
           key={canvas.id}
           canvas={canvas}
+          uid={uid}
           puzzlesById={puzzlesById}
           editable={editable}
           onOpenRegion={setOpenRegion}
