@@ -142,9 +142,12 @@ class TestSourcelessAndImageEvidence:
         web.cog.service.refresh_evidence_safe.assert_awaited_once()
 
     async def test_accepts_an_image_with_no_note(self, web):
-        resp = await web.client.post("/api/evidence", json={
-            "hunt_uid": "U1", "notes": [], "media_id": 7,
-        })
+        mdb = MagicMock()
+        mdb.get_by_id.return_value = SimpleNamespace(id=7, hunt_id=10)
+        with patch("bot.store.MediaJsonDb", mdb):
+            resp = await web.client.post("/api/evidence", json={
+                "hunt_uid": "U1", "notes": [], "media_id": 7,
+            })
 
         assert resp.status_code == 201
         # media_id must actually reach log_clues -- a mock service call

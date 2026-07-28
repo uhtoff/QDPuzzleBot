@@ -1625,6 +1625,9 @@ class Puzzles(commands.Cog):
         when you attach an image. For several at once use `!clues`."""
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
+        if hunt is None:
+            return await ctx.send(
+                ":x: This channel isn't part of a hunt, so clues can't be logged here.")
         media_id, error = await self._store_clue_attachment(ctx, hunt)
         if error:
             return await ctx.send(f":warning: {error}")

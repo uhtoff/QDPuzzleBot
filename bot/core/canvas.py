@@ -110,16 +110,16 @@ def update_region(region_id: int, hunt_id: int, shape, label: str = "",
     # crop and disarming the guard that stops a crop being regenerated under
     # existing markup. Same absent-means-unchanged rule the evidence image
     # replace route follows.
+    effective_crop = existing.crop_media_id if media_id is None else media_id
     CanvasRegionJsonDb.update(region_id, shape=stored, label=label, note=note,
                               puzzle_id=puzzle_id, role=role,
-                              crop_media_id=(existing.crop_media_id
-                                             if media_id is None else media_id))
+                              crop_media_id=effective_crop)
     if link_changed and existing.role == INFORMS:
         EvidenceJsonDb.delete_by_region(region_id)
     if link_changed and role == INFORMS:
         _log_informs_evidence(hunt_id, region_id, puzzle_id, note, media_id=media_id)
     if link_changed:
-        puzzle_images.sync_region_image(region_id, puzzle_id, role or "", media_id)
+        puzzle_images.sync_region_image(region_id, puzzle_id, role or "", effective_crop)
     return CanvasRegionJsonDb.get_by_id(region_id)
 
 

@@ -573,6 +573,13 @@ async def add_evidence():
         if not any(s.id == int(source_sheet_id)
                    for s in SheetsJsonDb.get_by_hunt(hunt["id"])):
             return jsonify({"error": "sheet not found in hunt"}), 404
+    # The id comes from the client; without this an item could cite another
+    # hunt's private upload. Same invariant update_evidence already holds.
+    if media_id is not None:
+        from bot.store import MediaJsonDb
+        media = MediaJsonDb.get_by_id(media_id)
+        if media is None or media.hunt_id != hunt["id"]:
+            return jsonify({"error": "cross_hunt_media"}), 400
     cog = puzzles_cog()
     hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
     if cog is None or hunt_obj is None:
