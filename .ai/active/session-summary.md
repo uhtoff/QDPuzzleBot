@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — test: pin the canvas hardening tranche (failing) @ 9a1fed9
+Status: ready for handoff — fix: reject non-permutation reorders, and set nosniff on attachments @ 089a2f6
 
 ## Goal
 
@@ -63,6 +63,8 @@ Full phased plan: `.ai/active/current-spec.md` (authoritative).
   Adding nosniff broke the two existing attachment tests: their shared helper stubbed
   `send_file` with the string `"RESP"`, which cannot carry headers. Fixed the double
   (`MagicMock(headers={})`) — both assertions are unchanged and still on send_file's kwargs.
+- **Phase 3 DONE** — `MAX_CONCURRENT_TILING = 2` + module-level semaphore around the
+  `run_in_executor` call only; `POST /api/canvases/<id>/retile` after `delete_canvas`.
 - Two env/repo facts found while running Phase 1, both fixed here:
   - the worktree venv was missing `pytesseract` (declared in the Pipfile), so the two
     pre-existing `TestCanvasOcrPreview` tests failed at HEAD. `pipenv sync` fixed it —

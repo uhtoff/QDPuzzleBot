@@ -14,6 +14,17 @@ from bot.store.media_data import MediaData
 
 logger = logging.getLogger(__name__)
 
+# Each pyramid build peaks around 360 MB (PNG has no partial decode in libvips,
+# so a large sheet is fully resident before it is tiled). Two bounds the
+# worst-case footprint while still letting a small crop overlap a big sheet
+# rather than queueing behind it. Without a cap, a batch upload or a retile of
+# several canvases fans out one build per image and takes the box down.
+MAX_CONCURRENT_TILING = 2
+
+# Safe to construct at import on 3.12+: the semaphore binds a loop lazily, on
+# first acquire, not here.
+_tiling_slots = asyncio.Semaphore(MAX_CONCURRENT_TILING)
+
 
 async def tile_media(media: MediaData, db) -> None:
     """Build `media`'s pyramid, then record the outcome on its row.
@@ -31,9 +42,12 @@ async def tile_media(media: MediaData, db) -> None:
     loop = asyncio.get_running_loop()
     try:
         # run_in_executor, because build_pyramid is seconds of synchronous CPU
-        # and this coroutine shares its loop with the Discord gateway.
-        width, height, levels = await loop.run_in_executor(
-            None, build_pyramid, src, dest)
+        # and this coroutine shares its loop with the Discord gateway. The
+        # semaphore wraps only this call, so waiting for a slot costs nothing
+        # but memory-bounded queueing.
+        async with _tiling_slots:
+            width, height, levels = await loop.run_in_executor(
+                None, build_pyramid, src, dest)
     except Exception:
         logger.exception("tiling failed for media %s (%s)", media.id, media.path)
         db.update_tiles(media.id, "failed", 0)

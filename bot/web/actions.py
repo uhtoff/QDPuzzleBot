@@ -2319,6 +2319,40 @@ async def delete_canvas(canvas_id):
     return jsonify({"ok": True})
 
 
+@actions_bp.route("/canvases/<int:canvas_id>/retile", methods=["POST"])
+@login_required
+async def retile_canvas(canvas_id):
+    """Re-run tiling for a canvas stuck 'pending' or 'failed'.
+
+    'pending' is retileable, not just 'failed': the status is only ever cleared
+    by the in-process task that set it, so if the process died mid-build the row
+    stays pending forever with nothing left to finish it, and the panel sits on
+    "Preparing image" for good.
+
+    Not organiser-gated — the same bar as ocr-preview: a stuck canvas blocks
+    everyone hunting, and retiling changes no content.
+    """
+    import asyncio
+    from bot.store import MediaJsonDb
+    ctx, canvas_row, err = await _canvas_ctx(canvas_id)
+    if err:
+        return err
+    assert ctx is not None and canvas_row is not None
+    media = MediaJsonDb.get_by_id(canvas_row.media_id)
+    # 'ready' is excluded because rebuilding a good pyramid is pure cost, and
+    # 'none' because that image was never a tiling candidate.
+    if media is None or media.tile_status not in ("pending", "failed"):
+        return jsonify({"error": "not_retileable"}), 409
+    MediaJsonDb.update_tiles(media.id, "pending", 0)
+    from bot.web.api import _tile_and_push, _tiling_tasks
+    task = asyncio.create_task(_tile_and_push(media, MediaJsonDb, ctx["hunt"]["id"]))
+    _tiling_tasks.add(task)
+    task.add_done_callback(_tiling_tasks.discard)
+    await _push_board(ctx["hunt"]["id"])
+    await _audit("retile_canvas", hunt_uid=ctx["hunt"]["uid"])
+    return jsonify({"ok": True, "tile_status": "pending"}), 202
+
+
 @actions_bp.route("/canvases/<int:canvas_id>/regions", methods=["POST"])
 @login_required
 async def create_region(canvas_id):
