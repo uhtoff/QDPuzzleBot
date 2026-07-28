@@ -56,6 +56,36 @@ async def test_tile_media_marks_the_row_failed_and_does_not_raise(tmp_path):
     db.update_tiles.assert_called_once_with(42, "failed", 0)
 
 
+async def test_tiling_runs_at_most_the_cap_concurrently(tmp_path):
+    """3 jobs, cap 2: the third pyramid must not start while two hold slots.
+
+    Each pyramid build peaks around 360 MB, so an unbounded fan-out (a batch
+    upload, or a retile of several canvases) is what takes the box down.
+    """
+    import asyncio
+    started, release = [], threading.Event()
+
+    def slow_build(src, dest):
+        started.append(1)
+        release.wait(timeout=10)
+        return (100, 100, 1)
+
+    db = MagicMock()
+    with patch.object(media_tiling, "media_root", return_value=tmp_path), \
+         patch.object(media_tiling, "build_pyramid", side_effect=slow_build):
+        tasks = [asyncio.create_task(media_tiling.tile_media(_media(media_id=i), db))
+                 for i in (1, 2, 3)]
+        await asyncio.sleep(0.3)      # single bounded wait for the executor to spin up
+        try:
+            assert media_tiling.MAX_CONCURRENT_TILING == 2
+            assert len(started) == 2
+        finally:
+            release.set()
+            await asyncio.gather(*tasks)
+    assert len(started) == 3
+    assert db.update_tiles.call_count == 3
+
+
 async def test_tile_media_runs_the_tiler_off_the_event_loop(tmp_path):
     """Eight seconds of CPU on the loop would stall the gateway heartbeat, so
     the executor hand-off is asserted rather than trusted."""

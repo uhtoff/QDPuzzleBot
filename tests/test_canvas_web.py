@@ -621,3 +621,77 @@ class TestCanvasOcrPreview:
             resp = await web.client.post(
                 "/api/canvases/3/ocr-preview", json={"shape": RECT})
         assert resp.status_code == 401
+
+
+class TestCanvasRetile:
+    """POST /api/canvases/<id>/retile -- re-run tiling for a canvas whose
+    pyramid never finished. Same permission bar as ocr-preview (not organiser-
+    gated): a canvas stuck on "Preparing image" blocks everyone hunting, and
+    retiling changes no content.
+
+    'pending' is retileable as well as 'failed' because the status is only ever
+    cleared by the in-process task that set it -- if the process died mid-build
+    the row stays pending forever with nothing left to finish it.
+    """
+
+    def _stuck(self, web, status):
+        media = SimpleNamespace(id=7, hunt_id=10, path="uploads/10/orig.png",
+                                width=14400, height=14400, tile_status=status,
+                                tile_levels=0)
+        web.mdb.get_by_id.return_value = media
+        return media
+
+    async def test_a_failed_canvas_is_reset_to_pending_and_retiled(self, web):
+        media = self._stuck(web, "failed")
+        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+            resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 202
+        assert (await resp.get_json())["tile_status"] == "pending"
+        web.mdb.update_tiles.assert_called_once_with(7, "pending", 0)
+        assert tile.call_args.args[0] is media
+
+    async def test_a_pending_canvas_is_retileable_too(self, web):
+        self._stuck(web, "pending")
+        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+            resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 202
+        web.mdb.update_tiles.assert_called_once_with(7, "pending", 0)
+        assert tile.called
+
+    async def test_a_ready_canvas_is_a_409(self, web):
+        """Retiling a good pyramid is pure cost -- seconds of CPU and ~360 MB
+        to rebuild what is already on disk."""
+        self._stuck(web, "ready")
+        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+            resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 409
+        assert (await resp.get_json())["error"] == "not_retileable"
+        web.mdb.update_tiles.assert_not_called()
+        assert not tile.called
+
+    async def test_an_untiled_canvas_is_a_409(self, web):
+        """tile_status 'none' means the image was never a tiling candidate, not
+        that tiling broke; it is served whole and there is nothing to rebuild."""
+        self._stuck(web, "none")
+        with patch("bot.web.api._tile_and_push", new=AsyncMock()):
+            resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 409
+        assert (await resp.get_json())["error"] == "not_retileable"
+        web.mdb.update_tiles.assert_not_called()
+
+    async def test_an_unknown_canvas_is_a_404(self, web):
+        web.cdb.get_by_id.return_value = None
+        resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 404
+        web.mdb.update_tiles.assert_not_called()
+
+    async def test_an_archived_hunt_is_403(self, web):
+        web.ctx["hunt"]["archived"] = True
+        resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 403
+        web.mdb.update_tiles.assert_not_called()
+
+    async def test_unauthenticated_is_401(self, web):
+        with patch("bot.web.auth.session", {}):
+            resp = await web.client.post("/api/canvases/3/retile")
+        assert resp.status_code == 401

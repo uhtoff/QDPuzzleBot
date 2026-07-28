@@ -23,6 +23,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+# ...but lib/ above is a Python packaging artefact rule, and it also swallows
+# the frontend's own source directory. Without this the module would only be
+# committable with `git add -f`, which is how a source file goes missing.
+!frontend/src/lib/
 parts/
 scripts/
 sdist/

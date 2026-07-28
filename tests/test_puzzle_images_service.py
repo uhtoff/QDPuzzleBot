@@ -72,6 +72,23 @@ def test_reorder_rejects_an_id_belonging_to_another_puzzle(db):
     db.set_positions.assert_not_called()
 
 
+def test_reorder_rejects_a_subset_of_the_puzzles_images(db):
+    """A partial list would renumber only the listed rows, leaving duplicate
+    positions with the unlisted ones — reject anything short of a permutation."""
+    db.get_by_puzzle.return_value = [
+        _image(1, position=0), _image(2, position=1), _image(3, position=2)]
+    with pytest.raises(puzzle_images.BadReorder):
+        puzzle_images.reorder(5, [3, 1])          # image 2 missing
+    db.set_positions.assert_not_called()
+
+
+def test_reorder_rejects_duplicate_ids(db):
+    db.get_by_puzzle.return_value = [_image(1, position=0), _image(2, position=1)]
+    with pytest.raises(puzzle_images.BadReorder):
+        puzzle_images.reorder(5, [1, 1])          # dup, and image 2 missing
+    db.set_positions.assert_not_called()
+
+
 def test_detach_deletes_an_image_belonging_to_the_puzzle(db):
     db.get_by_id.return_value = _image(1, puzzle_id=5)
     puzzle_images.detach(image_id=1, puzzle_id=5)

@@ -1,9 +1,9 @@
 # Session Summary
 
 Tool: Claude Code
-Worktree: /home/russ/projects/puzzbot (spec authored here; execution belongs in `.claude/worktrees/working-2`)
+Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2 (spec authored in the main checkout)
 Started: 2026-07-28
-Status: ready for handoff — docs: archive the canvas-review bug-fix handoff @ 0048d9f
+Status: ready for handoff — docs: land the canvas hardening tranche handoff @ ee10ffc
 
 ## Goal
 
@@ -52,12 +52,22 @@ Full phased plan: `.ai/active/current-spec.md` (authoritative).
   Vitest.
 - Doing #24: already shipped.
 
+## Progress
+
+- Branching done: `staging` fast-forwarded to `main` (0048d9f); `working-2` was already level.
+- **Phase 1 DONE** — 11 red backend tests + Vitest with a red `canvasMath` suite.
+- Two env/repo facts found while running Phase 1, both fixed here:
+  - the worktree venv was missing `pytesseract` (declared in the Pipfile), so the two
+    pre-existing `TestCanvasOcrPreview` tests failed at HEAD. `pipenv sync` fixed it —
+    no tracked-file change. Re-sync if a fresh worktree shows the same two failures.
+  - `.gitignore`'s Python `lib/` rule also swallowed `frontend/src/lib/`, the path the
+    spec pins for `canvasMath.ts`. Added a scoped `!frontend/src/lib/` negation rather
+    than committing source with `git add -f`.
+
 ## Next steps
 
-1. Executing agent: read `.ai/active/current-spec.md`, follow the Branching section, then
-   Phase 1 exactly.
-2. Phases 2–5 in order, committing per phase, gates per spec.
-3. Merge `working-2` → `staging`; user pulls staging → main for live later.
+1. Phases 2–5 in order, committing per phase, gates per spec.
+2. Merge `working-2` → `staging`; user pulls staging → main for live later.
 
 ## What NOT to touch
 

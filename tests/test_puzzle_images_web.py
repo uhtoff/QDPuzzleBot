@@ -139,6 +139,17 @@ async def test_reordering_with_a_foreign_id_is_a_404_not_a_500(web):
     web.pidb.set_positions.assert_not_called()
 
 
+async def test_reordering_a_subset_of_the_images_is_a_400(web):
+    """The drag UI always sends the whole strip. A short list would renumber
+    only the listed rows and leave the rest sharing positions with them, so the
+    route must refuse it rather than write a half-order."""
+    web.pidb.get_by_puzzle.return_value = [_image(id=1), _image(id=2), _image(id=3)]
+    resp = await web.client.patch("/api/puzzles/20/images",
+                                  json={"ordered_ids": [3, 1]})
+    assert resp.status_code == 400
+    web.pidb.set_positions.assert_not_called()
+
+
 async def test_detaching_an_image_pushes_the_board(web):
     resp = await web.client.delete("/api/puzzles/20/images/1")
     assert resp.status_code == 200
