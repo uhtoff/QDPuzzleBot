@@ -74,12 +74,16 @@ def web():
         patch("bot.store.MediaJsonDb", mdb),
         patch("bot.store.HuntJsonDb", hdb),
         patch("bot.core.puzzle_images.PuzzleImageJsonDb", pidb),
+        # Phase 4: _push_board was replaced by _notify_board, which publishes
+        # straight to events.publish rather than through cog.service.notifier
+        # -- the board-push assertion below patches this instead of the cog.
+        patch("bot.web.actions.events.publish"),
     ]
-    for p in patches:
-        p.start()
+    mocks = [p.start() for p in patches]
+    pub = mocks[-1]
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
-                             cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb)
+                             cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb, pub=pub)
     finally:
         for p in patches:
             p.stop()
@@ -113,7 +117,7 @@ class TestCanvasCreate:
         web.mdb.get_by_id.return_value = _media(hunt_id=99)
         resp = await web.client.post("/api/hunts/U1/canvases", json={"media_id": 7})
         assert resp.status_code == 400
-        assert (await resp.get_json())["error"] == "unknown_media"
+        assert (await resp.get_json())["error"] == "cross_hunt_media"
 
     async def test_rejects_a_missing_media_id(self, web):
         resp = await web.client.post("/api/hunts/U1/canvases", json={})
@@ -197,7 +201,7 @@ class TestRegionWrites:
              patch("bot.core.canvas.EvidenceJsonDb"):
             rdb.create.return_value = _region()
             await web.client.post("/api/canvases/3/regions", json={"shape": RECT})
-        web.cog.service.notifier.board_changed.assert_awaited()
+        web.pub.assert_called_once()
 
     async def test_drawing_on_an_archived_hunt_is_403(self, web):
         web.ctx["hunt"]["archived"] = True

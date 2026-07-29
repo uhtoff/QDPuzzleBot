@@ -72,12 +72,16 @@ def web():
         # miss the reference the service module already holds -- patch it
         # where it's looked up, same as test_canvas_web.py's fixture note.
         patch("bot.core.puzzle_images.PuzzleImageJsonDb", pidb),
+        # Phase 4: _push_board was replaced by _notify_board, which publishes
+        # straight to events.publish rather than through cog.service.notifier
+        # -- the board-push assertions below patch this instead of the cog.
+        patch("bot.web.actions.events.publish"),
     ]
-    for p in patches:
-        p.start()
+    mocks = [p.start() for p in patches]
+    pub = mocks[-1]
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
-                             pdb=pdb, mdb=mdb, pidb=pidb)
+                             pdb=pdb, mdb=mdb, pidb=pidb, pub=pub)
     finally:
         for p in patches:
             p.stop()
@@ -100,7 +104,7 @@ async def test_attaching_an_upload_appends_it_and_pushes_the_board(web):
     assert body["media_id"] == 7
     web.pidb.create.assert_called_once_with(
         puzzle_id=20, media_id=7, source_region_id=None, position=1)
-    web.cog.service.notifier.board_changed.assert_awaited()
+    web.pub.assert_called_once()
 
 
 async def test_attaching_media_from_another_hunt_is_refused(web):
@@ -126,7 +130,7 @@ async def test_reordering_pushes_the_board(web):
                                   json={"ordered_ids": [3, 1, 2]})
     assert resp.status_code == 200
     web.pidb.set_positions.assert_called_once_with([3, 1, 2])
-    web.cog.service.notifier.board_changed.assert_awaited()
+    web.pub.assert_called_once()
 
 
 async def test_reordering_with_a_foreign_id_is_a_404_not_a_500(web):
@@ -154,7 +158,7 @@ async def test_detaching_an_image_pushes_the_board(web):
     resp = await web.client.delete("/api/puzzles/20/images/1")
     assert resp.status_code == 200
     web.pidb.delete.assert_called_once_with(1)
-    web.cog.service.notifier.board_changed.assert_awaited()
+    web.pub.assert_called_once()
 
 
 async def test_detaching_a_foreign_image_is_a_404(web):

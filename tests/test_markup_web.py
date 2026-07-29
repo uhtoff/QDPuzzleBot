@@ -72,16 +72,20 @@ def web():
         patch("bot.core.markup.create_mark", service.create_mark),
         patch("bot.core.markup.update_mark", service.update_mark),
         patch("bot.core.markup.delete_mark", service.delete_mark),
+        # Phase 4: _push_board was replaced by _notify_board, which publishes
+        # straight to events.publish rather than through cog.service.notifier
+        # -- the board-push assertions below patch this instead of the cog.
+        patch("bot.web.actions.events.publish"),
     ]
-    for p in patches:
-        p.start()
-    yield app, service, ctx, mdb, cog
+    mocks = [p.start() for p in patches]
+    pub = mocks[-1]
+    yield app, service, ctx, mdb, cog, pub
     for p in patches:
         p.stop()
 
 
 async def test_creating_a_mark_returns_it_and_pushes_the_board(web):
-    app, service, _ctx, _mdb, cog = web
+    app, service, _ctx, _mdb, _cog, pub = web
     client = app.test_client()
     resp = await client.post("/api/media/7/markup", json={
         "mark": {"kind": "pen", "points": [[0.1, 0.2], [0.3, 0.4]]},
@@ -90,7 +94,7 @@ async def test_creating_a_mark_returns_it_and_pushes_the_board(web):
     assert resp.status_code == 201
     assert (await resp.get_json())["kind"] == "pen"
     assert service.create_mark.call_args.kwargs["media_id"] == 7
-    cog.service.notifier.board_changed.assert_awaited()
+    pub.assert_called_once()
 
 
 async def test_a_malformed_mark_is_a_400_not_a_500(web):
@@ -109,7 +113,7 @@ async def test_a_malformed_mark_is_a_400_not_a_500(web):
 async def test_markup_on_another_hunts_image_is_refused(web):
     """The media row carries the hunt, so this is the one way past media
     visibility — it must 404, not fall through to the current user's hunt."""
-    app, service, _ctx, mdb, _cog = web
+    app, service, _ctx, mdb, *_ = web
     mdb.get_by_id.return_value = None
     client = app.test_client()
     resp = await client.post("/api/media/7/markup", json={
@@ -133,12 +137,12 @@ async def test_markup_on_an_archived_hunts_image_is_refused(web):
 
 
 async def test_erasing_a_mark_deletes_it_and_pushes_the_board(web):
-    app, service, _ctx, _mdb, cog = web
+    app, service, _ctx, _mdb, _cog, pub = web
     client = app.test_client()
     resp = await client.delete("/api/media/7/markup/9")
     assert resp.status_code == 200
     service.delete_mark.assert_called_once_with(mark_id=9, media_id=7)
-    cog.service.notifier.board_changed.assert_awaited()
+    pub.assert_called_once()
 
 
 async def test_erasing_a_missing_mark_is_a_404(web):

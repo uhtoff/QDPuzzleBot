@@ -81,6 +81,31 @@ def _notify_board(uid, guild_snowflake):
         logger.exception("board push failed")
 
 
+async def _notify_board_soon(uid, guild_snowflake):
+    """Async adapter around `_notify_board` for use as `schedule_tiling`'s
+    `after` callback, which awaits whatever it's given. `_notify_board` itself
+    stays synchronous so the ordinary (non-tiling) call sites need no extra
+    event-loop hop."""
+    _notify_board(uid, guild_snowflake)
+
+
+async def _notify_board_for_hunt_id(hunt_id):
+    """`_notify_board`, resolved from a bare hunt id.
+
+    `_crop_region_media` only ever has `media.hunt_id` in scope (it has no
+    caller ctx to draw uid/guild_snowflake from -- the old `_push_board`
+    resolved the same way, via `HuntJsonDb.get_by_attr(id=hunt_id)`), so this
+    keeps that one `schedule_tiling(after=...)` site working the same way.
+    """
+    from bot.store import HuntJsonDb
+    hunt_row = HuntJsonDb.get_by_attr(id=hunt_id)
+    if hunt_row is None:
+        return
+    guilds_map = await data.get_guilds_map()
+    guild_snowflake = guilds_map.get(hunt_row.guild_id, {}).get("guild_snowflake")
+    _notify_board(hunt_row.uid, guild_snowflake)
+
+
 async def _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle):
     """If *puzzle* is a mini-puzzle, refresh its PARENT minimeta's pinned mini-list
     (the mini's solved/unsolved state shows there). Mirrors the bang !solve_mini/
@@ -2051,12 +2076,11 @@ async def update_evidence(item_id):
     # hunt's private upload — the media route itself is hunt-visibility gated,
     # so this is the only place that would leak.
     if "media_id" in body:
-        from bot.store import MediaJsonDb
         new_media_id = body.get("media_id")
         if new_media_id is not None:
-            media = MediaJsonDb.get_by_id(new_media_id)
-            if media is None or media.hunt_id != old.hunt_id:
-                return jsonify({"error": "cross_hunt_media"}), 400
+            _media, err = _require_hunt_media(new_media_id, old.hunt_id)
+            if err:
+                return err
         item = EvidenceJsonDb.update_media(item_id, new_media_id) or item
 
     # Apply target reassignment if the key is present (value may be None to clear)
@@ -2154,6 +2178,23 @@ async def _canvas_ctx(canvas_id, require_manage=False):
     return ctx, canvas_row, None
 
 
+def _require_hunt_media(media_id, hunt_id):
+    """(media, err) -- the media must exist and belong to `hunt_id`.
+
+    The media id always comes from the client, and without this a request
+    could point at another hunt's private upload: a canvas serving that
+    hunt's bytes to anyone who can see this one, an evidence item or puzzle
+    image citing it, or an /api/evidence POST attributing it to the wrong
+    hunt. Same check, four call sites -- unified on one error key,
+    `cross_hunt_media`.
+    """
+    from bot.store import MediaJsonDb
+    media = MediaJsonDb.get_by_id(media_id)
+    if media is None or media.hunt_id != hunt_id:
+        return None, (jsonify({"error": "cross_hunt_media"}), 400)
+    return media, None
+
+
 async def _media_ctx(media_id):
     """(ctx, media_row, err) for an image the current user may mark up.
 
@@ -2217,7 +2258,7 @@ async def _crop_region_media(canvas_row, shape):
             origin="canvas_crop", db=MediaJsonDb)
         if crop.tile_status == "pending":
             schedule_tiling(crop, MediaJsonDb,
-                             after=functools.partial(_push_board, media.hunt_id))
+                             after=functools.partial(_notify_board_for_hunt_id, media.hunt_id))
         return crop.id
     except Exception:
         logger.exception("could not crop region evidence for canvas media %s",
@@ -2225,23 +2266,10 @@ async def _crop_region_media(canvas_row, shape):
         return None
 
 
-async def _push_board(hunt_id):
-    """Tell connected dashboards the board changed.
-
-    Region mutations go through this so a second person annotating the same
-    canvas sees rectangles appear without reloading.
-    """
-    from bot.store import HuntJsonDb
-    cog = puzzles_cog()
-    hunt_obj = HuntJsonDb.get_by_attr(id=hunt_id)
-    if cog is not None and hunt_obj is not None:
-        asyncio.create_task(cog.service.notifier.board_changed(hunt_obj))
-
-
 @actions_bp.route("/hunts/<uid>/canvases", methods=["POST"])
 @login_required
 async def create_canvas(uid):
-    from bot.store import CanvasJsonDb, MediaJsonDb
+    from bot.store import CanvasJsonDb
     ctx, err = await _visible_hunt_by_uid(uid)
     if err:
         return err
@@ -2255,11 +2283,10 @@ async def create_canvas(uid):
     media_id = body.get("media_id")
     if not media_id:
         return jsonify({"error": "media_id required"}), 400
-    media = MediaJsonDb.get_by_id(int(media_id))
-    # Without this a canvas could point at another hunt's image, and the tile
-    # route would then serve that hunt's bytes to anyone who can see this one.
-    if media is None or media.hunt_id != ctx["hunt"]["id"]:
-        return jsonify({"error": "unknown_media"}), 400
+    media, err = _require_hunt_media(int(media_id), ctx["hunt"]["id"])
+    if err:
+        return err
+    assert media is not None  # the (media, None) branch
     row = CanvasJsonDb.create(
         hunt_id=ctx["hunt"]["id"], media_id=media.id,
         name=(body.get("name") or "").strip()[:255],
@@ -2346,8 +2373,9 @@ async def retile_canvas(canvas_id):
         return jsonify({"error": "not_retileable"}), 409
     MediaJsonDb.update_tiles(media.id, "pending", 0)
     schedule_tiling(media, MediaJsonDb,
-                     after=functools.partial(_push_board, ctx["hunt"]["id"]))
-    await _push_board(ctx["hunt"]["id"])
+                     after=functools.partial(_notify_board_soon,
+                                              ctx["hunt"]["uid"], ctx["guild_snowflake"]))
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("retile_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True, "tile_status": "pending"}), 202
 
@@ -2374,7 +2402,7 @@ async def create_region(canvas_id):
             puzzle_id=puzzle_id, role=role, media_id=media_id)
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("create_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.region_to_json(region)), 201
 
@@ -2423,7 +2451,7 @@ async def update_region(canvas_id, region_id):
             puzzle_id=puzzle_id, role=role, media_id=media_id)
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("update_region", hunt_uid=ctx["hunt"]["uid"])
     assert region is not None
     return jsonify(web_data.region_to_json(region))
@@ -2443,7 +2471,7 @@ async def delete_region(canvas_id, region_id):
     if existing is None or existing.canvas_id != canvas_id:
         return jsonify({"error": "region_not_found"}), 404
     canvas_service.delete_region(region_id)
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("delete_region", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -2463,7 +2491,7 @@ async def create_mark(media_id):
             media_id=media_id, mark=body.get("mark"), style=body.get("style"))
     except MarkupRejected as exc:
         return jsonify({"error": str(exc)}), 400
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("create_mark", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.mark_to_json(mark)), 201
 
@@ -2486,7 +2514,7 @@ async def update_mark(media_id, mark_id):
         return jsonify({"error": str(exc)}), 404
     except MarkupRejected as exc:
         return jsonify({"error": str(exc)}), 400
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     return jsonify(web_data.mark_to_json(mark))
 
 
@@ -2502,7 +2530,7 @@ async def delete_mark(media_id, mark_id):
         markup_service.delete_mark(mark_id=mark_id, media_id=media_id)
     except markup_service.MarkNotFound as exc:
         return jsonify({"error": str(exc)}), 404
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     return jsonify({"ok": True})
 
 
@@ -2536,7 +2564,7 @@ async def add_puzzle_image(puzzle_id):
         return jsonify({"error": "hunt_archived"}), 403
 
     from bot.core import puzzle_images
-    from bot.store import MediaJsonDb, PuzzleJsonDb
+    from bot.store import PuzzleJsonDb
     body = await request.get_json(silent=True) or {}
     media_id = body.get("media_id")
     if not media_id:
@@ -2549,12 +2577,12 @@ async def add_puzzle_image(puzzle_id):
     # The media must belong to the same hunt as the puzzle, so a client-supplied
     # id can't cross-link another hunt's private upload onto this puzzle's
     # strip — same guard update_evidence carries for its image swap.
-    media = MediaJsonDb.get_by_id(media_id)
-    if media is None or media.hunt_id != puzzle.hunt_id:
-        return jsonify({"error": "cross_hunt_media"}), 400
+    _media, err = _require_hunt_media(media_id, puzzle.hunt_id)
+    if err:
+        return err
 
     image = puzzle_images.attach_upload(puzzle_id, media_id)
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("add_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.puzzle_image_to_json(image)), 201
 
@@ -2581,7 +2609,7 @@ async def reorder_puzzle_images(puzzle_id):
         # itself is malformed, which is a client bug rather than a stale id.
         return jsonify({"error": str(exc)}), 400
 
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("reorder_puzzle_images", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -2602,7 +2630,7 @@ async def delete_puzzle_image(puzzle_id, image_id):
     except puzzle_images.ImageNotFound as exc:
         return jsonify({"error": str(exc)}), 404
 
-    await _push_board(ctx["hunt"]["id"])
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("delete_puzzle_image", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
@@ -2694,7 +2722,7 @@ async def create_puzzle_from_region(canvas_id, region_id):
     except (ShapeRejected, canvas_service.RegionRejected) as exc:
         return jsonify({"error": str(exc)}), 400
 
-    await _push_board(hunt_obj.id)
+    _notify_board(hunt_obj.uid, ctx["guild_snowflake"])
     await _audit("create_puzzle_from_region", puzzle_id=puzzle.id,
                  hunt_uid=hunt_obj.uid, detail=name)
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))

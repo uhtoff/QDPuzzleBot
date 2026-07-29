@@ -199,6 +199,35 @@ async def attachment_bytes(attachment_id):
     return resp
 
 
+async def _visible_media(media_id, media=None):
+    """(media, err) — the media -> hunt -> visibility chain shared by
+    media_bytes, media_tile, and media_markup below.
+
+    `err` is a ready-to-return (jsonify(...), status) tuple, or None. Models
+    actions.py's `_media_ctx` (the good version of this chain), but keeps
+    THIS file's own exact status codes/error keys, which the three callers
+    already used identically ("not_found" / 404 for a missing media row or
+    hunt, "not_found_or_forbidden" / the visibility status otherwise).
+
+    `media` lets a caller that already fetched the row (media_tile, which
+    gates on tile_status before checking visibility at all) pass it in rather
+    than triggering a second lookup.
+    """
+    from bot.store import HuntJsonDb, MediaJsonDb
+    if media is None:
+        media = MediaJsonDb.get_by_id(media_id)
+    if media is None:
+        return None, (jsonify({"error": "not_found"}), 404)
+    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
+    if hunt_row is None:
+        return None, (jsonify({"error": "not_found"}), 404)
+    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
+    if hunt is None:
+        assert isinstance(guild_or_status, int)  # the (None, status) branch
+        return None, (jsonify({"error": "not_found_or_forbidden"}), guild_or_status)
+    return media, None
+
+
 @api_bp.route("/media/<int:media_id>")
 @login_required
 async def media_bytes(media_id):
@@ -210,17 +239,10 @@ async def media_bytes(media_id):
     unauthenticated URL to satisfy Sheets would expose team working to anyone
     holding the link.
     """
-    from bot.store import HuntJsonDb, MediaJsonDb
-    media = MediaJsonDb.get_by_id(media_id)
-    if media is None:
-        return jsonify({"error": "not_found"}), 404
-    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
-    if hunt_row is None:
-        return jsonify({"error": "not_found"}), 404
-    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
-    if hunt is None:
-        assert isinstance(guild_or_status, int)  # the (None, status) branch
-        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    media, err = await _visible_media(media_id)
+    if err:
+        return err
+    assert media is not None  # the (media, None) branch
     from bot.core.message_media import media_root
     path = (media_root() / media.path).resolve()
     root = media_root().resolve()
@@ -252,19 +274,18 @@ async def media_tile(media_id, z, y, x):
     makes building the path by interpolation safe; the resolve()-against-root
     check below is the same defence in depth the sibling routes carry.
     """
-    from bot.store import HuntJsonDb, MediaJsonDb
+    from bot.store import MediaJsonDb
     media = MediaJsonDb.get_by_id(media_id)
     # tile_status gates this: an untiled row must not serve a pyramid left over
-    # from anything else, and a pending one has no complete pyramid yet.
+    # from anything else, and a pending one has no complete pyramid yet. Checked
+    # before visibility, same precedence as before the extraction: an untiled
+    # row 404s regardless of who's asking.
     if media is None or media.tile_status != "ready":
         return jsonify({"error": "not_found"}), 404
-    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
-    if hunt_row is None:
-        return jsonify({"error": "not_found"}), 404
-    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
-    if hunt is None:
-        assert isinstance(guild_or_status, int)  # the (None, status) branch
-        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    media, err = await _visible_media(media_id, media=media)
+    if err:
+        return err
+    assert media is not None  # the (media, None) branch
     if z >= media.tile_levels:
         return jsonify({"error": "not_found"}), 404
     from bot.core.image_tiler import blank_tile_bytes, tile_relpath
@@ -299,18 +320,10 @@ async def media_tile(media_id, z, y, x):
 async def media_markup(media_id):
     """Every mark on one image. Authorised exactly as /api/media/<id> is."""
     from bot.core import markup as markup_service
-    from bot.store import HuntJsonDb, MediaJsonDb
     from bot.web import data as web_data
-    media = MediaJsonDb.get_by_id(media_id)
-    if media is None:
-        return jsonify({"error": "not_found"}), 404
-    hunt_row = HuntJsonDb.get_by_attr(id=media.hunt_id)
-    if hunt_row is None:
-        return jsonify({"error": "not_found"}), 404
-    hunt, guild_or_status = await _load_visible_hunt(hunt_row.uid)
-    if hunt is None:
-        assert isinstance(guild_or_status, int)
-        return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
+    _media, err = await _visible_media(media_id)
+    if err:
+        return err
     return jsonify([web_data.mark_to_json(m)
                     for m in markup_service.list_marks(media_id)])
 
@@ -334,6 +347,7 @@ async def upload_media(uid):
     if hunt is None:
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "hunt not found"}), guild_or_status
+    assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
     if hunt["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
     files = await request.files
@@ -355,8 +369,10 @@ async def upload_media(uid):
     except MediaRejected as exc:
         return jsonify({"error": str(exc)}), 400
     if media.tile_status == "pending":
-        from bot.web.actions import _push_board
-        schedule_tiling(media, MediaJsonDb, after=functools.partial(_push_board, hunt["id"]))
+        from bot.web.actions import _notify_board_soon
+        guild_snowflake = guild_or_status.get("guild_snowflake")
+        schedule_tiling(media, MediaJsonDb,
+                        after=functools.partial(_notify_board_soon, hunt["uid"], guild_snowflake))
     return jsonify({
         "id": media.id, "url": f"/api/media/{media.id}",
         "width": media.width, "height": media.height,
@@ -545,10 +561,12 @@ async def add_evidence():
     # The id comes from the client; without this an item could cite another
     # hunt's private upload. Same invariant update_evidence already holds.
     if media_id is not None:
-        from bot.store import MediaJsonDb
-        media = MediaJsonDb.get_by_id(media_id)
-        if media is None or media.hunt_id != hunt["id"]:
-            return jsonify({"error": "cross_hunt_media"}), 400
+        # Imported locally to avoid a circular import between the api and
+        # actions blueprints (same reason _audit is imported locally below).
+        from bot.web.actions import _require_hunt_media
+        _media, err = _require_hunt_media(media_id, hunt["id"])
+        if err:
+            return err
     cog = puzzles_cog()
     hunt_obj = HuntJsonDb.get_by_attr(id=hunt["id"])
     if cog is None or hunt_obj is None:
