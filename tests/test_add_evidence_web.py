@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_puzzle
+from tests.conftest import make_puzzle, make_web_app, start_patches, stop_patches
 
 
 def _hunt(archived=False):
@@ -15,12 +15,6 @@ def _hunt(archived=False):
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.api import api_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     cog.service.refresh_evidence_safe = AsyncMock()
     cog.service.refresh_informs_targets = AsyncMock()
@@ -29,9 +23,7 @@ def web():
             SimpleNamespace(id=1, note=n) for n in notes
         ]
     )
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.register_blueprint(api_bp)
+    app = make_web_app("api", cog=cog)
 
     edb = MagicMock()
     edb.log.side_effect = lambda hunt_id, source_puzzle_id, note: SimpleNamespace(id=1, note=note)
@@ -49,12 +41,11 @@ def web():
         patch("bot.store.PuzzleJsonDb", pdb),
         patch("bot.store.HuntJsonDb", hdb),
     ]
-    started = [p.start() for p in patches]
+    started = start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, edb=edb, vis=started[1])
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

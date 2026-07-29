@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt
+from tests.conftest import make_hunt, make_hunt_ctx, make_web_app, start_patches, stop_patches
 
 from bot.web import data as web_data
 
@@ -40,18 +40,11 @@ def test_a_puzzle_image_serialises_its_media_url():
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
     cog = MagicMock()
     cog.service.notifier.board_changed = AsyncMock()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     pdb, mdb, hdb, pidb = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
     pdb.get_by_attr.return_value = _puzzle()
     mdb.get_by_id.return_value = _media()
@@ -77,14 +70,13 @@ def web():
         # -- the board-push assertions below patch this instead of the cog.
         patch("bot.web.actions.events.publish"),
     ]
-    mocks = [p.start() for p in patches]
+    mocks = start_patches(patches)
     pub = mocks[-1]
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
                              pdb=pdb, mdb=mdb, pidb=pidb, pub=pub)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 async def test_listing_a_puzzles_images(web):

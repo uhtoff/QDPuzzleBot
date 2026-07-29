@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt
+from tests.conftest import make_hunt, make_hunt_ctx, make_web_app, start_patches, stop_patches
 
 RECT = {"type": "rect", "points": [[0.1, 0.2], [0.3, 0.4]]}
 
@@ -35,18 +35,11 @@ def _region(id=5, canvas_id=3, puzzle_id=None, role=None, label="",
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
     cog = MagicMock()
     cog.service.notifier.board_changed = AsyncMock()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     cdb, rdb, mdb, hdb, pidb = (MagicMock(), MagicMock(), MagicMock(), MagicMock(),
                                MagicMock())
     cdb.get_by_id.return_value = _canvas()
@@ -79,14 +72,13 @@ def web():
         # -- the board-push assertion below patches this instead of the cog.
         patch("bot.web.actions.events.publish"),
     ]
-    mocks = [p.start() for p in patches]
+    mocks = start_patches(patches)
     pub = mocks[-1]
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
                              cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb, pub=pub)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 class TestCanvasCreate:

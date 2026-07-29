@@ -165,6 +165,66 @@ def make_ctx(channel_id=111, message_id=1):
     return ctx
 
 
+def make_web_app(blueprint, *, cog=None, get_guild=None):
+    """Build the bare Quart app that every web-route test hand-rolls: a fresh
+    app with the fixed test secret key and `blueprint` ("actions" or "api")
+    registered.
+
+    If `cog` is given, `app.bot` is wired so `app.bot.get_cog(...)` returns it,
+    and `app.bot.get_guild(...)` returns a MagicMock (or `get_guild`, when a
+    caller needs to assert identity against a specific mock later).
+    """
+    from quart import Quart
+
+    app = Quart(__name__)
+    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
+    if cog is not None:
+        app.bot = MagicMock()
+        app.bot.get_cog.return_value = cog
+        app.bot.get_guild.return_value = get_guild if get_guild is not None else MagicMock()
+    if blueprint == "actions":
+        from bot.web.actions import actions_bp as bp
+    elif blueprint == "api":
+        from bot.web.api import api_bp as bp
+    else:
+        raise ValueError(f"unknown blueprint {blueprint!r}")
+    app.register_blueprint(bp)
+    return app
+
+
+def make_hunt_ctx(hunt_id=10, uid="U1", archived=False, guild_snowflake="123"):
+    """Return the actions_bp request context dict every actions-route fixture
+    hand-rolls: ``{"hunt": {...}, "guild_snowflake": ...}``."""
+    return {"hunt": {"id": hunt_id, "uid": uid, "archived": archived},
+            "guild_snowflake": guild_snowflake}
+
+
+def start_patches(patches):
+    """Start each patch in `patches`, in order, returning the started mocks.
+
+    If a later `start()` raises, stop whichever patches already started before
+    re-raising -- otherwise a failure mid-list leaks patches for the rest of
+    the test session.
+    """
+    started = []          # the patchers, so the rollback below can stop them
+    mocks = []            # what start() handed back, which is what callers want
+    try:
+        for p in patches:
+            mocks.append(p.start())
+            started.append(p)
+    except BaseException:
+        for p in reversed(started):
+            p.stop()
+        raise
+    return mocks
+
+
+def stop_patches(patches):
+    """Stop every patch in `patches` (the same list passed to start_patches)."""
+    for p in patches:
+        p.stop()
+
+
 def make_cog(puzzle=None, hunt=None):
     """Return a Puzzles cog stub with get_puzzle/get_hunt/service mocked.
 

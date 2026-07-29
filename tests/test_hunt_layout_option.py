@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_cog, make_ctx
+from tests.conftest import make_cog, make_ctx, make_web_app, start_patches, stop_patches
 
 
 # --------------------------------------------------------------- bang command
@@ -59,21 +59,13 @@ async def test_hunt_role_and_forum_token_coexist():
 # ------------------------------------------------------------------- web API
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
     cog = MagicMock()
     cog.service.create_hunt = AsyncMock(
         return_value=MagicMock(uid="U9", channel_id=0)  # channel_id=0 → skip welcome
     )
     cog.send_initial_hunt_channel_messages = AsyncMock()
 
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
@@ -82,11 +74,11 @@ def web():
         patch("bot.web.actions.require_admin", AsyncMock(return_value=None)),
         patch("bot.web.actions._audit", AsyncMock()),
     ]
-    for p in patches:
-        p.start()
-    yield app, cog
-    for p in patches:
-        p.stop()
+    start_patches(patches)
+    try:
+        yield app, cog
+    finally:
+        stop_patches(patches)
 
 
 def _body(**extra):

@@ -20,7 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_puzzle, make_round
+from tests.conftest import (make_hunt_ctx, make_puzzle, make_round, make_web_app,
+                            start_patches, stop_patches)
 
 
 # Service methods the views may await — every one must be an AsyncMock so the view
@@ -46,18 +47,10 @@ def _build_cog():
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
     cog = _build_cog()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
 
     target_group = make_round(id=7, group_code="X", category_id=999, target_puzzle_id=9)
     target_group.hunt_id = 10
@@ -74,7 +67,7 @@ def web():
         patch("bot.store.PuzzleJsonDb"),
         patch("bot.store.TagGroupJsonDb"),
     ]
-    started = [p.start() for p in patches]
+    started = start_patches(patches)
     _hdb, _pdb, _rdb = started[5], started[6], started[7]
     _pdb.get_by_attr.return_value = puzzle
     _pdb.check_duplicates_in_hunt.return_value = False
@@ -88,8 +81,7 @@ def web():
             HuntJsonDb=_hdb, PuzzleJsonDb=_pdb, TagGroupJsonDb=_rdb,
         )
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 def _edge_of(call):

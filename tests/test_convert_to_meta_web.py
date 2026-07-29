@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt, make_puzzle, make_round
+from tests.conftest import (make_hunt, make_hunt_ctx, make_puzzle, make_round,
+                            make_web_app, start_patches, stop_patches)
 
 
 @asynccontextmanager
@@ -17,22 +18,13 @@ async def _noop_lock(_id):
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     guild = MagicMock()
     cog = MagicMock()
     cog.service.convert_to_type = AsyncMock(return_value=(make_round(id=5), "promoted"))
     cog.service.refresh_unassigned_safe = AsyncMock()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = guild
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog, get_guild=guild)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     pdb = MagicMock(); pdb.get_by_attr.return_value = make_puzzle(id=7, is_target=False)
     hdb = MagicMock(); hdb.get_by_attr.return_value = make_hunt()
 
@@ -45,13 +37,11 @@ def web():
         patch("bot.store.HuntJsonDb", hdb),
         patch("bot.store.PuzzleJsonDb", pdb),
     ]
-    for p in patches:
-        p.start()
+    start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, guild=guild)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_puzzle
+from tests.conftest import make_puzzle, make_web_app, start_patches, stop_patches
 
 
 def _ctx(archived=False):
@@ -24,12 +24,6 @@ def _ctx(archived=False):
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     svc = cog.service
     for name in (
@@ -37,10 +31,7 @@ def web():
         "refresh_target_for_puzzle", "refresh_evidence_safe",
     ):
         setattr(svc, name, AsyncMock())
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
     # Evidence item id=5 lives in hunt 10, sourced from puzzle 1.
     item = SimpleNamespace(id=5, hunt_id=10, source_puzzle_id=1, target_puzzle_id=None,
@@ -67,7 +58,7 @@ def web():
         patch("bot.store.HuntJsonDb", hdb),
         patch("bot.store.PuzzleJsonDb", pdb),
     ]
-    started = [p.start() for p in patches]
+    started = start_patches(patches)
     try:
         yield SimpleNamespace(
             app=app, client=app.test_client(), cog=cog, svc=svc,
@@ -75,8 +66,7 @@ def web():
             vis=started[1],
         )
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 # --- F1: visibility gate -----------------------------------------------------

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_puzzle
+from tests.conftest import make_puzzle, make_web_app, start_patches, stop_patches
 
 
 def _ctx():
@@ -18,12 +18,6 @@ def _ctx():
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     cog.service.solve = AsyncMock()
     cog.service.add_partial = AsyncMock()
@@ -33,9 +27,7 @@ def web():
     cog.web_post_solution_update_embed = AsyncMock()
     cog.service.refresh_unassigned_safe = AsyncMock()
 
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
     hdb = MagicMock()
     hdb.get_by_attr.return_value = SimpleNamespace(id=10, uid="U1")
@@ -49,13 +41,11 @@ def web():
         patch("bot.store.HuntJsonDb", hdb),
         patch("bot.store.PuzzleJsonDb", pdb),
     ]
-    for p in patches:
-        p.start()
+    start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, pdb=pdb)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

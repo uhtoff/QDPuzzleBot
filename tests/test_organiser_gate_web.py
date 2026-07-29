@@ -8,6 +8,7 @@ import pytest
 
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES
 from bot.web import auth
+from tests.conftest import make_web_app, start_patches, stop_patches
 
 
 def _bot_with_guild(role_names):
@@ -121,12 +122,7 @@ class TestRequireOrganiserBypass:
 class TestHuntDetailOrganiserGateField:
     @pytest.fixture
     def hunt_web(self):
-        from quart import Quart
-        from bot.web.api import api_bp
-
-        app = Quart(__name__)
-        app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-        app.register_blueprint(api_bp)
+        app = make_web_app("api")
 
         guild = SimpleNamespace(roles=[SimpleNamespace(name="everyone")])
         bot = MagicMock()
@@ -148,13 +144,11 @@ class TestHuntDetailOrganiserGateField:
             patch("bot.web.api.user_can_manage", AsyncMock(return_value=False)),
             patch("bot.web.api.bot_app", return_value=MagicMock(bot=bot)),
         ]
-        for p in patches:
-            p.start()
+        start_patches(patches)
         try:
             yield SimpleNamespace(client=app.test_client(), guild=guild)
         finally:
-            for p in patches:
-                p.stop()
+            stop_patches(patches)
 
     async def test_true_when_organisers_role_present(self, hunt_web):
         hunt_web.guild.roles = [SimpleNamespace(name="Organisers")]

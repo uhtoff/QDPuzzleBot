@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt, make_puzzle
+from tests.conftest import (make_hunt, make_hunt_ctx, make_puzzle, make_web_app,
+                            start_patches, stop_patches)
 
 
 @asynccontextmanager
@@ -22,22 +23,13 @@ async def _noop_lock(_id):
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     cog.service.delete_puzzle = AsyncMock(
         side_effect=ValueError("cannot delete a target puzzle; delete its tag group")
     )
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     pdb = MagicMock()
     pdb.get_by_attr.return_value = make_puzzle(id=7, is_target=True)
     hdb = MagicMock()
@@ -52,13 +44,11 @@ def web():
         patch("bot.store.PuzzleJsonDb", pdb),
         patch("bot.store.HuntJsonDb", hdb),
     ]
-    for p in patches:
-        p.start()
+    start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

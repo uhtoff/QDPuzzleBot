@@ -3,25 +3,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt, make_round
+from tests.conftest import (make_hunt, make_hunt_ctx, make_round, make_web_app,
+                            start_patches, stop_patches)
 
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     cog.service.rename_group = AsyncMock()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     rdb = MagicMock()
     rdb.get_by_attr.return_value = make_round(id=5, name="Old")
     rdb.check_duplicates_in_hunt.return_value = False
@@ -36,13 +28,11 @@ def web():
         patch("bot.store.TagGroupJsonDb", rdb),
         patch("bot.store.HuntJsonDb", hdb),
     ]
-    for p in patches:
-        p.start()
+    start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx, rdb=rdb)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

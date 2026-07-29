@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from werkzeug.datastructures import FileStorage
 
+from tests.conftest import make_web_app, start_patches, stop_patches
+
 
 def _hunt(archived=False):
     return {"id": 10, "uid": "U1", "archived": archived, "guild_id": 1}
@@ -36,12 +38,7 @@ def test_max_content_length_admits_the_configured_cap():
 
 @pytest.fixture
 def web(tmp_path):
-    from quart import Quart
-    from bot.web.api import api_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-    app.register_blueprint(api_bp)
+    app = make_web_app("api")
 
     (tmp_path / "uploads" / "10").mkdir(parents=True)
     (tmp_path / "uploads" / "10" / "a_crop.png").write_bytes(b"\x89PNG\r\n\x1a\nbytes")
@@ -69,10 +66,11 @@ def web(tmp_path):
         # so it needs patching at its own lookup site too.
         patch("bot.core.media_store.media_root", return_value=tmp_path),
     ]
-    started = [p.start() for p in patches]
-    yield app, mdb, started
-    for p in patches:
-        p.stop()
+    started = start_patches(patches)
+    try:
+        yield app, mdb, started
+    finally:
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio

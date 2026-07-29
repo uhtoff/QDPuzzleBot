@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: in progress — refactor(store): cursor helpers, drop redundant commit-only delete overrides @ b823296
+Status: in progress — refactor(frontend): statusTone, useWheelZoom, apiUpload, shared OCR confirm @ 7104fd6
 
 ## Goal
 

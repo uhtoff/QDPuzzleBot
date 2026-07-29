@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import make_hunt
+from tests.conftest import make_hunt, make_hunt_ctx, make_web_app, start_patches, stop_patches
 
 
 def _sheet(id, name, page_id="P1"):
@@ -18,21 +18,12 @@ def _sheet(id, name, page_id="P1"):
 
 @pytest.fixture
 def web():
-    from quart import Quart
-    from bot.web.actions import actions_bp
-
-    app = Quart(__name__)
-    app.secret_key = "test-secret-key-must-be-long-enough-0123456789"
-
     cog = MagicMock()
     cog.service.add_hunt_sheet = AsyncMock(return_value=_sheet(4, "alt text", "P7"))
     cog.service.remove_hunt_sheet = AsyncMock()
-    app.bot = MagicMock()
-    app.bot.get_cog.return_value = cog
-    app.bot.get_guild.return_value = MagicMock()
-    app.register_blueprint(actions_bp)
+    app = make_web_app("actions", cog=cog)
 
-    ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": "123"}
+    ctx = make_hunt_ctx()
     hdb = MagicMock()
     hdb.get_by_attr.return_value = make_hunt(id=10)
     audit = AsyncMock()
@@ -43,14 +34,12 @@ def web():
         patch("bot.web.actions._audit", audit),
         patch("bot.store.HuntJsonDb", hdb),
     ]
-    for p in patches:
-        p.start()
+    start_patches(patches)
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
                               audit=audit)
     finally:
-        for p in patches:
-            p.stop()
+        stop_patches(patches)
 
 
 @pytest.mark.asyncio
