@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: ready for handoff — Phase 1 (tests)
+Status: in progress — Phase 1 (red tests) done; next is Phase 2
 
 ## Goal
 
@@ -60,7 +60,16 @@ duplication extractions (backend, frontend, tests). Full phased plan:
 
 ## Next steps
 
-1. Phase 1 on Opus 4.8: write the red tests exactly as skeletoned in the spec, commit.
+1. ~~Phase 1: write the red tests, commit.~~ DONE — 11 red python tests + 1 red vitest suite.
+   **Spec deviation:** the 1c allowlist test went into
+   `tests/test_media_web.py::TestEvidenceOcrPreview` (`test_type_outside_allowlist_is_refused`),
+   NOT `tests/test_canvas_web.py::TestCanvasOcrPreview` as the spec said. The spec's own
+   Phase 2 fix targets `bot/web/api.py ocr_evidence_preview`
+   (`/api/hunts/<uid>/evidence/ocr-preview`), which is the route with upload validation and
+   is covered by test_media_web.py; the canvas class covers a different route
+   (`/api/canvases/<id>/ocr-preview`, actions.py:2719) that takes a JSON shape and does no
+   upload validation, so the spec's multipart test was not writable there. Phase 2's
+   acceptance run must therefore include `tests/test_media_web.py` (it already does).
 2. Phases 2–8 on Sonnet 4.6, one commit per phase, gates pasted per phase.
 3. Merge `working-2` → `staging` at the end; no pushes.
 

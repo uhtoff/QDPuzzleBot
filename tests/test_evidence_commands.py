@@ -1,5 +1,6 @@
 """Tests for M9 evidence board — !clue and !clues bang commands."""
 import shlex
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
@@ -215,6 +216,56 @@ class TestClueWithAttachment:
 
         cog.service.log_clues.assert_awaited()
         assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
+
+    @pytest.mark.asyncio
+    async def test_attachment_is_ingested_with_dimensions(self):
+        """The cog must go through the shared ingest seam, not re-implement a
+        save+create that skips the probe — which is why !clue images were
+        stored 0x0 and never tiled."""
+        cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
+        cog.service.refresh_evidence_safe = AsyncMock()
+
+        ctx = make_ctx()
+        att = MagicMock()
+        att.filename = "crop.png"
+        att.content_type = "image/png"
+        att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\npayload")
+        ctx.message.attachments = [att]
+
+        with patch("bot.cogs.puzzles.ingest_image_bytes") as ingest, \
+             patch("bot.cogs.puzzles.schedule_tiling") as sched:
+            ingest.return_value = SimpleNamespace(id=7, tile_status="none")
+            await Puzzles.clue.callback(cog, ctx, note="three anchors")
+
+        ingest.assert_called_once()
+        assert ingest.call_args.kwargs["origin"] == "discord"
+        assert ingest.call_args.kwargs["hunt_id"] == 10
+        assert ingest.call_args.kwargs["raw"] == b"\x89PNG\r\n\x1a\npayload"
+        # A small image needs no pyramid, so nothing is scheduled.
+        sched.assert_not_called()
+        assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
+
+    @pytest.mark.asyncio
+    async def test_attachment_needing_tiling_is_scheduled(self):
+        cog = make_cog(puzzle=make_puzzle(id=5, hunt_id=10), hunt=make_hunt(id=10))
+        cog.service.log_clues = AsyncMock(return_value=[MagicMock(id=1)])
+        cog.service.refresh_evidence_safe = AsyncMock()
+
+        ctx = make_ctx()
+        att = MagicMock()
+        att.filename = "huge.png"
+        att.content_type = "image/png"
+        att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\npayload")
+        ctx.message.attachments = [att]
+
+        media = SimpleNamespace(id=7, tile_status="pending")
+        with patch("bot.cogs.puzzles.ingest_image_bytes", return_value=media), \
+             patch("bot.cogs.puzzles.schedule_tiling") as sched:
+            await Puzzles.clue.callback(cog, ctx, note="three anchors")
+
+        sched.assert_called_once()
+        assert sched.call_args.args[0] is media
 
 
 class TestClueOutsideHunt:

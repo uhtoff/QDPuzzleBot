@@ -453,6 +453,24 @@ class TestEvidenceOcrPreview:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_type_outside_allowlist_is_refused(self, web):
+        """The route must apply the ALLOWLIST, not just "did it sniff as
+        something". Today it checks only `sniff_image_type(...) is None`, so a
+        type dropped from ALLOWED_IMAGE_TYPES still reaches the OCR engine —
+        the drift that comes of re-implementing upload_media's validation."""
+        app, _, _ = web
+        with patch("bot.core.media_store.ALLOWED_IMAGE_TYPES", ("image/gif",)), \
+             patch("bot.core.ocr.extract_text", return_value="HYDROGEN"):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+            )
+        assert resp.status_code == 400
+        body = await resp.get_json()
+        assert "Not a supported image" in body["error"]
+        assert "HYDROGEN" not in str(body)
+
+    @pytest.mark.asyncio
     async def test_extraction_failure_is_a_500_not_a_crash(self, web):
         app, _, _ = web
         with patch("bot.core.ocr.extract_text", side_effect=RuntimeError("boom")):
