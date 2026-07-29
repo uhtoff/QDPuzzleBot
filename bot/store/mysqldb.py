@@ -71,21 +71,42 @@ class _MySQLBaseDb:
         cursor.close()
         self.mydb.commit()
 
+    def _exec(self, sql, params=()):
+        """Execute a statement whose result nobody reads (INSERT/UPDATE/DELETE)."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(sql, params)
+        finally:
+            cursor.close()
+
+    def _fetch_one(self, sql, params=()):
+        """Execute a SELECT and return its single row (a dict), or None."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(sql, params)
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def _fetch_all(self, sql, params=()):
+        """Execute a SELECT and return all its rows (a list of dicts)."""
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(sql, params)
+            return cursor.fetchall() or []
+        finally:
+            cursor.close()
+
     def delete(self, delete_id, /):
         """Delete single puzzle from database by database id"""
-        cursor = self.mydb.dict_cursor()
-        cursor.execute(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
-        cursor.close()
+        self._exec(f"DELETE FROM `{self.TABLE_NAME}` WHERE id = %s", (delete_id,))
         # if deleted_rows != 1:S
         #     raise MissingDataError(f"Unable to find puzzle {puzzle_id} for {round_id}")
 
     def check_duplicates(self, value, field = 'name'):
         """Ensures no duplicate name by default but can check any field if passed"""
-        cursor = self.mydb.dict_cursor()
-        cursor.execute(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `{field}` = %s LIMIT 1", (value,))
-        found = cursor.fetchone() is not None
-        cursor.close()
-        return found
+        row = self._fetch_one(f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `{field}` = %s LIMIT 1", (value,))
+        return row is not None
 
     # Capital letters + digits only — this is a bang-command shorthand users type
     # by hand, so no lowercase and nothing else ambiguous/punctuation-like.
@@ -122,7 +143,6 @@ class _MySQLBaseDb:
         return code
 
     def check_duplicates_in_hunt(self, name, hunt_data: HuntData, exclude_group_id=None) -> bool:
-        cursor = self.mydb.dict_cursor()
         query = f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `name` = %s AND `hunt_id` = %s"
         params = [name, hunt_data.id]
         if exclude_group_id is not None:
@@ -131,10 +151,8 @@ class _MySQLBaseDb:
             query += " AND `id` != %s"
             params.append(exclude_group_id)
         query += " LIMIT 1"
-        cursor.execute(query, tuple(params))
-        found = cursor.fetchone() is not None
-        cursor.close()
-        return found
+        row = self._fetch_one(query, tuple(params))
+        return row is not None
 
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
@@ -142,12 +160,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.dict_cursor()
-            try:
-                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
-                row = cursor.fetchone()
-            finally:
-                cursor.close()
+            row = self._fetch_one(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
             if row:
                 return HuntData.import_dict(row)
             logger.info(f"Unable to find hunt for {keyword} - {value}")
@@ -157,12 +170,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     def get_lowest_code_in_hunt(self, hunt_id):
         """Retrieve lower code from database return 0 if none set"""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT group_code FROM tag_group WHERE hunt_id = %s ORDER BY group_code DESC LIMIT 0,1", (hunt_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT group_code FROM tag_group WHERE hunt_id = %s ORDER BY group_code DESC LIMIT 0,1", (hunt_id,))
         if row:
             return row['group_code']
         return 0
@@ -178,12 +186,7 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
         """Retrieve TagGroup by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.dict_cursor()
-            try:
-                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
-                row = cursor.fetchone()
-            finally:
-                cursor.close()
+            row = self._fetch_one(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
             if row:
                 return TagGroupData.import_dict(row)
             logger.info(f"Unable to find TagGroup for {keyword} - {value}")
@@ -192,19 +195,14 @@ class MySQLTagGroupJsonDb(_MySQLBaseDb):
     def get_all(self, hunt_id: int) -> List[TagGroupData]:
         """Retrieve all tag groups for hunt"""
         tag_group_datas = []
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("SELECT * FROM tag_group WHERE hunt_id = %s", (hunt_id,))
-        rows = cursor.fetchall() or []
+        rows = self._fetch_all("SELECT * FROM tag_group WHERE hunt_id = %s", (hunt_id,))
         for row in rows:
             tag_group_datas.append(TagGroupData.import_dict(row))
-        cursor.close()
         return tag_group_datas
 
     def delete(self, tag_group_id, /):
         super(MySQLTagGroupJsonDb, self).delete(tag_group_id)
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
-        cursor.close()
+        self._exec("DELETE FROM tags WHERE tag_group_id = %s", (tag_group_id,))
 
 
 class MySQLTagGroupCategoryDb(_MySQLBaseDb):
@@ -218,40 +216,26 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
 
     def get_for_group(self, group_id):
         """All category rows for a group, ordered by role then seq."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            # unsolved categories first, then solved; each by seq
-            cursor.execute(
-                "SELECT * FROM tag_group_category WHERE group_id = %s "
-                "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
-                (group_id,),
-            )
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        # unsolved categories first, then solved; each by seq
+        rows = self._fetch_all(
+            "SELECT * FROM tag_group_category WHERE group_id = %s "
+            "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
+            (group_id,),
+        )
         return [TagGroupCategoryData(**row) for row in rows]
 
     def get_by_category(self, category_id):
         """The single row owning a category, or None."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM tag_group_category WHERE category_id = %s LIMIT 1",
-                (category_id,),
-            )
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one(
+            "SELECT * FROM tag_group_category WHERE category_id = %s LIMIT 1",
+            (category_id,),
+        )
         return TagGroupCategoryData(**row) if row else None
 
     def delete_for_group(self, group_id):
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM tag_group_category WHERE group_id = %s", (group_id,)
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM tag_group_category WHERE group_id = %s", (group_id,)
+        )
         self.mydb.commit()
 
 
@@ -268,39 +252,25 @@ class MySQLHuntCategoryDb(_MySQLBaseDb):
 
     def get_for_group(self, hunt_id):
         """All category rows for a hunt, ordered by role then seq."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM hunt_category WHERE hunt_id = %s "
-                "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
-                (hunt_id,),
-            )
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM hunt_category WHERE hunt_id = %s "
+            "ORDER BY FIELD(`role`, 'unsolved', 'solved'), `seq` ASC",
+            (hunt_id,),
+        )
         return [HuntCategoryData(**row) for row in rows]
 
     def get_by_category(self, category_id):
         """The single row owning a category, or None."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM hunt_category WHERE category_id = %s LIMIT 1",
-                (category_id,),
-            )
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one(
+            "SELECT * FROM hunt_category WHERE category_id = %s LIMIT 1",
+            (category_id,),
+        )
         return HuntCategoryData(**row) if row else None
 
     def delete_for_group(self, hunt_id):
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM hunt_category WHERE hunt_id = %s", (hunt_id,)
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM hunt_category WHERE hunt_id = %s", (hunt_id,)
+        )
         self.mydb.commit()
 
 
@@ -308,11 +278,7 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
     TABLE_NAME = 'additional_sheets'
 
     def get_by_puzzle(self, puzzle_id):
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
-        rows = cursor.fetchall() or []
-        cursor.close()
-        return rows
+        return self._fetch_all("SELECT * FROM additional_sheets WHERE puzzle_id = %s ", (puzzle_id,))
 
     def get_by_hunt(self, hunt_id):
         """Return the hunt's OWN working sheets -- those with no puzzle.
@@ -322,16 +288,11 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
         deliberately excluded here. Ordered by id so !list_sheets and the index
         !remove_sheet takes from it always agree.
         """
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM additional_sheets"
-                " WHERE hunt_id = %s AND puzzle_id IS NULL ORDER BY id ASC",
-                (hunt_id,),
-            )
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM additional_sheets"
+            " WHERE hunt_id = %s AND puzzle_id IS NULL ORDER BY id ASC",
+            (hunt_id,),
+        )
         sheets = []
         for row in rows:
             sheet = AdditionalSheetData()
@@ -351,15 +312,10 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
         if not ids:
             return {}
         placeholders = ", ".join(["%s"] * len(ids))
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                f"SELECT id, puzzle_name FROM additional_sheets WHERE id IN ({placeholders})",
-                tuple(ids),
-            )
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            f"SELECT id, puzzle_name FROM additional_sheets WHERE id IN ({placeholders})",
+            tuple(ids),
+        )
         return {r["id"]: r["puzzle_name"] for r in rows}
 
 
@@ -370,26 +326,16 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
         """Retrieve a Rollup by attribute (e.g. round_id=). Last attr wins."""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.dict_cursor()
-            try:
-                cursor.execute(
-                    f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1",
-                    (value,),
-                )
-                row = cursor.fetchone()
-            finally:
-                cursor.close()
+            row = self._fetch_one(
+                f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1",
+                (value,),
+            )
             if row:
                 return RollupData.import_dict(row)
             return None
 
     def get_all_from_hunt(self, hunt_id) -> List[RollupData]:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `hunt_id` = %s", (hunt_id,))
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `hunt_id` = %s", (hunt_id,))
         return [RollupData.import_dict(row) for row in rows]
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
@@ -406,12 +352,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
         if row:
             return self.construct_puzzle(row)
         raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
@@ -420,12 +361,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Retrieve puzzle by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            cursor = self.mydb.dict_cursor()
-            try:
-                cursor.execute(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
-                row = cursor.fetchone()
-            finally:
-                cursor.close()
+            row = self._fetch_one(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
             if row:
                 return self.construct_puzzle(row)
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
@@ -440,69 +376,51 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         ids = list(ids)
         if not ids:
             return {}
-        cursor = self.mydb.dict_cursor()
-        try:
-            placeholders = ",".join(["%s"] * len(ids))
-            cursor.execute(f"SELECT id, name FROM `{self.TABLE_NAME}` WHERE id IN ({placeholders})", tuple(ids))
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        placeholders = ",".join(["%s"] * len(ids))
+        rows = self._fetch_all(f"SELECT id, name FROM `{self.TABLE_NAME}` WHERE id IN ({placeholders})", tuple(ids))
         return {row["id"]: row["name"] for row in rows}
 
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("SELECT puzzles.* FROM puzzles "
+        rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
                        "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
                        "WHERE hunts.guild_id = %s", (guild_id,))
-        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
-        cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
     def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("SELECT puzzles.* FROM puzzles "
+        rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
                        "WHERE hunt_id = %s", (hunt_id,))
-        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
-        cursor.close()
         return puzzle_datas
 
     def get_all_from_tag_group(self, tag_group_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
         puzzle_datas = []
-        cursor = self.mydb.dict_cursor()
-        cursor.execute(
+        rows = self._fetch_all(
             "SELECT puzzles.* FROM puzzles WHERE puzzles.id IN "
             "(SELECT puzzle_id FROM tags WHERE tag_group_id = %s)",
             (tag_group_id,),
         )
-        rows = cursor.fetchall() or []
         for row in rows:
             puzzle_datas.append(self.construct_puzzle(row))
-        cursor.close()
         return PuzzleData.sort_by_puzzle_start(puzzle_datas)
 
     def get_children(self, parent_puzzle_id: int):
         """Return all mini-puzzles whose parent_puzzle_id matches."""
-        cursor = self.mydb.dict_cursor()
-        cursor.execute(
+        rows = self._fetch_all(
             "SELECT * FROM puzzles WHERE parent_puzzle_id = %s ORDER BY id ASC",
             (parent_puzzle_id,),
         )
-        rows = cursor.fetchall() or []
-        cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 
     # Table-specific signature; never called through a base-typed reference.
     def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
-        cursor = self.mydb.dict_cursor()
         query = ("SELECT 1 FROM puzzles "
                  "WHERE ( puzzles.name = %s OR puzzles.channel_name= %s ) AND puzzles.hunt_id = %s")
         params = [name, clean_channel_name(name), hunt_id]
@@ -512,10 +430,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             query += " AND puzzles.id != %s"
             params.append(exclude_puzzle_id)
         query += " LIMIT 1"
-        cursor.execute(query, tuple(params))
-        found = cursor.fetchone() is not None
-        cursor.close()
-        return found
+        row = self._fetch_one(query, tuple(params))
+        return row is not None
 
     def get_unassigned(self, hunt_id) -> List[PuzzleData]:
         """Return feeder puzzles with no `feeds` edge to any meta (Unassigned Feeders tab).
@@ -523,8 +439,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         A puzzle whose answer feeds nothing is an unassigned feeder regardless of any
         informs / none membership. Excludes target puzzles (B2 derivation) and mini-meta feeders.
         """
-        cursor = self.mydb.dict_cursor()
-        cursor.execute(
+        rows = self._fetch_all(
             "SELECT p.* FROM puzzles p"
             " WHERE p.hunt_id = %s"
             "   AND NOT EXISTS (SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = p.id)"
@@ -538,33 +453,25 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "   )",
             (hunt_id,),
         )
-        rows = cursor.fetchall() or []
-        cursor.close()
         return [self.construct_puzzle(r) for r in rows]
 
     def get_tags(self, puzzle):
-        cursor = self.mydb.dict_cursor()
         select_stmt = "SELECT tags.tag_group_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
-        cursor.execute(select_stmt, (puzzle.id,))
-        rows = cursor.fetchall() or []
+        rows = self._fetch_all(select_stmt, (puzzle.id,))
         for row in rows:
             gid = row['tag_group_id']
             if gid not in puzzle.tags:
                 puzzle.tags.append(gid)
             puzzle.tag_edges.setdefault(gid, set()).add(row['edge_type'] or "feeds")
-        cursor.close()
 
     def get_additional_sheets(self, puzzle):
-        cursor = self.mydb.dict_cursor()
         select_stmt = "SELECT * FROM additional_sheets WHERE puzzle_id = %s"
-        cursor.execute(select_stmt, (puzzle.id,))
-        rows = cursor.fetchall() or []
+        rows = self._fetch_all(select_stmt, (puzzle.id,))
         for row in rows:
             sheet = AdditionalSheetData()
             for attr, value in sheet.__dict__.items():
                 setattr(sheet, attr, row.get(attr, None))
             puzzle.additional_sheets.append(sheet)
-        cursor.close()
 
     def get_is_target(self, puzzle):
         """Derive is-target: True iff some tag_group targets this puzzle.
@@ -599,39 +506,27 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Add one membership edge (idempotent). With migration 020's
         UNIQUE (tag_group_id, puzzle_id, edge_type), each edge is its own row, so a
         puzzle may hold several edges to one group."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s)"
-                " ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
-                (tag_group_id, puzzle_id, edge_type),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s)"
+            " ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
+            (tag_group_id, puzzle_id, edge_type),
+        )
         self.mydb.commit()
 
     def delete_tag(self, puzzle_id, tag_group_id):
         """Delete all membership edges for the pair (remove whole membership)."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s",
-                (puzzle_id, tag_group_id),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s",
+            (puzzle_id, tag_group_id),
+        )
         self.mydb.commit()
 
     def delete_tag_edge(self, puzzle_id, tag_group_id, edge_type):
         """Delete a single typed edge row (leaves the pair's other edges intact)."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s AND edge_type = %s",
-                (puzzle_id, tag_group_id, edge_type),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s AND edge_type = %s",
+            (puzzle_id, tag_group_id, edge_type),
+        )
         self.mydb.commit()
 
     def bulk_update_edge_type(self, tag_group_id, new_edge):
@@ -693,40 +588,29 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def delete(self, puzzle_id, /):
         super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
-        cursor = self.mydb.dict_cursor()
-        cursor.execute("DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
-        cursor.close()
+        self._exec("DELETE FROM tags WHERE puzzle_id = %s", (puzzle_id,))
 
 class MySQLChannelActivityDb(_MySQLBaseDb):
     TABLE_NAME = 'channel_activity'
 
     def record(self, channel_id, guild_id, at, author_id, author_name):
         """Upsert the most recent human (non-bot) message seen in a channel."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "INSERT INTO channel_activity "
-                "(channel_id, guild_id, last_human_message_at, last_author_id, last_author_name) "
-                "VALUES (%s, %s, %s, %s, %s) "
-                "ON DUPLICATE KEY UPDATE "
-                "guild_id=VALUES(guild_id), "
-                "last_human_message_at=VALUES(last_human_message_at), "
-                "last_author_id=VALUES(last_author_id), "
-                "last_author_name=VALUES(last_author_name)",
-                (channel_id, guild_id, at, author_id, author_name),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "INSERT INTO channel_activity "
+            "(channel_id, guild_id, last_human_message_at, last_author_id, last_author_name) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "guild_id=VALUES(guild_id), "
+            "last_human_message_at=VALUES(last_human_message_at), "
+            "last_author_id=VALUES(last_author_id), "
+            "last_author_name=VALUES(last_author_name)",
+            (channel_id, guild_id, at, author_id, author_name),
+        )
         self.mydb.commit()
 
     def get_for_guild(self, guild_id) -> dict:
         """Return {channel_id: row} of latest activity for every channel in a guild."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
         return {row['channel_id']: row for row in rows}
 
 
@@ -741,65 +625,48 @@ class MySQLMessageDb(_MySQLBaseDb):
         """Insert a captured message. Idempotent on the Discord message id.
 
         `embeds` is a JSON string (normalized embed payload) or None."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "INSERT INTO messages "
-                "(id, channel_id, guild_id, author_id, author_name, author_avatar, "
-                " kind, content, embeds, reference_id, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE content=VALUES(content), embeds=VALUES(embeds)",
-                (id, channel_id, guild_id, author_id, author_name, author_avatar,
-                 kind, content, embeds, reference_id, created_at),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "INSERT INTO messages "
+            "(id, channel_id, guild_id, author_id, author_name, author_avatar, "
+            " kind, content, embeds, reference_id, created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON DUPLICATE KEY UPDATE content=VALUES(content), embeds=VALUES(embeds)",
+            (id, channel_id, guild_id, author_id, author_name, author_avatar,
+             kind, content, embeds, reference_id, created_at),
+        )
         self.mydb.commit()
 
     def mark_edited(self, id, content, edited_at, embeds: Optional[str] = _UNSET):
         """Update a message's content/timestamp. `embeds` is only rewritten when a
         value is passed (a content-only edit leaves any captured embeds intact)."""
-        cursor = self.mydb.cursor()
-        try:
-            if embeds is _UNSET:
-                cursor.execute(
-                    "UPDATE messages SET content=%s, edited_at=%s WHERE id=%s",
-                    (content, edited_at, id),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE messages SET content=%s, embeds=%s, edited_at=%s WHERE id=%s",
-                    (content, embeds, edited_at, id),
-                )
-        finally:
-            cursor.close()
+        if embeds is _UNSET:
+            self._exec(
+                "UPDATE messages SET content=%s, edited_at=%s WHERE id=%s",
+                (content, edited_at, id),
+            )
+        else:
+            self._exec(
+                "UPDATE messages SET content=%s, embeds=%s, edited_at=%s WHERE id=%s",
+                (content, embeds, edited_at, id),
+            )
         self.mydb.commit()
 
     def channel_has_messages(self, channel_id) -> bool:
         """True if any message is already stored for the channel. Used by the
         bridge to identify (and skip) the first welcome/info embed."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT 1 FROM messages WHERE channel_id=%s LIMIT 1", (channel_id,)
-            )
-            return cursor.fetchone() is not None
-        finally:
-            cursor.close()
+        row = self._fetch_one(
+            "SELECT 1 FROM messages WHERE channel_id=%s LIMIT 1", (channel_id,)
+        )
+        return row is not None
 
     def delete_message(self, id) -> list:
         """Hard-delete a message and its attachment rows. Returns the local_path
         values that existed (relative paths) so the caller can unlink the bytes."""
         cursor = self.mydb.cursor()
         try:
-            paths_cursor = self.mydb.dict_cursor()
-            try:
-                paths_cursor.execute(
-                    "SELECT local_path FROM message_attachments WHERE message_id=%s", (id,)
-                )
-                rows = paths_cursor.fetchall() or []
-            finally:
-                paths_cursor.close()
+            rows = self._fetch_all(
+                "SELECT local_path FROM message_attachments WHERE message_id=%s", (id,)
+            )
             cursor.execute("DELETE FROM message_attachments WHERE message_id=%s", (id,))
             cursor.execute("DELETE FROM messages WHERE id=%s", (id,))
         finally:
@@ -808,28 +675,20 @@ class MySQLMessageDb(_MySQLBaseDb):
         return [r["local_path"] for r in rows if r.get("local_path")]
 
     def add_attachment(self, *, id, message_id, filename, content_type, size, source_url):
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "INSERT INTO message_attachments "
-                "(id, message_id, filename, content_type, size, source_url, download_status) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE source_url=VALUES(source_url)",
-                (id, message_id, filename, content_type, size, source_url, 0),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "INSERT INTO message_attachments "
+            "(id, message_id, filename, content_type, size, source_url, download_status) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+            "ON DUPLICATE KEY UPDATE source_url=VALUES(source_url)",
+            (id, message_id, filename, content_type, size, source_url, 0),
+        )
         self.mydb.commit()
 
     def set_attachment_local(self, id, local_path, download_status):
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute(
-                "UPDATE message_attachments SET local_path=%s, download_status=%s WHERE id=%s",
-                (local_path, download_status, id),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "UPDATE message_attachments SET local_path=%s, download_status=%s WHERE id=%s",
+            (local_path, download_status, id),
+        )
         self.mydb.commit()
 
 
@@ -881,12 +740,8 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         is cleared. The FK cascade covers deleting the region itself; this covers
         the cases where the region survives but its link does not.
         """
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM evidence_items WHERE source_region_id = %s", (region_id,))
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM evidence_items WHERE source_region_id = %s", (region_id,))
         self.mydb.commit()
 
     def get_all(self, hunt_id: int, source_puzzle_id=None, target_puzzle_id=None):
@@ -902,22 +757,12 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             where.append("target_puzzle_id = %s")
             params.append(target_puzzle_id)
         sql = "SELECT * FROM evidence_items WHERE " + " AND ".join(where) + " ORDER BY created_at ASC"
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(sql, params)
-            rows = cursor.fetchall() or []
-        finally:
-            cursor.close()
+        rows = self._fetch_all(sql, params)
         return [EvidenceData.import_dict(r) for r in rows]
 
     def get_by_id(self, item_id: int):
         """Return one EvidenceData by id, or None if missing."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM evidence_items WHERE id = %s", (item_id,))
         return EvidenceData.import_dict(row) if row else None
 
     def set_target(self, item_id: int, target_puzzle_id):
@@ -937,11 +782,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
 
     def delete(self, item_id: int, /) -> None:
         """Delete an evidence item by id. No-op if the id does not exist."""
-        cursor = self.mydb.cursor()
-        try:
-            cursor.execute("DELETE FROM evidence_items WHERE id = %s", (item_id,))
-        finally:
-            cursor.close()
+        self._exec("DELETE FROM evidence_items WHERE id = %s", (item_id,))
         self.mydb.commit()
 
     def update_note(self, item_id: int, note: str):
@@ -1034,24 +875,15 @@ class MySQLMediaDb(_MySQLBaseDb):
         media_tiling is the only writer, which is what keeps the pyramid on disk
         and the row from drifting apart.
         """
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "UPDATE media SET tile_status = %s, tile_levels = %s WHERE id = %s",
-                (tile_status, tile_levels, media_id),
-            )
-        finally:
-            cursor.close()
+        self._exec(
+            "UPDATE media SET tile_status = %s, tile_levels = %s WHERE id = %s",
+            (tile_status, tile_levels, media_id),
+        )
         self.mydb.commit()
 
     def get_by_id(self, media_id: int):
         """Return one MediaData by id, or None if missing."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM media WHERE id = %s", (media_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM media WHERE id = %s", (media_id,))
         return MediaData.import_dict(row) if row else None
 
 
@@ -1079,42 +911,19 @@ class MySQLHuntCanvasDb(_MySQLBaseDb):
         return c
 
     def get_by_id(self, canvas_id: int):
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM hunt_canvases WHERE id = %s", (canvas_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM hunt_canvases WHERE id = %s", (canvas_id,))
         return HuntCanvasData.import_dict(row) if row else None
 
     def get_by_hunt(self, hunt_id: int) -> list:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM hunt_canvases WHERE hunt_id = %s"
-                " ORDER BY created_at, id", (hunt_id,))
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM hunt_canvases WHERE hunt_id = %s"
+            " ORDER BY created_at, id", (hunt_id,))
         return [HuntCanvasData.import_dict(r) for r in rows]
 
     def update(self, canvas_id: int, name: str, note) -> None:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "UPDATE hunt_canvases SET name = %s, note = %s WHERE id = %s",
-                (name, note, canvas_id))
-        finally:
-            cursor.close()
-        self.mydb.commit()
-
-    def delete(self, canvas_id: int) -> None:
-        """Regions, and the evidence rows they spawned, go with it by FK cascade."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("DELETE FROM hunt_canvases WHERE id = %s", (canvas_id,))
-        finally:
-            cursor.close()
+        self._exec(
+            "UPDATE hunt_canvases SET name = %s, note = %s WHERE id = %s",
+            (name, note, canvas_id))
         self.mydb.commit()
 
 
@@ -1163,44 +972,21 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         return r
 
     def get_by_id(self, region_id: int):
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM canvas_regions WHERE id = %s", (region_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM canvas_regions WHERE id = %s", (region_id,))
         return CanvasRegionData.import_dict(row) if row else None
 
     def get_by_canvas(self, canvas_id: int) -> list:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM canvas_regions WHERE canvas_id = %s"
-                " ORDER BY created_at, id", (canvas_id,))
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM canvas_regions WHERE canvas_id = %s"
+            " ORDER BY created_at, id", (canvas_id,))
         return [CanvasRegionData.import_dict(r) for r in rows]
 
     def update(self, region_id: int, shape: str, label: str, note,
                puzzle_id, role, crop_media_id=None) -> None:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "UPDATE canvas_regions SET shape = %s, label = %s, note = %s,"
-                " puzzle_id = %s, role = %s, crop_media_id = %s WHERE id = %s",
-                (shape, label, note, puzzle_id, role, crop_media_id, region_id))
-        finally:
-            cursor.close()
-        self.mydb.commit()
-
-    def delete(self, region_id: int) -> None:
-        """Any evidence row sourced from this region goes with it by FK cascade."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("DELETE FROM canvas_regions WHERE id = %s", (region_id,))
-        finally:
-            cursor.close()
+        self._exec(
+            "UPDATE canvas_regions SET shape = %s, label = %s, note = %s,"
+            " puzzle_id = %s, role = %s, crop_media_id = %s WHERE id = %s",
+            (shape, label, note, puzzle_id, role, crop_media_id, region_id))
         self.mydb.commit()
 
     def get_names_by_ids(self, region_ids) -> dict:
@@ -1223,22 +1009,17 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
         if not ids:
             return {}
         placeholders = ", ".join(["%s"] * len(ids))
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT r.id AS id, r.label AS label, r.canvas_id AS canvas_id,"
-                " c.name AS canvas_name, m.filename AS filename"
-                " FROM canvas_regions r"
-                " JOIN hunt_canvases c ON c.id = r.canvas_id"
-                # LEFT, though hunt_canvases.media_id is NOT NULL with an FK:
-                # a row read in the gap of a cascading media delete would
-                # otherwise drop out of the result set entirely and render as
-                # "Region <id>" rather than as a canvas.
-                " LEFT JOIN media m ON m.id = c.media_id"
-                f" WHERE r.id IN ({placeholders})", tuple(ids))
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT r.id AS id, r.label AS label, r.canvas_id AS canvas_id,"
+            " c.name AS canvas_name, m.filename AS filename"
+            " FROM canvas_regions r"
+            " JOIN hunt_canvases c ON c.id = r.canvas_id"
+            # LEFT, though hunt_canvases.media_id is NOT NULL with an FK:
+            # a row read in the gap of a cascading media delete would
+            # otherwise drop out of the result set entirely and render as
+            # "Region <id>" rather than as a canvas.
+            " LEFT JOIN media m ON m.id = c.media_id"
+            f" WHERE r.id IN ({placeholders})", tuple(ids))
         return {r["id"]: _region_display_name(r) for r in rows}
 
 
@@ -1270,34 +1051,19 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
     def get_by_puzzle(self, puzzle_id: int) -> list:
         """The puzzle's images in display order. `position` first, then id, so
         rows created before anyone reordered still have a stable order."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM puzzle_images WHERE puzzle_id = %s"
-                " ORDER BY position, id", (puzzle_id,))
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM puzzle_images WHERE puzzle_id = %s"
+            " ORDER BY position, id", (puzzle_id,))
         return [PuzzleImageData.import_dict(r) for r in rows]
 
     def get_by_id(self, image_id: int):
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM puzzle_images WHERE id = %s", (image_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM puzzle_images WHERE id = %s", (image_id,))
         return PuzzleImageData.import_dict(row) if row else None
 
     def get_by_region(self, region_id: int):
         """At most one row per region — enforced by the unique index."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM puzzle_images WHERE source_region_id = %s", (region_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one(
+            "SELECT * FROM puzzle_images WHERE source_region_id = %s", (region_id,))
         return PuzzleImageData.import_dict(row) if row else None
 
     def set_positions(self, ordered_ids) -> None:
@@ -1313,21 +1079,9 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
             cursor.close()
         self.mydb.commit()
 
-    def delete(self, image_id: int) -> None:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("DELETE FROM puzzle_images WHERE id = %s", (image_id,))
-        finally:
-            cursor.close()
-        self.mydb.commit()
-
     def delete_by_region(self, region_id: int) -> None:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "DELETE FROM puzzle_images WHERE source_region_id = %s", (region_id,))
-        finally:
-            cursor.close()
+        self._exec(
+            "DELETE FROM puzzle_images WHERE source_region_id = %s", (region_id,))
         self.mydb.commit()
 
 
@@ -1356,46 +1110,24 @@ class MySQLMediaMarkupDb(_MySQLBaseDb):
         return m
 
     def get_by_id(self, mark_id: int):
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("SELECT * FROM media_markup WHERE id = %s", (mark_id,))
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+        row = self._fetch_one("SELECT * FROM media_markup WHERE id = %s", (mark_id,))
         return MediaMarkupData.import_dict(row) if row else None
 
     def get_by_media(self, media_id: int) -> list:
         """Oldest first: paint order IS document order in SVG, so a later mark
         must draw on top of an earlier one."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "SELECT * FROM media_markup WHERE media_id = %s"
-                " ORDER BY created_at, id", (media_id,))
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+        rows = self._fetch_all(
+            "SELECT * FROM media_markup WHERE media_id = %s"
+            " ORDER BY created_at, id", (media_id,))
         return [MediaMarkupData.import_dict(r) for r in rows]
 
     def update(self, mark_id: int, style: str, text) -> None:
         """Only style and text are editable. Geometry is not: a redrawn stroke
         is a new mark, and allowing a shape rewrite would mean re-validating a
         kind the row already committed to."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute(
-                "UPDATE media_markup SET style = %s, text = %s WHERE id = %s",
-                (style, text, mark_id))
-        finally:
-            cursor.close()
-        self.mydb.commit()
-
-    def delete(self, mark_id: int) -> None:
-        cursor = self.mydb.dict_cursor()
-        try:
-            cursor.execute("DELETE FROM media_markup WHERE id = %s", (mark_id,))
-        finally:
-            cursor.close()
+        self._exec(
+            "UPDATE media_markup SET style = %s, text = %s WHERE id = %s",
+            (style, text, mark_id))
         self.mydb.commit()
 
 
