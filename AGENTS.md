@@ -220,8 +220,8 @@ pipenv run basedpyright bot/    # must report 0 errors; CI enforces it
 `.claude/worktrees/working-2`, etc.) rather than creating a new one per feature — each
 already has its pipenv venv, `config.json`, `google_secrets.json`, and
 `frontend/node_modules`, so there's no setup. Work directly on the worktree's own branch
-(`working-1`, `working-2`, …); after merging to `main`, resync with
-`git merge --ff-only main` from inside the worktree.
+(`working-1`, `working-2`, …); after merging to `staging`, resync with
+`git merge --ff-only staging` from inside the worktree.
 
 Only create a fresh worktree for genuinely parallel work. Full setup gotchas and the
 from-scratch steps are in **`docs/WORKTREES.md`** (branch from local `main` not stale

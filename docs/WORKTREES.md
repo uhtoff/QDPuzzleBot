@@ -4,24 +4,23 @@ Isolated worktrees are handy for big changes (e.g. the M-milestone refactors). T
 project has a few non-obvious gotchas — follow these steps or the worktree will look
 broken (wrong base commit, missing deps, DB errors at import, tests "not found").
 
-## Preferred: reuse the persistent `working-1` worktree
+## Preferred: reuse a persistent worktree
 
 Spinning up a fresh worktree per feature is a lot of setup (its own pipenv venv,
-copied secrets, npm install). Instead there is **one long-lived worktree** at
-`.claude/worktrees/working-1` with all of that already in place
+copied secrets, npm install). Instead there are **long-lived worktrees** at
+`.claude/worktrees/working-1`, `working-2`, … with all of that already in place
 (venv + `config.json` + `google_secrets.json` + `frontend/node_modules`). For a new
-piece of work, just reuse it — **no setup needed**:
+piece of work, just reuse one — **no setup needed**:
 
 ```bash
-cd .claude/worktrees/working-1
-git fetch && git switch -c feature/<name> main   # fresh branch off the latest main
-# ...work, commit, merge to main (see docs handoff)...
-# next feature: git switch -c feature/<next> main   (venv/secrets/node_modules persist)
+cd .claude/worktrees/working-2
+git merge --ff-only staging   # bring the worktree branch level with staging
+# ...work, commit on the worktree's own branch, merge it into staging (see docs handoff)...
 ```
 
-Keep `working-1` parked on a throwaway `working-1` branch (or the current feature
-branch) between tasks; after merging a feature to `main`, advance it with
-`git -C .claude/worktrees/working-1 switch -C working-1 main`.
+Each worktree stays parked on its own branch (`working-1`, `working-2`, …) between
+tasks — no per-feature branches. After merging work into `staging`, resync with the
+same `git merge --ff-only staging` from inside the worktree.
 
 Only follow the from-scratch steps below if you need a **second** worktree for
 genuinely parallel work. Note: renaming/moving a worktree changes the pipenv venv
@@ -30,26 +29,27 @@ copied secrets and `node_modules` move with the directory.
 
 ## Creating a new worktree from scratch (only for parallel work)
 
-## 1. Branch from **local `main`**, not `origin`
+## 1. Branch from **local `staging`**, not `origin`
 
-`origin/main` is typically **far behind** local `main` (the local branch carries many
-unpushed commits — schema, test seam, plans, etc.). Tooling that branches from
-`origin/<default>` by default (e.g. `EnterWorktree` with its default `baseRef: fresh`)
-will give you a worktree missing all of that.
+`staging` is the integration branch (see AGENTS.md — `main` is intentionally behind,
+pulled up from staging for live). `origin` is typically **far behind** the local
+branches (they carry many unpushed commits — schema, test seam, plans, etc.). Tooling
+that branches from `origin/<default>` by default (e.g. `EnterWorktree` with its default
+`baseRef: fresh`) will give you a worktree missing all of that.
 
-Create the worktree explicitly from local `main` HEAD:
+Create the worktree explicitly from local `staging` HEAD, on its own persistent branch:
 
 ```bash
-git worktree add .claude/worktrees/<name> -b feature/<name> main
+git worktree add .claude/worktrees/<name> -b <name> staging
 ```
 
 (If using the `EnterWorktree` tool, create it manually as above first, then enter it by
 `path` — don't rely on `name`/`fresh`, which branches from stale `origin`.)
 
-Verify HEAD matches local `main`:
+Verify HEAD matches local `staging`:
 
 ```bash
-git -C .claude/worktrees/<name> log --oneline -1   # should equal `git log --oneline -1 main`
+git -C .claude/worktrees/<name> log --oneline -1   # should equal `git log --oneline -1 staging`
 ```
 
 ## 2. Each worktree gets its **own pipenv virtualenv** — install deps
@@ -99,7 +99,7 @@ Read the log file for results (a timeout-killed run exits 124).
 ## Quick checklist
 
 ```bash
-git worktree add .claude/worktrees/<name> -b feature/<name> main
+git worktree add .claude/worktrees/<name> -b <name> staging
 cd .claude/worktrees/<name>
 pipenv install --dev
 cp /home/russ/projects/puzzbot/config.json ./config.json
@@ -137,5 +137,5 @@ one. Stop it with Ctrl-C (foreground) or by killing the `python run.py` PID.
 
 ```bash
 git worktree remove .claude/worktrees/<name>      # add --force if it has uncommitted junk
-git branch -d feature/<name>                       # once merged
+git branch -d <name>                               # once merged
 ```
