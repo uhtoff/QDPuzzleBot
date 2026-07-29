@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: in progress — refactor(frontend): statusTone, useWheelZoom, apiUpload, shared OCR confirm @ 7104fd6
+Status: complete — all 8 phases landed, gates green, merged to staging (ff)
 
 ## Goal
 
@@ -70,8 +70,39 @@ duplication extractions (backend, frontend, tests). Full phased plan:
    (`/api/canvases/<id>/ocr-preview`, actions.py:2719) that takes a JSON shape and does no
    upload validation, so the spec's multipart test was not writable there. Phase 2's
    acceptance run must therefore include `tests/test_media_web.py` (it already does).
-2. Phases 2–8 on Sonnet 4.6, one commit per phase, gates pasted per phase.
-3. Merge `working-2` → `staging` at the end; no pushes.
+2. ~~Phases 2–8, one commit per phase.~~ DONE:
+   - Phase 2 `0acd862` — validate_image_bytes; ocr-preview honours the allowlist.
+   - Phase 3 `cafaf99` — media_ingest + schedule_tiling; !clue images probed and tiled.
+   - Phase 4 `3db95fd` — _visible_media, _require_hunt_media, _push_board dropped.
+   - Phase 5 `b823296` — cursor helpers; 4 commit-only delete overrides removed.
+   - Phase 6 `7104fd6` — statusTone, useWheelZoom, apiUpload, shared OCR confirm.
+   - Phase 7 `97d5d70` — one web-app factory across 19 files; patch-start rollback.
+3. ~~Merge `working-2` → `staging`.~~ DONE (fast-forward). NOT pushed.
+
+## Deviations from the spec, all deliberate and verified
+
+- 1c's allowlist test went to `tests/test_media_web.py::TestEvidenceOcrPreview`, not
+  `test_canvas_web.py::TestCanvasOcrPreview` — the latter covers the canvas crop route, which
+  does no upload validation. The bug was in `api.py ocr_evidence_preview`, as Phase 2 said.
+- Pre-existing test changes ran to more than the three planned. Beyond the planned trio:
+  `TestMediaUpload` (patch target moved with the seam; its create mock now echoes the row),
+  `TestCropRegionMedia` (patches the ingest seam), and three fixtures whose board-push
+  assertion targeted `cog.service.notifier.board_changed` — `_notify_board` publishes straight
+  to `events.publish`, so those assertions would have gone permanently green against a mock
+  nothing calls. All are named in the phase commits.
+- Phase 6 step 2 extracted ONLY the ctrl+wheel listener. CanvasView and MarkupCanvas diverge
+  in pan/pointer handling, scale clamps (0.02–4 vs 1–8) and ResizeObserver target; those are
+  listed in the Phase 6 commit rather than harmonised on a guess.
+- Phase 5 converted 56 sites, not the ~25 estimated. Verified by diffing the multiset of SQL
+  literals before/after: only the 4 removed DELETEs disappear, nothing else changed, and
+  commit() calls went 36 → 32 (exactly those four).
+
+## Not test-covered — inspection only
+
+- `bot/store/mysqldb.py` (the suite mocks the DAOs).
+- Frontend steps 2–4 of Phase 6 (no component-level runner; vitest covers `lib/` only).
+- `conftest.start_patches`'s rollback path (proven by hand against a failing patch list; no
+  unit test, since Phase 7's acceptance required an unchanged test count).
 
 ## Open questions
 
