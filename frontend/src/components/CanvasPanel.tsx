@@ -14,10 +14,11 @@ import {
 import { IconTrash, IconUpload } from "@tabler/icons-react";
 import { useCanvases, useCreateCanvas, useDeleteCanvas, useUpdateCanvas, useUploadMedia } from "../api";
 import { notifyError } from "../util";
+import { puzzlesById } from "../lib/boardPuzzles";
 import { CanvasView } from "./CanvasView";
 import { RegionModal } from "./RegionModal";
 import { ConfirmModal } from "./ConfirmModal";
-import type { CanvasRegion, HuntDetail, Puzzle, RegionShape } from "../types";
+import type { CanvasRegion, HuntDetail, RegionShape } from "../types";
 
 type Props = { uid: string; detail: HuntDetail };
 
@@ -38,11 +39,7 @@ export function CanvasPanel({ uid, detail }: Props) {
   const canvases = data?.canvases ?? [];
   const canvas = canvases.find((c) => String(c.id) === selected) ?? canvases[0];
 
-  const puzzlesById = useMemo(() => {
-    const m = new Map<number, Puzzle>();
-    detail.board.forEach((g) => g.puzzles.forEach((p) => m.set(p.id, p)));
-    return m;
-  }, [detail.board]);
+  const puzzles = useMemo(() => puzzlesById(detail.board), [detail.board]);
 
   const canManage = detail.hunt.can_manage;
   const editable = !detail.hunt.archived;
@@ -136,7 +133,7 @@ export function CanvasPanel({ uid, detail }: Props) {
           key={canvas.id}
           canvas={canvas}
           uid={uid}
-          puzzlesById={puzzlesById}
+          puzzlesById={puzzles}
           editable={editable}
           onOpenRegion={setOpenRegion}
           onDraw={setPendingShape}

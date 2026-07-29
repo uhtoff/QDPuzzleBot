@@ -20,6 +20,7 @@ import {
 } from "../api";
 import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { notifyError } from "../util";
+import { puzzleOptions } from "../lib/boardPuzzles";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -89,11 +90,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setNameError(null);
   }, [open, region]);
 
-  const puzzleOptions = detail.board
-    .flatMap((g) => g.puzzles)
-    .map((p) => ({ value: String(p.id), label: p.name }))
-    // A puzzle in several groups appears once.
-    .filter((o, i, all) => all.findIndex((x) => x.value === o.value) === i)
+  const puzzleChoices = puzzleOptions(detail.board)
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const roundOptions = [
@@ -229,7 +226,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           <Select
             label="Puzzle"
             placeholder="Not linked"
-            data={puzzleOptions}
+            data={puzzleChoices}
             value={puzzleId}
             onChange={setPuzzleId}
             searchable

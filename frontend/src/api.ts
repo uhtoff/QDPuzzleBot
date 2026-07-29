@@ -839,20 +839,24 @@ export function useRetileCanvas(uid: string) {
   });
 }
 
-/** The link fields a region write accepts. puzzle_id and role always travel
- *  together — the API rejects a half-set link with a 400. */
+/** puzzle_id and role always travel together — the API rejects a half-set
+ *  link with a 400. */
 type RegionLink = {
+  puzzle_id?: number | null;
+  role?: RegionRole | null;
+};
+
+/** Everything a region write accepts: its own fields plus the puzzle link. */
+type RegionWrite = RegionLink & {
   shape?: RegionShape;
   label?: string;
   note?: string | null;
-  puzzle_id?: number | null;
-  role?: RegionRole | null;
 };
 
 export function useCreateRegion(uid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ canvasId, ...body }: { canvasId: number } & RegionLink) =>
+    mutationFn: ({ canvasId, ...body }: { canvasId: number } & RegionWrite) =>
       apiSend<CanvasRegion>(`/api/canvases/${canvasId}/regions`, "POST", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["canvases", uid] }),
   });
@@ -862,7 +866,7 @@ export function useUpdateRegion(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ canvasId, regionId, ...body }:
-      { canvasId: number; regionId: number } & RegionLink) =>
+      { canvasId: number; regionId: number } & RegionWrite) =>
       apiSend<CanvasRegion>(`/api/canvases/${canvasId}/regions/${regionId}`, "PATCH", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["canvases", uid] });

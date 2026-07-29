@@ -29,7 +29,7 @@ function tintFor(puzzle: Puzzle | undefined): string | null {
   return TONE_TINT[statusTone(puzzle.status)];
 }
 
-export const TINT_LEGEND: { colour: string; label: string }[] = [
+const TINT_LEGEND: { colour: string; label: string }[] = [
   { colour: "#2f9e44", label: "Solved" },
   { colour: "#f08c00", label: "In progress" },
   { colour: "#e03131", label: "Stuck" },

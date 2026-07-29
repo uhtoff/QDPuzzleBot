@@ -45,6 +45,7 @@ import {
   type RetagMode,
 } from "../api";
 import { fullDeletePuzzleCount, notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
+import { puzzlesById } from "../lib/boardPuzzles";
 import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
 import { getKind, kindColorVar } from "./MetaBadge";
@@ -508,8 +509,7 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
     measureBoardScroll();
   }, [detail.board]);
 
-  const byId = new Map<number, Puzzle>();
-  detail.board.forEach((g) => g.puzzles.forEach((p) => byId.set(p.id, p)));
+  const byId = puzzlesById(detail.board);
 
   const metas: MetaOption[] = detail.board
     .filter((g) => g.group_code != null)

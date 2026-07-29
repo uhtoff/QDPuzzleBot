@@ -29,6 +29,7 @@ import {
   useUploadMedia,
 } from "../api";
 import { imageFromClipboard, notifyError } from "../util";
+import { puzzleOptions, puzzlesById } from "../lib/boardPuzzles";
 import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
@@ -166,22 +167,16 @@ export function EvidencePanel({ uid, detail }: Props) {
 
   // Target options stay puzzles only, with bare-id values: a hunt sheet can be
   // where a datum came FROM, but never a puzzle it is routed TO.
-  const allPuzzles = useMemo(() => {
-    const seen = new Map<number, string>();
-    detail.board.forEach((g) => g.puzzles.forEach((p) => seen.set(p.id, p.name)));
-    return Array.from(seen.entries()).map(([id, name]) => ({ value: String(id), label: name }));
-  }, [detail]);
+  const allPuzzles = useMemo(() => puzzleOptions(detail.board), [detail.board]);
 
   // Everything an evidence item can be sourced from. Built off `detail`, not
   // `items`: the picker must offer every puzzle and sheet, not only the ones
   // that already have evidence. The Map de-duplicates a puzzle that appears in
   // more than one group.
   const sourceChoices = useMemo(() => {
-    const puzzles = new Map<number, string>();
-    detail.board.forEach((g) => g.puzzles.forEach((p) => puzzles.set(p.id, p.name)));
     return [
-      ...Array.from(puzzles.entries()).map(([id, name]) => ({
-        value: `p:${id}`, label: name,
+      ...Array.from(puzzlesById(detail.board).values()).map((p) => ({
+        value: `p:${p.id}`, label: p.name,
       })),
       // A sheet and a puzzle can share a name, and the picker is the only place
       // the difference is visible before the item is logged.
