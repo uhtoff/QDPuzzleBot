@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  Alert,
   Button,
   Divider,
   Group,
@@ -20,6 +19,7 @@ import {
   useUpdateRegion,
 } from "../api";
 import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
+import { notifyError } from "../util";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -58,7 +58,9 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const [mode, setMode] = useState<LinkMode>("link");
   const [newName, setNewName] = useState("");
   const [roundId, setRoundId] = useState<string | null>(UNASSIGNED);
-  const [err, setErr] = useState<string | null>(null);
+  // Field validation only — API failures go through notifyError like the rest
+  // of the app.
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const createRegion = useCreateRegion(uid);
   const updateRegion = useUpdateRegion(uid);
@@ -84,7 +86,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
     setMode(region && !region.puzzle_id ? "none" : "link");
     setNewName("");
     setRoundId(UNASSIGNED);
-    setErr(null);
+    setNameError(null);
   }, [open, region]);
 
   const puzzleOptions = detail.board
@@ -111,21 +113,19 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
 
   const extractText = async () => {
     if (!currentShape) return;
-    setErr(null);
     try {
       const { text } = await ocrRegion.mutateAsync({ canvasId, shape: currentShape });
       if (!text) {
-        setErr("No text found in that region.");
+        notifyError("No text found in that region.");
         return;
       }
       ocrConfirm.offerText(note, text);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not extract text.");
+      notifyError(e);
     }
   };
 
   const save = async () => {
-    setErr(null);
     // puzzle_id and role travel together: the API rejects a half-set link, so
     // clearing the puzzle must clear the role rather than send a stale one.
     // "none" wins over whatever the Select still holds — flipping to "No
@@ -146,14 +146,13 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       }
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not save that region.");
+      notifyError(e);
     }
   };
 
   const createAndLink = async () => {
-    setErr(null);
     if (!newName.trim()) {
-      setErr("A new puzzle needs a name.");
+      setNameError("A new puzzle needs a name.");
       return;
     }
     try {
@@ -173,26 +172,23 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
       });
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not create that puzzle.");
+      notifyError(e);
     }
   };
 
   const remove = async () => {
     if (!region) return;
-    setErr(null);
     try {
       await deleteRegion.mutateAsync({ canvasId, regionId: region.id });
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not delete that region.");
+      notifyError(e);
     }
   };
 
   return (
     <Modal opened={open} onClose={onClose} title={region ? "Region" : "New region"} size="lg">
       <Stack gap="sm">
-        {err && <Alert color="red">{err}</Alert>}
-
         <TextInput label="Label" placeholder="Hex maze, top left"
                    description="Shown on the picture, and as the source name in rendered tables."
                    value={label} onChange={(e) => setLabel(e.currentTarget.value)} />
@@ -241,8 +237,8 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           />
         ) : (
           <Stack gap="sm">
-            <TextInput label="New puzzle name" value={newName}
-                       onChange={(e) => setNewName(e.currentTarget.value)} />
+            <TextInput label="New puzzle name" value={newName} error={nameError}
+                       onChange={(e) => { setNewName(e.currentTarget.value); setNameError(null); }} />
             <Select label="Round" placeholder="Pick a round" data={roundOptions}
                     value={roundId} onChange={setRoundId} searchable />
             <Text size="xs" c="dimmed">

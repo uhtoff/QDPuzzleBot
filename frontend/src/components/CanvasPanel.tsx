@@ -13,6 +13,7 @@ import {
 } from "@mantine/core";
 import { IconTrash, IconUpload } from "@tabler/icons-react";
 import { useCanvases, useCreateCanvas, useDeleteCanvas, useUpdateCanvas, useUploadMedia } from "../api";
+import { notifyError } from "../util";
 import { CanvasView } from "./CanvasView";
 import { RegionModal } from "./RegionModal";
 import { ConfirmModal } from "./ConfirmModal";
@@ -32,7 +33,6 @@ export function CanvasPanel({ uid, detail }: Props) {
   const [pendingShape, setPendingShape] = useState<RegionShape | null>(null);
   const [renaming, setRenaming] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const resetFile = useRef<() => void>(null);
 
   const canvases = data?.canvases ?? [];
@@ -49,7 +49,6 @@ export function CanvasPanel({ uid, detail }: Props) {
 
   const onUpload = async (file: File | null) => {
     if (!file) return;
-    setErr(null);
     try {
       const media = await upload.mutateAsync(file);
       const created = await createCanvas.mutateAsync({
@@ -58,7 +57,7 @@ export function CanvasPanel({ uid, detail }: Props) {
       });
       setSelected(String(created.id));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not upload that image.");
+      notifyError(e);
     } finally {
       resetFile.current?.();
     }
@@ -73,8 +72,6 @@ export function CanvasPanel({ uid, detail }: Props) {
 
   return (
     <Stack gap="sm">
-      {err && <Alert color="red" onClose={() => setErr(null)} withCloseButton>{err}</Alert>}
-
       <Group justify="space-between" align="flex-end">
         <Group gap="sm" align="flex-end">
           {canvases.length > 1 && (
@@ -170,9 +167,13 @@ export function CanvasPanel({ uid, detail }: Props) {
             "and any evidence logged from them. The puzzles themselves are not deleted."
           }
           onConfirm={async () => {
-            await deleteCanvas.mutateAsync(canvas.id);
+            try {
+              await deleteCanvas.mutateAsync(canvas.id);
+              setSelected(null);
+            } catch (e) {
+              notifyError(e);
+            }
             setConfirmDelete(false);
-            setSelected(null);
           }}
         />
       )}
