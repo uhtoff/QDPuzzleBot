@@ -3,11 +3,21 @@ import { Box, Button, Group, Loader, Select, Stack, Text, Tooltip } from "@manti
 import { IconCrop, IconMinus, IconPlus, IconRefresh } from "@tabler/icons-react";
 import type { CanvasRegion, HuntCanvas, Puzzle, RegionShape } from "../types";
 import { clampScale, tileRect, zoomAt as zoomTransform } from "../lib/canvasMath";
+import { statusTone } from "../lib/statusTone";
+import { useWheelZoom } from "../hooks/useZoomPan";
 import { useRetileCanvas } from "../api";
 import { notifyError } from "../util";
 
 /** Tile edge in CSS pixels. Must match image_tiler.TILE_SIZE. */
 const TILE_SIZE = 512;
+
+const TONE_TINT: Record<ReturnType<typeof statusTone>, string> = {
+  solved: "#2f9e44",    // green
+  stuck: "#e03131",     // red
+  working: "#f08c00",   // orange
+  unstarted: "#868e96", // grey
+  unknown: "#868e96",   // grey
+};
 
 /** Progress tint. The seven puzzle statuses collapse to four colours so the
  *  picture stays readable — the point is to see at a glance what has been
@@ -16,22 +26,7 @@ const TILE_SIZE = 512;
 function tintFor(puzzle: Puzzle | undefined): string | null {
   if (!puzzle) return null;
   if (puzzle.solved) return "#2f9e44";                 // green
-  // Matched case-insensitively on a SUBSTRING, the same way util.statusColor
-  // does, because a status's spelling depends on where it was set: the bot
-  // writes constants.py's lowercase values ("in progress"), while the
-  // dashboard's own dropdown writes title case ("In Progress"). An exact
-  // lowercase switch silently greyed out every status set from the web —
-  // solved rows still tinted, because the boolean above catches those first,
-  // which is what made this look like "some statuses have no colour".
-  const status = (puzzle.status || "").toLowerCase();
-  if (status.includes("stuck")) return "#e03131";      // red
-  // "needs extraction" and "needs submission" are both work-in-flight.
-  if (status.includes("progress") || status.includes("needs")) return "#f08c00";
-  // "unsolved" is a real stored value in this database and CONTAINS "solved",
-  // so it has to be excluded explicitly or every unsolved puzzle tints green.
-  // "backsolved" must still match.
-  if (status.includes("solved") && !status.includes("unsolved")) return "#2f9e44";
-  return "#868e96";                                    // grey: unstarted, unset
+  return TONE_TINT[statusTone(puzzle.status)];
 }
 
 export const TINT_LEGEND: { colour: string; label: string }[] = [
@@ -166,27 +161,8 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
   // Ctrl+wheel zooms about the cursor. Trackpad pinch is reported by browsers
   // as a wheel event with ctrlKey set, so this covers both gestures with one
   // handler; a plain scroll is left alone so the page can still scroll past
-  // the canvas. A raw DOM listener, not React's onWheel: React's synthetic
-  // wheel listener is passive, and preventDefault silently no-ops on a
-  // passive listener — ctrl+wheel would still trigger the browser's own page
-  // zoom underneath.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      // 0.0015, not 0.01: a mouse wheel reports deltaY of ~100 per detent, so
-      // the old factor was e^1 — one click zoomed 2.7x and flew straight past
-      // whatever you were aiming at. ~1.16x per detent, and trackpad deltas
-      // (which are much smaller) stay smooth.
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
+  // the canvas.
+  useWheelZoom(wrapRef, zoomAt);
 
   const onPointerDown = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();

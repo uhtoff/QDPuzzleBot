@@ -7,6 +7,7 @@ import {
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
 import { normPoint } from "../lib/canvasMath";
+import { useWheelZoom } from "../hooks/useZoomPan";
 import { notifyError } from "../util";
 
 type Tool = "pen" | "line" | "arrow" | "highlighter" | "text" | "eraser" | null;
@@ -122,25 +123,8 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     });
   }, []);
 
-  // A raw non-passive DOM listener, NOT React's onWheel: the synthetic wheel
-  // listener is passive, so preventDefault silently no-ops there and the
-  // browser's own page zoom fires underneath. This bit the canvas viewer.
-  useEffect(() => {
-    const el = frameRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;               // plain scroll still scrolls the modal
-      e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      // 0.0015, not 0.01: a mouse wheel reports deltaY of ~100 per detent, so
-      // the original factor was e^1 — one click zoomed 2.7x, which overshoots
-      // whatever you were aiming at. This gives ~1.16x per detent, and a
-      // trackpad's small deltas stay smooth.
-      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
+  // Ctrl+wheel zooms about the cursor; a plain scroll still scrolls the modal.
+  useWheelZoom(frameRef, zoomAt);
 
   /** Pointer position as normalised image coordinates. getBoundingClientRect
    *  already reflects any CSS transform, so this stays correct at every zoom. */

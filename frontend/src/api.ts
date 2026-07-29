@@ -35,6 +35,29 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
   return res.json() as Promise<T>;
 }
 
+/** Multipart upload with the session cookie and CSRF header attached.
+ *  Not apiSend: that sets a JSON Content-Type, and multipart needs the
+ *  browser to set its own boundary. Match apiSend's credentials/CSRF
+ *  handling otherwise, since the CSRF guard applies to these routes too. */
+async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-CSRF-Token": csrfToken() },
+    body: form,
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      retry_after?: number;
+      detail?: string;
+    };
+    throw new Error(friendlyError(detail, res.status));
+  }
+  return res.json() as Promise<T>;
+}
+
 function friendlyError(d: { error?: string; retry_after?: number; detail?: string }, status: number): string {
   switch (d.error) {
     case "csrf":
@@ -205,30 +228,12 @@ export function useUploadMedia(huntUid: string) {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      // Not apiSend: that sets a JSON Content-Type, and multipart needs the
-      // browser to set its own boundary. Match apiSend's credentials/CSRF
-      // handling otherwise, since the CSRF guard applies to this route too.
-      const res = await fetch(`/api/hunts/${huntUid}/media`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: form,
-      });
-      if (res.status === 401) throw new AuthError();
-      if (!res.ok) {
-        const detail = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          retry_after?: number;
-          detail?: string;
-        };
-        throw new Error(friendlyError(detail, res.status));
-      }
       // width/height/tile_status come back too (B1): a caller creating a
       // canvas needs them to know whether to wait for tiling.
-      return (await res.json()) as {
+      return apiUpload<{
         id: number; url: string; width: number; height: number;
         tile_status: "none" | "pending" | "ready" | "failed";
-      };
+      }>(`/api/hunts/${huntUid}/media`, form);
     },
   });
 }
@@ -994,20 +999,7 @@ export function useOcrEvidenceImage(huntUid: string) {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      // Not apiSend: multipart needs the browser's own boundary, same
-      // reasoning as useUploadMedia above.
-      const res = await fetch(`/api/hunts/${huntUid}/evidence/ocr-preview`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: form,
-      });
-      if (res.status === 401) throw new AuthError();
-      if (!res.ok) {
-        const detail = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(friendlyError(detail, res.status));
-      }
-      return (await res.json()) as { text: string };
+      return apiUpload<{ text: string }>(`/api/hunts/${huntUid}/evidence/ocr-preview`, form);
     },
   });
 }

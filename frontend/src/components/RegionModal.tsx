@@ -19,7 +19,7 @@ import {
   useOcrCanvasRegion,
   useUpdateRegion,
 } from "../api";
-import { ConfirmModal } from "./ConfirmModal";
+import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import type { CanvasRegion, HuntDetail, RegionRole, RegionShape } from "../types";
 
 // Sentinel dropdown value for "no round" — matches CreateControls' pattern,
@@ -65,8 +65,10 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
   const deleteRegion = useDeleteRegion(uid);
   const createPuzzle = useCreatePuzzleFromRegion(uid);
   const ocrRegion = useOcrCanvasRegion();
-  const [ocrConfirmOpen, setOcrConfirmOpen] = useState(false);
-  const [pendingOcrText, setPendingOcrText] = useState<string | null>(null);
+  const ocrConfirm = useOcrReplaceConfirm(
+    setNote,
+    "This will replace the current Notes text with the extracted text.",
+  );
 
   // Reset from whichever region (or blank shape) the modal was opened with.
   useEffect(() => {
@@ -116,12 +118,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
         setErr("No text found in that region.");
         return;
       }
-      if (note.trim()) {
-        setPendingOcrText(text);
-        setOcrConfirmOpen(true);
-      } else {
-        setNote(text);
-      }
+      ocrConfirm.offerText(note, text);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not extract text.");
     }
@@ -290,17 +287,7 @@ export function RegionModal({ uid, canvasId, detail, region, pendingShape, onClo
           </Group>
         </Group>
       </Stack>
-      <ConfirmModal
-        opened={ocrConfirmOpen}
-        onClose={() => setOcrConfirmOpen(false)}
-        onConfirm={() => {
-          if (pendingOcrText !== null) setNote(pendingOcrText);
-          setOcrConfirmOpen(false);
-        }}
-        title="Replace existing note?"
-        message="This will replace the current Notes text with the extracted text."
-        confirmLabel="Replace"
-      />
+      {ocrConfirm.confirmModal}
     </Modal>
   );
 }

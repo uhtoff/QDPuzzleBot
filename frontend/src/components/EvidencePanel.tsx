@@ -29,6 +29,7 @@ import {
   useUploadMedia,
 } from "../api";
 import { imageFromClipboard, notifyError } from "../util";
+import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -55,8 +56,6 @@ export function EvidencePanel({ uid, detail }: Props) {
   const editClueNote = useEditClueNote(uid);
   const ocrClueImage = useOcrEvidenceImage(uid);
   const replaceClueImage = useReplaceClueImage(uid);
-  const [clueOcrConfirmOpen, setClueOcrConfirmOpen] = useState(false);
-  const [pendingClueOcrText, setPendingClueOcrText] = useState<string | null>(null);
   const [markupItem, setMarkupItem] = useState<EvidenceItem | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
   const [filterTarget, setFilterTarget] = useState<string | null>(null);
@@ -76,6 +75,10 @@ export function EvidencePanel({ uid, detail }: Props) {
   const [clueSource, setClueSource] = useState<string | null>(null);
   const [clueNote, setClueNote] = useState("");
   const [clueFile, setClueFile] = useState<File | null>(null);
+  const clueOcrConfirm = useOcrReplaceConfirm(
+    setClueNote,
+    "This will replace the current note text with the extracted text.",
+  );
 
   /** Accept a screenshot pasted into the clue box.
    *
@@ -111,12 +114,7 @@ export function EvidencePanel({ uid, detail }: Props) {
         notifyError(new Error("No text found in that image."));
         return;
       }
-      if (clueNote.trim()) {
-        setPendingClueOcrText(extracted);
-        setClueOcrConfirmOpen(true);
-      } else {
-        setClueNote(extracted);
-      }
+      clueOcrConfirm.offerText(clueNote, extracted);
     } catch (err) {
       notifyError(err);
     }
@@ -401,17 +399,7 @@ export function EvidencePanel({ uid, detail }: Props) {
           </Table.Tbody>
         </Table>
       )}
-      <ConfirmModal
-        opened={clueOcrConfirmOpen}
-        onClose={() => setClueOcrConfirmOpen(false)}
-        onConfirm={() => {
-          if (pendingClueOcrText !== null) setClueNote(pendingClueOcrText);
-          setClueOcrConfirmOpen(false);
-        }}
-        title="Replace existing note?"
-        message="This will replace the current note text with the extracted text."
-        confirmLabel="Replace"
-      />
+      {clueOcrConfirm.confirmModal}
       <MarkupModal
         mediaId={markupItem?.media_id ?? null}
         alt={markupItem?.note ?? "Evidence image"}

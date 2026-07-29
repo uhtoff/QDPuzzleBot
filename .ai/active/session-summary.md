@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: in progress — refactor(web): shared media visibility + cross-hunt guard, drop _push_board @ 3db95fd
+Status: in progress — refactor(store): cursor helpers, drop redundant commit-only delete overrides @ b823296
 
 ## Goal
 

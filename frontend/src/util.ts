@@ -1,4 +1,5 @@
 import { notifications } from "@mantine/notifications";
+import { statusTone } from "./lib/statusTone";
 import type { BoardGroup, Puzzle } from "./types";
 
 /**
@@ -145,18 +146,16 @@ export function priorityColor(priority: string | null): string {
   }
 }
 
+const STATUS_TONE_COLOR: Record<ReturnType<typeof statusTone>, string> = {
+  solved: "green",
+  stuck: "red",
+  working: "yellow",
+  unstarted: "gray",
+  unknown: "blue",
+};
+
 export function statusColor(status: string | null): string {
-  const s = (status || "").toLowerCase();
-  // "unsolved" is a real stored status and CONTAINS "solved", so it has to be
-  // excluded or an unsolved puzzle gets a green badge. "backsolved" must still
-  // match. It then falls through to the default, as any other unrecognised
-  // status does — deliberately not remapped to grey here, which would be a
-  // palette decision rather than a bug fix.
-  if (s.includes("solved") && !s.includes("unsolved")) return "green";
-  if (s.includes("stuck")) return "red";
-  if (s.includes("progress") || s.includes("working")) return "yellow";
-  if (s.includes("unstarted")) return "gray";
-  return "blue";
+  return STATUS_TONE_COLOR[statusTone(status)];
 }
 
 const PRIORITY_RANK: Record<string, number> = { high: 0, low: 2 };
