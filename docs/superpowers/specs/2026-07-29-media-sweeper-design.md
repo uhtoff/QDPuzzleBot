@@ -59,6 +59,17 @@ Explicitly out of scope: an age-threshold setting, a per-image "protect from GC"
 automatic/scheduled sweeping. None of these are needed for the stated problem (reclaim
 leaked disk on request) — add them later only if a real need shows up.
 
+Also out of scope: files on disk with **no `media` row at all** (if any exist from
+historic code paths). The sweep walks rows, not the directory, so it can't see them. If
+the Plesk disk number still looks wrong after sweeping, a one-off `du` vs
+`SUM(media.size)` comparison will show whether row-less leaks exist — separate task.
+
+**Deliberate behaviour change:** replaced evidence images were previously "kept, not
+deleted" by documented decision. After this ships, a replaced image that nothing else
+references becomes sweepable once it's older than the grace period. That's intentional —
+the keep-on-replace decision was about not deleting *synchronously at replace time*, not
+about keeping the bytes forever — and the user-guide updates below make it visible.
+
 ## Backend
 
 ### `bot/store/mysqldb.py` — `MySQLMediaDb`
@@ -67,7 +78,8 @@ leaked disk on request) — add them later only if a real need shows up.
   LEFT JOINed against the four referencing tables on their FK-to-media columns, filtered to
   `hunt_id = %s AND created_at < %s AND` all four join columns `IS NULL`.
 - `delete(media_id) -> None` — deletes the row. (Currently doesn't exist at all — noted as
-  a gap in the review doc.)
+  a gap in the review doc.) Note the class is `MySQLMediaDb` — earlier drafts said
+  "MediaJsonDb", which doesn't exist.
 
 ### `bot/core/media_gc.py` (new, ctx-free service module, style matches `puzzle_images.py`)
 
@@ -86,9 +98,13 @@ def sweep(hunt_id: int) -> SweepStats: ...
 `sweep` iterates `orphaned_media(hunt_id)` and, per row: best-effort `shutil.rmtree` the
 tile pyramid dir if `tile_status != "none"` (mirrors `delete_canvas`'s
 `ignore_errors=True` + logged-exception pattern — a stuck tile dir must not block the
-delete), best-effort `unlink` the original file, then `MediaJsonDb.delete(media_id)`.
+delete), best-effort `unlink` the original file, then `MySQLMediaDb.delete(media_id)`.
 Returns the count and summed `size` of everything actually removed from the DB (a file/tile
 failure doesn't stop the row from being counted — the row is gone either way).
+
+`bytes_freed` sums `media.size` — the original file only, not the tile pyramid's bytes.
+That's a deliberate undercount: tile-dir sizes aren't tracked anywhere, and a du-walk per
+sweep isn't worth it. Report copy should read "at least" (e.g. "freed ≥ 34.2 MB").
 
 No new lock: `bot/core/locks.py`'s registry (`puzzle_lock`, `puzzles_lock`,
 `hunt_create_lock`, `hunt_sheet_lock`, `rollup_lock`) has no hunt-wide or media lock, and
