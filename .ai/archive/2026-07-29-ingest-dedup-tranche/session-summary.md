@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: complete — all 8 phases landed, gates green, merged to staging (ff)
+Status: complete — docs: record the ingest-bugs + dedup tranche results @ 0a2d042
 
 ## Goal
 
