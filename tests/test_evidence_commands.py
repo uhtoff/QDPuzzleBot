@@ -143,22 +143,19 @@ class TestClueWithAttachment:
         att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\npayload")
         ctx.message.attachments = [att]
 
-        with patch("bot.cogs.puzzles.save_image_bytes") as save, \
-             patch("bot.cogs.puzzles.MediaJsonDb") as mdb:
-            save.return_value = {"path": "uploads/10/a_crop.png", "filename": "crop.png",
-                                 "content_type": "image/png", "size": 7, "origin": "discord"}
-            mdb.create.return_value = MagicMock(id=7)
+        with patch("bot.cogs.puzzles.ingest_image_bytes") as ingest, \
+             patch("bot.cogs.puzzles.schedule_tiling"):
+            ingest.return_value = SimpleNamespace(id=7, tile_status="none")
             await Puzzles.clue.callback(cog, ctx, note="three anchors")
 
         # The wiring, not just the final id: the bytes read from the attachment
-        # and the hunt they belong to must reach save_image_bytes ...
-        assert save.call_args.kwargs["raw"] == b"\x89PNG\r\n\x1a\npayload"
-        assert save.call_args.kwargs["filename"] == "crop.png"
-        assert save.call_args.kwargs["hunt_id"] == 10
-        # ... and what save_image_bytes returns must be what gets persisted,
+        # and the hunt they belong to must reach ingest_image_bytes ...
+        assert ingest.call_args.kwargs["raw"] == b"\x89PNG\r\n\x1a\npayload"
+        assert ingest.call_args.kwargs["filename"] == "crop.png"
+        assert ingest.call_args.kwargs["hunt_id"] == 10
+        # ... and what ingest_image_bytes returns must be what gets persisted,
         # not some other value — a prior defect in this run dropped an id on
         # the way from a save call to the DAO despite the surface call succeeding.
-        assert mdb.create.call_args.kwargs["path"] == "uploads/10/a_crop.png"
         assert cog.service.log_clues.await_args.kwargs["media_id"] == 7
 
     @pytest.mark.asyncio
@@ -188,7 +185,7 @@ class TestClueWithAttachment:
         ctx.message.attachments = [att]
 
         from bot.core.media_store import MediaRejected
-        with patch("bot.cogs.puzzles.save_image_bytes", side_effect=MediaRejected("nope")):
+        with patch("bot.cogs.puzzles.ingest_image_bytes", side_effect=MediaRejected("nope")):
             await Puzzles.clue.callback(cog, ctx, note="x")
 
         ctx.send.assert_awaited()
@@ -207,11 +204,9 @@ class TestClueWithAttachment:
         att.read = AsyncMock(return_value=b"\x89PNG\r\n\x1a\np")
         ctx.message.attachments = [att]
 
-        with patch("bot.cogs.puzzles.save_image_bytes") as save, \
-             patch("bot.cogs.puzzles.MediaJsonDb") as mdb:
-            save.return_value = {"path": "p", "filename": "crop.png",
-                                 "content_type": "image/png", "size": 5, "origin": "discord"}
-            mdb.create.return_value = MagicMock(id=7)
+        with patch("bot.cogs.puzzles.ingest_image_bytes") as ingest, \
+             patch("bot.cogs.puzzles.schedule_tiling"):
+            ingest.return_value = SimpleNamespace(id=7, tile_status="none")
             await Puzzles.clue.callback(cog, ctx, note="")
 
         cog.service.log_clues.assert_awaited()

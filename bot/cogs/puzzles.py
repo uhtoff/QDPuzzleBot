@@ -1,3 +1,4 @@
+import functools
 import logging
 import random
 from typing import Any, Optional
@@ -16,7 +17,9 @@ from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, 
     resolve_group, MediaJsonDb, CanvasJsonDb
 from bot.utils.chunking import build_note_embeds
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
-from bot.core.media_store import MediaRejected, save_image_bytes
+from bot.core.media_ingest import ingest_image_bytes
+from bot.core.media_store import MediaRejected
+from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -1599,19 +1602,18 @@ class Puzzles(commands.Cog):
         att = attachments[0]
         raw = await att.read()
         try:
-            saved = save_image_bytes(
+            media = ingest_image_bytes(
                 hunt_id=hunt.id,
                 filename=att.filename or "image",
                 raw=raw,
                 origin="discord",
+                db=MediaJsonDb,
             )
         except MediaRejected as exc:
             return None, str(exc)
-        media = MediaJsonDb.create(
-            hunt_id=hunt.id, path=saved["path"], filename=saved["filename"],
-            content_type=saved["content_type"], size=saved["size"],
-            origin=saved["origin"],
-        )
+        if media.tile_status == "pending":
+            schedule_tiling(media, MediaJsonDb,
+                             after=functools.partial(self.service.notifier.board_changed, hunt))
         return media.id, None
 
     @commands.hybrid_command(name="clue", description="Log a freeform clue/observation, optionally with an image")

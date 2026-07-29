@@ -159,6 +159,15 @@ async def test_serves_the_stored_content_type_verbatim(web):
     assert resp.headers["Content-Type"].startswith("image/gif")
 
 
+def _created_row(**kwargs):
+    """Stand in for MediaJsonDb.create: echo back the row it was asked to
+    insert. The upload route reads width/height/tile_status off the row it gets
+    back (they are decided inside ingest_image_bytes now, not in the route), so
+    a fixed SimpleNamespace would both drop those columns and break the link
+    between what was stored and what the response reports."""
+    return SimpleNamespace(id=7, **kwargs)
+
+
 class TestMediaUpload:
     """POST /api/hunts/<uid>/media — content sniffing, size cap, and the
     archived-hunt read-only guard, on top of the auth cover pinned above for
@@ -168,8 +177,7 @@ class TestMediaUpload:
     async def test_uploads_a_png(self, web):
         app, _, _ = web
         with patch("bot.store.MediaJsonDb") as mdb:
-            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
-                                                      tile_status="none")
+            mdb.create.side_effect = _created_row
             resp = await app.test_client().post(
                 "/api/hunts/U1/media",
                 files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
@@ -185,11 +193,10 @@ class TestMediaUpload:
         serving no purpose, so no tiling task is scheduled at all."""
         app, _, _ = web
         with patch("bot.store.MediaJsonDb") as mdb, \
-             patch("bot.core.image_tiler.probe_dimensions",
+             patch("bot.core.media_ingest.probe_dimensions",
                    return_value=(1920, 1080)), \
              patch("bot.core.media_tiling.tile_media") as tile:
-            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
-                                                      tile_status="none")
+            mdb.create.side_effect = _created_row
             resp = await app.test_client().post(
                 "/api/hunts/U1/media",
                 files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
@@ -208,11 +215,10 @@ class TestMediaUpload:
         happen inside the request."""
         app, _, _ = web
         with patch("bot.store.MediaJsonDb") as mdb, \
-             patch("bot.core.image_tiler.probe_dimensions",
+             patch("bot.core.media_ingest.probe_dimensions",
                    return_value=(14400, 14400)), \
              patch("bot.core.media_tiling.tile_media") as tile:
-            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
-                                                      tile_status="pending")
+            mdb.create.side_effect = _created_row
             resp = await app.test_client().post(
                 "/api/hunts/U1/media",
                 files={"file": _file("big.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
@@ -231,10 +237,9 @@ class TestMediaUpload:
         that would be worse than storing it without a pyramid."""
         app, _, _ = web
         with patch("bot.store.MediaJsonDb") as mdb, \
-             patch("bot.core.image_tiler.probe_dimensions",
+             patch("bot.core.media_ingest.probe_dimensions",
                    side_effect=RuntimeError("vips said no")):
-            mdb.create.return_value = SimpleNamespace(id=7, hunt_id=10,
-                                                      tile_status="none")
+            mdb.create.side_effect = _created_row
             resp = await app.test_client().post(
                 "/api/hunts/U1/media",
                 files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},

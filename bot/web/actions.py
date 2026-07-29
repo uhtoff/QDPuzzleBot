@@ -7,6 +7,7 @@ the bot's cog logic so a web action behaves exactly like the matching ! command.
 """
 import asyncio
 import datetime
+import functools
 import logging
 from contextlib import AsyncExitStack
 from typing import Any
@@ -32,6 +33,8 @@ from .auth import (
 )
 from bot.core.locks import puzzle_lock, puzzles_lock, hunt_create_lock, hunt_sheet_lock
 from bot.core.errors import SheetRefreshError
+from bot.core.media_ingest import ingest_image_bytes
+from bot.core.media_tiling import schedule_tiling
 
 logger = logging.getLogger(__name__)
 
@@ -2197,7 +2200,6 @@ async def _crop_region_media(canvas_row, shape):
     """
     from bot.core.canvas_shape import rect_bounds
     from bot.core.image_tiler import crop_bytes
-    from bot.core.media_store import save_image_bytes
     from bot.core.message_media import media_root
     from bot.store import MediaJsonDb
     media = MediaJsonDb.get_by_id(canvas_row.media_id)
@@ -2206,16 +2208,16 @@ async def _crop_region_media(canvas_row, shape):
     try:
         rect = rect_bounds(shape)
         loop = asyncio.get_running_loop()
-        png, width, height = await loop.run_in_executor(
+        # width/height come back from crop_bytes too, but ingest_image_bytes
+        # now re-probes them itself, so they go unused here.
+        png, _, _ = await loop.run_in_executor(
             None, crop_bytes, media_root() / media.path, rect)
-        saved = save_image_bytes(
+        crop = ingest_image_bytes(
             hunt_id=media.hunt_id, filename="region-crop.png", raw=png,
-            origin="canvas_crop")
-        crop = MediaJsonDb.create(
-            hunt_id=media.hunt_id, path=saved["path"], filename=saved["filename"],
-            content_type=saved["content_type"], size=saved["size"],
-            origin=saved["origin"], width=width, height=height,
-            tile_status="none")
+            origin="canvas_crop", db=MediaJsonDb)
+        if crop.tile_status == "pending":
+            schedule_tiling(crop, MediaJsonDb,
+                             after=functools.partial(_push_board, media.hunt_id))
         return crop.id
     except Exception:
         logger.exception("could not crop region evidence for canvas media %s",
@@ -2332,7 +2334,6 @@ async def retile_canvas(canvas_id):
     Not organiser-gated — the same bar as ocr-preview: a stuck canvas blocks
     everyone hunting, and retiling changes no content.
     """
-    import asyncio
     from bot.store import MediaJsonDb
     ctx, canvas_row, err = await _canvas_ctx(canvas_id)
     if err:
@@ -2344,10 +2345,8 @@ async def retile_canvas(canvas_id):
     if media is None or media.tile_status not in ("pending", "failed"):
         return jsonify({"error": "not_retileable"}), 409
     MediaJsonDb.update_tiles(media.id, "pending", 0)
-    from bot.web.api import _tile_and_push, _tiling_tasks
-    task = asyncio.create_task(_tile_and_push(media, MediaJsonDb, ctx["hunt"]["id"]))
-    _tiling_tasks.add(task)
-    task.add_done_callback(_tiling_tasks.discard)
+    schedule_tiling(media, MediaJsonDb,
+                     after=functools.partial(_push_board, ctx["hunt"]["id"]))
     await _push_board(ctx["hunt"]["id"])
     await _audit("retile_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True, "tile_status": "pending"}), 202

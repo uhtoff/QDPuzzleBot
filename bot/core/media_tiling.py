@@ -14,6 +14,13 @@ from bot.store.media_data import MediaData
 
 logger = logging.getLogger(__name__)
 
+# Strong references to in-flight tiling tasks. asyncio only holds a weak
+# reference to a running task, so one with no other referent can be collected
+# mid-flight. The refresh_* create_task calls elsewhere get away with it because
+# they finish in milliseconds; tiling a large sheet takes seconds, which is long
+# enough for a collection to land in the middle of it.
+_tiling_tasks: set = set()
+
 # Each pyramid build peaks around 360 MB (PNG has no partial decode in libvips,
 # so a large sheet is fully resident before it is tiled). Two bounds the
 # worst-case footprint while still letting a small crop overlap a big sheet
@@ -54,3 +61,22 @@ async def tile_media(media: MediaData, db) -> None:
         return
     db.update_tiles(media.id, "ready", levels)
     logger.info("media %s tiled: %dx%d, %d levels", media.id, width, height, levels)
+
+
+def schedule_tiling(media: MediaData, db, after=None) -> None:
+    """Fire off `tile_media(media, db)` as a background task, then optionally
+    `await after()` once it finishes.
+
+    `after` is how a caller learns tiling is done without polling: the web
+    upload route and the Discord clue-attachment path both want to push a
+    "board changed" notification afterwards, but only once the pyramid is
+    actually ready, not at the moment the row is created.
+    """
+    async def _run():
+        await tile_media(media, db)
+        if after is not None:
+            await after()
+
+    task = asyncio.create_task(_run())
+    _tiling_tasks.add(task)
+    task.add_done_callback(_tiling_tasks.discard)

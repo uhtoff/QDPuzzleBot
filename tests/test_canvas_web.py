@@ -518,32 +518,28 @@ class TestCropRegionMedia:
     file in, a new standalone media row out."""
 
     async def test_crops_the_original_and_saves_a_new_media_row(self):
+        # Dimensions/tile_status are now decided inside ingest_image_bytes
+        # (covered by tests/test_media_ingest.py); this test pins the wiring
+        # around it -- the cropped bytes and the right hunt_id/origin reach
+        # the shared ingest seam, and its returned id is what the caller gets.
         from bot.web.actions import _crop_region_media
         canvas_row = SimpleNamespace(media_id=7)
         media = SimpleNamespace(id=7, hunt_id=10, path="uploads/10/orig.png")
         mdb = MagicMock()
         mdb.get_by_id.return_value = media
-        mdb.create.return_value = SimpleNamespace(id=88)
         with patch("bot.store.MediaJsonDb", mdb), \
              patch("bot.core.image_tiler.crop_bytes",
                    return_value=(b"PNGDATA", 40, 30)) as crop_bytes, \
-             patch("bot.core.media_store.save_image_bytes",
-                   return_value={"path": "uploads/10/crop.png",
-                                 "filename": "crop.png",
-                                 "content_type": "image/png", "size": 7,
-                                 "origin": "canvas_crop"}) as save:
+             patch("bot.web.actions.ingest_image_bytes",
+                   return_value=SimpleNamespace(id=88, tile_status="none")) as ingest:
             media_id = await _crop_region_media(canvas_row, RECT)
         assert media_id == 88
         # The ORIGINAL upload, not a tile: the pyramid isn't a single
         # re-openable image.
         assert crop_bytes.call_args.args[0].name == "orig.png"
-        save.assert_called_once_with(
+        ingest.assert_called_once_with(
             hunt_id=10, filename="region-crop.png", raw=b"PNGDATA",
-            origin="canvas_crop")
-        kwargs = mdb.create.call_args.kwargs
-        assert (kwargs["width"], kwargs["height"]) == (40, 30)
-        assert kwargs["tile_status"] == "none"
-        assert kwargs["hunt_id"] == 10
+            origin="canvas_crop", db=mdb)
 
     async def test_returns_none_when_the_canvas_media_row_is_missing(self):
         from bot.web.actions import _crop_region_media
@@ -643,7 +639,7 @@ class TestCanvasRetile:
 
     async def test_a_failed_canvas_is_reset_to_pending_and_retiled(self, web):
         media = self._stuck(web, "failed")
-        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+        with patch("bot.web.actions.schedule_tiling") as tile:
             resp = await web.client.post("/api/canvases/3/retile")
         assert resp.status_code == 202
         assert (await resp.get_json())["tile_status"] == "pending"
@@ -652,7 +648,7 @@ class TestCanvasRetile:
 
     async def test_a_pending_canvas_is_retileable_too(self, web):
         self._stuck(web, "pending")
-        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+        with patch("bot.web.actions.schedule_tiling") as tile:
             resp = await web.client.post("/api/canvases/3/retile")
         assert resp.status_code == 202
         web.mdb.update_tiles.assert_called_once_with(7, "pending", 0)
@@ -662,7 +658,7 @@ class TestCanvasRetile:
         """Retiling a good pyramid is pure cost -- seconds of CPU and ~360 MB
         to rebuild what is already on disk."""
         self._stuck(web, "ready")
-        with patch("bot.web.api._tile_and_push", new=AsyncMock()) as tile:
+        with patch("bot.web.actions.schedule_tiling") as tile:
             resp = await web.client.post("/api/canvases/3/retile")
         assert resp.status_code == 409
         assert (await resp.get_json())["error"] == "not_retileable"
@@ -673,7 +669,7 @@ class TestCanvasRetile:
         """tile_status 'none' means the image was never a tiling candidate, not
         that tiling broke; it is served whole and there is nothing to rebuild."""
         self._stuck(web, "none")
-        with patch("bot.web.api._tile_and_push", new=AsyncMock()):
+        with patch("bot.web.actions.schedule_tiling"):
             resp = await web.client.post("/api/canvases/3/retile")
         assert resp.status_code == 409
         assert (await resp.get_json())["error"] == "not_retileable"

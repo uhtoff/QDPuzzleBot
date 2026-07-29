@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-07-28
-Status: in progress — test: pin the ingest/dedup tranche (failing) @ 502ae23
+Status: in progress — fix: single image-validation seam; ocr-preview honours the allowlist @ 0acd862
 
 ## Goal
 
