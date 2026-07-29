@@ -199,6 +199,12 @@ def make_hunt_ctx(hunt_id=10, uid="U1", archived=False, guild_snowflake="123"):
             "guild_snowflake": guild_snowflake}
 
 
+def make_api_hunt(archived=False):
+    """The hunt dict api_bp's ``_load_visible_hunt`` resolves — the api-route
+    counterpart of the hunt embedded in :func:`make_hunt_ctx`."""
+    return {"id": 10, "uid": "U1", "archived": archived, "guild_id": 1}
+
+
 def start_patches(patches):
     """Start each patch in `patches`, in order, returning the started mocks.
 

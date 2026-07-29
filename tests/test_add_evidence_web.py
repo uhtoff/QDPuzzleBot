@@ -6,11 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import make_api_hunt as _hunt
 from tests.conftest import make_puzzle, make_web_app, start_patches, stop_patches
-
-
-def _hunt(archived=False):
-    return {"id": 10, "uid": "U1", "archived": archived, "guild_id": 1}
 
 
 @pytest.fixture
