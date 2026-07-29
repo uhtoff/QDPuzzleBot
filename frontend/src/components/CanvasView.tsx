@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, Group, Loader, Select, Stack, Text, Tooltip } from "@mantine/core";
+import { useElementSize, useMergedRef } from "@mantine/hooks";
 import { IconCrop, IconMinus, IconPlus, IconRefresh } from "@tabler/icons-react";
 import type { CanvasRegion, HuntCanvas, Puzzle, RegionShape } from "../types";
 import { clampScale, tileRect, zoomAt as zoomTransform } from "../lib/canvasMath";
@@ -29,6 +30,10 @@ function tintFor(puzzle: Puzzle | undefined): string | null {
   return TONE_TINT[statusTone(puzzle.status)];
 }
 
+/** A press on a region only opens it if the pointer stays put: past this many
+ *  pixels of travel it was a pan that happened to start over a region. */
+const CLICK_SLOP = 5;
+
 const TINT_LEGEND: { colour: string; label: string }[] = [
   { colour: "#2f9e44", label: "Solved" },
   { colour: "#f08c00", label: "In progress" },
@@ -49,7 +54,6 @@ type Props = {
 export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, onDraw }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const retile = useRetileCanvas(uid);
-  const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [drawing, setDrawing] = useState(false);
@@ -67,25 +71,21 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
   // Active pointers by id, for pinch: two fingers down means pinch, never pan/draw.
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinch = useRef<null | { dist: number; mx: number; my: number }>(null);
+  // The region under the pointer when it went down. Opening happens on
+  // pointer-up, and only within CLICK_SLOP, so a pan can start over a region.
+  const pressedRegion = useRef<CanvasRegion | null>(null);
 
   const width = canvas.width ?? 0;
   const height = canvas.height ?? 0;
   const levels = canvas.tile_levels ?? 0;
   const tiled = canvas.tile_status === "ready" && levels > 0 && width > 0;
 
-  // Track the viewport so the visible-tile window can be computed. A
-  // ResizeObserver rather than a window listener: this panel sits inside a
+  // Track the viewport so the visible-tile window can be computed. Element
+  // observation rather than a window listener: this panel sits inside a
   // layout that can change width without the window resizing at all.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setViewport({ w: el.clientWidth, h: el.clientHeight });
-    });
-    ro.observe(el);
-    setViewport({ w: el.clientWidth, h: el.clientHeight });
-    return () => ro.disconnect();
-  }, []);
+  const { ref: sizeRef, width: viewW, height: viewH } = useElementSize();
+  const wrapRefs = useMergedRef(wrapRef, sizeRef);
+  const viewport = { w: viewW, h: viewH };
 
   const fit = useCallback(() => {
     if (!width || !height || !viewport.w) return;
@@ -174,6 +174,7 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
       // A second finger landing always means pinch, cancelling any
       // single-finger pan/draw the first finger had started.
       drag.current = null;
+      pressedRegion.current = null;
       setDrawRect(null);
       const [a, b] = [...pointers.current.values()];
       pinch.current = {
@@ -241,6 +242,16 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
     }
     const d = drag.current;
     drag.current = null;
+    const pressed = pressedRegion.current;
+    pressedRegion.current = null;
+    if (pressed && d?.kind === "pan") {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      const px = e.clientX - (rect?.left ?? 0), py = e.clientY - (rect?.top ?? 0);
+      if (Math.hypot(px - d.sx, py - d.sy) < CLICK_SLOP) {
+        onOpenRegion(pressed);
+        return;
+      }
+    }
     if (d?.kind !== "draw" || !drawRect) { setDrawRect(null); return; }
     // Viewport pixels -> normalised image coordinates. The service normalises
     // corner order and rejects zero-area, so a stray click is refused there
@@ -255,6 +266,16 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
     setDrawing(false);
     if (Math.abs(a.x - b.x) < 0.001 || Math.abs(a.y - b.y) < 0.001) return;
     onDraw({ type: "rect", points: [[a.x, a.y], [b.x, b.y]] });
+  };
+
+  // The browser reclaiming the pointer mid-gesture (alt-tab, a system edge
+  // swipe) must not strand a half-made pan, draw, or pinch.
+  const onPointerCancel = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    drag.current = null;
+    pressedRegion.current = null;
+    setDrawRect(null);
   };
 
   /** Only puzzles that actually have regions on THIS canvas. Offering the
@@ -385,10 +406,11 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
       </Group>
 
       <Box
-        ref={wrapRef}
+        ref={wrapRefs}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         style={{
           position: "relative",
           overflow: "hidden",
@@ -490,10 +512,12 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
                   style={{ cursor: "pointer", pointerEvents: "all" }}
                   onPointerEnter={() => { setHoverPuzzleId(r.puzzle_id ?? null); setHoverRegionId(r.id); }}
                   onPointerLeave={() => { setHoverPuzzleId(null); setHoverRegionId(null); }}
-                  onPointerDown={(e) => {
+                  onPointerDown={() => {
                     if (drawing) return;             // drawing over a region wins
-                    e.stopPropagation();             // don't start a pan
-                    onOpenRegion(r);
+                    // No stopPropagation: the wrapper starts its pan as usual,
+                    // and pointer-up decides between "click, open the region"
+                    // and "that was a pan" by how far the pointer travelled.
+                    pressedRegion.current = r;
                   }}
                 />
               );

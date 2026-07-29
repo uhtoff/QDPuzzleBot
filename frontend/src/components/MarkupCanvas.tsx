@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } from "@mantine/core";
+import { useElementSize, useMergedRef } from "@mantine/hooks";
 import {
   IconArrowUpRight, IconDeviceFloppy, IconEraser, IconHighlight, IconLine,
   IconPencil, IconTextSize, IconArrowBackUp,
@@ -98,17 +99,9 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   /** The image's rendered size in CSS pixels, before the zoom transform.
    *  Text marks are HTML, so their font size has to be a real pixel value; the
    *  transform then scales them with everything else. */
-  const [imgBox, setImgBox] = useState({ w: 0, h: 0 });
-
-  useEffect(() => {
-    const el = imgRef.current;
-    if (!el) return;
-    const measure = () => setImgBox({ w: el.clientWidth, h: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const { ref: imgSizeRef, width: imgW, height: imgH } = useElementSize();
+  const imgBox = { w: imgW, h: imgH };
+  const imgRefs = useMergedRef(imgRef, imgSizeRef);
 
   /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
    *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
@@ -125,6 +118,13 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
 
   // Ctrl+wheel zooms about the cursor; a plain scroll still scrolls the modal.
   useWheelZoom(frameRef, zoomAt);
+
+  // The buttons anchor on the viewport centre, not (0,0): zooming about a
+  // corner walks the image away from whatever is being looked at.
+  const zoomBy = (factor: number) => {
+    const rect = frameRef.current?.getBoundingClientRect();
+    zoomAt(factor, (rect?.width ?? 0) / 2, (rect?.height ?? 0) / 2);
+  };
 
   /** Pointer position as normalised image coordinates. getBoundingClientRect
    *  already reflects any CSS transform, so this stays correct at every zoom. */
@@ -215,6 +215,17 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     void commitStroke(points);
   };
 
+  // The browser reclaiming the pointer (alt-tab, a system gesture, the modal
+  // losing the capture) must not leave a half-drawn stroke live: drop it
+  // uncommitted rather than letting the next pointerdown extend it.
+  const onPointerCancel = () => {
+    panning.current = null;
+    if (drawing.current) {
+      drawing.current = false;
+      setStroke([]);
+    }
+  };
+
   const commitText = async () => {
     const body = draftText.trim();
     const at = textAt;
@@ -273,8 +284,8 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                 onClick={undo}>Undo</Button>
         <Button size="xs" variant={tool === null ? "filled" : "light"}
                 onClick={() => setTool(null)}>Pan</Button>
-        <Button size="xs" variant="default" onClick={() => zoomAt(1.4, 0, 0)}>+</Button>
-        <Button size="xs" variant="default" onClick={() => zoomAt(1 / 1.4, 0, 0)}>−</Button>
+        <Button size="xs" variant="default" onClick={() => zoomBy(1.4)}>+</Button>
+        <Button size="xs" variant="default" onClick={() => zoomBy(1 / 1.4)}>−</Button>
         <Button size="xs" variant="default"
                 onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</Button>
         <Group gap={4}>
@@ -316,11 +327,12 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
       >
        <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                      transformOrigin: "0 0" }}>
-        <img ref={imgRef} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
+        <img ref={imgRefs} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
              style={{ display: "block", maxWidth: "100%", maxHeight: "70vh",
                       width: "auto", height: "auto", userSelect: "none" }} />
 
