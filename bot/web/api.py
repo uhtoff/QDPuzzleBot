@@ -406,12 +406,12 @@ async def upload_media(uid):
 async def ocr_evidence_preview(uid):
     """Extract text from an image about to be logged as evidence.
 
-    Mirrors upload_media's sniffing/size validation, but never writes to disk
-    or creates a `media` row -- this is a preview, called before "Log clue" is
-    ever clicked. The real upload still only happens through upload_media,
-    unchanged.
+    Uses validate_image_bytes -- the same seam upload_media relies on -- but
+    never writes to disk or creates a `media` row: this is a preview, called
+    before "Log clue" is ever clicked. The real upload still only happens
+    through upload_media, unchanged.
     """
-    from bot.core.media_store import max_upload_bytes, sniff_image_type
+    from bot.core.media_store import MediaRejected, max_upload_bytes, validate_image_bytes
     from bot.core.ocr import extract_text
     hunt, guild_or_status = await _load_visible_hunt(uid)
     if hunt is None:
@@ -424,10 +424,10 @@ async def ocr_evidence_preview(uid):
     if upload is None:
         return jsonify({"error": "file required"}), 400
     raw = upload.read(max_upload_bytes() + 1)
-    if len(raw) > max_upload_bytes():
-        return jsonify({"error": f"Image too large (limit {max_upload_bytes()} bytes)."}), 400
-    if sniff_image_type(raw[:16]) is None:
-        return jsonify({"error": "Not a supported image. Allowed: PNG, JPEG, GIF, WebP."}), 400
+    try:
+        validate_image_bytes(raw)
+    except MediaRejected as exc:
+        return jsonify({"error": str(exc)}), 400
     loop = asyncio.get_running_loop()
     try:
         text = await loop.run_in_executor(None, extract_text, raw)

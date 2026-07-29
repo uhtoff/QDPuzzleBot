@@ -69,6 +69,26 @@ class SavedMedia(TypedDict):
     origin: str
 
 
+def validate_image_bytes(raw: bytes) -> str:
+    """Reject oversize or non-allowlisted bytes; return the sniffed content type.
+
+    Its own function because two other call sites (the OCR-preview route, and
+    the discord clue-attachment path before it was unified) re-implemented this
+    check inline, and one of them already drifted — it stopped checking
+    ALLOWED_IMAGE_TYPES and accepted anything sniff_image_type recognised. One
+    seam means there is only one place left to drift.
+    """
+    limit = max_upload_bytes()
+    if len(raw) > limit:
+        raise MediaRejected(f"Image too large (limit {limit} bytes).")
+    content_type = sniff_image_type(raw[:16])
+    if content_type is None or content_type not in ALLOWED_IMAGE_TYPES:
+        raise MediaRejected(
+            "Not a supported image. Allowed: PNG, JPEG, GIF, WebP."
+        )
+    return content_type
+
+
 def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
                      origin: str = "upload") -> SavedMedia:
     """Validate `raw` and write it under the media root.
@@ -82,14 +102,7 @@ def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
     would keep faithfully passing; the magic bytes are the only input that
     decides anything here.
     """
-    limit = max_upload_bytes()
-    if len(raw) > limit:
-        raise MediaRejected(f"Image too large (limit {limit} bytes).")
-    content_type = sniff_image_type(raw[:16])
-    if content_type is None or content_type not in ALLOWED_IMAGE_TYPES:
-        raise MediaRejected(
-            "Not a supported image. Allowed: PNG, JPEG, GIF, WebP."
-        )
+    content_type = validate_image_bytes(raw)
     root = media_root()
     if str(root) in ("", "."):
         # An unset web.archive_media_dir makes media_root() the process cwd
