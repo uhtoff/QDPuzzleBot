@@ -1,7 +1,7 @@
 # Media sweeper — design
 
 Date: 2026-07-29
-Status: designed, not started
+Status: implemented on `staging` 2026-07-30 (0bd4f34, 2671731, 6fe1598)
 
 ## Goal
 
