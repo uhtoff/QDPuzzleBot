@@ -250,7 +250,10 @@ Click any of them to open it full-screen and **mark it up** (see [Marking up an
 image](#marking-up-an-image)). Drag the thumbnails to reorder them — useful when a
 puzzle is spread across several bits of a sheet and you want them in reading order.
 Removing an image that came from a canvas only takes it off the puzzle; the region stays
-on the sheet, and the image comes back if that region is still linked.
+on the sheet, and the image comes back if that region is still linked. A picture nothing
+points at any more isn't deleted straight away — it is reclaimed later by the maintenance
+sweep (organisers: `!media_sweep`, or the hunt's Maintenance panel), so there is a day's
+grace to put it back.
 
 ### Reading a puzzle's chat
 
@@ -286,7 +289,9 @@ clue can be an image with no text at all.
 - **Click a clue's thumbnail** to open it full-screen and mark it up (see below).
 - **Replace** swaps the picture while keeping the note, the target and the row's place in
   the table — for when someone produces a clearer scan of the same thing. You can also
-  click the image cell and paste. The old picture is kept, not deleted.
+  click the image cell and paste. The old picture is kept, not deleted — it stays on the
+  server until an organiser runs the maintenance sweep (`!media_sweep`, or the hunt's
+  Maintenance panel), which reclaims pictures nothing points at any more.
 
 The **Source** column says where a clue came from: a puzzle, a sheet, or a **canvas**
 region, so a clue carved off a hunt sheet still says which part of which sheet it was.

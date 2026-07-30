@@ -23,7 +23,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive
+from bot.core import category_layout, hunt_archive, media_gc
 
 logger = logging.getLogger(__name__)
 
@@ -953,6 +953,72 @@ class Puzzles(commands.Cog):
         renamed = await self.service.backfill_glyphs(ctx.guild, hunt)
         await ctx.send(
             f":white_check_mark: Glyph backfill complete — {renamed} channel(s) renamed.")
+
+    @staticmethod
+    def _format_media_report(count, total_bytes):
+        """The one-line orphan summary both media commands report.
+
+        Static and string-in/string-out so the wording is testable without a
+        Discord context, like _format_reconcile_report."""
+        if not count:
+            return ":sparkles: No orphaned images — nothing to sweep."
+        plural = "s" if count != 1 else ""
+        return (f":wastebasket: {count} orphaned image{plural}, "
+                f"at least {media_gc.format_size(total_bytes)}.")
+
+    @commands.hybrid_command(
+        description="Report images nothing references any more (organiser only)")
+    @is_organiser()
+    async def media_stats(self, ctx):
+        """*Count this hunt's orphaned images and the disk they hold.*
+
+        Usage: `!media_stats`
+        Example: `!media_stats`
+        Report only — nothing is deleted; `!media_sweep` does that. Images newer
+        than 24 hours are never counted. Run in a hunt channel. Organisers/admins only."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            return await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+        orphans = media_gc.orphaned_media(hunt.id)
+        await ctx.send(self._format_media_report(
+            len(orphans), sum(m.size or 0 for m in orphans)))
+
+    @commands.hybrid_command(
+        description="Delete images nothing references any more (organiser only)")
+    @is_organiser()
+    async def media_sweep(self, ctx):
+        """*Reclaim disk by deleting this hunt's orphaned images.*
+
+        Usage: `!media_sweep`
+        Example: `!media_sweep`
+        Deletes only images nothing points at (no evidence item, canvas, puzzle
+        image or region crop) and older than 24 hours — including pictures you
+        detached from a puzzle or replaced on a clue. Confirms first. Run in a
+        hunt channel. Organisers/admins only."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            return await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+        orphans = media_gc.orphaned_media(hunt.id)
+        await ctx.send(self._format_media_report(
+            len(orphans), sum(m.size or 0 for m in orphans)))
+        if not orphans:
+            return
+        confirmed = await self._confirm_destructive(
+            ctx,
+            f"Permanently delete {len(orphans)} image(s) and their files? "
+            f"Nothing currently shown on a puzzle, canvas or evidence item is affected.",
+            sheets_deleted=False,
+            confirm_label="Confirm sweep",
+            title="⚠️ Confirm image sweep",
+            timeout_msg=":hourglass: Confirmation timed out — nothing was deleted.")
+        if not confirmed:
+            return await ctx.send(":x: Sweep cancelled.")
+        # Re-derived inside sweep(), so anything attached since the report above
+        # simply survives to the next run rather than being deleted from under it.
+        stats = media_gc.sweep(hunt.id)
+        await ctx.send(
+            f":white_check_mark: Swept {stats.count} image(s), freeing at least "
+            f"{media_gc.format_size(stats.bytes_freed)}.")
 
     async def update_metapuzzle(self, ctx, tag_group):
         """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
@@ -3740,20 +3806,23 @@ class Puzzles(commands.Cog):
         self.set_tag_group(ctx, None)
 
     async def _confirm_destructive(self, ctx, description, *, sheets_deleted=True,
-                                   confirm_label="Confirm delete"):
+                                   confirm_label="Confirm delete", title=None,
+                                   timeout_msg=None):
         """Send a Confirm/Cancel prompt and return True only if the invoker
         confirms. Returns False on cancel or timeout. ``sheets_deleted=False``
         switches the copy for archiving (which keeps the sheets). ``confirm_label``
-        overrides the confirm button text for non-delete reuses (e.g. consolidate)."""
+        overrides the confirm button text for non-delete reuses (e.g. consolidate).
+        ``title``/``timeout_msg`` override the copy outright, for a destructive
+        action that touches neither sheets nor an archive (e.g. the media sweep)."""
         view = ConfirmView(ctx.author.id, confirm_label=confirm_label)
         if sheets_deleted:
-            title = "⚠️ Confirm deletion"
+            title = title or "⚠️ Confirm deletion"
             body = description + "\n\n**Google sheets will be permanently deleted (not recoverable).**"
-            timeout_msg = ":hourglass: Confirmation timed out — nothing was deleted."
+            timeout_msg = timeout_msg or ":hourglass: Confirmation timed out — nothing was deleted."
         else:
-            title = "⚠️ Confirm archive"
+            title = title or "⚠️ Confirm archive"
             body = description
-            timeout_msg = ":hourglass: Confirmation timed out — nothing was archived."
+            timeout_msg = timeout_msg or ":hourglass: Confirmation timed out — nothing was archived."
         embed = discord.Embed(title=title, description=body, color=discord.Color.red())
         view.message = await ctx.send(embed=embed, view=view)
         await view.wait()

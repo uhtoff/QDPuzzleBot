@@ -198,6 +198,8 @@ until it finishes.
 | `!rebuild_unassigned` *(slash)* | | `[show_round]` | hunt channel | organisers/admins | Reconcile the "Unassigned Feeders" sheet tab. |
 | `!backfill_glyphs` | | — | any hunt channel | organisers/admins | Prefix every target channel with its emoji glyph (🧩 meta, 🧩🧩 metameta, 👑 capstone, 🏃 runaround). Idempotent one-off; newly created or converted targets get their glyph automatically. |
 | `!reconcile` *(slash)* | | `[apply [orphans]]` | hunt channel | organisers/admins | Heal Discord + Sheets to match the DB; `apply` fixes, `apply orphans` deletes orphans (confirms). |
+| `!media_stats` *(slash)* | | — | hunt channel | organisers/admins | Report images nothing references any more (detached, replaced, or left by a deleted canvas) and the disk they hold. Nothing is deleted. |
+| `!media_sweep` *(slash)* | | — | hunt channel | organisers/admins | Delete those orphaned images and their files (confirms first). Only images older than 24 hours and referenced by nothing are touched. |
 | `!start_reminders` *(slash)* | | — | hunt channel | organisers/admins | Start the periodic reminder/tips loop. |
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
 | `!list_tags` *(slash)* | | — | puzzle channel | organisers/admins | List a puzzle's tag IDs and all available group tags. |
