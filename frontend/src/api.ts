@@ -592,6 +592,28 @@ export function useReconcile(uid: string) {
   });
 }
 
+export interface MediaGcResult {
+  /** Orphaned images: referenced by nothing, older than the 24h grace period. */
+  count: number;
+  /** Originals only — tile pyramids aren't counted, so this is a floor. */
+  bytes: number;
+}
+
+export function useMediaStats(uid: string) {
+  return useMutation({
+    mutationFn: () => apiGet<MediaGcResult>(`/api/hunts/${uid}/media/stats`),
+  });
+}
+
+export function useMediaSweep(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<MediaGcResult & { ok: boolean }>(
+      `/api/hunts/${uid}/media/sweep`, "POST"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useRebuildRollup(uid: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -24,6 +24,7 @@ import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { CanvasPanel } from "../components/CanvasPanel";
 import { ReconcilePanel } from "../components/ReconcilePanel";
+import { MediaSweepPanel } from "../components/MediaSweepPanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
 import { GateHuntPanel } from "../components/GateHuntPanel";
@@ -210,6 +211,8 @@ export default function HuntBoard() {
           )}
           {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}
           {data.hunt.can_manage && <ReconcilePanel uid={uid!} />}
+          {/* Same organiser gate: the media sweep is a bulk delete. */}
+          {data.hunt.can_manage && <MediaSweepPanel uid={uid!} />}
         </Stack>
       )}
 

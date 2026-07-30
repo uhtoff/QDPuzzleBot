@@ -1783,6 +1783,56 @@ async def reconcile(uid):
     })
 
 
+# --- Media sweeper (organiser only) ------------------------------------------
+#
+# The bang-command pair is !media_stats / !media_sweep; both edges call the same
+# bot/core/media_gc functions, so the numbers cannot drift apart.
+
+async def _media_gc_ctx(uid):
+    """(hunt_id, err) for a hunt whose media the current user may sweep."""
+    ctx, err = await _visible_hunt_by_uid(uid)
+    if err:
+        return None, err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return None, (jsonify({"error": "hunt_archived"}), 403)
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return None, perm
+    return ctx["hunt"]["id"], None
+
+
+@actions_bp.route("/hunts/<uid>/media/stats", methods=["GET"])
+@login_required
+async def media_stats(uid):
+    """Count this hunt's orphaned media. Report only — mutates nothing."""
+    from bot.core import media_gc
+    hunt_id, err = await _media_gc_ctx(uid)
+    if err:
+        return err
+    orphans = media_gc.orphaned_media(hunt_id)
+    return jsonify({
+        "count": len(orphans),
+        # A floor, not a total: media.size covers the original image only, never
+        # its tile pyramid. The panel says "at least" for the same reason.
+        "bytes": sum(m.size or 0 for m in orphans),
+    })
+
+
+@actions_bp.route("/hunts/<uid>/media/sweep", methods=["POST"])
+@login_required
+async def media_sweep(uid):
+    """Delete this hunt's orphaned media, their files and their tiles."""
+    from bot.core import media_gc
+    hunt_id, err = await _media_gc_ctx(uid)
+    if err:
+        return err
+    stats = media_gc.sweep(hunt_id)
+    await _audit("sweep_media", hunt_uid=uid,
+                 detail=f"count={stats.count} bytes={stats.bytes_freed}")
+    return jsonify({"ok": True, "count": stats.count, "bytes": stats.bytes_freed})
+
+
 # --- Rebuild a meta roll-up sheet (organiser only) --------------------------
 
 @actions_bp.route("/rollups/<int:tag_group_id>/rebuild", methods=["POST"])
