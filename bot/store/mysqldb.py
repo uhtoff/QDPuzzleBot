@@ -886,6 +886,38 @@ class MySQLMediaDb(_MySQLBaseDb):
         row = self._fetch_one("SELECT * FROM media WHERE id = %s", (media_id,))
         return MediaData.import_dict(row) if row else None
 
+    def get_orphaned(self, hunt_id: int, older_than) -> list:
+        """The hunt's media rows nothing points at, created before `older_than`.
+
+        The four LEFT JOINs are every foreign key into `media` there is
+        (evidence items, canvases, puzzle images, region crops); a row is
+        orphaned exactly when all four miss. `older_than` is a naive UTC
+        datetime, matching how created_at is stored — media_ingest creates the
+        row before its caller attaches it to anything, so a sweep with no age
+        floor would delete images mid-upload.
+        """
+        rows = self._fetch_all(
+            "SELECT m.* FROM media m"
+            " LEFT JOIN evidence_items ei ON ei.media_id = m.id"
+            " LEFT JOIN hunt_canvases hc ON hc.media_id = m.id"
+            " LEFT JOIN puzzle_images pi ON pi.media_id = m.id"
+            " LEFT JOIN canvas_regions cr ON cr.crop_media_id = m.id"
+            " WHERE m.hunt_id = %s AND m.created_at < %s"
+            " AND ei.id IS NULL AND hc.id IS NULL"
+            " AND pi.id IS NULL AND cr.id IS NULL"
+            " ORDER BY m.id",
+            (hunt_id, older_than),
+        )
+        return [MediaData.import_dict(r) for r in rows]
+
+    def delete(self, media_id: int, /) -> None:
+        """Delete one media row by id. No-op if the id does not exist.
+
+        Overrides the base delete to commit, like every other DAO's own delete.
+        """
+        self._exec("DELETE FROM media WHERE id = %s", (media_id,))
+        self.mydb.commit()
+
 
 class MySQLHuntCanvasDb(_MySQLBaseDb):
     TABLE_NAME = 'hunt_canvases'
