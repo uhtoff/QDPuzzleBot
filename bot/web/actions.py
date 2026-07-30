@@ -1810,6 +1810,7 @@ async def media_stats(uid):
     hunt_id, err = await _media_gc_ctx(uid)
     if err:
         return err
+    assert hunt_id is not None
     orphans = media_gc.orphaned_media(hunt_id)
     return jsonify({
         "count": len(orphans),
@@ -1827,6 +1828,7 @@ async def media_sweep(uid):
     hunt_id, err = await _media_gc_ctx(uid)
     if err:
         return err
+    assert hunt_id is not None
     stats = media_gc.sweep(hunt_id)
     await _audit("sweep_media", hunt_uid=uid,
                  detail=f"count={stats.count} bytes={stats.bytes_freed}")
