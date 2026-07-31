@@ -16,6 +16,7 @@ from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, 
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group, MediaJsonDb, CanvasJsonDb
 from bot.utils.chunking import build_note_embeds
+from bot.utils.components import build_sectioned_views, send_views
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -2586,41 +2587,30 @@ class Puzzles(commands.Cog):
         else:
             await ctx.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
 
-        embed = discord.Embed(title=embed_title, colour=discord.Colour.blurple())
-
+        # Components V2: one section per round, rendered full width. The embed
+        # version chopped each round at 15 puzzles into "part N" fields purely
+        # to stay under the 1024-character embed field limit - a TextDisplay
+        # has no per-field limit, so a round stays a single list.
+        sections = []
         for round_id in all_puzzles:
-            round_name = all_puzzles[round_id]['name']
-            puzzle_count = 1
-            round_part = 1
-            message = ""
-            # Create a message with a new embed field per round,
-            # listing all puzzles in the embed field
+            lines = []
             for puzzle in all_puzzles[round_id]['puzzles']:
-                if puzzle_count > 15:
-                    # Too many puzzles, split the embed
-                    round_name_part = f"{round_name} - part {round_part}"
-                    embed.add_field(name=round_name_part, value=message, inline=False)
-                    message = ""
-                    round_part += 1
-                    puzzle_count = 1
-                message += f"{puzzle.name} - {puzzle.channel_mention}"
+                line = f"{puzzle.name} - {puzzle.channel_mention}"
                 if puzzle.puzzle_type:
-                    message += f" type:{puzzle.puzzle_type}"
+                    line += f" type:{puzzle.puzzle_type}"
                 if puzzle.solution:
-                    message += f" sol:**{puzzle.solution}**"
+                    line += f" sol:**{puzzle.solution}**"
                 elif puzzle.status:
-                    message += f" status:{puzzle.status}"
-                message += "\n"
-                puzzle_count += 1
+                    line += f" status:{puzzle.status}"
+                lines.append(line)
+            if lines:
+                sections.append((all_puzzles[round_id]['name'], "\n".join(lines)))
 
-            # add last round
-            if message:
-                if round_part > 1:
-                    round_name = f"{round_name} - part {round_part}"
-                embed.add_field(name=round_name, value=message, inline=False)
-
-        if embed.fields:
-            await ctx.send(embed=embed)
+        await send_views(ctx, build_sectioned_views(
+            title=embed_title,
+            sections=sections,
+            accent_colour=discord.Colour.blurple(),
+        ))
 
     async def get_or_create_channel(
         self, guild, category: discord.CategoryChannel, channel_name: str, channel_type, **kwargs
