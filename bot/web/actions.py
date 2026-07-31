@@ -58,7 +58,7 @@ async def _audit(action, *, puzzle_id=None, hunt_uid=None, detail=None):
     try:
         u = current_user() or {}
         await web_data.execute(
-            "INSERT INTO web_audit_log (user_id, username, action, puzzle_id, hunt_uid, detail) "
+            "INSERT INTO audit_log (user_id, username, action, puzzle_id, hunt_uid, detail) "
             "VALUES (%s,%s,%s,%s,%s,%s)",
             (u.get("id"), u.get("username"), action, puzzle_id, hunt_uid, detail),
         )

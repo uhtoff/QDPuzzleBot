@@ -14,7 +14,7 @@ async def test_audit_writes_row_with_user_and_action():
     ex.assert_awaited_once()
     sql = ex.await_args.args[0]
     params = ex.await_args.args[1]
-    assert "web_audit_log" in sql
+    assert "INSERT INTO audit_log " in sql
     assert 4242 in params and "solve" in params and 7 in params and "HUNTX" in params
 
 

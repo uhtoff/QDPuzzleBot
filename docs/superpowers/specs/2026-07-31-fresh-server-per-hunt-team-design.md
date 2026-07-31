@@ -229,10 +229,11 @@ Because access is *self*-assigned, the target of each role change is also its in
 so the record is unambiguous. Had an organiser granted roles instead, Discord's native log
 would show only the bot as executor and lose who asked.
 
-*Open naming question:* `web_audit_log` is a general "which human did what" log whose name
-is web-specific. Broadening and renaming it to `audit_log` would be cleaner than a second
-table, but touches a migration, the write path, and dashboard readers. Not done here — a
-separate `hunt_access_log` is assumed unless consolidation is approved.
+*Naming — decided and done:* `web_audit_log` was a general "which human did what" record
+whose `web_` prefix stopped describing its contents once Discord-side role grants join the
+dashboard mutations. Renamed to **`audit_log`** by `migrations/036_rename_audit_log.sql`,
+with the write path at `bot/web/actions.py:60` updated. Migration 006 is left untouched, as
+applied history. `hunt_access_log` therefore lands alongside a correctly-named sibling.
 
 ## Ownership and admin
 
