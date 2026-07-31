@@ -2577,6 +2577,7 @@ class Puzzles(commands.Cog):
         all_puzzles = {}
         embed_title = ""
         tag_group = self.get_tag_group(ctx)
+        hunt = self.get_hunt(ctx)
         if self.get_channel_type(ctx) in (*GROUP_TYPES, "Puzzle") and tag_group is not None:
             round_puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
             all_puzzles[tag_group.id] = {
@@ -2584,8 +2585,20 @@ class Puzzles(commands.Cog):
                         'puzzles': round_puzzles
                     }
             embed_title = f"Puzzles in Round {tag_group.name}"
+        elif hunt is not None:
+            # Outside a round but still inside a hunt (e.g. the hunt's own
+            # channel): list every round. This used to point at the website
+            # because an embed could not hold a whole hunt; Components V2
+            # spills across messages instead, so the listing is viable here.
+            for group in TagGroupJsonDb.get_all(hunt.id):
+                all_puzzles[group.id] = {
+                    'name': group.name,
+                    'puzzles': PuzzleJsonDb.get_all_from_tag_group(group.id),
+                }
+            embed_title = f"Puzzles in {hunt.name}"
         else:
-            await ctx.send(":x: Please got to https://quarantinedecrypters.com for an overview of all puzzles")
+            # No hunt context at all - there is genuinely nothing to list.
+            await ctx.send(":x: Please go to https://quarantinedecrypters.com for an overview of all puzzles")
 
         # Components V2: one section per round, rendered full width. The embed
         # version chopped each round at 15 puzzles into "part N" fields purely
