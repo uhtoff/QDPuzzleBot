@@ -99,6 +99,32 @@ def test_oversized_section_is_marked_not_silently_cut():
     assert sum(len(t) for t in _text_of(views[0])) <= TEXT_TOTAL_LIMIT
 
 
+def test_unboxed_puts_text_at_the_top_level_boxed_wraps_it():
+    """The width choice. Unboxed TextDisplays sit directly in the view and
+    render as ordinary message text; boxed nests them in a Container, which
+    draws an embed-like bordered card."""
+    sections = [("Alpha", "puz01\npuz02")]
+
+    unboxed = build_sectioned_views(title="T", sections=sections)[0]
+    assert not any(isinstance(c, discord.ui.Container) for c in unboxed.children)
+    assert any(isinstance(c, discord.ui.TextDisplay) for c in unboxed.children)
+
+    boxed = build_sectioned_views(title="T", sections=sections, boxed=True)[0]
+    assert any(isinstance(c, discord.ui.Container) for c in boxed.children)
+    assert not any(isinstance(c, discord.ui.TextDisplay) for c in boxed.children), \
+        "boxed should nest text inside the Container, not alongside it"
+
+    # Same content either way - only the wrapping differs.
+    assert _text_of(unboxed) == _text_of(boxed)
+
+
+def test_both_modes_respect_the_component_ceiling():
+    sections = [(f"R{i}", "z") for i in range(60)]
+    for boxed in (False, True):
+        for view in build_sectioned_views(title="T", sections=sections, boxed=boxed):
+            assert _component_count(view) <= MAX_COMPONENTS, f"boxed={boxed}"
+
+
 def test_empty_sections_render_the_note_instead_of_an_empty_message():
     assert build_sectioned_views(title="T", sections=[]) == []
     views = build_sectioned_views(title="T", sections=[], empty_note="No puzzles yet")

@@ -2622,6 +2622,10 @@ class Puzzles(commands.Cog):
         await send_views(ctx, build_sectioned_views(
             title=embed_title,
             sections=sections,
+            # Unboxed renders as plain message text and takes the full width.
+            # Flip to True for the bordered card with the blurple accent bar -
+            # which may be no wider than the embed it replaced.
+            boxed=False,
             accent_colour=discord.Colour.blurple(),
         ))
 

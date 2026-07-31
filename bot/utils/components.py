@@ -46,12 +46,25 @@ def build_sectioned_views(
     sections: Sequence[Section],
     accent_colour: Optional[discord.Colour] = None,
     empty_note: Optional[str] = None,
+    boxed: bool = False,
 ) -> List[discord.ui.LayoutView]:
-    """Render ``sections`` as one or more full-width Components V2 views.
+    """Render ``sections`` as one or more Components V2 views.
 
     Each section becomes a single TextDisplay of ``### heading`` + body, so a
     long list flows naturally instead of being chopped into 1024-character
     fields with invented "part N" labels.
+
+    ``boxed`` picks the width trade-off:
+
+    * ``False`` (default) puts TextDisplays at the top level of the view, so
+      they render as ordinary message text and use the full message width.
+      There is no accent bar, because that is a Container property.
+    * ``True`` wraps everything in a Container, which draws a bordered card
+      with ``accent_colour``. Discord documents a Container as showing "a
+      border similar to an embed", so it is NOT safe to assume it escapes the
+      narrow embed-style width - it may well match it.
+
+    Width is a rendering question the API cannot answer; run both and look.
     """
     if not sections:
         if empty_note is None:
@@ -69,15 +82,27 @@ def build_sectioned_views(
         nonlocal batch, used
         if not batch:
             return
-        container = discord.ui.Container(accent_colour=accent_colour)
+        view = discord.ui.LayoutView(timeout=None)
+        items: List[discord.ui.Item] = []
         if title_md:
-            container.add_item(discord.ui.TextDisplay(title_md.rstrip("\n")))
+            items.append(discord.ui.TextDisplay(title_md.rstrip("\n")))
         for i, block in enumerate(batch):
             if i or title_md:
-                container.add_item(discord.ui.Separator())
-            container.add_item(discord.ui.TextDisplay(block))
-        view = discord.ui.LayoutView(timeout=None)
-        view.add_item(container)
+                items.append(discord.ui.Separator())
+            items.append(discord.ui.TextDisplay(block))
+
+        if boxed:
+            # Bordered card with an accent bar - Discord describes a Container
+            # as "a border similar to an embed", so expect embed-ish width.
+            container = discord.ui.Container(accent_colour=accent_colour)
+            for item in items:
+                container.add_item(item)
+            view.add_item(container)
+        else:
+            # Top level: renders as ordinary message text, full message width.
+            for item in items:
+                view.add_item(item)
+
         views.append(view)
         batch, used = [], len(title_md)
 
