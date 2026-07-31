@@ -19,6 +19,7 @@ from bot.utils.chunking import build_note_embeds
 from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
+from bot.utils.text import flush_left
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -2713,18 +2714,18 @@ class Puzzles(commands.Cog):
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, kwargs.get('guild_data'))})"""
         embed.add_field(
             name="Hunt Information",
-            value=puzzle_links,
+            value=flush_left(puzzle_links),
             inline=False,
         )
         embed.add_field(
                     name="Useful commands",
-                    value="""The following are some useful commands:
+                    value=flush_left("""The following are some useful commands:
         • `!r <round name>` : Create a new round with a metapuzzle channel
         • `!mp <metapuzzle name>` : Create a new metapuzzle
         • `!group <group name>` : Create a group without a metapuzzle channel
         • `!info` : Repeat this message
         • `!set_login username:password` : Set the login details for the hunt if shared
-        """,
+        """),
                     inline=False,
                 )
         if kwargs.get("update", False):
@@ -2742,7 +2743,7 @@ class Puzzles(commands.Cog):
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""
         embed.add_field(
             name="Puzzle Links",
-            value=puzzle_links,
+            value=flush_left(puzzle_links),
             inline=False,
         )
 
@@ -2874,14 +2875,14 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
                         name="General Commands",
-                        value=f"""The following may be useful discord commands:
+                        value=flush_left(f"""The following may be useful discord commands:
         • `!p <puzzle-name>` will add a puzzle to this {kind}.
         • `!list` : List all puzzles in this {kind}.
         • `!info` will re-post this message.
 {tagging_hints}        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this {kind}.
         • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the {kind}.
         • `!rename_meta <puzzle-name>` (admin only) will rename the {rename_target}.
-        """,
+        """),
                         inline=False,
                     )
 
@@ -2910,7 +2911,7 @@ class Puzzles(commands.Cog):
         )
         embed.add_field(
                         name="General Commands",
-                        value=f"""The following may be useful discord commands:
+                        value=flush_left(f"""The following may be useful discord commands:
         • `!p <puzzle-name>` will add a puzzle to this round.
         • `!list` : List all puzzles in this round.
         • `!info` will re-post this message.
@@ -2919,7 +2920,7 @@ class Puzzles(commands.Cog):
         • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this round — it contributes to the round without being a standard feeder.
         • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this round.
         • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the round.
-        """,
+        """),
                         inline=False,
                     )
         embed.add_field(name="Overview Website", value=self._overview_url(ctx, hunt, kwargs.get('guild_data')),
