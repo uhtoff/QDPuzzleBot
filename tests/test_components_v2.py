@@ -125,6 +125,32 @@ def test_both_modes_respect_the_component_ceiling():
             assert _component_count(view) <= MAX_COMPONENTS, f"boxed={boxed}"
 
 
+def test_plain_messages_respect_the_2000_char_content_limit():
+    """Plain content is the only rendering that uses the full window width,
+    but it has the tightest per-message budget of the three."""
+    from bot.utils.components import CONTENT_LIMIT, build_plain_messages
+
+    sections = [(f"Round {i}", "\n".join(f"puz{i}-{j}" for j in range(60)))
+                for i in range(6)]
+    msgs = build_plain_messages(title="T", sections=sections)
+    assert len(msgs) > 1, "should spill across messages"
+    for m in msgs:
+        assert len(m) <= CONTENT_LIMIT
+
+
+def test_plain_messages_drop_nothing_and_keep_order():
+    from bot.utils.components import build_plain_messages
+
+    sections = [(f"Round {i}", "\n".join(f"puz{i}-{j}" for j in range(40)))
+                for i in range(5)]
+    joined = "\n".join(build_plain_messages(title="T", sections=sections))
+    for i in range(5):
+        for j in range(40):
+            assert f"puz{i}-{j}" in joined, f"lost puz{i}-{j}"
+    headings = [ln for ln in joined.splitlines() if ln.startswith("### ")]
+    assert headings == [f"### Round {i}" for i in range(5)]
+
+
 def test_empty_sections_render_the_note_instead_of_an_empty_message():
     assert build_sectioned_views(title="T", sections=[]) == []
     views = build_sectioned_views(title="T", sections=[], empty_note="No puzzles yet")

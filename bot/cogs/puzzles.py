@@ -16,7 +16,9 @@ from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, 
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group, MediaJsonDb, CanvasJsonDb
 from bot.utils.chunking import build_note_embeds
-from bot.utils.components import build_sectioned_views, send_views
+from bot.utils.components import (
+    build_plain_messages, build_sectioned_views, send_plain, send_views,
+)
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -2619,15 +2621,26 @@ class Puzzles(commands.Cog):
             if lines:
                 sections.append((all_puzzles[round_id]['name'], "\n".join(lines)))
 
-        await send_views(ctx, build_sectioned_views(
-            title=embed_title,
-            sections=sections,
-            # Unboxed renders as plain message text and takes the full width.
-            # Flip to True for the bordered card with the blurple accent bar -
-            # which may be no wider than the embed it replaced.
-            boxed=False,
-            accent_colour=discord.Colour.blurple(),
-        ))
+        # Three renderings, one switch, so they can be compared in Discord:
+        #   "plain"   message content - the only one that uses the FULL window
+        #             width, but capped at 2000 chars so more messages
+        #   "text"    Components V2, no Container
+        #   "card"    Components V2 in a Container (accent bar)
+        # Measured on a ~2000px window, "text" and "card" are both stuck in the
+        # same narrow column as the embed this replaced - components do not
+        # escape it. Only "plain" is actually wide.
+        style = "plain"
+        if style == "plain":
+            await send_plain(ctx, build_plain_messages(
+                title=embed_title, sections=sections,
+            ))
+        else:
+            await send_views(ctx, build_sectioned_views(
+                title=embed_title,
+                sections=sections,
+                boxed=(style == "card"),
+                accent_colour=discord.Colour.blurple(),
+            ))
 
     async def get_or_create_channel(
         self, guild, category: discord.CategoryChannel, channel_name: str, channel_type, **kwargs

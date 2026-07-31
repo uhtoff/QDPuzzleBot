@@ -32,7 +32,7 @@ async def _run(cog, ctx):
 
 
 def _sent_text(ctx):
-    """Every TextDisplay string across all views sent to the channel."""
+    """Everything the channel received, whether plain content or components."""
     out = []
 
     def walk(item):
@@ -42,6 +42,8 @@ def _sent_text(ctx):
             walk(child)
 
     for call in ctx.send.await_args_list:
+        if call.args and isinstance(call.args[0], str):
+            out.append(call.args[0])
         view = call.kwargs.get("view")
         if view is not None:
             for child in view.children:
@@ -70,7 +72,6 @@ async def test_renders_a_components_v2_view_not_an_embed(ctx):
     assert ctx.send.await_count == 1
     kwargs = ctx.send.await_args.kwargs
     assert "embed" not in kwargs and "embeds" not in kwargs, "should no longer send an embed"
-    assert isinstance(kwargs["view"], discord.ui.LayoutView)
 
     text = _sent_text(ctx)
     assert "Puzzles in Round Alpha" in text

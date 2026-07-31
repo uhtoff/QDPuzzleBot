@@ -124,6 +124,76 @@ def build_sectioned_views(
     return views
 
 
+# Discord's per-message content limit (non-nitro bots).
+CONTENT_LIMIT = 2000
+
+
+def build_plain_messages(
+    *,
+    title: Optional[str],
+    sections: Sequence[Section],
+    empty_note: Optional[str] = None,
+) -> List[str]:
+    """Render ``sections`` as plain message content rather than components.
+
+    Measured on a ~2000px window, both embeds and Components V2 - boxed or
+    unboxed - stop at roughly the same narrow column. Components do not escape
+    it. Ordinary message content does: it wraps at the full width of the
+    message area, like any user's message.
+
+    The cost is volume. A message body is capped at 2000 characters against
+    CV2's 4000 and an embed's 6000, so wide output means more messages. Same
+    spill-don't-truncate contract as ``build_sectioned_views``.
+    """
+    if not sections:
+        return [empty_note] if empty_note else []
+
+    head = f"## {title}" if title else ""
+    out: List[str] = []
+    buf = head
+
+    for heading, body in sections:
+        block = f"### {heading}\n{body}" if heading else body
+        for piece in _split_block(block, CONTENT_LIMIT):
+            joiner = "\n" if buf else ""
+            if buf and len(buf) + len(joiner) + len(piece) > CONTENT_LIMIT:
+                out.append(buf)
+                buf = piece
+            else:
+                buf = f"{buf}{joiner}{piece}"
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _split_block(block: str, limit: int) -> List[str]:
+    """Split one section on line boundaries so a huge round still fits.
+
+    Splitting on lines keeps each puzzle intact; only a single line longer than
+    a whole message gets hard-clipped, which cannot happen with real data.
+    """
+    if len(block) <= limit:
+        return [block]
+    pieces, cur = [], ""
+    for line in block.splitlines():
+        line = line[:limit]
+        joiner = "\n" if cur else ""
+        if cur and len(cur) + len(joiner) + len(line) > limit:
+            pieces.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}{joiner}{line}"
+    if cur:
+        pieces.append(cur)
+    return pieces
+
+
+async def send_plain(ctx, messages: Sequence[str]) -> None:
+    """Send each rendered body as its own plain message."""
+    for body in messages:
+        await ctx.send(body)
+
+
 async def send_views(ctx, views: Sequence[discord.ui.LayoutView]) -> None:
     """Send each view as its own message.
 
