@@ -408,6 +408,21 @@ export function useCreateMini(uid: string) {
   });
 }
 
+export function useDeleteMini(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    // Nested under the parent: the server checks the mini really is its child.
+    mutationFn: ({ parentId, miniId }: { parentId: number; miniId: number }) =>
+      apiSend<{ ok: boolean; sheet_warning?: string }>(
+        `/api/puzzles/${parentId}/minis/${miniId}`,
+        "DELETE"
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hunt", uid] });
+    },
+  });
+}
+
 export function useCreatePuzzle(uid: string) {
   const qc = useQueryClient();
   return useMutation({

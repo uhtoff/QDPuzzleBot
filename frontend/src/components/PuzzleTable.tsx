@@ -412,6 +412,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                       parentId={p.id}
                       minis={p.mini_puzzles}
                       uid={detail.hunt.uid}
+                      canManage={detail.hunt.can_manage}
                     />
                   </Table.Td>
                 </Table.Tr>

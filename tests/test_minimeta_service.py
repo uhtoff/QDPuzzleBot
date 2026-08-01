@@ -677,3 +677,84 @@ class TestRemoveMinimeta:
 
         assert svc.delete_puzzle.await_count == 2
         assert minimeta.puzzle_type is None
+
+
+class TestDeleteMini:
+    """delete_mini is a separate seam from delete_puzzle: it must also re-render
+    the parent minimeta's puzzle-keyed rollup, which refresh_targets never covers."""
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_deletes_and_refreshes_parent_rollup(self, PuzzleDb):
+        from bot.core.puzzle_service import PuzzleService
+
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, parent_puzzle_id=1, tags=[])
+        PuzzleDb.get_by_attr.return_value = minimeta
+        svc = PuzzleService(MagicMock())
+        svc.delete_puzzle = AsyncMock()
+        svc.refresh_minimeta = AsyncMock()
+        hunt = make_hunt(id=10)
+        guild = MagicMock()
+
+        returned = await svc.delete_mini(guild, hunt, mini)
+
+        svc.delete_puzzle.assert_awaited_once_with(guild, hunt, mini)
+        svc.refresh_minimeta.assert_awaited_once_with(hunt, minimeta)
+        assert returned is minimeta
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_rollup_refresh_follows_the_deletion(self, PuzzleDb):
+        """Order matters: refreshing before the row is gone re-renders the doomed
+        mini straight back onto the parent's sheet."""
+        from bot.core.puzzle_service import PuzzleService
+
+        PuzzleDb.get_by_attr.return_value = make_puzzle(id=1)
+        calls = []
+        svc = PuzzleService(MagicMock())
+        svc.delete_puzzle = AsyncMock(side_effect=lambda *a: calls.append("delete"))
+        svc.refresh_minimeta = AsyncMock(side_effect=lambda *a: calls.append("refresh"))
+
+        await svc.delete_mini(None, make_hunt(), make_puzzle(id=2, parent_puzzle_id=1))
+
+        assert calls == ["delete", "refresh"]
+
+    async def test_rejects_a_non_mini(self):
+        from bot.core.puzzle_service import PuzzleService
+
+        svc = PuzzleService(MagicMock())
+        svc.delete_puzzle = AsyncMock()
+
+        with pytest.raises(ValueError, match="not a mini-puzzle"):
+            await svc.delete_mini(None, make_hunt(), make_puzzle(id=2, parent_puzzle_id=None))
+
+        svc.delete_puzzle.assert_not_awaited()
+
+
+class TestDeleteMiniByNumber:
+    async def test_resolves_the_right_mini_by_number(self):
+        from bot.core.puzzle_service import PuzzleService
+
+        m1 = make_puzzle(id=10, parent_puzzle_id=3)
+        m2 = make_puzzle(id=11, parent_puzzle_id=3)
+        m3 = make_puzzle(id=12, parent_puzzle_id=3)
+        svc = PuzzleService(MagicMock())
+        svc.get_minis = MagicMock(return_value=[m1, m2, m3])
+        svc.delete_mini = AsyncMock()
+
+        deleted = await svc.delete_mini_by_number(None, make_hunt(), 3, 2)
+
+        # 1-indexed: number 2 → the middle mini, not the first or last.
+        assert svc.delete_mini.await_args[0][2] is m2
+        assert deleted is m2
+
+    async def test_raises_on_bad_number(self):
+        from bot.core.puzzle_service import PuzzleService
+
+        svc = PuzzleService(MagicMock())
+        svc.get_minis = MagicMock(return_value=[make_puzzle(id=10, parent_puzzle_id=3)])
+        svc.delete_mini = AsyncMock()
+
+        with pytest.raises(ValueError, match="No mini #5"):
+            await svc.delete_mini_by_number(None, make_hunt(), 3, 5)
+
+        svc.delete_mini.assert_not_awaited()

@@ -1,26 +1,44 @@
 import { useState } from "react";
 import { ActionIcon, Badge, Box, Button, Group, Stack, Text, TextInput, Tooltip } from "@mantine/core";
-import { IconCheck, IconX } from "@tabler/icons-react";
+import { IconCheck, IconTrash, IconX } from "@tabler/icons-react";
 import type { MiniPuzzle } from "../types";
-import { useCreateMini, useSolvePuzzle } from "../api";
-import { notifyError } from "../util";
+import { useCreateMini, useDeleteMini, useSolvePuzzle } from "../api";
+import { notifyError, showSheetWarning } from "../util";
+import { ConfirmModal } from "./ConfirmModal";
 import { SolveModal } from "./PuzzleEditCells";
 
 interface Props {
   parentId: number;
   minis: MiniPuzzle[];
   uid: string;
+  canManage?: boolean;
 }
 
-export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
+export function MiniPuzzlePanel({ parentId, minis, uid, canManage = false }: Props) {
   const [newName, setNewName] = useState("");
   const [solveInputs, setSolveInputs] = useState<Record<number, string>>({});
   const createMini = useCreateMini(uid);
+  const deleteMini = useDeleteMini(uid);
   const solvePuzzle = useSolvePuzzle(uid);
   const [solveMini, setSolveMini] = useState<MiniPuzzle | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MiniPuzzle | null>(null);
 
   function setSolveInput(id: number, val: string) {
     setSolveInputs((prev) => ({ ...prev, [id]: val }));
+  }
+
+  function runDeleteMini() {
+    if (!deleteTarget) return;
+    deleteMini.mutate(
+      { parentId, miniId: deleteTarget.id },
+      {
+        onSuccess: (data) => {
+          showSheetWarning(data);
+          setDeleteTarget(null);
+        },
+        onError: notifyError,
+      }
+    );
   }
 
   return (
@@ -82,6 +100,18 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
                 </Tooltip>
               </>
             )}
+            {canManage && (
+              <Tooltip label="Delete mini-puzzle">
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => setDeleteTarget(mini)}
+                >
+                  <IconTrash size={14} />
+                </ActionIcon>
+              </Tooltip>
+            )}
           </Group>
         ))}
 
@@ -117,6 +147,15 @@ export function MiniPuzzlePanel({ parentId, minis, uid }: Props) {
         </Group>
       </Stack>
       <SolveModal puzzle={solveMini} uid={uid} onClose={() => setSolveMini(null)} />
+      <ConfirmModal
+        opened={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={runDeleteMini}
+        title="Delete mini-puzzle"
+        message={`Permanently delete "${deleteTarget?.name ?? ""}", its Discord thread and its sheet tab? This cannot be undone.`}
+        confirmLabel="Delete mini"
+        confirmColor="red"
+      />
     </Box>
   );
 }

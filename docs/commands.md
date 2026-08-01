@@ -124,6 +124,7 @@ commands in the minimeta's channel; numbers come from `!list_minis`.
 | `!list_minis` | — | List minis with numbers and solve state. |
 | `!solve_mini` | `number answer` | Record a mini's answer. |
 | `!unsolve_mini` | `number` | Clear a mini's answer. |
+| `!delete_mini` | `number` (optional) | Permanently delete one mini (thread + sheet tab), asking to confirm. Organisers/admins. Give the number in the minimeta's channel, or run it with no number inside the mini's own thread. |
 
 ## Sheets
 

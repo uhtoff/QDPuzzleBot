@@ -309,3 +309,142 @@ class TestWebPostSolvedEmbedThread:
         # Never repositions a thread (Thread.edit has no position=).
         for call in thread.edit.await_args_list:
             assert "position" not in call.kwargs
+
+
+class TestDeleteMiniCommand:
+    """`!delete_mini` works from two contexts: the minimeta's channel (with a
+    number) and the mini's own thread (without one)."""
+
+    def _cog(self, puzzle, hunt=None):
+        cog = make_cog(puzzle, hunt)
+        cog._confirm_destructive = AsyncMock(return_value=True)
+        cog.web_refresh_info = AsyncMock()
+        cog.service.delete_mini = AsyncMock(return_value=MagicMock())
+        return cog
+
+    @pytest.mark.asyncio
+    async def test_number_in_minimeta_channel_picks_that_mini(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        m1 = make_puzzle(id=10, name="First", parent_puzzle_id=1, channel_id=901)
+        m2 = make_puzzle(id=11, name="Second", parent_puzzle_id=1, channel_id=902)
+        cog = self._cog(parent)
+        cog.service.get_minis.return_value = [m1, m2]
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 2)
+
+        # 1-indexed against !list_minis; picking the first would be off-by-one.
+        assert cog.service.delete_mini.await_args[0][2] is m2
+
+    @pytest.mark.asyncio
+    async def test_in_mini_thread_deletes_that_mini_without_a_number(self):
+        mini = make_puzzle(id=10, name="Word Search", parent_puzzle_id=1, channel_id=901)
+        cog = self._cog(mini)
+        ctx = make_ctx(channel_id=901)
+        ctx.channel.parent.send = AsyncMock()
+
+        await Puzzles.delete_mini.callback(cog, ctx, None)
+
+        assert cog.service.delete_mini.await_args[0][2] is mini
+        cog.service.get_minis.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_thread_report_goes_to_the_parent_channel(self):
+        """The thread is deleted with the mini, so a ctx.send confirmation would
+        be posted into a dead channel."""
+        mini = make_puzzle(id=10, parent_puzzle_id=1, channel_id=901)
+        cog = self._cog(mini)
+        ctx = make_ctx(channel_id=901)
+        parent_channel = MagicMock()
+        parent_channel.send = AsyncMock()
+        ctx.channel.parent = parent_channel
+
+        await Puzzles.delete_mini.callback(cog, ctx, None)
+
+        parent_channel.send.assert_awaited_once()
+        assert "Deleted mini-puzzle" in parent_channel.send.call_args[0][0]
+        # ctx.send only carried the confirm prompt, which is stubbed out here.
+        ctx.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_minimeta_channel_report_stays_in_that_channel(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        mini = make_puzzle(id=10, parent_puzzle_id=1, channel_id=901)
+        cog = self._cog(parent)
+        cog.service.get_minis.return_value = [mini]
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 1)
+
+        ctx.send.assert_awaited_once()
+        assert "Deleted mini-puzzle" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_refreshes_the_parent_pin(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        mini = make_puzzle(id=10, parent_puzzle_id=1, channel_id=901)
+        minimeta_returned = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = self._cog(parent)
+        cog.service.get_minis.return_value = [mini]
+        cog.service.delete_mini = AsyncMock(return_value=minimeta_returned)
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 1)
+
+        # The pin lives on the MINIMETA, not the deleted mini.
+        assert cog.web_refresh_info.await_args[0][2] is minimeta_returned
+
+    @pytest.mark.asyncio
+    async def test_cancelled_confirmation_deletes_nothing(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        cog = self._cog(parent)
+        cog.service.get_minis.return_value = [make_puzzle(id=10, parent_puzzle_id=1)]
+        cog._confirm_destructive = AsyncMock(return_value=False)
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 1)
+
+        cog.service.delete_mini.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_number_is_rejected(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        cog = self._cog(parent)
+        cog.service.get_minis.return_value = [make_puzzle(id=10, parent_puzzle_id=1)]
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 5)
+
+        cog.service.delete_mini.assert_not_awaited()
+        assert "No mini #5" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_missing_number_in_minimeta_channel_is_rejected(self):
+        parent = make_puzzle(id=1, puzzle_type="Minimeta", channel_id=111)
+        cog = self._cog(parent)
+        ctx = make_ctx(channel_id=111)
+
+        await Puzzles.delete_mini.callback(cog, ctx, None)
+
+        cog.service.delete_mini.assert_not_awaited()
+        assert "list_minis" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_number_inside_a_mini_thread_is_rejected(self):
+        """Ambiguous: a number there could mean a sibling. Refuse rather than guess."""
+        mini = make_puzzle(id=10, parent_puzzle_id=1, channel_id=901)
+        cog = self._cog(mini)
+        ctx = make_ctx(channel_id=901)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 2)
+
+        cog.service.delete_mini.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_not_a_puzzle_channel_is_rejected(self):
+        cog = self._cog(None)
+        ctx = make_ctx(channel_id=555)
+
+        await Puzzles.delete_mini.callback(cog, ctx, 1)
+
+        cog.service.delete_mini.assert_not_awaited()

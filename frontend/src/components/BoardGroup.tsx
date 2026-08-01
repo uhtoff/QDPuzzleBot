@@ -321,7 +321,12 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                 {p.is_minimeta && expandedMinis.has(p.id) && (
                   <Table.Tr>
                     <Table.Td colSpan={99} p={0}>
-                      <MiniPuzzlePanel parentId={p.id} minis={p.mini_puzzles} uid={detail.hunt.uid} />
+                      <MiniPuzzlePanel
+                        parentId={p.id}
+                        minis={p.mini_puzzles}
+                        uid={detail.hunt.uid}
+                        canManage={detail.hunt.can_manage}
+                      />
                     </Table.Td>
                   </Table.Tr>
                 )}

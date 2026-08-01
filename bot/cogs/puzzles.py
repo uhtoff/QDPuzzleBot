@@ -1660,6 +1660,67 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
 
+    def _resolve_mini_to_delete(self, ctx, number):
+        """Resolve which mini `!delete_mini` targets, from either context.
+
+        Returns (mini, error_message): in the mini's own thread the current puzzle
+        IS the mini and no number is wanted; in the minimeta's channel the number
+        indexes its children (1-based, as `!list_minis` prints them). Exactly one
+        of the pair is None.
+        """
+        puzzle = self.get_puzzle(ctx)
+        if puzzle is None:
+            return None, ":x: Run this in a mini-puzzle's thread or its minimeta's channel."
+        if puzzle.parent_puzzle_id:
+            if number is not None:
+                return None, (":x: You're in a mini's own thread — `!delete_mini` with no "
+                              "number deletes this one. Use a number from the minimeta's channel.")
+            return puzzle, None
+        if number is None:
+            return None, (":x: Provide a number: `!delete_mini 2` (see `!list_minis`), or run "
+                          "`!delete_mini` in the mini's own thread.")
+        minis = self.service.get_minis(puzzle.id)
+        if number < 1 or number > len(minis):
+            return None, f":x: No mini #{number} — {len(minis)} mini(s) exist"
+        return minis[number - 1], None
+
+    @commands.command()
+    @is_organiser()
+    @with_puzzle_mutex(wait=False)
+    async def delete_mini(self, ctx, number: Optional[int] = None):
+        """*Permanently delete one mini-puzzle: its thread and its sheet tab (asks to confirm).*
+
+        Usage: `!delete_mini [number]`
+        Example: `!delete_mini 2`
+        Run in the minimeta's channel with a number from `!list_minis`, or in the
+        mini's own thread with no number. Organisers/admins only. Not recoverable."""
+        mini, error = self._resolve_mini_to_delete(ctx, number)
+        if error:
+            return await ctx.send(error)
+        assert mini is not None  # _resolve_mini_to_delete returns exactly one of the pair
+
+        if not await self._confirm_destructive(
+                ctx, f"Delete mini-puzzle **{mini.name}**, its thread and its sheet tab?"):
+            return
+
+        # Running in the mini's own thread deletes the channel we're talking in, so
+        # the report goes to its parent — a later ctx.send would hit a dead thread.
+        if mini.channel_id == ctx.channel.id:
+            parent_channel = getattr(ctx.channel, "parent", None)
+            report = parent_channel.send if parent_channel is not None else ctx.send
+        else:
+            report = ctx.send
+
+        hunt = self.get_hunt(ctx)
+        try:
+            minimeta = await self.service.delete_mini(ctx.guild, hunt, mini)
+        except Exception:
+            logger.exception("Mini-puzzle deletion failed")
+            return await ctx.send(":x: Mini-puzzle deletion failed")
+        # ctx-free pin refresh: !info would resolve the deleted mini in thread context.
+        await self.web_refresh_info(ctx.guild, hunt, minimeta)
+        await report(f":white_check_mark: Deleted mini-puzzle **{mini.name}**.")
+
     async def _store_clue_attachment(self, ctx, hunt):
         """Store the first image attached to ctx.message, if any.
 

@@ -168,6 +168,7 @@ its own channel:
 !list_minis             (numbered list with solve state)
 !solve_mini 2 ANSWER
 !unsolve_mini 2
+!delete_mini 2          (deletes one mini — or run it with no number in the mini's thread)
 !remove_minimeta        (revert to an ordinary puzzle — deletes the minis)
 ```
 

@@ -2050,6 +2050,67 @@ async def create_mini(puzzle_id):
         })
 
 
+# --- Delete one mini-puzzle (organiser only) ---------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/minis/<int:mini_id>", methods=["DELETE"])
+@login_required
+async def delete_mini(puzzle_id, mini_id):
+    """Delete a single mini-puzzle under a minimeta: thread, sheet tab, DB row, and
+    a re-render of the parent's rollup Table (mirrors !delete_mini). Organiser-gated,
+    locked on the MINIMETA (as create_mini is), audited, board pushed.
+
+    Nested under the parent so the pairing is checked, not assumed: a mini_id that
+    is not this minimeta's child is a 404 rather than a back door onto the generic
+    puzzle-delete route.
+    """
+    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
+    if err:
+        return err
+    assert ctx is not None
+    if ctx["hunt"]["archived"]:
+        return jsonify({"error": "hunt_archived"}), 403
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb, PuzzleJsonDb
+
+    async with puzzle_lock(puzzle_id):
+        mini = PuzzleJsonDb.get_by_attr(id=mini_id)
+        if mini is None or mini.parent_puzzle_id != puzzle_id:
+            return jsonify({"error": "mini_not_found"}), 404
+
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        bot = bot_app().bot
+        cog = puzzles_cog()
+        if cog is None:
+            return jsonify({"error": "bot_unavailable"}), 503
+        snowflake = ctx["guild_snowflake"]
+        guild = bot.get_guild(int(snowflake)) if snowflake else None
+
+        name = mini.name
+        warning = None
+        try:
+            minimeta = await cog.service.delete_mini(guild, hunt_obj, mini)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except SheetRefreshError as exc:
+            # Deletion is already committed — surface as a warning, not a failure.
+            warning = str(exc)
+            minimeta = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        except (discord.RateLimited, discord.HTTPException) as exc:
+            return _discord_error_response(exc)
+
+        await _audit("delete_mini", puzzle_id=mini_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
+        # The mini list lives on the PARENT's pinned info (as !delete_mini refreshes it).
+        if minimeta is not None:
+            await cog.web_refresh_info(guild, hunt_obj, minimeta)
+        resp: dict[str, Any] = {"ok": True}
+        if warning:
+            resp["sheet_warning"] = warning
+        return jsonify(resp)
+
+
 # --- Unsolve a puzzle (any member of the hunt's guild) -----------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/unsolve", methods=["POST"])

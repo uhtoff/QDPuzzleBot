@@ -2372,6 +2372,39 @@ class PuzzleService:
             raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
         await self.unsolve(guild, hunt, minis[number - 1])
 
+    async def delete_mini(self, guild, hunt, mini):
+        """Delete a single mini-puzzle (thread + sheet tab + DB row), then re-render
+        its minimeta's rollup Table so the removed row disappears from the parent's
+        own sheet. Returns the parent minimeta PuzzleData so the caller can refresh
+        its pinned mini-list. Guild may be None (skips thread deletion).
+
+        A separate seam from delete_puzzle because the parent's roll-up is
+        puzzle-keyed, not a tag_group target: delete_puzzle's refresh_targets never
+        touches it (a mini is deliberately untagged — see create_mini). Kept OFF
+        delete_puzzle itself so remove_minimeta's teardown doesn't re-render the
+        Table once per mini before stripping it.
+
+        Raises ValueError if *mini* is not a mini-puzzle. No @pushes_board: the
+        nested delete_puzzle already pushes, and the board carries the mini list,
+        not the sheet render.
+        """
+        if not mini.parent_puzzle_id:
+            raise ValueError("not a mini-puzzle")
+        minimeta = PuzzleJsonDb.get_by_attr(id=mini.parent_puzzle_id)
+        await self.delete_puzzle(guild, hunt, mini)
+        await self.refresh_minimeta(hunt, minimeta)
+        return minimeta
+
+    async def delete_mini_by_number(self, guild, hunt, minimeta_id, number):
+        """Delete the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id.
+        Returns the deleted mini's PuzzleData (its row is already gone)."""
+        minis = self.get_minis(minimeta_id)
+        if number < 1 or number > len(minis):
+            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
+        mini = minis[number - 1]
+        await self.delete_mini(guild, hunt, mini)
+        return mini
+
     @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
