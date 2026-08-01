@@ -1506,13 +1506,26 @@ class PuzzleService:
     _SOLVE_DIVIDER_NAME = "———solved———"
 
     async def _safe_delete_channel(self, guild, channel_id):
-        """Delete a Discord channel by id, tolerating already-missing or rate-limited.
-        Returns True if deleted, False otherwise. Guild=None is a no-op."""
+        """Delete a Discord channel OR thread by id, tolerating already-missing or
+        rate-limited. Returns True if deleted, False otherwise. Guild=None is a no-op.
+
+        get_channel_or_thread, not get_channel: a mini-puzzle's channel_id is a thread
+        snowflake and threads live in a separate cache, so get_channel alone reports
+        "already gone" and silently leaves the thread behind. The fetch fallback covers
+        the archived case — minis archive on solve, and archived threads are dropped
+        from that cache, so a solved mini's thread is only reachable over the API.
+        """
         if guild is None or not channel_id:
             return False
-        channel = guild.get_channel(channel_id)
+        channel = guild.get_channel_or_thread(channel_id)
         if channel is None:
-            return False
+            try:
+                channel = await guild.fetch_channel(channel_id)
+            except discord.NotFound:
+                return False
+            except (discord.RateLimited, discord.HTTPException):
+                logger.exception("delete: could not fetch channel %s", channel_id)
+                return False
         try:
             await channel.delete(reason=self._DISCORD_DELETE_REASON)
             return True

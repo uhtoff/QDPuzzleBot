@@ -65,6 +65,7 @@ async def test_keep_puzzles_deletes_target_and_relocates_feeder():
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {901: target_ch, 902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -115,6 +116,7 @@ async def test_keep_puzzles_prefers_sibling_group_category_over_general():
     guild = MagicMock()
     guild.categories = [round_cat, general_cat, sibling_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     sibling_group = MagicMock(id=7, category_id=200)
 
@@ -161,6 +163,7 @@ async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_cate
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     sibling_group = MagicMock(id=7, category_id=None)   # unresolvable home category
 
@@ -204,6 +207,7 @@ async def test_keep_puzzles_relocation_failure_reported():
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
@@ -245,6 +249,7 @@ async def test_keep_puzzles_group_type_deletes_chat_channel_keeps_feeder():
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch, 800: chat_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb"), \
@@ -278,6 +283,7 @@ async def test_forum_layout_ignores_keep_puzzles_full_deletes():
     guild = MagicMock()
     guild.categories = []          # forum channel is NOT a category
     guild.get_channel = MagicMock(side_effect=lambda cid: {901: p1_ch, 777: forum_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb"), \
@@ -322,6 +328,7 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
@@ -366,6 +373,7 @@ async def test_deletes_categories_before_deleting_group_row():
     guild = MagicMock()
     guild.categories = [round_cat]
     guild.get_channel = MagicMock(return_value=None)
+    guild.get_channel_or_thread = guild.get_channel
 
     manager = MagicMock()
     delete_group_cats = AsyncMock(return_value=True)
@@ -413,6 +421,7 @@ async def test_full_delete_protects_foreign_target_puzzle():
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(
         side_effect=lambda cid: {902: ordinary_ch, 903: nested_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -457,6 +466,7 @@ async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel()
     guild = MagicMock()
     guild.categories = [round_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {800: chat_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb"), \
@@ -492,6 +502,7 @@ async def test_full_delete_forum_mode_protects_foreign_target_puzzle():
     nested_ch = MagicMock(id=903); nested_ch.edit = AsyncMock(); nested_ch.delete = AsyncMock()
     guild = MagicMock()
     guild.get_channel = MagicMock(side_effect=lambda cid: {100: forum_ch, 903: nested_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -540,6 +551,7 @@ async def test_full_delete_keeps_shared_feeder_deletes_exclusive_feeder():
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(
         side_effect=lambda cid: {901: target_ch, 902: exclusive_ch, 903: shared_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -601,6 +613,7 @@ async def test_full_delete_relocates_kept_target_whose_home_is_doomed_to_general
     guild = MagicMock()
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {901: own_ch, 903: p_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     foreign_group = MagicMock(id=77, category_id=903)   # channel-home into cat 100
 
@@ -657,6 +670,7 @@ async def test_full_delete_relocates_foreign_channel_before_category_teardown():
     guild.categories = [round_cat, general_cat]
     guild.get_channel = MagicMock(
         side_effect=lambda cid: {901: target_ch, 555: foreign_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 
@@ -709,6 +723,7 @@ async def test_full_delete_refreshes_other_fed_targets():
     guild = MagicMock()
     guild.categories = [round_cat]
     guild.get_channel = MagicMock(side_effect=lambda cid: {902: feeder_ch}.get(cid))
+    guild.get_channel_or_thread = guild.get_channel
 
     gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
 

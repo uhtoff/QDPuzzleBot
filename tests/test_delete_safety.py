@@ -91,6 +91,9 @@ async def test_delete_hunt_continues_past_missing_channel(monkeypatch):
     guild.categories = []
     # get_channel returns the present channel for 102, None otherwise.
     guild.get_channel = MagicMock(side_effect=lambda cid: present if cid == 102 else None)
+    guild.get_channel_or_thread = guild.get_channel
+    # A cache miss is now re-checked over the API, so "missing" must 404 there too.
+    guild.fetch_channel = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "gone"))
 
     hunt_channel = SimpleNamespace(delete=AsyncMock(), send=AsyncMock(),
                                    category=SimpleNamespace(delete=AsyncMock()))
@@ -137,3 +140,71 @@ async def test_delete_puzzle_aborts_when_not_confirmed(monkeypatch):
 
     cog.delete_puzzle_data.assert_not_awaited()   # nothing deleted
     chan.delete.assert_not_awaited()
+
+
+class TestServiceSafeDeleteResolvesThreads:
+    """service._safe_delete_channel must find THREADS, not just channels.
+
+    A mini-puzzle's channel_id is a thread snowflake, and discord.py keeps threads
+    in a cache that guild.get_channel never looks at — so a get_channel-only lookup
+    reports "already gone" and silently leaves the thread behind (every mini delete
+    path: !delete_mini, the web route, !remove_minimeta, delete_round teardown).
+    """
+
+    def _svc(self):
+        from bot.core.puzzle_service import PuzzleService
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        return PuzzleService(bot)
+
+    @pytest.mark.asyncio
+    async def test_deletes_a_thread_absent_from_the_channel_cache(self):
+        svc = self._svc()
+        thread = SimpleNamespace(id=901, delete=AsyncMock())
+        guild = MagicMock()
+        guild.get_channel.return_value = None          # threads are never here
+        guild.get_channel_or_thread.return_value = thread
+
+        ok = await svc._safe_delete_channel(guild, 901)
+
+        assert ok is True
+        thread.delete.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_fetches_an_archived_thread_the_cache_dropped(self):
+        """Minis archive on solve, and archived threads fall out of the cache —
+        deleting a solved mini must still remove its thread."""
+        svc = self._svc()
+        thread = SimpleNamespace(id=901, delete=AsyncMock())
+        guild = MagicMock()
+        guild.get_channel.return_value = None
+        guild.get_channel_or_thread.return_value = None
+        guild.fetch_channel = AsyncMock(return_value=thread)
+
+        ok = await svc._safe_delete_channel(guild, 901)
+
+        assert ok is True
+        guild.fetch_channel.assert_awaited_once_with(901)
+        thread.delete.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_genuinely_missing_channel_still_returns_false(self):
+        svc = self._svc()
+        guild = MagicMock()
+        guild.get_channel.return_value = None
+        guild.get_channel_or_thread.return_value = None
+        guild.fetch_channel = AsyncMock(
+            side_effect=discord.NotFound(MagicMock(status=404), "gone"))
+
+        assert await svc._safe_delete_channel(guild, 901) is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_is_swallowed(self):
+        svc = self._svc()
+        guild = MagicMock()
+        guild.get_channel.return_value = None
+        guild.get_channel_or_thread.return_value = None
+        guild.fetch_channel = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "boom"))
+
+        assert await svc._safe_delete_channel(guild, 901) is False
