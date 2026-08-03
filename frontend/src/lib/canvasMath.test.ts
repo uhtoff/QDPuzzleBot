@@ -3,7 +3,7 @@
 // silently wrong -- an anchor that drifts a pixel per zoom step, a tile seam
 // that only opens at fractional scales -- and none of it needs a DOM to check.
 import { describe, expect, it } from "vitest";
-import { clampScale, normPoint, tileRect, zoomAt } from "./canvasMath";
+import { clampScale, normPoint, polylineHitsCircle, tileRect, zoomAt } from "./canvasMath";
 
 describe("zoomAt", () => {
   it("keeps the point under the anchor fixed on screen", () => {
@@ -46,5 +46,42 @@ describe("normPoint", () => {
   });
   it("returns null for a zero-size rect", () => {
     expect(normPoint(5, 5, { left: 0, top: 0, width: 0, height: 0 })).toBeNull();
+  });
+});
+
+describe("polylineHitsCircle", () => {
+  // A wide, short image: the aspect ratio is the whole point. A normalised
+  // radius would erase 4x further horizontally than vertically here.
+  const W = 400, H = 100;
+  // A horizontal stroke across the middle, stored as two far-apart points.
+  const line: [number, number][] = [[0.1, 0.5], [0.9, 0.5]];
+
+  it("hits the middle of a long segment, not just its vertices", () => {
+    // Dead centre of the stroke, nowhere near either stored point.
+    expect(polylineHitsCircle(line, W, H, 200, 50, 5)).toBe(true);
+  });
+  it("misses when the circle is further away than its radius", () => {
+    // 20px above the stroke with a 10px radius.
+    expect(polylineHitsCircle(line, W, H, 200, 30, 10)).toBe(false);
+    expect(polylineHitsCircle(line, W, H, 200, 30, 25)).toBe(true);
+  });
+  it("measures in pixels, so reach is the same in x and y", () => {
+    // Same 15px gap from the stroke's end point, once along x and once along
+    // y. A normalised-space test would pass one and fail the other.
+    const endX = 0.9 * W, endY = 0.5 * H;
+    expect(polylineHitsCircle(line, W, H, endX + 15, endY, 20)).toBe(true);
+    expect(polylineHitsCircle(line, W, H, endX, endY + 15, 20)).toBe(true);
+    expect(polylineHitsCircle(line, W, H, endX + 25, endY, 20)).toBe(false);
+    expect(polylineHitsCircle(line, W, H, endX, endY + 25, 20)).toBe(false);
+  });
+  it("does not run off the end of a segment", () => {
+    // Straight on from the stroke's end, well past it: the nearest point is
+    // the end vertex, not somewhere on the infinite line through it.
+    expect(polylineHitsCircle(line, W, H, 0.9 * W + 60, 0.5 * H, 20)).toBe(false);
+  });
+  it("treats a single stored point as a point", () => {
+    expect(polylineHitsCircle([[0.5, 0.5]], W, H, 200, 50, 3)).toBe(true);
+    expect(polylineHitsCircle([[0.5, 0.5]], W, H, 240, 50, 3)).toBe(false);
+    expect(polylineHitsCircle([], W, H, 200, 50, 100)).toBe(false);
   });
 });
