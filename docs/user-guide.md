@@ -339,13 +339,20 @@ The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter
 **text** and an **eraser**, plus a colour and a size. Some details worth knowing:
 
 - Hold **Shift** while drawing with the pen or highlighter to snap the stroke straight.
-- The **size** slider sets both line thickness and text size.
+- The **size** slider sets line thickness, text size, and how wide the eraser bites.
 - **Text**: click where you want it, type, then **Ctrl/⌘+Enter**.
-- **Ctrl+scroll** zooms about the pointer; choose **Pan** to drag the image around; **Fit**
-  returns to the whole picture.
-- **Undo** removes what you just drew. The **eraser** removes a whole mark in one click.
+- **Ctrl+scroll** zooms about the pointer, and **holding Ctrl** turns any tool into a drag
+  to pan — the **Pan** button does the same without the key. **Fit** returns to the whole
+  picture.
+- The **eraser** is a circle, shown around the pointer: it takes every mark it touches, and
+  you can drag it across several. Make it bigger or smaller with the size slider.
+- **Undo** (**Ctrl/⌘+Z**) removes what you just drew, most recent first.
 - **Save** closes the image. Marks are saved as you draw them, so nothing is lost if you
   close it another way.
+
+Keyboard shortcuts pick a tool by its position in the toolbar: **1** pen, **2** line,
+**3** arrow, **4** highlight, **5** text, **6** erase. They are ignored while you are
+typing a text mark, so a "1" mid-word will not swap the tool under you.
 
 Markup is **shared and live**: two people can annotate the same image at once and each
 sees the other's marks appear. It is also purely visual — a circle round an answer is not

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } from "@mantine/core";
 import { useElementSize, useMergedRef } from "@mantine/hooks";
 import {
@@ -70,6 +70,17 @@ function kindFor(tool: Tool): MarkKind {
   if (tool === "text") return "text";
   return "pen";
 }
+
+/** The tool buttons, in toolbar order. One table so the number-key shortcut,
+ *  the button and its tooltip cannot drift apart — the digit IS the position. */
+const TOOLS: { tool: Exclude<Tool, null>; label: string; icon: ReactNode }[] = [
+  { tool: "pen", label: "Pen", icon: <IconPencil size={14} /> },
+  { tool: "line", label: "Line", icon: <IconLine size={14} /> },
+  { tool: "arrow", label: "Arrow", icon: <IconArrowUpRight size={14} /> },
+  { tool: "highlighter", label: "Highlight", icon: <IconHighlight size={14} /> },
+  { tool: "text", label: "Text", icon: <IconTextSize size={14} /> },
+  { tool: "eraser", label: "Erase", icon: <IconEraser size={14} /> },
+];
 
 type Props = {
   mediaId: number;
@@ -355,13 +366,25 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     if (last != null) deleteMark.mutate(last, { onError: (e) => notifyError(e) });
   }, [deleteMark]);
 
-  // Ctrl/⌘+Z undoes the last mark made in this session. Ignored while the text
-  // editor has focus, where it has to stay the browser's own text undo.
+  // Keyboard: 1-6 pick a tool (in toolbar order), Ctrl/⌘+Z undoes the last mark
+  // made in this session. Both are ignored while something is being typed into
+  // — otherwise a "1" in a text mark would swap the tool mid-word, and undo has
+  // to stay the browser's own text undo inside the editor.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+        || (el instanceof HTMLElement && el.isContentEditable);
+      if (typing) return;
+      const digit = Number(e.key);
+      if (Number.isInteger(digit) && digit >= 1 && digit <= TOOLS.length
+          && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setTool(TOOLS[digit - 1].tool);
+        return;
+      }
       if (e.key !== "z" && e.key !== "Z") return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      if (editorRef.current?.contains(document.activeElement)) return;
       e.preventDefault();
       undo();
     };
@@ -377,28 +400,21 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   return (
     <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
       <Group gap="xs">
-        <Button size="xs" variant={tool === "pen" ? "filled" : "light"}
-                leftSection={<IconPencil size={14} />}
-                onClick={() => setTool("pen")}>Pen</Button>
-        <Button size="xs" variant={tool === "line" ? "filled" : "light"}
-                leftSection={<IconLine size={14} />}
-                onClick={() => setTool("line")}>Line</Button>
-        <Button size="xs" variant={tool === "arrow" ? "filled" : "light"}
-                leftSection={<IconArrowUpRight size={14} />}
-                onClick={() => setTool("arrow")}>Arrow</Button>
-        <Button size="xs" variant={tool === "highlighter" ? "filled" : "light"}
-                leftSection={<IconHighlight size={14} />}
-                onClick={() => setTool("highlighter")}>Highlight</Button>
-        <Button size="xs" variant={tool === "text" ? "filled" : "light"}
-                leftSection={<IconTextSize size={14} />}
-                onClick={() => setTool("text")}>Text</Button>
-        <Button size="xs" variant={tool === "eraser" ? "filled" : "light"}
-                leftSection={<IconEraser size={14} />}
-                onClick={() => setTool("eraser")}>Erase</Button>
-        <Button size="xs" variant="default" leftSection={<IconArrowBackUp size={14} />}
-                onClick={undo}>Undo</Button>
-        <Button size="xs" variant={tool === null ? "filled" : "light"}
-                onClick={() => setTool(null)}>Pan</Button>
+        {TOOLS.map((t, i) => (
+          <Tooltip key={t.tool} label={`${t.label} (${i + 1})`}>
+            <Button size="xs" variant={tool === t.tool ? "filled" : "light"}
+                    leftSection={t.icon}
+                    onClick={() => setTool(t.tool)}>{t.label}</Button>
+          </Tooltip>
+        ))}
+        <Tooltip label="Undo (Ctrl/⌘+Z)">
+          <Button size="xs" variant="default" leftSection={<IconArrowBackUp size={14} />}
+                  onClick={undo}>Undo</Button>
+        </Tooltip>
+        <Tooltip label="Pan (or hold Ctrl and drag)">
+          <Button size="xs" variant={tool === null ? "filled" : "light"}
+                  onClick={() => setTool(null)}>Pan</Button>
+        </Tooltip>
         <Button size="xs" variant="default" onClick={() => zoomBy(1.4)}>+</Button>
         <Button size="xs" variant="default" onClick={() => zoomBy(1 / 1.4)}>−</Button>
         <Button size="xs" variant="default"
