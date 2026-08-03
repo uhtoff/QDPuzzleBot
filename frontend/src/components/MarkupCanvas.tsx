@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Button, ColorSwatch, Group, Slider, Stack, Textarea, Tooltip } from "@mantine/core";
 import { useElementSize, useMergedRef } from "@mantine/hooks";
 import {
@@ -7,7 +7,7 @@ import {
 } from "@tabler/icons-react";
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
-import { normPoint } from "../lib/canvasMath";
+import { normPoint, polylineHitsCircle } from "../lib/canvasMath";
 import { useWheelZoom } from "../hooks/useZoomPan";
 import { notifyError } from "../util";
 
@@ -36,6 +36,21 @@ const WIDTH_MAX = 0.01;
  *  bottom of the slider, half again as large at the top. */
 const TEXT_MIN = 0.02;
 const TEXT_MAX = 0.06;
+
+/** The eraser's radius, also driven by the size slider — it is the same "how
+ *  big" control. As a fraction of the image's height, like text: the eraser is
+ *  a circle on screen, so its reach cannot be measured in normalised units on a
+ *  non-square image. The floor is well above the thinnest pen, because erasing
+ *  is aiming at a stroke rather than drawing one and a hairline target is
+ *  unusable. */
+const ERASER_MIN = 0.015;
+const ERASER_MAX = 0.06;
+
+/** Slider position → eraser radius as a fraction of the image's height. */
+function eraserRadiusFor(width: number): number {
+  const t = (width - WIDTH_MIN) / (WIDTH_MAX - WIDTH_MIN);
+  return ERASER_MIN + Math.min(1, Math.max(0, t)) * (ERASER_MAX - ERASER_MIN);
+}
 
 /** Slider position → font size as a fraction of the image's height. */
 function textSizeFor(width: number): number {
@@ -89,6 +104,15 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
    *  the frame Box below already needs the ref. */
   const frameRef = useRef<HTMLDivElement>(null);
   const drawing = useRef(false);
+  /** Whether the eraser is being dragged, and which marks it has already taken
+   *  during this drag — the circle sweeps over a mark for many pointer events,
+   *  and firing a second DELETE for an id already gone would surface a 404 as
+   *  an error toast. */
+  const erasing = useRef(false);
+  const erased = useRef<Set<number>>(new Set());
+  /** The eraser cursor's position, in frame-local pixels. Null when the pointer
+   *  is outside the frame or another tool is selected. */
+  const [eraserAt, setEraserAt] = useState<null | { px: number; py: number }>(null);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -102,6 +126,30 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const { ref: imgSizeRef, width: imgW, height: imgH } = useElementSize();
   const imgBox = { w: imgW, h: imgH };
   const imgRefs = useMergedRef(imgRef, imgSizeRef);
+  /** The frame's own rendered height. The frame flexes to fill whatever the
+   *  surface gives it, but the image sits inside a shrink-wrapped div whose
+   *  height is auto — so a percentage max-height on the <img> has nothing to
+   *  resolve against. Measuring the frame gives it a real pixel cap. */
+  const { ref: frameSizeRef, height: frameH } = useElementSize();
+  const frameRefs = useMergedRef(frameRef, frameSizeRef);
+
+  /** Whether Ctrl is currently down, purely so the cursor advertises that a
+   *  drag would pan. Window-level because the pointer may be nowhere near the
+   *  frame when the key is pressed; the blur reset stops a held Ctrl sticking
+   *  after an alt-tab. */
+  const [ctrlHeld, setCtrlHeld] = useState(false);
+  useEffect(() => {
+    const sync = (e: KeyboardEvent) => setCtrlHeld(e.ctrlKey);
+    const clear = () => setCtrlHeld(false);
+    window.addEventListener("keydown", sync);
+    window.addEventListener("keyup", sync);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", sync);
+      window.removeEventListener("keyup", sync);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
 
   /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
    *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
@@ -148,12 +196,52 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     }
   }, [createMark, tool, colour, width_]);
 
+  /** Delete every mark the eraser circle currently covers. Called on pointer
+   *  down and on every move while dragging, so the eraser sweeps rather than
+   *  only picking off whatever is under the exact click. */
+  const eraseAt = useCallback((e: React.PointerEvent) => {
+    const at = toNorm(e);
+    if (!at || !imgBox.w || !imgBox.h) return;
+    const r = eraserRadiusFor(width_) * imgBox.h;
+    const cx = at[0] * imgBox.w;
+    const cy = at[1] * imgBox.h;
+    for (const m of marks.data ?? []) {
+      if (erased.current.has(m.id)) continue;
+      let hit: boolean;
+      if (m.kind === "text") {
+        // Text has no stored box — it is HTML, sized by its own glyphs. Its
+        // anchor is the top-left, so approximate the run as one line tall and
+        // roughly half an em per character, then test the circle against that
+        // rectangle. Erring generous is the right way round: a text mark you
+        // meant to keep is one Undo away.
+        const fs = (m.shape.size ?? 0.04) * imgBox.h;
+        const [[tx, ty]] = m.shape.points;
+        const lines = (m.text ?? "").split("\n");
+        const left = tx * imgBox.w;
+        const top = ty * imgBox.h;
+        const w = fs * 0.5 * Math.max(...lines.map((l) => l.length), 1);
+        const h = fs * 1.2 * lines.length;
+        const nx = Math.min(Math.max(cx, left), left + w);
+        const ny = Math.min(Math.max(cy, top), top + h);
+        hit = Math.hypot(cx - nx, cy - ny) <= r;
+      } else {
+        hit = polylineHitsCircle(m.shape.points, imgBox.w, imgBox.h, cx, cy, r);
+      }
+      if (!hit) continue;
+      erased.current.add(m.id);
+      deleteMark.mutate(m.id, { onError: (err) => notifyError(err) });
+    }
+  }, [toNorm, imgBox.w, imgBox.h, width_, marks.data, deleteMark]);
+
   const onPointerDown = (e: React.PointerEvent) => {
     // A click inside the open text editor is the editor's own business. Without
     // this the frame would start a fresh mark under the cursor and move the
     // editor there mid-typing.
     if (editorRef.current?.contains(e.target as Node)) return;
-    if (!tool) {
+    // Ctrl is the "move the image" modifier throughout: ctrl+wheel zooms,
+    // ctrl+drag pans, whatever tool is selected. Saves a round trip to the Pan
+    // button between every stroke.
+    if (!tool || e.ctrlKey) {
       const rect = frameRef.current?.getBoundingClientRect();
       if (!rect) return;
       panning.current = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
@@ -162,7 +250,13 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     }
     const at = toNorm(e);
     if (!at || !tool) return;
-    if (tool === "eraser") return;                    // handled per-mark below
+    if (tool === "eraser") {
+      erasing.current = true;
+      erased.current.clear();
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      eraseAt(e);
+      return;
+    }
     if (tool === "text") {
       // preventDefault is load-bearing, not tidiness. Without it the browser's
       // own mousedown default moves focus to the element under the cursor
@@ -183,6 +277,11 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (tool === "eraser") {
+      const frame = frameRef.current?.getBoundingClientRect();
+      setEraserAt({ px: e.clientX - (frame?.left ?? 0), py: e.clientY - (frame?.top ?? 0) });
+      if (erasing.current) { eraseAt(e); return; }
+    }
     if (panning.current) {
       const p = panning.current;
       setPan({ x: p.ox + (e.clientX - p.sx), y: p.oy + (e.clientY - p.sy) });
@@ -207,6 +306,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   };
 
   const onPointerUp = () => {
+    erasing.current = false;
     if (panning.current) { panning.current = null; return; }
     if (!drawing.current) return;
     drawing.current = false;
@@ -220,6 +320,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   // uncommitted rather than letting the next pointerdown extend it.
   const onPointerCancel = () => {
     panning.current = null;
+    erasing.current = false;
     if (drawing.current) {
       drawing.current = false;
       setStroke([]);
@@ -249,10 +350,24 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   /** Font size as a fraction of the image's height, from the size slider. */
   const textSize = textSizeFor(width_);
 
-  const undo = () => {
+  const undo = useCallback(() => {
     const last = mine.current.pop();
     if (last != null) deleteMark.mutate(last, { onError: (e) => notifyError(e) });
-  };
+  }, [deleteMark]);
+
+  // Ctrl/⌘+Z undoes the last mark made in this session. Ignored while the text
+  // editor has focus, where it has to stay the browser's own text undo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "z" && e.key !== "Z") return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (editorRef.current?.contains(document.activeElement)) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo]);
 
   // No aspect ratio is computed and no dimensions are fetched: the <img> is
   // sized by max-width/max-height inside a shrink-wrapping div, so that div IS
@@ -260,7 +375,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   // See Task 7 for why the server does not send dimensions.
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" style={{ flex: 1, minHeight: 0 }}>
       <Group gap="xs">
         <Button size="xs" variant={tool === "pen" ? "filled" : "light"}
                 leftSection={<IconPencil size={14} />}
@@ -318,22 +433,27 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           max-width/max-height instead means the element box and the painted
           image are the same rectangle, which is what makes toNorm correct. */}
       <Box
-        ref={frameRef}
-        style={{ position: "relative", width: "100%", height: "70vh",
+        ref={frameRefs}
+        style={{ position: "relative", width: "100%", flex: 1, minHeight: 200,
                  overflow: "hidden", display: "flex",
                  alignItems: "center", justifyContent: "center",
                  touchAction: "none",
-                 cursor: tool === null ? "grab" : tool === "eraser" ? "pointer" : "crosshair" }}
+                 // The eraser draws its own circular cursor below, so the
+                 // system cursor gets out of the way.
+                 cursor: tool === null || ctrlHeld
+                   ? "grab" : tool === "eraser" ? "none" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
+        onPointerLeave={() => setEraserAt(null)}
       >
        <div style={{ position: "relative", display: "inline-block", lineHeight: 0,
                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                      transformOrigin: "0 0" }}>
         <img ref={imgRefs} src={`/api/media/${mediaId}`} alt={alt} draggable={false}
-             style={{ display: "block", maxWidth: "100%", maxHeight: "70vh",
+             style={{ display: "block", maxWidth: "100%",
+                      maxHeight: frameH || "70vh",
                       width: "auto", height: "auto", userSelect: "none" }} />
 
         {/* Normalised coordinates go straight in — the same payoff the region
@@ -352,8 +472,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
             ))}
           </defs>
           {(marks.data ?? []).filter((m) => m.kind !== "text").map((m) => (
-            <MarkShape key={m.id} mark={m} erasing={tool === "eraser"}
-                       onErase={() => deleteMark.mutate(m.id, { onError: (e) => notifyError(e) })} />
+            <MarkShape key={m.id} mark={m} />
           ))}
           {stroke.length > 1 && (
             <polyline points={stroke.map(([x, y]) => `${x},${y}`).join(" ")}
@@ -386,11 +505,10 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
                   fontSize: (m.shape.size ?? 0.04) * (imgBox.h || 0),
                   color: m.style.colour, opacity: m.style.opacity,
                   whiteSpace: "pre-wrap", userSelect: "none",
-                  pointerEvents: tool === "eraser" ? "auto" : "none",
-                  cursor: tool === "eraser" ? "pointer" : undefined,
+                  // Erasing text goes through the frame's circle hit-test too,
+                  // so this layer stays transparent to the pointer.
+                  pointerEvents: "none",
                 }}
-                onPointerDown={tool === "eraser"
-                  ? () => deleteMark.mutate(m.id, { onError: (e) => notifyError(e) }) : undefined}
               >
                 {m.text}
               </div>
@@ -398,6 +516,23 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
           })}
         </div>
        </div>
+
+        {/* The eraser cursor. It sits outside the transformed div — like the
+            text editor — so its position is frame-local pixels, but its size is
+            multiplied by the zoom so the ring always circles exactly the area
+            eraseAt will clear. */}
+        {tool === "eraser" && eraserAt && imgBox.h > 0 && (
+          <div style={{
+            position: "absolute",
+            left: eraserAt.px, top: eraserAt.py,
+            width: eraserRadiusFor(width_) * imgBox.h * 2 * zoom,
+            height: eraserRadiusFor(width_) * imgBox.h * 2 * zoom,
+            transform: "translate(-50%, -50%)",
+            border: "1px solid rgba(0,0,0,0.65)",
+            boxShadow: "0 0 0 1px rgba(255,255,255,0.65)",
+            borderRadius: "50%", pointerEvents: "none", zIndex: 4,
+          }} />
+        )}
 
         {textAt && (
           <Box ref={editorRef}
@@ -429,12 +564,12 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   );
 }
 
-function MarkShape({ mark, erasing, onErase }:
-  { mark: MediaMark; erasing: boolean; onErase: () => void }) {
+function MarkShape({ mark }: { mark: MediaMark }) {
   const { colour, width, opacity, arrow } = mark.style;
-  const hit = erasing
-    ? { pointerEvents: "all" as const, cursor: "pointer" }
-    : { pointerEvents: "none" as const };
+  // Erasing is hit-tested geometrically by the frame (polylineHitsCircle), not
+  // by the browser against the painted stroke: the eraser is an area, and a
+  // hairline pen was almost impossible to click on.
+  const hit = { pointerEvents: "none" as const };
   // Text marks never reach here — they render in the HTML layer, because this
   // SVG's preserveAspectRatio="none" would stretch glyphs by the image's
   // aspect ratio. The caller filters them out.
@@ -445,7 +580,6 @@ function MarkShape({ mark, erasing, onErase }:
       strokeLinecap="round" strokeLinejoin="round"
       markerEnd={arrow ? `url(#arrow-${colour.slice(1)})` : undefined}
       style={hit}
-      onPointerDown={erasing ? onErase : undefined}
     />
   );
 }

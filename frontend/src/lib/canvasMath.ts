@@ -56,6 +56,50 @@ export function tileRect(x: number, y: number, tileDisp: number): Rect {
   };
 }
 
+/** Distance from point p to the segment ab, everything in the same units. */
+function distToSegment(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  // A degenerate segment (both ends coincide) is just a point.
+  const t = len2 === 0 ? 0 : Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/** Does a normalised polyline pass within `radius` of the circle at (cx, cy)?
+ *
+ *  The polyline is stored in [0..1] image coordinates but the eraser is a
+ *  circle on screen, so the comparison has to happen in pixels: a normalised
+ *  radius would be an ellipse on any non-square image, erasing more
+ *  horizontally than vertically. Caller passes the image's rendered size and
+ *  the circle in those same pixels.
+ *
+ *  Segments count, not just vertices — a long straight stroke has two points
+ *  metres apart, and dragging the eraser across its middle must still hit it.
+ */
+export function polylineHitsCircle(
+  points: [number, number][],
+  imgW: number, imgH: number,
+  cx: number, cy: number, radius: number,
+): boolean {
+  if (points.length === 0) return false;
+  const at = (i: number): [number, number] => [points[i][0] * imgW, points[i][1] * imgH];
+  if (points.length === 1) {
+    const [x, y] = at(0);
+    return Math.hypot(cx - x, cy - y) <= radius;
+  }
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = at(i - 1);
+    const [bx, by] = at(i);
+    if (distToSegment(cx, cy, ax, ay, bx, by) <= radius) return true;
+  }
+  return false;
+}
+
 /** A client point as normalised [0..1] image coordinates within `rect`.
  *  Null for a zero-size rect, where the ratio would be NaN or Infinity. */
 export function normPoint(
