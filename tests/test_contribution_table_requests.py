@@ -544,7 +544,7 @@ def test_render_contribution_builds_rows_and_reconciles():
     captured = {}
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
-                             numeric_cols=(), grey_below=False):
+                             numeric_cols=(), grey_below=False, table_name=None):
         captured["page_id"] = page_id
         captured["rows"] = desired_rows
         captured["cols"] = data_col_count
@@ -584,7 +584,7 @@ def test_render_contribution_includes_self_feeding_target():
     captured = {}
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
-                             numeric_cols=(), grey_below=False):
+                             numeric_cols=(), grey_below=False, table_name=None):
         captured["rows"] = desired_rows
 
     cog.reconcile_table = fake_reconcile
@@ -1017,7 +1017,7 @@ def test_render_contribution_creates_missing_table_then_reconciles():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False):
+                             grey_below=False, table_name=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = fake_add
@@ -1061,7 +1061,7 @@ def test_render_contribution_promotes_never_promoted_legacy_tab():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False):
+                             grey_below=False, table_name=None):
         reconciled.append(page_id)
 
     cog.promote_tab_to_target = fake_promote
@@ -1098,7 +1098,7 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False):
+                             grey_below=False, table_name=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = boom
@@ -1382,3 +1382,81 @@ class TestEvidenceSourceLabelRegion:
                                source_region_id=None)
         assert evidence_source_label(item, {3: "Alt text scratch"}, {}) == \
             "Alt text scratch"
+
+
+# --- Which Table on the tab is ours (bug: a solver's second table) ------------
+#
+# A tab can hold more than one native Table: the bot writes one and a solver adds
+# their own. `Sheet.tables` has no documented order and moving a table on the tab
+# is enough to change it, so the old `tables[0]` pick could send a target's feeder
+# rows into the solver's table and resize it over them. Selection is by name now.
+
+
+def _reconcile_over(tables, table_name):
+    """Run reconcile_table against a tab holding `tables`; return (bodies, range
+    the data was written to) — the updateCells range names the chosen table."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{
+            "properties": {"sheetId": 900, "title": "Meta",
+                           "gridProperties": {"rowCount": 50}},
+            "tables": tables}]}
+    cog.sheet_list = _fake_sheet_list
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["key"]]}
+
+    cog._values_get = fake_values_get
+    sent = []
+
+    async def fake_batch(body, archive=False):
+        sent.append(body)
+
+    cog.batch_update = fake_batch
+    asyncio.run(cog.reconcile_table(
+        page_id=900, desired_rows=[["feeds:2", "Feeder", "Alpha", "WORD"]],
+        data_col_count=4, table_name=table_name))
+    return sent
+
+
+def _written_rows(sent):
+    """Row indices the reconciler wrote data into, across every batch."""
+    return sorted({r["updateCells"]["range"]["startRowIndex"]
+                   for body in sent for r in body["requests"] if "updateCells" in r})
+
+
+# Ours sits at row 3; the solver's table is FIRST in the list and at a different
+# row, so a positional pick writes to the wrong one and the row index shows it.
+_OURS = {"tableId": "T", "name": "Contributions 900",
+         "range": {"startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}
+_THEIRS = {"tableId": "X", "name": "Table5",
+           "range": {"startRowIndex": 20, "startColumnIndex": 0, "endColumnIndex": 4}}
+
+
+def test_reconcile_writes_to_our_named_table_not_whichever_comes_first():
+    sent = _reconcile_over([_THEIRS, _OURS], "Contributions 900")
+    # Header at row 3, so the first data row is 4 — not 21, under the solver's.
+    assert _written_rows(sent) == [4]
+
+
+def test_reconcile_finds_our_table_wherever_it_sits_in_the_list():
+    # Same two tables, opposite order: the answer must not change.
+    sent = _reconcile_over([_OURS, _THEIRS], "Contributions 900")
+    assert _written_rows(sent) == [4]
+
+
+def test_reconcile_refuses_to_write_when_no_table_is_ours():
+    # Two solver tables, neither ours: guessing would corrupt one of them.
+    other = dict(_THEIRS, tableId="Y", name="Table6")
+    sent = _reconcile_over([_THEIRS, other], "Contributions 900")
+    assert sent == []
+
+
+def test_reconcile_still_uses_a_lone_unnamed_table():
+    # Legacy tab, one Table created before the naming settled: still ours.
+    legacy = {"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0,
+                                        "endColumnIndex": 4}}
+    sent = _reconcile_over([legacy], "Contributions 900")
+    assert _written_rows(sent) == [4]

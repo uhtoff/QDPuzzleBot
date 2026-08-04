@@ -28,6 +28,7 @@ from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock, puzzle_lock
 from bot.core.errors import SheetRefreshError
+from bot.core.sheet_tables import EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME
 from bot.utils import config, urls
 from bot.core.discord_channels import (
     clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
@@ -3007,6 +3008,7 @@ class PuzzleService:
             page_id=hunt.evidence_sheet_page_id,
             desired_rows=rows,
             data_col_count=5,
+            table_name=EVIDENCE_TABLE_NAME,
         )
 
     async def refresh_evidence_safe(self, hunt):
@@ -3163,6 +3165,7 @@ class PuzzleService:
             desired_rows=desired,
             data_col_count=4,   # id, name, answer, length (Notes col E is solver-owned)
             numeric_cols=(3,),
+            table_name=UNASSIGNED_TABLE_NAME,
         )
 
     async def refresh_unassigned_safe(self, hunt, show_round=False):

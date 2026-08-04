@@ -12,6 +12,9 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
+from bot.core.sheet_tables import (
+    EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
+)
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
 logger = logging.getLogger(__name__)
@@ -954,7 +957,7 @@ class GoogleSheets(commands.Cog):
         table_id = page_id
         try:
             body = {"requests": [{"addTable": {"table": {
-                "name": "Unassigned Feeders",
+                "name": UNASSIGNED_TABLE_NAME,
                 "range": {
                     "sheetId": page_id,
                     "startRowIndex": 0,
@@ -1035,7 +1038,7 @@ class GoogleSheets(commands.Cog):
         table_id = page_id
         try:
             body = {"requests": [{"addTable": {"table": {
-                "name": "Evidence",
+                "name": EVIDENCE_TABLE_NAME,
                 "range": {
                     "sheetId": page_id,
                     "startRowIndex": 0,
@@ -1099,7 +1102,7 @@ class GoogleSheets(commands.Cog):
         # contain '-' or apostrophes (spaces are fine) — and the !round path suffixes
         # its meta name with " - meta", so a tab-derived name breaks addTable and the
         # rollup is silently deferred (the round bug). Use a page-unique, char-safe id.
-        table_name = f"Contributions {page_id}"
+        table_name = contribution_table_name(page_id)
         header_range = {
             "sheetId": page_id,
             "startRowIndex": header_row,
@@ -1137,7 +1140,7 @@ class GoogleSheets(commands.Cog):
     # --- Task 7: generalized key-anchored reconciler ----------------------
 
     async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=(),
-                              grey_below=False):
+                              grey_below=False, table_name=None):
         """Incrementally reconcile the native Table on `page_id` against the FULL
         `desired_rows` (the single source of truth — callers pass the whole desired
         set, not a pre-diff).
@@ -1176,8 +1179,21 @@ class GoogleSheets(commands.Cog):
         safe_name = sheet["properties"]["title"].replace("'", "''")
 
         # Use the Table's own range: header row + the (hidden) key column position.
+        # Which Table is ours is decided by name, never by position — a solver may
+        # add their own to the tab, and `Sheet.tables` has no documented order, so
+        # simply moving a table around the tab can change who comes first.
         tables = sheet.get("tables", []) or []
-        table = tables[0] if tables else None
+        table = select_table(tables, table_name)
+        if table is None and tables:
+            # Several Tables and none is ours: writing would append this target's
+            # rows into a solver's table and resize it over them. Skip instead —
+            # the next reconcile self-heals once the named Table exists.
+            logger.error(
+                "reconcile_table: no Table named %r on page %s (%d present) — "
+                "refusing to write into a table that is not ours",
+                table_name, page_id, len(tables),
+            )
+            return
         if table is not None:
             rng = table.get("range", {})
             header_row = rng.get("startRowIndex", 0)
@@ -1478,7 +1494,11 @@ class GoogleSheets(commands.Cog):
         spreadsheet_id = self.get_spreadsheet_id()
         for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
-                if s.get("tables"):
+                # Ours specifically, not "a Table exists": a solver's table on the
+                # tab must not stand in for the contribution Table, or the rollup
+                # is deferred forever. select_table still accepts a lone unnamed
+                # Table, so a legacy tab does not get a second one bolted on.
+                if select_table(s.get("tables"), contribution_table_name(page_id)):
                     return
                 break
         tab_name = await self.get_page_name_by_id(page_id)
@@ -1508,7 +1528,7 @@ class GoogleSheets(commands.Cog):
         spreadsheet_id = self.get_spreadsheet_id()
         sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
         has_table = any(
-            bool(s.get("tables"))
+            bool(select_table(s.get("tables"), contribution_table_name(page_id)))
             for s in sheets
             if s["properties"]["sheetId"] == int(page_id)
         )
@@ -1524,6 +1544,7 @@ class GoogleSheets(commands.Cog):
             desired_rows=rows,
             data_col_count=len(self.CONTRIBUTION_HEADER),
             grey_below=True,
+            table_name=contribution_table_name(page_id),
         )
 
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
@@ -1554,6 +1575,7 @@ class GoogleSheets(commands.Cog):
             desired_rows=rows,
             data_col_count=len(self.CONTRIBUTION_HEADER),
             grey_below=True,
+            table_name=contribution_table_name(target_puzzle.google_page_id),
         )
 
 
