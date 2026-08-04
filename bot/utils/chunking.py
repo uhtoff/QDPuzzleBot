@@ -1,11 +1,91 @@
 import discord
 import re
+from dataclasses import dataclass, field as dataclass_field
 from typing import List, Optional
 
 FIELD_VALUE_LIMIT = 1024
 FIELD_NAME_LIMIT = 256
+DESCRIPTION_LIMIT = 4096
 EMBED_TOTAL_LIMIT = 6000
 MAX_FIELDS = 25
+
+
+@dataclass
+class SplitText:
+    """A line-oriented listing fitted to one embed's limits."""
+
+    description: str = ""
+    fields: List[str] = dataclass_field(default_factory=list)
+    kept: int = 0
+    dropped: int = 0
+
+
+def split_lines_for_embed(
+    text: str,
+    *,
+    description_limit: int = DESCRIPTION_LIMIT,
+    field_limit: int = FIELD_VALUE_LIMIT,
+    total_limit: int = EMBED_TOTAL_LIMIT,
+    max_fields: int = MAX_FIELDS,
+    field_name_cost: int = 0,
+    reserved: int = 0,
+) -> SplitText:
+    """Fit a newline-separated listing into one embed, description first.
+
+    The description holds 4096 characters against a field's 1024, so filling it
+    before spilling into "(cont.)" fields is what buys the headroom. Lines are
+    never split mid-line - a row cut in half would corrupt a markdown link into
+    visible junk - and whatever does not fit is *counted*, so the caller can say
+    how many rows were dropped rather than silently implying that was all of
+    them.
+
+    `reserved` is the caller's fixed other spend against the 6000-char per-embed
+    budget (title, and any trailing note it means to add). `field_name_cost` is
+    charged once per continuation field actually emitted - reserving for all 25
+    up front would truncate lists that comfortably fit.
+    """
+    lines = text.split("\n") if text else []
+    budget = max(0, total_limit - reserved)
+
+    used = 0
+    index = 0
+
+    description_lines: List[str] = []
+    for line in lines:
+        cost = len(line) + (1 if description_lines else 0)
+        if used + cost > min(description_limit, budget):
+            break
+        description_lines.append(line)
+        used += cost
+        index += 1
+
+    fields: List[str] = []
+    while index < len(lines) and len(fields) < max_fields:
+        chunk: List[str] = []
+        chunk_used = 0
+        while index < len(lines):
+            cost = len(lines[index]) + (1 if chunk else 0)
+            # The field's name is only spent once this field exists at all.
+            name_cost = field_name_cost if not chunk else 0
+            if chunk_used + cost > field_limit or used + name_cost + cost > budget:
+                break
+            chunk.append(lines[index])
+            chunk_used += cost
+            used += name_cost + cost
+            index += 1
+        if not chunk:
+            # Either the budget is exhausted, or one line alone exceeds
+            # field_limit. Both stop here; the remainder is reported as dropped
+            # rather than mangled.
+            break
+        fields.append("\n".join(chunk))
+
+    return SplitText(
+        description="\n".join(description_lines),
+        fields=fields,
+        kept=index,
+        dropped=len(lines) - index,
+    )
 
 def _chunk(text: str, size: int) -> List[str]:
     return [text[i:i + size] for i in range(0, len(text), size)] if text else [""]

@@ -15,7 +15,12 @@ from bot.utils import config
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group, MediaJsonDb, CanvasJsonDb
-from bot.utils.chunking import build_note_embeds
+from bot.utils.chunking import (
+    FIELD_NAME_LIMIT,
+    MAX_FIELDS,
+    build_note_embeds,
+    split_lines_for_embed,
+)
 from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
@@ -1589,8 +1594,11 @@ class Puzzles(commands.Cog):
         minis = self.service.get_minis(puzzle.id)
         if not minis:
             return await ctx.send(":x: No mini-puzzles found. Use `!add_mini` to add one.")
-        embed = discord.Embed(title=f"Mini-puzzles for {puzzle.name}")
-        embed.description = self.create_mini_list(puzzle, minis, self.get_hunt(ctx))
+        embed = self._build_mini_list_embed(
+            puzzle, minis, self.get_hunt(ctx),
+            title=f"Mini-puzzles for {puzzle.name}",
+            overflow_hint="see the dashboard for the full list",
+        )
         await ctx.send(embed=embed)
 
     def create_mini_list(self, puzzle: PuzzleData, minis=None, hunt: Optional[HuntData] = None):
@@ -2878,14 +2886,55 @@ class Puzzles(commands.Cog):
             embed_list.append(sheets_embed)
         minis = self.service.get_minis(puzzle.id)
         if minis:
-            minis_embed = discord.Embed()
-            minis_embed.add_field(
-                name="Mini-puzzles",
-                value=self.create_mini_list(puzzle, minis, hunt),
+            embed_list.append(self._build_mini_list_embed(puzzle, minis, hunt))
+        return embed_list
+
+    def _build_mini_list_embed(
+        self,
+        puzzle: PuzzleData,
+        minis,
+        hunt: Optional[HuntData] = None,
+        *,
+        title: str = "Mini-puzzles",
+        overflow_hint: str = "use `!list_minis`",
+    ) -> discord.Embed:
+        """Render the mini list into one embed that respects Discord's limits.
+
+        A single 1024-char field used to hold the whole list, and a minimeta with
+        ~8 minis overflowed it - Discord then rejected the *entire* pinned-info
+        edit (50035), so `!add_mini`, `!info` and `!solve` all failed on that
+        channel. The list goes in the description (4096) and spills into
+        "(cont.)" fields, with anything past the per-embed budget counted rather
+        than silently dropped.
+        """
+        continuation_name = f"{title} (cont.)"[:FIELD_NAME_LIMIT]
+        overflow_name = "More"
+        # The title, the field names and the overflow note all spend from the
+        # same 6000-char embed budget as the values. Reserve the fixed costs
+        # here; per-field names are charged as they are actually emitted.
+        reserved = (
+            len(title)
+            + len(overflow_name)
+            + len(f"…and 999 more — {overflow_hint}")
+        )
+
+        fit = split_lines_for_embed(
+            self.create_mini_list(puzzle, minis, hunt),
+            reserved=reserved,
+            field_name_cost=len(continuation_name),
+            max_fields=MAX_FIELDS - 1,  # leave one slot for the overflow note
+        )
+
+        embed = discord.Embed(title=title, description=fit.description)
+        for value in fit.fields:
+            embed.add_field(name=continuation_name, value=value, inline=False)
+        if fit.dropped:
+            embed.add_field(
+                name=overflow_name,
+                value=f"…and {fit.dropped} more — {overflow_hint}",
                 inline=False,
             )
-            embed_list.append(minis_embed)
-        return embed_list
+        return embed
 
     @staticmethod
     def _add_puzzle_status_fields(embed, puzzle):

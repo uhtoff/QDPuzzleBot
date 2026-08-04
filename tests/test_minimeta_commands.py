@@ -217,7 +217,12 @@ class TestBuildEmbedListMinis:
 
         embeds = cog._build_embed_list(None, discord.Embed(title="x"), parent, MagicMock())
 
-        text = " ".join(f.value for e in embeds for f in e.fields)
+        # The list lives in the description (4096) and spills into "(cont.)"
+        # fields (1024 each), so look at both surfaces.
+        text = " ".join(
+            [e.description or "" for e in embeds]
+            + [f.value for e in embeds for f in e.fields]
+        )
         assert "Mini A" in text
         assert "Mini B" in text
 
