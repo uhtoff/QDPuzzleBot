@@ -34,7 +34,13 @@ def _valid_session_secret(secret):
     """A usable Quart session secret: present, >= 32 chars, not a known placeholder."""
     if not secret or len(secret) < 32:
         return False
-    return secret.lower() not in {"changeme", "insecure", "secret", "password"}
+    lowered = secret.lower()
+    if lowered in {"changeme", "insecure", "secret", "password"}:
+        return False
+    # The value shipped in config.json.dist is long enough to clear the length gate,
+    # so reject it explicitly — otherwise a config copied but never edited starts the
+    # dashboard with a publicly known session key (forgeable cookies, incl. admin).
+    return lowered != "change-me-to-a-long-random-string"
 
 
 def _max_body_bytes(attachment_cap: int) -> int:
