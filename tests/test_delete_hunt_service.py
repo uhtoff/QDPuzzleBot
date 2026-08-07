@@ -176,3 +176,31 @@ async def test_delete_hunt_tears_down_categories_before_deleting_group_row():
 
     call_names = [c[0] for c in manager.mock_calls]
     assert call_names.index("delete_group_categories") < call_names.index("tag_group_delete")
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_removes_the_hunts_media_files(tmp_path):
+    """The `media` rows cascade away with the hunt row, and media_gc only ever
+    reclaims *from rows* — so unless the files go here, nothing can ever find
+    them again. Both trees are hunt-keyed, so this is two rmtrees."""
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    uploads = tmp_path / "uploads" / "7"
+    tiles = tmp_path / "tiles" / "7"
+    uploads.mkdir(parents=True); (uploads / "a.png").write_bytes(b"x")
+    tiles.mkdir(parents=True); (tiles / "0_0.png").write_bytes(b"x")
+    # Another hunt's media must survive.
+    other = tmp_path / "uploads" / "8"
+    other.mkdir(parents=True); (other / "keep.png").write_bytes(b"x")
+
+    with patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch("bot.core.media_gc.media_root", return_value=tmp_path), \
+         patch.object(svc, "_gsheet_cog", return_value=None):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = []
+        await svc.delete_hunt(guild, hunt)
+
+    assert not uploads.exists()
+    assert not tiles.exists()
+    assert (other / "keep.png").exists()

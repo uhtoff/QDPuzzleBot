@@ -20,7 +20,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core import category_layout, hunt_archive
+from bot.core import category_layout, hunt_archive, media_gc
 from bot.core.constants import STATUSES, PRIORITIES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -3494,6 +3494,9 @@ class PuzzleService:
                         except Exception:
                             logger.exception("delete_hunt: could not delete hunt category %s", hunt.category_id)
 
+        # Before the row goes: `media` cascades from `hunts`, and media_gc
+        # reclaims from rows, so files not removed here become unreachable.
+        media_gc.remove_hunt_media(hunt.id)
         HuntJsonDb.delete(hunt.id)
         return failed_channels
 

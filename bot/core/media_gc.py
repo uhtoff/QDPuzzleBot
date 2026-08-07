@@ -37,6 +37,30 @@ class SweepStats:
     bytes_freed: int
 
 
+def remove_hunt_media(hunt_id: int) -> None:
+    """Delete every file a hunt owns: its uploads and its tile pyramids.
+
+    For hunt deletion, not sweeping. The `media` rows carry ON DELETE CASCADE
+    from `hunts`, so by the time the hunt row is gone there is nothing left to
+    derive paths from and the sweep above — which works from rows — can never
+    reclaim them. Both trees are keyed by hunt id, so this is two rmtrees.
+
+    Best-effort and never raises, matching _remove_files: a hunt delete must not
+    fail because a directory was already gone or is not writable.
+    """
+    root = media_root()
+    for relpath in (f"uploads/{hunt_id}", tiles_relpath_root(hunt_id)):
+        try:
+            shutil.rmtree(root / relpath, ignore_errors=True)
+        except Exception:
+            logger.exception("could not remove %s for hunt %s", relpath, hunt_id)
+
+
+def tiles_relpath_root(hunt_id: int) -> str:
+    """The directory holding every pyramid for one hunt (parent of tiles_relpath)."""
+    return f"tiles/{hunt_id}"
+
+
 def orphaned_media(hunt_id: int) -> list:
     """The hunt's sweepable media: unreferenced and past the grace period."""
     cutoff = datetime.datetime.utcnow() - GRACE_PERIOD
