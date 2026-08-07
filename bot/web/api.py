@@ -184,11 +184,17 @@ async def attachment_bytes(attachment_id):
     if root not in path.parents:            # defense in depth vs path traversal
         return jsonify({"error": "not_found"}), 404
     content_type = att["content_type"] or "application/octet-stream"
-    # Images render inline in the viewer; everything else is a download, so force a
-    # Content-Disposition: attachment with the original filename (otherwise the
-    # browser names the saved file after the /api/attachments/<id> URL).
-    is_image = content_type.startswith("image/")
-    resp = await send_file(path, mimetype=content_type,
+    # Only allowlisted raster types render inline; everything else is a download,
+    # so force a Content-Disposition: attachment with the original filename
+    # (otherwise the browser names the saved file after the /api/attachments/<id>
+    # URL). The type here is Discord's claim about the file, not ours, so a bare
+    # startswith("image/") would let through image/svg+xml — a scriptable
+    # document, and stored XSS when served inline from our own origin. Reuse the
+    # upload allowlist so there is one definition of "safe to render".
+    from bot.core.media_store import ALLOWED_IMAGE_TYPES
+    is_image = content_type in ALLOWED_IMAGE_TYPES
+    resp = await send_file(path,
+                           mimetype=content_type if is_image else "application/octet-stream",
                            as_attachment=not is_image,
                            attachment_filename=att["filename"])
     # These are arbitrary user-uploaded bytes served from the dashboard's own

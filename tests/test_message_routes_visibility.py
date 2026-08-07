@@ -45,6 +45,24 @@ async def test_attachment_image_served_inline(tmp_path):
     assert kwargs["as_attachment"] is False
 
 
+async def test_attachment_svg_is_never_served_inline(tmp_path):
+    """An SVG is a scriptable document: served inline from our own origin it is
+    stored XSS. content_type here is Discord's claim about the file, so
+    "image/svg+xml" passes a naive startswith("image/") check. The upload paths
+    already refuse SVG (media_store.ALLOWED_IMAGE_TYPES); the bridge path must
+    not hand one back inline either."""
+    kwargs = await _call_attachment_bytes("image/svg+xml", "payload.svg", tmp_path)
+    assert kwargs["as_attachment"] is True
+    assert "svg" not in kwargs["mimetype"]
+
+
+async def test_attachment_unknown_image_type_is_not_served_inline(tmp_path):
+    """Anything outside the raster allowlist is a download, not just SVG —
+    the browser must never be invited to render bytes we did not vet."""
+    kwargs = await _call_attachment_bytes("image/x-weird", "odd.xyz", tmp_path)
+    assert kwargs["as_attachment"] is True
+
+
 async def test_attachment_bytes_sets_nosniff(tmp_path):
     """User-supplied bytes served under our own origin: without nosniff a file
     uploaded as image/png but sniffed as HTML runs as script on the dashboard.
