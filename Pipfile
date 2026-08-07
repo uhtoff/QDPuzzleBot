@@ -23,6 +23,9 @@ python-slugify = "*"
 # no apt package and no root on the deploy host.
 pyvips = {extras = ["binary"], version = "*"}
 pytesseract = "*"
+# Imported directly by bot/core/ocr.py; declared here rather than relied on as
+# pytesseract's transitive dep so a loosened pytesseract pin can't drop it.
+pillow = "*"
 
 [requires]
 python_version = "3.12"
