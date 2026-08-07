@@ -97,6 +97,37 @@ class TestIngestImageBytes:
         assert (kw["width"], kw["height"]) == (0, 0)
         assert kw["tile_status"] == "none"
 
+    def test_pixel_bomb_is_rejected_and_leaves_nothing_behind(self, tmp_path):
+        """A small file can decode to an enormous raster (a flat 40000x40000 PNG
+        compresses to ~1 MB), so the byte-size cap does not bound the memory a
+        pyramid build will use. Reject on area, and leave no file or row."""
+        from bot.core.media_ingest import ingest_image_bytes
+        db = self._db()
+        ps = self._patches(tmp_path, dims=(40000, 40000), tiled=True)
+        try:
+            for p in ps: p.start()
+            with pytest.raises(MediaRejected):
+                ingest_image_bytes(hunt_id=10, filename="bomb.png", raw=PNG,
+                                   origin="upload", db=db)
+        finally:
+            for p in ps: p.stop()
+        db.create.assert_not_called()
+        assert list(tmp_path.rglob("*.png")) == []   # the saved file is cleaned up
+
+    def test_large_but_legitimate_sheet_is_still_accepted(self, tmp_path):
+        """The cap must sit above the real working case: the tiler is built for
+        sheets around 207 MP, so one of those must still ingest."""
+        from bot.core.media_ingest import ingest_image_bytes
+        db = self._db()
+        ps = self._patches(tmp_path, dims=(14400, 14400), tiled=True)
+        try:
+            for p in ps: p.start()
+            ingest_image_bytes(hunt_id=10, filename="sheet.png", raw=PNG,
+                               origin="upload", db=db)
+        finally:
+            for p in ps: p.stop()
+        db.create.assert_called_once()
+
     def test_rejection_propagates_and_creates_no_row(self, tmp_path):
         from bot.core.media_ingest import ingest_image_bytes
         db = self._db()

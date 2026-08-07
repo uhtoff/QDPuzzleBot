@@ -72,6 +72,20 @@ def blank_tile_bytes() -> bytes:
 # serving no purpose — a screenshot is fine as a single <img>.
 MAX_DIRECT_PIXELS = 16_000_000
 
+# Hard ceiling on what we will store at all, in pixels. Distinct from
+# MAX_DIRECT_PIXELS above, which only decides *whether to tile*: exceeding that
+# schedules the expensive work rather than refusing it, so it is not a limit.
+# The byte-size cap is not one either — PNG compresses a flat raster enormously,
+# so a ~1 MB upload can decode to 40000x40000 (1.6 Gpx) and a pyramid build of
+# that exhausts the box's RAM. 300 MP leaves real headroom above the ~207 MP
+# sheets the tiler is designed for while keeping the worst case survivable.
+MAX_PIXELS = 300_000_000
+
+
+def exceeds_pixel_limit(width: int, height: int) -> bool:
+    """Whether an image is too large to accept at all (see MAX_PIXELS)."""
+    return width * height > MAX_PIXELS
+
 
 def needs_tiling(width: int, height: int) -> bool:
     """Whether an image of this size should get a pyramid.

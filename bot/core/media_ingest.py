@@ -9,8 +9,8 @@ for that to happen again.
 """
 import logging
 
-from bot.core.image_tiler import needs_tiling, probe_dimensions
-from bot.core.media_store import save_image_bytes
+from bot.core.image_tiler import exceeds_pixel_limit, needs_tiling, probe_dimensions
+from bot.core.media_store import MediaRejected, save_image_bytes
 from bot.core.message_media import media_root
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,17 @@ def ingest_image_bytes(hunt_id: int, filename: str, raw: bytes, origin: str, db)
         # upload rather than lose it; it simply gets no pyramid.
         logger.exception("could not probe dimensions for %s", saved["path"])
         width, height = 0, 0
+    # Dimensions are only known after the bytes are on disk (the probe reads the
+    # header from the file), so an over-large image is rejected here rather than
+    # in validate_image_bytes — which means cleaning up the file we just wrote.
+    if exceeds_pixel_limit(width, height):
+        try:
+            (media_root() / saved["path"]).unlink()
+        except OSError:
+            logger.exception("could not remove oversize upload %s", saved["path"])
+        raise MediaRejected(
+            f"Image too large: {width}x{height} pixels exceeds the limit."
+        )
     tiled = needs_tiling(width, height)
     return db.create(
         hunt_id=hunt_id, path=saved["path"], filename=saved["filename"],
