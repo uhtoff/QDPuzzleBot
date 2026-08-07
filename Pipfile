@@ -3,29 +3,35 @@ name = "pypi"
 url = "https://pypi.org/simple"
 verify_ssl = true
 
+# Direct dependencies are pinned to exact versions (== not *) so the Pipfile itself
+# records what we run, and a `pipenv lock` can't silently jump a package the way the
+# mysql-connector-python 9.7.0 -> 26.7.0 major bump would have. Transitive pins live in
+# Pipfile.lock (the complete record); bump a version here deliberately, then re-lock and
+# run the suite + a live-DB smoke test.
+
 [dev-packages]
-ipython = "*"
-pytest = "*"
-pytest-asyncio = "*"
-pydevd-pycharm = "~=243.22562.220"
-ruff = "*"
+ipython = "==9.16.1"
+pytest = "==9.1.1"
+pytest-asyncio = "==1.4.0"
+pydevd-pycharm = "==243.22562.220"
+ruff = "==0.16.2"
 
 [packages]
-"discord.py" = "*"
-mysql-connector-python = "*"
-dataclasses-json = "*"
-pytz = "*"
-google-api-python-client = "*"
-quart = "*"
-aiohttp = "*"
-python-slugify = "*"
+"discord.py" = "==2.7.1"
+mysql-connector-python = "==26.7.0"
+dataclasses-json = "==0.6.7"
+pytz = "==2026.3.post1"
+google-api-python-client = "==2.198.0"
+quart = "==0.21.0"
+aiohttp = "==3.14.3"
+python-slugify = "==8.0.4"
 # The "binary" extra is load-bearing: the wheel bundles libvips, so tiling needs
 # no apt package and no root on the deploy host.
-pyvips = {extras = ["binary"], version = "*"}
-pytesseract = "*"
+pyvips = {extras = ["binary"], version = "==3.1.1"}
+pytesseract = "==0.3.13"
 # Imported directly by bot/core/ocr.py; declared here rather than relied on as
 # pytesseract's transitive dep so a loosened pytesseract pin can't drop it.
-pillow = "*"
+pillow = "==12.3.0"
 
 [requires]
 python_version = "3.12"
