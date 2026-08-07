@@ -5,6 +5,11 @@
 target-version = "py313"
 line-length = 100
 
+# scripts/ holds operational one-off tooling (diagnostics, backfills, DB dumps), not
+# part of the maintained bot/ codebase. It is tracked (see .gitignore) so source can't
+# silently vanish, but it is out of lint scope — don't gate on scratch tooling.
+extend-exclude = ["scripts"]
+
 [lint]
 select = ["F"]
 

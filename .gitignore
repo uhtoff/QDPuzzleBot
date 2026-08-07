@@ -28,7 +28,12 @@ lib64/
 # committable with `git add -f`, which is how a source file goes missing.
 !frontend/src/lib/
 parts/
-scripts/
+# scripts/ is a Python-packaging artefact rule, but it also swallows this repo's own
+# scripts/ source directory. Keep the dir's non-source contents ignored (DB dumps,
+# sql/, __pycache__) while tracking the .py tools — otherwise, as with frontend/src/lib
+# above, a source file only commits with `git add -f` and quietly goes missing.
+scripts/*
+!scripts/*.py
 sdist/
 var/
 wheels/
