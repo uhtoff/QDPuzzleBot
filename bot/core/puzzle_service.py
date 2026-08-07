@@ -585,7 +585,10 @@ class PuzzleService:
             if category.id not in category_ids:
                 continue
             for channel in getattr(category, "channels", []):
-                if getattr(channel, "type", "text") != "text":
+                # discord.ChannelType is an enum: ChannelType.text == "text" is
+                # False, so this must compare against the enum member itself.
+                if getattr(channel, "type", discord.ChannelType.text) is not \
+                        discord.ChannelType.text:
                     continue
                 if channel.id in valid_ids:
                     continue
@@ -2146,8 +2149,8 @@ class PuzzleService:
 
             # Ordering: target + unsolved feeders, then the divider, then solved
             # feeders. Sub-metas never appear here (excluded by select_extract_puzzles).
-            unsolved = [p for p in puzzles if p.status != "solved"]
-            solved = [p for p in puzzles if p.status == "solved"]
+            unsolved = [p for p in puzzles if not p.solved]
+            solved = [p for p in puzzles if p.solved]
             pos = 0
             for p in unsolved:
                 channel = guild.get_channel(p.channel_id)
@@ -2262,7 +2265,7 @@ class PuzzleService:
             raise RuntimeError("bad_destination")
 
         moves, owned = self._channels_to_consolidate(guild, hunt, meta)
-        incoming = sum(1 for _c, p in moves if getattr(p, "status", "") != "solved")
+        incoming = sum(1 for _c, p in moves if not getattr(p, "solved", False))
         if (not force and not category_layout.is_split(destination, TagGroupCategoryDb)
                 and category_layout.puzzle_count(dest_primary) + incoming
                     > category_layout.CATEGORY_SOFT_LIMIT):
@@ -2271,7 +2274,7 @@ class PuzzleService:
         keep_ids = set()
         owned_ids = {c.id for c in owned}
         for channel, puzzle in moves:
-            solved = getattr(puzzle, "status", "") == "solved"
+            solved = getattr(puzzle, "solved", False)
             if getattr(puzzle, "is_target", False):
                 moved = await self._place_channel_in_category(dest_primary, channel, solved)
             else:

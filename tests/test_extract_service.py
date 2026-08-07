@@ -8,11 +8,12 @@ from bot.store.puzzle_data import PuzzleData
 from bot.store.tag_group_data import TagGroupData, EDGE_FEEDS, EDGE_TARGET
 
 
-def _puzzle(pid, channel_id, edges, status="unsolved"):
+def _puzzle(pid, channel_id, edges, status="unsolved", solved=False):
     p = PuzzleData(name=f"puzzle-{pid}")
     p.id = pid
     p.channel_id = channel_id
     p.status = status
+    p.solved = solved
     for gid, edge in edges:
         p.add_edge(gid, edge)
     return p
@@ -138,7 +139,11 @@ async def test_extract_orders_target_unsolved_divider_solved(env):
     base = guild.get_channel.side_effect
     guild.get_channel = MagicMock(
         side_effect=lambda cid: solved_ch if cid == 803 else base(cid))
-    solved_feeder = _puzzle(3, 803, [(10, EDGE_FEEDS)], status="solved")
+    # Production state for a solved puzzle, as solve() writes it: the `solved`
+    # boolean is the marker, and status is title-cased ("Solved"). A lowercase
+    # status="solved" here would let a status-string comparison pass while the
+    # real thing never matches it.
+    solved_feeder = _puzzle(3, 803, [(10, EDGE_FEEDS)], status="Solved", solved=True)
     divider = MagicMock(); divider.edit = AsyncMock()
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \

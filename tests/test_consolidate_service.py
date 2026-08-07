@@ -148,7 +148,11 @@ async def test_consolidate_channel_home_meta_moves_extract_set(env):
 async def test_consolidate_solved_target_placed_below_divider_in_dest_primary(env):
     svc, guild, hunt, meta, dest = (env[k] for k in ("svc", "guild", "hunt", "meta", "dest"))
     target_ch, dest_cat = env["target_ch"], env["dest_cat"]
-    env["target"].status = "solved"
+    # Production state for a solved puzzle, as solve() writes it: the `solved`
+    # boolean is the marker, status is title-cased. A lowercase status="solved"
+    # here would satisfy a status-string check the real thing never matches.
+    env["target"].solved = True
+    env["target"].status = "Solved"
     divider_ch = MagicMock(); divider_ch.name = SOLVE_DIVIDER; divider_ch.position = 2
     dest_cat.channels = [divider_ch]
 
