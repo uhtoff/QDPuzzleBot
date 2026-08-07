@@ -140,3 +140,47 @@ class TestIngestImageBytes:
         finally:
             for p in ps: p.stop()
         db.create.assert_not_called()
+
+
+class TestTrustedBytesSkipTheUploadCap:
+    """The byte cap bounds what a *user* can push at us. A canvas region crop is
+    bytes this server generated: a large region re-encodes to lossless PNG well
+    past the cap, and rejecting it silently produced a region with no image."""
+
+    def test_oversize_trusted_bytes_are_accepted(self):
+        from bot.core.media_store import validate_image_bytes
+        with patch("bot.core.media_store.max_upload_bytes", return_value=10):
+            assert validate_image_bytes(PNG, enforce_size_limit=False) == "image/png"
+
+    def test_trusted_bytes_still_must_be_an_allowed_image(self):
+        """Skipping the size cap must not skip the type allowlist."""
+        from bot.core.media_store import validate_image_bytes
+        with pytest.raises(MediaRejected):
+            validate_image_bytes(b"not an image at all", enforce_size_limit=False)
+
+    def test_untrusted_bytes_still_hit_the_cap(self):
+        from bot.core.media_store import validate_image_bytes
+        with patch("bot.core.media_store.max_upload_bytes", return_value=10):
+            with pytest.raises(MediaRejected):
+                validate_image_bytes(PNG)
+
+    def test_trusted_ingest_still_enforces_the_pixel_ceiling(self, tmp_path):
+        """Trust covers size, not decodability — a crop must not smuggle a
+        pixel bomb past the ceiling."""
+        from bot.core.media_ingest import ingest_image_bytes
+        db = MagicMock()
+        ps = [
+            patch("bot.core.media_store.media_root", return_value=tmp_path),
+            patch("bot.core.media_ingest.media_root", return_value=tmp_path),
+            patch("bot.core.media_ingest.probe_dimensions", return_value=(40000, 40000)),
+            patch("bot.core.media_ingest.needs_tiling", return_value=True),
+        ]
+        try:
+            for p in ps: p.start()
+            with pytest.raises(MediaRejected):
+                ingest_image_bytes(hunt_id=10, filename="c.png", raw=PNG,
+                                   origin="canvas_crop", db=db,
+                                   enforce_size_limit=False)
+        finally:
+            for p in ps: p.stop()
+        db.create.assert_not_called()

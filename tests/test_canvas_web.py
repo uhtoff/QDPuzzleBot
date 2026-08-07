@@ -533,9 +533,12 @@ class TestCropRegionMedia:
         # The ORIGINAL upload, not a tile: the pyramid isn't a single
         # re-openable image.
         assert crop_bytes.call_args.args[0].name == "orig.png"
+        # enforce_size_limit=False: these are bytes the server generated, so the
+        # upload byte cap (a hostile-input control) must not apply — a large
+        # region re-encodes past it and the crop was silently dropped.
         ingest.assert_called_once_with(
             hunt_id=10, filename="region-crop.png", raw=b"PNGDATA",
-            origin="canvas_crop", db=mdb)
+            origin="canvas_crop", db=mdb, enforce_size_limit=False)
 
     async def test_returns_none_when_the_canvas_media_row_is_missing(self):
         from bot.web.actions import _crop_region_media

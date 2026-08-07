@@ -16,14 +16,20 @@ from bot.core.message_media import media_root
 logger = logging.getLogger(__name__)
 
 
-def ingest_image_bytes(hunt_id: int, filename: str, raw: bytes, origin: str, db):
+def ingest_image_bytes(hunt_id: int, filename: str, raw: bytes, origin: str, db,
+                       enforce_size_limit: bool = True):
     """Validate+save `raw`, probe its dimensions, and create its `media` row.
 
     Raises MediaRejected (from save_image_bytes) if the bytes are too large or
     not an allowed image type; creates no row in that case.
+
+    `enforce_size_limit=False` skips only the upload byte cap, for bytes this
+    server generated (see validate_image_bytes). The pixel ceiling below still
+    applies — that one is about what we can safely decode, not about trust.
     """
     saved = save_image_bytes(
         hunt_id=hunt_id, filename=filename, raw=raw, origin=origin,
+        enforce_size_limit=enforce_size_limit,
     )
     try:
         width, height = probe_dimensions(media_root() / saved["path"])

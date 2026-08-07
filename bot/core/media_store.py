@@ -69,7 +69,7 @@ class SavedMedia(TypedDict):
     origin: str
 
 
-def validate_image_bytes(raw: bytes) -> str:
+def validate_image_bytes(raw: bytes, *, enforce_size_limit: bool = True) -> str:
     """Reject oversize or non-allowlisted bytes; return the sniffed content type.
 
     Its own function because two other call sites (the OCR-preview route, and
@@ -77,9 +77,15 @@ def validate_image_bytes(raw: bytes) -> str:
     check inline, and one of them already drifted — it stopped checking
     ALLOWED_IMAGE_TYPES and accepted anything sniff_image_type recognised. One
     seam means there is only one place left to drift.
+
+    `enforce_size_limit=False` is for bytes this server generated itself (the
+    canvas region crop): the byte cap exists to bound what a *user* can push at
+    us, and applying it to a lossless re-encode of our own image silently
+    dropped legitimate crops. The type allowlist still applies either way, and
+    callers remain subject to the pixel ceiling in media_ingest.
     """
     limit = max_upload_bytes()
-    if len(raw) > limit:
+    if enforce_size_limit and len(raw) > limit:
         raise MediaRejected(f"Image too large (limit {limit} bytes).")
     content_type = sniff_image_type(raw[:16])
     if content_type is None or content_type not in ALLOWED_IMAGE_TYPES:
@@ -90,7 +96,8 @@ def validate_image_bytes(raw: bytes) -> str:
 
 
 def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
-                     origin: str = "upload") -> SavedMedia:
+                     origin: str = "upload",
+                     enforce_size_limit: bool = True) -> SavedMedia:
     """Validate `raw` and write it under the media root.
 
     Returns the metadata a `media` row needs: path, filename, content_type,
@@ -102,7 +109,7 @@ def save_image_bytes(hunt_id: int, filename: str, raw: bytes,
     would keep faithfully passing; the magic bytes are the only input that
     decides anything here.
     """
-    content_type = validate_image_bytes(raw)
+    content_type = validate_image_bytes(raw, enforce_size_limit=enforce_size_limit)
     root = media_root()
     if str(root) in ("", "."):
         # An unset web.archive_media_dir makes media_root() the process cwd
