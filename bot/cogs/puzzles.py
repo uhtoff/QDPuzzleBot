@@ -1024,7 +1024,9 @@ class Puzzles(commands.Cog):
             return await ctx.send(":x: Sweep cancelled.")
         # Re-derived inside sweep(), so anything attached since the report above
         # simply survives to the next run rather than being deleted from under it.
-        stats = media_gc.sweep(hunt.id)
+        # Off the loop: sweep() is an rmtree per row (a single pyramid is ~940
+        # files), and blocking here stalls the whole gateway.
+        stats = await asyncio.to_thread(media_gc.sweep, hunt.id)
         await ctx.send(
             f":white_check_mark: Swept {stats.count} image(s), freeing at least "
             f"{media_gc.format_size(stats.bytes_freed)}.")

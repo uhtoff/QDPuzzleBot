@@ -1829,7 +1829,10 @@ async def media_sweep(uid):
     if err:
         return err
     assert hunt_id is not None
-    stats = media_gc.sweep(hunt_id)
+    # sweep() is synchronous filesystem teardown — an rmtree per row, and one
+    # pyramid alone is ~940 files. Run it off the loop the Discord gateway
+    # shares, as the tiling and crop paths already do.
+    stats = await asyncio.to_thread(media_gc.sweep, hunt_id)
     await _audit("sweep_media", hunt_uid=uid,
                  detail=f"count={stats.count} bytes={stats.bytes_freed}")
     return jsonify({"ok": True, "count": stats.count, "bytes": stats.bytes_freed})
