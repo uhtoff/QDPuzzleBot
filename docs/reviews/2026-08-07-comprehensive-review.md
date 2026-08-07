@@ -7,6 +7,35 @@ cogs, DB/store/migrations, media/canvas, Google Sheets, React frontend, test qua
 dead-code/DRY, docs/config/ops). Headline findings were re-verified against source and,
 where noted, at runtime in the project venv.
 
+## Status — what has since been fixed
+
+Updated 2026-08-07, after the review. Everything below landed on `staging` with a
+failing test written first (each verified red against the old code), and the full gates
+green (1658 tests, basedpyright 0 errors, ruff clean).
+
+| Finding | Status | Commit |
+|---|---|---|
+| H1 SVG served inline (stored XSS) | fixed | `b4c6280` |
+| H2 placeholder session secret passes the guard | fixed | `48c7cab` |
+| H3 no pixel-dimension cap | fixed (`MAX_PIXELS` 300 MP) | `eaea8a8` |
+| M1 `"Solved"` vs `"solved"` compares | fixed | `43eaa5d` |
+| M2 `ChannelType.text != "text"` no-op | fixed | `4fc4921` |
+| X1 `retile_canvas` self-race | fixed (guard in `schedule_tiling`) | `a8f8527` |
+| X2 hunt delete leaks media files | fixed | `8852586` |
+| X3 uncapped region-crop executor | fixed (shares the tiling semaphore) | `a8f8527` |
+| X4 `media_gc.sweep` blocks the loop | fixed | `b64476c` |
+| X5 crop rejected by the upload byte cap | fixed | `bbdf80a` |
+| O1 `scripts/` accidentally gitignored | fixed | `96120d8` |
+| O4 Pillow undeclared | fixed | `eebb7ff` |
+| TT3 always-true assertion | fixed | `595656a` |
+| Dependency bump + Pipfile pinning | shipped to prod | `9e24542` |
+
+**Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
+atomicity class), H5 (the cross-task deadlock), M6–M11, the T-series DB items, the
+remaining web-hardening Lows, the frontend items, and TT1/TT2 (untested auth gates on
+destructive routes). The naming items remain evidence-only pending sign-off; `round_id`
+is the agreed first rename when that starts.
+
 ## Verification commands run
 
 | Check | Command | Result |
