@@ -1,6 +1,6 @@
 """MediaData / MySQLMediaDb tile-state carrying, and the tiling orchestrator."""
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.core import media_tiling
 from bot.store.media_data import MediaData
@@ -101,3 +101,87 @@ async def test_tile_media_runs_the_tiler_off_the_event_loop(tmp_path):
          patch.object(media_tiling, "build_pyramid", side_effect=record):
         await media_tiling.tile_media(_media(), db)
     assert seen["thread"] != main
+
+
+async def test_schedule_tiling_refuses_a_second_build_for_the_same_media():
+    """build_pyramid rmtree's its destination before writing, so two concurrent
+    builds for one media id race: A wipes the directory under B, and the two
+    update_tiles calls land in arbitrary order — the row can read 'ready' over a
+    half-written pyramid. Any hunt member can drive this from /retile."""
+    import asyncio
+    db = MagicMock()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow(media, _db):
+        started.set()
+        await release.wait()
+
+    with patch.object(media_tiling, "tile_media", _slow):
+        first = media_tiling.schedule_tiling(_media(), db)
+        await started.wait()
+        second = media_tiling.schedule_tiling(_media(), db)
+        release.set()
+        await asyncio.sleep(0)
+    assert first is True
+    assert second is False, "a build was already in flight for this media id"
+
+
+async def test_schedule_tiling_allows_a_rebuild_once_the_first_finishes():
+    """The guard must not wedge a media id permanently — a genuine retry after
+    a failed build has to be able to run."""
+    import asyncio
+    db = MagicMock()
+    with patch.object(media_tiling, "tile_media", AsyncMock()):
+        assert media_tiling.schedule_tiling(_media(), db) is True
+        for _ in range(5):          # let the task run to completion
+            await asyncio.sleep(0)
+        assert media_tiling.schedule_tiling(_media(), db) is True
+
+
+async def test_schedule_tiling_tracks_distinct_media_independently():
+    import asyncio
+    db = MagicMock()
+    release = asyncio.Event()
+
+    async def _slow(media, _db):
+        await release.wait()
+
+    with patch.object(media_tiling, "tile_media", _slow):
+        a = media_tiling.schedule_tiling(_media(media_id=1), db)
+        b = media_tiling.schedule_tiling(_media(media_id=2), db)
+        release.set()
+        await asyncio.sleep(0)
+    assert (a, b) == (True, True)
+
+
+async def test_crops_and_tiling_share_one_concurrency_bound():
+    """A region crop is a full decode of the source sheet (libvips has no
+    partial PNG decode), so it costs the same memory as a pyramid build. If the
+    two paths had separate caps, MAX_CONCURRENT_TILING would bound one code path
+    instead of the box's footprint: 2 tilings + N crops would still OOM.
+    """
+    import asyncio
+    started, release = [], threading.Event()
+
+    def slow_work():
+        started.append(1)
+        release.wait(timeout=10)
+        return "done"
+
+    # The module-level semaphore binds to the loop that first acquires it, and
+    # every test gets its own loop; a fresh one keeps this test independent of
+    # which sibling ran first. (Production has a single loop, so this is a test
+    # isolation concern only.)
+    with patch.object(media_tiling, "_tiling_slots",
+                      asyncio.Semaphore(media_tiling.MAX_CONCURRENT_TILING)):
+        tasks = [asyncio.create_task(media_tiling.run_bounded_image_work(slow_work))
+                 for _ in range(3)]
+        await asyncio.sleep(0.3)
+        try:
+            assert media_tiling.MAX_CONCURRENT_TILING == 2
+            assert len(started) == 2, "the third crop started despite the cap"
+        finally:
+            release.set()
+            results = await asyncio.gather(*tasks)
+    assert results == ["done"] * 3

@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 # enough for a collection to land in the middle of it.
 _tiling_tasks: set = set()
 
+# Media ids with a build in flight. Distinct from _tiling_tasks (which exists to
+# keep tasks from being collected): this is what stops two builds racing on one
+# destination directory. See schedule_tiling.
+_tiling_in_flight: set = set()
+
 # Each pyramid build peaks around 360 MB (PNG has no partial decode in libvips,
 # so a large sheet is fully resident before it is tiled). Two bounds the
 # worst-case footprint while still letting a small crop overlap a big sheet
@@ -31,6 +36,20 @@ MAX_CONCURRENT_TILING = 2
 # Safe to construct at import on 3.12+: the semaphore binds a loop lazily, on
 # first acquire, not here.
 _tiling_slots = asyncio.Semaphore(MAX_CONCURRENT_TILING)
+
+
+async def run_bounded_image_work(fn, *args):
+    """Run a memory-heavy image operation off the loop, under the same cap.
+
+    Pyramid builds are not the only full-decode work: cropping a region out of
+    a large sheet decodes the whole thing too (libvips has no partial decode for
+    PNG), so it contends for exactly the same memory. Sharing one semaphore is
+    what makes MAX_CONCURRENT_TILING a real bound on the box's footprint rather
+    than a bound on one code path.
+    """
+    loop = asyncio.get_running_loop()
+    async with _tiling_slots:
+        return await loop.run_in_executor(None, fn, *args)
 
 
 async def tile_media(media: MediaData, db) -> None:
@@ -63,20 +82,40 @@ async def tile_media(media: MediaData, db) -> None:
     logger.info("media %s tiled: %dx%d, %d levels", media.id, width, height, levels)
 
 
-def schedule_tiling(media: MediaData, db, after=None) -> None:
+def schedule_tiling(media: MediaData, db, after=None) -> bool:
     """Fire off `tile_media(media, db)` as a background task, then optionally
-    `await after()` once it finishes.
+    `await after()` once it finishes. Returns False if a build for this media
+    id is already in flight, having scheduled nothing.
 
     `after` is how a caller learns tiling is done without polling: the web
     upload route and the Discord clue-attachment path both want to push a
     "board changed" notification afterwards, but only once the pyramid is
     actually ready, not at the moment the row is created.
+
+    The in-flight guard lives here rather than at the /retile route because it
+    is build_pyramid's contract that needs it: it rmtree's its destination
+    before writing, so two concurrent builds for one media id wipe the
+    directory under each other and their update_tiles calls land in arbitrary
+    order — leaving the row claiming 'ready' over a half-written pyramid.
+    Guarding the seam covers every caller, not just the one that raced today.
     """
+    if media.id in _tiling_in_flight:
+        logger.info("tiling already in flight for media %s; not scheduling again",
+                    media.id)
+        return False
+    _tiling_in_flight.add(media.id)
+
     async def _run():
-        await tile_media(media, db)
-        if after is not None:
-            await after()
+        try:
+            await tile_media(media, db)
+            if after is not None:
+                await after()
+        finally:
+            # In a finally: tile_media never raises, but `after` can, and a
+            # media id left in the set would be unbuildable until restart.
+            _tiling_in_flight.discard(media.id)
 
     task = asyncio.create_task(_run())
     _tiling_tasks.add(task)
     task.add_done_callback(_tiling_tasks.discard)
+    return True
