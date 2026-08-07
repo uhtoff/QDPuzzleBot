@@ -4,6 +4,8 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
+
 import bot.core.puzzle_service as ps
 from bot.core.puzzle_service import PuzzleService
 from bot.core.reconcile import ReconcileReport
@@ -255,8 +257,13 @@ def test_tab_no_cog_is_noop():
 
 def test_reconcile_collects_orphan_channel():
     cat = _category(500)
-    valid = SimpleNamespace(id=111, name="tide", category=cat, type="text")
-    orphan = SimpleNamespace(id=222, name="stray", category=cat, type="text")
+    # Real channels carry the ChannelType enum, not the string "text" — and
+    # ChannelType.text == "text" is False, so a string here would let a broken
+    # type check pass while every real channel gets skipped in production.
+    valid = SimpleNamespace(id=111, name="tide", category=cat,
+                            type=discord.ChannelType.text)
+    orphan = SimpleNamespace(id=222, name="stray", category=cat,
+                             type=discord.ChannelType.text)
     cat.channels = [valid, orphan]
     guild = _guild_with(channels=[valid, orphan], categories=[cat])
     svc = _service()
@@ -421,7 +428,8 @@ def test_orphan_confirmation_truncates_long_lists():
 def test_apply_twice_is_convergent_for_healthy_hunt():
     """A hunt whose channels + tabs already match the DB yields no actions."""
     cat = _category(500)
-    chan = SimpleNamespace(id=111, name="tide", category=cat, mention="<#111>", type="text")
+    chan = SimpleNamespace(id=111, name="tide", category=cat, mention="<#111>",
+                           type=discord.ChannelType.text)
     cat.channels = [chan]
     guild = _guild_with(channels=[chan], categories=[cat])
     gcog = _gcog(page_name="Tide")  # tab present
