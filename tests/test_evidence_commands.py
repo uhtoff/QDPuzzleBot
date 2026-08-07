@@ -43,10 +43,10 @@ class TestClueCommand:
 
         await Puzzles.clue.callback(cog, ctx, note="some note")
 
-        # refresh is fired (fire-and-forget — may be wrapped in create_task)
-        assert cog.service.refresh_evidence.called or True  # see note below
-        # NOTE: if the cog wraps in asyncio.create_task, the mock may not be
-        # directly called. Accept either form; the key contract is log_clues runs.
+        # The refresh is fire-and-forget (asyncio.create_task), but calling the
+        # coroutine function to hand to create_task happens synchronously in the
+        # command, so the mock records the call even though it may not be awaited.
+        cog.service.refresh_evidence_safe.assert_called_once_with(hunt)
         cog.service.log_clues.assert_called_once()
 
     @pytest.mark.asyncio
