@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import logging.handlers
+import os
 import re
+import signal
 from pathlib import Path
 import traceback
 
@@ -138,11 +141,25 @@ async def nuke_all_appcmds(ctx):
         synced_g = await bot.tree.sync(guild=guild_obj)
         await ctx.send(f"Nuked guild cmds in {g.name}. Guild now has {len(synced_g)} commands.")
 
+# discord.log is the root logger's sink, so it collects web-route tracebacks as
+# well as gateway chatter. It used to be a plain FileHandler and grew without
+# bound -- nothing on the host rotates it. 10 MB x 5 keeps roughly the same
+# amount of recent history a human ever scrolls back through, capped at 60 MB.
+LOG_MAX_BYTES = 10 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
+
+
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup
     logger = logging.getLogger()  # 'discord')
     logger.setLevel(log_level)
-    handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='a')
+    handler = logging.handlers.RotatingFileHandler(
+        filename='discord.log',
+        encoding='utf-8',
+        mode='a',
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+    )
     handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
     logger.addHandler(handler)
 
@@ -172,7 +189,57 @@ async def load_extensions(_bot):
             traceback.print_exc()
 
 
+def install_shutdown_handlers(_bot):
+    """Turn SIGTERM/SIGINT into a graceful ``bot.close()``.
+
+    start.sh sends SIGTERM, waits 10s, then SIGKILLs. With no handler the
+    default action terminates instantly, aborting in-flight archive/channel/
+    sheet work mid-operation and evaporating the in-process locks. Reconcile
+    heals the result, but a deploy during a live hunt is a real window, and
+    closing the gateway cleanly costs a fraction of that 10s.
+
+    Note hypercorn is deliberately kept away from the signals (see
+    bot/web/__init__.py) -- we own them here, and stop the dashboard by setting
+    the shutdown event it was given.
+
+    A second signal exits immediately, so a wedged shutdown can be cut short
+    without waiting for start.sh's SIGKILL."""
+    logger = logging.getLogger(__name__)
+    loop = asyncio.get_running_loop()
+    closing = False
+
+    def _handle(signame: str) -> None:
+        nonlocal closing
+        if closing:
+            logger.warning("Second %s during shutdown; exiting now.", signame)
+            # os._exit skips interpreter cleanup, so flush the log sinks by hand
+            # first -- but only ours: logging.shutdown() would close every
+            # handler in the process, including any the caller owns.
+            for handler in logging.getLogger().handlers:
+                handler.flush()
+            os._exit(1)
+            return  # unreachable in production; keeps the fall-through honest
+        closing = True
+        logger.info("%s received; shutting down gracefully.", signame)
+        # Let the dashboard finish its in-flight requests and stop serving.
+        web_shutdown = getattr(_bot, "_web_shutdown", None)
+        if web_shutdown is not None:
+            web_shutdown.set()
+        # close() makes the pending bot.start() return, so main() unwinds normally.
+        # Parked on the bot because asyncio holds only a weak reference to a
+        # task -- an unreferenced one can be collected before it ever runs.
+        _bot._shutdown_task = loop.create_task(_bot.close(), name="graceful-shutdown")
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _handle, sig.name)
+        except NotImplementedError:
+            # Non-POSIX loop (Windows): leave the default disposition in place.
+            logger.debug("No signal-handler support for %s on this loop.", sig.name)
+
+
 async def main():
     setup_logger()
     async with bot:
+        install_shutdown_handlers(bot)
         await bot.start(utils.config.token)
