@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { onAuthLost } from "./queryClient";
 import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
@@ -8,7 +9,7 @@ function csrfToken(): string {
 /** Wrap fetch with credentials so the session cookie is always sent. */
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
-  if (res.status === 401) throw new AuthError();
+  if (res.status === 401) throw authLost();
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -23,7 +24,7 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401) throw new AuthError();
+  if (res.status === 401) throw authLost();
   if (!res.ok) {
     const detail = (await res.json().catch(() => ({}))) as {
       error?: string;
@@ -46,7 +47,7 @@ async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     headers: { "X-CSRF-Token": csrfToken() },
     body: form,
   });
-  if (res.status === 401) throw new AuthError();
+  if (res.status === 401) throw authLost();
   if (!res.ok) {
     const detail = (await res.json().catch(() => ({}))) as {
       error?: string;
@@ -110,9 +111,18 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
 
 export class AuthError extends Error {
   constructor() {
-    super("auth_required");
+    // The message reaches the user directly: notifyError shows err.message in a
+    // toast, so the raw "auth_required" slug used to be what they saw.
+    super("You have been signed out — please sign in again.");
     this.name = "AuthError";
   }
+}
+
+/** Thrown on every 401. Also drops the cached user, so App re-renders into the
+ *  login screen instead of leaving a stale session on screen. */
+function authLost(): AuthError {
+  onAuthLost();
+  return new AuthError();
 }
 
 export function loginUrl() {

@@ -126,6 +126,9 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   const [eraserAt, setEraserAt] = useState<null | { px: number; py: number }>(null);
 
   const [zoom, setZoom] = useState(1);
+  /** Mirrors `zoom` so zoomAt can read it without a setState updater; see the
+   *  purity note there. Kept in step by every writer of setZoom. */
+  const zoomRef = useRef(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panning = useRef<null | { sx: number; sy: number; ox: number; oy: number }>(null);
   /** The in-progress text editor, so pointer events inside it can be ignored by
@@ -165,14 +168,20 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   /** Zoom about an anchor in frame-local pixels, keeping whatever is under the
    *  anchor fixed. Same arithmetic as CanvasView.zoomAt. */
   const zoomAt = useCallback((factor: number, ax: number, ay: number) => {
-    setZoom((z) => {
-      const next = Math.min(8, Math.max(1, z * factor));
-      setPan((p) => ({
-        x: ax - ((ax - p.x) * next) / z,
-        y: ay - ((ay - p.y) * next) / z,
-      }));
-      return next;
-    });
+    // Both updaters must stay pure. Calling setPan from inside the setZoom
+    // updater made that updater a side effect, and React invokes updaters twice
+    // under StrictMode -- so the pan was queued twice and the second update
+    // applied on top of the first, walking the image away from the anchor.
+    // zoomRef carries the current zoom instead, leaving setPan a pure function
+    // of the previous pan.
+    const z = zoomRef.current;
+    const next = Math.min(8, Math.max(1, z * factor));
+    zoomRef.current = next;
+    setZoom(next);
+    setPan((p) => ({
+      x: ax - ((ax - p.x) * next) / z,
+      y: ay - ((ay - p.y) * next) / z,
+    }));
   }, []);
 
   // Ctrl+wheel zooms about the cursor; a plain scroll still scrolls the modal.
@@ -240,6 +249,11 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
       }
       if (!hit) continue;
       erased.current.add(m.id);
+      // Erasing one of my own marks must also drop it from the undo stack.
+      // Without this, Ctrl+Z later pops an id the server has already deleted:
+      // the request 404s, the user gets an error toast, and the undo is spent
+      // without undoing anything.
+      mine.current = mine.current.filter((id) => id !== m.id);
       deleteMark.mutate(m.id, { onError: (err) => notifyError(err) });
     }
   }, [toNorm, imgBox.w, imgBox.h, width_, marks.data, deleteMark]);
@@ -418,7 +432,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         <Button size="xs" variant="default" onClick={() => zoomBy(1.4)}>+</Button>
         <Button size="xs" variant="default" onClick={() => zoomBy(1 / 1.4)}>−</Button>
         <Button size="xs" variant="default"
-                onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</Button>
+                onClick={() => { zoomRef.current = 1; setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</Button>
         <Group gap={4}>
           {COLOURS.map((c) => (
             <ColorSwatch key={c} color={c} size={18} style={{ cursor: "pointer" }}

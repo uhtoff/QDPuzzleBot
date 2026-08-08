@@ -3,6 +3,7 @@ import { IconBrandDiscord, IconArrowBackUp } from "@tabler/icons-react";
 import { useChannelMessages } from "../hooks/useChannelMessages";
 import type { ChatMessage } from "../types";
 import { emojify } from "../emoji";
+import { safeHref } from "../lib/safeHref";
 
 interface Props {
   opened: boolean;
@@ -91,8 +92,14 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
                   borderRadius: 3, padding: "6px 10px", marginTop: 4, maxWidth: 460,
                 }}>
                   {e.title && (
-                    e.url
-                      ? <Anchor href={e.url} target="_blank" size="sm" fw={600}>{emojify(e.title)}</Anchor>
+                    // Embed urls are relayed from Discord message content, so
+                    // any member or webhook can set them: allowlist the scheme
+                    // (a javascript: href would run with our session) and fall
+                    // back to plain text. rel closes the reverse-tabnabbing
+                    // hole target="_blank" opens.
+                    safeHref(e.url)
+                      ? <Anchor href={safeHref(e.url)} target="_blank" rel="noopener noreferrer"
+                                size="sm" fw={600}>{emojify(e.title)}</Anchor>
                       : <Text size="sm" fw={600}>{emojify(e.title)}</Text>
                   )}
                   {e.description && (
@@ -112,11 +119,12 @@ export function ChatViewer({ opened, onClose, channelId, live, title, discordDee
                 </div>
               ))}
               {m.attachments.map((a) =>
-                a.url ? (
+                safeHref(a.url) ? (
                   a.content_type?.startsWith("image/") ? (
-                    <Image key={a.id} src={a.url} alt={a.filename} maw={320} radius="sm" mt={4} />
+                    <Image key={a.id} src={safeHref(a.url)} alt={a.filename} maw={320} radius="sm" mt={4} />
                   ) : (
-                    <Anchor key={a.id} href={a.url} size="sm" mt={4}>{a.filename}</Anchor>
+                    <Anchor key={a.id} href={safeHref(a.url)} target="_blank"
+                            rel="noopener noreferrer" size="sm" mt={4}>{a.filename}</Anchor>
                   )
                 ) : (
                   <Text key={a.id} size="xs" c="dimmed">{a.filename} (unavailable)</Text>

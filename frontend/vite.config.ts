@@ -23,7 +23,7 @@ export default defineConfig({
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
           mantine: ["@mantine/core", "@mantine/hooks", "@mantine/notifications"],
-          query: ["@tanstack/react-query", "@tanstack/react-table"],
+          query: ["@tanstack/react-query"],
           dnd: ["@dnd-kit/core"],
         },
       },
