@@ -316,16 +316,16 @@ class Puzzles(commands.Cog):
                                             'gsheet_cog': gsheet_cog}
 
     async def cog_after_invoke(self, ctx):
-        """After command invoked ensure changes committed to database"""
-        if self.get_puzzle(ctx):
-            PuzzleJsonDb.commit(self.get_puzzle(ctx))
-        if self.get_tag_group(ctx):
-            TagGroupJsonDb.commit(self.get_tag_group(ctx))
-        if self.get_hunt(ctx):
-            HuntJsonDb.commit(self.get_hunt(ctx))
-        guild_data = self.get_guild_data(ctx)
-        if guild_data:
-            GuildSettingsDb.commit(guild_data)
+        """Drop the command's cached environment.
+
+        Deliberately does NOT commit. It used to write puzzle, tag_group, hunt and
+        guild_data after every command, whether or not anything changed -- which
+        re-wrote every field of a possibly stale snapshot (H4), and, because
+        discord.py calls this from a `finally`, persisted the partial mutation of a
+        command that raised partway through. Every mutating path commits its own
+        write: the service does it for command flows, and the one in-cog mutation
+        (hunt.solved_sheet_id) commits explicitly at its own call site.
+        """
         self.environment.pop(ctx.message.id, None)
 
     async def group_code_autocomplete(

@@ -131,3 +131,46 @@ async def test_a_waiting_command_re_reads_what_the_holder_wrote():
     finally:
         _PUZZLE_LOCKS.pop(puzzle_id, None)
         _delete_puzzle(puzzle_id)
+
+
+@pytest.mark.asyncio
+async def test_after_invoke_does_not_persist_an_uncommitted_mutation():
+    """discord.py calls cog_after_invoke from a `finally`, so the blanket commit
+    persisted the half-finished state of a command that blew up partway through --
+    and rewrote every field of a stale snapshot on the way past."""
+    puzzle_id = _insert_puzzle(status="")
+    try:
+        cog = Puzzles(MagicMock())
+        ctx = _make_ctx(3001)
+        _seed_environment(cog, ctx, PuzzleJsonDb.get_by_attr(id=puzzle_id))
+
+        # A mutation no command ever committed -- what a command that blew up
+        # halfway leaves behind in the cached object.
+        cog.environment[ctx.message.id]["puzzle"].status = "Critical"
+
+        await cog.cog_after_invoke(ctx)
+
+        fresh = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        assert fresh is not None
+        assert fresh.status != "Critical", (
+            "after_invoke persisted a mutation no command committed"
+        )
+    finally:
+        _delete_puzzle(puzzle_id)
+
+
+@pytest.mark.asyncio
+async def test_after_invoke_still_clears_the_cached_environment():
+    """The cleanup is the method's remaining job -- a leak here grows unboundedly
+    over a hunt, one entry per command."""
+    puzzle_id = _insert_puzzle()
+    try:
+        cog = Puzzles(MagicMock())
+        ctx = _make_ctx(3002)
+        _seed_environment(cog, ctx, PuzzleJsonDb.get_by_attr(id=puzzle_id))
+
+        await cog.cog_after_invoke(ctx)
+
+        assert ctx.message.id not in cog.environment
+    finally:
+        _delete_puzzle(puzzle_id)
