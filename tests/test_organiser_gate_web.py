@@ -1,6 +1,12 @@
 """Web-layer Organiser-tier bypass: user_can_manage (auth.py) and
 require_organiser (actions.py) both allow any guild member through when the
-guild has no role named 'Organisers'. The Admin tier is never bypassed."""
+guild has nothing standing for the Organiser tier. The Admin tier is never
+bypassed.
+
+Since M8 the tiers resolve to role IDS, so the fake guilds carry ids and the
+member stub returns ids. These guilds are all UNCONFIGURED (no stored role ids),
+which is the bootstrap state where the names still decide — so every expectation
+below is unchanged from the name-matching era."""
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,11 +17,28 @@ from bot.web import auth
 from tests.conftest import make_web_app, start_patches, stop_patches
 
 
+EVERYONE_ID = 1000
+
+
 def _bot_with_guild(role_names):
-    guild = SimpleNamespace(roles=[SimpleNamespace(name=n) for n in role_names])
+    """A guild whose roles are *role_names*, ids assigned from EVERYONE_ID up."""
+    roles = [SimpleNamespace(id=EVERYONE_ID + i, name=n)
+             for i, n in enumerate(role_names)]
+    guild = SimpleNamespace(id=123, roles=roles)
     bot = MagicMock()
     bot.get_guild.return_value = guild
     return bot
+
+
+@pytest.fixture(autouse=True)
+def _unconfigured():
+    """Every guild in this module is UNCONFIGURED (no stored role ids), so the
+    names decide. Pinned explicitly rather than left to whatever the test
+    database happens to hold for guild 123."""
+    db = MagicMock()
+    db.get_cached.return_value = None
+    with patch("bot.store.GuildSettingsDb", db):
+        yield
 
 
 class TestOrganiserTierBypassed:
@@ -47,22 +70,25 @@ class TestOrganiserTierBypassed:
 class TestUserCanManageBypass:
     async def test_bypassed_for_member_without_organiser_role(self):
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))), \
-             patch("bot.web.auth.resolve_role_names", AsyncMock(return_value={"everyone"})):
+             patch("bot.web.auth.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})):
             assert await auth.user_can_manage(1, 123) is True
 
     async def test_non_member_still_denied_even_when_gate_inactive(self):
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))), \
-             patch("bot.web.auth.resolve_role_names", AsyncMock(return_value=None)):
+             patch("bot.web.auth.resolve_member_role_ids", AsyncMock(return_value=None)):
             assert await auth.user_can_manage(1, 123) is False
 
     async def test_admin_tier_still_requires_role_when_organisers_role_absent(self):
         with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))), \
-             patch("bot.web.auth.resolve_role_names", AsyncMock(return_value={"everyone"})):
+             patch("bot.web.auth.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})):
             assert await auth.user_can_manage(1, 123, roles=ADMIN_ROLES) is False
 
     async def test_existing_behaviour_preserved_when_organisers_role_present(self):
-        with patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["Organisers"]))), \
-             patch("bot.web.auth.resolve_role_names", AsyncMock(return_value={"everyone"})):
+        # The member holds only @everyone; the Organisers role exists but is
+        # someone else's, so the gate is active and this member is denied.
+        with patch("bot.web.auth.bot_app",
+                   return_value=MagicMock(bot=_bot_with_guild(["everyone", "Organisers"]))), \
+             patch("bot.web.auth.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})):
             assert await auth.user_can_manage(1, 123) is False
 
 
@@ -78,7 +104,7 @@ class TestRequireOrganiserBypass:
 
         async with Quart(__name__).app_context():
             with patch("bot.web.actions.current_user", return_value={"id": 1}), \
-                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
+                 patch("bot.web.actions.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})), \
                  patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
                 assert await actions.require_organiser(123) is None
 
@@ -87,7 +113,7 @@ class TestRequireOrganiserBypass:
 
         async with Quart(__name__).app_context():
             with patch("bot.web.actions.current_user", return_value={"id": 1}), \
-                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value=None)), \
+                 patch("bot.web.actions.resolve_member_role_ids", AsyncMock(return_value=None)), \
                  patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
                 result = await actions.require_organiser(123)
                 assert result is not None
@@ -99,7 +125,7 @@ class TestRequireOrganiserBypass:
 
         async with Quart(__name__).app_context():
             with patch("bot.web.actions.current_user", return_value={"id": 1}), \
-                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
+                 patch("bot.web.actions.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})), \
                  patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["everyone"]))):
                 result = await actions.require_admin(123)
                 assert result is not None
@@ -111,8 +137,9 @@ class TestRequireOrganiserBypass:
 
         async with Quart(__name__).app_context():
             with patch("bot.web.actions.current_user", return_value={"id": 1}), \
-                 patch("bot.web.actions.resolve_role_names", AsyncMock(return_value={"everyone"})), \
-                 patch("bot.web.auth.bot_app", return_value=MagicMock(bot=_bot_with_guild(["Organisers"]))):
+                 patch("bot.web.actions.resolve_member_role_ids", AsyncMock(return_value={EVERYONE_ID})), \
+                 patch("bot.web.auth.bot_app",
+                       return_value=MagicMock(bot=_bot_with_guild(["everyone", "Organisers"]))):
                 result = await actions.require_organiser(123)
                 assert result is not None
                 _, status = result
@@ -124,7 +151,7 @@ class TestHuntDetailOrganiserGateField:
     def hunt_web(self):
         app = make_web_app("api")
 
-        guild = SimpleNamespace(roles=[SimpleNamespace(name="everyone")])
+        guild = SimpleNamespace(id=123, roles=[SimpleNamespace(id=EVERYONE_ID, name="everyone")])
         bot = MagicMock()
         bot.get_guild.return_value = guild
 
@@ -151,14 +178,14 @@ class TestHuntDetailOrganiserGateField:
             stop_patches(patches)
 
     async def test_true_when_organisers_role_present(self, hunt_web):
-        hunt_web.guild.roles = [SimpleNamespace(name="Organisers")]
+        hunt_web.guild.roles = [SimpleNamespace(id=EVERYONE_ID, name="Organisers")]
         resp = await hunt_web.client.get("/api/hunts/U1")
         assert resp.status_code == 200
         body = await resp.get_json()
         assert body["hunt"]["organiser_gate_active"] is True
 
     async def test_false_when_no_organisers_role(self, hunt_web):
-        hunt_web.guild.roles = [SimpleNamespace(name="everyone")]
+        hunt_web.guild.roles = [SimpleNamespace(id=EVERYONE_ID, name="everyone")]
         resp = await hunt_web.client.get("/api/hunts/U1")
         assert resp.status_code == 200
         body = await resp.get_json()

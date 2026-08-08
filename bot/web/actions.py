@@ -27,9 +27,11 @@ from .auth import (
     hunt_visible,
     login_required,
     organiser_tier_bypassed,
+    guild_for,
     resolve_membership,
-    resolve_role_names,
+    resolve_member_role_ids,
 )
+from bot.core import role_gate
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import SheetRefreshError
@@ -826,12 +828,15 @@ async def require_organiser(guild_snowflake, roles=ORGANISER_ROLES):
     Organiser tier is bypassed for this guild), else an error tuple."""
     user = current_user()
     assert user is not None  # every calling route is behind @login_required
-    names = await resolve_role_names(user["id"], guild_snowflake)
-    if names is None:
+    role_ids = await resolve_member_role_ids(user["id"], guild_snowflake)
+    if role_ids is None:
         return jsonify({"error": "forbidden"}), 403
     if organiser_tier_bypassed(guild_snowflake, roles):
         return None
-    if not any(r in names for r in roles):
+    guild = guild_for(guild_snowflake)
+    if guild is None:
+        return jsonify({"error": "forbidden"}), 403
+    if not role_gate.member_holds_tier(role_ids, guild, roles):
         return jsonify({"error": "insufficient_role"}), 403
     return None
 

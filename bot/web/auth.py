@@ -18,7 +18,8 @@ from quart import Blueprint, jsonify, redirect, request, session
 from .typed_app import bot_app
 
 from bot.utils import config
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES, ORGANISER_ROLES, organiser_gate_active  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES, ORGANISER_ROLES  # noqa: F401  # ADMIN_ROLES re-exported via bot.web.auth
+from bot.core import role_gate
 
 logger = logging.getLogger(__name__)
 
@@ -213,30 +214,37 @@ async def resolve_membership(user_id):
     return membership, roles_by_guild
 
 
-async def resolve_role_names(user_id, guild_snowflake):
-    """Return the set of the user's role names in a guild, or None if not a member."""
-    bot = bot_app().bot
-    guild = bot.get_guild(guild_snowflake)
+async def resolve_member_role_ids(user_id, guild_snowflake):
+    """Return the set of the user's role IDS in a guild, or None if not a member.
+
+    Ids, not names (M8): a role can be renamed, and any member with Manage Roles
+    can mint one called `admin`. Which ids grant which tier is role_gate's call.
+    """
+    guild = guild_for(guild_snowflake)
     if guild is None:
         return None
     member = await get_or_fetch_member(guild, user_id)
     if member is None:
         return None
-    return {role.name for role in member.roles}
+    return {role.id for role in member.roles}
+
+
+def guild_for(guild_snowflake):
+    """The live guild object for a snowflake, or None if the bot cannot see it."""
+    return bot_app().bot.get_guild(guild_snowflake)
 
 
 def organiser_tier_bypassed(guild_snowflake, roles):
     """True if `roles` is the Organiser tier (contains any of
-    ORGANISER_ROLE_NAMES) and the guild has none of those roles —
+    ORGANISER_ROLE_NAMES) and the guild has nothing standing for that tier —
     Organiser-tier checks then pass for every guild member. Always False for
     the Admin tier."""
     if not any(name in roles for name in ORGANISER_ROLE_NAMES):
         return False
-    bot = bot_app().bot
-    guild = bot.get_guild(guild_snowflake)
+    guild = guild_for(guild_snowflake)
     if guild is None:
         return False
-    return not organiser_gate_active(guild)
+    return not role_gate.organiser_gate_active(guild)
 
 
 async def user_can_manage(user_id, guild_snowflake, roles=ORGANISER_ROLES):
@@ -244,12 +252,15 @@ async def user_can_manage(user_id, guild_snowflake, roles=ORGANISER_ROLES):
     Organiser tier is bypassed for this guild (see organiser_tier_bypassed)."""
     if not guild_snowflake:
         return False
-    names = await resolve_role_names(user_id, guild_snowflake)
-    if not names:
+    role_ids = await resolve_member_role_ids(user_id, guild_snowflake)
+    if role_ids is None:
         return False
     if organiser_tier_bypassed(guild_snowflake, roles):
         return True
-    return any(r in names for r in roles)
+    guild = guild_for(guild_snowflake)
+    if guild is None:
+        return False
+    return role_gate.member_holds_tier(role_ids, guild, roles)
 
 
 def hunt_visible(hunt, membership, roles_by_guild, guilds_map):

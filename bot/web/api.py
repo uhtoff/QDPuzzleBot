@@ -17,7 +17,7 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
-from bot.core.constants import organiser_gate_active
+from bot.core.role_gate import organiser_gate_active
 
 logger = logging.getLogger(__name__)
 
