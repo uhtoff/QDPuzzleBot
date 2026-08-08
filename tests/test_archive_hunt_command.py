@@ -48,8 +48,10 @@ async def test_archive_hunt_aborts_when_cancelled():
 
 
 async def test_archive_hunt_locks_member_puzzles():
-    """archive_hunt must hold every member puzzle's lock for the duration of
-    confirm+archive, matching delete_hunt/delete_round (review follow-up)."""
+    """archive_hunt must hold every member puzzle's lock across the archive,
+    matching delete_hunt/delete_round (review follow-up). The lock is taken AFTER
+    the confirm click, not around it (H5 aggravator) — see
+    tests/test_lock_ordering.py."""
     hunt = _hunt()
     cog = make_cog(hunt=hunt)
     cog.service.archive_hunt = AsyncMock(return_value=hunt_archive.HuntArchiveReport(

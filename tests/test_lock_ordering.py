@@ -316,3 +316,105 @@ async def test_bang_convert_holds_target_and_members():
 
     assert seen["held"] == {5248, 5250}
 
+
+# ---------------------------------------------------------------------------
+# Aggravator: bang delete/archive must not hold the locks across the human confirm
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_bang_delete_round_confirms_before_locking():
+    """Holding every member's lock across the confirm click blocks all solves and
+    retags in the round for the length of the confirm window (up to the view's
+    timeout). Confirm first, then lock."""
+    from bot.cogs.puzzles import Puzzles
+    from tests.conftest import make_cog, make_ctx
+
+    tag_group = make_round(id=5307)
+    cog = make_cog(hunt=make_hunt(channel_id=999))
+    cog.bot = MagicMock()
+    cog.bot.get_channel.return_value = MagicMock(send=AsyncMock())
+    cog.get_channel_type = lambda ctx: "Group"
+    cog.get_tag_group = lambda ctx: tag_group
+    cog.service.delete_round = AsyncMock(return_value=[])
+    ctx = make_ctx()
+    cog.environment = {ctx.message.id: {"puzzle": None, "tag_group": tag_group}}
+
+    order = []
+
+    async def confirm(*_args, **_kwargs):
+        order.append("confirm")
+        return True
+
+    cog._confirm_destructive = confirm
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_tag_group.return_value = [make_puzzle(id=1), make_puzzle(id=2)]
+        lock_mock.side_effect = lambda ids: order.append("lock") or _null_cm()
+        await Puzzles.delete_round.callback(cog, ctx)
+
+    assert order == ["confirm", "lock"]
+
+
+@pytest.mark.asyncio
+async def test_bang_delete_hunt_confirms_before_locking():
+    from bot.cogs.puzzles import Puzzles
+    from tests.conftest import make_cog, make_ctx
+
+    cog = make_cog(hunt=make_hunt(channel_id=999))
+    cog.get_channel_type = lambda ctx: "Hunt"
+    cog.service.delete_hunt = AsyncMock(return_value=[])
+    ctx = make_ctx()
+    ctx.channel = MagicMock(send=AsyncMock())
+    cog.environment = {ctx.message.id: {"puzzle": None, "tag_group": None}}
+
+    order = []
+
+    async def confirm(*_args, **_kwargs):
+        order.append("confirm")
+        return True
+
+    cog._confirm_destructive = confirm
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_hunt.return_value = [make_puzzle(id=3), make_puzzle(id=1)]
+        lock_mock.side_effect = lambda ids: order.append("lock") or _null_cm()
+        await Puzzles.delete_hunt.callback(cog, ctx)
+
+    assert order == ["confirm", "lock"]
+
+
+@pytest.mark.asyncio
+async def test_bang_archive_hunt_confirms_before_locking():
+    from bot.cogs.puzzles import Puzzles
+    from bot.core import hunt_archive
+    from tests.conftest import make_cog, make_ctx
+
+    hunt = make_hunt(channel_id=999)
+    cog = make_cog(hunt=hunt)
+    cog.service.archive_hunt = AsyncMock(return_value=hunt_archive.HuntArchiveReport(
+        channels_archived=4, final_name="H - me"))
+    ctx = make_ctx()
+    ctx.author.display_name = "me"
+
+    order = []
+
+    async def confirm(*_args, **_kwargs):
+        order.append("confirm")
+        return True
+
+    cog._confirm_destructive = confirm
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock:
+        PuzzleDb.get_all_from_hunt.return_value = [MagicMock(id=3), MagicMock(id=1)]
+        lock_mock.side_effect = lambda ids: order.append("lock") or _null_cm()
+        await Puzzles.archive_hunt.callback(cog, ctx)
+
+    assert order == ["confirm", "lock"]
+
+
+@contextlib.asynccontextmanager
+async def _null_cm():
+    yield

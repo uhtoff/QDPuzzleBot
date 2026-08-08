@@ -3833,10 +3833,13 @@ class Puzzles(commands.Cog):
                 f"channel, delete all its categories and channels (including voice), rename "
                 f"this channel to **{final}**, and mark the hunt archived. Google sheets are "
                 f"kept. **Not reversible.**")
+        # Confirm BEFORE locking: holding every puzzle's lock across the human
+        # click blocks all solves/retags in the hunt for the confirm window, and
+        # the id set is only meaningful once we know we're proceeding.
+        if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
+            return
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
         async with puzzles_lock(member_puzzle_ids):
-            if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
-                return
             status = await ctx.send("⏳ Archiving…")
 
             async def on_progress(done, total, name):
@@ -3920,12 +3923,14 @@ class Puzzles(commands.Cog):
 
         tag_group = self.get_tag_group(ctx)
         assert tag_group is not None  # group channel checked above
+        n = len(PuzzleJsonDb.get_all_from_tag_group(tag_group.id))
+        # Confirm BEFORE locking: holding every member's lock across the human
+        # click blocks all solves/retags in the round for the confirm window. The
+        # id set is re-read after confirming so it reflects the state we lock.
+        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
+            return
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
-        n = len(member_puzzle_ids)
         async with puzzles_lock(member_puzzle_ids):
-            if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
-                return
-
             hunt = self.get_hunt(ctx)
             assert hunt is not None  # group channels always resolve their hunt
             hunt_general_channel = self.bot.get_channel(hunt.channel_id)
@@ -4018,11 +4023,14 @@ class Puzzles(commands.Cog):
             return
         hunt = self.get_hunt(ctx)
         assert hunt is not None  # Hunt channel checked above
+        n = len(PuzzleJsonDb.get_all_from_hunt(hunt.id))
+        # Confirm BEFORE locking: holding every puzzle's lock across the human
+        # click blocks all solves/retags in the hunt for the confirm window. The
+        # id set is re-read after confirming so it reflects the state we lock.
+        if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
+            return
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
-        n = len(member_puzzle_ids)
         async with puzzles_lock(member_puzzle_ids):
-            if not await self._confirm_destructive(ctx, f"Delete the ENTIRE hunt **{hunt.name}**: {n} puzzle(s), all rounds, channels and sheets?"):
-                return
             failed = await self.service.delete_hunt(ctx.guild, hunt)
             await self._warn_failed_channels(hunt_channel, failed)
         self.set_puzzle(ctx, None)

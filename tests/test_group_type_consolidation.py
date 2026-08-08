@@ -94,12 +94,13 @@ async def test_info_capstone_calls_metapuzzle_handler():
     cog.send_initial_metapuzzle_channel_messages.assert_awaited_once()
 
 
-# --- delete_round holds member-puzzle locks for the confirm+delete flow -----
+# --- delete_round holds member-puzzle locks for the delete itself -----------
 # (review #45)
 
 async def test_delete_round_bang_locks_member_puzzles():
-    """delete_round must hold every member puzzle's lock for the duration of
-    confirm+delete, not just proceed unlocked (review #45)."""
+    """delete_round must hold every member puzzle's lock across the delete, not
+    just proceed unlocked (review #45). The lock is taken AFTER the confirm click,
+    not around it (H5 aggravator) — see tests/test_lock_ordering.py."""
     from bot.cogs.puzzles import Puzzles
 
     tag_group = make_round(id=7)
@@ -125,8 +126,9 @@ async def test_delete_round_bang_locks_member_puzzles():
 
 
 async def test_delete_hunt_bang_locks_member_puzzles():
-    """delete_hunt must hold every member puzzle's lock for the duration of
-    confirm+delete, not just proceed unlocked (review #45)."""
+    """delete_hunt must hold every member puzzle's lock across the delete, not
+    just proceed unlocked (review #45). The lock is taken AFTER the confirm click,
+    not around it (H5 aggravator) — see tests/test_lock_ordering.py."""
     from bot.cogs.puzzles import Puzzles
 
     hunt = make_hunt(channel_id=999)
