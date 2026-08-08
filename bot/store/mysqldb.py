@@ -1254,19 +1254,22 @@ class MySQLGuildSettingsDb():
         cursor = self.mydb.cursor()
         data = (settings.guild_id, settings.guild_name, settings.website_url,
                 settings.discord_bot_channel, settings.discord_bot_emoji, settings.discord_use_voice_channels,
-                settings.drive_parent_id, settings.drive_resources_id)
+                settings.drive_parent_id, settings.drive_resources_id,
+                settings.admin_role_ids or None, settings.organiser_role_ids or None)
         if settings.id > 0:
             update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s, `website_url`=%s,"
                            "`discord_bot_channel`=%s,`discord_bot_emoji`=%s,`discord_use_voice_channels`=%s,"
-                           "`drive_parent_id`=%s,`drive_resources_id`=%s "
+                           "`drive_parent_id`=%s,`drive_resources_id`=%s,"
+                           "`admin_role_ids`=%s,`organiser_role_ids`=%s "
                            "WHERE id=%s")
             data = data + (settings.id,)
             cursor.execute(update_stmt, data)
         else:
             insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, `website_url`,"
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
-                           "`drive_parent_id`, `drive_resources_id`) "
-                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)")
+                           "`drive_parent_id`, `drive_resources_id`, "
+                           "`admin_role_ids`, `organiser_role_ids`) "
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid or 0
         cursor.close()

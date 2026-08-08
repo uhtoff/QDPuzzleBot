@@ -34,6 +34,12 @@ class GuildSettings:
     discord_use_voice_channels: bool = False  # Whether to create voice channels for puzzles
     drive_parent_id: str = ""
     drive_resources_id: str = ""    # Document with resources links, etc
+    # Comma-separated Discord role snowflakes granting each authorisation tier
+    # (M8). Empty/NULL means NOT CONFIGURED, and the tier falls back to matching
+    # the role NAMES in bot.core.constants — the pre-M8 behaviour, and the state
+    # every guild starts in.
+    admin_role_ids: str = ""
+    organiser_role_ids: str = ""
 
     @classmethod
     def import_dict(cls, settings: dict):
