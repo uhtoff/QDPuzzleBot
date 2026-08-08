@@ -240,6 +240,10 @@ def make_cog(puzzle=None, hunt=None):
     from bot.cogs.puzzles import Puzzles
 
     cog = Puzzles.__new__(Puzzles)
+    # Real Puzzles.__init__ always sets this (with_puzzle_mutex's
+    # _refresh_environment reads it via self.environment.get(...)); __new__
+    # bypasses __init__, so it must be stubbed in here to match.
+    cog.environment = {}
     cog.get_puzzle = lambda ctx: puzzle
     cog.get_hunt = lambda ctx: hunt or MagicMock()
     cog.service = MagicMock()

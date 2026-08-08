@@ -81,6 +81,7 @@ def with_puzzle_mutex(*, wait: bool = True):
                 if lock.locked():
                     await ctx.send("⏳ Hold your horses!  Another command is running for this puzzle, I'll get to you in a second.")
                 async with lock:
+                    self._refresh_environment(ctx, puzzle.id)
                     return await func(self, ctx, *args, **kwargs)
 
             try:
@@ -90,6 +91,7 @@ def with_puzzle_mutex(*, wait: bool = True):
                 return
 
             try:
+                self._refresh_environment(ctx, puzzle.id)
                 return await func(self, ctx, *args, **kwargs)
             finally:
                 lock.release()
@@ -169,6 +171,36 @@ class Puzzles(commands.Cog):
         self.service = PuzzleService(self.bot, notifier=CompositeNotifier([DiscordNotifier(self.bot)]))
         self.reminder_index=0
         self.environment = {}
+
+    def _refresh_environment(self, ctx, puzzle_id):
+        """Re-read the command's puzzle/group/hunt from the database, now that the
+        per-puzzle lock is held.
+
+        cog_before_invoke resolves which puzzle a channel maps to -- which is how we
+        know which lock to take -- but its snapshot is read BEFORE the lock. Services
+        commit the object they are given, field by field, so acting on that snapshot
+        clobbers whatever a concurrent bang or web write changed while we were waiting
+        (H4). Re-reading here gives the bang edge the same lock-then-read shape the web
+        handlers already have (bot/web/actions.py).
+        """
+        env = self.environment.get(ctx.message.id)
+        if env is None:
+            return
+        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+        if puzzle is None:
+            # Deleted while we waited for the lock. Leave the stale object in place;
+            # the command's own not-found handling deals with it, and T2's rowcount
+            # log will record any write that lands on the missing row.
+            return
+        env["puzzle"] = puzzle
+        if env.get("tag_group") is not None:
+            refreshed_group = TagGroupJsonDb.get_by_attr(id=env["tag_group"].id)
+            if refreshed_group is not None:
+                env["tag_group"] = refreshed_group
+        if env.get("hunt") is not None:
+            refreshed_hunt = HuntJsonDb.get_by_attr(id=env["hunt"].id)
+            if refreshed_hunt is not None:
+                env["hunt"] = refreshed_hunt
 
     @commands.Cog.listener()
     async def on_ready(self):
