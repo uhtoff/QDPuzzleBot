@@ -57,6 +57,18 @@ class _MySQLBaseDb:
             update_stmt += " WHERE `id` = %s"
             data = data + (database_id,)
             cursor.execute(update_stmt, data)
+            if cursor.rowcount == 0:
+                # The row is gone -- typically cascade-deleted underneath a stale
+                # object (a snapshot held across a delete_round, or a web delete
+                # landing mid bang-command). Deliberately a log, not a raise: that
+                # path is legitimate, and raising would abort a command after its
+                # Discord-side work is already done. Note MySQL also reports 0 for an
+                # UPDATE that matched a row but changed no value, so this can be a
+                # false positive -- another reason it is diagnostic, not fatal.
+                logger.error(
+                    "UPDATE on `%s` id=%s matched no row; the write was dropped",
+                    self.TABLE_NAME, database_id,
+                )
         else:
             insert_stmt = f"INSERT INTO `{self.TABLE_NAME}` ("
             for field in field_list:
