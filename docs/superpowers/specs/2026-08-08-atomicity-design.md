@@ -1,5 +1,12 @@
 # Atomicity work — design
 
+> **STATUS: SHIPPED 2026-08-08** on `staging` (`ba0df74..f472a83`). One correction to
+> this spec was found in review and fixed in `9f5cda7`: §4 judged the `rowcount == 0`
+> false positive "acceptable at ERROR volume", which was wrong. Because tags/tag_edges
+> are in `SPECIAL_ATTR`, a membership-only commit changes no scalar column and ALWAYS
+> reports 0, so the log fired on every successful retag. It now confirms the row is
+> really gone with an indexed SELECT before logging.
+
 Date: 2026-08-08. Source: `docs/reviews/2026-08-07-comprehensive-review.md`, item 4 of
 its suggested order of attack — "H4 + T1 + M5 (the atomicity class) — the biggest design
 fix; scope it deliberately." T2 is folded in because it compounds the same class.

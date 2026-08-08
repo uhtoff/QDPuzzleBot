@@ -1,5 +1,12 @@
 # Atomicity Work Implementation Plan
 
+> **STATUS: SHIPPED 2026-08-08.** All 12 tasks done and merged to `staging`
+> (`ba0df74..f472a83`, 17 commits), pushed to `origin/staging`. Gates at merge: 1686
+> tests passing, ruff clean, `basedpyright bot/` 0 errors, `scripts/diagnose_atomicity.py`
+> 6/6. Kept as a record — do not re-execute. Migration 037 was applied to
+> `puzzlebot_test` only; it reaches production on the next deploy via `migrate.py`.
+> H5 (the convert/delete lock-ordering deadlock) remains open and is the next item.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the silent-lost-update and half-applied-write paths in the store layer and at the Discord bang-command edge, and make the code's claims about atomicity true.
