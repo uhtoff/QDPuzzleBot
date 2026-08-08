@@ -260,6 +260,8 @@ def _case3_edge_conversion():
 def _case4_positions():
     import datetime
 
+    media_ids = []
+
     def _insert_media():
         c = mydb.cursor()
         c.execute(
@@ -270,6 +272,7 @@ def _case4_positions():
         )
         mid = c.lastrowid
         c.close()
+        media_ids.append(mid)
         return mid
 
     def _insert_image(puzzle_id, position):
@@ -310,6 +313,8 @@ def _case4_positions():
         if not _KEEP:
             cur = mydb.cursor()
             cur.execute("DELETE FROM puzzle_images WHERE puzzle_id = %s", (pid,))
+            for mid in media_ids:
+                cur.execute("DELETE FROM media WHERE id = %s", (mid,))
             cur.close()
             _delete_puzzle(pid)
 
