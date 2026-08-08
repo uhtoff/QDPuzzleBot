@@ -1126,21 +1126,6 @@ class Puzzles(commands.Cog):
                 logger.exception("web_post_solved_embed: failed to reposition channel")
         await self.web_refresh_info(guild, hunt, puzzle)
 
-    _WEB_SOLUTION_UPDATE_EMBEDS = {
-        "partial": lambda emoji, puzzle: (
-            "Partially SOLVED!",
-            f"{emoji} :partying_face: Great work! Added the solution `{puzzle.solution}`",
-        ),
-        "change": lambda emoji, puzzle: (
-            "PUZZLE SOLUTION UPDATED!",
-            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
-        ),
-        "add": lambda emoji, puzzle: (
-            "EXTRA PUZZLE SOLUTION ADDED!",
-            f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`",
-        ),
-    }
-
     async def web_post_solution_update_embed(self, guild, hunt, puzzle, mode):
         """Best-effort dashboard-side presentation after service.add_partial/
         change_solution/add_solution (mode in "partial"/"change"/"add"): post the
@@ -1154,9 +1139,9 @@ class Puzzles(commands.Cog):
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
             emoji = guild_data.discord_bot_emoji if guild_data else ""
-            title, description = self._WEB_SOLUTION_UPDATE_EMBEDS[mode](emoji, puzzle)
-            embed = discord.Embed(title=title, description=description)
-            embed.add_field(name="Follow-up", value="Updated from the dashboard.")
+            from bot.core.notifier import build_solution_update_embed
+            embed = build_solution_update_embed(
+                mode, emoji, puzzle.solution, "Updated from the dashboard.")
             try:
                 await channel.send(embed=embed)
             except Exception:
@@ -3463,11 +3448,10 @@ class Puzzles(commands.Cog):
         guild_data = self.get_guild_data(ctx)
         assert guild_data is not None  # guilds running hunt commands always have a settings row
         emoji = guild_data.discord_bot_emoji
-        embed = discord.Embed(title="Partially SOLVED!",
-                              description=f"{emoji} :partying_face: Great work! Added the solution `{solution}`")
-        embed.add_field(
-            name="Follow-up",
-            value="If you need to clear the partial solutions then use !unsolve and they will all be wiped. "
+        from bot.core.notifier import build_solution_update_embed
+        embed = build_solution_update_embed(
+            "partial", emoji, solution,
+            "If you need to clear the partial solutions then use !unsolve and they will all be wiped. ",
         )
         await ctx.send(embed=embed)
         await self.send_initial_puzzle_channel_messages(ctx, ctx.channel, update=True)
@@ -3585,15 +3569,14 @@ class Puzzles(commands.Cog):
         except SheetRefreshError as exc:
             sheet_warning = exc
 
-        title = "PUZZLE SOLUTION UPDATED!" if mode == "change" else "EXTRA PUZZLE SOLUTION ADDED!"
         guild_data = self.get_guild_data(ctx)
         assert guild_data is not None  # guilds running hunt commands always have a settings row
         emoji = guild_data.discord_bot_emoji
-        embed = discord.Embed(title=title,
-                              description=f"{emoji} :partying_face: Great work! I've updated the solution to `{puzzle.solution}`")
-        embed.add_field(
-            name="Follow-up",
-            value="If the solution was entered incorrectly, please use `!update_solution` to update it, if the puzzle isn't actually solved at all then use `!unsolve`. "
+        from bot.core.notifier import build_solution_update_embed
+        embed = build_solution_update_embed(
+            mode, emoji, puzzle.solution,
+            "If the solution was entered incorrectly, please use `!update_solution` to update it, "
+            "if the puzzle isn't actually solved at all then use `!unsolve`. ",
         )
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)

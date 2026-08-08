@@ -7,7 +7,6 @@ import {
   Badge,
   Box,
   Group,
-  Radio,
   Table,
   Text,
   Tooltip,
@@ -28,7 +27,7 @@ import {
   useRollupAnswers,
   useUpdatePuzzle,
 } from "../api";
-import { TypedConfirmModal } from "./TypedConfirmModal";
+import { DeleteRoundModal } from "./DeleteRoundModal";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge, getKind, kindColorVar } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
@@ -378,41 +377,17 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         )}
       </Accordion.Panel>
 
-      <TypedConfirmModal
+      <DeleteRoundModal
         opened={deleteRoundOpen}
         onClose={() => setDeleteRoundOpen(false)}
         onConfirm={runDeleteRound}
-        title={`Delete round "${group.name}"`}
-        confirmPhrase={group.name}
-        confirmLabel="Delete round"
+        name={group.name}
+        noun="round"
+        puzzleCount={deleteCount}
         loading={deleteRoundMut.isPending}
-      >
-        <Radio.Group
-          value={deleteAllPuzzles ? "all" : "keep"}
-          onChange={(v) => setDeleteAllPuzzles(v === "all")}
-          label="What should happen to this round's puzzles?"
-        >
-          <Group mt="xs">
-            <Radio value="keep" label="Round only — keep its puzzles" />
-            <Radio value="all" label={`Round + all ${deleteCount} puzzle${deleteCount === 1 ? "" : "s"}`} />
-          </Group>
-        </Radio.Group>
-        {deleteAllPuzzles ? (
-          <Text size="sm" c="red">
-            ⚠️ This permanently deletes <b>{deleteCount} puzzle{deleteCount === 1 ? "" : "s"}</b>,
-            their Discord channels and Google sheet tabs, and the round&rsquo;s Discord category.
-            Feeders shared with another round, and any puzzle that is another round&rsquo;s target,
-            are kept and moved to the hunt&rsquo;s general category. This cannot be undone.
-          </Text>
-        ) : (
-          <Text size="sm" c="red">
-            ⚠️ This permanently deletes the round&rsquo;s target puzzle (or dedicated chat channel,
-            if it has no target) and its Discord category. Every other puzzle in this round keeps
-            its sheet and Discord channel — those channels move into the hunt&rsquo;s general
-            category. This cannot be undone.
-          </Text>
-        )}
-      </TypedConfirmModal>
+        deleteAllPuzzles={deleteAllPuzzles}
+        onDeleteAllPuzzlesChange={setDeleteAllPuzzles}
+      />
     </Accordion.Item>
   );
 }

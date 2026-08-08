@@ -19,7 +19,6 @@ import {
   Loader,
   Menu,
   Paper,
-  Radio,
   ScrollArea,
   Stack,
   Text,
@@ -50,6 +49,7 @@ import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
 import { getKind, kindColorVar } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
+import { DeleteRoundModal } from "./DeleteRoundModal";
 
 interface MetaOption {
   code: string;
@@ -939,31 +939,17 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         confirmColor="grape"
       />
 
-      <TypedConfirmModal
+      <DeleteRoundModal
         opened={deleteGroupTarget != null}
         onClose={() => setDeleteGroupTarget(null)}
         onConfirm={runDeleteRound}
-        title={`Delete group "${deleteGroupTarget?.name ?? ""}"`}
-        confirmPhrase={deleteGroupTarget?.name ?? ""}
-        confirmLabel="Delete group"
+        name={deleteGroupTarget?.name ?? ""}
+        noun="group"
+        puzzleCount={deleteGroupCount}
         loading={deleteRoundMut.isPending}
-      >
-        <Radio.Group
-          value={deleteAllPuzzles ? "all" : "keep"}
-          onChange={(v) => setDeleteAllPuzzles(v === "all")}
-          label="What should happen to this group's puzzles?"
-        >
-          <Group mt="xs">
-            <Radio value="keep" label="Group only — keep its puzzles" />
-            <Radio value="all" label={`Group + all ${deleteGroupCount} puzzle${deleteGroupCount === 1 ? "" : "s"}`} />
-          </Group>
-        </Radio.Group>
-        <Text size="sm" c="red" mt="xs">
-          {deleteAllPuzzles
-            ? `⚠️ This permanently deletes ${deleteGroupCount} puzzle${deleteGroupCount === 1 ? "" : "s"}, their Discord channels and Google sheet tabs, and the group's Discord category. Feeders shared with another round, and any puzzle that is another round's target, are kept and moved to the hunt's general category. This cannot be undone.`
-            : "⚠️ This deletes the group's target puzzle (or its dedicated chat channel) and its Discord category. Other puzzles keep their sheet/channel and move to the hunt's general category. This cannot be undone."}
-        </Text>
-      </TypedConfirmModal>
+        deleteAllPuzzles={deleteAllPuzzles}
+        onDeleteAllPuzzlesChange={setDeleteAllPuzzles}
+      />
     </Box>
   );
 }

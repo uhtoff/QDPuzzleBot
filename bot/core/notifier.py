@@ -272,6 +272,39 @@ class CompositeNotifier(Notifier):
 
 
 # ------------------------------------------------------------------ helpers
+_SOLUTION_UPDATE_WORDING = {
+    "partial": (
+        "Partially SOLVED!",
+        "{emoji} :partying_face: Great work! Added the solution `{solution}`",
+    ),
+    "change": (
+        "PUZZLE SOLUTION UPDATED!",
+        "{emoji} :partying_face: Great work! I've updated the solution to `{solution}`",
+    ),
+    "add": (
+        "EXTRA PUZZLE SOLUTION ADDED!",
+        "{emoji} :partying_face: Great work! I've updated the solution to `{solution}`",
+    ),
+}
+
+
+def build_solution_update_embed(mode, emoji, solution, follow_up):
+    """Shared partial/change/add embed formula, the same treatment #79 gave
+    "solved" in build_solved_embed. The title and description were copied
+    verbatim between the bang !partial/!change_solution/!add_solution commands
+    and the dashboard's web_post_solution_update_embed, so a wording change had
+    to be made in two places. Only Follow-up is caller-specific: the bang copy
+    names the command to use next, the dashboard copy says where it came from.
+    """
+    title, description = _SOLUTION_UPDATE_WORDING[mode]
+    embed = __import__("discord").Embed(
+        title=title,
+        description=description.format(emoji=emoji, solution=solution),
+    )
+    embed.add_field(name="Follow-up", value=follow_up)
+    return embed
+
+
 def build_solved_embed(emoji, puzzle, follow_up):
     """Shared "PUZZLE SOLVED!" embed formula (#79: this title/description was
     independently copied in the bang !solve command, web_post_solved_embed, and
