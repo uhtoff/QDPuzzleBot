@@ -44,8 +44,43 @@ convert commands remain admin-only, so the two surfaces differ deliberately.
 **H5 (the cross-task deadlock) — resolved**, with its confirm-under-lock aggravator
 (`0173802`, `cd05c68`); see the finding for what changed.
 
+**M6 (reconcile category scope) — fixed** (`806e35e`). The relink search and the orphan
+scan now build the hunt's category id set from both join tables plus `hunt.category_id`,
+not each round's primary `category_id` alone. Widening the orphan scan brings the hunt's
+own channel into range, so it is excluded explicitly — orphans are what `apply-orphans`
+deletes.
+
+**M7 (`change-type` 500 on a saved mutation) — fixed** (`51bb15c`), both halves. The
+route gained the `except HttpError` its puzzle-keyed twin already had; and `bulk_re_edge`
+no longer renders mid-conversion, so a Sheets failure can no longer abort `convert_to_type`
+before the Group teardown and `set_source_mode`. The conversion renders once, at the end,
+after every durable mutation is committed.
+
+**M8 (authorisation keyed on role names) — fixed**, in five phases
+(`7233246`, `78fe9c0`, `0aa4287`, `0f8a3d0`, `6910111`). A guild now pins each tier to
+Discord role **ids** stored on `guilds.admin_role_ids` / `organiser_role_ids`
+(migration 039), resolved by the single seam `bot/core/role_gate.py` that both the web
+routes and the bang commands ask. Empty means NOT CONFIGURED and the tier falls back to
+matching names, so nothing changed for an existing guild until it runs
+`!set_admin_roles` / `!set_organiser_roles`; `!show_auth_roles` reports which state a
+guild is in. A guild that has pinned ids never falls back to names, even if every stored
+id is junk. `constants.organiser_gate_active` and `auth.resolve_role_names` were removed
+rather than left beside their replacements.
+
+**M9 (organiser-tier destructive bypass) — reviewed, deliberately left as-is**
+(decision, 2026-08-08). In a guild with no Organiser-named role — and, since M8, none
+pinned by id — `require_organiser` still returns None for any member, and that gate fronts
+`delete_puzzle`, `delete_tag_group` (including `keep_puzzles=false`, which deletes every
+member puzzle, tab and channel), `delete_mini`, `media_sweep`,
+`reconcile?mode=apply-orphans` and `delete_canvas`. The bang side keeps the matching
+asymmetry: `!delete_round`/`!delete_puzzle` are effectively open (with a confirm) while
+`!delete_hunt` stays admin-gated. This is accepted as a convenience for small single-team
+guilds, where every member is trusted with deletion; a guild that wants it shut can now
+pin an organiser role by id, which activates the gate. Revisit if a multi-team hunt ever
+runs in a guild without pinned roles.
+
 **Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
-atomicity class), M6–M9, the T-series DB items, the
+atomicity class), the T-series DB items, the
 remaining web-hardening Lows, and the frontend items. The naming items remain
 evidence-only pending sign-off; `round_id` is the agreed first rename when that starts.
 
