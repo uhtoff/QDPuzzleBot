@@ -552,7 +552,7 @@ class PuzzleService:
         report = ReconcileReport()
         puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
         rounds = TagGroupJsonDb.get_all(hunt.id)
-        hunt_category_ids = frozenset(r.category_id for r in rounds if r.category_id)
+        hunt_category_ids = self._hunt_category_ids(hunt, rounds)
 
         for puzzle in puzzles:
             try:
@@ -573,13 +573,35 @@ class PuzzleService:
                            getattr(tag_group, "group_code", None) or str(tag_group.id),
                            f"category {tag_group.category_id} missing")
 
-        self._collect_orphan_channels(guild, rounds, puzzles, report)
+        self._collect_orphan_channels(
+            guild, hunt, puzzles, report, hunt_category_ids)
         await self._collect_orphan_tabs(hunt, puzzles, report)
         return report
 
-    def _collect_orphan_channels(self, guild, rounds, puzzles, report):
+    @staticmethod
+    def _hunt_category_ids(hunt, rounds):
+        """Every Discord category id this hunt owns, not just each round's primary
+        `category_id`: a split/overflowed round parks channels in the extra
+        categories recorded in `tag_group_category`, and channel-home groups park
+        theirs in the hunt's own general category and its `hunt_category` overflow
+        rows. Scoping reconcile to the primary ids alone left relink unable to see
+        a channel that had merely overflowed, so step 3 created a DUPLICATE at
+        guild root — outside the hunt's gating overwrites (M6)."""
+        ids = {r.category_id for r in rounds if r.category_id}
+        for tag_group in rounds:
+            ids.update(row.category_id
+                       for row in TagGroupCategoryDb.get_for_group(tag_group.id))
+        ids.add(getattr(hunt, "category_id", None))
+        ids.update(row.category_id for row in HuntCategoryDb.get_for_group(hunt.id))
+        return frozenset(cid for cid in ids if cid)
+
+    def _collect_orphan_channels(self, guild, hunt, puzzles, report, category_ids):
         valid_ids = {p.channel_id for p in puzzles if p.channel_id}
-        category_ids = {r.category_id for r in rounds if r.category_id}
+        # Widening the scan to the hunt's general category (M6) brings the hunt's
+        # OWN channel into range. It is not a puzzle channel, and orphans are what
+        # `!reconcile apply-orphans` deletes.
+        if getattr(hunt, "channel_id", None):
+            valid_ids.add(hunt.channel_id)
         for category in guild.categories:
             if category.id not in category_ids:
                 continue

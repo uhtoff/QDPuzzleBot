@@ -24,8 +24,9 @@ def _service(notifier=None):
     return PuzzleService(bot, notifier=notifier or AsyncMock())
 
 
-def _hunt():
-    return make_hunt(id=1, google_sheet_id="SS", solved_sheet_id="ARC")
+def _hunt(**kw):
+    kw.setdefault("id", 1)
+    return make_hunt(google_sheet_id="SS", solved_sheet_id="ARC", **kw)
 
 
 def _puzzle(**kw):
@@ -445,3 +446,125 @@ def test_apply_twice_is_convergent_for_healthy_hunt():
     assert report.counts() == {}
     assert report.has_orphans() is False
     assert report.failures == []
+
+
+# --------------------------------------------------------------------------
+# M6: reconcile's category scope covers the hunt general + split/overflow
+# categories, not just each round's primary category_id
+# --------------------------------------------------------------------------
+
+def _cat_rows(*pairs):
+    """Join-table rows as (owner_id, category_id) pairs, keyed by owner id for
+    a DAO stub's get_for_group."""
+    by_owner = {}
+    for owner_id, category_id in pairs:
+        by_owner.setdefault(owner_id, []).append(
+            SimpleNamespace(group_id=owner_id, hunt_id=owner_id,
+                            category_id=category_id, role="unsolved", seq=0))
+    return by_owner
+
+
+def _patch_category_daos(group_rows=None, hunt_rows=None):
+    """Patch both category join-table DAOs at their puzzle_service lookup site."""
+    group_rows = group_rows or {}
+    hunt_rows = hunt_rows or {}
+    return (
+        patch.object(ps.TagGroupCategoryDb, "get_for_group",
+                     side_effect=lambda gid: group_rows.get(gid, [])),
+        patch.object(ps.HuntCategoryDb, "get_for_group",
+                     side_effect=lambda hid: hunt_rows.get(hid, [])),
+    )
+
+
+def test_relink_finds_channel_in_a_round_overflow_category():
+    """The round's channels can live in an overflow category recorded in
+    tag_group_category, not in its primary category_id. Scoping the relink
+    search to primary ids only makes step 2 miss the channel and step 3 create
+    a DUPLICATE at guild root (M6)."""
+    primary, overflow = _category(500), _category(501)
+    existing = SimpleNamespace(id=111, name="tide", category=overflow,
+                               mention="<#111>", type=discord.ChannelType.text)
+    overflow.channels = [existing]
+    guild = _guild_with(channels=[existing], categories=[primary, overflow])
+    svc = _service()
+    p = _puzzle(name="Tide", channel_id=None, channel_name=None, tags=[10])
+    grp = SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)
+    g_patch, h_patch = _patch_category_daos(group_rows=_cat_rows((10, 500), (10, 501)))
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
+         patch.object(ps.PuzzleJsonDb, "commit"), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[grp]), \
+         patch.object(ps.TagGroupJsonDb, "get_by_attr", return_value=grp), \
+         g_patch, h_patch:
+        report = asyncio.run(svc.reconcile(guild, _hunt(id=1), apply=False))
+    kinds = [a.kind for a in report.actions]
+    assert "channel_relink" in kinds
+    assert "channel_create" not in kinds
+
+
+def test_relink_finds_channel_in_the_hunt_general_category():
+    """Channel-home groups park channels in the hunt's own general category
+    (hunt.category_id) and its overflow rows — also outside every round's
+    primary category_id (M6)."""
+    general = _category(900)
+    existing = SimpleNamespace(id=111, name="tide", category=general,
+                               mention="<#111>", type=discord.ChannelType.text)
+    general.channels = [existing]
+    guild = _guild_with(channels=[existing], categories=[general])
+    svc = _service()
+    p = _puzzle(name="Tide", channel_id=None, channel_name=None, tags=[])
+    g_patch, h_patch = _patch_category_daos()
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
+         patch.object(ps.PuzzleJsonDb, "commit"), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         g_patch, h_patch:
+        report = asyncio.run(
+            svc.reconcile(guild, _hunt(id=1, category_id=900), apply=False))
+    kinds = [a.kind for a in report.actions]
+    assert "channel_relink" in kinds
+    assert "channel_create" not in kinds
+
+
+def test_orphan_scan_covers_overflow_categories():
+    """A stray channel in an overflow category is as much an orphan as one in
+    the primary category — the scan must use the same widened id set (M6)."""
+    primary, overflow = _category(500), _category(501)
+    valid = SimpleNamespace(id=111, name="tide", category=primary,
+                            type=discord.ChannelType.text)
+    orphan = SimpleNamespace(id=222, name="stray", category=overflow,
+                             type=discord.ChannelType.text)
+    primary.channels = [valid]
+    overflow.channels = [orphan]
+    guild = _guild_with(channels=[valid, orphan], categories=[primary, overflow])
+    svc = _service()
+    p = _puzzle(channel_id=111, channel_name="tide", tags=[10])
+    grp = SimpleNamespace(id=10, category_id=500, target_puzzle_id=None)
+    g_patch, h_patch = _patch_category_daos(group_rows=_cat_rows((10, 500), (10, 501)))
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[grp]), \
+         patch.object(ps.TagGroupJsonDb, "get_by_attr", return_value=grp), \
+         g_patch, h_patch:
+        report = asyncio.run(svc.reconcile(guild, _hunt(id=1), apply=False))
+    assert (222, "stray") in report.orphan_channels
+    assert (111, "tide") not in report.orphan_channels
+
+
+def test_orphan_scan_spares_the_hunt_general_channel():
+    """Widening the scan to the hunt's general category brings the hunt's OWN
+    channel into range; it is not a puzzle channel and must never be offered
+    for deletion by `!reconcile apply-orphans` (M6)."""
+    general = _category(900)
+    hunt_channel = SimpleNamespace(id=777, name="hunt-general", category=general,
+                                   type=discord.ChannelType.text)
+    orphan = SimpleNamespace(id=222, name="stray", category=general,
+                             type=discord.ChannelType.text)
+    general.channels = [hunt_channel, orphan]
+    guild = _guild_with(channels=[hunt_channel, orphan], categories=[general])
+    svc = _service()
+    g_patch, h_patch = _patch_category_daos()
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         g_patch, h_patch:
+        report = asyncio.run(svc.reconcile(
+            guild, _hunt(id=1, category_id=900, channel_id=777), apply=False))
+    assert (777, "hunt-general") not in report.orphan_channels
+    assert (222, "stray") in report.orphan_channels
