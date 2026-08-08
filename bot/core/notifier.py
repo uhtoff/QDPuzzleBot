@@ -305,6 +305,32 @@ def build_solution_update_embed(mode, emoji, solution, follow_up):
     return embed
 
 
+def build_unsolved_embed(emoji, prev_solution, follow_up):
+    """Shared "PUZZLE UNSOLVED" embed formula, completing the set alongside
+    build_solved_embed and build_solution_update_embed.
+
+    These two copies had DRIFTED rather than been copied verbatim: the bang
+    !unsolve embed had no title at all, interpolated the solution bare (so an
+    empty one read "I've unmarked  as the solution"), and folded its sheets note
+    into the description, while the dashboard's web_post_unsolved had the title,
+    backticks and a Follow-up field. The merged wording keeps the bang's
+    "Alright," and takes the rest from the web copy, which already matched the
+    sibling embeds on all three counts.
+
+    `prev_solution` is passed in because service.unsolve has already cleared it
+    by the time either caller builds the message. It is omitted entirely when
+    empty — a puzzle can be unsolved with only partial solutions recorded.
+    """
+    solution_txt = f" `{prev_solution}`" if prev_solution else ""
+    embed = __import__("discord").Embed(
+        title="PUZZLE UNSOLVED",
+        description=(f"{emoji} Alright, I've unmarked{solution_txt} as the solution. "
+                     "You'll get 'em next time!"),
+    )
+    embed.add_field(name="Follow-up", value=follow_up)
+    return embed
+
+
 def build_solved_embed(emoji, puzzle, follow_up):
     """Shared "PUZZLE SOLVED!" embed formula (#79: this title/description was
     independently copied in the bang !solve command, web_post_solved_embed, and

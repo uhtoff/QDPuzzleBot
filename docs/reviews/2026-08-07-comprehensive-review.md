@@ -49,6 +49,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | Missing UNIQUE on `hunts.uid` | fixed (migration 040 + re-mint retry; prod verified duplicate-free) | `54f6f6d` |
 | Missing UNIQUE on `tag_group.group_code` | **blocked** — needs the `'0'` sentinel moved to NULL first | — |
 | Status vocabulary drift (+ case drift, `"Partially Solved"`, `priority='Normal'`) | fixed (migration 041) | this tranche |
+| DRY: the drifted unsolve embed pair | fixed (`build_unsolved_embed`) | this tranche |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -133,8 +134,6 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
   `'0'` to NULL (NULLs are exempt from UNIQUE): a data + model change touching the column
   default, the dataclass default, and the f-string read sites that would start printing
   "None" instead of "0". `hunts.uid` did not have this problem — it is already NULLable.
-* **The unsolve embed pair** — the bang and web copies have *drifted* (the bang embed has no
-  title and different wording), so unifying them is a copy decision, not a refactor.
 * **`statusTone` tints `"partially solved"` green**, i.e. as fully solved: the rule at
   `statusTone.ts:20` matches the substring `"solved"` and only carves out `"unsolved"`.
   Found during the status-vocabulary tranche and deliberately NOT changed there — whether a

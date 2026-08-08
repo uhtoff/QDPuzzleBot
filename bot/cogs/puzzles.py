@@ -1152,21 +1152,20 @@ class Puzzles(commands.Cog):
         """Best-effort dashboard-side presentation after service.unsolve: post the
         UNSOLVED embed in the puzzle channel, move it back to an unsolved category
         (split state) or above the divider (single state), and refresh the pinned
-        info. Never raises. Mirrors web_post_solved_embed (and the bang !unsolve
-        channel message), since service.unsolve has already cleared the solution
-        the caller passes prev_solution for the message."""
+        info. Never raises. Mirrors web_post_solved_embed, and now SHARES its embed
+        with the bang !unsolve via build_unsolved_embed — the two copies had
+        drifted while each was independently maintained. Only the Follow-up text
+        differs. service.unsolve has already cleared the solution by this point,
+        so the caller passes prev_solution for the message."""
         # get_channel_or_thread (not get_channel) so a mini-puzzle, whose channel_id
         # is a thread snowflake, also resolves — otherwise the embed is skipped for minis.
         channel = guild.get_channel_or_thread(puzzle.channel_id) if (guild and puzzle.channel_id) else None
         if channel is not None:
             guild_data = GuildSettingsDb.get(guild.id)
             emoji = guild_data.discord_bot_emoji if guild_data else ""
-            solution_txt = f" `{prev_solution}`" if prev_solution else ""
-            embed = discord.Embed(
-                title="PUZZLE UNSOLVED",
-                description=f"{emoji} I've unmarked{solution_txt} as the solution. You'll get 'em next time!",
-            )
-            embed.add_field(name="Follow-up", value="Unsolved from the dashboard. Restoring the sheets…")
+            from bot.core.notifier import build_unsolved_embed
+            embed = build_unsolved_embed(
+                emoji, prev_solution, "Unsolved from the dashboard. Restoring the sheets…")
             try:
                 await channel.send(embed=embed)
             except Exception:
@@ -3645,10 +3644,9 @@ class Puzzles(commands.Cog):
         guild_data = self.get_guild_data(ctx)
         assert guild_data is not None  # guilds running hunt commands always have a settings row
         emoji = guild_data.discord_bot_emoji
-        embed = discord.Embed(
-            description=f"{emoji} Alright, I've unmarked {prev_solution} as the solution. "
-            "You'll get 'em next time!  \nGive me a sec to restore the sheets."
-        )
+        from bot.core.notifier import build_unsolved_embed
+        embed = build_unsolved_embed(
+            emoji, prev_solution, "Give me a sec to restore the sheets.")
         await ctx.send(embed=embed)
 
         sheet_warning = None

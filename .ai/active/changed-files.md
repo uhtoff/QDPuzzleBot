@@ -32,6 +32,13 @@ Tests:
 - `tests/test_minimeta_service.py`, `tests/test_solve_equivalence.py` — 3 pinned status
   strings updated to lowercase (deliberate contract change, reason recorded at each site)
 
+## Tranche 2 files (unsolve embed pair)
+
+- `bot/core/notifier.py` — `build_unsolved_embed` (new)
+- `bot/cogs/puzzles.py` — bang `!unsolve` and `web_post_unsolved` both call it;
+  `web_post_unsolved`'s docstring corrected (it claimed to merely "mirror" the bang copy)
+- `tests/test_solution_embed_shared.py` — 4 tests; equivalence one mutation-proven
+
 ## Commands run
 
     timeout 300 pipenv run python -m pytest tests/ -q     # 1816 passed

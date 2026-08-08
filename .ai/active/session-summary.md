@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — status/priority vocabulary tranche complete, gates green
+Status: ready for handoff — unsolve embed pair shared @ (this commit); vocabulary tranche @ 0187bdb
 
 ## Goal
 
@@ -45,12 +45,26 @@ the result verified (every stored value now in vocabulary).
   that no user should pick.
 - Leaving existing rows unbackfilled: the filter-duplication problem persists.
 
+## Tranche 2 — the unsolve embed pair (complete)
+
+`build_unsolved_embed(emoji, prev_solution, follow_up)` added to `bot/core/notifier.py`,
+completing the set with `build_solved_embed` / `build_solution_update_embed`. Both the
+bang `!unsolve` and `web_post_unsolved` now call it; only the Follow-up differs.
+
+Merged copy (user's call): the web version — title, backticked solution, empty-solution
+handling, Follow-up field — plus the bang's "Alright," opener. The bang embed had been
+the outlier on all four counts.
+
+Nothing tested either copy before, which is how they drifted. Four tests added to
+`tests/test_solution_embed_shared.py`; the equivalence one was mutation-proven (making
+the title depend on the follow-up text reproduced the drift and turned it red).
+
 ## Next steps
 
-Five review findings remain open (see the review doc's "Still open"):
+Four review findings remain open (see the review doc's "Still open"):
 rate limiting, keyboard a11y, `tag_group.group_code` (blocked on the `'0'`→NULL
-sentinel move), the drifted unsolve embed pair, `backfill_hunt_uids.py`. Plus one
-NEW finding logged this tranche: `statusTone` tints `"partially solved"` green.
+sentinel move), `backfill_hunt_uids.py`. Plus one NEW finding logged in tranche 1:
+`statusTone` tints `"partially solved"` green.
 
 ## Open questions
 
