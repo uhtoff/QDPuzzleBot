@@ -660,18 +660,20 @@ class MySQLMessageDb(_MySQLBaseDb):
         return row is not None
 
     def delete_message(self, id) -> list:
-        """Hard-delete a message and its attachment rows. Returns the local_path
-        values that existed (relative paths) so the caller can unlink the bytes."""
-        cursor = self.mydb.cursor()
-        try:
-            rows = self._fetch_all(
-                "SELECT local_path FROM message_attachments WHERE message_id=%s", (id,)
-            )
-            cursor.execute("DELETE FROM message_attachments WHERE message_id=%s", (id,))
-            cursor.execute("DELETE FROM messages WHERE id=%s", (id,))
-        finally:
-            cursor.close()
-        self.mydb.commit()
+        """Hard-delete a message. Returns the local_path values its attachments had
+        (relative paths) so the caller can unlink the bytes.
+
+        One statement: migration 037's FK (message_attachments.message_id ->
+        messages.id ON DELETE CASCADE) removes the attachment rows, so there is no
+        two-statement window in which a failure could destroy them and leave the
+        message. The paths are read first because the rows are gone afterwards, and
+        returned only if the DELETE succeeded -- if it raises, the exception
+        propagates and the caller never gets paths for files whose rows still exist.
+        """
+        rows = self._fetch_all(
+            "SELECT local_path FROM message_attachments WHERE message_id=%s", (id,)
+        )
+        self._exec("DELETE FROM messages WHERE id=%s", (id,))
         return [r["local_path"] for r in rows if r.get("local_path")]
 
     def add_attachment(self, *, id, message_id, filename, content_type, size, source_url):

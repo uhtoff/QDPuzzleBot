@@ -61,14 +61,16 @@ def test_channel_has_messages():
     assert db.channel_has_messages(100) is False
 
 
-def test_delete_message_returns_local_paths_then_deletes_both_tables():
+def test_delete_message_returns_local_paths_and_deletes_only_messages_row():
     db, cursor = _make_db()
     cursor.fetchall.return_value = [{"local_path": "g/c/1_a.png"}, {"local_path": None}]
     paths = db.delete_message(10)
     assert paths == ["g/c/1_a.png"]  # None filtered out
     executed = " ".join(c.args[0] for c in cursor.execute.call_args_list)
-    assert "DELETE FROM message_attachments WHERE message_id" in executed
     assert "DELETE FROM messages WHERE id" in executed
+    # Migration 037's FK (ON DELETE CASCADE) is what removes the attachment
+    # rows now; Python must not issue a second DELETE for them.
+    assert "DELETE FROM message_attachments" not in executed
 
 
 def test_add_attachment_inserts_pending():
