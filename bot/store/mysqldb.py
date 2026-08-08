@@ -532,7 +532,19 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def bulk_update_edge_type(self, tag_group_id, new_edge):
         """Convert members' feeds/informs/none edges to new_edge for a group, without
         creating duplicate (tag_group_id, puzzle_id, new_edge) rows. The target's
-        'target' self-edge is left untouched here (bulk_re_edge re-pins it)."""
+        'target' self-edge is left untouched here (bulk_re_edge re-pins it).
+
+        INSERT first, DELETE second, deliberately. Every statement autocommits on its
+        own (see MySQLReconnector), so with the old DELETE-then-INSERT order a failure
+        between the two destroyed the group's entire membership. In this order the
+        worst case is a member briefly holding both its old edge and the new one --
+        visible, harmless, and fixed by re-running the conversion.
+
+        Not expressible as a single UPDATE: migration 020's
+        UNIQUE (tag_group_id, puzzle_id, edge_type) is violated when a member already
+        holds new_edge alongside an old edge -- hence also the edge_type <> new_edge
+        clause on the DELETE, which stops it removing what the INSERT just wrote.
+        """
         cursor = self.mydb.dict_cursor()
         try:
             # Puzzles that currently contribute (feeds/informs/none) to this group.
@@ -544,20 +556,20 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             pids = [r["puzzle_id"] for r in cursor.fetchall() or []]
             if pids:
                 placeholders = ",".join(["%s"] * len(pids))
-                cursor.execute(
-                    f"DELETE FROM tags WHERE tag_group_id = %s "
-                    f"AND edge_type IN ('feeds','informs','none') "
-                    f"AND puzzle_id IN ({placeholders})",
-                    (tag_group_id, *pids),
-                )
                 cursor.executemany(
                     "INSERT INTO tags (tag_group_id, puzzle_id, edge_type) VALUES (%s, %s, %s) "
                     "ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
                     [(tag_group_id, pid, new_edge) for pid in pids],
                 )
+                cursor.execute(
+                    f"DELETE FROM tags WHERE tag_group_id = %s "
+                    f"AND edge_type IN ('feeds','informs','none') "
+                    f"AND edge_type <> %s "
+                    f"AND puzzle_id IN ({placeholders})",
+                    (tag_group_id, new_edge, *pids),
+                )
         finally:
             cursor.close()
-        self.mydb.commit()
 
     def commit(self, puzzle, /):
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
