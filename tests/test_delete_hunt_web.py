@@ -56,3 +56,19 @@ async def test_delete_hunt_web_locks_member_puzzles(web):
         resp = await web.client.delete("/api/hunts/U1")
     assert resp.status_code == 200
     lock_mock.assert_called_once_with([3, 1])
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_web_refuses_when_the_admin_gate_denies(web):
+    """The gate must actually be consulted.
+
+    Every other test here patches require_admin to return None, so deleting the
+    `perm = await require_admin(...)` lines from the route would leave the whole
+    file green while /api/hunts/<uid> became open to any hunt member. Here the
+    gate refuses, so the route must refuse too.
+    """
+    with patch("bot.web.actions.require_admin",
+               AsyncMock(return_value=({"error": "insufficient_role"}, 403))):
+        resp = await web.client.delete("/api/hunts/U1")
+    assert resp.status_code == 403
+    web.cog.service.delete_hunt.assert_not_awaited()

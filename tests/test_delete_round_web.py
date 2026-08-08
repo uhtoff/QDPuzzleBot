@@ -70,3 +70,15 @@ async def test_delete_round_web_locks_member_puzzles(web):
         resp = await web.client.delete("/api/tag_groups/5")
     assert resp.status_code == 200
     lock_mock.assert_called_once_with([1, 2])
+
+
+@pytest.mark.asyncio
+async def test_delete_round_web_refuses_when_the_organiser_gate_denies(web):
+    """See the delete-hunt equivalent: with the gate patched to None everywhere
+    else, dropping the require_organiser call would not fail any test — and this
+    route can delete every member puzzle, tab and channel."""
+    with patch("bot.web.actions.require_organiser",
+               AsyncMock(return_value=({"error": "insufficient_role"}, 403))):
+        resp = await web.client.delete("/api/tag_groups/5", json={"keep_puzzles": False})
+    assert resp.status_code == 403
+    web.cog.service.delete_round.assert_not_awaited()
