@@ -328,6 +328,12 @@ instance's clone at the subscription that will host its subdomain and make that 
 system user the instance user — that lets Plesk's per-domain **Git** auto-deploy run `deploy.sh`
 as the right user (see [Redeploying with `deploy.sh`](#redeploying-with-deploysh-plesk-git)).
 
+> Standing up a **Discord server** for a hunt (as opposed to the bot instance below) is a
+> separate checklist — see [docs/new-server-playbook.md](docs/new-server-playbook.md). It
+> includes two manual steps nothing in the code performs: pinning the admin/organiser roles
+> with `!set_admin_roles`, and setting the team role's permission overwrite on the hunt's
+> initial category.
+
 ## 2. Create the Discord application & bot
 
 Do this **twice** — one application for the live bot and a separate one for the test bot — so the

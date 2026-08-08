@@ -397,6 +397,10 @@ drawer:
 
 The full [command reference](commands.md) lists every command; highlights:
 
+- **Standing up a new Discord server for a hunt:** follow the
+  [new server playbook](new-server-playbook.md) — it covers the two steps nothing in the
+  code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the
+  team role's overwrite on the hunt's initial category.
 - **Starting a hunt:** `!hunt Hunt Name:https://hunt.example` in the bot channel.
   Append `, RoleName` to gate the hunt to a team role. Then `!set_start TIMESTAMP` and
   `!set_login user:pass` if the hunt has a shared login, and `!use_solved_sheet` if you
