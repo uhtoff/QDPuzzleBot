@@ -9,7 +9,6 @@ import asyncio
 import datetime
 import functools
 import logging
-from contextlib import AsyncExitStack
 from typing import Any
 
 import discord
@@ -31,7 +30,8 @@ from .auth import (
     resolve_membership,
     resolve_role_names,
 )
-from bot.core.locks import puzzle_lock, puzzles_lock, hunt_create_lock, hunt_sheet_lock
+from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
+                            hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import SheetRefreshError
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_tiling import run_bounded_image_work, schedule_tiling
@@ -712,7 +712,10 @@ async def convert_to_meta(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    async with puzzle_lock(puzzle_id):
+    # Same single sorted acquisition as the other convert routes (H5). This route
+    # promotes a bare puzzle, so the set is normally just the puzzle itself — but it
+    # is resolved the same way so the promote path can never become the odd one out.
+    async with puzzles_lock(convert_lock_ids(puzzle_id=puzzle_id)):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
@@ -1338,7 +1341,10 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta: bool | None
         if perm:
             return perm
 
-        async with puzzle_lock(puzzle_id):
+        # Target + every member, in ONE sorted acquisition (H5): convert_to_type ->
+        # bulk_re_edge mutates every member, and taking the target here and the
+        # members deeper would invert the order delete/archive acquires them in.
+        async with puzzles_lock(convert_lock_ids(puzzle_id=puzzle_id)):
             puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
             if puzzle is None:
                 return jsonify({"error": "puzzle_not_found"}), 404
@@ -1683,13 +1689,11 @@ async def change_group_type(tag_group_id):
     warning = None
     summary = None  # stays None if convert_tag_group_type raises SheetRefreshError
     try:
-        # Lock ONLY the target puzzle (if any), mirroring the puzzle-keyed convert
-        # routes. convert_tag_group_type -> convert_to_type -> bulk_re_edge acquires
-        # each *feeder's* puzzle_lock itself, and it excludes the target; holding the
-        # members' locks here too would self-deadlock (puzzle_lock is non-reentrant).
-        async with AsyncExitStack() as stack:
-            if tag_group.target_puzzle_id:
-                await stack.enter_async_context(puzzle_lock(tag_group.target_puzzle_id))
+        # Target + every member, in ONE sorted acquisition (H5), matching the
+        # puzzle-keyed convert routes and the delete/archive edges.
+        # convert_tag_group_type -> convert_to_type -> bulk_re_edge mutates every
+        # member and now takes no lock of its own, so this is the only acquisition.
+        async with puzzles_lock(convert_lock_ids(tag_group=tag_group)):
             _group, summary = await cog.service.convert_tag_group_type(
                 guild, hunt_obj, tag_group, new_type)
     # SheetRefreshError subclasses RuntimeError, so it must be caught first —

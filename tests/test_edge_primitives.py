@@ -407,11 +407,18 @@ class TestBulkReEdge:
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 5, "target")
 
     @pytest.mark.asyncio
-    async def test_flip_waits_for_in_flight_member_command(self, cog):
-        """#27: bulk_re_edge must hold each member's puzzle mutex across the flip,
-        so a command already in flight on a member (e.g. !solve, which loaded the
-        puzzle pre-flip) cannot commit its stale in-memory edge afterwards and
-        have the bidirectional tag-sync silently revert the conversion."""
+    async def test_flip_takes_no_lock_of_its_own(self, cog):
+        """H5 inverted #27's arrangement: bulk_re_edge no longer locks its members,
+        because its convert callers now hold the target AND every member in one
+        sorted puzzles_lock. Locking here as well (under an edge already holding the
+        target) is what let convert and delete acquire overlapping puzzles in
+        opposite orders and deadlock.
+
+        The #27 guarantee itself is unchanged — the members' locks are still held
+        across the flip, just by the caller. That relocation is covered end-to-end in
+        tests/test_lock_ordering.py; this asserts the service half: called with a
+        member's lock already held (as every caller now does), the flip must proceed
+        rather than block forever on a non-reentrant lock."""
         from bot.core.locks import puzzle_lock
 
         grp = make_round(id=5)
@@ -419,21 +426,10 @@ class TestBulkReEdge:
         member = make_puzzle(id=42, tags=[5])
         member.tag_edges = {5: {"feeds"}}
 
-        order = []
-
-        async def in_flight_command():
-            async with puzzle_lock(42):
-                order.append("solve-start")
-                await asyncio.sleep(0.02)
-                order.append("solve-end")
-
         with _service_mocks(cog) as (mpdb, _mrdb, _mhdb):
             mpdb.get_all_from_tag_group.return_value = [member]
-            mpdb.bulk_update_edge_type.side_effect = lambda *a, **kw: order.append("flip")
+            async with puzzle_lock(42):
+                summary = await asyncio.wait_for(
+                    cog.service.bulk_re_edge(grp, "informs", hunt), timeout=2)
 
-            task = asyncio.create_task(in_flight_command())
-            await asyncio.sleep(0)  # let in_flight_command grab the lock first
-            await cog.service.bulk_re_edge(grp, "informs", hunt)
-            await task
-
-        assert order == ["solve-start", "solve-end", "flip"]
+        assert summary == "flipped 1 feeds → informs"

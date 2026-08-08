@@ -8,7 +8,6 @@ the edges.
 """
 import asyncio
 import contextvars
-from contextlib import AsyncExitStack
 import datetime
 import functools
 import inspect
@@ -967,26 +966,26 @@ class PuzzleService:
                 if current in ("feeds", "informs", "none"):
                     counter[current] = counter.get(current, 0) + 1
 
-        # Hold every member's puzzle mutex for the flip. Without this, a command
+        # Every member's puzzle mutex must be held across the flip: a command
         # already in flight on a member (e.g. !solve, loaded pre-flip) can commit
-        # after bulk_update_edge_type runs; its bidirectional tag-sync then diffs
-        # against its stale in-memory edge and silently reverts the flip for that
-        # member (#27). Sorted for a consistent lock order across callers.
-        async with AsyncExitStack() as stack:
-            for member_id in sorted({m.id for m in members}):
-                await stack.enter_async_context(puzzle_lock(member_id))
-
-            PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
-            # bulk_update_edge_type also flips any feeds/informs/none self-edge the
-            # target itself carries (a legacy row, or one added via the web/bang
-            # self-feed path) to new_edge — that row must be removed, not just
-            # shadowed, or the target ends up with both new_edge and 'target' to
-            # its own group and shows up as its own contributing feeder.
-            if tag_group.target_puzzle_id:
-                PuzzleJsonDb.delete_tag_edge(
-                    tag_group.target_puzzle_id, tag_group.id, new_edge)
-                PuzzleJsonDb.tag_puzzle_with_edge(
-                    tag_group.target_puzzle_id, tag_group.id, "target")
+        # after bulk_update_edge_type runs, and its bidirectional tag-sync then
+        # diffs against its stale in-memory edge and silently reverts the flip for
+        # that member (#27). The CALLER holds them -- this method takes no lock of
+        # its own. Locking here (under an edge already holding the target's lock)
+        # is what made convert and delete/archive acquire overlapping puzzles in
+        # opposite orders and deadlock (H5); every convert edge now takes the
+        # target + members in one sorted puzzles_lock(convert_lock_ids(...)).
+        PuzzleJsonDb.bulk_update_edge_type(tag_group.id, new_edge)
+        # bulk_update_edge_type also flips any feeds/informs/none self-edge the
+        # target itself carries (a legacy row, or one added via the web/bang
+        # self-feed path) to new_edge — that row must be removed, not just
+        # shadowed, or the target ends up with both new_edge and 'target' to
+        # its own group and shows up as its own contributing feeder.
+        if tag_group.target_puzzle_id:
+            PuzzleJsonDb.delete_tag_edge(
+                tag_group.target_puzzle_id, tag_group.id, new_edge)
+            PuzzleJsonDb.tag_puzzle_with_edge(
+                tag_group.target_puzzle_id, tag_group.id, "target")
 
         # Build summary string listing only non-zero edge types
         parts = [f"{v} {k}" for k, v in counter.items() if v]

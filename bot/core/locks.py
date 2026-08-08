@@ -10,13 +10,21 @@ lock at most once per task. Locking lives at the edges (the bang decorator and t
 web handlers); the ctx-free PuzzleService deliberately does NOT lock, so an edge that
 already holds the lock can call the service without deadlocking.
 
-There are three DELIBERATE exceptions inside PuzzleService, each safe only because of
+ONE SORTED ACQUISITION PER MUTATION (H5). A task must take every puzzle lock it
+needs in a single `puzzles_lock` call, never one lock and then another: nesting
+acquisitions is what creates a lock-ORDER cycle. bulk_re_edge used to take its
+members' locks itself while the convert edges held the target's, giving order
+`T, then sorted(members)`; delete_round/delete_hunt/archive_hunt take
+`sorted(members u {T})` (the target is a member -- it carries a `target` self-edge
+row). Any member id below the target id then wedged convert and delete against each
+other forever. Group-wide mutations now all go through one `puzzles_lock` over
+`convert_lock_ids(...)`, so every task acquires in the same global order.
+
+There are two DELIBERATE exceptions inside PuzzleService, each safe only because of
 who calls it. Adding a caller that already holds the relevant lock deadlocks the bot
 permanently -- no error, no timeout, just a wedged event loop until restart:
 
   - refresh_meta takes rollup_lock, on the disjoint round-id key space (see below).
-  - bulk_re_edge takes its member puzzles' locks internally; its callers must lock
-    only the target, never a member.
   - link_informs_for_evidence / unlink_informs_for_evidence take
     puzzle_lock(source_puzzle_id) (M5). Safe ONLY because every caller is a bare
     asyncio.create_task from a lock-free web handler (bot/web/actions.py). Note the
@@ -71,11 +79,50 @@ async def puzzles_lock(puzzle_ids):
     can't deadlock each other; a single-puzzle holder (puzzle_lock/
     with_puzzle_mutex) never blocks waiting on a second lock, so it can't join a
     cycle either. Waits if any lock is currently held; de-dupes ids so a puzzle
-    listed twice is only locked once (asyncio.Lock is not reentrant)."""
+    listed twice is only locked once (asyncio.Lock is not reentrant).
+
+    Sorted order only prevents cycles while it is the ONLY acquisition a task
+    makes -- see the H5 note at the top of this module before nesting one lock
+    acquisition inside another."""
     async with AsyncExitStack() as stack:
         for puzzle_id in sorted(set(puzzle_ids)):
             await stack.enter_async_context(_PUZZLE_LOCKS[puzzle_id])
         yield
+
+
+def convert_lock_ids(*, puzzle_id=None, tag_group=None):
+    """Every puzzle id a convert must hold to mutate a group: the group's members
+    (which include its target -- the target carries a `target` self-edge row) plus
+    the puzzle being converted, whether or not it is grouped yet.
+
+    Group-wide mutations feed this set to ONE `puzzles_lock` call, so convert and
+    delete/archive acquire the same puzzles in the same global order and cannot
+    wedge each other (H5). Pass `puzzle_id` for the puzzle-keyed converts and
+    `tag_group` for the group-keyed one; a bare puzzle with no group yet yields
+    just itself.
+
+    Imports the DAOs locally, matching the web edges (`from bot.store import ...`
+    inside the handler): this module is imported by nearly everything and must not
+    pull the DB layer in at import time.
+
+    NOTE: the set is read before the lock is taken, so a puzzle tagged into the
+    group in that window is not covered -- the same pre-existing window the delete
+    edges have. `convert_tag_group_type` likewise creates its new target puzzle
+    inside the critical section, after the ids are fixed; nothing else can reach
+    that row until it is committed.
+    """
+    from bot.store import PuzzleJsonDb, TagGroupJsonDb
+
+    ids = set()
+    if puzzle_id:
+        ids.add(puzzle_id)
+        if tag_group is None:
+            tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle_id)
+    if tag_group is not None:
+        if tag_group.target_puzzle_id:
+            ids.add(tag_group.target_puzzle_id)
+        ids.update(p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id))
+    return ids
 
 
 @asynccontextmanager

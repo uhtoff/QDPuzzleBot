@@ -65,21 +65,24 @@ async def test_change_type_rejects_unknown_type(web):
 
 
 @pytest.mark.asyncio
-async def test_change_type_does_not_deadlock_when_service_locks_a_feeder():
-    """Regression: the route must NOT hold a feeder's puzzle_lock while the service
-    (bulk_re_edge, inside convert_tag_group_type) re-acquires it — asyncio.Lock is
-    non-reentrant, so holding every member's lock here self-deadlocks. The route
-    locks only the *target* puzzle. Uses REAL locks (no _noop_lock patch); a buggy
-    route that locked all members would hang and blow the wait_for timeout."""
+async def test_change_type_locks_target_and_members_in_one_acquisition():
+    """Reversed by H5. The route used to lock only the *target*, leaving the members
+    to bulk_re_edge's own nested acquisition — order `T, then members`, the inverse
+    of the `sorted(members u {T})` the delete/archive edges take, which deadlocked
+    the two against each other. The route now takes target + members in ONE sorted
+    puzzles_lock and the service takes none.
+
+    Uses REAL locks (no _noop_lock patch): a route that re-introduced a nested
+    acquisition would hang and blow the wait_for timeout."""
     import asyncio
-    from bot.core.locks import puzzle_lock
 
     tag_group = make_round(id=5, name="Old", target_puzzle_id=5)
 
     async def fake_convert(_guild, _hunt, tg, _new_type):
-        # Simulate bulk_re_edge locking a FEEDER (id 6, not the target 5).
-        async with puzzle_lock(6):
-            return (tg, "ok")
+        # The service locks nothing; the route must already hold every member.
+        from bot.core.locks import _PUZZLE_LOCKS
+        assert _PUZZLE_LOCKS[5].locked() and _PUZZLE_LOCKS[6].locked()
+        return (tg, "ok")
 
     cog = MagicMock()
     cog.service.convert_tag_group_type = fake_convert
@@ -89,7 +92,6 @@ async def test_change_type_does_not_deadlock_when_service_locks_a_feeder():
     ctx = make_hunt_ctx()
     rdb = MagicMock(); rdb.get_by_attr.return_value = tag_group
     hdb = MagicMock(); hdb.get_by_attr.return_value = make_hunt()
-    # A buggy route locking every member would hold feeder 6 and deadlock the service.
     pdb = MagicMock()
     pdb.get_all_from_tag_group.return_value = [MagicMock(id=5), MagicMock(id=6)]
 

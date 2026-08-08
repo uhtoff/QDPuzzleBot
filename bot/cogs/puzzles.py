@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
 # dashboard write serializes against the matching bang-command (see M4).
-from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock, hunt_sheet_lock
+from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock, convert_lock_ids, hunt_sheet_lock
 from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
@@ -2237,10 +2237,17 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(f":x: {wrong_state_msg}")
             return
 
+        # Target + every member, in ONE sorted acquisition (H5) — the same set the
+        # web convert routes and the delete/archive edges take. These commands
+        # deliberately carry no with_puzzle_mutex (the lock covers the whole group,
+        # not just the puzzle in context), so this is their only acquisition; the
+        # puzzle is re-read under it rather than trusting the pre-lock snapshot.
         try:
-            tag_group, summary = await self.service.convert_to_type(
-                ctx.guild, self.get_hunt(ctx), puzzle, new_type
-            )
+            async with puzzles_lock(convert_lock_ids(puzzle_id=puzzle.id)):
+                puzzle = PuzzleJsonDb.get_by_attr(id=puzzle.id) or puzzle
+                tag_group, summary = await self.service.convert_to_type(
+                    ctx.guild, self.get_hunt(ctx), puzzle, new_type
+                )
         except RuntimeError as e:
             await ctx.send(f":x: {e}")
             return
