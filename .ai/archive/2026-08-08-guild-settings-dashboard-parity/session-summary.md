@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-08-08
-Status: ready for handoff — guild settings dashboard parity done @ e2f0a4d (branch `working-2`, NOT merged)
+Status: ready for handoff — feat(auth): surface an unpinned ADMIN tier on join and on the dashboard @ ab735e2
 
 ## Goal
 
