@@ -36,29 +36,5 @@ def test_actions_does_not_redefine_constants():
         "PUZZLE_PRIORITIES should be removed from actions — validation is in the service"
 
 
-from types import SimpleNamespace
-
-
-def _guild_with_roles(role_names):
-    return SimpleNamespace(roles=[SimpleNamespace(name=n) for n in role_names])
-
-
-def test_organiser_gate_active_when_organisers_role_present():
-    guild = _guild_with_roles(["everyone", "Organisers"])
-    assert core.organiser_gate_active(guild) is True
-
-
-def test_organiser_gate_active_for_each_accepted_spelling():
-    for name in ("Organiser", "Organisers", "Organizer", "Organizers"):
-        guild = _guild_with_roles(["everyone", name])
-        assert core.organiser_gate_active(guild) is True, f"{name!r} should activate the gate"
-
-
-def test_organiser_gate_inactive_when_no_organisers_role():
-    guild = _guild_with_roles(["everyone", "Moderator"])
-    assert core.organiser_gate_active(guild) is False
-
-
-def test_organiser_gate_inactive_when_guild_has_no_roles():
-    guild = _guild_with_roles([])
-    assert core.organiser_gate_active(guild) is False
+# The organiser_gate_active tests moved to tests/test_role_gate.py with the
+# function itself (M8): the gate now reads configured role ids, not role names.

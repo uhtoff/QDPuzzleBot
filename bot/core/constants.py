@@ -12,11 +12,8 @@ ORGANISER_ROLE_NAMES = ('Organiser', 'Organisers', 'Organizer', 'Organizers')
 ORGANISER_ROLES = ADMIN_ROLES + ORGANISER_ROLE_NAMES
 
 
-def organiser_gate_active(guild) -> bool:
-    """False if the guild has none of ORGANISER_ROLE_NAMES — when False,
-    Organiser-tier permission checks pass for everyone. Never affects the
-    Admin tier (Moderator/mod/admin), which is always strictly gated."""
-    return any(r.name in ORGANISER_ROLE_NAMES for r in guild.roles)
+# organiser_gate_active lives in bot.core.role_gate: since M8 it must read the
+# guild's CONFIGURED role ids, and this module stays free of the DB layer.
 
 
 STATUSES = ["unstarted", "in progress", "stuck", "needs extraction",

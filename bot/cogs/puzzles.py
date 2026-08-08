@@ -25,7 +25,8 @@ from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
 from bot.utils.text import flush_left
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES, organiser_gate_active
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
+from bot.core import role_gate
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
@@ -44,17 +45,38 @@ from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
 
 
-def is_organiser():
-    """Like commands.has_any_role(*ORGANISER_ROLES), but the check passes
-    unconditionally when the guild has none of ORGANISER_ROLE_NAMES — see
-    organiser_gate_active. Mirrors has_any_role's NoPrivateMessage/
+def _holds(ctx, tier):
+    """True if the command author holds *tier* in this guild, per role_gate:
+    the guild's configured role ids where it has opted in, the ids of the
+    name-matched roles where it has not (M8). Never a name comparison here — a
+    member with Manage Roles can mint a role called `admin`."""
+    return role_gate.member_holds_tier(
+        {r.id for r in ctx.author.roles}, ctx.guild, tier)
+
+
+def is_admin():
+    """Like commands.has_any_role(*ADMIN_ROLES) but resolved through role_gate.
+    The Admin tier is never bypassed. Mirrors has_any_role's NoPrivateMessage/
     MissingAnyRole behaviour for parity outside a guild / when denied."""
     def predicate(ctx):
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not organiser_gate_active(ctx.guild):
+        if _holds(ctx, ADMIN_ROLES):
             return True
-        if any(discord.utils.get(ctx.author.roles, name=item) is not None for item in ORGANISER_ROLES):
+        raise commands.MissingAnyRole(list(ADMIN_ROLES))
+    return commands.check(predicate)
+
+
+def is_organiser():
+    """Like is_admin() for the wider Organiser tier, except the check passes
+    unconditionally when the guild has nothing standing for that tier — see
+    role_gate.organiser_gate_active."""
+    def predicate(ctx):
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        if not role_gate.organiser_gate_active(ctx.guild):
+            return True
+        if _holds(ctx, ORGANISER_ROLES):
             return True
         raise commands.MissingAnyRole(list(ORGANISER_ROLES))
     return commands.check(predicate)
@@ -631,7 +653,7 @@ class Puzzles(commands.Cog):
         return space_available
 
     @commands.command(aliases=["h"])
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
@@ -711,7 +733,7 @@ class Puzzles(commands.Cog):
         return new_hunt
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def set_hunt_role(self, ctx, *, arg):
         """*Gate an existing OPEN hunt behind a team role (web + Discord).*
 
@@ -761,7 +783,7 @@ class Puzzles(commands.Cog):
         aliases=["set_to_archive"],
         description="Use a separate 'solved puzzles sheet' for solved feeders (admin only)",
     )
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def use_solved_sheet(self, ctx):
         """*Use a separate 'solved puzzles sheet' to hold solved feeders (metas stay on the main sheet).*
 
@@ -2483,7 +2505,7 @@ class Puzzles(commands.Cog):
             GuildSettingsDb.commit(settings)
 
     @commands.hybrid_command(description="Show channel settings (admin only)",)
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*Dump the raw settings for this channel's object (puzzle/round/hunt/guild) as JSON.*
@@ -2496,7 +2518,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"```json\n{settings.to_json(indent=2)}```")
 
     @commands.hybrid_command(description="Show puzzle settings (admin only)",)
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     @commands.has_permissions(manage_channels=True)
     async def show_puzzle_settings(self, ctx):
         """*Dump this puzzle's stored fields and values for debugging.*
@@ -2528,7 +2550,7 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def set_login(self, ctx, *, arg):
         """*Store the hunt's login username and password (shown on hunt info).*
 
@@ -2552,7 +2574,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse details {arg}, try using `!set_login username:password`")
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def set_start(self,ctx,timestamp:int):
         """*Set the hunt's start time from a UNIX timestamp (seconds since epoch).*
 
@@ -2572,7 +2594,7 @@ class Puzzles(commands.Cog):
         )
 
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
         """*Set a single setting field on this channel's object (puzzle/round/hunt/guild).*
@@ -3620,7 +3642,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def absorb_category(self, ctx):
         """*Move every puzzle channel in this hand-made category into the hunt's general layout (auto-overflow), then delete the emptied category.*
 
@@ -3657,7 +3679,7 @@ class Puzzles(commands.Cog):
         return not report["failed"]
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def archive_round(self, ctx):
         """*Archive this round: copy every channel in the category into threads, then delete the category.*
 
@@ -3708,7 +3730,7 @@ class Puzzles(commands.Cog):
             return False
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def archive_category(self, ctx, archive_to = None, ignore_channels = None, delete_channels = None):
         """*Archive every channel in this category into threads on the hunt's general channel.*
 
@@ -3743,7 +3765,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def archive_channel(self, ctx, channel = None, archive_to = None):
         """*Archive this channel's messages into a thread, then delete the channel.*
 
@@ -3769,7 +3791,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def archive_solved_manually(self, ctx):
         """*Tidy the hunt's "solved" category: move busy solved channels back (prefixed "solved-") and delete quiet ones.*
 
@@ -3811,7 +3833,7 @@ class Puzzles(commands.Cog):
         await hunt_general_channel.send(":white_check_mark: Solved puzzles successfully archived.")
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def archive_hunt(self, ctx):
         """*Archive the whole hunt: condense every channel into threads here, delete all its categories/channels, rename this channel, mark it archived.*
 
@@ -4009,7 +4031,7 @@ class Puzzles(commands.Cog):
             return False
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def delete_hunt(self, ctx):
         """*Permanently delete the ENTIRE hunt: every round, puzzle, channel and sheet (asks to confirm).*
 
@@ -4039,7 +4061,7 @@ class Puzzles(commands.Cog):
         return True
 
     @commands.command()
-    @commands.has_any_role(*ADMIN_ROLES)
+    @is_admin()
     async def debug_puzzle_channel(self, ctx):
         """*Dump this puzzle's full stored record as JSON (debugging).*
 
