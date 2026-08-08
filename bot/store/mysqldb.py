@@ -950,14 +950,6 @@ class MySQLMediaDb(_MySQLBaseDb):
         )
         return [MediaData.import_dict(r) for r in rows]
 
-    def delete(self, media_id: int, /) -> None:
-        """Delete one media row by id. No-op if the id does not exist.
-
-        Now behaviourally identical to the base delete: its only reason to exist was
-        the commit() call, which was a no-op under autocommit and has been removed.
-        """
-        self._exec("DELETE FROM media WHERE id = %s", (media_id,))
-
 
 class MySQLHuntCanvasDb(_MySQLBaseDb):
     TABLE_NAME = 'hunt_canvases'
