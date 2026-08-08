@@ -57,14 +57,12 @@ class _MySQLBaseDb:
             update_stmt += " WHERE `id` = %s"
             data = data + (database_id,)
             cursor.execute(update_stmt, data)
-            if cursor.rowcount == 0:
-                # The row is gone -- typically cascade-deleted underneath a stale
-                # object (a snapshot held across a delete_round, or a web delete
-                # landing mid bang-command). Deliberately a log, not a raise: that
-                # path is legitimate, and raising would abort a command after its
-                # Discord-side work is already done. Note MySQL also reports 0 for an
-                # UPDATE that matched a row but changed no value, so this can be a
-                # false positive -- another reason it is diagnostic, not fatal.
+            if cursor.rowcount == 0 and not self._row_exists(database_id):
+                # The row really is gone -- typically cascade-deleted underneath a
+                # stale object (a snapshot held across a delete_round, or a web
+                # delete landing mid bang-command). Deliberately a log, not a raise:
+                # that path is legitimate, and raising would abort a command after
+                # its Discord-side work is already done.
                 logger.error(
                     "UPDATE on `%s` id=%s matched no row; the write was dropped",
                     self.TABLE_NAME, database_id,
@@ -81,6 +79,24 @@ class _MySQLBaseDb:
             cursor.execute(insert_stmt, data)
             object_to_commit.id = cursor.lastrowid
         cursor.close()
+
+    def _row_exists(self, database_id) -> bool:
+        """Does a row with this id still exist? Used to tell a genuinely missing row
+        from a no-op UPDATE.
+
+        `rowcount == 0` does NOT mean "no row matched": mysql-connector does not set
+        CLIENT_FOUND_ROWS, so MariaDB reports 0 for an UPDATE that matched a row and
+        changed no column. That is the COMMON case, not a rare one -- tags/tag_edges
+        are in SPECIAL_ATTR, so any commit that changes only membership (every
+        retag, every evidence link, tag_with_edge/untag_from) touches no scalar
+        column and always reports 0. Logging on rowcount alone would fire an ERROR
+        claiming data loss on every successful retag, and bury real errors in
+        discord.log. One extra indexed SELECT, only on the already-zero path, buys
+        an answer that is actually true.
+        """
+        return self._fetch_one(
+            f"SELECT 1 FROM `{self.TABLE_NAME}` WHERE `id` = %s", (database_id,)
+        ) is not None
 
     def _exec(self, sql, params=()):
         """Execute a statement whose result nobody reads (INSERT/UPDATE/DELETE)."""

@@ -182,6 +182,12 @@ class Puzzles(commands.Cog):
         clobbers whatever a concurrent bang or web write changed while we were waiting
         (H4). Re-reading here gives the bang edge the same lock-then-read shape the web
         handlers already have (bot/web/actions.py).
+
+        Deliberately scoped to the three DB-backed objects. guild_data is not
+        refreshed, and neither are the sheet ids cog_before_invoke pushed into the
+        sheets cog from the pre-lock hunt -- a concurrent !use_solved_sheet could
+        leave those stale. That command is hunt-level and takes no puzzle lock, so
+        this lock could not serialise it anyway.
         """
         env = self.environment.get(ctx.message.id)
         if env is None:

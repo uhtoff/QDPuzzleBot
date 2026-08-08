@@ -5,10 +5,27 @@ and the web dashboard (bot/web/actions.py) both serialize per-puzzle writes thro
 this single registry, so a dashboard solve/retag can no longer interleave with a
 bang-command on the same puzzle and lose updates.
 
-NOTE: asyncio.Lock is NOT reentrant. Acquire a given puzzle's lock at most once per
-task. Locking lives at the edges (the bang decorator and the web handlers); the
-ctx-free PuzzleService deliberately does NOT lock, so an edge that already holds the
-lock can call the service without deadlocking.
+NOTE: asyncio.Lock is NOT reentrant, and never times out. Acquire a given puzzle's
+lock at most once per task. Locking lives at the edges (the bang decorator and the
+web handlers); the ctx-free PuzzleService deliberately does NOT lock, so an edge that
+already holds the lock can call the service without deadlocking.
+
+There are three DELIBERATE exceptions inside PuzzleService, each safe only because of
+who calls it. Adding a caller that already holds the relevant lock deadlocks the bot
+permanently -- no error, no timeout, just a wedged event loop until restart:
+
+  - refresh_meta takes rollup_lock, on the disjoint round-id key space (see below).
+  - bulk_re_edge takes its member puzzles' locks internally; its callers must lock
+    only the target, never a member.
+  - link_informs_for_evidence / unlink_informs_for_evidence take
+    puzzle_lock(source_puzzle_id) (M5). Safe ONLY because every caller is a bare
+    asyncio.create_task from a lock-free web handler (bot/web/actions.py). Note the
+    adjacent trap: !clue/!clues already call refresh_informs_targets from INSIDE
+    with_puzzle_mutex, so routing a bang command through the link path instead would
+    hang on the source puzzle's own lock.
+
+The bang edge also re-reads under the lock (with_puzzle_mutex ->
+Puzzles._refresh_environment), which takes no lock of its own.
 """
 import asyncio
 from collections import defaultdict
