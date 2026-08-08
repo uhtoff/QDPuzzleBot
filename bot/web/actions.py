@@ -1704,6 +1704,14 @@ async def change_group_type(tag_group_id):
         return jsonify({"error": str(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except HttpError:
+        # refresh_target re-raises the RAW Sheets error, so this route needs the
+        # same catch its puzzle-keyed twin has: by the time a render fails the
+        # retype is already committed, and a 500 here would both misreport a
+        # saved mutation and skip the @pushes_board push (M7).
+        logger.exception("change_group_type: sheet update failed for group %s",
+                         tag_group_id)
+        warning = "A sheet update failed; the change is saved. Use Rebuild to retry."
 
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
     await _audit("change_group_type", hunt_uid=ctx["hunt"]["uid"],

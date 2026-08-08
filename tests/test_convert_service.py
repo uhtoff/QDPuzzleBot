@@ -599,3 +599,66 @@ class TestTeardownGroupTargetRefreshesOtherGroups:
         ids = [g.id for g in refreshed if g is not None]
         assert 20 in ids, "the outer metameta was never told its feeder vanished"
         assert 10 not in ids, "the group being torn down must not be refreshed"
+
+
+# --------------------------------------------------------------------------
+# M7: a Sheets failure during the edge flip must not abort the conversion
+# --------------------------------------------------------------------------
+
+class TestConvertSurvivesEdgeFlipSheetFailure:
+    """`bulk_re_edge` used to end in its own `refresh_target`, whose raw Sheets
+    error propagated out of `convert_to_type` BEFORE the Group teardown and
+    `set_source_mode` ran — leaving a half-converted group that "Rebuild" could
+    not finish (M7). The conversion's single render now happens at the end, once
+    every durable mutation is committed."""
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog_convert()
+
+    async def _run_group_teardown(self, cog):
+        from googleapiclient.errors import HttpError
+
+        puz = make_puzzle(id=7, is_target=True, channel_id=555)
+        group = make_round(id=42, name="Alpha", target_puzzle_id=7, category_id=999)
+        group.type = "Metapuzzle"
+        # The real bulk_re_edge runs; only the sheet render fails.
+        cog.service.refresh_target = AsyncMock(
+            side_effect=HttpError(MagicMock(status=500), b"boom"))
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_group_info = AsyncMock()
+        cog.service.safe_rename = AsyncMock(return_value=True)
+        hunt = make_hunt()
+        guild = MagicMock()
+        channel = MagicMock(); channel.id = 555
+        guild.get_channel.return_value = channel
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            # A member is required: bulk_re_edge short-circuits on an empty
+            # group and never reaches the sheet render at all.
+            member = make_puzzle(id=8)
+            member.tag_edges = {42: {"feeds"}}
+            mpdb.get_all_from_tag_group.return_value = [member]
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.return_value = group
+            mhdb.get_by_attr.return_value = hunt
+            await cog.service.convert_to_type(guild, hunt, puz, "Group")
+        return puz, group, mpdb
+
+    @pytest.mark.asyncio
+    async def test_teardown_still_runs(self, cog):
+        _puz, group, mpdb = await self._run_group_teardown(cog)
+        mpdb.delete.assert_called_once_with(7)
+        assert group.target_puzzle_id == 0
+
+    @pytest.mark.asyncio
+    async def test_source_mode_still_set(self, cog):
+        await self._run_group_teardown(cog)
+        cog.service.set_source_mode.assert_awaited_once()
+        assert _mode_passed(cog.service.set_source_mode) == \
+            __import__("bot.core.puzzle_service", fromlist=["TYPE_DEFAULTS"]) \
+            .TYPE_DEFAULTS["Group"]["default_source_mode"]

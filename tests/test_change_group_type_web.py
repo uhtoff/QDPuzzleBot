@@ -113,3 +113,20 @@ async def test_change_type_locks_target_and_members_in_one_acquisition():
         assert resp.status_code == 200
     finally:
         stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_change_type_reports_a_sheet_failure_as_a_warning_not_a_500(web):
+    """M7: `refresh_target` re-raises the RAW HttpError, and the group-keyed route
+    (unlike its puzzle-keyed twin) did not catch it — so a Sheets hiccup AFTER the
+    retype was committed surfaced as a 500 on a mutation that had already saved,
+    and skipped the @pushes_board push with it."""
+    from googleapiclient.errors import HttpError
+
+    web.cog.service.convert_tag_group_type = AsyncMock(
+        side_effect=HttpError(MagicMock(status=503), b"sheets down"))
+    resp = await web.client.post("/api/tag_groups/5/change-type", json={"type": "Group"})
+    assert resp.status_code == 200
+    body = await resp.get_json()
+    assert body["ok"] is True
+    assert "sheet_warning" in body

@@ -968,11 +968,17 @@ class PuzzleService:
             raise SheetRefreshError(failed)
 
     @pushes_board()
-    async def bulk_re_edge(self, tag_group, new_edge, hunt):
+    async def bulk_re_edge(self, tag_group, new_edge, hunt, *, refresh=True):
         """Flip every member of *tag_group* to *new_edge*.
 
         Returns a human-readable summary string, e.g.
         ``'flipped 3 feeds + 2 none → informs'`` or ``'0 members'``.
+
+        ``refresh=False`` skips the roll-up render, for a caller that renders once
+        itself after all its own durable mutations are committed. A render here
+        raises the raw Sheets error, and `convert_to_type` has teardown and
+        source_mode still to do (M7) — so it opts out rather than being aborted
+        halfway by a stale sheet.
         """
         members = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
         # The target isn't a feeder — its self-edge stays 'none' and is never
@@ -1013,7 +1019,8 @@ class PuzzleService:
         parts = [f"{v} {k}" for k, v in counter.items() if v]
         summary = "flipped " + " + ".join(parts) + f" → {new_edge}"
 
-        await self.refresh_target(hunt, tag_group)
+        if refresh:
+            await self.refresh_target(hunt, tag_group)
         return summary
 
     @pushes_board()
@@ -1064,7 +1071,9 @@ class PuzzleService:
         # Flip edges (unless Runaround or edge is "none")
         if new_type != "Runaround":
             default_edge = TYPE_DEFAULTS[new_type]["default_edge"]
-            summary = await self.bulk_re_edge(tag_group, default_edge, hunt)
+            # No render here: set_source_mode below ends in one, after teardown.
+            summary = await self.bulk_re_edge(
+                tag_group, default_edge, hunt, refresh=False)
         else:
             summary = "no edge change (runaround)"
 
