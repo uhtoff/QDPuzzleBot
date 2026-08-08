@@ -33,6 +33,8 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | TT1 destructive routes untested with gates engaged | fixed (mutation-proven) | `0242043` |
 | TT2 CSRF guard never exercised at request level | fixed (mutation-proven) | `0242043` |
 | T3 `hunt_category.hunt_id` type mismatch, no FK | fixed (migration 038) | `f3df818` |
+| T4 import-time DB connections | fixed (lazy connect) | `417b97e` |
+| T5 N+1 hydration on the event loop | fixed (mutation-proven) | `cc0d91f` |
 | O2 no graceful shutdown, no log rotation | fixed (mutation-proven) | `e758232` |
 | O3 `config.json.dist` omits keys the code reads | fixed | `5121a09` |
 | O5 `run.py` debug path crashes prod | fixed | `478c841` |
@@ -97,11 +99,17 @@ exits at once, rather than waiting out start.sh's SIGKILL); `discord.log` rotate
 guards its dev-only import and takes its endpoint from config instead of a hardcoded LAN
 address. New coverage in `tests/test_ops_shutdown_logging.py`.
 
-**Still open**: **T4** (import-time DB connections -> crash-loop risk, and the reason
-scripts and tests need a live DB) and **T5** (N+1 hydration on the event loop); the
-web-hardening Lows; the frontend items; and the dead-code, DRY and docs-drift groups. The
-naming items remain evidence-only pending sign-off; `round_id` is the agreed first rename
-when that starts.
+**T4 / T5 (the remaining DB items) — shipped 2026-08-08** (`417b97e`, `cc0d91f`).
+`MySQLReconnector` now connects on first use rather than in `__init__`, so MySQL being
+down at boot no longer raises out of `import bot.store` into a supervisor restart-loop —
+and ancillary scripts and test imports stop needing a live database. Puzzle list paths go
+through a new `construct_puzzles`, fixing hydration at 4 queries per call instead of 4 per
+row. New coverage in `tests/test_store_lazy_connect.py` and
+`tests/test_puzzle_batch_hydration.py`.
+
+**Still open**: the web-hardening Lows; the frontend items; and the dead-code, DRY and
+docs-drift groups. The naming items remain evidence-only pending sign-off; `round_id` is
+the agreed first rename when that starts.
 
 ## Verification commands run
 
@@ -324,14 +332,14 @@ the round/hunt for the confirm window — confirm first, then lock.
   **Fix:** a migration mirroring 022 (`MODIFY hunt_id int(11) NOT NULL` + FK ON DELETE
   CASCADE).
 
-- **T4. Import-time DB connections → production crash-loop risk** (`bot/store/__init__.py`
+- **T4. Import-time DB connections → production crash-loop risk — fixed** (`417b97e`) (`bot/store/__init__.py`
   opens three `MySQLReconnector`s at import; no startup retry/backoff — only *established*
   connections self-heal). MySQL down at boot → import raises after ~15s and the supervisor
   restart-loops a recovering DB; also forces every ancillary script/test to have a live DB.
   **Fix:** lazy-connect on first `cursor()` (the `_ensure` machinery already supports it) —
   fixes bot boot, scripts, and the test-import constraint at once.
 
-- **T5. N+1 hydration on the event loop** — `construct_puzzle` runs 4 queries/row
+- **T5. N+1 hydration on the event loop — fixed** (`cc0d91f`) — `construct_puzzle` runs 4 queries/row
   (`mysqldb.py:345-351`); the list paths loop it, so a 100-puzzle hunt is ~400 sequential
   round-trips on the gateway thread. The dashboard path already shows the batched-join
   alternative. **Fix:** batch-hydrate the list paths.
