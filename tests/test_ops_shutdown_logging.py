@@ -119,3 +119,17 @@ def test_ops_config_template_covers_every_key_the_code_reads():
         "attachment_max_bytes",
     ):
         assert key in dist["web"], f"config.json.dist omits web.{key}"
+
+
+def test_ops_config_exposes_the_debug_endpoint_run_py_reads():
+    """run.py reads config.debug_host/debug_port at import when debug is true.
+
+    Nothing else exercises that path -- run.py has no test -- so without this a
+    dropped attribute in config.py stays green here and AttributeErrors at boot,
+    which is the exact class of failure O5 removed.
+    """
+    from bot.utils.config import Config
+
+    cfg = Config("config.json.dist")  # the template, so the defaults are asserted too
+    assert cfg.debug_host == "127.0.0.1"
+    assert cfg.debug_port == 29781
