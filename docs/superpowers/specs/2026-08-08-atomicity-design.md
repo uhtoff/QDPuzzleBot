@@ -153,10 +153,41 @@ Commands with no puzzle in context are unaffected: the decorator already short-c
 at `:75`.
 
 **2b. Drop the blanket after-invoke commit.** Delete the four commits in
-`cog_after_invoke` (`:286`). The cog has exactly two in-place mutation sites —
-`hunt.solved_sheet_id` (`:747`) and `puzzle.tags.append(new_tag)` (`:1370`) — and each
-commits explicitly instead, inside the lock. Everything else already routes through the
-service, which commits itself.
+`cog_after_invoke` (`:286`). Everything else already routes through the service, which
+commits itself.
+
+A full mutation sweep of the cog finds exactly three in-place mutation sites, and none
+of them needs a replacement commit:
+
+- `hunt.solved_sheet_id = google_drive_id` (`:747`) — **already** followed by an
+  explicit `HuntJsonDb.commit(hunt)` at `:749`. Nothing to do.
+- `puzzle.tags.append(new_tag)` in `!add_tag` (`:1370`) and
+  `puzzle.tags.remove(remove_tag)` in `!remove_tag` (`:1387`) — **these commands are
+  being deleted**, see 2c.
+
+**2c. Delete `!add_tag` and `!remove_tag`** (`puzzles.py:1347-1388`) and their two rows
+in `docs/commands.md:209-210`.
+
+Both are documented troubleshooting-only commands that already persist nothing, and have
+since the multi-edge work. `MySQLPuzzleJsonDb.SPECIAL_ATTR` (`mysqldb.py:343`) lists both
+`tags` and `tag_edges`, so the generic UPDATE skips them; membership is persisted solely
+by the tag-diff in `PuzzleJsonDb.commit` (`:562`), which builds `mem_pairs` from
+**`tag_edges`**. Both commands mutate only the plain `tags` list (`puzzle_data.py:51`)
+and never touch `tag_edges`, so the diff sees no change and no row is written or removed.
+The 2026-07-02 review recorded the same fact in passing ("`!add_tag`'s append never
+persists"). `PuzzleData` has the correct seams — `add_edge` / `remove_edge` (`:108`,
+`:114`) keep both structures in sync — and these commands do not use them.
+
+Deleting them is preferred over repairing them: the supported paths (`!feeds`,
+`!informs`, `!add_to`, `!remove_from`) are solid, and a manual tag-id escape hatch that
+bypasses the edge model is a liability rather than a fallback.
+
+Keep, explicitly:
+- `!list_tags` (`:1311`) — read-only, still useful.
+- `PuzzleData.add_tag` (`puzzle_data.py:96`) — a different thing entirely, used by
+  `puzzle_service.py:1024,2024`.
+
+This lands as **its own commit**, separate from 2a and 2b.
 
 This also fixes a second defect: `cog_after_invoke` runs in discord.py's `finally`, so a
 command that mutates and then raises currently persists the partial mutation.
@@ -259,6 +290,9 @@ fix, confirm the test goes red for the right reason, restore. Do not commit the 
    neither field is lost. This is the load-bearing test for the package.
 4. **H4, after-invoke** — a command that mutates and then raises does not persist the
    mutation.
+4b. **`!add_tag` / `!remove_tag` are gone** — the bot registers no command by either
+   name, and `docs/commands.md` no longer lists them. `!list_tags` still works and
+   `PuzzleData.add_tag` still has its two service callers.
 5. **M5** — a link/unlink racing a locked command does not revert the concurrent write.
 6. **T2** — committing an object whose row was deleted emits the ERROR log.
 7. **Migration 037** — applies against a copy of the production schema; the orphan sweep
