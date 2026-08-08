@@ -2833,6 +2833,9 @@ async def update_mark(media_id, mark_id):
     except MarkupRejected as exc:
         return jsonify({"error": str(exc)}), 400
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    # Markup is open to any member who can see the hunt, and this edits ink that
+    # may be someone else's -- audited for the same reason create_mark is.
+    await _audit("update_mark", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.mark_to_json(mark))
 
 
@@ -2849,6 +2852,8 @@ async def delete_mark(media_id, mark_id):
     except markup_service.MarkNotFound as exc:
         return jsonify({"error": str(exc)}), 404
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    # Erasing another member's ink was the one markup action that left no trail.
+    await _audit("delete_mark", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 
 

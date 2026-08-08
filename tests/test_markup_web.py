@@ -155,3 +155,47 @@ async def test_restyling_a_mark_returns_the_updated_row(web):
                               json={"style": {"colour": "#2f9e44"}})
     assert resp.status_code == 200
     assert service.update_mark.call_args.kwargs["mark_id"] == 9
+
+
+# --------------------------------------------------------------------------
+# Auditing (2026-08-07 review). Marking up an image is open to any member who
+# can see the hunt, and update/delete act on *another member's* ink. create_mark
+# audited; the other two did not, so ink could be edited or erased with nothing
+# recorded. delete_region next door already audits — this closes the gap.
+# --------------------------------------------------------------------------
+
+async def test_updating_a_mark_is_audited(web):
+    app, service, ctx, *_ = web
+    client = app.test_client()
+    with patch("bot.web.actions._audit", AsyncMock()) as audit:
+        resp = await client.patch("/api/media/7/markup/9",
+                                  json={"style": {"colour": "#1971c2"}})
+    assert resp.status_code == 200
+    audit.assert_awaited_once()
+    assert audit.await_args.args[0] == "update_mark"
+    assert audit.await_args.kwargs["hunt_uid"] == ctx["hunt"]["uid"]
+
+
+async def test_deleting_a_mark_is_audited(web):
+    app, service, ctx, *_ = web
+    client = app.test_client()
+    with patch("bot.web.actions._audit", AsyncMock()) as audit:
+        resp = await client.delete("/api/media/7/markup/9")
+    assert resp.status_code == 200
+    audit.assert_awaited_once()
+    assert audit.await_args.args[0] == "delete_mark"
+    assert audit.await_args.kwargs["hunt_uid"] == ctx["hunt"]["uid"]
+
+
+async def test_a_refused_update_is_not_audited(web):
+    """The audit log records what happened, not what was attempted: a mark that
+    does not exist must leave no trail. Without this, auditing unconditionally
+    at the top of the route would pass the two tests above."""
+    from bot.core import markup as markup_service
+    app, service, *_ = web
+    service.update_mark.side_effect = markup_service.MarkNotFound("no such mark")
+    client = app.test_client()
+    with patch("bot.web.actions._audit", AsyncMock()) as audit:
+        resp = await client.patch("/api/media/7/markup/9", json={"text": "x"})
+    assert resp.status_code == 404
+    audit.assert_not_awaited()

@@ -3,6 +3,7 @@ import random
 import string
 import json
 import logging
+from mysql.connector.errors import IntegrityError
 from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
@@ -24,15 +25,57 @@ from .puzzle_image_data import PuzzleImageData
 
 logger = logging.getLogger(__name__)
 
+#: MariaDB/MySQL ER_DUP_ENTRY -- a UNIQUE index rejected the write.
+DUPLICATE_ENTRY_ERRNO = 1062
+
 
 class _MySQLBaseDb:
     TABLE_NAME: str
     SPECIAL_ATTR: List[str] = []
 
+    #: Columns holding a code minted by generate_uid and protected by a UNIQUE
+    #: index (migration 040). generate_uid SELECTs for a clash and then INSERTs,
+    #: so two concurrent creates can both pass the check -- the index rejects the
+    #: loser, and commit() re-mints and retries rather than surfacing a 500.
+    GENERATED_UNIQUE_FIELDS: tuple = ()
+    #: Total insert attempts before giving up. Each retry draws a fresh random
+    #: code, so a genuine clash is resolved on the first or second try; a higher
+    #: count would only mask an index that is wedged for some other reason.
+    GENERATED_CODE_ATTEMPTS = 4
+
     def __init__(self, mydb: "MySQLReconnector"):
         self.mydb = mydb
 
+    def _duplicate_generated_field(self, exc):
+        """The generated column a duplicate-key error is complaining about, or
+        None when the error is not one re-minting could fix."""
+        if getattr(exc, "errno", None) != DUPLICATE_ENTRY_ERRNO:
+            return None
+        message = str(exc)
+        for field in self.GENERATED_UNIQUE_FIELDS:
+            # The index is named after its column (see migration 040), so either
+            # spelling identifies it; require a name match so that a duplicate on
+            # some *other* unique column is not silently retried.
+            if f"uq_{self.TABLE_NAME}_{field}" in message or f"'{field}'" in message:
+                return field
+        return None
+
     def commit(self, object_to_commit, /):
+        for attempt in range(1, self.GENERATED_CODE_ATTEMPTS + 1):
+            try:
+                return self._commit_once(object_to_commit)
+            except IntegrityError as exc:
+                field = self._duplicate_generated_field(exc)
+                if field is None or attempt == self.GENERATED_CODE_ATTEMPTS:
+                    raise
+                reminted = self.generate_uid(field)
+                logger.warning(
+                    "`%s`.`%s` collided on %r (lost a create race); re-minted as %r",
+                    self.TABLE_NAME, field, getattr(object_to_commit, field), reminted,
+                )
+                setattr(object_to_commit, field, reminted)
+
+    def _commit_once(self, object_to_commit, /):
         cursor = self.mydb.cursor()
         data = ()
         field_list = []
@@ -182,6 +225,7 @@ class _MySQLBaseDb:
 
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
+    GENERATED_UNIQUE_FIELDS = ('uid',)
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -194,6 +238,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
 
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
+    GENERATED_UNIQUE_FIELDS = ('group_code',)
     def get_by_attr(self,**kwargs):
         """Retrieve TagGroup by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()

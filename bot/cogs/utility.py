@@ -58,7 +58,7 @@ class Utility(commands.Cog):
 
         Usage: `!info_bot`
         Example: `!info_bot`"""
-        embed = discord.Embed(title="LadderSpot")
+        embed = discord.Embed(title="QDPuzzleBot")
         # embed.url = f"https://top.gg/bot/{self.bot.user.id}"
         embed.set_thumbnail(url=self.bot.user.avatar)
         embed.add_field(
@@ -67,7 +67,9 @@ class Utility(commands.Cog):
             f"Guilds: {len(self.bot.guilds)}\n"
             f"Users: {len(self.bot.users)}\n"
             f"Shards: {self.bot.shard_count}\n"
-            f"Shard ID: {ctx.guild.shard_id}```",
+            # ctx.guild is None in a DM, where there is no shard to report --
+            # reading .shard_id there killed the whole command.
+            f"Shard ID: {ctx.guild.shard_id if ctx.guild else 'n/a (direct message)'}```",
             inline=False,
         )
         embed.add_field(
@@ -80,7 +82,7 @@ class Utility(commands.Cog):
         embed.add_field(
             name="Software Versions",
             value=f"```py\n"
-            f"LadderSpot: {self.bot.version}\n"
+            f"QDPuzzleBot: {self.bot.version}\n"
             f"discord.py: {discord.__version__}\n"
             f"Python: {PY_VERSION}```",
             inline=False,
@@ -90,7 +92,7 @@ class Utility(commands.Cog):
             value=f"[Invite]({self.bot.invite})",
             inline=False,
         )
-        embed.set_footer(text=":ladder: :dog:", icon_url=self.bot.user.avatar)
+        embed.set_footer(text=":jigsaw:", icon_url=self.bot.user.avatar)
         await ctx.send(embed=embed)
 
     @commands.command(aliases=["socials", "links", "support"])

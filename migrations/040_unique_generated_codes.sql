@@ -1,0 +1,46 @@
+-- 040_unique_generated_codes.sql
+-- Low (docs/reviews/2026-08-07-comprehensive-review.md): hunts.uid and
+-- tag_group.group_code are the codes users type to address a hunt or a group,
+-- and neither column had a UNIQUE index. They are minted by
+-- _MySQLBaseDb.generate_uid, which SELECTs for a clash and then INSERTs -- a
+-- check-then-insert with no constraint underneath it. Two concurrent creates
+-- (a bang command and a web create, say) can both pass the check and both
+-- insert the same code. Nothing complains; get_by_attr(uid=...) then returns
+-- whichever row it finds first, and the other hunt is unreachable by uid.
+--
+-- The index is what actually closes that: it makes the loser's INSERT fail
+-- instead of succeeding. The application half landed alongside this migration
+-- -- commit() catches the duplicate-key error, re-mints the code and retries
+-- (see GENERATED_UNIQUE_FIELDS in bot/store/mysqldb.py), so the race now
+-- resolves itself rather than surfacing as a 500.
+--
+-- hunts.uid is NULLable and MariaDB permits many NULLs under a UNIQUE index,
+-- so rows with no uid yet are unaffected -- which is exactly the property
+-- group_code lacks while its "none yet" value is '0' rather than NULL.
+--
+-- SCOPE: hunts.uid only. tag_group.group_code was in the same finding and is
+-- deliberately NOT indexed here. Its column default is '0' and so is
+-- TagGroupData.group_code, and that value is an in-band sentinel meaning "no
+-- code yet" which MANY rows legitimately share -- resolve_group only treats
+-- 6-character codes as real (tag_group_data.py:104). A UNIQUE index would
+-- therefore make '0' single-occupancy and break the next codeless insert; it
+-- fails today against puzzlebot_test, which holds one such row. Making that
+-- column unique first requires moving the sentinel from '0' to NULL (NULLs are
+-- exempt from UNIQUE), which is a data + model change, not an index change.
+--
+-- PRE-FLIGHT. Unlike 038 this was NOT verified against production; only
+-- puzzlebot_test (4 hunts, no duplicate uids) was checked. If
+-- hunts already holds a duplicate uid the ALTER below fails, naming the offending
+-- value -- nothing is written and the migration is not recorded, so it is safe
+-- to re-run once the data is fixed. Run this first to know in advance:
+--
+--   SELECT uid AS value, COUNT(*) AS n
+--     FROM hunts WHERE uid IS NOT NULL GROUP BY uid HAVING n > 1;
+--
+-- An empty result means this migration applies cleanly. If it returns rows,
+-- decide per row which one keeps the code before re-coding the others -- these
+-- are identifiers people may have written down, so it is not a safe automatic
+-- rewrite.
+
+ALTER TABLE `hunts`
+  ADD UNIQUE INDEX `uq_hunts_uid` (`uid`);
