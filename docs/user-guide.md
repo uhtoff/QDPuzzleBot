@@ -397,6 +397,10 @@ drawer:
 
 The full [command reference](commands.md) lists every command; highlights:
 
+- **Server settings (dashboard):** the avatar menu → **Server settings**, for admins.
+  Pins which Discord roles grant the admin and organiser tiers, and sets the bot command
+  channel and Google Drive folders. If a tier still says *matched by name*, anyone who can
+  create a role can grant themselves that tier — pin it.
 - **Standing up a new Discord server for a hunt:** follow the
   [new server playbook](new-server-playbook.md) — it covers the two steps nothing in the
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the

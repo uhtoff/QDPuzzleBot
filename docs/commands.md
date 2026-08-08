@@ -210,10 +210,10 @@ until it finishes.
 | `!start_reminders` *(slash)* | | — | hunt channel | organisers/admins | Start the periodic reminder/tips loop. |
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
 | `!list_tags` *(slash)* | | — | puzzle channel | organisers/admins | List a puzzle's tag IDs and all available group tags. |
-| `!show_settings` *(slash)* | | — | any | admins/mods | Dump this channel's object settings as JSON. |
-| `!show_auth_roles` *(slash)* | | — | any | admins/mods | Report which roles grant the admin and organiser tiers, and whether each is pinned by role id or still matched by name. |
-| `!set_admin_roles` | | `[@Role ...]` | any | admins/mods | Pin the admin tier to specific roles, by id. No roles clears the list and reverts to name matching. Refuses if you hold none of the roles given (it would lock you out of this command). |
-| `!set_organiser_roles` | | `[@Role ...]` | any | admins/mods | Pin the organiser tier to specific roles, by id. No roles clears the list and reverts to name matching. |
+| `!show_settings` *(slash)* | | — | any | admins/mods | Dump this channel's object settings as JSON. Guild-level values are also editable on the web: **Server settings**. |
+| `!show_auth_roles` *(slash)* | | — | any | admins/mods | Report which roles grant the admin and organiser tiers, and whether each is pinned by role id or still matched by name. Web: **Server settings**. |
+| `!set_admin_roles` | | `[@Role ...]` | any | admins/mods | Pin the admin tier to specific roles, by id. No roles clears the list and reverts to name matching. Refuses if you hold none of the roles given (it would lock you out of this command). Web: **Server settings**. |
+| `!set_organiser_roles` | | `[@Role ...]` | any | admins/mods | Pin the organiser tier to specific roles, by id. No roles clears the list and reverts to name matching. Web: **Server settings**. |
 | `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods | Dump the puzzle's fields/values. |
 | `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). |
 | `!debug_puzzle_channel` | | — | puzzle channel | admins/mods | Dump the puzzle's full record as JSON. |

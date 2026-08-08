@@ -42,7 +42,7 @@ carry no meaning once that is done.
 
 ## 3. Point the bot at the right channel and Drive folder
 
-In any channel the bot can see:
+On the dashboard under **Server settings**, or from any channel the bot can see:
 
 ```
 !update_settings discord_bot_channel bot-commands
@@ -56,11 +56,17 @@ must be run in that channel.
 
 ## 4. Pin the authorisation roles — **do not skip this**
 
+Either from Discord:
+
 ```
 !set_admin_roles @Your Admin Role
 !set_organiser_roles @Your Organiser Role
 !show_auth_roles
 ```
+
+…or on the dashboard: the avatar menu → **Server settings**
+(`/guilds/<id>/settings`), which shows both tiers, whether each is pinned or still
+matched by name, and refuses a save that would lock you out.
 
 Until you do this, the tiers are matched by role **name** — `Moderator`, `mod`, `admin` for
 the admin tier; `Organiser`/`Organisers`/`Organizer`/`Organizers` for the organiser tier.
@@ -115,7 +121,8 @@ applied turns up nothing and looks like a missing implementation. It is not.
 
 ## 7. Sanity check before the hunt opens
 
-- `!show_auth_roles` → both tiers *pinned by id*.
+- `!show_auth_roles` (or **Server settings** on the dashboard) → both tiers
+  *pinned by id*.
 - `!show_settings` → bot channel and Drive ids as intended.
 - The team role's overwrite is on the hunt category (step 5), and someone *without* the
   role genuinely cannot see it.
