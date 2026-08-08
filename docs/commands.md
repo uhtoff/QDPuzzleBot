@@ -57,8 +57,10 @@ disagree, **the code is the source of truth** — fix both.
 
 ## Converting a puzzle's role
 
-All convert commands are *slash* hybrids, run in the puzzle's channel, admins/mods only
-(need Manage Channels).
+All convert commands are *slash* hybrids, run in the puzzle's channel,
+organisers/admins only. (They were admins/mods + Manage Channels until 2026-08-08,
+levelled to match the dashboard's convert routes — the two surfaces do the same thing
+through the same service.)
 
 | Command | Aliases | Does |
 |---|---|---|

@@ -2255,14 +2255,13 @@ class Puzzles(commands.Cog):
         await ctx.send(success_msg(tag_group, summary))
 
     @commands.hybrid_command(description="Convert puzzle to metapuzzle", )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_meta(self, ctx):
         """*Turn this feeder puzzle into a metapuzzle that others can be tagged to.*
 
         Usage: `!convert_to_meta`
         Example: `!convert_to_meta`
-        Run in the puzzle's channel. Admins/mods only (needs Manage Channels)."""
+        Run in the puzzle's channel. Organisers/admins only."""
         await self._run_convert_to_type(
             ctx, "Metapuzzle", "Metapuzzle",
             error_if_not_meta=False,
@@ -2274,8 +2273,7 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert puzzle to capstone", )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_capstone(self, ctx):
         """*Convert this puzzle into a capstone (final meta).*
 
@@ -2283,7 +2281,7 @@ class Puzzles(commands.Cog):
         Example: `!convert_to_capstone`
         Run in the puzzle's channel. A regular puzzle is promoted in place
         (like !convert_to_meta, but straight to capstone); a meta's feeders
-        flip feeds → informs. Admins/mods only (needs Manage Channels)."""
+        flip feeds → informs. Organisers/admins only."""
         await self._run_convert_to_type(
             ctx, "Capstone", "Capstone",
             error_if_not_meta=None,
@@ -2295,16 +2293,14 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert puzzle to runaround", )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_runaround(self, ctx):
         """*Convert this puzzle into a runaround.*
 
         Usage: `!convert_to_runaround`
         Example: `!convert_to_runaround`
         Run in the puzzle's channel. A regular puzzle is promoted in place;
-        a meta keeps its membership edges. Admins/mods only (needs Manage
-        Channels)."""
+        a meta keeps its membership edges. Organisers/admins only."""
         await self._run_convert_to_type(
             ctx, "Runaround", "Runaround",
             error_if_not_meta=None,
@@ -2315,14 +2311,13 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert meta puzzle to group", )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_group(self, ctx):
         """*Convert this meta puzzle into a group (a category with no meta puzzle).*
 
         Usage: `!convert_to_group`
         Example: `!convert_to_group`
-        Run in a meta puzzle's channel. Admins/mods only (needs Manage Channels)."""
+        Run in a meta puzzle's channel. Organisers/admins only."""
         await self._run_convert_to_type(
             ctx, "Group", "Group",
             error_if_not_meta=True,
@@ -2333,15 +2328,14 @@ class Puzzles(commands.Cog):
         )
 
     @commands.hybrid_command(description="Convert meta to a plain metapuzzle", )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_metapuzzle(self, ctx):
         """*Convert this meta (capstone/runaround/group) back to a plain metapuzzle.*
 
         Usage: `!convert_to_metapuzzle`
         Example: `!convert_to_metapuzzle`
         Run in a meta puzzle's channel; feeders revert to the 'feeds' edge.
-        Admins/mods only (needs Manage Channels)."""
+        Organisers/admins only."""
         await self._run_convert_to_type(
             ctx, "Metapuzzle", "Metapuzzle",
             error_if_not_meta=True,
@@ -2436,15 +2430,14 @@ class Puzzles(commands.Cog):
         description="Convert metapuzzle back to feeder",
         aliases=["convert_to_feeder"],
     )
-    @commands.has_any_role(*ADMIN_ROLES)
-    @commands.has_permissions(manage_channels=True)
+    @is_organiser()
     async def convert_to_puzzle(self, ctx):
         """*Convert this meta puzzle back into an ordinary feeder puzzle.*
 
         Usage: `!convert_to_puzzle`
         Example: `!convert_to_puzzle`
         Run in a meta puzzle's channel; other puzzles can no longer be tagged to it.
-        Admins/mods only (needs Manage Channels). Alias: `!convert_to_feeder`."""
+        Organisers/admins only. Alias: `!convert_to_feeder`."""
         if (puzzle := self.get_puzzle(ctx)) is None:
             await ctx.channel.send(":x: This doesn't appear to be a puzzle.")
             return
