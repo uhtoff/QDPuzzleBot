@@ -34,13 +34,12 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | TT2 CSRF guard never exercised at request level | fixed (mutation-proven) | `0242043` |
 | Dependency bump + Pipfile pinning | shipped to prod | `9e24542` |
 
-**Needs a decision, not a patch — M10 (`change-type` tier drift).** The group-keyed
-route `/api/tag_groups/<id>/change-type` is `require_organiser` while the equivalent
-puzzle-keyed conversions (`/convert-to-meta`, `/convert-to-capstone`, …) are
-`require_admin`; since organiser ⊇ admin role names, an organiser can perform the
-admin-gated conversion by addressing the group instead of the puzzle. Both tiers are
-defensible — organiser matches delete/rename of a group, admin matches the other
-conversions — so this needs a call on which way to level it before any code changes.
+**M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
+puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
+group-keyed `change-type` route; the admin gate was never a boundary anyway, since
+organiser ⊇ admin role names meant an organiser could reach the same conversion via the
+group. `require_admin` now guards exactly the hunt-lifecycle routes. Note the *bang*
+convert commands remain admin-only, so the two surfaces differ deliberately.
 
 **Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
 atomicity class), H5 (the cross-task deadlock), M6–M9, the T-series DB items, the
