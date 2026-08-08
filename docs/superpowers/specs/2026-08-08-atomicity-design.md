@@ -186,6 +186,53 @@ Note MySQL reports `rowcount = 0` for an UPDATE that matches a row but changes n
 That is a false positive for this log line; it is acceptable at ERROR volume for a
 diagnostic, and is the reason this is a log and not a raise.
 
+### 5. Hand test script (deliverable)
+
+`scripts/diagnose_atomicity.py`, in the house style of `scripts/diagnose_addtable.py`:
+module docstring stating purpose and the run line, repo-root `sys.path` bootstrap,
+PASS/FAIL printed per case, throwaway fixtures cleaned up afterwards.
+
+Purpose: verify against a **real MariaDB** the things the unit suite cannot — that the
+migration actually applied, that the FK actually cascades, and that two genuinely
+concurrent writers under the real locks do not lose an update. The pytest suite proves
+the code shape; this proves the deployed database agrees.
+
+    pipenv run python scripts/diagnose_atomicity.py [--keep]
+
+Cases, each printing PASS/FAIL with the observed values on failure:
+
+1. **Schema** — migration 037 is recorded as applied; the
+   `MessageAttachmentMessageID` constraint exists on `message_attachments`; no orphan
+   attachment rows remain.
+2. **FK cascade** — insert a throwaway message + attachment, delete the message via
+   `MessageDb.delete_message`, assert the attachment row is gone and the returned
+   `local_path` list contains the fixture's path.
+3. **`bulk_update_edge_type`** — build a throwaway group with two members, one already
+   holding the target edge type; convert; assert every member still holds exactly one
+   edge and none lost membership. The membership-destroying failure mode is the whole
+   reason this work exists, so it gets a live check.
+4. **`set_positions`** — three throwaway rows in a scrambled order; assert the readback
+   order matches exactly.
+5. **Concurrent writers (H4)** — two `asyncio` tasks against one throwaway puzzle,
+   through the real `puzzle_lock` and the real service, one writing a note and one a
+   status; assert both survive. This is the load-bearing case: it exercises the actual
+   lock and the actual commit path, not a mocked one.
+6. **T2** — commit an object whose row has been deleted; assert the ERROR line was
+   emitted and nothing was written.
+
+Safety requirements, non-negotiable:
+
+- **Refuse to run against the production database.** Read the database name from
+  `config.json` and abort with a clear message unless it is the test database, or
+  `--force` is passed explicitly.
+- Every fixture row is created by the script and deleted by it, in a `finally`, even on
+  failure. `--keep` skips the cleanup for post-mortem inspection, matching
+  `diagnose_addtable.py`.
+- Fixture rows are prefixed/identifiable (e.g. `DIAG-`) so a `--keep` run or a crash
+  leaves obviously-throwaway data, not something mistakable for real hunt state.
+- No Discord and no Google Sheets calls: this is a store-layer and lock-layer probe
+  only. Where a service method would fan out to a notifier, pass a no-op notifier.
+
 ## Constraints
 
 - No transactions, and no change to `autocommit`, anywhere in this work.
@@ -218,6 +265,9 @@ fix, confirm the test goes red for the right reason, restore. Do not commit the 
    runs clean and the constraint takes.
 8. **`delete_message`** — deleting a message removes its attachment rows via the cascade,
    and returns their `local_path` values.
+9. **`scripts/diagnose_atomicity.py`** exists per §5 and reports PASS on every case
+   against the test database, with the run recorded in the final summary. A case that
+   cannot be checked must print SKIP with a reason, never a silent PASS.
 
 Gates, all green before each stage commit:
 
