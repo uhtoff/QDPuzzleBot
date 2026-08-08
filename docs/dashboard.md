@@ -7,10 +7,14 @@ meta, solutions, a filterable puzzle list, evidence, and live Discord
 activity.
 Write (organiser-gated except notes/evidence): notes, retag puzzles between
 metas (drag board + add/remove menu), create puzzles and metas, solve/unsolve,
-sheets, clues/evidence, minimeta and convert-to-* type changes, rename, hunt
-create/settings/archive/delete, gate/re-gate a hunt behind a team role,
+sheets, clues/evidence, minimeta and convert-to-* type changes, rename,
 tag-group delete/rename, reconcile, and rollup rebuild — roughly 36 write
-routes in total. Write-actions
+routes in total. **Admin-gated** (a strictly narrower set of role names) are
+the hunt-lifecycle routes only: hunt create, settings, archive, solved-sheet,
+gate/re-gate behind a team role, and hunt delete. The convert-to-* routes are
+deliberately organiser, matching the group-keyed change-type route — they were
+admin until 2026-08-08, which an organiser could bypass by addressing the group
+instead of the puzzle. Write-actions
 run through ctx-free `web_*` methods on the Puzzles cog (mirrored, for
 Discord-visible side effects, by `bot/core/notifier.py`), so the website
 creates real Discord channels + Google sheets and posts/refreshes the same

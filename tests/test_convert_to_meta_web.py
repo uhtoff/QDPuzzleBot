@@ -31,7 +31,7 @@ def web():
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.actions._visible_hunt_for_puzzle", AsyncMock(return_value=(ctx, None))),
-        patch("bot.web.actions.require_admin", AsyncMock(return_value=None)),
+        patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
         patch("bot.web.actions._audit", AsyncMock()),
         patch("bot.web.actions.puzzle_lock", _noop_lock),
         patch("bot.store.HuntJsonDb", hdb),
@@ -51,3 +51,15 @@ async def test_convert_to_meta_passes_live_guild_not_none(web):
     web.cog.service.convert_to_type.assert_awaited_once()
     passed_guild = web.cog.service.convert_to_type.await_args.args[0]
     assert passed_guild is web.guild, "route must resolve and pass the live guild"
+
+
+@pytest.mark.asyncio
+async def test_convert_to_meta_refuses_when_the_organiser_gate_denies(web):
+    """Levelled at organiser (was admin, while the group-keyed change-type route
+    was already organiser — an organiser could reach the same conversion by
+    addressing the group). The gate still has to be consulted."""
+    with patch("bot.web.actions.require_organiser",
+               AsyncMock(return_value=({"error": "insufficient_role"}, 403))):
+        resp = await web.client.post("/api/puzzles/7/convert-to-meta")
+    assert resp.status_code == 403
+    web.cog.service.convert_to_type.assert_not_awaited()
