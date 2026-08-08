@@ -103,7 +103,7 @@ the bot only populates the contents of the spreadsheet cells.)
 
 Clone this repository
 ```
-git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot
+git clone https://github.com/uhtoff/QDPuzzleBot
 ```
 Create a [discord application, bot](https://realpython.com/how-to-make-a-discord-bot-python/), and add the bot's token to a [`config.json` file](https://github.com/makupi/cookiecutter-discord.py-postgres/blob/master/%7B%7Bcookiecutter.bot_slug%7D%7D/config.json) in the root directory of this project:
 ```json
@@ -185,7 +185,6 @@ pipenv shell
 # Start bot
 python run.py
 ```
-The environment variable `$LADDER_SPOT_DATA_DIR` can be used to control the directory where guild settings and puzzle data are stored.
 
 # Deploying on a Linux server
 
@@ -315,11 +314,11 @@ useradd -m puzzbot-test
 loginctl enable-linger puzzbot puzzbot-test
 
 # as puzzbot (live → main)
-git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot puzzbot
+git clone https://github.com/uhtoff/QDPuzzleBot puzzbot
 git -C puzzbot checkout main
 
 # as puzzbot-test (test → staging)
-git clone https://github.com/sloop-puzzles/puzzlehunt-discordbot puzzbot
+git clone https://github.com/uhtoff/QDPuzzleBot puzzbot
 git -C puzzbot checkout staging
 ```
 
@@ -827,9 +826,12 @@ Check **each** instance independently — the two are only truly isolated if the
 
 Use `pipenv install --dev` to install dev packages, and in the repo root directory, run
 ```bash
-timeout 120 pipenv run python -m pytest --compact
+timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 ```
-Add `--parallel` for multi-file or suite runs.
+Use `pipenv run python -m pytest` (not a bare `pytest`): that is what puts the repo root
+on `sys.path`, so `import bot` resolves. Wrap the run in `timeout` and write the output to
+a file — a run killed by the timeout exits 124 and can lose buffered output from a pipe.
+Narrow to one file or `-k` filter while iterating.
 
 # Credits
 

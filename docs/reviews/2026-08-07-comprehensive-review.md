@@ -39,6 +39,11 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | O3 `config.json.dist` omits keys the code reads | fixed | `5121a09` |
 | O5 `run.py` debug path crashes prod | fixed | `478c841` |
 | Dependency bump + Pipfile pinning | shipped to prod | `9e24542` |
+| Web-hardening Lows (CSRF binding, WS Origin, int casts, error echo, cache bound) | fixed | `31e8f70` |
+| Frontend Lows (WS backoff, safeHref, undo-after-erase, zoom purity, 401 dead-end, unused dep) | fixed | `f7ddf29` |
+| Dead / obsolete code group | removed | `d7f8086` |
+| DRY: solution-update embed + DeleteRoundModal | fixed | `5e34c7f` |
+| Docs drift (absorb_category, pytest flags, clone URL, Manage-Channels, LADDER_SPOT_DATA_DIR) | fixed | this tranche |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -107,9 +112,29 @@ through a new `construct_puzzles`, fixing hydration at 4 queries per call instea
 row. New coverage in `tests/test_store_lazy_connect.py` and
 `tests/test_puzzle_batch_hydration.py`.
 
-**Still open**: the web-hardening Lows; the frontend items; and the dead-code, DRY and
-docs-drift groups. The naming items remain evidence-only pending sign-off; `round_id` is
-the agreed first rename when that starts.
+**Still open**, named individually rather than by series:
+
+* **Rate limiting** on the member-level channel/sheet/disk-creating routes — deferred from
+  the web-hardening tranche as larger than the surrounding Lows (needs a limiter and a
+  storage decision).
+* **Keyboard reachability** for the pointer-only interactions (colour swatches,
+  click-to-edit cells, sortable headers) — deferred from the frontend tranche as a real
+  a11y pass rather than a Low.
+* **Status vocabulary drift** — `"needs submission"` is in `STATUSES` but missing from the
+  slash choices/docstring/docs; `unsolve` writes `"Unsolved"`, which is not in `STATUSES`.
+* **Missing UNIQUE constraints** on `hunts.uid` and `tag_group.group_code` (check-then-insert
+  in `generate_uid` is a TOCTOU race between a bang and a web create).
+* **No audit on markup update/delete** — only `create_mark` audits, so any member can erase
+  another's ink with no trail.
+* **`info_bot`** embed still titled "LadderSpot"; `ctx.guild.shard_id` crashes in DMs.
+* **The unsolve embed pair** — the bang and web copies have *drifted* (the bang embed has no
+  title and different wording), so unifying them is a copy decision, not a refactor.
+* **`backfill_hunt_uids.py`** — spent once every DB row has a non-null uid, which needs a
+  live DB to confirm. (It is not broken: the `dict_cursor` call this review reported is not
+  in the file.)
+
+The naming items remain evidence-only pending sign-off; `round_id` is the agreed first
+rename when that starts.
 
 ## Verification commands run
 
