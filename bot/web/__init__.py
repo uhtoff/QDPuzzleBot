@@ -99,7 +99,7 @@ def _register_spa(app):
 
 def create_app(bot):
     """Build the Quart app. Imported lazily so the bot does not hard-depend on Quart."""
-    from quart import jsonify, request
+    from quart import jsonify, request, session
 
     from .typed_app import BotQuart
     from .auth import auth_bp
@@ -130,10 +130,14 @@ def create_app(bot):
 
     @app.after_request
     async def _set_csrf_cookie(resp):
-        if not request.cookies.get("csrf_token"):
+        # Mirror the session-bound token into a JS-readable cookie so the SPA can
+        # echo it back in the header. The cookie is a *transport* for the token,
+        # not the thing we validate against -- see _csrf_guard.
+        token = session.get("csrf_token")
+        if token and request.cookies.get("csrf_token") != token:
             resp.set_cookie(
                 "csrf_token",
-                secrets.token_urlsafe(32),
+                token,
                 samesite="Lax",
                 secure=config.web_oauth_redirect_uri.startswith("https://"),
                 httponly=False,
@@ -142,8 +146,18 @@ def create_app(bot):
 
     @app.before_request
     async def _csrf_guard():
+        # The token is bound to the signed session, not merely double-submitted.
+        # Comparing the header against the *cookie* trusts whatever cookie the
+        # browser sends, and a sibling host (evil.example.test) can both set a
+        # csrf_token cookie for the parent domain and know its value -- so it
+        # could satisfy header == cookie from off-site. It cannot forge the
+        # session, so comparing against the session closes that path.
+        token = session.get("csrf_token")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["csrf_token"] = token
         if request.path.startswith("/api/") and _csrf_required(request.method):
-            if not _csrf_ok(request.headers.get("X-CSRF-Token"), request.cookies.get("csrf_token")):
+            if not _csrf_ok(request.headers.get("X-CSRF-Token"), token):
                 return jsonify({"error": "csrf"}), 403
 
     return app

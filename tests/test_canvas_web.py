@@ -103,6 +103,14 @@ class TestCanvasCreate:
                                          json={"media_id": 7})
         assert resp.status_code == 403
 
+    async def test_rejects_a_non_numeric_media_id_as_a_client_error(self, web):
+        """The id is cast with int() before anything validates it, so a
+        non-numeric one raised ValueError out of the route -- a 500 that reads
+        as a server fault for what is plainly a bad request."""
+        resp = await web.client.post("/api/hunts/U1/canvases",
+                                     json={"media_id": "not-a-number"})
+        assert resp.status_code == 400
+
     async def test_rejects_media_from_another_hunt(self, web):
         """Otherwise the tile route would serve another hunt's bytes to anyone who
         can see this one."""
@@ -473,6 +481,15 @@ class TestCreatePuzzleFromRegion:
             "/api/canvases/3/regions/5/create-puzzle",
             json={"name": "  ", "round_id": 2, "role": "locates"})
         assert resp.status_code == 400
+
+    async def test_rejects_a_non_numeric_round_id_as_a_client_error(self, web, create):
+        """Same shape as the media_id cast: int(body["round_id"]) threw a
+        ValueError straight out of the route rather than answering 400."""
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": "banana", "role": "locates"})
+        assert resp.status_code == 400
+        web.cog.service.create_puzzle.assert_not_awaited()
 
     async def test_rejects_an_unknown_role(self, web, create):
         resp = await web.client.post(

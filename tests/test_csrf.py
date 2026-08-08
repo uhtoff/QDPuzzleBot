@@ -58,13 +58,20 @@ async def test_post_without_csrf_token_is_rejected_by_the_app():
 
 
 @pytest.mark.asyncio
-async def test_post_with_matching_csrf_token_passes_the_guard():
+async def test_post_with_the_issued_csrf_token_passes_the_guard():
     """Must get *past* the CSRF guard — the route then refuses it for its own
     reasons (no session), which is a different failure than 403 csrf. Without
-    this, a guard that rejected everything unconditionally would look correct."""
+    this, a guard that rejected everything unconditionally would look correct.
+
+    The token must be one the app *issued* to this session: since the guard was
+    bound to the session, an invented header/cookie pair is no longer accepted
+    (that is the cookie-tossing bypass, covered in test_web_hardening_lows.py).
+    The test client keeps the session cookie across requests, so the seeding GET
+    is what makes the token belong to us."""
     client = _real_app().test_client()
-    client.set_cookie("localhost", "csrf_token", "tok123")
-    resp = await client.post("/api/hunts", json={}, headers={"X-CSRF-Token": "tok123"})
+    seed = await client.get("/api/hunts")
+    issued = seed.headers["Set-Cookie"].split("csrf_token=")[1].split(";")[0]
+    resp = await client.post("/api/hunts", json={}, headers={"X-CSRF-Token": issued})
     body = await resp.get_json()
     assert not (resp.status_code == 403 and (body or {}).get("error") == "csrf")
 

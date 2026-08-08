@@ -300,3 +300,14 @@ async def test_an_unknown_media_id_is_refused(web):
 
     assert resp.status_code == 400
     web.cog.service.log_clues.assert_not_awaited()
+
+
+async def test_rejects_a_non_numeric_source_sheet_id_as_a_client_error(web):
+    """int(source_sheet_id) ran before any validation, so a non-numeric id threw
+    a ValueError out of the route -- a 500 for what is plainly a bad request."""
+    resp = await web.client.post(
+        "/api/evidence",
+        json={"hunt_uid": "U1", "source_sheet_id": "banana", "notes": ["a clue"]},
+    )
+    assert resp.status_code == 400
+    web.cog.service.log_clues.assert_not_awaited()

@@ -144,7 +144,33 @@ def login_required(view):
 # every request from a user in a guild they don't belong to (the dashboard
 # polls hunt_detail every 30s per open tab).
 _NOT_MEMBER_CACHE_TTL = 60
+# Nothing evicts on read -- an expired entry is read past but left in place --
+# so without a cap the dict grows for the life of the process, one key per
+# (guild, user) pair ever probed. resolve_membership probes every guild the bot
+# is in for every logged-in user, so that set is much larger than the membership
+# it describes.
+_NOT_MEMBER_CACHE_MAX = 10_000
 _not_member_cache = {}
+
+
+def _remember_not_member(key):
+    """Record a negative fetch_member result, keeping the cache bounded.
+
+    Python dicts preserve insertion order, so re-inserting the key puts it at
+    the end and the oldest entries are the ones at the front. Expired entries go
+    first (they are dead weight anyway); only if that frees nothing do we drop
+    genuinely live-but-oldest ones.
+    """
+    now = time.monotonic()
+    _not_member_cache.pop(key, None)          # re-insert at the end
+    _not_member_cache[key] = now
+    if len(_not_member_cache) <= _NOT_MEMBER_CACHE_MAX:
+        return
+    for stale in [k for k, at in _not_member_cache.items()
+                  if now - at >= _NOT_MEMBER_CACHE_TTL]:
+        del _not_member_cache[stale]
+    while len(_not_member_cache) > _NOT_MEMBER_CACHE_MAX:
+        del _not_member_cache[next(iter(_not_member_cache))]
 
 
 async def _fetch_member_cached(guild, user_id):
@@ -166,17 +192,17 @@ async def _fetch_member_cached(guild, user_id):
             "user %s is not a member of guild %s (negative-cached for %ss)",
             user_id, guild.id, _NOT_MEMBER_CACHE_TTL,
         )
-        _not_member_cache[key] = time.monotonic()
+        _remember_not_member(key)
         return None
     except Exception:
         logger.warning(
             "fetch_member failed for user %s in guild %s (treating as not-a-member for %ss)",
             user_id, guild.id, _NOT_MEMBER_CACHE_TTL, exc_info=True,
         )
-        _not_member_cache[key] = time.monotonic()
+        _remember_not_member(key)
         return None
     if member is None:
-        _not_member_cache[key] = time.monotonic()
+        _remember_not_member(key)
     return member
 
 

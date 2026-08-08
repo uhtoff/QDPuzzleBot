@@ -18,6 +18,7 @@ from .auth import (
     user_can_manage,
 )
 from bot.core import role_gate
+from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
 
 logger = logging.getLogger(__name__)
@@ -571,7 +572,13 @@ async def add_evidence():
         # The id comes from the client; confirm it is one of THIS hunt's sheets
         # before attributing anything to it.
         from bot.store import SheetsJsonDb
-        if not any(s.id == int(source_sheet_id)
+        try:
+            source_sheet_id = int(source_sheet_id)
+        except (TypeError, ValueError):
+            # A client-supplied id: a bad one is a 400, not an uncaught
+            # ValueError surfacing as a 500 server fault.
+            return jsonify({"error": "source_sheet_id must be a number"}), 400
+        if not any(s.id == source_sheet_id
                    for s in SheetsJsonDb.get_by_hunt(hunt["id"])):
             return jsonify({"error": "sheet not found in hunt"}), 404
     # The id comes from the client; without this an item could cite another
@@ -652,9 +659,43 @@ async def _channel_messages_visible(channel_id, membership, roles_by_guild):
     return hunt_visible(hunt, membership, roles_by_guild, guilds_map)
 
 
+def _dashboard_origin():
+    """The one browser origin the dashboard is served from, derived from the
+    configured OAuth redirect uri (which must already match the public URL the
+    browser uses, or the OAuth round-trip itself would fail). Returns None when
+    it isn't configured, in which case the Origin check stands down rather than
+    locking a misconfigured deployment out of its own dashboard."""
+    from urllib.parse import urlsplit
+    uri = getattr(config, "web_oauth_redirect_uri", "") or ""
+    parts = urlsplit(uri)
+    if not parts.scheme or not parts.netloc:
+        return None
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _ws_origin_allowed(origin):
+    """Same-origin check for the websocket handshake.
+
+    Browsers do not apply the same-origin policy to websockets and Quart's
+    before_request CSRF guard does not run for them, so any site could open this
+    socket with the victim's cookies attached. Origin is the only handshake
+    header that identifies the calling site; a browser always sends it, so a
+    missing one is rejected too.
+    """
+    expected = _dashboard_origin()
+    if expected is None:
+        return True
+    return origin == expected
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""
+    if not _ws_origin_allowed(websocket.headers.get("Origin")):
+        logger.warning("rejected activity websocket from origin %r",
+                       websocket.headers.get("Origin"))
+        await websocket.close(1008)  # policy violation / cross-site handshake
+        return
     user = session.get("user")
     if not user:
         await websocket.close(1008)  # policy violation / unauthenticated

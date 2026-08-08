@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import functools
 import logging
+import re
 from typing import Any
 
 import discord
@@ -43,6 +44,29 @@ from bot.core.media_tiling import run_bounded_image_work, schedule_tiling
 logger = logging.getLogger(__name__)
 
 actions_bp = Blueprint("actions", __name__, url_prefix="/api")
+
+
+_ERROR_SLUG = re.compile(r"\A[a-z][a-z0-9_]{0,63}\Z")
+
+
+def _error_slug(exc):
+    """The client-safe rendering of a RuntimeError raised by the service layer.
+
+    bot/core signals every user-facing refusal by raising RuntimeError with a
+    machine-readable slug ("already_meta", "no_category_space"); that vocabulary
+    is the API contract and the SPA keys on it, so it must pass through intact.
+    RuntimeError is a builtin, though, so an *unintended* one from a library
+    deep in the call stack reaches the same handler -- and echoing its text
+    hands the client internal detail (SQL, paths, driver messages). Anything
+    that is not slug-shaped is logged here and reported generically.
+    """
+    text = str(exc)
+    if _ERROR_SLUG.match(text):
+        return text
+    logger.warning("unexpected RuntimeError surfaced from a web route: %s",
+                   text, exc_info=exc)
+    return "internal_error"
+
 
 MAX_NOTE_LEN = 1000
 
@@ -312,7 +336,7 @@ async def add_sheet(puzzle_id):
             await _audit("add_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": _error_slug(exc)}), 400
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         return jsonify({
@@ -350,7 +374,7 @@ async def remove_sheet(puzzle_id, sheet_id):
             await _audit("remove_sheet", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
             await cog.web_refresh_info(guild, hunt_obj, puzzle)
         except RuntimeError as exc:
-            return jsonify({"error": str(exc)}), 404
+            return jsonify({"error": _error_slug(exc)}), 404
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         return jsonify({"ok": True})
@@ -391,7 +415,7 @@ async def add_hunt_sheet(uid):
             sheet = await cog.service.add_hunt_sheet(hunt_obj, name)
             await _audit("add_hunt_sheet", hunt_uid=ctx["hunt"]["uid"])
         except RuntimeError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": _error_slug(exc)}), 400
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         return jsonify({
@@ -428,7 +452,7 @@ async def remove_hunt_sheet(uid, sheet_id):
             await cog.service.remove_hunt_sheet(hunt_obj, sheet_id)
             await _audit("remove_hunt_sheet", hunt_uid=ctx["hunt"]["uid"])
         except RuntimeError as exc:
-            return jsonify({"error": str(exc)}), 404
+            return jsonify({"error": _error_slug(exc)}), 404
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         return jsonify({"ok": True})
@@ -1379,7 +1403,7 @@ def _convert_to_type_handler(puzzle_id, new_type, error_if_not_meta: bool | None
             except SheetRefreshError as exc:
                 warning = str(exc)
             except RuntimeError as exc:
-                return jsonify({"error": str(exc)}), 400
+                return jsonify({"error": _error_slug(exc)}), 400
             except (discord.RateLimited, discord.HTTPException) as exc:
                 return _discord_error_response(exc)
             except HttpError:
@@ -1708,7 +1732,7 @@ async def change_group_type(tag_group_id):
     except SheetRefreshError as exc:
         warning = str(exc)
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     except HttpError:
@@ -2089,7 +2113,7 @@ async def create_puzzle(uid):
                 notifier=DiscordNotifier(bot_app().bot),
             )
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
@@ -2153,7 +2177,7 @@ async def create_meta(uid):
         if stored_type == "Runaround":
             await cog.service.set_source_mode(hunt_obj, new_round, "subtree")
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("create_meta", puzzle_id=getattr(puzzle, "id", None), hunt_uid=uid, detail=new_round.group_code)
@@ -2198,7 +2222,7 @@ async def create_mini(puzzle_id):
         try:
             mini = await cog.service.create_mini(guild, hunt_obj, minimeta, name)
         except RuntimeError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": _error_slug(exc)}), 400
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await _audit("create_mini", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
@@ -2565,7 +2589,12 @@ async def create_canvas(uid):
     media_id = body.get("media_id")
     if not media_id:
         return jsonify({"error": "media_id required"}), 400
-    media, err = _require_hunt_media(int(media_id), ctx["hunt"]["id"])
+    try:
+        media_id = int(media_id)
+    except (TypeError, ValueError):
+        # Client-supplied: a bad id is a 400, not an uncaught ValueError -> 500.
+        return jsonify({"error": "bad_media_id"}), 400
+    media, err = _require_hunt_media(media_id, ctx["hunt"]["id"])
     if err:
         return err
     assert media is not None  # the (media, None) branch
@@ -2972,7 +3001,13 @@ async def create_puzzle_from_region(canvas_id, region_id):
     assert hunt_obj is not None  # row exists: the visible-hunt check just passed
     target_group = None
     if body.get("round_id"):
-        target_group = TagGroupJsonDb.get_by_attr(id=int(body["round_id"]))
+        try:
+            round_id = int(body["round_id"])
+        except (TypeError, ValueError):
+            # Client-supplied: a bad id is the same 400 as an unknown one, not
+            # an uncaught ValueError surfacing as a 500.
+            return jsonify({"error": "bad_round"}), 400
+        target_group = TagGroupJsonDb.get_by_attr(id=round_id)
         if target_group is None or target_group.hunt_id != hunt_obj.id:
             return jsonify({"error": "bad_round"}), 400
 
@@ -2991,7 +3026,7 @@ async def create_puzzle_from_region(canvas_id, region_id):
                 notifier=DiscordNotifier(bot_app().bot),
             )
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
 
