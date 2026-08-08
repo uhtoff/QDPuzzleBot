@@ -11,8 +11,10 @@ Run from the repo root, with the bot's environment:
 Every fixture row it creates is named or prefixed DIAG- and deleted in a finally
 block, even on failure. --keep skips the cleanup for post-mortem inspection.
 
-REFUSES TO RUN against a database whose name is not the test database unless
---force is given: cases 3 and 5 create and mutate real rows.
+REFUSES TO RUN unless the configured database name contains "test" (dev uses
+puzzlebot_test, the Plesk test host uses puzzbot_new_test), because cases 3 and 5
+create and mutate real rows. --force overrides, but should be rare: if you find
+yourself passing it routinely, fix the name check instead.
 """
 import asyncio
 import inspect
@@ -30,18 +32,28 @@ os.chdir(_REPO_ROOT)
 _KEEP = "--keep" in sys.argv[1:]
 _FORCE = "--force" in sys.argv[1:]
 
-_EXPECTED_DATABASE = "puzzlebot_test"
+# A database is considered safe to mutate if its name says it is a test database.
+# Deliberately a SUBSTRING rule, not a fixed name: the dev checkout uses
+# `puzzlebot_test` and the Plesk test host uses `puzzbot_new_test`, so pinning one
+# literal name made the guard refuse on the very host this script exists to check --
+# which trains the operator to pass --force by reflex, and --force is precisely what
+# would let it loose on production. A guard you routinely override is worse than no
+# guard. If a future environment names a test database without "test" in it, add it
+# here rather than reaching for --force.
+_TEST_DATABASE_MARKER = "test"
 
 # --------------------------------------------------------------------------- guard
 # Check the configured database BEFORE importing bot.store, which opens the real
 # connection and would otherwise touch a database we have not cleared yet.
 from bot.utils import config  # noqa: E402
 
-if config.database != _EXPECTED_DATABASE and not _FORCE:
+_DATABASE_NAME = config.database or ""
+
+if _TEST_DATABASE_MARKER not in _DATABASE_NAME.lower() and not _FORCE:
     print(
-        f"REFUSING TO RUN: configured database is {config.database!r}, expected "
-        f"{_EXPECTED_DATABASE!r}. Cases 3 and 5 create and mutate real rows. "
-        "Pass --force to override."
+        f"REFUSING TO RUN: configured database {_DATABASE_NAME or '(unset)'!r} does not "
+        f"look like a test database (no {_TEST_DATABASE_MARKER!r} in the name). Cases 3 "
+        "and 5 create and mutate real rows. Pass --force only if you are certain."
     )
     sys.exit(1)
 
