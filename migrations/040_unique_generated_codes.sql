@@ -28,19 +28,18 @@
 -- column unique first requires moving the sentinel from '0' to NULL (NULLs are
 -- exempt from UNIQUE), which is a data + model change, not an index change.
 --
--- PRE-FLIGHT. Unlike 038 this was NOT verified against production; only
--- puzzlebot_test (4 hunts, no duplicate uids) was checked. If
--- hunts already holds a duplicate uid the ALTER below fails, naming the offending
--- value -- nothing is written and the migration is not recorded, so it is safe
--- to re-run once the data is fixed. Run this first to know in advance:
+-- PRE-FLIGHT. Verified duplicate-free on BOTH puzzlebot_test (4 hunts) and
+-- production, 2026-08-08, with the query below -- so this ALTER is expected to
+-- apply cleanly, as 038 was. Re-run it if applying to any other environment:
 --
 --   SELECT uid AS value, COUNT(*) AS n
 --     FROM hunts WHERE uid IS NOT NULL GROUP BY uid HAVING n > 1;
 --
--- An empty result means this migration applies cleanly. If it returns rows,
--- decide per row which one keeps the code before re-coding the others -- these
--- are identifiers people may have written down, so it is not a safe automatic
--- rewrite.
+-- An empty result means this migration applies cleanly. If it ever returns rows,
+-- the ALTER fails naming the offending value, and nothing is written and the
+-- migration is not recorded -- so it is safe to re-run once the data is fixed.
+-- Decide per row which hunt keeps the code before re-coding the others: these
+-- are identifiers people may have written down, not a safe automatic rewrite.
 
 ALTER TABLE `hunts`
   ADD UNIQUE INDEX `uq_hunts_uid` (`uid`);

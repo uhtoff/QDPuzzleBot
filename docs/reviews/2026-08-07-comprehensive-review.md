@@ -46,7 +46,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | Docs drift (absorb_category, pytest flags, clone URL, Manage-Channels, LADDER_SPOT_DATA_DIR) | fixed | this tranche |
 | No audit on markup update/delete | fixed | `54f6f6d` |
 | `info_bot` LadderSpot title + DM `shard_id` crash | fixed | `54f6f6d` |
-| Missing UNIQUE on `hunts.uid` | fixed (migration 040 + re-mint retry) | `54f6f6d` |
+| Missing UNIQUE on `hunts.uid` | fixed (migration 040 + re-mint retry; prod verified duplicate-free) | `54f6f6d` |
 | Missing UNIQUE on `tag_group.group_code` | **blocked** — needs the `'0'` sentinel moved to NULL first | — |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The

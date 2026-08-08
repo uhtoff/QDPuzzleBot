@@ -95,15 +95,18 @@ timeout 180 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1
 - Use **`pipenv run python -m pytest`** — plain `python`/`pytest` aren't on PATH, and the
   bare `pytest` entrypoint doesn't put the repo root on `sys.path` (so `import bot` fails).
 - Always wrap in `timeout` and write to a file (a killed run exits 124; read the log).
-- `bot/store/__init__.py` opens MySQL **at import**, so tests need a reachable DB; a
-  gitignored `config.json` (local `puzzlebot_test`) provides creds. The connection is
-  needed at *import* time only — individual tests patch the DAOs (below) and don't run
-  real queries.
+- `bot/store/__init__.py` connects to MySQL on first use, so tests need a reachable DB; a
+  gitignored `config.json` (local `puzzlebot_test`) provides creds. **Most** tests patch the
+  DAOs (below) and never touch it — but a dozen store-layer files deliberately do run real
+  queries against `puzzlebot_test`. See "Live-DB tests" below.
 
 ### Test harness
 
-The suite is fast and fully mocked — **no Discord, no live DB queries.** Pin these exact
-shapes (config in `pytest.ini`); don't invent harness machinery.
+The suite is fast and **mocked by default — no Discord, and no live DB queries in the
+great majority of tests.** The exception is a deliberate family of store-layer tests that
+talk to the real `puzzlebot_test` (see "Live-DB tests" below); assume mocked unless a file
+says otherwise. Pin these exact shapes (config in `pytest.ini`); don't invent harness
+machinery.
 
 - **Async:** `pytest.ini` sets `asyncio_mode = auto`, so `async def test_*` runs without a
   decorator. Await the service call directly; assert with `AsyncMock` methods
@@ -126,6 +129,36 @@ shapes (config in `pytest.ini`); don't invent harness machinery.
   DAO code change. (Per the migration→deploy→code rule below, ship the migration first.)
 - Canonical end-to-end examples to mirror: `tests/test_create_service.py` (create/delete via
   `puzzle_service`) and `tests/test_category_layout.py` (mocked split/move/clone).
+
+### Live-DB tests
+
+Some store-layer behaviour is not mockable — FK cascades, `ON DELETE` behaviour, UNIQUE
+indexes, and what the driver actually raises — so these files insert real rows into
+`puzzlebot_test` and tear them down in a `finally` block:
+
+```
+test_backfill_consistency.py   test_bang_edge_atomicity.py     test_bulk_edge_atomicity.py
+test_get_unassigned.py         test_hunt_category_cascade.py   test_is_target_derivation.py
+test_media_gc.py               test_message_delete_cascade.py  test_missing_row_update_logs.py
+test_puzzle_image_positions.py test_tag_edges.py
+```
+
+The convention: `from bot.store import mydb` for a cursor, and `live_hunt_id()` from
+`tests/conftest.py` for a real `hunts.id` to FK against (looked up at runtime, not a seeded
+constant). Follow it rather than inventing a second style.
+
+**What this means when you change the schema.** A green suite is not proof a migration is
+safe — but a *red* one here is evidence about the schema, not a broken mock. Adding
+`UNIQUE` to `tag_group.group_code` turned eight of these red because they insert codeless
+rows that all collide on that column's `DEFAULT '0'` sentinel, which is exactly the
+production breakage the tests were reporting. So:
+
+- Apply migrations to `puzzlebot_test` (`pipenv run python migrate.py migrate`) and then run
+  the suite, before assuming a schema change is good.
+- Read a failure in these files as a claim about the schema first, and about the test second.
+- `puzzlebot_test` is small (single-digit hunts), so "no duplicates here" says little about
+  production. Migration 038's header is the standard to match: verify against prod, or say
+  plainly that you could not and ship a pre-flight query in the header (as 040 does).
 
 ## Linting
 
