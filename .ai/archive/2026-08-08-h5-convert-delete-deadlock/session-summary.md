@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-08-08
-Status: ready for handoff — H5 complete @ 658ff54 (branch `working-2`, NOT merged to `staging`)
+Status: ready for handoff — docs(handoff): record H5 state in .ai/active @ 67a582b
 
 ## Goal
 
