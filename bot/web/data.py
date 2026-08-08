@@ -79,7 +79,11 @@ def _run(sql, params=(), *, one=False):
 
 
 def _run_write(sql, params=()):
-    """Run a writing statement on a pooled connection and commit."""
+    """Run a single writing statement on a pooled connection.
+
+    No commit: the pool is created with autocommit=True (see _get_pool), so the
+    statement commits itself and an explicit commit() would be a no-op.
+    """
     conn = _get_connection()
     try:
         cursor = conn.cursor()
@@ -87,7 +91,6 @@ def _run_write(sql, params=()):
             cursor.execute(sql, params)
         finally:
             cursor.close()
-        conn.commit()
     finally:
         conn.close()
 

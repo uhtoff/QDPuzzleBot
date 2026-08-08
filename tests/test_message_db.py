@@ -14,7 +14,7 @@ def _make_db():
     return MySQLMessageDb(mydb=mydb), cursor
 
 
-def test_write_inserts_with_upsert_and_commits():
+def test_write_inserts_with_upsert():
     db, cursor = _make_db()
     db.write(id=10, channel_id=20, guild_id=30, author_id=40, author_name="Ann",
              author_avatar=None, kind=0, content="hi", reference_id=None,
@@ -23,7 +23,6 @@ def test_write_inserts_with_upsert_and_commits():
     assert "INSERT INTO messages" in sql
     assert "ON DUPLICATE KEY UPDATE" in sql
     assert cursor.execute.call_args.args[1][0] == 10
-    db.mydb.commit.assert_called_once()
 
 
 def test_write_persists_embeds_json():

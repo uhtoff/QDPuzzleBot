@@ -86,7 +86,17 @@ class MySQLReconnector:
         return cast(DictCursor, self._conn.cursor(dictionary=True))
 
     def commit(self):
-        # even with autocommit=True, your code calls commit()
+        # No-op while autocommit is on (set in _connect and _ensure): every statement
+        # commits itself, so there is no open transaction for this to close. Kept
+        # because it is part of the connection surface a real transaction would need.
+        #
+        # Atomicity in this codebase comes from STATEMENT SHAPE, not from this call --
+        # multi-statement operations are ordered so a mid-op failure is recoverable
+        # (bulk_update_edge_type), collapsed into one statement (set_positions), or
+        # backed by an FK cascade (delete_message). If a future operation genuinely
+        # needs a transaction, run it on a DEDICATED autocommit=False connection: this
+        # one is shared by several DAOs on the event loop, so an open transaction here
+        # would span their interleaved statements.
         self._ensure()
         return self._conn.commit()
 

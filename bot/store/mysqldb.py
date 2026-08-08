@@ -81,7 +81,6 @@ class _MySQLBaseDb:
             cursor.execute(insert_stmt, data)
             object_to_commit.id = cursor.lastrowid
         cursor.close()
-        self.mydb.commit()
 
     def _exec(self, sql, params=()):
         """Execute a statement whose result nobody reads (INSERT/UPDATE/DELETE)."""
@@ -248,7 +247,6 @@ class MySQLTagGroupCategoryDb(_MySQLBaseDb):
         self._exec(
             "DELETE FROM tag_group_category WHERE group_id = %s", (group_id,)
         )
-        self.mydb.commit()
 
 
 class MySQLHuntCategoryDb(_MySQLBaseDb):
@@ -283,7 +281,6 @@ class MySQLHuntCategoryDb(_MySQLBaseDb):
         self._exec(
             "DELETE FROM hunt_category WHERE hunt_id = %s", (hunt_id,)
         )
-        self.mydb.commit()
 
 
 class MySQLAdditionalSheetsDb(_MySQLBaseDb):
@@ -523,7 +520,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             " ON DUPLICATE KEY UPDATE edge_type = VALUES(edge_type)",
             (tag_group_id, puzzle_id, edge_type),
         )
-        self.mydb.commit()
 
     def delete_tag(self, puzzle_id, tag_group_id):
         """Delete all membership edges for the pair (remove whole membership)."""
@@ -531,7 +527,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s",
             (puzzle_id, tag_group_id),
         )
-        self.mydb.commit()
 
     def delete_tag_edge(self, puzzle_id, tag_group_id, edge_type):
         """Delete a single typed edge row (leaves the pair's other edges intact)."""
@@ -539,7 +534,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "DELETE FROM tags WHERE puzzle_id = %s AND tag_group_id = %s AND edge_type = %s",
             (puzzle_id, tag_group_id, edge_type),
         )
-        self.mydb.commit()
 
     def bulk_update_edge_type(self, tag_group_id, new_edge):
         """Convert members' feeds/informs/none edges to new_edge for a group, without
@@ -626,7 +620,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 (gid, puzzle.id, edge),
             )
         cursor.close()
-        self.mydb.commit()
 
     def delete(self, puzzle_id, /):
         super(MySQLPuzzleJsonDb, self).delete(puzzle_id)
@@ -648,7 +641,6 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
             "last_author_name=VALUES(last_author_name)",
             (channel_id, guild_id, at, author_id, author_name),
         )
-        self.mydb.commit()
 
     def get_for_guild(self, guild_id) -> dict:
         """Return {channel_id: row} of latest activity for every channel in a guild."""
@@ -676,7 +668,6 @@ class MySQLMessageDb(_MySQLBaseDb):
             (id, channel_id, guild_id, author_id, author_name, author_avatar,
              kind, content, embeds, reference_id, created_at),
         )
-        self.mydb.commit()
 
     def mark_edited(self, id, content, edited_at, embeds: Optional[str] = _UNSET):
         """Update a message's content/timestamp. `embeds` is only rewritten when a
@@ -691,7 +682,6 @@ class MySQLMessageDb(_MySQLBaseDb):
                 "UPDATE messages SET content=%s, embeds=%s, edited_at=%s WHERE id=%s",
                 (content, embeds, edited_at, id),
             )
-        self.mydb.commit()
 
     def channel_has_messages(self, channel_id) -> bool:
         """True if any message is already stored for the channel. Used by the
@@ -726,14 +716,12 @@ class MySQLMessageDb(_MySQLBaseDb):
             "ON DUPLICATE KEY UPDATE source_url=VALUES(source_url)",
             (id, message_id, filename, content_type, size, source_url, 0),
         )
-        self.mydb.commit()
 
     def set_attachment_local(self, id, local_path, download_status):
         self._exec(
             "UPDATE message_attachments SET local_path=%s, download_status=%s WHERE id=%s",
             (local_path, download_status, id),
         )
-        self.mydb.commit()
 
 
 class MySQLEvidenceDb(_MySQLBaseDb):
@@ -763,7 +751,6 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         e = EvidenceData()
         e.id = new_id or 0
         e.hunt_id = hunt_id
@@ -786,7 +773,6 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         """
         self._exec(
             "DELETE FROM evidence_items WHERE source_region_id = %s", (region_id,))
-        self.mydb.commit()
 
     def get_all(self, hunt_id: int, source_puzzle_id=None, target_puzzle_id=None):
         """Return evidence items for a hunt, optionally filtered."""
@@ -821,13 +807,11 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             row = cursor.fetchone()
         finally:
             cursor.close()
-        self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
     def delete(self, item_id: int, /) -> None:
         """Delete an evidence item by id. No-op if the id does not exist."""
         self._exec("DELETE FROM evidence_items WHERE id = %s", (item_id,))
-        self.mydb.commit()
 
     def update_note(self, item_id: int, note: str):
         """Update the note text for an evidence item. Returns updated EvidenceData or None."""
@@ -841,7 +825,6 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             row = cursor.fetchone()
         finally:
             cursor.close()
-        self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
     def update_media(self, item_id: int, media_id):
@@ -863,7 +846,6 @@ class MySQLEvidenceDb(_MySQLBaseDb):
             row = cursor.fetchone()
         finally:
             cursor.close()
-        self.mydb.commit()
         return EvidenceData.import_dict(row) if row else None
 
 
@@ -894,7 +876,6 @@ class MySQLMediaDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         m = MediaData()
         m.id = new_id or 0
         m.hunt_id = hunt_id
@@ -923,7 +904,6 @@ class MySQLMediaDb(_MySQLBaseDb):
             "UPDATE media SET tile_status = %s, tile_levels = %s WHERE id = %s",
             (tile_status, tile_levels, media_id),
         )
-        self.mydb.commit()
 
     def get_by_id(self, media_id: int):
         """Return one MediaData by id, or None if missing."""
@@ -960,7 +940,6 @@ class MySQLMediaDb(_MySQLBaseDb):
         Overrides the base delete to commit, like every other DAO's own delete.
         """
         self._exec("DELETE FROM media WHERE id = %s", (media_id,))
-        self.mydb.commit()
 
 
 class MySQLHuntCanvasDb(_MySQLBaseDb):
@@ -979,7 +958,6 @@ class MySQLHuntCanvasDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         c = HuntCanvasData()
         c.id = new_id or 0
         c.hunt_id, c.media_id, c.name, c.note = hunt_id, media_id, name, note
@@ -1000,7 +978,6 @@ class MySQLHuntCanvasDb(_MySQLBaseDb):
         self._exec(
             "UPDATE hunt_canvases SET name = %s, note = %s WHERE id = %s",
             (name, note, canvas_id))
-        self.mydb.commit()
 
 
 def _region_display_name(row) -> str:
@@ -1038,7 +1015,6 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         r = CanvasRegionData()
         r.id = new_id or 0
         r.canvas_id, r.shape, r.label, r.note = canvas_id, shape, label, note
@@ -1063,7 +1039,6 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
             "UPDATE canvas_regions SET shape = %s, label = %s, note = %s,"
             " puzzle_id = %s, role = %s, crop_media_id = %s WHERE id = %s",
             (shape, label, note, puzzle_id, role, crop_media_id, region_id))
-        self.mydb.commit()
 
     def get_names_by_ids(self, region_ids) -> dict:
         """{region_id: display name} for rendered Source columns, in one query.
@@ -1116,7 +1091,6 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         p = PuzzleImageData()
         p.id = new_id or 0
         p.puzzle_id, p.media_id = puzzle_id, media_id
@@ -1169,7 +1143,6 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
     def delete_by_region(self, region_id: int) -> None:
         self._exec(
             "DELETE FROM puzzle_images WHERE source_region_id = %s", (region_id,))
-        self.mydb.commit()
 
 
 class MySQLMediaMarkupDb(_MySQLBaseDb):
@@ -1189,7 +1162,6 @@ class MySQLMediaMarkupDb(_MySQLBaseDb):
             new_id = cursor.lastrowid
         finally:
             cursor.close()
-        self.mydb.commit()
         m = MediaMarkupData()
         m.id = new_id or 0
         m.media_id, m.kind, m.shape, m.style, m.text = media_id, kind, shape, style, text
@@ -1215,7 +1187,6 @@ class MySQLMediaMarkupDb(_MySQLBaseDb):
         self._exec(
             "UPDATE media_markup SET style = %s, text = %s WHERE id = %s",
             (style, text, mark_id))
-        self.mydb.commit()
 
 
 class MySQLGuildSettingsDb():
@@ -1290,7 +1261,6 @@ class MySQLGuildSettingsDb():
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid or 0
         cursor.close()
-        self.mydb.commit()
         # Keep the read cache coherent: a prior get_cached() may have cached a
         # None (no row yet) or a stale copy, which would otherwise shadow this
         # freshly-written row until process restart.

@@ -250,7 +250,7 @@ class TestMySQLMediaDb:
         return MySQLMediaDb(mydb=mydb), mydb, cursor
 
     def test_create_inserts_and_returns_media_with_new_id(self):
-        db, mydb, cursor = self._db()
+        db, _, cursor = self._db()
         m = db.create(hunt_id=10, path="uploads/10/a_crop.png", filename="crop.png",
                       content_type="image/png", size=99, origin="upload")
         assert m.id == 42
@@ -259,7 +259,6 @@ class TestMySQLMediaDb:
         assert m.content_type == "image/png"
         assert m.size == 99
         assert cursor.execute.called
-        mydb.commit.assert_called_once()
 
     def test_create_sends_parameters_in_column_order(self):
         """Every other assertion in this class reads fields off the RETURNED

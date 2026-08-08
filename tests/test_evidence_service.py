@@ -463,7 +463,7 @@ class TestRefreshInformsTargets:
 
 
 class TestMySQLEvidenceDbMethods:
-    """MySQLEvidenceDb.delete and update_note — SQL execution and commit."""
+    """MySQLEvidenceDb.delete and update_note — SQL execution."""
 
     def _make_db(self):
         from bot.store.mysqldb import MySQLEvidenceDb
@@ -476,13 +476,12 @@ class TestMySQLEvidenceDbMethods:
         db = MySQLEvidenceDb(mydb=mock_mydb)
         return db, mock_mydb, mock_cursor
 
-    def test_delete_executes_delete_sql_and_commits(self):
-        db, mock_mydb, mock_cursor = self._make_db()
+    def test_delete_executes_delete_sql(self):
+        db, _, mock_cursor = self._make_db()
         db.delete(42)
         mock_cursor.execute.assert_called_once_with(
             "DELETE FROM evidence_items WHERE id = %s", (42,)
         )
-        mock_mydb.commit.assert_called_once()
         mock_cursor.close.assert_called()
 
     def test_delete_nonexistent_id_does_not_raise(self):
@@ -494,7 +493,7 @@ class TestMySQLEvidenceDbMethods:
     def test_update_note_executes_update_then_select(self):
         import datetime
         from bot.store.evidence_data import EvidenceData
-        db, mock_mydb, mock_cursor = self._make_db()
+        db, _, mock_cursor = self._make_db()
         row = {
             "id": 7, "hunt_id": 10, "source_puzzle_id": 5,
             "target_puzzle_id": None, "note": "new text",
@@ -507,7 +506,6 @@ class TestMySQLEvidenceDbMethods:
         calls = mock_cursor.execute.call_args_list
         assert any("UPDATE evidence_items SET note" in str(c) for c in calls)
         assert any("SELECT * FROM evidence_items WHERE id" in str(c) for c in calls)
-        mock_mydb.commit.assert_called_once()
         assert isinstance(result, EvidenceData)
         assert result.note == "new text"
 
