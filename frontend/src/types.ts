@@ -5,6 +5,41 @@ export interface Guild {
   can_administer: boolean;
 }
 
+/** One Discord role, as offered by the guild settings API. `id` is a STRING:
+ *  Discord snowflakes are 64-bit and exceed JS's safe integer range. */
+export interface GuildRole {
+  id: string;
+  name: string;
+}
+
+/** One authorisation tier's state. `pinned` false means the tier is still
+ *  matched by role NAME, so anyone who can create a role can grant it to
+ *  themselves — the page warns about that. */
+export interface GuildTier {
+  pinned: boolean;
+  role_ids: string[];
+}
+
+export interface GuildSettingsValues {
+  discord_bot_channel: string | null;
+  drive_parent_id: string | null;
+  drive_resources_id: string | null;
+  discord_use_voice_channels: boolean;
+  website_url: string | null;
+  admin_role_ids: string[];
+  organiser_role_ids: string[];
+}
+
+export interface GuildSettingsResponse {
+  guild: { id: number; guild_snowflake: string; guild_name: string };
+  settings: GuildSettingsValues;
+  tiers: { admin: GuildTier; organiser: GuildTier };
+  roles: GuildRole[];
+  your_role_ids: string[];
+}
+
+export type GuildSettingsPatch = Partial<GuildSettingsValues>;
+
 export interface User {
   id: number;
   username: string | null;

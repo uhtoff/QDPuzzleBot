@@ -12,7 +12,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconCheck, IconEye, IconLogout } from "@tabler/icons-react";
+import { IconCheck, IconEye, IconLogout, IconSettings } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { logout, useAdminGuilds } from "../api";
@@ -32,7 +32,10 @@ export function AppShellLayout({ user, children }: { user: User; children: React
 
   const { viewAs, setViewAs } = useViewAs();
   const { data: adminGuilds } = useAdminGuilds();
-  const isAdminSomewhere = (adminGuilds ?? []).length > 0;
+  // The menu entry needs a guild to link to; the settings page itself offers a
+  // picker when there is more than one.
+  const firstAdminGuild = (adminGuilds ?? [])[0] ?? null;
+  const isAdminSomewhere = firstAdminGuild !== null;
   const VIEW_LABELS: Record<ViewAs, string> = {
     admin: "Admin (you)",
     organiser: "Organiser",
@@ -86,6 +89,17 @@ export function AppShellLayout({ user, children }: { user: User; children: React
                       {VIEW_LABELS[level]}
                     </Menu.Item>
                   ))}
+                  <Menu.Divider />
+                </>
+              )}
+              {firstAdminGuild && viewAs === "admin" && (
+                <>
+                  <Menu.Item
+                    leftSection={<IconSettings size={16} />}
+                    onClick={() => navigate(`/guilds/${firstAdminGuild.id}/settings`)}
+                  >
+                    Server settings
+                  </Menu.Item>
                   <Menu.Divider />
                 </>
               )}

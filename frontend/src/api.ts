@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -752,6 +752,26 @@ export function useAdminGuilds() {
     queryKey: ["guilds", "admin"],
     queryFn: () => apiGet<{ guilds: Guild[] }>("/api/guilds?admin=1").then((d) => d.guilds),
     staleTime: 60_000,
+  });
+}
+
+export function useGuildSettings(guildId: number | null) {
+  return useQuery({
+    queryKey: ["guild-settings", guildId],
+    queryFn: () =>
+      apiGet<GuildSettingsResponse>(`/api/guilds/${guildId}/settings`),
+    enabled: guildId !== null,
+  });
+}
+
+export function useUpdateGuildSettings(guildId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: GuildSettingsPatch) =>
+      apiSend<{ ok: boolean }>(`/api/guilds/${guildId}/settings`, "PATCH", patch),
+    // The tiers block is derived server-side from what we just wrote, so refetch
+    // rather than patching the cache by hand.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["guild-settings", guildId] }),
   });
 }
 
