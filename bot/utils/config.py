@@ -8,6 +8,8 @@ default_config = {
     "database": "",
     "storage": "mysql",
     "debug": False,
+    "debug_host": "127.0.0.1",
+    "debug_port": 29781,
     "development": False,
     # Discord's real per-category channel cap is 50; overridable so a test
     # config can exercise category split/overflow without creating 45+ channels.
@@ -60,6 +62,11 @@ class Config:
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))
+        # Remote-debugger endpoint, only consulted when debug is true (run.py).
+        # Loopback by default: the previous hardcoded LAN address was one
+        # developer's IDE and meant nothing on any other machine.
+        self.debug_host = self.config.get("debug_host", default_config.get("debug_host"))
+        self.debug_port = int(self.config.get("debug_port", default_config.get("debug_port")))
         self.development = self.config.get("development", default_config.get("development"))
         self.max_channels_per_category = int(self.config.get(
             "max_channels_per_category", default_config.get("max_channels_per_category")))
