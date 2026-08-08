@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-08-08
-Status: ready for handoff — docs: new-server playbook, with the two manual setup steps written down @ e7633e0
+Status: ready for handoff — docs(handoff): merged to staging; playbook added @ b39b9c6
 
 ## Goal
 
