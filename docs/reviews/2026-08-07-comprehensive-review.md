@@ -44,6 +44,10 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | Dead / obsolete code group | removed | `d7f8086` |
 | DRY: solution-update embed + DeleteRoundModal | fixed | `5e34c7f` |
 | Docs drift (absorb_category, pytest flags, clone URL, Manage-Channels, LADDER_SPOT_DATA_DIR) | fixed | this tranche |
+| No audit on markup update/delete | fixed | `54f6f6d` |
+| `info_bot` LadderSpot title + DM `shard_id` crash | fixed | `54f6f6d` |
+| Missing UNIQUE on `hunts.uid` | fixed (migration 040 + re-mint retry) | `54f6f6d` |
+| Missing UNIQUE on `tag_group.group_code` | **blocked** — needs the `'0'` sentinel moved to NULL first | — |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -122,11 +126,14 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
   a11y pass rather than a Low.
 * **Status vocabulary drift** — `"needs submission"` is in `STATUSES` but missing from the
   slash choices/docstring/docs; `unsolve` writes `"Unsolved"`, which is not in `STATUSES`.
-* **Missing UNIQUE constraints** on `hunts.uid` and `tag_group.group_code` (check-then-insert
-  in `generate_uid` is a TOCTOU race between a bang and a web create).
-* **No audit on markup update/delete** — only `create_mark` audits, so any member can erase
-  another's ink with no trail.
-* **`info_bot`** embed still titled "LadderSpot"; `ctx.guild.shard_id` crashes in DMs.
+* **UNIQUE on `tag_group.group_code`** — held back from migration 040. The column default
+  is `'0'`, as is `TagGroupData.group_code`, and that is an in-band sentinel for "no code
+  yet" which many rows legitimately share (`resolve_group` only treats 6-character codes as
+  real). A UNIQUE index makes `'0'` single-occupancy — it breaks eight live-DB tests and the
+  next codeless insert in production. Indexing it requires first moving the sentinel from
+  `'0'` to NULL (NULLs are exempt from UNIQUE): a data + model change touching the column
+  default, the dataclass default, and the f-string read sites that would start printing
+  "None" instead of "0". `hunts.uid` did not have this problem — it is already NULLable.
 * **The unsolve embed pair** — the bang and web copies have *drifted* (the bang embed has no
   title and different wording), so unifying them is a copy decision, not a refactor.
 * **`backfill_hunt_uids.py`** — spent once every DB row has a non-null uid, which needs a
