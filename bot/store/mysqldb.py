@@ -584,6 +584,24 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             cursor.close()
 
     def commit(self, puzzle, /):
+        """Write the puzzle row, then reconcile its membership edges to match
+        puzzle.tag_edges.
+
+        NOT atomic, and cannot be made so without a transaction: the base-row UPDATE
+        and the tag INSERT/DELETEs are separate autocommitting statements (see
+        MySQLReconnector -- autocommit is on, so commit() is a no-op). A failure
+        between them leaves the row updated and the edges stale.
+
+        That is tolerated deliberately. The failure mode is self-correcting -- the
+        next commit of the same puzzle re-diffs the edges and converges -- unlike
+        bulk_update_edge_type, whose old ordering could destroy membership outright
+        and which was reordered rather than left to chance.
+
+        Note tags/tag_edges are in SPECIAL_ATTR, so the generic UPDATE skips them:
+        the diff below is the ONLY thing that persists membership. Mutating
+        puzzle.tags without puzzle.tag_edges (via add_edge/remove_edge) writes
+        nothing.
+        """
         super(MySQLPuzzleJsonDb, self).commit(puzzle)
         cursor = self.mydb.dict_cursor()
         cursor.execute(
