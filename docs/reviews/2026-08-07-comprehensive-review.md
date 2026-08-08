@@ -41,8 +41,11 @@ organiser ⊇ admin role names meant an organiser could reach the same conversio
 group. `require_admin` now guards exactly the hunt-lifecycle routes. Note the *bang*
 convert commands remain admin-only, so the two surfaces differ deliberately.
 
+**H5 (the cross-task deadlock) — resolved**, with its confirm-under-lock aggravator
+(`0173802`, `cd05c68`); see the finding for what changed.
+
 **Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
-atomicity class), H5 (the cross-task deadlock), M6–M9, the T-series DB items, the
+atomicity class), M6–M9, the T-series DB items, the
 remaining web-hardening Lows, and the frontend items. The naming items remain
 evidence-only pending sign-off; `round_id` is the agreed first rename when that starts.
 
@@ -132,6 +135,15 @@ writes every field by name, so a stale snapshot clobbers a concurrent bang/web w
 commit (services already commit). See also T1 (no real transactions) and M-race items.
 
 ### H5. Cross-task deadlock: convert vs. delete/archive acquire overlapping locks in opposite orders
+**RESOLVED** (`0173802`, aggravator `cd05c68`). `bulk_re_edge` now takes no lock of its
+own and every convert edge acquires target + members in one sorted
+`puzzles_lock(convert_lock_ids(...))`, the order the delete/archive edges already used —
+with no nested acquisition the cycle cannot be constructed. Regression cover in
+`tests/test_lock_ordering.py`; the aggravator (confirm-under-lock) is fixed too.
+One correction to the finding below: the bang convert commands do **not** enter the
+cycle via `with_puzzle_mutex` — they carry no mutex decorator and took no puzzle lock at
+all, which was a separate lost-update hole. They now take the same set.
+
 **High confidence (structural).** `bulk_re_edge` acquires every member lock in sorted
 order *internally* (by design); its convert callers hold the **target's** lock first
 (`bot/web/actions.py:1341,1692`; bang via `with_puzzle_mutex`) → order `T, then
@@ -480,4 +492,5 @@ families were not read in full. The bang↔web permission-parity comparison is o
 3. M1 + M2 (`.solved` boolean; `ChannelType.text`) — tiny diffs, real behaviour fixes; add
    falsifying tests as you go.
 4. H4 + T1 + M5 (the atomicity class) — the biggest design fix; scope it deliberately.
-5. H5 (deadlock) — structural lock-ordering change; needs care and a repro test.
+5. ~~H5 (deadlock) — structural lock-ordering change; needs care and a repro test.~~ **Done**
+   (`0173802`, `cd05c68`).

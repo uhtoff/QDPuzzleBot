@@ -5,7 +5,9 @@
 > tests passing, ruff clean, `basedpyright bot/` 0 errors, `scripts/diagnose_atomicity.py`
 > 6/6. Kept as a record — do not re-execute. Migration 037 was applied to
 > `puzzlebot_test` only; it reaches production on the next deploy via `migrate.py`.
-> H5 (the convert/delete lock-ordering deadlock) remains open and is the next item.
+> H5 (the convert/delete lock-ordering deadlock) has since been fixed separately
+> (`0173802`, aggravator `cd05c68`) — see the H5 entry in
+> `docs/reviews/2026-08-07-comprehensive-review.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
