@@ -87,9 +87,6 @@ def split_lines_for_embed(
         dropped=len(lines) - index,
     )
 
-def _chunk(text: str, size: int) -> List[str]:
-    return [text[i:i + size] for i in range(0, len(text), size)] if text else [""]
-
 def chunk_note_pretty(text: str, limit: int = 1024) -> List[str]:
     """
     Split a long note into <=limit chunks, preferring paragraph boundaries.

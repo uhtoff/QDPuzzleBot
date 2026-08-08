@@ -55,7 +55,7 @@ def _commit_and_capture(settings):
     cursor.lastrowid = 7
     mydb = MagicMock()
     mydb.cursor.return_value = cursor
-    MySQLGuildSettingsDb(dir_path=MagicMock(), mydb=mydb).commit(settings)
+    MySQLGuildSettingsDb(mydb=mydb).commit(settings)
     stmt, params = cursor.execute.call_args.args
     return stmt, params
 

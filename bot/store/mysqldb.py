@@ -3,7 +3,6 @@ import random
 import string
 import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
@@ -195,20 +194,6 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
 
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
-    def get_lowest_code_in_hunt(self, hunt_id):
-        """Retrieve lower code from database return 0 if none set"""
-        row = self._fetch_one("SELECT group_code FROM tag_group WHERE hunt_id = %s ORDER BY group_code DESC LIMIT 0,1", (hunt_id,))
-        if row:
-            return row['group_code']
-        return 0
-
-    def check_duplicate_group_code(self, group_code):
-        cursor = self.mydb.cursor()
-        cursor.execute("SELECT 1 FROM tag_group WHERE group_code = %s LIMIT 1", (group_code,))
-        found = cursor.fetchone() is not None
-        cursor.close()
-        return found
-
     def get_by_attr(self,**kwargs):
         """Retrieve TagGroup by attribute.  Only last sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -692,12 +677,6 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
             "last_author_name=VALUES(last_author_name)",
             (channel_id, guild_id, at, author_id, author_name),
         )
-
-    def get_for_guild(self, guild_id) -> dict:
-        """Return {channel_id: row} of latest activity for every channel in a guild."""
-        rows = self._fetch_all("SELECT * FROM channel_activity WHERE guild_id = %s", (guild_id,))
-        return {row['channel_id']: row for row in rows}
-
 
 _UNSET: Any = object()  # sentinel: "argument not provided" (distinct from None)
 
@@ -1234,8 +1213,7 @@ class MySQLMediaMarkupDb(_MySQLBaseDb):
 
 
 class MySQLGuildSettingsDb():
-    def __init__(self, dir_path: Path, mydb: "MySQLReconnector"):
-        self.dir_path = dir_path
+    def __init__(self, mydb: "MySQLReconnector"):
         self.cached_settings: dict[int, Optional[GuildSettings]] = {}
         self.mydb = mydb
 

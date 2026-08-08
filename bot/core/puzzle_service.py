@@ -167,29 +167,6 @@ def resolve_puzzle_names(puzzle_ids):
     return {pid: found.get(pid, f"Puzzle {pid}") for pid in puzzle_ids}
 
 
-def is_fed(tag_group_id: int, puzzles_in_group: list) -> bool:
-    """Return True if any member of the group has a 'feeds' edge to it.
-
-    A group with any feeds-edge member is a 'meta' in the old vocabulary.
-    puzzles_in_group is the list returned by PuzzleJsonDb.get_all_from_tag_group.
-    """
-    return any(
-        p.has_edge(tag_group_id, "feeds")
-        for p in puzzles_in_group
-    )
-
-
-def is_informed(tag_group_id: int, puzzles_in_group: list) -> bool:
-    """Return True if any member of the group has an 'informs' edge to it.
-
-    A group with any informs-edge member is a 'capstone' in the design vocabulary.
-    """
-    return any(
-        p.has_edge(tag_group_id, "informs")
-        for p in puzzles_in_group
-    )
-
-
 def is_metameta(tag_group, all_tag_groups: list, puzzles_in_group: list) -> bool:
     """Return True if the group's feeders are themselves meta groups (have targets).
 

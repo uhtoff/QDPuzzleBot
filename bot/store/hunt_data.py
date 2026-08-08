@@ -3,7 +3,7 @@ from dataclasses_json import dataclass_json
 import datetime
 import logging
 import json
-from typing import List, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +55,3 @@ class HuntData:
                 setattr(r, attr, hunt_data.get(attr, None))
 
         return r
-
-class _HuntJsonDb:
-    def commit(self, round_data):
-        pass
-    def delete(self, round_data):
-        pass
-    def get(self, guild_id, round_id, hunt_id) -> HuntData:
-        raise NotImplementedError
-    def get_all(self, guild_id, hunt_id="*") -> List[HuntData]:
-        raise NotImplementedError
-    def aggregate_json(self) -> dict:
-        raise NotImplementedError

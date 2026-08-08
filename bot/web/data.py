@@ -744,23 +744,6 @@ def get_evidence(hunt_id, source_puzzle_id=None, target_puzzle_id=None):
     ]
 
 
-async def get_guild_activity(guild_snowflake):
-    rows = await fetch_all(
-        "SELECT channel_id, last_human_message_at, last_author_name "
-        "FROM channel_activity WHERE guild_id = %s "
-        "ORDER BY last_human_message_at DESC",
-        (guild_snowflake,),
-    )
-    return [
-        {
-            "channel_id": str(row["channel_id"]),
-            "at": _iso(row["last_human_message_at"]),
-            "author": row["last_author_name"],
-        }
-        for row in rows
-    ]
-
-
 # --- Messages -----------------------------------------------------------------
 
 async def get_channel_messages(channel_id, before=None, limit=50):

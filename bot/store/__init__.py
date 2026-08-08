@@ -22,13 +22,11 @@ class DictCursor(Protocol):
     @property
     def lastrowid(self) -> Optional[int]: ...
 
-from pathlib import Path
-
-from .puzzle_settings import GuildSettings, HuntSettings, _GuildSettingsDb
-from .puzzle_data import PuzzleData, _PuzzleJsonDb, MissingPuzzleError, AdditionalSheetData
-from .tag_group_data import TagGroupData, _TagGroupJsonDb, MissingTagGroupError, resolve_group, GroupMatch
-from .rollup_data import RollupData, _RollupJsonDb
-from .hunt_data import HuntData, _HuntJsonDb, MissingHuntError
+from .puzzle_settings import GuildSettings
+from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
+from .tag_group_data import TagGroupData, MissingTagGroupError, resolve_group, GroupMatch
+from .rollup_data import RollupData
+from .hunt_data import HuntData, MissingHuntError
 from .evidence_data import EvidenceData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
@@ -37,11 +35,6 @@ from .puzzle_image_data import PuzzleImageData
 from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb
 
 from bot.utils import config
-
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-if "LADDER_SPOT_DATA_DIR" in os.environ:
-    # TODO: move to config.json??
-    DATA_DIR = Path(os.environ["LADDER_SPOT_DATA_DIR"])
 
 class MySQLReconnector:
     # Every cursor()/commit()/rollback() call runs _ensure() synchronously on
@@ -147,7 +140,7 @@ if config.storage == 'mysql':
         charset="utf8mb4",
     )
     PuzzleJsonDb = MySQLPuzzleJsonDb(mydb=mydb)
-    GuildSettingsDb = MySQLGuildSettingsDb(dir_path=DATA_DIR, mydb=mydb)
+    GuildSettingsDb = MySQLGuildSettingsDb(mydb=mydb)
     TagGroupJsonDb = MySQLTagGroupJsonDb(mydb=mydb)
     TagGroupCategoryDb = MySQLTagGroupCategoryDb(mydb=mydb)
     HuntCategoryDb = MySQLHuntCategoryDb(mydb=mydb)

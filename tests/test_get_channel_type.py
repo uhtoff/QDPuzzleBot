@@ -42,7 +42,7 @@ class FakeCursor:
 def _db_with_rows(rows):
     mydb = MagicMock()
     mydb.dict_cursor.return_value = FakeCursor(rows)
-    return MySQLGuildSettingsDb(dir_path=MagicMock(), mydb=mydb)
+    return MySQLGuildSettingsDb(mydb=mydb)
 
 
 def test_dual_role_channel_does_not_crash_and_prefers_puzzle():

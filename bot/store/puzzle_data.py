@@ -119,15 +119,3 @@ class PuzzleData:
             self.tag_edges.pop(tag_group_id, None)
             if tag_group_id in self.tags:
                 self.tags.remove(tag_group_id)
-
-class _PuzzleJsonDb:
-    def commit(self, puzzle_data):
-        pass
-    def delete(self, puzzle_data):
-        pass
-    def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
-        raise NotImplementedError
-    def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
-        raise NotImplementedError
-    def aggregate_json(self) -> dict:
-        raise NotImplementedError

@@ -128,13 +128,3 @@ def resolve_group(raw, groups) -> GroupMatch:
 
     return GroupMatch(None, [], "none")
 
-
-class _TagGroupJsonDb:
-    def commit(self, tag_group_data):
-        pass
-    def delete(self, tag_group_data):
-        pass
-    def get_all(self, guild_id, hunt_id="*") -> List[TagGroupData]:
-        raise NotImplementedError
-    def aggregate_json(self) -> dict:
-        raise NotImplementedError

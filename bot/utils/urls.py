@@ -1,10 +1,6 @@
 import re
-from typing import Optional
 
 from slugify import slugify
-
-REGEX_DRIVE_ID = re.compile(r"[-\w]{25,}")
-REGEX_DRIVE_URL = re.compile(r".*/d/(?P<id>[-\w]{25,})[^-\w]?.*")
 
 
 def puzzle_url_slug(name: str, sep: str = "-") -> str:
@@ -25,14 +21,6 @@ def spreadsheet_url(sheet_id: str, page_id=None) -> str:
     else:
         return f"https://docs.google.com/spreadsheets/d/{sheet_id}"
 
-def docs_url(file_id: str) -> str:
-    if file_id.startswith("https://"):
-        return file_id
-    return f"https://docs.google.com/document/d/{file_id}"
-
-def drive_folder_url(folder_id: str) -> str:
-    return f"https://drive.google.com/drive/u/0/folders/{folder_id}"
-
 def normalize_external_url(url: str) -> str:
     """Ensure *url* has a scheme, defaulting to ``https://`` when missing.
 
@@ -46,12 +34,3 @@ def normalize_external_url(url: str) -> str:
     if not url or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
         return url
     return f"https://{url}"
-
-def extract_id_from_url(url: str) -> Optional[str]:
-    m = re.match(REGEX_DRIVE_URL, url)
-    if m:
-        return m["id"]
-    m = re.match(REGEX_DRIVE_ID, url)
-    if m:
-        return url
-    return None

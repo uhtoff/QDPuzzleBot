@@ -65,7 +65,7 @@ def test_commit_refreshes_cache_so_new_row_not_shadowed_by_none():
     cursor = MagicMock()
     cursor.lastrowid = 7
     mydb.cursor.return_value = cursor
-    db = MySQLGuildSettingsDb(dir_path=MagicMock(), mydb=mydb)
+    db = MySQLGuildSettingsDb(mydb=mydb)
     # A prior get_cached() found no row and cached None.
     db.cached_settings[42] = None
 

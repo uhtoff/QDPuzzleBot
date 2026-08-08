@@ -15,7 +15,7 @@ from dataclasses import dataclass, fields
 from dataclasses_json import dataclass_json
 import datetime
 import logging
-from typing import List, Optional, TypeVar, Type
+from typing import Optional, TypeVar, Type
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +52,3 @@ class RollupData:
                 values[attr] = rollup_data.get(attr, None)
         return cls(**values)
 
-
-class _RollupJsonDb:
-    def commit(self, rollup_data):
-        pass
-
-    def delete(self, rollup_id):
-        pass
-
-    def get_by_attr(self, **kwargs) -> RollupData:
-        raise NotImplementedError
-
-    def get_all_from_hunt(self, hunt_id) -> List[RollupData]:
-        raise NotImplementedError

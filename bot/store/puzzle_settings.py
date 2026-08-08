@@ -1,25 +1,7 @@
 from dataclasses import dataclass
 import datetime
 import json
-from typing import Optional
 from dataclasses_json import dataclass_json
-
-
-@dataclass_json
-@dataclass
-class HuntSettings:
-    id: int = 0
-    hunt_id: int = 0
-    guild_id: int = 0
-    hunt_url_sep: str = "-"         # Separator in the puzzle url, e.g. - for https://./puzzle/foo-bar
-    hunt_name: str = ""
-    hunt_url: str = ""
-    hunt_puzzle_prefix: str = "puzzles"
-    drive_sheet_id: str = ""
-    role_id: int = 0
-    username: str = ""
-    password: str = ""
-
 
 
 @dataclass_json
@@ -56,18 +38,4 @@ class GuildSettings:
                 setattr(r, attr, settings.get(attr, None))
 
         return r
-
-
-class _GuildSettingsDb:
-    @classmethod
-    def get(cls, guild_id: int) -> Optional[GuildSettings]:
-        pass
-
-    @classmethod
-    def get_cached(cls, guild_id: int) -> Optional[GuildSettings]:
-        pass
-
-    @classmethod
-    def commit(cls, settings: GuildSettings):
-        pass
 

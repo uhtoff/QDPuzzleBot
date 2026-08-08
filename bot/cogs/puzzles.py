@@ -463,10 +463,6 @@ class Puzzles(commands.Cog):
                 await ctx.send(":x: This hunt has no groups to assign to yet.")
         return None
 
-    def clean_channel_name(self, name):
-        """Cleanup name to be appropriate for discord channel."""
-        return _channels.clean_channel_name(name)
-
     def get_channel_type(self, ctx):
         return self.environment[ctx.message.id]['channel_type'] or None
 
@@ -1090,33 +1086,6 @@ class Puzzles(commands.Cog):
         await ctx.send(
             f":white_check_mark: Swept {stats.count} image(s), freeing at least "
             f"{media_gc.format_size(stats.bytes_freed)}.")
-
-    async def update_metapuzzle(self, ctx, tag_group):
-        """Refresh a single meta's roll-up sheet (badged on failure via the rollup).
-        Raises SheetRefreshError if it failed, so the bang edge surfaces it uniformly
-        with _warn_stale_sheets instead of aborting on a raw Sheets error."""
-        hunt = self.get_hunt(ctx)
-        failed = await self.service.refresh_targets(hunt, [tag_group])
-        if failed:
-            raise SheetRefreshError(failed)
-
-    async def web_refresh_meta(self, hunt, tag_group):
-        """Best-effort wrapper over PuzzleService.refresh_target.  Swallows Sheets errors."""
-        try:
-            await self.service.refresh_target(hunt, tag_group)
-        except Exception:
-            logger.exception("web_refresh_meta: sheet update failed for group %s",
-                             getattr(tag_group, "id", None))
-
-
-    async def _web_send_welcome(self, guild, hunt, tag_group, puzzle, channel):
-        """Post and pin the welcome message via DiscordNotifier."""
-        from bot.core.notifier import DiscordNotifier
-        notifier = DiscordNotifier(self.bot)
-        try:
-            await notifier.welcome(guild, hunt, tag_group, puzzle, channel)
-        except Exception:
-            logger.exception("web create: failed to send/pin welcome message")
 
     async def web_refresh_info(self, guild, hunt, puzzle):
         """Best-effort refresh of a puzzle's pinned info message after a metadata
@@ -3467,17 +3436,6 @@ class Puzzles(commands.Cog):
         # Joins args and strips whitespace; the service normalizes case to uppercase.
         return " ".join(args).strip()
 
-    async def _update_all_metas(self, ctx, puzzle):
-        """Refresh every metapuzzle this puzzle is tagged to, on the SAME isolation
-        path as solve/retag: each meta is attempted and badged independently via
-        service.refresh_metas, and a SheetRefreshError is raised if any failed so the
-        bang edge can warn (via _warn_stale_sheets) instead of aborting mid-loop."""
-        hunt = self.get_hunt(ctx)
-        tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.service.refresh_targets(hunt, tag_groups)
-        if failed:
-            raise SheetRefreshError(failed)
-
     async def _warn_stale_sheets(self, ctx, exc):
         """Uniform surfacing of a SheetRefreshError from a bang edge: the mutation is
         saved and the affected meta sheet(s) are badged on the dashboard."""
@@ -4202,14 +4160,6 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         assert hunt is not None  # callers run in hunt-scoped channels
         return self.bot.get_channel(hunt.channel_id)
-
-    def get_solved_channel(self, category):
-        solved_channel = None
-        for channel in category.channels:
-            if channel.name == self.SOLVE_DIVIDER:
-                solved_channel = channel
-        return solved_channel
-
 
 async def setup(bot):
     await bot.add_cog(Puzzles(bot))

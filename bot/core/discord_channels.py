@@ -118,13 +118,3 @@ async def get_or_create_channel(
 
     return (channel, created)
 
-
-# ------------------------------------------------------------------ cleanup
-async def delete_category_with_channels(category):
-    """Best-effort teardown of a category and all its child channels."""
-    try:
-        for ch in list(category.channels):
-            await ch.delete(reason=DELETE_REASON)
-        await category.delete(reason=DELETE_REASON)
-    except Exception:
-        logger.exception("delete_category_with_channels: rollback failed")
