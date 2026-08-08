@@ -79,10 +79,17 @@ guilds, where every member is trusted with deletion; a guild that wants it shut 
 pin an organiser role by id, which activates the gate. Revisit if a multi-team hunt ever
 runs in a guild without pinned roles.
 
-**Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
-atomicity class), the T-series DB items, the
-remaining web-hardening Lows, and the frontend items. The naming items remain
-evidence-only pending sign-off; `round_id` is the agreed first rename when that starts.
+**H4 / T1 / M5 / T2 (the atomicity class) — shipped 2026-08-08**, as the 12-task series in
+`docs/superpowers/plans/2026-08-08-atomicity.md` (`ba0df74..f472a83`, 17 commits). No
+transactions were introduced: each multi-statement store op was made un-half-appliable by
+statement *shape* — reordered, collapsed to one statement, or replaced by an FK cascade —
+and the bang edge's per-puzzle lock was widened to cover the read as well as the write.
+Migration 037 went with it. H5 was a later, separate finding from the same area.
+
+**Still open**, in the order suggested at the end of this document: the remaining T-series
+DB items, the web-hardening Lows, the frontend items, and **O2 (no graceful shutdown, no
+log rotation)**. The naming items remain evidence-only pending sign-off; `round_id` is the
+agreed first rename when that starts.
 
 ## Verification commands run
 
