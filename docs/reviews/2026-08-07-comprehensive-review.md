@@ -28,13 +28,24 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | O1 `scripts/` accidentally gitignored | fixed | `96120d8` |
 | O4 Pillow undeclared | fixed | `eebb7ff` |
 | TT3 always-true assertion | fixed | `595656a` |
+| M4 teardown doesn't refresh other fed groups | fixed | `d5071bc` |
+| M11 `!remove_minimeta` ungated/unconfirmed | fixed | `fbaf5e4` |
+| TT1 destructive routes untested with gates engaged | fixed (mutation-proven) | `0242043` |
+| TT2 CSRF guard never exercised at request level | fixed (mutation-proven) | `0242043` |
 | Dependency bump + Pipfile pinning | shipped to prod | `9e24542` |
 
+**Needs a decision, not a patch — M10 (`change-type` tier drift).** The group-keyed
+route `/api/tag_groups/<id>/change-type` is `require_organiser` while the equivalent
+puzzle-keyed conversions (`/convert-to-meta`, `/convert-to-capstone`, …) are
+`require_admin`; since organiser ⊇ admin role names, an organiser can perform the
+admin-gated conversion by addressing the group instead of the puzzle. Both tiers are
+defensible — organiser matches delete/rename of a group, admin matches the other
+conversions — so this needs a call on which way to level it before any code changes.
+
 **Still open**, in the order suggested at the end of this document: H4/T1/M5 (the
-atomicity class), H5 (the cross-task deadlock), M6–M11, the T-series DB items, the
-remaining web-hardening Lows, the frontend items, and TT1/TT2 (untested auth gates on
-destructive routes). The naming items remain evidence-only pending sign-off; `round_id`
-is the agreed first rename when that starts.
+atomicity class), H5 (the cross-task deadlock), M6–M9, the T-series DB items, the
+remaining web-hardening Lows, and the frontend items. The naming items remain
+evidence-only pending sign-off; `round_id` is the agreed first rename when that starts.
 
 ## Verification commands run
 
