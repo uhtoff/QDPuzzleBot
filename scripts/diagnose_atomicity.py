@@ -19,7 +19,7 @@ import inspect
 import logging
 import os
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 # Runnable from anywhere: put the repo root on sys.path (so `import bot` works) and
 # chdir there (config.json / google_secrets.json are loaded by relative path).
@@ -46,7 +46,8 @@ if config.database != _EXPECTED_DATABASE and not _FORCE:
     sys.exit(1)
 
 # --------------------------------------------------------------------------- imports
-from bot.core.locks import _PUZZLE_LOCKS, puzzle_lock  # noqa: E402
+from bot.cogs.puzzles import Puzzles, with_puzzle_mutex  # noqa: E402
+from bot.core.locks import _PUZZLE_LOCKS  # noqa: E402
 from bot.core.puzzle_service import PuzzleService  # noqa: E402
 from bot.store import (  # noqa: E402
     HuntJsonDb,
@@ -321,22 +322,56 @@ def _case4_positions():
 
 # --------------------------------------------------------------------------- case 5
 async def _case5_concurrent_writers():
+    """Drive two commands through the REAL bang-command decorator.
+
+    Deliberately routed through with_puzzle_mutex rather than taking puzzle_lock by
+    hand: taking the lock and re-reading inline would pass even with the H4 fix
+    ripped out, because the test would be performing the fix itself. Going through
+    the decorator is what makes this case fail when _refresh_environment is removed
+    -- verified by mutation.
+
+    Both environments are seeded with PRE-LOCK snapshots up front, which is exactly
+    what cog_before_invoke leaves behind and what the second writer used to clobber
+    the first with.
+    """
     hunt = HuntJsonDb.get_by_attr(id=_live_hunt_id())
     pid = _insert_puzzle("DIAG-Concurrent", status="")
     try:
-        service = PuzzleService(MagicMock())  # notifier defaults to NullNotifier
+        cog = Puzzles(MagicMock())
+        # NullNotifier: nothing may reach Discord from a diagnostic script.
+        cog.service = PuzzleService(MagicMock())
 
-        async def _write_note():
-            async with puzzle_lock(pid):
-                puzzle = PuzzleJsonDb.get_by_attr(id=pid)
-                await service.add_note(hunt, puzzle, "DIAG note", "diag-script")
+        def _make_ctx(message_id):
+            ctx = MagicMock()
+            ctx.message.id = message_id
+            ctx.send = AsyncMock()
+            # A bare MagicMock auto-vivifies .env as truthy, which would divert
+            # with_puzzle_mutex away from self.environment. Real ctx never has it.
+            ctx.env = None
+            return ctx
 
-        async def _write_status():
-            async with puzzle_lock(pid):
-                puzzle = PuzzleJsonDb.get_by_attr(id=pid)
-                await service.update_puzzle_field(hunt, puzzle, "status", "stuck")
+        def _seed(ctx):
+            cog.environment[ctx.message.id] = {
+                "channel_type": "Puzzle", "hunt": hunt, "tag_group": None,
+                "puzzle": PuzzleJsonDb.get_by_attr(id=pid),
+                "guild": None, "guild_data": None, "gsheet_cog": None,
+            }
 
-        await asyncio.gather(_write_note(), _write_status())
+        @with_puzzle_mutex(wait=True)
+        async def write_note(self, ctx):
+            puzzle = self.environment[ctx.message.id]["puzzle"]
+            await self.service.add_note(hunt, puzzle, "DIAG note", "diag-script")
+
+        @with_puzzle_mutex(wait=True)
+        async def write_status(self, ctx):
+            puzzle = self.environment[ctx.message.id]["puzzle"]
+            await self.service.update_puzzle_field(hunt, puzzle, "status", "stuck")
+
+        ctx_a, ctx_b = _make_ctx(910001), _make_ctx(910002)
+        _seed(ctx_a)
+        _seed(ctx_b)
+
+        await asyncio.gather(write_note(cog, ctx_a), write_status(cog, ctx_b))
 
         fresh = PuzzleJsonDb.get_by_attr(id=pid)
         assert fresh is not None
