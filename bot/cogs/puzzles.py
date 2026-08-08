@@ -1377,49 +1377,6 @@ class Puzzles(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command()
-    @is_organiser()
-    @with_puzzle_mutex(wait=True)
-    async def add_tag(self, ctx, *, arg):
-        """*Manually add a group tag ID to this puzzle (troubleshooting — prefer !feeds/!informs).*
-
-        Usage: `!add_tag tag_id`
-        Example: `!add_tag 42`
-        Find IDs with `!list_tags`. Run in a puzzle channel. Organisers/admins only."""
-        try:
-            new_tag = int(arg)
-        except ValueError:
-            await ctx.channel.send(":x: Tag id must be a number.")
-            return
-        if TagGroupJsonDb.get_by_attr(id=new_tag) is None:
-            await ctx.channel.send(f":x: No tag group with id {new_tag}. Find IDs with `!list_tags`.")
-            return
-        puzzle = self.get_puzzle(ctx)
-        if puzzle is None:
-            return await self.send_not_puzzle_channel(ctx)
-        if new_tag in puzzle.tags:
-            await ctx.channel.send(f":x: Puzzle already has tag {new_tag}.")
-            return
-        puzzle.tags.append(new_tag)
-        await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
-
-    @commands.command()
-    @is_organiser()
-    @with_puzzle_mutex(wait=True)
-    async def remove_tag(self, ctx, *, arg):
-        """*Manually remove a group tag ID from this puzzle (troubleshooting — prefer !remove_from).*
-
-        Usage: `!remove_tag tag_id`
-        Example: `!remove_tag 42`
-        Find IDs with `!list_tags`. Run in a puzzle channel. Organisers/admins only."""
-        remove_tag = int(arg)
-        puzzle = self.get_puzzle(ctx)
-        if puzzle is None:
-            return await self.send_not_puzzle_channel(ctx)
-        if remove_tag in puzzle.tags:
-            puzzle.tags.remove(remove_tag)
-        await ctx.channel.send(f"```json\n{puzzle.to_json(indent=2)}```")
-
-    @commands.command()
     @with_puzzle_mutex(wait=True)
     @with_hunt_sheet_mutex()
     async def add_sheet(self, ctx, *args):

@@ -206,8 +206,6 @@ until it finishes.
 | `!start_reminders` *(slash)* | | — | hunt channel | organisers/admins | Start the periodic reminder/tips loop. |
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
 | `!list_tags` *(slash)* | | — | puzzle channel | organisers/admins | List a puzzle's tag IDs and all available group tags. |
-| `!add_tag` | | `tag_id` | puzzle channel | organisers/admins | Manually add a tag ID (prefer `!feeds`/`!informs`). |
-| `!remove_tag` | | `tag_id` | puzzle channel | organisers/admins | Manually remove a tag ID (prefer `!remove_from`). |
 | `!show_settings` *(slash)* | | — | any | admins/mods | Dump this channel's object settings as JSON. |
 | `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods | Dump the puzzle's fields/values. |
 | `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). |
