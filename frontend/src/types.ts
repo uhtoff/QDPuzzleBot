@@ -3,6 +3,11 @@ export interface Guild {
   guild_snowflake: string | null;
   guild_name: string;
   can_administer: boolean;
+  /** False while the guild still matches the ADMIN tier by role name — the one
+   *  state worth a banner. The organiser tier's state deliberately isn't here:
+   *  leaving it unpinned is legitimate, and nagging about it would train people
+   *  to ignore the banner. */
+  admin_tier_pinned: boolean;
 }
 
 /** One Discord role, as offered by the guild settings API. `id` is a STRING:

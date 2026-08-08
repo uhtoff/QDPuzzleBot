@@ -17,6 +17,7 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
+from bot.core import role_gate
 from bot.core.role_gate import organiser_gate_active
 
 logger = logging.getLogger(__name__)
@@ -50,11 +51,20 @@ async def list_guilds():
         can_administer = await user_can_manage(user["id"], snowflake, roles=ADMIN_ROLES)
         if admin_only and not can_administer:
             continue
+        # Only the ADMIN tier's pinned state travels here, for the dashboard's
+        # "not pinned" banner. An unpinned ORGANISER tier is a legitimate steady
+        # state (the small-team convenience, M9), and nagging about it would train
+        # people to ignore the banner that matters.
+        guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
         result.append({
             "id": guild_id,
             "guild_snowflake": str(snowflake) if snowflake else None,
             "guild_name": info["guild_name"],
             "can_administer": can_administer,
+            "admin_tier_pinned": (
+                role_gate.tier_is_pinned(guild, ADMIN_ROLES) if guild is not None
+                else True   # unresolvable guild: stay quiet rather than cry wolf
+            ),
         })
     return jsonify({"guilds": result})
 

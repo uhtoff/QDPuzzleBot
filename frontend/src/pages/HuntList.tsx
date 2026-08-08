@@ -1,5 +1,6 @@
 import {
   Accordion,
+  Alert,
   Badge,
   Button,
   Card,
@@ -22,7 +23,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
 import { useQueryClient } from "@tanstack/react-query";
-import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconPlus, IconShieldOff } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { useViewAs } from "../context/ViewAsContext";
@@ -296,6 +297,7 @@ export default function HuntList() {
   const { data, isLoading, error } = useHunts();
   const { data: adminGuilds } = useAdminGuilds();
   const { viewAs } = useViewAs();
+  const navigate = useNavigate();
   const [newHuntOpen, setNewHuntOpen] = useState(false);
   const qc = useQueryClient();
   // A "board" event's uid isn't necessarily already in our list (that's the
@@ -306,6 +308,12 @@ export default function HuntList() {
   // Respect the Admin "view as" ceiling: hide the New hunt button when previewing
   // as a non-admin.
   const isAdmin = (adminGuilds ?? []).length > 0 && viewAs === "admin";
+  // Only the ADMIN tier earns a banner: an unpinned organiser tier is a
+  // legitimate steady state, and nagging about it would train people to ignore
+  // this. Hidden while previewing as a non-admin, like the New hunt button.
+  const unpinnedGuilds = isAdmin
+    ? (adminGuilds ?? []).filter((g) => !g.admin_tier_pinned)
+    : [];
 
   if (isLoading) {
     return (
@@ -320,6 +328,32 @@ export default function HuntList() {
 
   return (
     <Stack gap="xl">
+      {unpinnedGuilds.map((g) => (
+        <Alert
+          key={g.id}
+          color="orange"
+          icon={<IconShieldOff size={16} />}
+          title={`${g.guild_name}: admin roles are not pinned`}
+        >
+          <Stack gap="xs" align="flex-start">
+            <Text size="sm">
+              This server still decides who is an admin by role <b>name</b> (Moderator,
+              mod, admin). Anyone there with Discord&apos;s <b>Manage Roles</b> permission
+              can create a role with one of those names, assign it to themselves, and hold
+              full admin — including deleting a hunt.
+            </Text>
+            <Button
+              size="xs"
+              variant="light"
+              color="orange"
+              onClick={() => navigate(`/guilds/${g.id}/settings`)}
+            >
+              Pin the admin roles
+            </Button>
+          </Stack>
+        </Alert>
+      ))}
+
       <Group justify="space-between">
         <Title order={3}>Active hunts</Title>
         {isAdmin && (

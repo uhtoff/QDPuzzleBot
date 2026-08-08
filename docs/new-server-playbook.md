@@ -56,6 +56,10 @@ must be run in that channel.
 
 ## 4. Pin the authorisation roles — **do not skip this**
 
+The bot posts this as a message when it joins, and the dashboard shows a banner to
+admins until the **admin** tier is pinned, so you should not be able to miss it. Pinning
+the *organiser* tier is optional (see the note below); pinning the *admin* tier is not.
+
 Either from Discord:
 
 ```

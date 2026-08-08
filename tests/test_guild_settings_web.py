@@ -191,3 +191,59 @@ async def test_patch_refuses_a_non_admin(web):
         resp = await _patch(web, {"discord_bot_channel": "x"})
     assert resp.status_code == 403
     web.db.commit.assert_not_called()
+
+
+# --- The admin-tier pinned flag on the guild list -----------------------------
+# The dashboard banner needs to know, without fetching each guild's settings,
+# whether a guild it administers still has an UNPINNED ADMIN tier. Only admin:
+# an unpinned organiser tier is a legitimate steady state (the small-team
+# convenience), and nagging about it would train people to ignore the banner.
+
+@pytest.fixture
+def guilds_list_web():
+    guild = SimpleNamespace(id=SNOWFLAKE, name="Team A", roles=_roles())
+    app = make_web_app("api", cog=MagicMock(), get_guild=guild)
+    settings = SimpleNamespace(admin_role_ids="", organiser_role_ids="")
+    db = MagicMock()
+    db.get.return_value = settings
+    db.get_cached.return_value = settings
+    patches = [
+        patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+        patch("bot.web.api.resolve_membership",
+              AsyncMock(return_value=({SNOWFLAKE}, {SNOWFLAKE: {RUNNERS_ID}}))),
+        patch("bot.web.api.user_can_manage", AsyncMock(return_value=True)),
+        patch("bot.web.api.data.get_guilds_map", AsyncMock(return_value={
+            GUILD_ROW_ID: {"guild_snowflake": SNOWFLAKE, "guild_name": "Team A",
+                           "website_url": ""},
+        })),
+        patch("bot.store.GuildSettingsDb", db),
+    ]
+    start_patches(patches)
+    try:
+        yield SimpleNamespace(client=app.test_client(), settings=settings)
+    finally:
+        stop_patches(patches)
+
+
+async def test_guild_list_flags_an_unpinned_admin_tier(guilds_list_web):
+    resp = await guilds_list_web.client.get("/api/guilds?admin=1")
+    body = await resp.get_json()
+    assert body["guilds"][0]["admin_tier_pinned"] is False
+
+
+async def test_guild_list_flags_a_pinned_admin_tier(guilds_list_web):
+    guilds_list_web.settings.admin_role_ids = str(RUNNERS_ID)
+    resp = await guilds_list_web.client.get("/api/guilds?admin=1")
+    body = await resp.get_json()
+    assert body["guilds"][0]["admin_tier_pinned"] is True
+
+
+async def test_guild_list_does_not_flag_the_organiser_tier(guilds_list_web):
+    """An unpinned organiser tier is a legitimate steady state, so it must not
+    reach the banner."""
+    guilds_list_web.settings.admin_role_ids = str(RUNNERS_ID)
+    guilds_list_web.settings.organiser_role_ids = ""
+    resp = await guilds_list_web.client.get("/api/guilds?admin=1")
+    body = await resp.get_json()
+    assert body["guilds"][0]["admin_tier_pinned"] is True
+    assert "organiser_tier_pinned" not in body["guilds"][0]

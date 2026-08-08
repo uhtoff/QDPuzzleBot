@@ -34,15 +34,29 @@ function TierWarning({ pinned, tier }: { pinned: boolean; tier: "admin" | "organ
       </Group>
     );
   }
+  // Only the admin tier is a problem when unpinned. Leaving the organiser tier
+  // unpinned is a legitimate choice — it keeps organiser actions open to the
+  // whole team, which is what a single trusted team usually wants — so it gets a
+  // plain note, not a warning.
+  if (tier === "organiser") {
+    return (
+      <Group gap={6} c="dimmed" mt="xs">
+        <IconShieldOff size={16} />
+        <Text size="sm">
+          Not pinned — matched by role name (Organiser, Organisers, Organizer,
+          Organizers). With no such role, organiser actions are open to everyone here.
+          That is fine for a single trusted team; pin roles to restrict it.
+        </Text>
+      </Group>
+    );
+  }
   return (
     <Alert color="orange" icon={<IconShieldOff size={16} />} mt="xs">
       <Text size="sm">
-        Not pinned — this tier is still matched by role <b>name</b>
-        {tier === "admin"
-          ? " (Moderator, mod, admin)."
-          : " (Organiser, Organisers, Organizer, Organizers)."}{" "}
-        Anyone who can create a Discord role can create one with that name, assign it to
-        themselves, and hold this tier. Pick the roles that should hold it and save.
+        Not pinned — this tier is still matched by role <b>name</b> (Moderator, mod,
+        admin). Anyone here with Discord&apos;s <b>Manage Roles</b> permission can create a
+        role with one of those names, assign it to themselves, and hold full admin —
+        including deleting a hunt. Pick the roles that should hold it and save.
       </Text>
     </Alert>
   );
