@@ -76,6 +76,15 @@ def tier_role_ids(guild, names):
     return frozenset(ids)
 
 
+def tier_is_pinned(guild, names) -> bool:
+    """True if the guild has STORED ids for this tier, rather than bootstrapping
+    from the names. What !show_auth_roles reports, so the answer comes from the
+    same place the gate itself reads."""
+    column = ("admin_role_ids" if set(names) & set(ADMIN_ROLES)
+              else "organiser_role_ids")
+    return _stored_ids(guild.id, column) is not None
+
+
 def member_holds_tier(member_role_ids, guild, names):
     """True if any of *member_role_ids* grants the tier in *guild*."""
     return bool(set(member_role_ids) & tier_role_ids(guild, names))

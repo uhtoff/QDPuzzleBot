@@ -11,9 +11,13 @@ disagree, **the code is the source of truth** — fix both.
   - `bot/cogs/puzzles.py` — hunts, rounds, puzzles, solving, grouping, archiving.
   - `bot/cogs/utility.py` — bot info/utility.
 - **Hybrid commands** (marked *slash* below) also work as Discord slash commands.
-- **Permissions** (from `bot/core/constants.py`):
-  - *Admins/mods* = roles `Moderator`, `mod`, `admin`.
+- **Permissions** — a guild either *pins* each tier to specific role **ids**
+  (`!set_admin_roles` / `!set_organiser_roles`, resolved by `bot/core/role_gate.py`) or,
+  until it does, falls back to matching role **names** from `bot/core/constants.py`:
+  - *Admins/mods* = roles named `Moderator`, `mod`, `admin`.
   - *Organisers/admins* = the above plus `Organisers`.
+  - While a tier is matched by name, anyone who can create a Discord role can grant
+    themselves that tier — `!show_auth_roles` says which state you are in.
   - Commands with no role note are open to everyone.
 - **`meta_code`** is a TagGroup's 6-character group code (shown on the group's pinned
   info; slash commands autocomplete it). On the bang path you may also pass the group's
@@ -207,6 +211,9 @@ until it finishes.
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
 | `!list_tags` *(slash)* | | — | puzzle channel | organisers/admins | List a puzzle's tag IDs and all available group tags. |
 | `!show_settings` *(slash)* | | — | any | admins/mods | Dump this channel's object settings as JSON. |
+| `!show_auth_roles` *(slash)* | | — | any | admins/mods | Report which roles grant the admin and organiser tiers, and whether each is pinned by role id or still matched by name. |
+| `!set_admin_roles` | | `[@Role ...]` | any | admins/mods | Pin the admin tier to specific roles, by id. No roles clears the list and reverts to name matching. Refuses if you hold none of the roles given (it would lock you out of this command). |
+| `!set_organiser_roles` | | `[@Role ...]` | any | admins/mods | Pin the organiser tier to specific roles, by id. No roles clears the list and reverts to name matching. |
 | `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods | Dump the puzzle's fields/values. |
 | `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). |
 | `!debug_puzzle_channel` | | — | puzzle channel | admins/mods | Dump the puzzle's full record as JSON. |

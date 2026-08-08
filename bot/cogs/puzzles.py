@@ -25,7 +25,7 @@ from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
 from bot.utils.text import flush_left
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, STATUSES, PRIORITIES
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES
 from bot.core import role_gate
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -2503,6 +2503,89 @@ class Puzzles(commands.Cog):
             HuntJsonDb.commit(settings)
         else:
             GuildSettingsDb.commit(settings)
+
+    # --- Authorisation role ids (M8) ---------------------------------------
+
+    def _guild_settings(self, ctx):
+        """This guild's settings row, created if the backfill has not run yet."""
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        if settings is None:
+            settings = GuildSettings()
+            settings.guild_id = ctx.guild.id
+            settings.guild_name = ctx.guild.name
+        return settings
+
+    async def _set_tier_roles(self, ctx, column, roles, label):
+        settings = self._guild_settings(ctx)
+        setattr(settings, column, ",".join(str(r.id) for r in roles))
+        GuildSettingsDb.commit(settings)
+        if not roles:
+            await ctx.send(
+                f":white_check_mark: Cleared the {label} role list. This guild is back to "
+                f"matching {label} by role NAME — anyone who can create a role can grant "
+                f"themselves the tier, so set it again when you can.")
+            return
+        named = ", ".join(r.mention for r in roles)
+        await ctx.send(
+            f":white_check_mark: {label.capitalize()} tier is now exactly: {named}. "
+            f"A role merely *named* like one of the old defaults no longer grants it.")
+
+    # Prefix-only: a variadic role list is not expressible as a slash-command
+    # parameter (discord.py rejects VAR_POSITIONAL in a hybrid callback).
+    @commands.command()
+    @is_admin()
+    async def set_admin_roles(self, ctx, *roles: discord.Role):
+        """*Pin the admin tier to specific roles, by id.*
+
+        Usage: `!set_admin_roles @Role [@Role ...]`
+        Example: `!set_admin_roles @Hunt Runners`
+
+        Without this, the tier matches role NAMES (Moderator/mod/admin), so anyone
+        who can create a role can grant themselves dashboard admin. Run with no
+        roles to clear the list and go back to name matching. Admins/mods only."""
+        # Storing ids the caller does not hold would lock them out of this very
+        # command — the only one that could undo it.
+        if roles and not ({r.id for r in ctx.author.roles} & {r.id for r in roles}):
+            await ctx.send(
+                ":x: You don't hold any of those roles, and setting them would lock "
+                "you out of `!set_admin_roles` itself. Include one of your own roles.")
+            return
+        await self._set_tier_roles(ctx, "admin_role_ids", roles, "admin")
+
+    @commands.command()
+    @is_admin()
+    async def set_organiser_roles(self, ctx, *roles: discord.Role):
+        """*Pin the organiser tier to specific roles, by id.*
+
+        Usage: `!set_organiser_roles @Role [@Role ...]`
+        Example: `!set_organiser_roles @Hunt Helpers`
+
+        Run with no roles to clear the list and go back to name matching
+        (Organiser/Organisers/Organizer/Organizers). Admins/mods only."""
+        await self._set_tier_roles(ctx, "organiser_role_ids", roles, "organiser")
+
+    @commands.hybrid_command(description="Show which roles grant each tier (admin only)",)
+    @is_admin()
+    async def show_auth_roles(self, ctx):
+        """*Report which roles currently grant the admin and organiser tiers.*
+
+        Usage: `!show_auth_roles`
+        Says whether each tier is pinned to role ids or still matching by name.
+        Admins/mods only."""
+        lines = []
+        for label, tier in (("Admin", ADMIN_ROLES),
+                            ("Organiser", ORGANISER_ROLE_NAMES)):
+            configured = role_gate.tier_is_pinned(ctx.guild, tier)
+            ids = role_gate.tier_role_ids(ctx.guild, tier)
+            named = ", ".join(
+                sorted(r.name for r in ctx.guild.roles if r.id in ids)) or "(none)"
+            how = "pinned by id" if configured else "matched by NAME (not pinned)"
+            lines.append(f"**{label}** — {how}: {named}")
+        lines.append("")
+        lines.append("Pin a tier with `!set_admin_roles` / `!set_organiser_roles`. "
+                     "While a tier is matched by name, anyone who can create a role "
+                     "can grant themselves that tier.")
+        await ctx.send("\n".join(lines))
 
     @commands.hybrid_command(description="Show channel settings (admin only)",)
     @is_admin()
