@@ -3056,15 +3056,22 @@ class PuzzleService:
         An informs edge joins two puzzles, so a sourceless (hunt-level) evidence
         item -- source_puzzle_id is None -- has no edge to create; the falsy
         check below already covers that case, along with a missing target.
+
+        Holds the source puzzle's lock for the whole body (M5). This method is the
+        documented exception to PuzzleService being lock-free: it is only ever
+        launched as a bare create_task from the web layer, so no caller already holds
+        that lock. asyncio.Lock is not reentrant -- if a future caller acquires the
+        lock before calling this, it deadlocks permanently.
         """
         if not (source_puzzle_id and target_puzzle_id):
             return
-        group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
-        source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
-        if group is None or source is None:
-            return
-        if not source.has_edge(group.id, "informs"):
-            await self.tag_with_edge(source, group, "informs")
+        async with puzzle_lock(source_puzzle_id):
+            group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
+            source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+            if group is None or source is None:
+                return
+            if not source.has_edge(group.id, "informs"):
+                await self.tag_with_edge(source, group, "informs")
 
     async def unlink_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
         """Remove the 'informs' edge once the source has no remaining evidence
@@ -3074,19 +3081,26 @@ class PuzzleService:
         Same reasoning as link_informs_for_evidence: a sourceless evidence item
         (source_puzzle_id is None) never had an edge to begin with, and the
         falsy check below already returns early for it.
+
+        Holds the source puzzle's lock for the whole body (M5). This method is the
+        documented exception to PuzzleService being lock-free: it is only ever
+        launched as a bare create_task from the web layer, so no caller already holds
+        that lock. asyncio.Lock is not reentrant -- if a future caller acquires the
+        lock before calling this, it deadlocks permanently.
         """
         if not (source_puzzle_id and target_puzzle_id):
             return
-        remaining = EvidenceJsonDb.get_all(
-            hunt.id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
-        if remaining:
-            return
-        group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
-        source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
-        if group is None or source is None:
-            return
-        if source.has_edge(group.id, "informs"):
-            await self.untag_from(source, group, edge="informs")
+        async with puzzle_lock(source_puzzle_id):
+            remaining = EvidenceJsonDb.get_all(
+                hunt.id, source_puzzle_id=source_puzzle_id, target_puzzle_id=target_puzzle_id)
+            if remaining:
+                return
+            group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target_puzzle_id)
+            source = PuzzleJsonDb.get_by_attr(id=source_puzzle_id)
+            if group is None or source is None:
+                return
+            if source.has_edge(group.id, "informs"):
+                await self.untag_from(source, group, edge="informs")
 
     async def link_informs_for_evidence_safe(self, hunt, source_puzzle_id, target_puzzle_id):
         """Fire-and-forget wrapper for link_informs_for_evidence. Never raises
