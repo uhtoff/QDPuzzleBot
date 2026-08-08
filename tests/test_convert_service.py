@@ -559,3 +559,43 @@ class TestConvertBangGuards:
         cog, ctx = self._cog_with(puz)
         await cog.convert_to_capstone.callback(cog, ctx)
         cog.service.convert_to_type.assert_awaited_once()
+
+
+class TestTeardownGroupTargetRefreshesOtherGroups:
+    """Converting a targeted group to a bare Group deletes the target puzzle,
+    which cascades its tags rows — including any feeds/informs edges to OTHER
+    groups (the metameta case). Those groups' contribution tables then carry a
+    row for a puzzle that no longer exists until some unrelated refresh clears
+    it. delete_round and delete_puzzle both refresh the other groups; this path
+    did not."""
+
+    @pytest.mark.asyncio
+    async def test_other_fed_groups_are_refreshed(self):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        hunt = make_hunt()
+        group = make_round(id=10, name="Inner")
+        group.target_puzzle_id = 1
+        target = make_puzzle(id=1, name="Inner Meta")
+        # The target feeds its own group (10) AND an outer metameta (20).
+        target.tags = [10, 20]
+
+        outer = make_round(id=20, name="Outer")
+        svc.refresh_targets = AsyncMock(return_value=[])
+        svc.safe_rename = AsyncMock()
+        svc.notifier = MagicMock()
+        svc.notifier.refresh_group_info = AsyncMock()
+
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+             patch.object(svc, "_gsheet_cog", return_value=None):
+            rdb.get_by_attr.side_effect = lambda **kw: (
+                outer if kw.get("id") == 20 else group if kw.get("id") == 10 else None)
+            await svc._teardown_group_target(None, hunt, group, target)
+            pdb.delete.assert_called_once_with(1)
+
+        svc.refresh_targets.assert_awaited_once()
+        refreshed = svc.refresh_targets.await_args.args[1]
+        ids = [g.id for g in refreshed if g is not None]
+        assert 20 in ids, "the outer metameta was never told its feeder vanished"
+        assert 10 not in ids, "the group being torn down must not be refreshed"

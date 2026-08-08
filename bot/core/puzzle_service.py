@@ -1174,9 +1174,17 @@ class PuzzleService:
                 logger.exception("_teardown_group_target: sheet delete failed for puzzle %s", target.id)
 
         channel_id = getattr(target, "channel_id", 0)
+        # Snapshot before the delete: deleting the target cascades its tags rows,
+        # so any group it also fed (the metameta case) loses its edge with no
+        # further notice and keeps a contribution row for a puzzle that no longer
+        # exists. delete_round and delete_puzzle both refresh those groups.
+        other_fed_group_ids = [t for t in getattr(target, "tags", []) if t != tag_group.id]
         PuzzleJsonDb.delete(target.id)
         tag_group.target_puzzle_id = 0
         TagGroupJsonDb.commit(tag_group)
+        if other_fed_group_ids:
+            await self.refresh_targets(
+                hunt, [TagGroupJsonDb.get_by_attr(id=gid) for gid in other_fed_group_ids])
 
         if guild is not None and channel_id and getattr(hunt, "layout_mode", None) != "forum":
             channel = guild.get_channel(channel_id)
