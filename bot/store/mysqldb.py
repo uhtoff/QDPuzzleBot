@@ -1114,16 +1114,27 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
 
     def set_positions(self, ordered_ids) -> None:
         """Write a whole ordering at once. Whole-list rather than per-item so a
-        half-applied reorder cannot leave the list in an order nobody chose."""
-        cursor = self.mydb.dict_cursor()
-        try:
-            for index, image_id in enumerate(ordered_ids):
-                cursor.execute(
-                    "UPDATE puzzle_images SET position = %s WHERE id = %s",
-                    (index, image_id))
-        finally:
-            cursor.close()
-        self.mydb.commit()
+        half-applied reorder cannot leave the list in an order nobody chose.
+
+        Genuinely one statement, which is what makes that guarantee true: every
+        statement autocommits on its own (see MySQLReconnector), so the previous
+        per-row UPDATE loop committed each row separately and could leave exactly the
+        half-applied ordering this docstring disclaims.
+        """
+        ordered_ids = list(ordered_ids)
+        if not ordered_ids:
+            return
+        cases = " ".join("WHEN %s THEN %s" for _ in ordered_ids)
+        placeholders = ",".join(["%s"] * len(ordered_ids))
+        params = []
+        for index, image_id in enumerate(ordered_ids):
+            params.extend((image_id, index))
+        params.extend(ordered_ids)
+        self._exec(
+            f"UPDATE puzzle_images SET position = CASE id {cases} END "
+            f"WHERE id IN ({placeholders})",
+            tuple(params),
+        )
 
     def delete_by_region(self, region_id: int) -> None:
         self._exec(
