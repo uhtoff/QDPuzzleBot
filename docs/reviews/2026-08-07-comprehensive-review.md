@@ -32,6 +32,10 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | M11 `!remove_minimeta` ungated/unconfirmed | fixed | `fbaf5e4` |
 | TT1 destructive routes untested with gates engaged | fixed (mutation-proven) | `0242043` |
 | TT2 CSRF guard never exercised at request level | fixed (mutation-proven) | `0242043` |
+| T3 `hunt_category.hunt_id` type mismatch, no FK | fixed (migration 038) | `f3df818` |
+| O2 no graceful shutdown, no log rotation | fixed (mutation-proven) | `e758232` |
+| O3 `config.json.dist` omits keys the code reads | fixed | `5121a09` |
+| O5 `run.py` debug path crashes prod | fixed | `478c841` |
 | Dependency bump + Pipfile pinning | shipped to prod | `9e24542` |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
@@ -86,10 +90,18 @@ statement *shape* — reordered, collapsed to one statement, or replaced by an F
 and the bang edge's per-puzzle lock was widened to cover the read as well as the write.
 Migration 037 went with it. H5 was a later, separate finding from the same area.
 
-**Still open**, in the order suggested at the end of this document: the remaining T-series
-DB items, the web-hardening Lows, the frontend items, and **O2 (no graceful shutdown, no
-log rotation)**. The naming items remain evidence-only pending sign-off; `round_id` is the
-agreed first rename when that starts.
+**The ops tranche (O2/O3/O5) — shipped 2026-08-08** (`478c841`, `5121a09`, `e758232`).
+SIGTERM/SIGINT now stop the dashboard and close the gateway cleanly (a second signal
+exits at once, rather than waiting out start.sh's SIGKILL); `discord.log` rotates at
+10 MB x 5; `config.json.dist` carries every key the code reads; and `run.py`'s debug path
+guards its dev-only import and takes its endpoint from config instead of a hardcoded LAN
+address. New coverage in `tests/test_ops_shutdown_logging.py`.
+
+**Still open**: **T4** (import-time DB connections -> crash-loop risk, and the reason
+scripts and tests need a live DB) and **T5** (N+1 hydration on the event loop); the
+web-hardening Lows; the frontend items; and the dead-code, DRY and docs-drift groups. The
+naming items remain evidence-only pending sign-off; `round_id` is the agreed first rename
+when that starts.
 
 ## Verification commands run
 
@@ -362,14 +374,14 @@ the round/hunt for the confirm window — confirm first, then lock.
   failure the .gitignore itself warns about for `frontend/src/lib`. **Fix:** `!scripts/*.py`
   (keep the DB dump ignored).
 
-- **O2. No graceful shutdown; no log rotation.** No `SIGTERM` handler anywhere, so
+- **O2. No graceful shutdown; no log rotation — fixed** (`e758232`). No `SIGTERM` handler anywhere, so
   `start.sh`'s SIGTERM→10s→SIGKILL aborts in-flight archive/channel/sheet work mid-op and
   evaporates in-process locks (reconcile heals it, but deploys during a live hunt are a real
   window). `discord.log` is a plain unbounded `FileHandler` on the root logger
   (`bot/__init__.py:252`). **Fix:** minimal `add_signal_handler → bot.close()`;
   `RotatingFileHandler` for discord.log.
 
-- **O3. `config.json.dist` omits keys the code reads** — `max_channels_per_category`,
+- **O3. `config.json.dist` omits keys the code reads — fixed** (`5121a09`) — `max_channels_per_category`,
   `web.frontend_dist`, `web.bridge_enabled`, `web.archive_media_dir` (required for image
   evidence even with the bridge off), `web.attachment_max_bytes`. **Fix:** add them
   (commented/defaulted) to the template.
@@ -378,7 +390,7 @@ the round/hunt for the confirm window — confirm first, then lock.
   `Pipfile` only gets it transitively via pytesseract; a loosened pytesseract pin stops
   `pipenv sync` installing it. **Fix:** add `pillow` to `[packages]` and re-lock.
 
-- **O5. `run.py` debug path crashes prod** — `"debug": true` imports `pydevd_pycharm` (a
+- **O5. `run.py` debug path crashes prod — fixed** (`478c841`) — `"debug": true` imports `pydevd_pycharm` (a
   *dev* dep, absent after `deploy.sh`'s `pipenv sync`) and dials a hardcoded
   `192.168.44.2:29781` (`run.py:5-7`). **Fix:** guard the import / drop the hardcoded IP.
 
