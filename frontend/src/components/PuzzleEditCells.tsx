@@ -18,11 +18,14 @@ import { notifications } from "@mantine/notifications";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 import { useSolvePuzzle, useUnsolvePuzzle, type SolveMode } from "../api";
-import { notifyError, showSheetWarning, priorityColor, statusColor } from "../util";
+import { notifyError, showSheetWarning, priorityColor, statusColor, formatStatus, formatPriority } from "../util";
 
-const UNSOLVED_STATUS_OPTIONS = ["Unstarted", "In Progress", "Stuck", "Needs Extraction", "Needs Submission"];
-const SOLVED_STATUS_OPTIONS = ["Solved", "Backsolved"];
-const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Very High"];
+// Stored (lowercase) values -- these go to the API verbatim. The Title Case a
+// user sees is produced by formatStatus/formatPriority at render. Sending the
+// label is what used to store "Very High" from here and "very high" from the bot.
+const UNSOLVED_STATUS_OPTIONS = ["unstarted", "in progress", "stuck", "needs extraction", "needs submission"];
+const SOLVED_STATUS_OPTIONS = ["solved", "backsolved"];
+const PRIORITY_OPTIONS = ["low", "medium", "high", "very high"];
 
 export type SolveTarget = Pick<Puzzle, "id" | "name" | "solved" | "solution">;
 
@@ -46,13 +49,13 @@ export function StatusCell({
     <Menu position="bottom-start" withinPortal shadow="md">
       <Menu.Target>
         <Badge variant="light" color={statusColor(value)} style={{ cursor: "pointer" }}>
-          {value || "set status"}
+          {formatStatus(value) || "set status"}
         </Badge>
       </Menu.Target>
       <Menu.Dropdown>
         {options.map((s) => (
           <Menu.Item key={s} onClick={() => onChange(s)}>
-            {s}
+            {formatStatus(s)}
           </Menu.Item>
         ))}
       </Menu.Dropdown>
@@ -65,13 +68,13 @@ export function PriorityCell({ value, onChange }: { value: string | null; onChan
     <Menu position="bottom-start" withinPortal shadow="md">
       <Menu.Target>
         <Badge variant="dot" color={priorityColor(value)} style={{ cursor: "pointer" }}>
-          {value || "set"}
+          {formatPriority(value) || "set"}
         </Badge>
       </Menu.Target>
       <Menu.Dropdown>
         {PRIORITY_OPTIONS.map((p) => (
           <Menu.Item key={p} onClick={() => onChange(p)}>
-            {p}
+            {formatPriority(p)}
           </Menu.Item>
         ))}
       </Menu.Dropdown>

@@ -20,7 +20,7 @@ from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive, media_gc
-from bot.core.constants import STATUSES, PRIORITIES
+from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
@@ -1255,7 +1255,7 @@ class PuzzleService:
         if solution == "" and puzzle.solution in [None, ""]:
             return False
 
-        puzzle.status = "Solved"
+        puzzle.status = "solved"
         if puzzle.solution and solution:
             puzzle.solution += "/" + solution
         elif solution:
@@ -1329,7 +1329,7 @@ class PuzzleService:
 
         For mini-puzzles (parent_puzzle_id set), also unarchives the thread.
         """
-        puzzle.status = "Unsolved"
+        puzzle.status = UNSOLVED_STATUS
         puzzle.solution = ""
         puzzle.solved = False
         puzzle.solve_time = None
@@ -1812,7 +1812,7 @@ class PuzzleService:
         to Google Sheets (matches _partial_impl).
         """
         solution = solution.strip().upper()
-        puzzle.status = "Partially Solved"
+        puzzle.status = PARTIAL_STATUS
         if puzzle.solution:
             puzzle.solution += "/" + solution
         else:
@@ -1902,9 +1902,15 @@ class PuzzleService:
             elif puzzle.solved:
                 raise ValueError(
                     "This puzzle is solved; use the unsolve command to change its status")
+            # Store the canonical lowercase spelling whatever case came in. Callers
+            # legitimately send Title Case (the slash choices and the dashboard
+            # picker are both user-facing labels), and accepting it while storing it
+            # verbatim is what left the column holding both "Stuck" and "stuck".
+            value = value.lower()
         elif field == "priority":
             if value.lower() not in {p.lower() for p in PRIORITIES}:
                 raise ValueError(f"Invalid priority {value!r}; must be one of {PRIORITIES}")
+            value = value.lower()   # same canonicalisation as status, same reason
 
         setattr(puzzle, field, value)
         PuzzleJsonDb.commit(puzzle)
@@ -2452,8 +2458,8 @@ class PuzzleService:
             name=name,
             hunt_id=hunt.id,
             start_time=datetime.datetime.now(tz=pytz.UTC),
-            status='Unstarted',
-            priority='Normal',
+            status='unstarted',
+            priority='medium',
             puzzle_type='Mini',
             parent_puzzle_id=minimeta.id,
         )
@@ -2663,8 +2669,8 @@ class PuzzleService:
             name=name,
             hunt_id=hunt.id,
             start_time=datetime.datetime.now(tz=pytz.UTC),
-            status='Unstarted',
-            priority='Normal',
+            status='unstarted',
+            priority='medium',
         )
         if is_meta:
             new_puzzle.is_target = True

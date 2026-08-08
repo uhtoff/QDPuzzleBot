@@ -48,6 +48,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | `info_bot` LadderSpot title + DM `shard_id` crash | fixed | `54f6f6d` |
 | Missing UNIQUE on `hunts.uid` | fixed (migration 040 + re-mint retry; prod verified duplicate-free) | `54f6f6d` |
 | Missing UNIQUE on `tag_group.group_code` | **blocked** — needs the `'0'` sentinel moved to NULL first | — |
+| Status vocabulary drift (+ case drift, `"Partially Solved"`, `priority='Normal'`) | fixed (migration 041) | this tranche |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -124,8 +125,6 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
 * **Keyboard reachability** for the pointer-only interactions (colour swatches,
   click-to-edit cells, sortable headers) — deferred from the frontend tranche as a real
   a11y pass rather than a Low.
-* **Status vocabulary drift** — `"needs submission"` is in `STATUSES` but missing from the
-  slash choices/docstring/docs; `unsolve` writes `"Unsolved"`, which is not in `STATUSES`.
 * **UNIQUE on `tag_group.group_code`** — held back from migration 040. The column default
   is `'0'`, as is `TagGroupData.group_code`, and that is an in-band sentinel for "no code
   yet" which many rows legitimately share (`resolve_group` only treats 6-character codes as
@@ -136,6 +135,10 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
   "None" instead of "0". `hunts.uid` did not have this problem — it is already NULLable.
 * **The unsolve embed pair** — the bang and web copies have *drifted* (the bang embed has no
   title and different wording), so unifying them is a copy decision, not a refactor.
+* **`statusTone` tints `"partially solved"` green**, i.e. as fully solved: the rule at
+  `statusTone.ts:20` matches the substring `"solved"` and only carves out `"unsolved"`.
+  Found during the status-vocabulary tranche and deliberately NOT changed there — whether a
+  partial solve should read as solved, in-flight, or its own tone is a UI call, not drift.
 * **`backfill_hunt_uids.py`** — spent once every DB row has a non-null uid, which needs a
   live DB to confirm. (It is not broken: the `dict_cursor` call this review reported is not
   in the file.)

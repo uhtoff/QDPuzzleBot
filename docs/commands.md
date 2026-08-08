@@ -84,7 +84,7 @@ through the same service.)
 | `!puzzle` | `!p` | `name` | hunt/round | anyone | Create a puzzle channel and sheet. |
 | `!rename_puzzle` *(slash)* | `!rename_meta` | `new name` | puzzle channel | organisers/admins | Rename the puzzle, its channel and sheet tab. |
 | `!link` *(slash)* | | `url` | puzzle channel | anyone | Set/update the puzzle's hunt URL. |
-| `!status` *(slash)* | | `value` | puzzle channel | anyone | Set status: Unstarted, In Progress, Stuck, Needs Extraction, Solved, Backsolved. |
+| `!status` *(slash)* | | `value` | puzzle channel | anyone | Set status: Unstarted, In Progress, Stuck, Needs Extraction, Needs Submission, Solved, Backsolved. Stored lowercase; the case you type does not matter. |
 | `!type` *(slash)* | | `puzzle_type` | puzzle channel | anyone | Set a freeform type label (e.g. crossword); the slash form autocompletes from types already used in the hunt. |
 | `!priority` *(slash)* | | `value` | puzzle channel | anyone | Set priority: low, medium, high, very high. |
 | `!info` | | — | any hunt channel | anyone | Re-post/refresh the channel's pinned info message. |

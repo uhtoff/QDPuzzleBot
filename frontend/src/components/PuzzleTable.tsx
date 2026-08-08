@@ -20,7 +20,7 @@ import { MiniCountBadge } from "./MiniCountBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { answerLength, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
+import { answerLength, formatPriority, formatStatus, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
 
 interface Props {
   detail: HuntDetail;
@@ -180,8 +180,16 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
   // already false for archived hunts and matches the backend's require_organiser gate.
   const canManage = detail.hunt.can_manage;
 
-  const statusOptions = useMemo(() => uniqueValues(puzzles, "status"), [puzzles]);
-  const priorityOptions = useMemo(() => uniqueValues(puzzles, "priority"), [puzzles]);
+  // Filter VALUES stay the stored strings (that is what the rows are matched
+  // against); only the label is title-cased.
+  const statusOptions = useMemo(
+    () => uniqueValues(puzzles, "status").map((v) => ({ value: v, label: formatStatus(v) })),
+    [puzzles],
+  );
+  const priorityOptions = useMemo(
+    () => uniqueValues(puzzles, "priority").map((v) => ({ value: v, label: formatPriority(v) })),
+    [puzzles],
+  );
   const typeOptions = useMemo(() => uniqueValues(puzzles, "puzzle_type"), [puzzles]);
 
   const filtered = useMemo(() => {
@@ -358,7 +366,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     />
                   ) : p.status ? (
                     <Badge variant="light" color={statusColor(p.status)}>
-                      {p.status}
+                      {formatStatus(p.status)}
                     </Badge>
                   ) : (
                     "—"
@@ -374,7 +382,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     />
                   ) : p.priority ? (
                     <Badge variant="dot" color={priorityColor(p.priority)}>
-                      {p.priority}
+                      {formatPriority(p.priority)}
                     </Badge>
                   ) : (
                     "—"

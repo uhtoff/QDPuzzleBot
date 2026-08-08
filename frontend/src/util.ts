@@ -158,6 +158,10 @@ export function statusColor(status: string | null): string {
   return STATUS_TONE_COLOR[statusTone(status)];
 }
 
+// Re-exported so components can keep importing display helpers from one place;
+// the logic lives in lib/ (like statusTone) so it is unit-testable without Mantine.
+export { formatStatus, formatPriority } from "./lib/statusLabel";
+
 const PRIORITY_RANK: Record<string, number> = { high: 0, low: 2 };
 const META_KIND_RANK: Record<string, number> = {
   runaround: 0,

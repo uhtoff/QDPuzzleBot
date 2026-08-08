@@ -73,8 +73,10 @@ meta's roll-up.
 These all run in the puzzle's channel and show up on the pinned info, the sheet, and the
 dashboard:
 
-- `!status VALUE` — one of *Unstarted, In Progress, Stuck, Needs Extraction, Solved,
-  Backsolved*.
+- `!status VALUE` — one of *Unstarted, In Progress, Stuck, Needs Extraction, Needs
+  Submission, Solved, Backsolved*. The case you type does not matter.
+  (*Unsolved* and *Partially Solved* also appear on puzzles, but they are set by the
+  solve/unsolve/partial commands rather than by `!status`.)
 - `!priority VALUE` — *low, medium, high, very high*.
 - `!type VALUE` — freeform label like `crossword` or `image quiz` (the slash version
   autocompletes types already used this hunt).

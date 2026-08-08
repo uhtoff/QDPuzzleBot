@@ -347,7 +347,9 @@ class TestUnsolveService:
         assert puzzle.solved is False
         assert puzzle.solution == ""
         assert puzzle.solve_time is None
-        assert puzzle.status == "Unsolved"
+        # Canonical lowercase since the status-vocabulary tranche: "Unsolved" was
+        # not in STATUSES at all, and the column held both spellings.
+        assert puzzle.status == "unsolved"
         PuzzleDb.commit.assert_called()
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")

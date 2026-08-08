@@ -87,7 +87,8 @@ class TestWebSolvePuzzleState:
     async def test_sets_status_solved(self, cog, hunt):
         puz = make_puzzle(status="in progress")
         await self._run_solve(cog, hunt, puz, "ANSWER")
-        assert puz.status == "Solved"
+        # Canonical lowercase since the status-vocabulary tranche (was "Solved").
+        assert puz.status == "solved"
 
     @pytest.mark.asyncio
     async def test_sets_solution(self, cog, hunt):
@@ -415,7 +416,7 @@ class TestWebTagEdgeOnly:
 
 # ---------------------------------------------------------------------------
 # add_partial (service) — partial-solution mutation. Mirrors _partial_impl:
-# status -> "Partially Solved", append "/"+solution if a solution exists else set;
+# status -> "partially solved", append "/"+solution if a solution exists else set;
 # commit; refresh tagged metas. Does NOT set solve_time (divergence from solve).
 # ---------------------------------------------------------------------------
 class TestWebAddPartial:
@@ -456,7 +457,8 @@ class TestWebAddPartial:
     async def test_sets_status_partially_solved(self, cog, hunt):
         puz = make_puzzle(status="in progress", solution=None)
         await self._run(cog, hunt, puz, "PART")
-        assert puz.status == "Partially Solved"
+        # Canonical lowercase since the status-vocabulary tranche.
+        assert puz.status == "partially solved"
 
     @pytest.mark.asyncio
     async def test_sets_solution_when_empty(self, cog, hunt):

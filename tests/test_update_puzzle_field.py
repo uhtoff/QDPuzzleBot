@@ -80,8 +80,34 @@ class TestUpdatePuzzleFieldStatus:
 
         await svc.update_puzzle_field(hunt, puzzle, "status", "In Progress")
 
-        assert puzzle.status == "In Progress"
+        # Title Case is accepted (the slash choices and dashboard picker are
+        # user-facing labels) but stored canonically lowercase -- storing it
+        # verbatim is what left the column holding both "Stuck" and "stuck".
+        assert puzzle.status == "in progress"
         PuzzleDb.commit.assert_called_once_with(puzzle)
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_lowercase_status_is_stored_unchanged(self, PuzzleDb):
+        """The canonicalisation must be idempotent, not a blanket re-casing."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        puzzle = make_puzzle(id=5, hunt_id=10)
+
+        await svc.update_puzzle_field(make_hunt(), puzzle, "status", "needs submission")
+
+        assert puzzle.status == "needs submission"
+
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_priority_is_canonicalised_too(self, PuzzleDb):
+        """Priority had the same drift: PRIORITIES is lowercase but the dashboard
+        picker sends "Very High", so the column held both spellings."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(None)
+        puzzle = make_puzzle(id=5, hunt_id=10)
+
+        await svc.update_puzzle_field(make_hunt(), puzzle, "priority", "Very High")
+
+        assert puzzle.priority == "very high"
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_invalid_status_raises_value_error(self, PuzzleDb):

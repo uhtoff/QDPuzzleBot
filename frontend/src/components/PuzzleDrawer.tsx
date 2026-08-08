@@ -32,7 +32,7 @@ import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCell
 import { ConfirmModal } from "./ConfirmModal";
 import { PuzzleImages } from "./PuzzleImages";
 import { TypedConfirmModal } from "./TypedConfirmModal";
-import { notifyError, showSheetWarning } from "../util";
+import { formatPriority, formatStatus, notifyError, showSheetWarning } from "../util";
 
 interface Props {
   puzzle: Puzzle | null;
@@ -230,8 +230,8 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
             </Stack>
           ) : (
             <Group gap="xs">
-              {puzzle.status && <Badge variant="light">{puzzle.status}</Badge>}
-              {puzzle.priority && <Badge variant="dot">{puzzle.priority}</Badge>}
+              {puzzle.status && <Badge variant="light">{formatStatus(puzzle.status)}</Badge>}
+              {puzzle.priority && <Badge variant="dot">{formatPriority(puzzle.priority)}</Badge>}
               {puzzle.puzzle_type && <Text size="sm">{puzzle.puzzle_type}</Text>}
             </Group>
           )}

@@ -34,7 +34,7 @@ import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
-import { fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
+import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 
 interface Props {
   group: BoardGroupType;
@@ -296,7 +296,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         ) : (
                           p.status && (
                             <Badge variant="light" color={statusColor(p.status)}>
-                              {p.status}
+                              {formatStatus(p.status)}
                             </Badge>
                           )
                         )}

@@ -25,7 +25,7 @@ from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
 from bot.utils.text import flush_left
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES
+from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority
 from bot.core import role_gate
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -2752,7 +2752,7 @@ class Puzzles(commands.Cog):
                 if puzzle.solution:
                     line += f" sol:**{puzzle.solution}**"
                 elif puzzle.status:
-                    line += f" status:{puzzle.status}"
+                    line += f" status:{format_status(puzzle.status)}"
                 lines.append(line)
             if lines:
                 sections.append((all_puzzles[round_id]['name'], "\n".join(lines)))
@@ -3006,11 +3006,11 @@ class Puzzles(commands.Cog):
     def _add_puzzle_status_fields(embed, puzzle):
         """Add Status/Solution/Type/Priority fields for a puzzle to an embed."""
         try:
-            embed.add_field(name="Status", value=puzzle.status or "?", inline=False,)
+            embed.add_field(name="Status", value=format_status(puzzle.status) or "?", inline=False,)
             if puzzle.solution:
                 embed.add_field(name="Solution", value=puzzle.solution, inline=False,)
             embed.add_field(name="Type", value=puzzle.puzzle_type or "?", inline=False,)
-            embed.add_field(name="Priority", value=puzzle.priority or "?", inline=False,)
+            embed.add_field(name="Priority", value=format_priority(puzzle.priority) or "?", inline=False,)
         except Exception:
             logger.exception("Failed to add puzzle status fields to embed")
 
@@ -3187,9 +3187,9 @@ class Puzzles(commands.Cog):
         assert hunt is not None  # puzzle channels always resolve their hunt
         spreadsheet_url = urls.spreadsheet_url(hunt.google_sheet_id, puzzle_data.google_page_id) if hunt.google_sheet_id else "?"
         embed.add_field(name="Google Drive", value=spreadsheet_url)
-        embed.add_field(name="Status", value=puzzle_data.status or "?")
+        embed.add_field(name="Status", value=format_status(puzzle_data.status) or "?")
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")
-        embed.add_field(name="Priority", value=puzzle_data.priority or "?")
+        embed.add_field(name="Priority", value=format_priority(puzzle_data.priority) or "?")
         await ctx.send(embed=embed)
         await self.info(ctx, update=True)
 
@@ -3268,13 +3268,11 @@ class Puzzles(commands.Cog):
             await self.send_not_puzzle_channel(ctx)
 
     @commands.hybrid_command(description="Update puzzle status")
+    # Built from STATUSES so a status can never again be offered here but missing
+    # from the canonical list, or vice versa ("needs submission" was missing).
+    # Choice name is the Title Case label; value is the stored lowercase spelling.
     @app_commands.choices(status=[
-        app_commands.Choice(name="Unstarted", value="Unstarted"),
-        app_commands.Choice(name="In Progress", value="In Progress"),
-        app_commands.Choice(name="Stuck", value="Stuck"),
-        app_commands.Choice(name="Needs Extraction", value="Needs Extraction"),
-        app_commands.Choice(name="Solved", value="Solved"),
-        app_commands.Choice(name="Backsolved", value="Backsolved"),
+        app_commands.Choice(name=format_status(_s), value=_s) for _s in STATUSES
     ])
     @with_puzzle_mutex(wait=True)
     async def status(self, ctx, *, status: str):
@@ -3282,7 +3280,8 @@ class Puzzles(commands.Cog):
 
         Usage: `!status value`
         Example: `!status stuck`
-        One of: Unstarted, In Progress, Stuck, Needs Extraction, Solved, Backsolved.
+        One of: Unstarted, In Progress, Stuck, Needs Extraction, Needs Submission,
+        Solved, Backsolved.
         Run in the puzzle's channel."""
         puzzle = self.get_puzzle(ctx)
         if puzzle is None:

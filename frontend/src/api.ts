@@ -378,7 +378,7 @@ export function useSolvePuzzle(uid: string) {
           board: previous.board.map((g) => ({
             ...g,
             puzzles: g.puzzles.map(
-              (p) => p.id === puzzleId ? { ...p, solved: mode === "full" || p.solved, solution, status: mode === "full" ? "Solved" : p.status } : p
+              (p) => p.id === puzzleId ? { ...p, solved: mode === "full" || p.solved, solution, status: mode === "full" ? "solved" : p.status } : p
             ),
           })),
         });

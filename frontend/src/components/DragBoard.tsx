@@ -43,7 +43,7 @@ import {
   type EdgeType,
   type RetagMode,
 } from "../api";
-import { fullDeletePuzzleCount, notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
+import { formatStatus, fullDeletePuzzleCount, notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
 import { puzzlesById } from "../lib/boardPuzzles";
 import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
@@ -270,7 +270,7 @@ function PuzzleCard({ puzzle, dragId, columnGroupCode, columnName, metas, onReta
       ) : (
         puzzle.status && (
           <Badge size="xs" variant="light" color={statusColor(puzzle.status)} mt={4}>
-            {puzzle.status}
+            {formatStatus(puzzle.status)}
           </Badge>
         )
       )}
