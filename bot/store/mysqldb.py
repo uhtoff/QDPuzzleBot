@@ -368,12 +368,26 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta']
 
     def construct_puzzle(self, row):
-        puzzle = PuzzleData.import_dict(row)
-        self.get_tags(puzzle)
-        self.get_additional_sheets(puzzle)
-        self.get_is_target(puzzle)
-        self.get_is_minimeta(puzzle)
-        return puzzle
+        return self.construct_puzzles([row])[0]
+
+    def construct_puzzles(self, rows) -> List[PuzzleData]:
+        """Hydrate many rows in a fixed 4 queries, not 4 *per row* (T5).
+
+        The per-puzzle path ran get_tags/get_additional_sheets/get_is_target/
+        get_is_minimeta for every row, so a 100-puzzle hunt cost ~400 sequential
+        round-trips -- and these are synchronous calls on the gateway thread, so
+        the event loop is blocked for all of them. The list paths below all come
+        through here; the four hydrators fan the whole batch into one IN (...)
+        query each.
+        """
+        puzzles = [PuzzleData.import_dict(row) for row in rows]
+        if not puzzles:
+            return puzzles
+        self._hydrate_tags(puzzles)
+        self._hydrate_additional_sheets(puzzles)
+        self._hydrate_is_target(puzzles)
+        self._hydrate_is_minimeta(puzzles)
+        return puzzles
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
@@ -407,34 +421,25 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get_all(self, guild_id, hunt_id="*") -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
-        puzzle_datas = []
         rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
                        "LEFT JOIN hunts ON puzzles.hunt_id = hunts.id "
                        "WHERE hunts.guild_id = %s", (guild_id,))
-        for row in rows:
-            puzzle_datas.append(self.construct_puzzle(row))
-        return PuzzleData.sort_by_puzzle_start(puzzle_datas)
+        return PuzzleData.sort_by_puzzle_start(self.construct_puzzles(rows))
 
     def get_all_from_hunt(self, hunt_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
-        puzzle_datas = []
         rows = self._fetch_all("SELECT puzzles.* FROM puzzles "
                        "WHERE hunt_id = %s", (hunt_id,))
-        for row in rows:
-            puzzle_datas.append(self.construct_puzzle(row))
-        return puzzle_datas
+        return self.construct_puzzles(rows)
 
     def get_all_from_tag_group(self, tag_group_id) -> List[PuzzleData]:
         """Retrieve all puzzles from database"""
-        puzzle_datas = []
         rows = self._fetch_all(
             "SELECT puzzles.* FROM puzzles WHERE puzzles.id IN "
             "(SELECT puzzle_id FROM tags WHERE tag_group_id = %s)",
             (tag_group_id,),
         )
-        for row in rows:
-            puzzle_datas.append(self.construct_puzzle(row))
-        return PuzzleData.sort_by_puzzle_start(puzzle_datas)
+        return PuzzleData.sort_by_puzzle_start(self.construct_puzzles(rows))
 
     def get_children(self, parent_puzzle_id: int):
         """Return all mini-puzzles whose parent_puzzle_id matches."""
@@ -442,7 +447,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "SELECT * FROM puzzles WHERE parent_puzzle_id = %s ORDER BY id ASC",
             (parent_puzzle_id,),
         )
-        return [self.construct_puzzle(r) for r in rows]
+        return self.construct_puzzles(rows)
 
     # Table-specific signature; never called through a base-typed reference.
     def check_duplicates_in_hunt(self, name, hunt_id, exclude_puzzle_id=None) -> bool:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -478,38 +483,63 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "   )",
             (hunt_id,),
         )
-        return [self.construct_puzzle(r) for r in rows]
+        return self.construct_puzzles(rows)
+
+    @staticmethod
+    def _placeholders(count: int) -> str:
+        return ", ".join(["%s"] * count)
 
     def get_tags(self, puzzle):
-        select_stmt = "SELECT tags.tag_group_id, tags.edge_type FROM tags WHERE puzzle_id = %s"
-        rows = self._fetch_all(select_stmt, (puzzle.id,))
+        self._hydrate_tags([puzzle])
+
+    def _hydrate_tags(self, puzzles):
+        by_id = {p.id: p for p in puzzles}
+        rows = self._fetch_all(
+            "SELECT tags.puzzle_id, tags.tag_group_id, tags.edge_type FROM tags"
+            f" WHERE puzzle_id IN ({self._placeholders(len(by_id))})",
+            tuple(by_id),
+        )
         for row in rows:
+            puzzle = by_id[row['puzzle_id']]
             gid = row['tag_group_id']
             if gid not in puzzle.tags:
                 puzzle.tags.append(gid)
             puzzle.tag_edges.setdefault(gid, set()).add(row['edge_type'] or "feeds")
 
     def get_additional_sheets(self, puzzle):
-        select_stmt = "SELECT * FROM additional_sheets WHERE puzzle_id = %s"
-        rows = self._fetch_all(select_stmt, (puzzle.id,))
+        self._hydrate_additional_sheets([puzzle])
+
+    def _hydrate_additional_sheets(self, puzzles):
+        by_id = {p.id: p for p in puzzles}
+        rows = self._fetch_all(
+            "SELECT * FROM additional_sheets"
+            f" WHERE puzzle_id IN ({self._placeholders(len(by_id))})"
+            " ORDER BY id ASC",
+            tuple(by_id),
+        )
         for row in rows:
             sheet = AdditionalSheetData()
-            for attr, value in sheet.__dict__.items():
+            for attr in list(sheet.__dict__):
                 setattr(sheet, attr, row.get(attr, None))
-            puzzle.additional_sheets.append(sheet)
+            by_id[row['puzzle_id']].additional_sheets.append(sheet)
 
     def get_is_target(self, puzzle):
         """Derive is-target: True iff some tag_group targets this puzzle.
 
         Eager-loaded here (the single read seam) so is-meta reads stay free
         attribute accesses. Lookup on tag_group.target_puzzle_id."""
-        cursor = self.mydb.cursor()
-        cursor.execute(
-            "SELECT 1 FROM tag_group WHERE target_puzzle_id = %s LIMIT 1",
-            (puzzle.id,),
+        self._hydrate_is_target([puzzle])
+
+    def _hydrate_is_target(self, puzzles):
+        by_id = {p.id: p for p in puzzles}
+        rows = self._fetch_all(
+            "SELECT DISTINCT target_puzzle_id FROM tag_group"
+            f" WHERE target_puzzle_id IN ({self._placeholders(len(by_id))})",
+            tuple(by_id),
         )
-        puzzle.is_target = cursor.fetchone() is not None
-        cursor.close()
+        targeted = {row['target_puzzle_id'] for row in rows}
+        for pid, puzzle in by_id.items():
+            puzzle.is_target = pid in targeted
 
     def get_is_minimeta(self, puzzle):
         """Derive is-minimeta: True iff this puzzle has mini-children.
@@ -519,13 +549,18 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         though its tab is promoted to the same shifted target geometry. Eager-load
         it here, the single read seam, so is-minimeta reads stay free attribute
         accesses (e.g. _header_shift needs it to offset solution/progress writes)."""
-        cursor = self.mydb.cursor()
-        cursor.execute(
-            "SELECT 1 FROM puzzles WHERE parent_puzzle_id = %s LIMIT 1",
-            (puzzle.id,),
+        self._hydrate_is_minimeta([puzzle])
+
+    def _hydrate_is_minimeta(self, puzzles):
+        by_id = {p.id: p for p in puzzles}
+        rows = self._fetch_all(
+            "SELECT DISTINCT parent_puzzle_id FROM puzzles"
+            f" WHERE parent_puzzle_id IN ({self._placeholders(len(by_id))})",
+            tuple(by_id),
         )
-        puzzle.is_minimeta = cursor.fetchone() is not None
-        cursor.close()
+        parents = {row['parent_puzzle_id'] for row in rows}
+        for pid, puzzle in by_id.items():
+            puzzle.is_minimeta = pid in parents
 
     def tag_puzzle_with_edge(self, puzzle_id, tag_group_id, edge_type):
         """Add one membership edge (idempotent). With migration 020's
