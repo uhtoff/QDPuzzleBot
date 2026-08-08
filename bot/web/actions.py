@@ -22,6 +22,7 @@ from . import data, events
 from bot.web import data as web_data
 from .auth import (
     ADMIN_ROLES,
+    ORGANISER_ROLE_NAMES,
     ORGANISER_ROLES,
     current_user,
     hunt_visible,
@@ -32,6 +33,7 @@ from .auth import (
     resolve_member_role_ids,
 )
 from bot.core import role_gate
+from bot.store import GuildSettingsDb
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import SheetRefreshError
@@ -1725,6 +1727,147 @@ async def change_group_type(tag_group_id):
     if warning:
         resp["sheet_warning"] = warning
     return jsonify(resp)
+
+
+# --- Guild settings (admin only) ---------------------------------------------
+
+# Whitelisted `guilds` columns the dashboard may write. Deliberately excludes
+# guild_id/guild_name/id: those mirror Discord and are maintained by the join
+# handler, not by hand.
+_GUILD_SETTINGS_KEYS = {
+    "discord_bot_channel", "drive_parent_id", "drive_resources_id",
+    "discord_use_voice_channels", "website_url",
+}
+_GUILD_ROLE_KEYS = {"admin_role_ids", "organiser_role_ids"}
+
+
+def _role_ids_out(raw):
+    """A stored comma-separated id column as a list of STRINGS.
+
+    Every Discord id leaves this module as a string: snowflakes are 64-bit and
+    exceed JavaScript's safe integer range, so a JSON number silently loses
+    precision in the browser.
+    """
+    return [part.strip() for part in str(raw or "").split(",") if part.strip()]
+
+
+async def _guild_settings_ctx(guild_id):
+    """Resolve (guild_row, guild, settings) for an admin-gated guild route, or an
+    error tuple. `guild_id` is the `guilds.id` row id the /api/guilds list uses,
+    not the Discord snowflake."""
+    guilds_map = await web_data.get_guilds_map()
+    row = guilds_map.get(guild_id)
+    if row is None:
+        return None, (jsonify({"error": "guild_not_found"}), 404)
+    snowflake = row["guild_snowflake"]
+    perm = await require_admin(snowflake)
+    if perm:
+        return None, perm
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
+    if guild is None:
+        return None, (jsonify({"error": "bot_unavailable"}), 503)
+    settings = GuildSettingsDb.get(snowflake)
+    if settings is None:
+        return None, (jsonify({"error": "guild_not_found"}), 404)
+    return (row, guild, settings), None
+
+
+@actions_bp.route("/guilds/<int:guild_id>/settings", methods=["GET"])
+@login_required
+async def get_guild_settings(guild_id):
+    """This guild's settings, its available roles, and each authorisation tier's
+    state. Admin only — the same tier the equivalent bang commands need."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    row, guild, settings = resolved
+
+    user = current_user()
+    assert user is not None  # @login_required
+    your_role_ids = await resolve_member_role_ids(user["id"], row["guild_snowflake"])
+
+    tiers = {}
+    for key, names in (("admin", ADMIN_ROLES), ("organiser", ORGANISER_ROLE_NAMES)):
+        tiers[key] = {
+            "pinned": role_gate.tier_is_pinned(guild, names),
+            "role_ids": sorted(str(i) for i in role_gate.tier_role_ids(guild, names)),
+        }
+
+    return jsonify({
+        "guild": {
+            "id": guild_id,
+            "guild_snowflake": str(row["guild_snowflake"]),
+            "guild_name": row["guild_name"],
+        },
+        "settings": {
+            **{key: getattr(settings, key, None) for key in _GUILD_SETTINGS_KEYS},
+            **{key: _role_ids_out(getattr(settings, key, None))
+               for key in _GUILD_ROLE_KEYS},
+        },
+        "tiers": tiers,
+        "roles": [{"id": str(r.id), "name": r.name} for r in guild.roles],
+        "your_role_ids": sorted(str(i) for i in (your_role_ids or ())),
+    })
+
+
+@actions_bp.route("/guilds/<int:guild_id>/settings", methods=["PATCH"])
+@login_required
+async def patch_guild_settings(guild_id):
+    """Update whitelisted guild settings, including the authorisation role ids.
+    Admin only. Web equivalent of !update_settings + !set_admin_roles /
+    !set_organiser_roles."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    row, guild, settings = resolved
+
+    body = await request.get_json(silent=True) or {}
+    extra = set(body.keys()) - _GUILD_SETTINGS_KEYS - _GUILD_ROLE_KEYS
+    if extra:
+        return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+
+    guild_role_ids = {r.id for r in guild.roles}
+    parsed_roles = {}
+    for key in _GUILD_ROLE_KEYS & set(body.keys()):
+        value = body[key]
+        if not isinstance(value, list):
+            return jsonify({"error": "bad_value", "field": key}), 400
+        try:
+            ids = [int(str(v).strip()) for v in value if str(v).strip()]
+        except ValueError:
+            return jsonify({"error": "bad_value", "field": key}), 400
+        # A role id from another server would gate the tier on something nobody
+        # here can hold — an unrecoverable lockout for the admin tier.
+        foreign = [i for i in ids if i not in guild_role_ids]
+        if foreign:
+            return jsonify({"error": "unknown_role",
+                            "field": key,
+                            "role_ids": [str(i) for i in foreign]}), 400
+        parsed_roles[key] = ids
+
+    # Mirrors !set_admin_roles: pinning admin ids the caller does not hold leaves
+    # nobody able to undo it. An EMPTY list is the documented revert-to-names
+    # escape hatch, not a lockout.
+    admin_ids = parsed_roles.get("admin_role_ids")
+    if admin_ids:
+        user = current_user()
+        assert user is not None  # @login_required
+        your_role_ids = await resolve_member_role_ids(user["id"], row["guild_snowflake"])
+        if not (set(your_role_ids or ()) & set(admin_ids)):
+            return jsonify({"error": "would_lock_you_out"}), 400
+
+    # Load-modify-save: GuildSettingsDb.commit writes EVERY column, so building a
+    # fresh row here would blank whatever this request didn't send.
+    for key in _GUILD_SETTINGS_KEYS & set(body.keys()):
+        setattr(settings, key, body[key])
+    for key, ids in parsed_roles.items():
+        setattr(settings, key, ",".join(str(i) for i in ids))
+    GuildSettingsDb.commit(settings)
+
+    await _audit("guild_settings", detail=f"guild_id={guild_id} keys={sorted(body)}")
+    return jsonify({"ok": True})
 
 
 # --- Reconcile (organiser only) ----------------------------------------------
