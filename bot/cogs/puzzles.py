@@ -1540,16 +1540,26 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
 
     @commands.command()
+    @is_organiser()
     async def remove_minimeta(self, ctx):
         """*Revert this minimeta back to an ordinary puzzle, deleting its mini-puzzles.*
 
         Usage: `!remove_minimeta`
         Example: `!remove_minimeta`
         Run in the minimeta's channel. Deletes every mini-puzzle (thread + sheet) and
-        the rollup table, then clears the Minimeta type."""
+        the rollup table, then clears the Minimeta type. Organisers/admins only;
+        asks to confirm. Not recoverable."""
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
+        # Same bar as !delete_mini, which asks before deleting ONE mini: this
+        # deletes every one of them plus the rollup, and none of it comes back.
+        minis = self.service.get_minis(puzzle.id)
+        count = f"{len(minis)} mini-puzzle(s)" if minis else "every mini-puzzle"
+        if not await self._confirm_destructive(
+                ctx, f"Remove minimeta **{puzzle.name}**, deleting {count} "
+                     f"(threads + sheet tabs) and its rollup table?"):
+            return
         try:
             await self.service.remove_minimeta(ctx.guild, self.get_hunt(ctx), puzzle)
         except RuntimeError:

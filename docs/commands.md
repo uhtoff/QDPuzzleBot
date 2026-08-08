@@ -119,7 +119,7 @@ commands in the minimeta's channel; numbers come from `!list_minis`.
 | Command | Arguments | Does |
 |---|---|---|
 | `!make_minimeta` | — | Convert this puzzle into a minimeta cluster. |
-| `!remove_minimeta` | — | Revert a minimeta to an ordinary puzzle, deleting its minis (threads + sheets) and rollup. |
+| `!remove_minimeta` | — | Revert a minimeta to an ordinary puzzle, deleting its minis (threads + sheets) and rollup (organisers/admins; asks to confirm). |
 | `!add_mini` | `name` | Add a mini-puzzle. |
 | `!list_minis` | — | List minis with numbers and solve state. |
 | `!solve_mini` | `number answer` | Record a mini's answer. |

@@ -49,6 +49,7 @@ class TestRemoveMiniMeta:
         cog = _make_cog_with_info(puzzle, hunt)
         ctx = make_ctx()
         cog.service.remove_minimeta = AsyncMock()
+        cog._confirm_destructive = AsyncMock(return_value=True)
 
         await Puzzles.remove_minimeta.callback(cog, ctx)
 
@@ -63,10 +64,41 @@ class TestRemoveMiniMeta:
         cog = _make_cog_with_info(puzzle, MagicMock())
         ctx = make_ctx()
         cog.service.remove_minimeta = AsyncMock()
+        cog._confirm_destructive = AsyncMock(return_value=True)
 
         await Puzzles.remove_minimeta.callback(cog, ctx)
 
         cog.info.assert_awaited_once_with(ctx, update=True)
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_confirmation_removes_nothing(self):
+        """This deletes EVERY mini-puzzle (threads + sheet tabs) and the rollup.
+        Its single-item sibling !delete_mini asks first; deleting the lot must
+        too, or one mistyped command is unrecoverable."""
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(puzzle, MagicMock())
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+        cog._confirm_destructive = AsyncMock(return_value=False)
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        cog._confirm_destructive.assert_awaited_once()
+        cog.service.remove_minimeta.assert_not_awaited()
+        cog.info.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_confirming_proceeds_with_the_removal(self):
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        hunt = MagicMock()
+        cog = _make_cog_with_info(puzzle, hunt)
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+        cog._confirm_destructive = AsyncMock(return_value=True)
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        cog.service.remove_minimeta.assert_awaited_once_with(ctx.guild, hunt, puzzle)
 
     @pytest.mark.asyncio
     async def test_not_minimeta_reports_error(self):
@@ -74,6 +106,7 @@ class TestRemoveMiniMeta:
         cog = _make_cog_with_info(puzzle, MagicMock())
         ctx = make_ctx()
         cog.service.remove_minimeta = AsyncMock(side_effect=RuntimeError("not_minimeta"))
+        cog._confirm_destructive = AsyncMock(return_value=True)
 
         await Puzzles.remove_minimeta.callback(cog, ctx)
 
