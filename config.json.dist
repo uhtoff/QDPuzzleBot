@@ -11,7 +11,10 @@
   "mysql_username": "",
   "mysql_password": "",
   "debug": false,
+  "debug_host": "127.0.0.1",
+  "debug_port": 29781,
   "development": false,
+  "max_channels_per_category": 50,
   "web": {
     "enabled": false,
     "host": "127.0.0.1",
@@ -20,6 +23,10 @@
     "oauth_client_id": "",
     "oauth_client_secret": "",
     "oauth_redirect_uri": "https://example.com/api/auth/callback",
-    "frontend_url": "https://example.com"
+    "frontend_url": "https://example.com",
+    "frontend_dist": "",
+    "bridge_enabled": false,
+    "archive_media_dir": "",
+    "attachment_max_bytes": 26214400
   }
 }
