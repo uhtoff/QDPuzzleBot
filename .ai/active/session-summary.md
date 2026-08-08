@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot/.claude/worktrees/working-2
 Started: 2026-08-08
-Status: ready for handoff — M6/M7/M8 done, M9 documented @ 05533d8 (branch `working-2`, NOT merged)
+Status: ready for handoff — docs: new-server playbook, with the two manual setup steps written down @ e7633e0
 
 ## Goal
 
@@ -67,12 +67,16 @@ AGENTS.md's migration → deploy → code rule it must run before this code does
 
 ## Next steps
 
-1. Decide whether to merge `working-2` → `staging` (nothing merged or pushed).
+1. ~~Merge `working-2` → `staging`~~ — **done** (fast-forward to `24a3c9d`). Nothing pushed
+   to `origin` yet.
 2. **Before deploying: run migration 039 on production.**
-3. Consider the dashboard equivalent of `!set_admin_roles` / `!show_auth_roles` — the
+3. `docs/new-server-playbook.md` (`e7633e0`) now records the per-server checklist,
+   including the two manual steps: pinning the auth roles and the hunt category role
+   overwrite. Cross-linked from the README and the user guide.
+4. Consider the dashboard equivalent of `!set_admin_roles` / `!show_auth_roles` — the
    project principle is bang/web command parity, and this batch deliberately did not build
    it. Flagged to the user, not decided.
-4. Remaining review items: H4/T1/M5 (atomicity class), the T-series DB items, the
+5. Remaining review items: H4/T1/M5 (atomicity class), the T-series DB items, the
    web-hardening Lows, the frontend items, and **O2 (no graceful shutdown, no log
    rotation — `bot/__init__.py:145` is still a plain unbounded `FileHandler`)**.
 
