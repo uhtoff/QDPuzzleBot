@@ -57,14 +57,28 @@ class MySQLReconnector:
     def __init__(self, **cfg):
         cfg.setdefault("connect_timeout", self._CONNECT_TIMEOUT_SECONDS)
         self._cfg = cfg
-        self._connect()
+        # Deliberately NOT connected here. These objects are constructed at module
+        # import (bot/store/__init__.py, below), so connecting eagerly meant MySQL
+        # being down at boot raised straight out of the import: the supervisor then
+        # restart-looped a database that was still recovering, hammering it. Only
+        # *established* connections self-heal (_ensure), so there was no retry to
+        # save it either. Connecting on first use instead means the bot boots, and
+        # the first query after MySQL returns simply succeeds.
+        #
+        # It also stops every ancillary script and test that merely imports the
+        # package from requiring a live database.
+        self._conn: Optional[MySQLConnectionAbstract] = None
 
-    def _connect(self):
+    def _connect(self) -> MySQLConnectionAbstract:
         self._conn = cast(MySQLConnectionAbstract, mysql.connector.connect(**self._cfg))
         # keep your existing behaviour
         self._conn.autocommit = True
+        return self._conn
 
-    def _ensure(self):
+    def _ensure(self) -> MySQLConnectionAbstract:
+        """Return a live connection, opening or reviving one as needed."""
+        if self._conn is None:
+            return self._connect()
         try:
             # Will reconnect automatically if dropped
             self._conn.ping(reconnect=True, attempts=2, delay=1)
@@ -73,17 +87,15 @@ class MySQLReconnector:
                 self._conn.close()
             except Exception:
                 pass
-            self._conn = cast(MySQLConnectionAbstract, mysql.connector.connect(**self._cfg))
-            self._conn.autocommit = True
+            return self._connect()
+        return self._conn
 
     def cursor(self, *args, **kwargs):
-        self._ensure()
-        return self._conn.cursor(*args, **kwargs)
+        return self._ensure().cursor(*args, **kwargs)
 
     def dict_cursor(self) -> DictCursor:
         """A ``dictionary=True`` cursor, typed as such (see DictCursor)."""
-        self._ensure()
-        return cast(DictCursor, self._conn.cursor(dictionary=True))
+        return cast(DictCursor, self._ensure().cursor(dictionary=True))
 
     def commit(self):
         # No-op while autocommit is on (set in _connect and _ensure): every statement
@@ -97,25 +109,34 @@ class MySQLReconnector:
         # needs a transaction, run it on a DEDICATED autocommit=False connection: this
         # one is shared by several DAOs on the event loop, so an open transaction here
         # would span their interleaved statements.
-        self._ensure()
-        return self._conn.commit()
+        return self._ensure().commit()
 
     def rollback(self):
-        self._ensure()
-        return self._conn.rollback()
+        return self._ensure().rollback()
 
     def close(self):
+        if self._conn is None:
+            return None
         try:
             return self._conn.close()
         except Exception:
             return None
+        finally:
+            # Drop the dead handle so a later call reconnects rather than pinging
+            # a closed connection.
+            self._conn = None
 
     def __getattr__(self, name):
         """
         Forward everything else (e.g., .cmd_query, .database, etc.)
         to the underlying mysql.connector connection.
+
+        Goes through _ensure() so a forwarded attribute works on a
+        not-yet-connected reconnector, as it did when __init__ connected eagerly.
         """
-        return getattr(self._conn, name)
+        # Only reached when normal lookup fails, so _cfg/_conn (set in __init__)
+        # never route here -- no recursion.
+        return getattr(self._ensure(), name)
 
 if config.storage == 'mysql':
     mydb = MySQLReconnector(
