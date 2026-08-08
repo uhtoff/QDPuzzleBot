@@ -937,7 +937,8 @@ class MySQLMediaDb(_MySQLBaseDb):
     def delete(self, media_id: int, /) -> None:
         """Delete one media row by id. No-op if the id does not exist.
 
-        Overrides the base delete to commit, like every other DAO's own delete.
+        Now behaviourally identical to the base delete: its only reason to exist was
+        the commit() call, which was a no-op under autocommit and has been removed.
         """
         self._exec("DELETE FROM media WHERE id = %s", (media_id,))
 
