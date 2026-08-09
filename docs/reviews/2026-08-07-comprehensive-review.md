@@ -53,6 +53,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | `statusTone` tinted `"partially solved"` green | fixed — reads as in-flight (amber) | this tranche |
 | `backfill_hunt_uids.py` spent | deleted — prod confirmed 83 hunts, 0 missing uids | this tranche |
 | Missing UNIQUE on `tag_group.group_code` | fixed (migration 042) — **not yet deployed to prod** | this tranche |
+| Rate limiting on member-level create routes | **won't fix** — see the decision below | — |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -145,14 +146,33 @@ through a new `construct_puzzles`, fixing hydration at 4 queries per call instea
 row. New coverage in `tests/test_store_lazy_connect.py` and
 `tests/test_puzzle_batch_hydration.py`.
 
-**Still open**, named individually rather than by series:
+**Rate limiting on the member-level create routes — reviewed, WON'T FIX** (decision,
+2026-08-09). This was the last open item from the web-hardening tranche, deferred there
+for being larger than the surrounding Lows, not for being more urgent — it was always
+defence-in-depth, and no rate-related incident has ever been observed on live.
 
-* **Rate limiting** on the member-level channel/sheet/disk-creating routes — deferred from
-  the web-hardening tranche as larger than the surrounding Lows (needs a limiter and a
-  storage decision).
+The exposure, assessed: the routes are reachable only after Discord OAuth by users who
+are members of the guild (and hunt-role-gated for visibility), so the population that
+could abuse them is the team itself, a compromised member account, or a client-side retry
+loop — not the open internet. The damage ceiling is real but recoverable: driving the
+guild to the 500-channel cap mid-hunt, burning Sheets quota, or filling the disk through
+the upload/markup routes.
 
-The naming items remain evidence-only pending sign-off; `round_id` is the agreed first
-rename when that starts.
+What the existing 429 backoff does and does not cover was weighed explicitly. discord.py's
+backoff paces requests so the bot stays inside provider limits, but it refuses nothing:
+a runaway loop's 400 channel creates all still land, just slower; one member's spam puts
+everyone else's legitimate creates behind it in the same shared budget; and the
+disk-writing routes have no provider, no 429, and no throttle at all. An application-level
+limiter is the only thing that would *refuse* volume per user. That delta was judged not
+worth a limiter plus storage machinery for a small, semi-trusted user base.
+
+Worth revisiting if the exposure widens: multi-team hunts that bring strangers into the
+guild (the multi-server hunt design would do this), or any route becoming reachable
+without guild membership. The disk-upload path is the first surface to gate if that
+happens, being the one with no upstream throttle of any kind.
+
+Nothing else from the review remains open. The naming items remain evidence-only pending
+sign-off; `round_id` is the agreed first rename when that starts.
 
 ## Verification commands run
 
