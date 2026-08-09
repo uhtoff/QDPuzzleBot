@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — docs: close rate limiting as won't fix, with the reasoning @ 6c81917
+Status: ready for handoff — chore: bump handoff status to 6c81917 @ f33e0f3
 
 ## Goal
 
