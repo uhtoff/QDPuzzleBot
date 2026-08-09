@@ -14,12 +14,14 @@ export function statusTone(status: string | null): StatusTone {
   // case ("In Progress"). An exact lowercase switch silently greyed out every
   // status set from the web.
   const s = (status || "").toLowerCase();
-  // "unsolved" is a real stored status and CONTAINS "solved", so it has to be
-  // excluded or an unsolved puzzle gets a green badge/tint. "backsolved" must
-  // still match.
-  if (s.includes("solved") && !s.includes("unsolved")) return "solved";
+  // Two stored statuses CONTAIN "solved" without being solved, and both have to
+  // be excluded here or they get a green badge/tint: "unsolved" (a twice-fixed
+  // regression) and "partially solved", which means work remains and so reads as
+  // in-flight, alongside "needs ...". "backsolved" must still match.
+  if (s.includes("solved") && !s.includes("unsolved") && !s.includes("partially")) return "solved";
   if (s.includes("stuck")) return "stuck";
-  if (s.includes("progress") || s.includes("working") || s.includes("needs")) return "working";
+  if (s.includes("progress") || s.includes("working") || s.includes("needs")
+      || s.includes("partial")) return "working";
   if (s.includes("unstarted")) return "unstarted";
   return "unknown";
 }

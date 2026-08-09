@@ -31,6 +31,18 @@ describe("statusTone", () => {
     expect(statusTone("needs submission")).toBe("working");
   });
 
+  it("reads 'partially solved' as work in flight, not solved", () => {
+    // It contains "solved" but means the opposite of done. Paired with the
+    // backsolved assertions below so a rule that simply stopped matching
+    // "solved" at all could not satisfy both.
+    expect(statusTone("partially solved")).toBe("working");
+    expect(statusTone("Partially Solved")).toBe("working");
+    // ...while its neighbours in the same substring family are unaffected:
+    expect(statusTone("backsolved")).toBe("solved");
+    expect(statusTone("solved")).toBe("solved");
+    expect(statusTone("unsolved")).not.toBe("solved");
+  });
+
   it("maps stuck and unstarted to their own tones", () => {
     expect(statusTone("stuck")).toBe("stuck");
     expect(statusTone("Stuck")).toBe("stuck");

@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — feat(markup): Tab cycles the drawing colour, and the active swatch is ringed @ 5fc4f62
+Status: ready for handoff — docs: close keyboard a11y as won't fix, with the reasoning @ ad70d6d
 
 ## Goal
 
