@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — refactor: share the unsolve embed between the bang and the dashboard @ 9b5a7fb
+Status: ready for handoff — feat(markup): Tab cycles the drawing colour, and the active swatch is ringed @ 5fc4f62
 
 ## Goal
 

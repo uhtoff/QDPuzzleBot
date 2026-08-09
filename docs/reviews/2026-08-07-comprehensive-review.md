@@ -50,6 +50,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | Missing UNIQUE on `tag_group.group_code` | **blocked** — needs the `'0'` sentinel moved to NULL first | — |
 | Status vocabulary drift (+ case drift, `"Partially Solved"`, `priority='Normal'`) | fixed (migration 041) | this tranche |
 | DRY: the drifted unsolve embed pair | fixed (`build_unsolved_embed`) | this tranche |
+| Keyboard reachability (pointer-only interactions) | **won't fix** — see the decision below | — |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -83,6 +84,30 @@ matching names, so nothing changed for an existing guild until it runs
 guild is in. A guild that has pinned ids never falls back to names, even if every stored
 id is junk. `constants.organiser_gate_active` and `auth.resolve_role_names` were removed
 rather than left beside their replacements.
+
+**Keyboard reachability of the pointer-only interactions — reviewed, WON'T FIX**
+(decision, 2026-08-09). The finding named three examples; a sweep found ~16 sites where
+an `onClick` sits on a non-interactive element (Mantine `Badge` and `ColorSwatch` render
+`div`s, `Table.Th` a `th`), so none are tab-reachable, key-activatable, or announced as
+controls. Two corrections to the finding as written: the sortable headers are in
+`EvidencePanel.tsx:423`, not the puzzle table, which sorts through `sortPuzzles` and has
+no clickable headers; and the existing `onKeyDown` handlers do NOT indicate partial
+coverage — every one is on an already-focusable `TextInput` (Enter-to-save inside an open
+editor), so a keyboard user is locked out one step earlier than a grep suggests.
+
+Not fixed, deliberately: these are interactions that are inherently pointer-driven — a
+drag board, a canvas you draw on freehand, click-to-edit cells on a table you are already
+navigating by mouse. Retro-fitting `role`/`tabIndex`/key handlers across all of them buys
+ceremony rather than a usable keyboard path, and the canvas has no meaningful keyboard
+equivalent at all. Revisit only if the dashboard acquires a real accessibility
+requirement, in which case it is a project, not a tranche: it needs a chosen pattern, an
+`aria-sort` contract for the headers, a separate answer for the canvas, and an a11y test
+harness to stop it regressing (vitest here runs pure logic — there is no component
+rendering).
+
+What DID come out of it shipped separately (`5fc4f62`): the markup panel's colour is now
+switchable with Tab/Shift+Tab and the active swatch is ringed. That was worth doing on its
+own merits — a shortcut for a mouse user whose other hand is free — not as an a11y fix.
 
 **M9 (organiser-tier destructive bypass) — reviewed, deliberately left as-is**
 (decision, 2026-08-08). In a guild with no Organiser-named role — and, since M8, none
@@ -123,9 +148,6 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
 * **Rate limiting** on the member-level channel/sheet/disk-creating routes — deferred from
   the web-hardening tranche as larger than the surrounding Lows (needs a limiter and a
   storage decision).
-* **Keyboard reachability** for the pointer-only interactions (colour swatches,
-  click-to-edit cells, sortable headers) — deferred from the frontend tranche as a real
-  a11y pass rather than a Low.
 * **UNIQUE on `tag_group.group_code`** — held back from migration 040. The column default
   is `'0'`, as is `TagGroupData.group_code`, and that is an in-band sentinel for "no code
   yet" which many rows legitimately share (`resolve_group` only treats 6-character codes as
