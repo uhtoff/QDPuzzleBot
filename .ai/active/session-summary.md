@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — fix(frontend): "partially solved" reads as in-flight, not solved @ f3cda90
+Status: ready for handoff — docs: scope the group_code UNIQUE change against the production data @ aa78a4c
 
 ## Goal
 

@@ -52,6 +52,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | DRY: the drifted unsolve embed pair | fixed (`build_unsolved_embed`) | this tranche |
 | Keyboard reachability (pointer-only interactions) | **won't fix** — see the decision below | — |
 | `statusTone` tinted `"partially solved"` green | fixed — reads as in-flight (amber) | this tranche |
+| `backfill_hunt_uids.py` spent | deleted — prod confirmed 83 hunts, 0 missing uids | this tranche |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
 puzzle-keyed conversions moved from `require_admin` to `require_organiser`, matching the
@@ -157,9 +158,6 @@ row. New coverage in `tests/test_store_lazy_connect.py` and
   `'0'` to NULL (NULLs are exempt from UNIQUE): a data + model change touching the column
   default, the dataclass default, and the f-string read sites that would start printing
   "None" instead of "0". `hunts.uid` did not have this problem — it is already NULLable.
-* **`backfill_hunt_uids.py`** — spent once every DB row has a non-null uid, which needs a
-  live DB to confirm. (It is not broken: the `dict_cursor` call this review reported is not
-  in the file.)
 
 The naming items remain evidence-only pending sign-off; `round_id` is the agreed first
 rename when that starts.
