@@ -8,6 +8,7 @@ import {
 import type { MarkKind, MarkStyle, MediaMark } from "../types";
 import { useCreateMark, useDeleteMark, useMarkup } from "../api";
 import { normPoint, polylineHitsCircle } from "../lib/canvasMath";
+import { cycleIndex } from "../lib/cycleIndex";
 import { useWheelZoom } from "../hooks/useZoomPan";
 import { notifyError } from "../util";
 
@@ -56,6 +57,15 @@ function eraserRadiusFor(width: number): number {
 function textSizeFor(width: number): number {
   const t = (width - WIDTH_MIN) / (WIDTH_MAX - WIDTH_MIN);
   return TEXT_MIN + Math.min(1, Math.max(0, t)) * (TEXT_MAX - TEXT_MIN);
+}
+
+/** True when the keystroke belongs to a text field rather than to the canvas —
+ *  otherwise a digit typed into a text mark would swap tools mid-word, and Tab
+ *  would recolour instead of indenting. */
+function isTypingTarget(): boolean {
+  const el = document.activeElement;
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+    || (el instanceof HTMLElement && el.isContentEditable);
 }
 
 function styleFor(tool: Tool, colour: string, width: number): Partial<MarkStyle> {
@@ -386,10 +396,7 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   // to stay the browser's own text undo inside the editor.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = document.activeElement;
-      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-        || (el instanceof HTMLElement && el.isContentEditable);
-      if (typing) return;
+      if (isTypingTarget()) return;
       const digit = Number(e.key);
       if (Number.isInteger(digit) && digit >= 1 && digit <= TOOLS.length
           && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -405,6 +412,34 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo]);
+
+  /* Tab cycles the drawing colour, Shift+Tab goes back.
+   *
+   * Registered in the CAPTURE phase, and its own listener rather than a branch
+   * of the handler above, because of what else wants Tab: this canvas lives in
+   * a Mantine Modal, whose focus trap handles Tab on the way UP. A bubble-phase
+   * listener would preventDefault too late to stop the trap having already
+   * moved focus, so the colour would change AND a focus ring would wander the
+   * toolbar. Capturing first, and stopping propagation, keeps Tab to one job.
+   *
+   * Taking Tab over is affordable here: the modal still closes on Escape, and
+   * marks save as you draw, so Tab was never the way out. Inside a text mark
+   * isTypingTarget() bows out and Tab means what it normally means. */
+  useEffect(() => {
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Functional update: `colour` is deliberately not a dep, so reading it
+      // directly would pin the value captured when the effect last ran.
+      setColour((prev) => COLOURS[
+        cycleIndex(COLOURS.indexOf(prev), e.shiftKey ? -1 : 1, COLOURS.length)
+      ]);
+    };
+    window.addEventListener("keydown", onTab, true);
+    return () => window.removeEventListener("keydown", onTab, true);
+  }, []);
 
   // No aspect ratio is computed and no dimensions are fetched: the <img> is
   // sized by max-width/max-height inside a shrink-wrapping div, so that div IS
@@ -433,13 +468,21 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
         <Button size="xs" variant="default" onClick={() => zoomBy(1 / 1.4)}>−</Button>
         <Button size="xs" variant="default"
                 onClick={() => { zoomRef.current = 1; setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</Button>
-        <Group gap={4}>
-          {COLOURS.map((c) => (
-            <ColorSwatch key={c} color={c} size={18} style={{ cursor: "pointer" }}
-                         onClick={() => setColour(c)}
-                         withShadow={c === colour} />
-          ))}
-        </Group>
+        {/* withShadow alone was too subtle to answer "which colour am I drawing
+            in?" at a glance, which is the question the toolbar exists to answer.
+            The ring is the actual indicator; the shadow just lifts it. */}
+        <Tooltip label="Tab / Shift+Tab to switch colour">
+          <Group gap={4}>
+            {COLOURS.map((c) => (
+              <ColorSwatch key={c} color={c} size={18}
+                           style={{ cursor: "pointer",
+                                    outline: c === colour ? "2px solid var(--mantine-color-text)" : undefined,
+                                    outlineOffset: 2 }}
+                           onClick={() => setColour(c)}
+                           withShadow={c === colour} />
+            ))}
+          </Group>
+        </Tooltip>
         <Slider w={90} min={WIDTH_MIN} max={WIDTH_MAX} step={0.001} value={width_}
                 onChange={setWidth} label={null} />
         {onSave && (

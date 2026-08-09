@@ -353,8 +353,11 @@ The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter
   close it another way.
 
 Keyboard shortcuts pick a tool by its position in the toolbar: **1** pen, **2** line,
-**3** arrow, **4** highlight, **5** text, **6** erase. They are ignored while you are
-typing a text mark, so a "1" mid-word will not swap the tool under you.
+**3** arrow, **4** highlight, **5** text, **6** erase. **Tab** steps through the colours
+(**Shift+Tab** goes back), and the one you are drawing in is ringed in the toolbar — so
+you can change colour without letting go of the mouse. All of these are ignored while you
+are typing a text mark, so a "1" mid-word will not swap the tool under you, and Tab
+indents as usual. Press **Escape** to close the image.
 
 Markup is **shared and live**: two people can annotate the same image at once and each
 sees the other's marks appear. It is also purely visual — a circle round an answer is not

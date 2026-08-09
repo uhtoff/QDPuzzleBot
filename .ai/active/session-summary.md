@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — unsolve embed pair shared @ (this commit); vocabulary tranche @ 0187bdb
+Status: ready for handoff — refactor: share the unsolve embed between the bang and the dashboard @ 9b5a7fb
 
 ## Goal
 
