@@ -7,10 +7,13 @@ def test_typed_group_defaults():
     assert r.status == "active"
 
 
-def test_group_code_is_str():
+def test_group_code_defaults_to_unminted():
+    """Migration 042 made the column UNIQUE, so the "no code yet" value had to
+    stop being the shared '0' sentinel — many rows may be NULL under a UNIQUE
+    index, but only one could ever hold '0'. The creation paths mint before the
+    first commit, so None here means "not minted yet", not "codeless group"."""
     r = TagGroupData()
-    assert isinstance(r.group_code, str)
-    assert r.group_code == "0"
+    assert r.group_code is None
 
 
 def test_import_dict_round_trips_typed_group_fields():

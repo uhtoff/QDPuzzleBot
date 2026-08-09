@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — docs: scope the group_code UNIQUE change against the production data @ aa78a4c
+Status: ready for handoff — chore: delete backfill_hunt_uids.py, confirmed spent @ 29ab424
 
 ## Goal
 

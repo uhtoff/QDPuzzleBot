@@ -1021,10 +1021,14 @@ class PuzzleService:
                 hunt_id=hunt.id,
                 category_id=puzzle.channel_id,
                 type=new_type,
+                # Minted BEFORE the first commit: group_code is UNIQUE since
+                # migration 042, and the row used to be inserted holding the
+                # column default first. generate_uid only SELECTs, so it does
+                # not need the row to exist.
+                group_code=TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name),
             )
             TagGroupJsonDb.commit(tag_group)
             tag_group.target_puzzle_id = puzzle.id
-            tag_group.group_code = TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name)
             TagGroupJsonDb.commit(tag_group)
             puzzle.add_tag(tag_group.id)
             puzzle.is_target = True
@@ -2028,9 +2032,10 @@ class PuzzleService:
             hunt_id=hunt.id,
             category_id=puzzle.channel_id,
             type="Metapuzzle",
+            # Minted before the first commit — see the note at the sibling site.
+            group_code=TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name),
         )
         TagGroupJsonDb.commit(new_round)
-        new_round.group_code = TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name)
         new_round.target_puzzle_id = puzzle.id
         TagGroupJsonDb.commit(new_round)
 
@@ -2871,14 +2876,17 @@ class PuzzleService:
                 name=name, hunt_id=hunt.id,
                 category_id=parent_id,
                 type=round_type,
+                # Minted before the first commit — see the note at the sibling
+                # site. Both branches below needed a code anyway; hoisting it
+                # into the constructor means the row is never inserted without
+                # one, which is what the UNIQUE index of 042 requires.
+                group_code=TagGroupJsonDb.generate_uid('group_code', 6, name),
             )
             # Initial commit so the row has an id (rollback safety).
             TagGroupJsonDb.commit(new_round)
 
             if is_group:
                 # Group: no meta puzzle — but post a welcome.
-                new_round.group_code = TagGroupJsonDb.generate_uid('group_code', 6, name)
-                TagGroupJsonDb.commit(new_round)
                 if notifier is not None:
                     await notifier.welcome(
                         guild, hunt, tag_group=new_round,
@@ -2887,8 +2895,8 @@ class PuzzleService:
                 return new_round, None
 
             # Create the meta puzzle for this round (skip for Metaless variants).
-            # Set group_code before create_puzzle so the welcome fires with a real code.
-            new_round.group_code = TagGroupJsonDb.generate_uid('group_code', 6, name)
+            # group_code is already set (minted at construction), so the welcome
+            # still fires with a real code.
             if create_meta:
                 puzzle = await self.create_puzzle(
                     guild, hunt, new_round, mp_name, is_meta=True, notifier=notifier,

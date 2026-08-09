@@ -37,7 +37,13 @@ class TagGroupData:
     # non-category kinds. (Nullable in DB for channel-less groups; M7.)
     category_id: int = 0
     target_puzzle_id: int = 0
-    group_code: str = "0"  # 6-char handle (the DB column is CHAR(6))
+    # 6-char handle people type to address the group (DB column is CHAR(6),
+    # UNIQUE since migration 042). None means "not minted yet": the creation
+    # paths set it before the row's first commit, so a None reaching the DB is a
+    # path that forgot. NULL is deliberately the column default rather than the
+    # old '0' sentinel — many rows may be NULL under a UNIQUE index, where many
+    # rows sharing '0' could not.
+    group_code: Optional[str] = None
     type: str = ""
     status: str = "active"       # active / solved / archived (a tag_group is solved when its target is)
     start_time: Optional[datetime.datetime] = None

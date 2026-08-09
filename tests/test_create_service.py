@@ -316,23 +316,25 @@ async def test_create_round_rolls_back_on_failure():
     notifier = MagicMock()
     notifier.welcome = AsyncMock()
 
-    meta_puzzle = make_puzzle(id=77, name="New Round", is_target=True, channel_id=222)
     cleanup_mock = AsyncMock()
 
     with patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
          patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.get_or_create_channel",
                AsyncMock(return_value=(MagicMock(id=333), True))), \
-         patch.object(svc, "create_puzzle", AsyncMock(return_value=meta_puzzle)), \
+         patch.object(svc, "create_puzzle", AsyncMock(side_effect=RuntimeError("late failure"))), \
          patch.object(svc, "_cleanup_orphan_puzzle", cleanup_mock):
         rdb.check_duplicates_in_hunt.return_value = False
         pdb.check_duplicates_in_hunt.return_value = False
         rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
-        rdb.generate_uid.side_effect = RuntimeError("late failure")  # fails BEFORE create_puzzle (new order)
+        # The failure is injected at create_puzzle, not generate_uid. Minting
+        # moved into the TagGroupData constructor with migration 042, so a
+        # generate_uid failure now happens BEFORE the row is committed — there
+        # would be no row to roll back, which is not what this test is about.
         with pytest.raises(RuntimeError):
             await svc.create_tag_group(guild, _svc_hunt(), "New Round", notifier=notifier)
 
-    # generate_uid fails before create_puzzle is reached → puzzle=None.
+    # Row was committed, then create_puzzle failed → puzzle=None.
     # Round row deleted, no orphan to clean, cloned category removed.
     rdb.delete.assert_called_once_with(5)
     cleanup_mock.assert_not_awaited()

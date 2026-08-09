@@ -103,15 +103,33 @@ async def test_web_create_tag_group_cleans_up_meta_puzzle_on_late_failure():
          patch.object(cog.service, "_cleanup_orphan_puzzle", cleanup_mock):
         rdb.check_duplicates_in_hunt.return_value = False
         pdb.check_duplicates_in_hunt.return_value = False
-        rdb.commit.side_effect = lambda r: setattr(r, "id", 5)
-        rdb.generate_uid.side_effect = RuntimeError("late failure")  # now fails BEFORE create_puzzle (reordered)
+
+        # Fail on the SECOND commit, i.e. after create_puzzle has returned a
+        # real meta puzzle. That is the only ordering that exercises what this
+        # test is named for: an orphan puzzle existing at rollback time.
+        #
+        # It used to inject at generate_uid, which drifted twice — first when
+        # minting moved ahead of create_puzzle, then again when migration 042
+        # moved it ahead of the first commit. By then the failure landed before
+        # any puzzle existed, so the test asserted cleanup was NOT called, which
+        # is the opposite of its name.
+        commits = []
+        def _commit(r):
+            commits.append(r)
+            if len(commits) == 1:
+                r.id = 5
+                return
+            raise RuntimeError("late failure")
+        rdb.commit.side_effect = _commit
+
         with pytest.raises(RuntimeError):
             await cog.service.create_tag_group(guild, hunt, "New Round")
 
-    # generate_uid now runs before create_puzzle → puzzle=None.
-    # Service rollback deletes round row; no orphan to clean.
+    # Round row committed, meta puzzle created, then the write failed →
+    # rollback deletes the row AND cleans up the now-orphaned meta puzzle.
     rdb.delete.assert_called_once_with(5)
-    cleanup_mock.assert_not_awaited()
+    cleanup_mock.assert_awaited_once()
+    assert cleanup_mock.await_args.args[1] is created_puzzle
 
 
 # NOTE: the former test_bang_create_puzzle_cleans_up_on_channel_failure was removed in

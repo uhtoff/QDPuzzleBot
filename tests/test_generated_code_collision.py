@@ -102,16 +102,18 @@ def test_an_unrelated_integrity_error_is_not_retried():
     assert hunt.uid == "AB12CD"
 
 
-def test_the_index_names_migration_040_creates_are_the_ones_the_retry_matches():
+def test_the_index_names_the_migrations_create_are_the_ones_the_retry_matches():
     """The retry identifies the column from the index name in the error text, so
-    the two must agree. Reads the migration rather than restating the names, so
-    renaming an index there without updating the DAO fails here."""
+    the two must agree. Reads the migrations rather than restating the names, so
+    renaming an index there without updating the DAO fails here.
+
+    The two indexes ship in different migrations: hunts.uid in 040, and
+    tag_group.group_code in 042, which had to re-code 41 rows and move the
+    column default off the shared '0' sentinel before the index could exist.
+    """
     from pathlib import Path
-    sql = Path("migrations/040_unique_generated_codes.sql").read_text()
-    # 040 indexes hunts.uid only -- tag_group.group_code is held back until its
-    # "no code yet" sentinel moves from '0' to NULL (see the migration header).
-    assert "`uq_hunts_uid`" in sql
-    assert "uq_tag_group_group_code" not in sql
+    assert "`uq_hunts_uid`" in Path("migrations/040_unique_generated_codes.sql").read_text()
+    assert "`uq_tag_group_group_code`" in Path("migrations/042_unique_group_code.sql").read_text()
 
     for cls in (MySQLHuntJsonDb, MySQLTagGroupJsonDb):
         for field in cls.GENERATED_UNIQUE_FIELDS:
