@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-08
-Status: ready for handoff — docs: close keyboard a11y as won't fix, with the reasoning @ ad70d6d
+Status: ready for handoff — fix(frontend): "partially solved" reads as in-flight, not solved @ f3cda90
 
 ## Goal
 
