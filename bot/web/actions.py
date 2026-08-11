@@ -356,6 +356,10 @@ async def remove_sheet(puzzle_id, sheet_id):
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
     async with puzzle_lock(puzzle_id):
@@ -435,6 +439,10 @@ async def remove_hunt_sheet(uid, sheet_id):
     assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
+
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
 
     from bot.store import HuntJsonDb
 
@@ -640,10 +648,8 @@ async def make_minimeta_puzzle(puzzle_id):
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
 
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm is not None:
-        return perm
-
+    # Ungated: building a minimeta cluster is a Create-area operation, open on
+    # the bang edge (!make_minimeta). Removing one stays organiser.
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
     async with puzzle_lock(puzzle_id):
@@ -1162,10 +1168,10 @@ async def retag_puzzle(puzzle_id):
     assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
+    # Ungated: tagging is a Tag-area operation, open on the bang edge
+    # (!feeds / !informs / !remove_from) so a solver can tidy a meta's
+    # membership without an organiser around. Reaching here already means
+    # a logged-in guild member who passes hunt_visible.
     body = await request.get_json(silent=True) or {}
     group_code = (body.get("group_code") or "").strip()
     mode = body.get("mode") or "move"
@@ -2132,6 +2138,14 @@ async def create_meta(uid):
     assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
+
+    # Creating a tag group is an organiser action, matching !round and the rest
+    # of the group lifecycle (rename/delete/retype). Creating a PUZZLE stays open
+    # -- see POST /hunts/<uid>/puzzles, deliberately ungated.
+    perm = await require_organiser(ctx["guild_snowflake"])
+    if perm is not None:
+        return perm
+
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
@@ -2196,10 +2210,8 @@ async def create_mini(puzzle_id):
     assert ctx is not None
     if ctx["hunt"]["archived"]:
         return jsonify({"error": "hunt_archived"}), 403
-    perm = await require_organiser(ctx["guild_snowflake"])
-    if perm:
-        return perm
-
+    # Ungated: adding a mini is a Create-area operation, open on the bang edge
+    # (!add_mini). Deleting one stays organiser.
     body = await request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:

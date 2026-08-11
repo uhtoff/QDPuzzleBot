@@ -19,8 +19,6 @@ disagree, **the code is the source of truth** — fix both.
   - While a tier is matched by name, anyone who can create a Discord role can grant
     themselves that tier — `!show_auth_roles` says which state you are in.
   - Commands with no role note are open to everyone.
-  - **†** marks commands that *also* require the Discord **Manage Channels** permission on
-    top of the tier shown — the role gate and the Discord permission both have to pass.
 - **`meta_code`** is a TagGroup's 6-character group code (shown on the group's pinned
   info; slash commands autocomplete it). On the bang path you may also pass the group's
   **name** (or a unique part of it) — the resolver matches the code, then the name, scoped
@@ -36,20 +34,21 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 
 | Tier | Area | Commands |
 |---|---|---|
-| **Anyone** | Create | `!puzzle` (`!p`) · `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) · `!make_minimeta` · `!add_mini` · `!add_sheet` |
+| **Anyone** | Create | `!puzzle` (`!p`) · `!make_minimeta` · `!add_mini` · `!add_sheet` |
 | | Solve | `!solve` (`!s`) · `!unsolve` (`!u`) · `!mark_as_complete` · `!add_solution` · `!change_solution` · `!partial` (`!ps`) · `!solve_mini` · `!unsolve_mini` |
 | | Tag | `!feeds` · `!feeds_only` · `!informs` · `!informs_only` · `!groups_with` · `!groups_only_with` · `!remove_from` |
-| | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` · `!remove_sheet` |
+| | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` |
 | | Read | `!info` · `!list_puzzles` (`!list`) · `!list_minis` · `!list_additional_sheets` · `!canvas` · `!info_bot` · `!invite` · `!starttime` · `!uptime` |
-| **Organisers/admins** | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` |
+| **Organisers/admins** | Create groups | `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) |
+| | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` · `!remove_sheet` |
 | | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
-| | Category layout | `!extract_target_to_category` † · `!consolidate_to` † · `!backfill_glyphs` † · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
+| | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
 | **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` |
-| | Settings | `!set_login` · `!set_start` · `!update_settings` † · `!show_settings` † · `!show_puzzle_settings` † |
+| | Settings | `!set_login` · `!set_start` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
 | | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
 | | Archive | `!archive_hunt` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
-| | Other | `!absorb_category` · `!debug_puzzle_channel` |
+| | Other | `!debug_puzzle_channel` |
 
 Two things the table can't show:
 
@@ -57,9 +56,8 @@ Two things the table can't show:
   the Organiser tier, `organiser_gate_active()` is false and every organiser check passes for
   every member — a deliberate convenience for small single-team guilds. The Admin tier is
   never bypassed.
-- **The dashboard doesn't agree everywhere.** Tagging (`POST /puzzles/<id>/meta`) and
-  minimeta creation are organiser-gated on the web while the commands above are open to
-  anyone. Being levelled — see `.ai/active/current-spec.md`.
+- **The dashboard agrees with this table.** Every operation available on both surfaces
+  carries the same tier on each; where only one surface has it, its row says so.
 
 ## Hunt management
 
@@ -76,15 +74,15 @@ Two things the table can't show:
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!round` | `!r` | `name` | Hunt channel | anyone | Create a round (also makes a `name - meta` meta puzzle). |
-| `!metapuzzle` | `!mp` | `name` | Hunt channel | anyone | Create a metapuzzle. |
-| `!capstone` | `!cs` | `name` | Hunt channel | anyone | Create a capstone. |
-| `!runaround` | `!ra` | `name` | Hunt channel | anyone | Create a runaround. |
-| `!group` | | `name` | Hunt channel | anyone | Create a group (no meta puzzle). |
+| `!round` | `!r` | `name` | Hunt channel | organisers/admins | Create a round (also makes a `name - meta` meta puzzle). |
+| `!metapuzzle` | `!mp` | `name` | Hunt channel | organisers/admins | Create a metapuzzle. |
+| `!capstone` | `!cs` | `name` | Hunt channel | organisers/admins | Create a capstone. |
+| `!runaround` | `!ra` | `name` | Hunt channel | organisers/admins | Create a runaround. |
+| `!group` | | `name` | Hunt channel | organisers/admins | Create a group (no meta puzzle). |
 | `!rename_group` *(slash)* | `!rename_round`, `!rename_metapuzzle` | `new name` | group's target-puzzle or regular group channel | organisers/admins | Rename the group and its Discord category/channel. Does not rename the target puzzle. |
 | `!delete_round` | `!delete_metapuzzle`, `!delete_group` | — | group's main channel | organisers/admins | Delete a round/group, its puzzles, channels and sheets (confirms). |
-| `!extract_target_to_category` | | — | meta's target-puzzle channel | organisers/admins † | Give this meta its own Discord category, moving its target puzzle and the puzzles that feed **only** it into a fresh category. Shared feeders and nested metas stay put. Useful when a meta promoted in place has outgrown the category it was sharing. Bang-only, by design. |
-| `!consolidate_to` | | `destination-code` | meta's target-puzzle channel | organisers/admins † | Fold this meta back into `<destination>`'s category and delete this meta's own category (frees a category slot). Confirms first if the destination would overflow. Inverse of `!extract_target_to_category`. |
+| `!extract_target_to_category` | | — | meta's target-puzzle channel | organisers/admins | Give this meta its own Discord category, moving its target puzzle and the puzzles that feed **only** it into a fresh category. Shared feeders and nested metas stay put. Useful when a meta promoted in place has outgrown the category it was sharing. Bang-only, by design. |
+| `!consolidate_to` | | `destination-code` | meta's target-puzzle channel | organisers/admins | Fold this meta back into `<destination>`'s category and delete this meta's own category (frees a category slot). Confirms first if the destination would overflow. Inverse of `!extract_target_to_category`. |
 
 > **Automatic category relief:** when adding a puzzle would fill a category past its limit,
 > the bot automatically gives a promoted-in-place meta its own category (rather than failing
@@ -178,7 +176,7 @@ which puzzle it belongs to.
 |---|---|---|---|
 | `!add_sheet` | | `sheet-name` | Add an extra working sheet. In a puzzle channel it belongs to that puzzle (which must be unsolved); anywhere else in the hunt it belongs to the hunt. |
 | `!list_sheets` | `!list_additional_sheets` | — | List the puzzle's sheets, or the hunt's own, with links and numbers. |
-| `!remove_sheet` | `!delete_sheet` | `number` | Remove a sheet by its number, from this puzzle or from the hunt. |
+| `!remove_sheet` | `!delete_sheet` | `number` | Remove a sheet by its number, from this puzzle or from the hunt. **Organisers/admins only** — it deletes the Google tab. |
 
 ## Canvas
 
@@ -239,20 +237,20 @@ until it finishes.
 |---|---|---|---|---|---|
 | `!rebuild` *(slash)* | | — | round/meta or hunt | organisers/admins | Rebuild meta roll-up sheets (targeted in a round, else hunt-wide). |
 | `!rebuild_unassigned` *(slash)* | | `[show_round]` | hunt channel | organisers/admins | Reconcile the "Unassigned Feeders" sheet tab. |
-| `!backfill_glyphs` | | — | any hunt channel | organisers/admins † | Prefix every target channel with its emoji glyph (🧩 meta, 🧩🧩 metameta, 👑 capstone, 🏃 runaround). Idempotent one-off; newly created or converted targets get their glyph automatically. |
-| `!absorb_category` | | — | a puzzle channel of the category to absorb | admins/mods | Move every puzzle channel in this hand-made category into the hunt's general layout (auto-overflow), then delete the emptied category. Cleanup for categories split by hand before the overflow engine existed. |
+| `!backfill_glyphs` | | — | any hunt channel | organisers/admins | Prefix every target channel with its emoji glyph (🧩 meta, 🧩🧩 metameta, 👑 capstone, 🏃 runaround). Idempotent one-off; newly created or converted targets get their glyph automatically. |
+| `!absorb_category` | | — | a puzzle channel of the category to absorb | organisers/admins | Move every puzzle channel in this hand-made category into the hunt's general layout (auto-overflow), then delete the emptied category. Cleanup for categories split by hand before the overflow engine existed. |
 | `!reconcile` *(slash)* | | `[apply [orphans]]` | hunt channel | organisers/admins | Heal Discord + Sheets to match the DB; `apply` fixes, `apply orphans` deletes orphans (confirms). |
 | `!media_stats` *(slash)* | | — | hunt channel | organisers/admins | Report images nothing references any more (detached, replaced, or left by a deleted canvas) and the disk they hold. Nothing is deleted. |
 | `!media_sweep` *(slash)* | | — | hunt channel | organisers/admins | Delete those orphaned images and their files (confirms first). Only images older than 24 hours and referenced by nothing are touched. |
 | `!start_reminders` *(slash)* | | — | hunt channel | organisers/admins | Start the periodic reminder/tips loop. |
 | `!stop_reminders` *(slash)* | | — | any | organisers/admins | Stop the reminder loop. |
 | `!list_tags` *(slash)* | | — | puzzle channel | organisers/admins | List a puzzle's tag IDs and all available group tags. |
-| `!show_settings` *(slash)* | | — | any | admins/mods † | Dump this channel's object settings as JSON. Guild-level values are also editable on the web: **Server settings**. |
+| `!show_settings` *(slash)* | | — | any | admins/mods | Dump this channel's object settings as JSON. Guild-level values are also editable on the web: **Server settings**. |
 | `!show_auth_roles` *(slash)* | | — | any | admins/mods | Report which roles grant the admin and organiser tiers, and whether each is pinned by role id or still matched by name. Web: **Server settings**. |
 | `!set_admin_roles` | | `[@Role ...]` | any | admins/mods | Pin the admin tier to specific roles, by id. No roles clears the list and reverts to name matching. Refuses if you hold none of the roles given (it would lock you out of this command). Web: **Server settings**. |
 | `!set_organiser_roles` | | `[@Role ...]` | any | admins/mods | Pin the organiser tier to specific roles, by id. No roles clears the list and reverts to name matching. Web: **Server settings**. |
-| `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods † | Dump the puzzle's fields/values. |
-| `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods † | Set one setting field (quote values with spaces). |
+| `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods | Dump the puzzle's fields/values. |
+| `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). |
 | `!debug_puzzle_channel` | | — | puzzle channel | admins/mods | Dump the puzzle's full record as JSON. |
 
 ## Utility (bot)

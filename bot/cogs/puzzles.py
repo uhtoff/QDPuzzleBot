@@ -1005,7 +1005,6 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(
         description="Add/refresh emoji glyphs on every target channel in this hunt")
     @is_organiser()
-    @commands.has_permissions(manage_channels=True)
     async def backfill_glyphs(self, ctx):
         """*One-off: prefix every meta/capstone/runaround channel with its glyph.*
 
@@ -1390,6 +1389,7 @@ class Puzzles(commands.Cog):
         return await ctx.send(f":white_check_mark: Added sheet {name} to puzzle.")
 
     @commands.command(aliases=['delete_sheet'])
+    @is_organiser()
     @with_puzzle_mutex(wait=True)
     @with_hunt_sheet_mutex()
     async def remove_sheet(self, ctx, number: int):
@@ -1399,7 +1399,9 @@ class Puzzles(commands.Cog):
         Example: `!remove_sheet 2`
         Get the number from `!list_sheets`. Run in a puzzle channel to remove one
         of that puzzle's sheets, or anywhere else in the hunt to remove one of the
-        hunt's own. Alias: `!delete_sheet`."""
+        hunt's own. Organisers/admins only — it deletes the Google tab, so it is
+        gated like the other deletes; `!add_sheet` stays open. Alias:
+        `!delete_sheet`."""
         puzzle = self.get_puzzle(ctx)
         hunt = self.get_hunt(ctx)
 
@@ -2153,6 +2155,7 @@ class Puzzles(commands.Cog):
 
     @commands.command(aliases=["r","mp","metapuzzle",
                                "capstone", "cs", "runaround", "ra", "group"])
+    @is_organiser()
     async def round(self, ctx, *, arg):
         """*Create a new round/group category; the alias you use picks the type.*
 
@@ -2163,7 +2166,9 @@ class Puzzles(commands.Cog):
         • `!mp` / `!metapuzzle name` — a metapuzzle
         • `!cs` / `!capstone name` — a capstone
         • `!ra` / `!runaround name` — a runaround
-        • `!group name` — a group (no meta puzzle)"""
+        • `!group name` — a group (no meta puzzle)
+        Organisers/admins only — creating a group is gated like renaming, deleting
+        and converting one. Adding a puzzle (`!p`) stays open to everyone."""
 
         if self.get_channel_type(ctx) != "Hunt":
             await ctx.channel.send(":x: This command must be done from the main Hunt channel")
@@ -2325,7 +2330,6 @@ class Puzzles(commands.Cog):
     @commands.hybrid_command(
         description="Give this meta its own category (moves its target + exclusive feeders)")
     @is_organiser()
-    @commands.has_permissions(manage_channels=True)
     async def extract_target_to_category(self, ctx):
         """*Move this meta's target puzzle and its exclusive feeders into their own category.*
 
@@ -2363,7 +2367,6 @@ class Puzzles(commands.Cog):
         description="Fold this meta back into another category (frees a category slot)")
     @app_commands.autocomplete(destination=group_code_autocomplete)
     @is_organiser()
-    @commands.has_permissions(manage_channels=True)
     async def consolidate_to(self, ctx, destination: str):
         """*Fold this meta into <destination>'s category, freeing this meta's category.*
 
@@ -2542,26 +2545,24 @@ class Puzzles(commands.Cog):
 
     @commands.hybrid_command(description="Show channel settings (admin only)",)
     @is_admin()
-    @commands.has_permissions(manage_channels=True)
     async def show_settings(self, ctx):
         """*Dump the raw settings for this channel's object (puzzle/round/hunt/guild) as JSON.*
 
         Usage: `!show_settings`
         Example: `!show_settings`
-        For debugging. Admins/mods only (needs Manage Channels)."""
+        For debugging. Admins/mods only."""
         settings = self.get_settings(ctx)
         assert settings is not None  # every channel type resolves a settings object
         await ctx.send(f"```json\n{settings.to_json(indent=2)}```")
 
     @commands.hybrid_command(description="Show puzzle settings (admin only)",)
     @is_admin()
-    @commands.has_permissions(manage_channels=True)
     async def show_puzzle_settings(self, ctx):
         """*Dump this puzzle's stored fields and values for debugging.*
 
         Usage: `!show_puzzle_settings`
         Example: `!show_puzzle_settings`
-        Run in a puzzle channel. Admins/mods only (needs Manage Channels)."""
+        Run in a puzzle channel. Admins/mods only."""
         if self.get_puzzle(ctx):
             settings = []
             for attr, value in self.get_puzzle(ctx).__dict__.items():
@@ -2631,7 +2632,6 @@ class Puzzles(commands.Cog):
 
     @commands.command(aliases=["update_setting","update_puzzle_setting","update_puzzle_settings"])
     @is_admin()
-    @commands.has_permissions(manage_channels=True)
     async def update_settings(self, ctx, setting_key: str, setting_value: str):
         """*Set a single setting field on this channel's object (puzzle/round/hunt/guild).*
 
@@ -2639,7 +2639,7 @@ class Puzzles(commands.Cog):
         Example: `!update_settings discord_bot_emoji ":dog:"`
         Quote a value containing spaces. Inspect available keys with `!show_settings`.
         Use the `!update_puzzle_settings` alias to target the puzzle in this channel.
-        Admins/mods only (needs Manage Channels)."""
+        Admins/mods only."""
         command = ctx.invoked_with
         if command not in ("update_puzzle_setting", "update_puzzle_settings"):
             settings = self.get_settings(ctx)
@@ -3663,7 +3663,7 @@ class Puzzles(commands.Cog):
             await ctx.send(":white_check_mark: Sheets all restored.")
 
     @commands.command()
-    @is_admin()
+    @is_organiser()
     async def absorb_category(self, ctx):
         """*Move every puzzle channel in this hand-made category into the hunt's general layout (auto-overflow), then delete the emptied category.*
 
@@ -3674,7 +3674,7 @@ class Puzzles(commands.Cog):
         solved puzzles land on the general solved side, and general splits or
         allocates overflow categories as needed. Refuses categories the bot
         already manages. Channels that aren't this hunt's puzzles stay put
-        (and keep the category alive). Admins/mods only.
+        (and keep the category alive). Organisers/admins only.
         Bang-only: no web-dashboard equivalent, by design."""
         hunt = self.get_hunt(ctx)
         if hunt is None:

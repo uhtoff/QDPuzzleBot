@@ -4,9 +4,10 @@
 
 Bring command/route permission tiers into line after the 2026-08-11 gating audit.
 
-**Collecting decisions now; applying them in one batch later.** No code changes yet — this
-file is the record. Each decision below lists the exact edit sites so the batch is
-mechanical.
+**APPLIED 2026-08-11.** All six decisions are in the tree; the edit-site lists below are
+kept as the record of what moved and why. Guarded by `tests/test_command_gating.py` (probes
+each command's tier through its real checks) and `tests/test_web_route_gating.py` (asserts
+the whole route→tier map, resolved through delegation). Full suite 1894 passed.
 
 ## Background
 

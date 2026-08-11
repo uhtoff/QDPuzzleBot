@@ -32,6 +32,10 @@ def web():
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(ctx, None))),
         patch("bot.web.actions._audit", audit),
+        # Removing a sheet is organiser-gated (2026-08-11) -- adding one is not.
+        # Allowed here so the behavioural assertions below still exercise the
+        # route body; the gate itself is covered by its own test.
+        patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
         patch("bot.store.HuntJsonDb", hdb),
     ]
     start_patches(patches)
@@ -100,6 +104,28 @@ class TestAddHuntSheetRoute:
 
 @pytest.mark.asyncio
 class TestRemoveHuntSheetRoute:
+    async def test_refuses_a_non_organiser(self):
+        """Deleting a working sheet drops the Google tab, so it is gated like the
+        other deletes. Adding one stays open -- see TestAddHuntSheetRoute, which
+        shares this module's fixture and never consults the gate."""
+        cog = MagicMock()
+        cog.service.remove_hunt_sheet = AsyncMock()
+        app = make_web_app("actions", cog=cog)
+        patches = [
+            patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+            patch("bot.web.actions._visible_hunt_by_uid",
+                  AsyncMock(return_value=(make_hunt_ctx(), None))),
+            patch("bot.web.actions.require_organiser",
+                  AsyncMock(return_value=({"error": "insufficient_role"}, 403))),
+        ]
+        start_patches(patches)
+        try:
+            res = await app.test_client().delete("/api/hunts/U1/sheets/4")
+        finally:
+            stop_patches(patches)
+        assert res.status_code == 403
+        cog.service.remove_hunt_sheet.assert_not_awaited()
+
     async def test_removes_the_sheet(self, web):
         res = await web.client.delete("/api/hunts/U1/sheets/4")
         assert res.status_code == 200

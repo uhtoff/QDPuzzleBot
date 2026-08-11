@@ -13,6 +13,10 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
   const [puzzleOpen, puzzle] = useDisclosure(false);
   const [metaOpen, meta] = useDisclosure(false);
 
+  // Creating a group is organiser-only (POST /hunts/<uid>/metas returns 403
+  // otherwise), so don't offer the control. Creating a puzzle stays open.
+  const canManage = detail.hunt.can_manage;
+
   const metaOptions = useMemo(
     () => [
       ...detail.board
@@ -78,9 +82,11 @@ export function CreateControls({ detail, uid }: { detail: HuntDetail; uid: strin
         <Button size="xs" variant="light" leftSection={<IconPlus size={14} />} onClick={puzzle.open}>
           New puzzle
         </Button>
-        <Button size="xs" variant="light" color="grape" leftSection={<IconPlus size={14} />} onClick={meta.open}>
-          New Group
-        </Button>
+        {canManage && (
+          <Button size="xs" variant="light" color="grape" leftSection={<IconPlus size={14} />} onClick={meta.open}>
+            New Group
+          </Button>
+        )}
       </Group>
 
       <Modal opened={puzzleOpen} onClose={puzzle.close} title="New puzzle" centered

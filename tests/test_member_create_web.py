@@ -1,6 +1,13 @@
-"""Member-accessible create endpoints — any guild member can create puzzles/groups.
+"""The create endpoints and their gates.
 
-These tests verify the organiser gate is NOT present on create_puzzle and create_meta.
+Any guild member can create a PUZZLE: the organiser gate is deliberately absent
+from create_puzzle, and these tests hold that open.
+
+Creating a GROUP was levelled to organiser on 2026-08-11 — creating a tag group
+is gated like renaming, deleting and retyping one, and matches !round on the bang
+edge. test_member_can_create_group inverted accordingly; its sibling puzzle test
+is untouched, which is what proves the two did not move together.
+
 Pattern mirrors tests/test_edge_web.py: minimal Quart app, patched auth helpers.
 """
 from types import SimpleNamespace
@@ -71,12 +78,17 @@ async def test_member_can_create_puzzle(web):
 
 
 @pytest.mark.asyncio
-async def test_member_can_create_group(web):
-    """Any member (no organiser role) can POST /api/hunts/<uid>/metas."""
-    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "My Round"})
-    assert resp.status_code == 200
-    data = await resp.get_json()
-    assert data["ok"] is True
+async def test_member_cannot_create_group(web):
+    """A member with no organiser role is refused POST /api/hunts/<uid>/metas.
+
+    Was test_member_can_create_group, asserting 200. Inverted deliberately: the
+    contract changed, not the test's grip on it — it still fails if the gate is
+    dropped, and it now also asserts nothing was created behind the refusal."""
+    with patch("bot.web.actions.require_organiser",
+               AsyncMock(return_value=({"error": "insufficient_role"}, 403))):
+        resp = await web.client.post("/api/hunts/U1/metas", json={"name": "My Round"})
+    assert resp.status_code == 403
+    web.svc.create_tag_group.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -118,7 +130,12 @@ async def test_create_puzzle_null_guild_snowflake_degrades_gracefully(web):
 async def test_create_meta_null_guild_snowflake_degrades_gracefully(web):
     """Same fix as create_puzzle, for its sibling create_meta (#82)."""
     null_ctx = {"hunt": {"id": 10, "uid": "U1", "archived": False}, "guild_snowflake": None}
-    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(null_ctx, None))):
+    # The organiser gate now sits in front of this route and denies a NULL
+    # snowflake outright (user_can_manage returns False without one), which would
+    # mask the #82 degradation this test exists to guard. Allow the gate so the
+    # assertion below still lands on the guild=None handling, unchanged.
+    with patch("bot.web.actions._visible_hunt_by_uid", AsyncMock(return_value=(null_ctx, None))), \
+         patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)):
         resp = await web.client.post("/api/hunts/U1/metas", json={"name": "My Round"})
     assert resp.status_code == 200
     assert web.svc.create_tag_group.call_args[0][0] is None  # guild positional arg
