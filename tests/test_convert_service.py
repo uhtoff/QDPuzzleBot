@@ -70,6 +70,7 @@ async def _run_convert(cog, puzzle, new_type, existing_group=None, summary="flip
     cog.service.bulk_re_edge = AsyncMock(return_value=summary)
     cog.service.notifier = MagicMock()
     cog.service.notifier.board_changed = AsyncMock()
+    cog.service.notifier.refresh_info = AsyncMock()
     hunt = make_hunt()
 
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
@@ -98,6 +99,7 @@ class TestConvertToType:
             cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
             cog.service.notifier = MagicMock()
             cog.service.notifier.board_changed = AsyncMock()
+            cog.service.notifier.refresh_info = AsyncMock()
             mpdb.commit.side_effect = lambda p: None
             mrdb.commit.side_effect = lambda r: None
             mrdb.get_by_attr.return_value = None  # bare puzzle: no existing group
@@ -194,6 +196,7 @@ class TestConvertToType:
         cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
              patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
              patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
@@ -216,6 +219,7 @@ class TestConvertToMeta:
         puz = make_puzzle(id=7)
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         cog.service._update_forum_tags = AsyncMock()
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
              patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
@@ -254,6 +258,7 @@ class TestConvertToGroupTeardown:
         cog.service.bulk_re_edge = AsyncMock(return_value="flipped 2 feeds → none")
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         cog.service.notifier.refresh_group_info = AsyncMock()
         cog.service.safe_rename = AsyncMock(return_value=True)
         if gsheet is not None:
@@ -299,6 +304,7 @@ class TestConvertToGroupTeardown:
         cog.service.set_source_mode = AsyncMock()
         cog.service.bulk_re_edge = AsyncMock(return_value="x")
         cog.service.notifier = MagicMock(); cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
              patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
              patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
@@ -371,6 +377,7 @@ class TestConvertTagGroupType:
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
         cog.service.notifier.refresh_info = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         guild = MagicMock()
         with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
              patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
@@ -405,6 +412,7 @@ class TestConvertTagGroupType:
         cog.service.safe_rename = AsyncMock(return_value=True)
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         cog.service.notifier.refresh_info = AsyncMock()
         guild = MagicMock()
         chat = MagicMock(); chat.id = 321; chat.name = "bag"; chat.mention = "<#321>"
@@ -628,6 +636,7 @@ class TestConvertSurvivesEdgeFlipSheetFailure:
         cog.service.set_source_mode = AsyncMock()
         cog.service.notifier = MagicMock()
         cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
         cog.service.notifier.refresh_group_info = AsyncMock()
         cog.service.safe_rename = AsyncMock(return_value=True)
         hunt = make_hunt()
@@ -662,3 +671,202 @@ class TestConvertSurvivesEdgeFlipSheetFailure:
         assert _mode_passed(cog.service.set_source_mode) == \
             __import__("bot.core.puzzle_service", fromlist=["TYPE_DEFAULTS"]) \
             .TYPE_DEFAULTS["Group"]["default_source_mode"]
+
+
+class TestConvertRefreshesPinAndHostGlyphs:
+    """A conversion changes what the channel IS, so its pinned welcome must be
+    re-rendered for the new kind — and it changes whether the puzzle's HOST groups
+    are metametas, so their target channels' glyphs go stale too.
+
+    The bang edge re-renders its own pin via `self.info(ctx, update=True)`, but the
+    web convert routes have no equivalent; putting it in the service covers both.
+    Nothing at all refreshed a host's glyph before this."""
+
+    @pytest.fixture
+    def cog(self):
+        return _make_cog_convert()
+
+    def _prepare(self, cog):
+        cog.service.set_source_mode = AsyncMock()
+        cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
+        cog.service.notifier = MagicMock()
+        cog.service.notifier.board_changed = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
+        cog.service.notifier.refresh_group_info = AsyncMock()
+        cog.service.notifier.refresh_info = AsyncMock()
+        # Spy on the glyph refresh: the wiring under test is WHICH puzzles get
+        # re-glyphed, not the rename itself (covered by tests/test_glyph_service.py).
+        cog.service._refresh_channel_glyph = AsyncMock()
+
+    @staticmethod
+    def _dbs(host_group, host_target, own_group=None):
+        """TagGroupJsonDb/PuzzleJsonDb stubs discriminating by lookup keyword:
+        target_puzzle_id -> the puzzle's own group (None = bare, promote in place),
+        id -> the host group / the host's target puzzle."""
+        def tag_group_by_attr(**kw):
+            if "target_puzzle_id" in kw:
+                return own_group
+            if kw.get("id") == host_group.id:
+                return host_group
+            return None
+
+        def puzzle_by_attr(**kw):
+            if kw.get("id") == host_target.id:
+                return host_target
+            return None
+
+        return tag_group_by_attr, puzzle_by_attr
+
+    async def _promote(self, cog, *, host_type="Metapuzzle"):
+        """Promote a bare puzzle that is a member of one host group."""
+        puz = make_puzzle(id=7, channel_id=555, tags=[10])
+        host = make_round(id=10, name="Round One", target_puzzle_id=99, category_id=888)
+        host.type = host_type
+        host_target = make_puzzle(id=99, name="Round One - meta", channel_id=777,
+                                  is_target=True, tags=[10])
+        self._prepare(cog)
+        hunt = make_hunt()
+        guild = MagicMock()
+        tg_by_attr, pz_by_attr = self._dbs(host, host_target)
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mpdb.get_by_attr.side_effect = pz_by_attr
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.side_effect = tg_by_attr
+            mrdb.generate_uid.return_value = "GCODE1"
+            mhdb.get_by_attr.return_value = hunt
+            tag_group, _summary = await cog.service.convert_to_type(
+                guild, hunt, puz, "Metapuzzle")
+        return puz, host_target, tag_group, guild, hunt
+
+    @pytest.mark.asyncio
+    async def test_promote_in_place_refreshes_pinned_info(self, cog):
+        puz, _host_target, _tg, guild, hunt = await self._promote(cog)
+        cog.service.notifier.refresh_info.assert_awaited_once_with(guild, hunt, puz)
+
+    @pytest.mark.asyncio
+    async def test_promote_in_place_reglyphs_the_host_target(self, cog):
+        """The host now has a member that is another group's target, so it reads as
+        a metameta and its own target channel must be re-glyphed. Two puzzles get
+        re-glyphed and it matters WHICH: the converted puzzle and the host's target."""
+        puz, host_target, _tg, _guild, _hunt = await self._promote(cog)
+        reglyphed = [call.args[2] for call in cog.service._refresh_channel_glyph.await_args_list]
+        assert reglyphed == [puz, host_target]
+
+    @pytest.mark.asyncio
+    async def test_host_with_no_target_is_skipped(self, cog):
+        """A bare-Group host has no target puzzle to re-glyph — only the converted
+        puzzle is touched, and no lookup crashes on target_puzzle_id 0."""
+        puz = make_puzzle(id=7, channel_id=555, tags=[10])
+        host = make_round(id=10, target_puzzle_id=0)
+        host.type = "Group"
+        self._prepare(cog)
+        hunt = make_hunt()
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mpdb.get_by_attr.return_value = None
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.side_effect = lambda **kw: (
+                None if "target_puzzle_id" in kw else host)
+            mrdb.generate_uid.return_value = "GCODE1"
+            mhdb.get_by_attr.return_value = hunt
+            await cog.service.convert_to_type(MagicMock(), hunt, puz, "Metapuzzle")
+        reglyphed = [c.args[2] for c in cog.service._refresh_channel_glyph.await_args_list]
+        assert reglyphed == [puz]
+
+    @pytest.mark.asyncio
+    async def test_teardown_refreshes_host_glyph_but_not_the_deleted_pin(self, cog):
+        """Converting a meta to a bare Group deletes its target puzzle: the host
+        stops being a metameta (re-glyph it), but there is no puzzle left to
+        re-render a pinned welcome for."""
+        puz = make_puzzle(id=7, is_target=True, channel_id=555, tags=[10, 42])
+        own = make_round(id=42, name="Alpha", target_puzzle_id=7, category_id=999)
+        own.type = "Metapuzzle"
+        host = make_round(id=10, name="Round One", target_puzzle_id=99, category_id=888)
+        host.type = "Metapuzzle"
+        host_target = make_puzzle(id=99, channel_id=777, is_target=True, tags=[10])
+        self._prepare(cog)
+        cog.service.safe_rename = AsyncMock(return_value=True)
+        hunt = make_hunt()
+        guild = MagicMock()
+        channel = MagicMock(); channel.id = 555
+        guild.get_channel.return_value = channel
+        tg_by_attr, pz_by_attr = self._dbs(host, host_target, own_group=own)
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mpdb.get_by_attr.side_effect = pz_by_attr
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.side_effect = tg_by_attr
+            mhdb.get_by_attr.return_value = hunt
+            await cog.service.convert_to_type(guild, hunt, puz, "Group")
+        cog.service.notifier.refresh_info.assert_not_awaited()
+        reglyphed = [c.args[2] for c in cog.service._refresh_channel_glyph.await_args_list]
+        assert reglyphed == [host_target]
+
+    @pytest.mark.asyncio
+    async def test_demote_refreshes_pin_and_host_glyph(self, cog):
+        """convert_to_puzzle (the !convert_to_puzzle / web demote) is the inverse:
+        the channel becomes a plain puzzle again and the host stops being a
+        metameta."""
+        puz = make_puzzle(id=7, is_target=True, channel_id=555, tags=[10, 42])
+        own = make_round(id=42, target_puzzle_id=7, category_id=999)
+        own.type = "Metapuzzle"
+        host = make_round(id=10, target_puzzle_id=99, category_id=888)
+        host.type = "Metapuzzle"
+        host_target = make_puzzle(id=99, channel_id=777, is_target=True, tags=[10])
+        self._prepare(cog)
+        cog.service.feeders_orphaned_by_convert = MagicMock(return_value=[])
+        hunt = make_hunt()
+        guild = MagicMock()
+        tg_by_attr, pz_by_attr = self._dbs(host, host_target, own_group=own)
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.category_layout") as mcl:
+            mpdb.commit.side_effect = lambda p: None
+            mpdb.get_by_attr.side_effect = pz_by_attr
+            mrdb.get_by_attr.side_effect = tg_by_attr
+            mcl.is_split.return_value = False
+            await cog.service.convert_to_puzzle(guild, hunt, puz)
+        cog.service.notifier.refresh_info.assert_awaited_once_with(guild, hunt, puz)
+        reglyphed = [c.args[2] for c in cog.service._refresh_channel_glyph.await_args_list]
+        assert reglyphed == [puz, host_target]
+
+    @pytest.mark.asyncio
+    async def test_retype_reglyphs_own_target_once_not_twice(self, cog):
+        """An already-grouped retype: the puzzle is a member of its OWN group as
+        well as its host, so the host sweep must skip its own group — otherwise the
+        converted puzzle is renamed twice, burning the strict rename bucket."""
+        puz = make_puzzle(id=7, is_target=True, channel_id=555, tags=[10, 42])
+        own = make_round(id=42, name="Alpha", target_puzzle_id=7, category_id=999)
+        own.type = "Metapuzzle"
+        host = make_round(id=10, name="Round One", target_puzzle_id=99, category_id=888)
+        host.type = "Metapuzzle"
+        host_target = make_puzzle(id=99, channel_id=777, is_target=True, tags=[10])
+        self._prepare(cog)
+        hunt = make_hunt()
+
+        def tag_group_by_attr(**kw):
+            if "target_puzzle_id" in kw:
+                return own
+            return {10: host, 42: own}.get(kw.get("id"))
+
+        def puzzle_by_attr(**kw):
+            return {99: host_target, 7: puz}.get(kw.get("id"))
+
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
+             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+            mpdb.commit.side_effect = lambda p: None
+            mpdb.get_by_attr.side_effect = puzzle_by_attr
+            mrdb.commit.side_effect = lambda r: None
+            mrdb.get_by_attr.side_effect = tag_group_by_attr
+            mhdb.get_by_attr.return_value = hunt
+            await cog.service.convert_to_type(MagicMock(), hunt, puz, "Capstone")
+        reglyphed = [c.args[2] for c in cog.service._refresh_channel_glyph.await_args_list]
+        assert reglyphed == [puz, host_target]

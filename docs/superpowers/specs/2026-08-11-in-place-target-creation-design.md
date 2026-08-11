@@ -1,7 +1,12 @@
 # In-place target creation — design
 
 **Date:** 2026-08-11
-**Status:** approved, not yet implemented
+**Status:** **Phase 1 landed. Phases 2–5 DESIGNED BUT DEFERRED — not implemented, and no
+decision to build them.** Recorded so the design work isn't lost; pick it up from Phase 2.
+
+Before building Phase 2, settle the open question at the bottom ("Nesting semantics"): it
+decides whether the new target is tagged into its host at all, and the current Phase 2 text
+assumes one answer.
 
 ## Goal
 
@@ -45,24 +50,50 @@ rule, plus the surfaces.
 
 ---
 
-## Phase 1 — pinned welcome after a conversion (own commit, precedes the feature)
+## Phase 1 — pinned welcome + host glyphs on convert ✅ LANDED
 
-**Problem.** `convert_to_type` never refreshes the channel's pinned info message, so a
-converted puzzle keeps its plain-puzzle welcome: no group code, no meta/capstone/runaround
-tagging hints. This affects `!convert_to_meta`, `!convert_to_capstone`,
-`!convert_to_runaround`, `!convert_to_metapuzzle` and the dashboard's
-`POST /puzzles/<id>/convert-to-meta` today, not just the new command.
+Implemented ahead of the rest, since it fixes existing commands. Scope grew by one item
+during implementation (host glyphs) at the user's request.
 
-**Fix.** At the end of `convert_to_type`, alongside the existing `_refresh_channel_glyph`
-call and under the same `if not torn_down:` guard (the torn-down puzzle row is deleted):
+**Problem 1 — stale pinned welcome on the web edge.** `convert_to_type` never refreshed the
+channel's pinned info message, so a converted puzzle kept its plain-puzzle welcome: no group
+code, no meta/capstone/runaround tagging hints. The **bang** commands were already fine —
+`_run_convert_to_type` calls `set_channel_type(ctx, ...)` then `info(ctx, update=True)`,
+which dispatches to the metapuzzle renderer — so the gap was the **web** convert routes,
+which have no equivalent. (An earlier draft of this spec claimed the bang path was affected
+too; it wasn't.) Putting the refresh in the service covers both edges from one seam; the
+bang's own `info` call is now redundant but harmless, and was left alone rather than
+restructuring a working path.
+
+**Problem 2 — host glyphs never refreshed.** Converting a puzzle that *feeds* its round into
+a meta makes that round a metameta (`is_metameta`: a member that both feeds the group and is
+some group's target), so the round's own target channel should gain the second 🧩 — and
+demoting takes it away again. Nothing did this: every `_refresh_channel_glyph` call site
+refreshes the puzzle it was handed, never a host, so a host kept a stale glyph until someone
+ran `!backfill_glyphs`.
+
+**Fix as shipped.** In `convert_to_type`, under the existing `if not torn_down:` guard (the
+torn-down puzzle row is deleted, so there is nothing to re-render):
 
 ```python
 if not torn_down:
     await self._refresh_channel_glyph(guild, hunt, puzzle)
     await self.notifier.refresh_info(guild, hunt, puzzle)
+await self._refresh_host_target_glyphs(
+    guild, hunt, [gid for gid in host_group_ids if gid != tag_group.id])
 ```
 
-Nothing else is needed. `Notifier.refresh_info` (`bot/core/notifier.py:130`) already routes
+`host_group_ids` is captured at the *top* of the method, before the promote branch tags the
+puzzle into its own new group. The host sweep runs on both branches — a teardown removes a
+sub-target, so its hosts need re-glyphing just as much as a promotion's do. The new
+`_refresh_host_target_glyphs(guild, hunt, group_ids)` resolves each group's target puzzle and
+re-glyphs it, per-host best-effort: the conversion is already committed and a stale glyph
+must not fail it.
+
+`convert_to_puzzle` (the demote seam behind `!convert_to_puzzle`/`!convert_to_feeder` and the
+web route) gets the same two calls, excluding the group it just deleted.
+
+Nothing else is needed for the welcome. `Notifier.refresh_info` (`bot/core/notifier.py:130`) already routes
 `puzzle.is_target` to `send_initial_metapuzzle_channel_messages` with `update=True`,
 resolving the group whose `target_puzzle_id` matches. That renderer
 (`bot/cogs/puzzles.py:3016`) is already type-aware — it words the channel kind and the
@@ -71,9 +102,17 @@ get `!feeds_only`/`!feeds`), embeds `tag_group.group_code` in every hint, and li
 meta-relevant commands. `_refresh_pinned_info` (`:2787`) edits the bot's own pin by author
 and re-sends + re-pins if it has gone.
 
-**Test** (`tests/test_convert_service.py`): promote-in-place awaits
-`notifier.refresh_info` once with the converted puzzle; the convert-to-`Group` teardown path
-does **not** (mirrors the existing glyph-refresh guard test).
+**Tests** (`tests/test_convert_service.py`, class `TestConvertRefreshesPinAndHostGlyphs`):
+promote-in-place awaits `notifier.refresh_info` once with the converted puzzle and re-glyphs
+exactly `[puzzle, host_target]`; a bare-Group host with no target is skipped; the
+convert-to-`Group` teardown re-glyphs the host but refreshes no pin; the demote path does
+both; and a retype re-glyphs the converted puzzle **once**, proving the sweep skips the
+puzzle's own group (a duplicate would burn the strict rename bucket). Mutation-checked:
+dropping the `refresh_info` call, the host sweep, or the own-group exclusion each turns one
+of these red.
+
+Nine notifier doubles in that suite gained `refresh_info = AsyncMock()`. Stub completeness
+only — no assertion was changed or weakened.
 
 ---
 
@@ -207,16 +246,36 @@ puzzle, so a `" - meta"` suffix would leave a group called "X - meta".
 - Error map gains `no_host_group` → ":x: Run this in a channel of the round you want the new
   meta to live in." `puzzle_name_clash` and `round_exists` reuse the existing messages.
 
-**Permission gate.** `!round` and its aliases carry no check, but `!convert_to_meta` is
-`@is_organiser()`. A one-shot must not quietly let a solver do what the two-step gates, and
-a decorator can't discriminate between aliases of one command — so the check moves into the
-branch:
+**Permission gate — `@is_organiser()` on the whole `round` command (own commit, precedes
+the aliases).** `!round` and its aliases carry no check today, but `!convert_to_meta` is
+`@is_organiser()`, so a one-shot built on the current gating would quietly let a solver do
+what the two-step gates. Rather than special-case the new aliases, tag-group creation
+becomes organiser-only across the board: `!round` is effectively an alias for
+`create_tag_group`, and every other tag-group operation (`!rename_group`, `!delete_round`,
+`!convert_to_*`, `!extract_target_to_category`, `!consolidate_to`) is already
+organisers/admins. One decorator then covers all nine existing aliases and the three new
+ones.
 
-- Extract the body of `is_organiser()`'s `predicate` into a module-level
-  `organiser_check(ctx)`; `is_organiser()` becomes `commands.check(organiser_check)`.
-  Pure extraction, no behaviour change, own commit.
-- The in-place branch calls `organiser_check(ctx)` before creating anything. It raises
-  `commands.MissingAnyRole`, which `on_command_error` already renders.
+```python
+@commands.command(aliases=[...])
+@is_organiser()
+async def round(self, ctx, *, arg):
+```
+
+**This is a deliberate behaviour change**, not a side effect: non-organisers lose `!round`,
+`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra` and `!group`. Two things
+bound the blast radius — `is_organiser()` passes unconditionally on a guild with nothing
+standing for the Organiser tier (`role_gate.organiser_gate_active`), so unconfigured servers
+see no change at all; and puzzle creation is untouched (see below).
+
+**Puzzle creation stays open.** `!puzzle`/`!p` and `POST /hunts/<uid>/puzzles` keep their
+current "anyone" gating — solvers adding puzzles as they find them is the intended flow. The
+line is: creating or reshaping a *tag group* is an organiser action; adding a *puzzle* to one
+is not.
+
+Docs to update in the same commit: `docs/commands.md` rows for `!round`, `!metapuzzle`,
+`!capstone`, `!runaround`, `!group` move from "anyone" to "organisers/admins", and each
+command docstring gains the house "Organisers/admins only." line.
 
 ---
 
@@ -231,10 +290,11 @@ it is the same user intent with one more option.
   create-puzzle route at `:2096`; unknown → `{"error": "bad_group_code"}, 400`.
 - `type == "Group"` together with a `host_group_code` → `{"error": "bad_type_for_host"}, 400`
   (out of scope, above).
-- `await require_organiser(ctx["guild_snowflake"])` **on the host path only**. Neither
-  create route is organiser-gated today (creation is deliberately open to solvers); gating
-  the whole route would be a behaviour change beyond this work, and not gating the in-place
-  path would widen what a solver can do. Same reasoning as the bang gate.
+- `await require_organiser(ctx["guild_snowflake"])` **for the whole route**, matching the
+  bang gate. Gating `!round` while leaving `POST /hunts/<uid>/metas` open would make the
+  dashboard a bypass of the gate. `require_organiser` carries the same unconfigured-tier
+  bypass as `is_organiser()`, so the two edges agree on every guild.
+  `POST /hunts/<uid>/puzzles` stays ungated, matching `!p`.
 - Keep the existing `hunt_create_lock(hunt_obj.id)` around the whole service call.
 - Audit: `detail` records the new group code and the host code.
 - Response unchanged: `{"ok": True, "tag_group_id": ..., "group_code": ...}`.
@@ -256,6 +316,9 @@ it is the same user intent with one more option.
 - `useCreateMeta` (`frontend/src/api.ts:455`) takes an optional `hostGroupCode` and sends
   `host_group_code` when set.
 - Success toast names the host: `Created meta "X" in Y`.
+- The **"New Group"** button is hidden when `!detail.hunt.can_manage` — the same organiser
+  signal `BoardGroup.tsx:49` and `DragBoard.tsx:484` already use — so the control matches the
+  new route gate instead of failing with a 403. "New puzzle" stays visible to everyone.
 
 ---
 
@@ -288,7 +351,8 @@ Runner: `timeout 180 pipenv run python -m pytest <paths> -q > /tmp/test.log 2>&1
 - `host_group_code` present → `create_target_in_place` called with the resolved group;
   absent → `create_tag_group`, unchanged
 - unknown code → 400 `bad_group_code`; `type: "Group"` + host → 400 `bad_type_for_host`
-- non-organiser → 403 on the host path, and **not** on the plain path
+- non-organiser → 403 on **both** the plain and the host path; `POST /hunts/<uid>/puzzles`
+  is still allowed for the same user (proves the gate landed on tag-group creation only)
 
 Mutation-check the two that matter most: swap `feeds`/`informs` in
 `default_edge_for_group`, and drop the `+ 1` in the placement helper — both must go red.
@@ -307,11 +371,33 @@ inspection only. Stated plainly rather than implied to be gate-verified.
    group code in the tagging hints — and so is every channel converted by
    `!convert_to_meta` and the dashboard route.
 4. A name clashing with an existing group or puzzle is rejected before anything is created.
-5. Non-organisers get the same refusal they get from `!convert_to_meta`.
-6. The dashboard "New group" modal creates in place when "Own Discord category" is off,
+5. Tag-group creation is organiser-only on both edges: `!round` and all its aliases refuse a
+   non-organiser exactly as `!convert_to_meta` does, `POST /hunts/<uid>/metas` returns 403,
+   and the dashboard hides "New Group". On a guild with no Organiser tier configured,
+   nothing changes.
+6. `!puzzle`/`!p` and `POST /hunts/<uid>/puzzles` are still open to anyone.
+7. The dashboard "New group" modal creates in place when "Own Discord category" is off,
    with the same result as the bang command.
-7. `!round` / `!mp` / `!capstone` / `!runaround` / `!group` and the dashboard's default path
-   behave exactly as before.
+8. `!round` / `!mp` / `!capstone` / `!runaround` / `!group` and the dashboard's default path
+   behave exactly as before, apart from the gate.
+
+## Open question — nesting semantics (settle before Phase 2)
+
+`consolidate_to` does **not** tag anything: its only DB write is
+`meta.category_id = target_puzzle.channel_id`. So the two routes into a shared category
+produce different structures, and Phase 2 has to pick one:
+
+- **A — `!p` + `!convert_to_meta`** (what Phase 2 above is written against). `create_puzzle`
+  tags the new puzzle into the host with `default_edge_for_group` — `feeds` for a
+  Metapuzzle/Runaround host, `informs` for a Capstone host. The new meta is a member of the
+  host, the host becomes a metameta, and the submeta's answer rolls up into the host's sheet.
+- **B — `!mp` + `!consolidate_to`.** No tag, no edge: an independent group that merely shares
+  a Discord category. Nothing rolls up; on the board they are siblings.
+
+B costs more to build (`create_puzzle` tags as a side effect of placing the channel, so it
+means creating tagged then removing the edge, or a placement-only path) and would drop the
+host-glyph refresh from Phase 2's scope. A is cheaper and is what the approved "one-shot
+sugar" framing implies. Not settled.
 
 ## Rejected alternatives
 
@@ -326,5 +412,10 @@ inspection only. Stated plainly rather than implied to be gate-verified.
 - **A bot-resolved category list in the hunt payload** for the picker. Rejected for now:
   needs a new resolve + payload field, and the group list already reads as the category list
   in the common case.
+- **Gating only the new in-place aliases**, via a module-level `organiser_check(ctx)`
+  extracted from `is_organiser()`'s predicate (a decorator can't discriminate between
+  aliases of one command). Rejected by the user: `!round` is effectively an alias for
+  `create_tag_group`, so the gate belongs on tag-group creation as a whole, not on one
+  branch of it. The extraction is no longer needed.
 - **Doing nothing** (documenting the two-step instead). Rejected by the user: the one-shot
   is wanted, and the missing group-name duplicate check makes the two-step genuinely unsafe.

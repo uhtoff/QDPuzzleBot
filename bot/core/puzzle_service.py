@@ -1011,6 +1011,10 @@ class PuzzleService:
 
         Returns ``(tag_group, summary_string)``.
         """
+        # Captured BEFORE the promote branch tags the puzzle into its own new
+        # group, so this is purely the groups hosting it — see
+        # _refresh_host_target_glyphs.
+        host_group_ids = list(getattr(puzzle, "tags", None) or [])
         tag_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         already_grouped = tag_group is not None
 
@@ -1083,8 +1087,43 @@ class PuzzleService:
         # into the group's general chat, not renamed to a glyphed puzzle name.
         if not torn_down:
             await self._refresh_channel_glyph(guild, hunt, puzzle)
+            # The channel is a different KIND now, so its pinned welcome is stale:
+            # wrong wording, and missing the group code + meta/capstone tagging
+            # commands. The bang edge re-renders its own pin (_run_convert_to_type
+            # -> info(update=True)), but the web convert routes have no equivalent;
+            # doing it here covers both edges from the one service seam.
+            await self.notifier.refresh_info(guild, hunt, puzzle)
+
+        # Either direction changes whether this puzzle's HOSTS are metametas.
+        await self._refresh_host_target_glyphs(
+            guild, hunt, [gid for gid in host_group_ids if gid != tag_group.id])
 
         return tag_group, summary
+
+    async def _refresh_host_target_glyphs(self, guild, hunt, group_ids):
+        """Re-glyph the target puzzle of each group in *group_ids*.
+
+        Gaining or losing a member that is another group's target flips a host
+        between meta and metameta (``is_metameta``), so the host's OWN target
+        channel should gain or lose the second 🧩. Nothing else does this: every
+        other ``_refresh_channel_glyph`` call site refreshes the puzzle it was
+        handed, never a host, so before this a host kept a stale glyph until
+        someone ran ``!backfill_glyphs``.
+
+        Best-effort per host: the conversion is already committed, and a stale
+        glyph must not fail it."""
+        for group_id in group_ids:
+            try:
+                group = TagGroupJsonDb.get_by_attr(id=group_id)
+                if group is None or not group.target_puzzle_id:
+                    continue
+                host_target = PuzzleJsonDb.get_by_attr(id=group.target_puzzle_id)
+                if host_target is None:
+                    continue
+                await self._refresh_channel_glyph(guild, hunt, host_target)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "could not refresh host glyph for group %s", group_id, exc_info=True)
 
     @pushes_board()
     async def convert_tag_group_type(self, guild, hunt, tag_group, new_type):
@@ -1409,6 +1448,9 @@ class PuzzleService:
         Returns the number of feeders orphaned by the round deletion (every puzzle
         that was tagged to the deleted round, excluding the meta itself)."""
         orphaned = len(self.feeders_orphaned_by_convert(puzzle))
+        # Captured before the group delete drops its id from puzzle.tags — see
+        # _refresh_host_target_glyphs.
+        host_group_ids = list(getattr(puzzle, "tags", None) or [])
         target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if target_group is not None:
             # A SPLIT round owns several Discord categories mapped only by its
@@ -1432,6 +1474,13 @@ class PuzzleService:
         puzzle.is_target = False
         PuzzleJsonDb.commit(puzzle)
         await self._refresh_channel_glyph(guild, hunt, puzzle)
+        # Back to a plain puzzle: re-render the pinned welcome for the new kind,
+        # and re-glyph the hosts that just stopped having a sub-target.
+        await self.notifier.refresh_info(guild, hunt, puzzle)
+        await self._refresh_host_target_glyphs(
+            guild, hunt,
+            [gid for gid in host_group_ids
+             if target_group is None or gid != target_group.id])
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
