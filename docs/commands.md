@@ -27,6 +27,40 @@ disagree, **the code is the source of truth** — fix both.
   to the current hunt, and lists candidates when ambiguous. See [AGENTS.md](../AGENTS.md)
   for the TagGroup / feeds / informs data model.
 
+## Permissions at a glance
+
+Every command, grouped by the tier that gates it. The per-command tables below repeat this
+in their *Who* column; this one is for answering "what can a solver actually do?" without
+reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role names
+(`bot/core/constants.py`), so an admin passes every organiser check.
+
+| Tier | Area | Commands |
+|---|---|---|
+| **Anyone** | Create | `!puzzle` (`!p`) · `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) · `!make_minimeta` · `!add_mini` · `!add_sheet` |
+| | Solve | `!solve` (`!s`) · `!unsolve` (`!u`) · `!mark_as_complete` · `!add_solution` · `!change_solution` · `!partial` (`!ps`) · `!solve_mini` · `!unsolve_mini` |
+| | Tag | `!feeds` · `!feeds_only` · `!informs` · `!informs_only` · `!groups_with` · `!groups_only_with` · `!remove_from` |
+| | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` · `!remove_sheet` |
+| | Read | `!info` · `!list_puzzles` (`!list`) · `!list_minis` · `!list_additional_sheets` · `!canvas` · `!info_bot` · `!invite` · `!starttime` · `!uptime` |
+| **Organisers/admins** | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` |
+| | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
+| | Category layout | `!extract_target_to_category` † · `!consolidate_to` † · `!backfill_glyphs` † · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
+| | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
+| **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` |
+| | Settings | `!set_login` · `!set_start` · `!update_settings` † · `!show_settings` † · `!show_puzzle_settings` † |
+| | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
+| | Archive | `!archive_hunt` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
+| | Other | `!absorb_category` · `!debug_puzzle_channel` |
+
+Two things the table can't show:
+
+- **The Organiser tier switches itself off.** On a guild with nothing configured or named for
+  the Organiser tier, `organiser_gate_active()` is false and every organiser check passes for
+  every member — a deliberate convenience for small single-team guilds. The Admin tier is
+  never bypassed.
+- **The dashboard doesn't agree everywhere.** Tagging (`POST /puzzles/<id>/meta`) and
+  minimeta creation are organiser-gated on the web while the commands above are open to
+  anyone. Being levelled — see `.ai/active/current-spec.md`.
+
 ## Hunt management
 
 | Command | Aliases | Arguments | Where | Who | Does |

@@ -78,18 +78,67 @@ Docs — drop the `†` from `docs/commands.md` rows 52, 53, 208, 216, 220, 221,
 now-unused footnote defining it at line 22. Check each command docstring for a Manage
 Channels mention too.
 
-## Open — audit findings with no decision yet
+### D4 — the organising principle: tier follows the area of the operation
 
-- **Tagging.** `!feeds`, `!feeds_only`, `!informs`, `!informs_only`, `!groups_with`,
-  `!groups_only_with`, `!remove_from` are open to anyone; the web equivalent
-  `POST /puzzles/<id>/meta` requires organiser. Same operation, opposite answers, and it is
-  the most-used operation in a live hunt. Needs a direction: open the route, or gate the
-  commands.
-- **Minimeta clusters.** `!make_minimeta` and `!add_mini` are open; `POST make-minimeta` and
-  `POST minis` are organiser. Removal is organiser on both.
-- **Destructive but open.** `!remove_sheet` and `!erase_note` delete things while every
-  `!delete_*` is organiser. Consistent across both edges, so a question about the rule
-  rather than drift.
+The areas in `docs/commands.md` § Permissions at a glance — Create, Solve, Tag, Annotate,
+Read, Rename & delete, Restructure, Category layout, Maintenance, Hunt lifecycle, Settings,
+Roles, Archive — are the unit that carries a tier. An operation's gate follows the area it
+belongs to, on whichever surface it is invoked from.
+
+**Discord is not the authority here** (an earlier draft of this file said it was; the user
+corrected it). The Discord side currently *happens* to match the principle almost everywhere,
+which is why the table falls out cleanly — but where it doesn't, Discord is the one that
+moves: D2 gates `!round` because creating a tag group belongs with the rest of the tag-group
+lifecycle, not because the web said so.
+
+Consequence worth noting: when an operation's tier changes, its area usually changes with it.
+D6 moves `!remove_sheet` out of *Annotate* and into *Rename & delete*.
+
+### D5 — web tagging and minimeta creation open up to match their areas
+
+- **Tag area → anyone.** `POST /puzzles/<id>/meta` (retag: move/add/remove) becomes
+  ungated, matching `!feeds` / `!feeds_only` / `!informs` / `!informs_only` /
+  `!groups_with` / `!groups_only_with` / `!remove_from`. Explicitly wanted for the remove
+  case: a solver should be able to tidy a meta up when no organiser is around.
+- **Create area → anyone.** `POST /puzzles/<id>/make-minimeta` and
+  `POST /puzzles/<id>/minis` become ungated, matching `!make_minimeta` and `!add_mini`.
+  Removal (`remove-minimeta`, `DELETE minis`) stays organiser — that is Rename & delete.
+
+Safe because the populations already match: every route runs `@login_required` then
+`_resolve_visible_hunt`, which resolves Discord guild membership and 403s unless
+`hunt_visible` passes. "Anyone" on the web is a guild member who can already see that hunt.
+
+Edit sites:
+- `bot/web/actions.py:1165` — drop `require_organiser` from `retag_puzzle`
+- `bot/web/actions.py` — drop it from `make_minimeta` and `create_mini` (the POST routes
+  only; leave the DELETE/remove ones)
+- `docs/commands.md` — update the "the dashboard doesn't agree everywhere" note; once D5 and
+  D6 land, tagging and minimeta drop out of it
+
+### D6 — `!remove_sheet` becomes organiser on both edges
+
+Deleting a working sheet is a Rename & delete operation, not an annotation — and in practice
+organisers are the only ones who would want to. `!add_sheet` stays open (Create).
+
+Edit sites:
+- `bot/cogs/puzzles.py:1392` — add `@is_organiser()` to `remove_sheet` (alias
+  `!delete_sheet`)
+- `bot/web/actions.py:348` — `require_organiser` on
+  `DELETE /puzzles/<id>/sheets/<sheet_id>`
+- `bot/web/actions.py:428` — same on `DELETE /hunts/<uid>/sheets/<sheet_id>`
+- `docs/commands.md:147` — the sheets table has no *Who* column; add the role note there or
+  in the section intro above it
+- `docs/commands.md` § Permissions at a glance — move `!remove_sheet` from Anyone/Annotate to
+  Organisers/Rename & delete
+
+## Rulings that change nothing (recorded so they aren't re-litigated)
+
+- **`!move_to_top` / `!move_to_bottom` stay organiser.** Not a trust judgement — regular
+  users have no reason to reach for them, so the gate costs nothing. Do not "level" these
+  down on the grounds that they are less structural than `!feeds_only`.
+- **`!erase_note` stays open.** It belongs to Annotate, and the whole area is open.
+- **`!remove_from` stays open.** Tag area, and deliberately so: it lets solvers tidy up a
+  meta's membership when no organiser is available.
 
 ## Constraints
 
@@ -101,6 +150,9 @@ Channels mention too.
 ## Acceptance criteria
 
 1. Every decision above is applied on both edges where the operation exists on both.
-2. `docs/commands.md`'s Who column still matches the decorators for every documented row.
+2. `docs/commands.md`'s Who column still matches the decorators for every documented row,
+   AND the § Permissions at a glance table matches too — it was added ahead of the batch
+   reflecting the CURRENT tiers, so the batch must move `!round`, `!absorb_category` and
+   `!remove_sheet` between its rows and strip the six `†` markers.
 3. Gate changes carry a test that fails if the decorator is removed.
 4. The full suite passes (`timeout 300 pipenv run python -m pytest tests/ -q`).
