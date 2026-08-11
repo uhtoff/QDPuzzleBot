@@ -108,6 +108,9 @@ Safe because the populations already match: every route runs `@login_required` t
 `_resolve_visible_hunt`, which resolves Discord guild membership and 403s unless
 `hunt_visible` passes. "Anyone" on the web is a guild member who can already see that hunt.
 
+This is the only decision in the batch that *widens* access, so it was confirmed explicitly
+rather than taken as following from D4.
+
 Edit sites:
 - `bot/web/actions.py:1165` — drop `require_organiser` from `retag_puzzle`
 - `bot/web/actions.py` — drop it from `make_minimeta` and `create_mini` (the POST routes
