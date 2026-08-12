@@ -179,8 +179,15 @@ already spends its one `tab_page_id` on the mini-list.
 - **`note` sits immediately after the bot-owned block**, so that adding a mini appends a
   column at the far right and *nothing moves*. Putting note last would make every new mini
   shift it.
-- **One tick column per claim target**, `main` first (the Minimeta itself), then the Minis in
-  creation order. The header row is bot-written; the cells below are the solver's.
+- **One tick column per claim target**, the Minimeta first, then the Minis in creation
+  order. The header row is bot-written; the cells below are the solver's.
+- **Each tick column's header carries its target's id** — `main #100`, `Mini 1 #101` — and
+  the sync identifies a column by that id, never by the name. Matching on the bare name is
+  unsound three ways: renaming a mini leaves a stale header, so its column stops matching
+  and its ticks are read as a solver's own column and **silently dropped**, losing claims;
+  `create_mini` enforces no name uniqueness, so two minis called "Mini" would collapse onto
+  one target; and deleting a mini shifts any position-based scheme. A column whose id is
+  unknown — a deleted mini's, or one a solver added — is ignored.
 - **The bot does write into the tick columns, but only to restore a confirmed tick.**
   Confirmed claims are bot-owned: unticking one does not undo it, and the next render puts
   it back. Unsolving the mini is how it is undone. `diff_ticks`

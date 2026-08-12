@@ -120,14 +120,45 @@ def feeder_length(text):
     return len(text.replace(" ", ""))
 
 
+def target_column_label(name, target_id):
+    """A tick column's header: human-readable, but carrying its target's id.
+
+    The id is what makes the column identifiable. Matching on the bare name is
+    unsound three ways: renaming a mini leaves a stale header, so its column stops
+    matching and its ticks are silently read as some solver's own column; two minis
+    may share a name (create_mini enforces no uniqueness), collapsing them onto one
+    target; and deleting a mini would shift any position-based scheme.
+    """
+    return f"{name} #{target_id}"
+
+
+def target_id_from_label(label):
+    """The target id encoded in a tick column's header, or None if there is none.
+
+    None means the column is not ours — a solver is free to add their own.
+    """
+    _, _, tail = str(label).rpartition("#")
+    try:
+        return int(tail.strip())
+    except ValueError:
+        return None
+
+
 def matrix_header(minimeta, minis):
     """The matrix tab's header row: bot columns, note, then one column per target.
 
-    `main` is the Minimeta's own tick column — how "the main meta uses this feeder
+    The Minimeta's own column comes first — how "the main meta uses this feeder
     directly" is expressed. Minis follow in the order given (creation order), so a new
     mini appends at the far right and nothing already on the sheet moves.
+
+    Every tick column carries its target's id (see target_column_label), so the
+    mapping survives a rename and cannot confuse two minis that share a name.
     """
-    return BOT_COLUMNS + [NOTE_COLUMN, MAIN_COLUMN] + [m.name for m in minis]
+    return (
+        BOT_COLUMNS
+        + [NOTE_COLUMN, target_column_label(MAIN_COLUMN, minimeta.id)]
+        + [target_column_label(m.name, m.id) for m in minis]
+    )
 
 
 def matrix_rows(items):
@@ -139,23 +170,28 @@ def matrix_rows(items):
     return [[f"{KEY_PREFIX}{i.id}", i.text, feeder_length(i.text)] for i in items]
 
 
-def parse_ticks(header, grid, target_by_column):
+def parse_ticks(header, grid, known_target_ids):
     """{target_id: [item_id, ...]} read off the matrix.
 
-    `header` is the sheet's header row, `grid` the data rows beneath it, and
-    `target_by_column` maps a header label to a claim target id — a column whose label
-    is absent is a solver's own and is ignored.
+    `header` is the sheet's header row and `grid` the data rows beneath it. A tick
+    column is identified by the target id in its label, not by its name — so a renamed
+    mini keeps its column, and two minis sharing a name stay distinct.
+
+    `known_target_ids` is the set of ids that still exist; a column whose id is absent
+    is stale (its mini was deleted) or was never ours, and is ignored. Columns a solver
+    adds carry no id and are ignored too.
 
     Values arrive as FORMATTED_VALUE strings, so a ticked box is the string 'TRUE';
     the API also right-trims rows, so a row can be shorter than the header. Rows whose
     key does not parse are skipped: reconcile_table blanks pruned rows rather than
     deleting them, so a blanked row outlives its feeder.
     """
-    columns = [
-        (idx, target_by_column[label])
-        for idx, label in enumerate(header)
-        if label in target_by_column
-    ]
+    known = set(known_target_ids)
+    columns = []
+    for idx, label in enumerate(header):
+        target_id = target_id_from_label(label)
+        if target_id is not None and target_id in known:
+            columns.append((idx, target_id))
     ticks = {target_id: [] for _, target_id in columns}
     for row in grid:
         if not row or not str(row[0]).startswith(KEY_PREFIX):

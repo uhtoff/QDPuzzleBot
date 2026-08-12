@@ -470,7 +470,7 @@ One `_values_get` over the whole tab. Return `(header, grid)`. Handle the API om
 - [ ] **Step 2: `sync_feeder_claims(hunt, minimeta)`**
 
 1. Read the tab once.
-2. Build `target_by_column` from the Minimeta plus its Minis, then `parse_ticks`.
+2. `parse_ticks(header, grid, known_target_ids)` — pass the Minimeta's id plus its Minis' ids. Columns are identified by the id in their header label, never by name, so a rename cannot silently drop a column's ticks.
 3. Per target, `diff_ticks(pool_item_ids, current_item_ids, ticked_item_ids, confirmed_item_ids)` and apply. **Route through `diff_ticks`** — it already encodes ignore-stale-ticks and never-drop-a-confirmed-claim, and re-deriving either is how they drift.
 4. Adopt changed notes via `FeederPoolDb.set_note` (built in Plan 1, currently unused).
 5. Re-render the matrix and the contribution table.
