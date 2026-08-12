@@ -30,6 +30,8 @@ every mini's own sheet tab, and confirmed automatically when a mini is solved.
   on unsolve.
 - A `Feeder Pool` table on the parent's tab and a `Feeder Claims` block on every mini's
   tab, with a solver-tickable claim column read back on an explicit sync.
+- **Provided rows**: feeders claimed for the main meta rendered into the parent's existing
+  contribution table alongside the mini answers.
 - Dashboard panel mirroring the pool, per the web-parity principle.
 - Bang commands and web routes for add / list / edit / remove / sync.
 
@@ -40,8 +42,6 @@ every mini's own sheet tab, and confirmed automatically when a mini is solved.
 - Feeders that themselves need solving. A feeder is finished text — it never gets a
   channel, a thread, or a sheet tab.
 - Timed/background polling of the sheets. Sync is explicit.
-- Surfacing given feeders in the parent's **contribution** table alongside the mini
-  answers. Deferred — see "Deferred: provided rows".
 - Any change to existing Minimeta behaviour. An empty pool renders nothing.
 
 ## Relevant files
@@ -61,6 +61,10 @@ Existing seams this rides on:
   design creates.
 - `bot/core/unassigned.py` — `diff_rows()`; the append/update/prune diff. The model for the
   new pure module.
+- `bot/core/contribution.py` / `CONTRIBUTION_HEADER` (`bot/cogs/puzzles_gsheet.py:921`) —
+  `["key", "Source", "Type", "Content"]`, a `Type` vocabulary (`Feeder`/`Group`/
+  `Information`), namespaced keys, and `informs:free:<eid>` — an existing row with no puzzle
+  behind it. Provided rows follow that precedent.
 - `bot/cogs/puzzles_gsheet.py` `render_minimeta_contribution()` — the model for the two new
   renderers: synthesises rows, calls `reconcile_table` with a named table, lazily promotes
   the tab if the table is absent.
@@ -127,18 +131,24 @@ the feature sit here.
 
 ## Sheet surfaces
 
-Both are native Tables reconciled by name, riding `reconcile_table` unchanged.
+Three surfaces are written. Two are new native Tables reconciled by name, riding
+`reconcile_table` unchanged; the third is the parent's **existing** contribution table,
+which gains provided rows (see "Provided rows").
 
 **Parent tab — `Feeder Pool <page_id>`.** A second table on a tab that already carries
 `Contributions <page_id>`; `select_table` resolves them by name.
 
 ```
- key    item             claimed by       confirmed  │ note
+ key    item             claimed by       confirmed  │ main   note
  ────────── bot-owned, data_col_count=4 ─────────────┼── solver-owned ──
- f:12   ALBATROSS        mini1            mini1      │ fits SEA
- f:13   MARZIPAN         mini1, mini3     —          │ clash?
- f:14   QUAY             —                —          │ homeless
+ f:12   ALBATROSS        mini1            mini1      │        fits SEA
+ f:13   MARZIPAN         mini1            —          │ [x]    for the main?
+ f:14   QUAY             —                —          │        homeless
 ```
+
+The `main` column is where a claim **for the Minimeta itself** is ticked. Claims for minis
+are ticked on mini tabs, but the main meta has no mini tab of its own, so its claim column
+lives here — the same solver-owned-column pattern, one column further right.
 
 **Each mini tab — `Feeder Claims <page_id>`.**
 
@@ -169,14 +179,15 @@ Sheets call in the feature**; everything else is an existing method.
 
 `sync_feeder_claims(hunt, minimeta)` — the explicit pull:
 
-1. Read the claim column from every mini tab, plus the note column from the parent pool
-   tab.
+1. Read the claim column from every mini tab, plus the `main` claim column and the note
+   column from the parent pool tab.
 2. Diff ticks against `feeder_claims`; insert and delete **unconfirmed** rows only.
 3. Adopt changed notes.
 4. **Ignore any key not currently in the pool.** `reconcile_table` blanks pruned rows
    rather than deleting them (`:1166`), so a tick can survive on the blanked row of a
    removed item. Without this rule that stale tick resurrects a dead claim.
-5. Re-render both surfaces — one tick changes `state` on every other mini's block.
+5. Re-render all three surfaces — one tick changes `state` on every other mini's block,
+   and a `main` tick adds or removes a provided row.
 6. Report: claims added, claims dropped, newly contested items, still-homeless count.
 
 **Confirmed claims are bot-owned.** Unticking a confirmed claim does not undo it; the next
@@ -198,10 +209,12 @@ Hooked at `bot/core/puzzle_service.py:1286` (`solve`), firing only when the puzz
 2. **Rival claims are left alone.** Confirmation never deletes. A losing claim is
    information worth keeping, and deleting it would make unsolve lossy — you cannot
    resurrect what you deleted. Rivals simply render as `taken` from then on.
-3. Re-render both surfaces.
+3. Any provided row for a feeder just confirmed to this mini drops out of the parent's
+   contribution table, superseded (see "Provided rows").
+4. Re-render all three surfaces.
 
 `unsolve` (`:1370`) is the exact inverse: set `confirmed=0` on that mini's claims. The
-contested set returns intact.
+contested set returns intact, and any provided row it had superseded returns with it.
 
 The DB confirmation is part of the solve. **The sheet re-render is best-effort**, badged on
 the Minimeta where a badge exists (see "Staleness"), matching how `create_mini` already treats `refresh_minimeta`
@@ -259,9 +272,7 @@ The key (`f:<id>`) is independent of the text, so editing a keyed row is unambig
 obstacle to editing it in the sheet is purely that `item` sits inside the bot-written span,
 not any identity problem.
 
-## Deferred: provided rows
-
-**Not built initially.** Recorded so the shape is settled if it is wanted later.
+## Provided rows
 
 The main puzzle is a meta over its mini answers and *sometimes over a given feeder
 directly*. Those two kinds of input need to sit together somewhere for the meta to be
@@ -285,16 +296,38 @@ shape:
 `Content` then holds exactly what the meta operates on, and `Type` distinguishes a mini
 answer from a given feeder; one filter separates them.
 
-Constraints if built:
+### Rendered on the claim, not on confirmation
 
-- Only feeders **confirmed to the Minimeta itself** (`target_id = minimeta.id`) appear.
-  Never the whole pool — that would tip every loose string into the meta's answer table.
+Confirmation happens when a **mini** is solved. The Minimeta is not a mini: the confirming
+event for a claim on the main meta would be solving the main meta, which is the last thing
+that happens in the whole puzzle. A provided row that waited for confirmation would
+therefore never appear while it was useful.
+
+So a provided row renders as soon as the feeder is claimed for the Minimeta. The
+contribution table is a working surface — it already carries unproven content, since an
+unsolved feeder's row sits there with a blank `Content`. The uncertainty is visible in the
+pool table, which is where it belongs.
+
+### Superseded claims drop out
+
+A claim **confirmed to a mini** is proof that the feeder belongs to that mini. Any lingering
+main-meta claim on the same feeder is therefore known wrong, and its provided row is **not
+rendered**, keeping the meta's answer list clean.
+
+Nothing is deleted: the claim survives in the pool rendered as `taken`, so the solver can
+see the guess was wrong. Unsolving the mini un-supersedes it and the provided row returns —
+no special handling, it falls out of the same derivation.
+
+### Constraints
+
+- Only feeders claimed to the Minimeta itself (`target_id = minimeta.id`) appear. Never the
+  whole pool — that would tip every loose string into the meta's answer table.
 - `render_minimeta_contribution` builds its rows inline rather than via
   `contribution_rows`, so the provided rows are appended there.
 - `provided:<item_id>` is a fresh key namespace, so the column-A diff is unaffected.
-
-Deferring costs nothing structurally: `target_id = minimeta.id` claims already exist in the
-data model and already render in the pool table.
+- The contribution table is therefore a **third surface that re-renders on feeder changes**
+  — on sync, and on confirm-on-solve (confirming to a mini can supersede a main claim and
+  remove a row).
 
 ## Command and route surface
 
@@ -326,7 +359,7 @@ and click-to-assign, live-pushed via the existing board-push Notifier.
 |---|---|
 | 1 migration, 2 tables | the append/update/prune diff engine (`reconcile_table`) |
 | `bot/core/feeder_pool.py` — pure: row shaping, `state` derivation, tick diffing | table-selection-by-name (`select_table`) |
-| 2 sheet renderers, thin wrappers modelled on `render_minimeta_contribution` | solver-owned-column span preservation |
+| 2 sheet renderers, thin wrappers modelled on `render_minimeta_contribution`, plus provided rows appended inside it | solver-owned-column span preservation; the contribution table's `Type` vocabulary and sourceless-row precedent |
 | boolean data-validation for the claim column — the only new Sheets call | board push, audit log, locks; the Minimeta's existing staleness badge, shared (see "Staleness") |
 | `_values_batch_get` (or N calls as a first cut) | the `refresh_minimeta` lifecycle to hang renders off |
 | ~4 service methods + the solve/unsolve hook | both solve entrypoints, via the one seam |
@@ -346,6 +379,9 @@ inside a bot-owned table.
 - Tick diffing: added, dropped, unchanged, and a tick on a key absent from the pool
   (must be ignored, not adopted).
 - Confirmed claims are never dropped by an untick.
+- Provided-row selection: a claim to the Minimeta yields a row; the same claim superseded by
+  a confirmed claim elsewhere does not; unsuperseding restores it. Tested with at least two
+  items and two minis, so a transposed target id cannot pass.
 
 **Service level —** confirm-on-solve and its inverse:
 
@@ -390,6 +426,16 @@ suite. Worth one manual pass on staging before this is considered done.
 10. Sorting a mini's block by hand does not break the next sync.
 11. A failed pool render marks the Minimeta "sheet stale" in the dashboard, and a
     subsequent `!sync_feeders` clears it.
+12. Ticking a feeder's `main` column and syncing adds a `provided:<id>` row to the parent's
+    contribution table, with `Type = Provided` and the feeder text in `Content`, sitting
+    alongside the `Feeder` rows for the mini answers.
+13. That provided row appears while the claim is unconfirmed — it does not wait for
+    anything to be solved.
+14. Solving a mini that had also claimed that feeder removes the provided row, while the
+    main-meta claim survives in the pool rendered as `taken`.
+15. Unsolving that mini brings the provided row back.
+16. The whole pool never appears in the contribution table — only feeders claimed to the
+    Minimeta itself.
 
 ## Constraints
 
