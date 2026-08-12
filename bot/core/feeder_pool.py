@@ -55,3 +55,27 @@ def rival_names(item_id, viewing_target_id, claims, names):
         and claim.target_id in names
     )
     return ", ".join(rivals)
+
+
+def provided_item_ids(minimeta_id, claims):
+    """Item ids to render as `provided:` rows on the minimeta's contribution table.
+
+    A claim held by the minimeta ITSELF yields a row — rendered on the claim, not on
+    confirmation, because the confirming event for a main-meta claim would be solving
+    the main meta, i.e. the end of the puzzle.
+
+    Unless another target holds a CONFIRMED claim on the same item: solving that mini
+    proved the feeder belongs there, so the main-meta guess is superseded and the row
+    drops out. Nothing is deleted — the claim survives, rendering as 'taken', and
+    unsolving that mini restores the row.
+
+    Returned in claim order (item_id ascending, as the DAO fetches them).
+    """
+    confirmed_elsewhere = {
+        claim.item_id for claim in claims
+        if claim.confirmed and claim.target_id != minimeta_id
+    }
+    return [
+        claim.item_id for claim in claims
+        if claim.target_id == minimeta_id and claim.item_id not in confirmed_elsewhere
+    ]

@@ -1,7 +1,7 @@
 """Unit tests for the pure feeder-pool helpers. No DB, no Discord, no Sheets."""
 from dataclasses import dataclass
 
-from bot.core.feeder_pool import claim_state, rival_names
+from bot.core.feeder_pool import claim_state, provided_item_ids, rival_names
 
 
 @dataclass
@@ -78,3 +78,44 @@ def test_rival_names_are_sorted_not_insertion_ordered():
 def test_rival_names_skips_targets_with_no_known_name():
     claims = [Claim(ALBATROSS, MINI_1), Claim(ALBATROSS, 999)]
     assert rival_names(ALBATROSS, MINI_2, claims, NAMES) == "mini1"
+
+
+MINIMETA = 100
+
+
+def test_a_claim_to_the_minimeta_yields_a_provided_row():
+    claims = [Claim(MARZIPAN, MINIMETA)]
+    assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
+
+
+def test_it_renders_while_unconfirmed():
+    """The confirming event for a main-meta claim is solving the main meta, which
+    is the last thing that happens — so waiting for confirmation would mean the row
+    never appeared while it was useful."""
+    claims = [Claim(MARZIPAN, MINIMETA, confirmed=False)]
+    assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
+
+
+def test_a_confirmed_claim_elsewhere_supersedes_it():
+    claims = [Claim(MARZIPAN, MINIMETA), Claim(MARZIPAN, MINI_1, confirmed=True)]
+    assert provided_item_ids(MINIMETA, claims) == []
+
+
+def test_an_unconfirmed_rival_does_not_supersede_it():
+    claims = [Claim(MARZIPAN, MINIMETA), Claim(MARZIPAN, MINI_1, confirmed=False)]
+    assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
+
+
+def test_superseding_is_per_item_not_wholesale():
+    """Two items, one superseded and one not — a rule that dropped everything (or
+    nothing) as soon as any confirmed claim existed would pass with only one item."""
+    claims = [
+        Claim(ALBATROSS, MINIMETA), Claim(ALBATROSS, MINI_1, confirmed=True),
+        Claim(MARZIPAN, MINIMETA), Claim(MARZIPAN, MINI_2, confirmed=False),
+    ]
+    assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
+
+
+def test_claims_that_are_not_the_minimetas_are_ignored():
+    claims = [Claim(ALBATROSS, MINI_1), Claim(MARZIPAN, MINI_2)]
+    assert provided_item_ids(MINIMETA, claims) == []
