@@ -151,22 +151,28 @@ because the Minimeta's existing `google_page_id` names its own puzzle tab and `r
 already spends its one `tab_page_id` on the mini-list.
 
 ```
- A(hidden)  B            C         D      E       F       G
- key        item         note      main   mini1   mini2   mini3
- f:12       ALBATROSS    fits SEA  [ ]    [x]     [ ]     [ ]
- f:13       MARZIPAN     clash?    [ ]    [x]     [x]     [ ]
- f:14       QUAY                   [ ]    [ ]     [ ]     [ ]
- f:15       TERN         for main? [x]    [ ]     [ ]     [ ]
- └── bot-owned ──┘       └──────── solver-owned ─────────────┘
-     data_col_count=2
+ A(hidden)  B            C   D         E      F       G       H
+ key        item         Len note      main   mini1   mini2   mini3
+ f:12       ALBATROSS    9   fits SEA  [ ]    [x]     [ ]     [ ]
+ f:13       MARZIPAN     8   clash?    [ ]    [x]     [x]     [ ]
+ f:14       QUAY         4             [ ]    [ ]     [ ]     [ ]
+ f:15       TERN         4   for main? [x]    [ ]     [ ]     [ ]
+ └──── bot-owned ─────┘   └────────── solver-owned ─────────────┘
+        data_col_count=3
 ```
 
-- **Columns A–B are bot-owned** and reconciled by `reconcile_table` with
-  `data_col_count=2`. Everything from C rightward is preserved untouched, by the same
+- **Columns A–C are bot-owned** and reconciled by `reconcile_table` with
+  `data_col_count=3`. Everything from D rightward is preserved untouched, by the same
   column-span rule the Unassigned table's Notes column already relies on
   (`bot/cogs/puzzles_gsheet.py:1204`).
-- **`note` sits at C, immediately after `item`**, so that adding a mini appends a column at
-  the far right and *nothing moves*. Putting note last would make every new mini shift it.
+- **`Len` is derived, not stored** — letter count excluding spaces, punctuation kept, reusing
+  the rule already written down in `bot/core/unassigned.py:unassigned_row`. It earns its
+  place because checking lengths for patterns is a core part of solving a matching puzzle:
+  with the column present that is a sort or a filter on the native Table, rather than
+  counting by eye. Written as a `numeric_cols` entry so the column sorts numerically.
+- **`note` sits immediately after the bot-owned block**, so that adding a mini appends a
+  column at the far right and *nothing moves*. Putting note last would make every new mini
+  shift it.
 - **One tick column per claim target**, `main` first (the Minimeta itself), then the Minis in
   creation order. The header row is bot-written; the cells below are the solver's.
 - **The bot does write into the tick columns, but only to restore a confirmed tick.**
@@ -203,6 +209,22 @@ Three further obstacles, all verified in the code:
 
 The matrix tab sidesteps all four: its own tab, its own key column, no pre-existing solver
 grid, and no second table anywhere.
+
+### What the matrix costs, and the escape hatch
+
+It trades **locality for overview**. The superseded per-mini blocks sat on the mini's own
+tab, beside the work; the matrix is a tab of its own, so a solver working one mini flips
+between two tabs.
+
+Mitigations that come free: the native Table gives every column a filter dropdown, so a
+solver can filter to their own tick column, or sort by `Len` to hunt enumeration patterns.
+Freezing columns A–D keeps item, length and note visible while scrolling across targets.
+
+If locality turns out to matter more than expected, the cheap fix is a **read-only mirror**
+of the pool on each mini's tab — cheap precisely *because* the matrix is the single source
+of truth, so a mirror needs no read-back path and cannot fight the matrix for the key
+column. Deliberately not built now: it is speculation until someone has used the matrix on a
+real hunt and said what is missing.
 
 ## Sync
 
@@ -399,6 +421,7 @@ Revised after the matrix decision. Plan 1 (core) has shipped; this is what Plans
 |---|---|
 | migration 044 — `puzzles.feeder_tab_page_id` | `reconcile_table`'s append/update/prune engine, and its solver-owned column-span preservation |
 | the matrix tab: create, name via `get_unique_tab_name`, header row, one tick column per target | `select_table` (single bot table per tab — the case it was designed for) |
+| the derived `Len` column | the length rule in `bot/core/unassigned.py:unassigned_row`, and `reconcile_table`'s `numeric_cols` |
 | `columnType: "BOOLEAN"` in `addTable`'s `columnProperties` — **no checkbox or data-validation code exists anywhere in this repo today** | `execute_with_retry` backoff; callers participate by routing through existing helpers |
 | column add/remove as Minis come and go | the Minimeta's existing staleness badge |
 | a row-shaping function for the matrix (no equivalent of `contribution_rows` exists for it) | `claim_state` / `rival_names` / `provided_item_ids` / `diff_ticks` — all built and tested in Plan 1 |
@@ -470,6 +493,8 @@ Criteria 9–17 are **Plan 2**:
    `puzzles.feeder_tab_page_id`, and creating it a second time is a no-op.
 10. The matrix carries one tick column per claim target, `main` first, then Minis in creation
     order; adding a Mini appends a column at the far right and moves nothing.
+10b. `Len` shows the letter count excluding spaces, is written as a number so the column
+    sorts numerically, and updates when a feeder's text is edited.
 11. Ticking a cell and running `!sync_claims` creates that claim; unticking removes it.
 12. A tick on a row whose feeder was removed is ignored, not adopted.
 13. Unticking a **confirmed** claim does not remove it, and the next render restores the tick.
@@ -531,6 +556,7 @@ Revised after the matrix decision. Plan 1 (core) has shipped; this is what Plans
 |---|---|
 | migration 044 — `puzzles.feeder_tab_page_id` | `reconcile_table`'s append/update/prune engine, and its solver-owned column-span preservation |
 | the matrix tab: create, name via `get_unique_tab_name`, header row, one tick column per target | `select_table` (single bot table per tab — the case it was designed for) |
+| the derived `Len` column | the length rule in `bot/core/unassigned.py:unassigned_row`, and `reconcile_table`'s `numeric_cols` |
 | `columnType: "BOOLEAN"` in `addTable`'s `columnProperties` — **no checkbox or data-validation code exists anywhere in this repo today** | `execute_with_retry` backoff; callers participate by routing through existing helpers |
 | column add/remove as Minis come and go | the Minimeta's existing staleness badge |
 | a row-shaping function for the matrix (no equivalent of `contribution_rows` exists for it) | `claim_state` / `rival_names` / `provided_item_ids` / `diff_ticks` — all built and tested in Plan 1 |
