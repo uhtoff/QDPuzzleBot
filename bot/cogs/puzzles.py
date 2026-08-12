@@ -1550,11 +1550,16 @@ class Puzzles(commands.Cog):
         Mini. In the Minimeta's own channel both are the Minimeta — which can itself
         claim a feeder, that being how "the main meta uses a given feeder directly"
         is expressed.
+
+        Keyed on parent_puzzle_id alone, not puzzle_type: puzzle_type is
+        user-settable via `!type` and the dashboard, and this codebase deliberately
+        never gates on it (see derive_is_minimeta in bot/web/data.py, and
+        solve()/delete_mini()'s own parent_puzzle_id-only checks).
         """
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return None, None
-        if puzzle.puzzle_type == "Mini" and puzzle.parent_puzzle_id:
+        if puzzle.parent_puzzle_id:
             parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
             if parent is None:
                 return None, None

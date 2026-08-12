@@ -2578,9 +2578,12 @@ class PuzzleService:
         is information worth keeping, and deleting it would make unsolve lossy.
 
         Sheet rendering is a later plan's job; this only moves the DB state.
+
+        Keyed on parent_puzzle_id alone, not puzzle_type: puzzle_type is
+        user-settable via `!type` and the dashboard, and this codebase
+        deliberately never gates on it (see derive_is_minimeta in bot/web/data.py,
+        and solve()/delete_mini()'s own parent_puzzle_id-only checks).
         """
-        if getattr(puzzle, "puzzle_type", None) != "Mini":
-            return
         if getattr(puzzle, "parent_puzzle_id", None) is None:
             return
         FeederClaimDb.set_confirmed_for_target(puzzle.id, confirmed)

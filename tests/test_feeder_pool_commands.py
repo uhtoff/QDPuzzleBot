@@ -68,6 +68,23 @@ class TestFeederContext:
         assert minimeta is None
         assert target is None
 
+    def test_a_mini_with_its_type_retagged_still_resolves_to_its_parent(self):
+        """puzzle_type is user-settable via !type (Anyone tier) and the dashboard --
+        this codebase deliberately never gates on it (bot/web/data.py). A solver
+        running !type in a mini's thread must not break !feeders."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        mini = make_puzzle(
+            id=2, name="Mini A", puzzle_type="Cryptic", parent_puzzle_id=1)
+        cog = make_cog(mini)
+        ctx = make_ctx()
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as db:
+            db.get_by_attr.return_value = parent
+            minimeta, target = cog._feeder_context(ctx)
+
+        assert minimeta is parent
+        assert target is mini
+
     @pytest.mark.asyncio
     async def test_command_outside_puzzle_channel_sends_error_and_skips_service(self):
         cog = make_cog(None)

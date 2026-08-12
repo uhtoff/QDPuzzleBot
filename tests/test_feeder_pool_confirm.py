@@ -51,6 +51,19 @@ async def test_a_mini_with_no_parent_confirms_nothing():
     claim_db.set_confirmed_for_target.assert_not_called()
 
 
+async def test_a_mini_with_its_type_retagged_still_confirms_on_solve():
+    """puzzle_type is user-settable via !type/the dashboard, and this codebase
+    deliberately never gates on it (bot/web/data.py). parent_puzzle_id alone is
+    the structural signal -- a solver running !type must not silently break
+    confirm-on-solve for a mini's feeder claims."""
+    svc = _service()
+    retagged = make_puzzle(
+        id=101, name="Mini 101", puzzle_type="Cryptic", parent_puzzle_id=100)
+    with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
+        await svc.confirm_feeder_claims(retagged, confirmed=True)
+    claim_db.set_confirmed_for_target.assert_called_once_with(101, True)
+
+
 async def test_confirming_targets_the_solved_mini_and_not_its_sibling():
     """Two minis under the same parent — a hook that confirmed by POOL rather than
     by TARGET would pass with only one mini in the test."""
