@@ -19,7 +19,8 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb, FeederPoolDb, FeederClaimDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core.feeder_pool import diff_ticks, parse_ticks, KEY_PREFIX, NOTE_COLUMN
+from bot.core.feeder_pool import (
+    diff_ticks, parse_ticks, target_id_from_label, KEY_PREFIX, NOTE_COLUMN)
 from bot.core import category_layout, hunt_archive, media_gc
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -2784,7 +2785,9 @@ class PuzzleService:
 
         Returns a report dict (added/dropped claim pairs, contested/homeless
         item ids), or None if there is nothing to sync (no sheets cog, or no
-        matrix tab yet).
+        matrix tab yet). If the tab reads back with no recognisable tick column
+        it returns {"error": <user-facing text>} having changed nothing --
+        see the guard below for why that is not the same as "all unticked".
         """
         if hunt is None or minimeta is None:
             return None
@@ -2797,6 +2800,23 @@ class PuzzleService:
         known_target_ids = {minimeta.id} | {m.id for m in minis}
 
         header, grid = await gsheet_cog.read_feeder_matrix(minimeta.feeder_tab_page_id)
+        # A read with no recognisable tick column is evidence the READ is
+        # unusable, NOT evidence that every box is unticked. read_feeder_matrix
+        # returns ([], []) for a deleted tab or an empty range, and a solver who
+        # deletes the header row leaves every label unidentifiable -- in either
+        # case parse_ticks yields no ticks for anyone and diff_ticks would
+        # unclaim every unconfirmed claim held by the minimeta and all its minis
+        # at once, reported as an ordinary "Unclaimed: N". Abort before any claim
+        # is touched.
+        if not any(target_id_from_label(label) in known_target_ids
+                   for label in header):
+            return {"error": (
+                f"Could not read **{minimeta.name}**'s feeder matrix — the tab, "
+                f"or its header row, is missing. Nothing was changed: the pool "
+                f"and every claim are untouched. The bot rebuilds the tab on the "
+                f"next pool change (e.g. `!add_feeders` or `!claim_feeder`); "
+                f"run `!sync_claims` again once it is back."
+            )}
         ticks = parse_ticks(header, grid, known_target_ids)
 
         pool_item_ids = [i.id for i in items]

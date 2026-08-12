@@ -1763,6 +1763,10 @@ class Puzzles(commands.Cog):
         report = await self.service.sync_feeder_claims(self.get_hunt(ctx), minimeta)
         if report is None:
             return await ctx.send(":x: Could not sync — no Google Sheets connection.")
+        if report.get("error"):
+            # The sheet read was unusable (tab or header row gone). Nothing was
+            # changed -- see sync_feeder_claims' guard.
+            return await ctx.send(f":x: {report['error']}")
         lines = [
             f"Claimed: {len(report['added'])}",
             f"Unclaimed: {len(report['dropped'])}",

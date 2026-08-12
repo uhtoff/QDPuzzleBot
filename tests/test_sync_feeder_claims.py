@@ -220,3 +220,65 @@ class TestSyncFeederClaims:
         assert await svc.sync_feeder_claims(None, _minimeta()) is None
         assert await svc.sync_feeder_claims(_hunt(), None) is None
         gsheet.read_feeder_matrix.assert_not_awaited()
+
+
+class TestUnreadableMatrix:
+    """A read that yields no recognisable tick column is evidence the READ is
+    unusable, not evidence that every box is unticked.
+
+    read_feeder_matrix returns ([], []) when the tab has been deleted or the
+    range comes back empty, and a solver who deletes the header row leaves every
+    column unidentifiable. Either way parse_ticks yields no ticks for anyone, so
+    an unguarded diff_ticks unclaims every unconfirmed claim held by the minimeta
+    AND all of its minis in one command -- reported as an ordinary "Unclaimed: N".
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_empty_read_touches_no_claim_and_reports_an_error(self):
+        items = [FeederPoolItemData(id=12, text="ALBATROSS"),
+                 FeederPoolItemData(id=13, text="MARZIPAN")]
+        claims = [FeederClaimData(id=1, item_id=12, target_id=10, confirmed=False),
+                  FeederClaimData(id=2, item_id=13, target_id=3, confirmed=False)]
+        svc, _gsheet = _svc([], [], items, claims, [_mini()])
+
+        report = await svc.sync_feeder_claims(_hunt(), _minimeta())
+
+        svc.unclaim_feeder.assert_not_called()
+        svc.claim_feeder.assert_not_called()
+        assert report["error"]
+        assert "added" not in report and "dropped" not in report
+        # Aborts before the re-renders too -- there is nothing to reflect.
+        svc.refresh_feeder_matrix.assert_not_awaited()
+        svc.refresh_minimeta.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_deleted_header_row_touches_no_claim_and_reports_an_error(self):
+        # A solver deleted row 1, so what reads back as the header is a DATA row:
+        # every label is unidentifiable and target_id_from_label returns None.
+        header = ["f:12", "ALBATROSS", "9", "", "", "TRUE"]
+        grid = [["f:13", "MARZIPAN", "8", "", "", ""]]
+        items = [FeederPoolItemData(id=12, text="ALBATROSS"),
+                 FeederPoolItemData(id=13, text="MARZIPAN")]
+        claims = [FeederClaimData(id=1, item_id=12, target_id=10, confirmed=False),
+                  FeederClaimData(id=2, item_id=13, target_id=3, confirmed=False)]
+        svc, _gsheet = _svc(header, grid, items, claims, [_mini()])
+
+        report = await svc.sync_feeder_claims(_hunt(), _minimeta())
+
+        svc.unclaim_feeder.assert_not_called()
+        svc.claim_feeder.assert_not_called()
+        assert report["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_header_of_only_foreign_columns_touches_no_claim(self):
+        # Every id-bearing column belongs to a target that no longer exists, so
+        # there is nothing of ours to read -- same rule.
+        header = ["key", "item", "Len", "note", "Mini Z #77", "Mini Y #88"]
+        items = [FeederPoolItemData(id=12, text="ALBATROSS")]
+        claims = [FeederClaimData(id=1, item_id=12, target_id=10, confirmed=False)]
+        svc, _gsheet = _svc(header, [], items, claims, [_mini()])
+
+        report = await svc.sync_feeder_claims(_hunt(), _minimeta())
+
+        svc.unclaim_feeder.assert_not_called()
+        assert report["error"]

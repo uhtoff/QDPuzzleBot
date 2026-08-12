@@ -529,6 +529,27 @@ class TestSyncClaims:
         assert ":x:" in ctx.send.call_args[0][0]
 
     @pytest.mark.asyncio
+    async def test_an_unreadable_matrix_reports_the_service_error_verbatim(self):
+        """The service refuses to sync from a tab it could not read; the command
+        must surface that as an error, not fall through to a "Synced" report with
+        every count at zero."""
+        from unittest.mock import AsyncMock
+
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        parent.feeder_tab_page_id = 500
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.sync_feeder_claims = AsyncMock(
+            return_value={"error": "the tab is missing"})
+
+        await Puzzles.sync_claims.callback(cog, ctx)
+
+        msg = ctx.send.call_args[0][0]
+        assert ":x:" in msg
+        assert "the tab is missing" in msg
+        assert "Synced" not in msg
+
+    @pytest.mark.asyncio
     async def test_reports_the_sync_outcome(self):
         from unittest.mock import AsyncMock
 
