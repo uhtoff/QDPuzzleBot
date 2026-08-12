@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, discord.py 2.7.1, MariaDB, Google Sheets API v4 (`google-api-python-client==2.198.0`), pytest (`asyncio_mode = auto`), ruff (pyflakes), basedpyright.
 
-**Spec:** `docs/superpowers/specs/2026-08-12-feeder-pool-design.md` — authoritative, and **revised** on 2026-08-12. Read its "Sheet surfaces" section before starting: the original two-table design was unbuildable and is superseded.
+**Spec:** `docs/superpowers/specs/2026-08-12-feeder-pool-design.md` — authoritative, and **revised** on 2026-08-12. Read its "Sheet surfaces" section before starting; the original two-table design is superseded. Note the correction recorded there: two bot tables *can* share a tab when they occupy different column bands — what ruled the per-mini design out was that Mini tabs have no free band and no promote path to make one.
 
 **Plan 1 (shipped, `97d2d75..d280b93`)** provides everything below the sheet layer: the two tables, the DAOs, six bang commands, confirm-on-solve, and the pure helpers `claim_state`, `rival_names`, `provided_item_ids`, `diff_ticks`. The last two are written and tested but **called by nothing yet** — this plan consumes them.
 
