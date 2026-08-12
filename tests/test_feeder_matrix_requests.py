@@ -11,7 +11,8 @@ tests/test_contribution_table_requests.py's own honesty about this split.
 import asyncio
 
 from bot.cogs.puzzles_gsheet import GoogleSheets
-from bot.core.feeder_pool import matrix_header, matrix_rows, parse_ticks
+from bot.core.feeder_pool import (
+    REMOVED_COLUMN, matrix_header, matrix_rows, parse_ticks)
 from bot.core.sheet_tables import feeder_matrix_table_name
 from bot.store.feeder_pool_data import FeederClaimData, FeederPoolItemData
 from bot.store.puzzle_data import PuzzleData
@@ -228,7 +229,53 @@ def test_render_feeder_matrix_widens_the_table_for_a_new_mini_column():
                  for r in body["requests"] if "updateTable" in r)
     assert widen["table"]["tableId"] == "T"
     assert widen["table"]["range"]["endColumnIndex"] == len(matrix_header(minimeta, minis)) == 7
-    assert widen["fields"] == "range"
+
+
+def test_render_types_a_column_the_widen_adds_as_a_checkbox():
+    """Probed live 2026-08-12 (scripts/diagnose_feeder_matrix.py, Q5): a column
+    the Table GAINS via updateTable {"fields": "range"} comes back with NO
+    columnType, so a mini added after the tab was created would get a column with
+    no checkbox in it. Re-sending columnProperties under the wider mask fixes it
+    (Q5b). Note the row-growth case is different and does survive (Q2)."""
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    minis = _minis()
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(6)]}]
+
+    _updates, batch_calls, _get, _reconcile = _run_render(minimeta, [], minis, [], sheets)
+
+    widen = next(r["updateTable"] for body in batch_calls
+                 for r in body["requests"] if "updateTable" in r)
+    assert widen["fields"] == "range,columnProperties"
+    props = {p["columnIndex"]: p for p in widen["table"]["columnProperties"]}
+    header = matrix_header(minimeta, minis)
+    assert len(props) == len(header) == 7
+    for i in range(4):                      # key, item, Len, note
+        assert "columnType" not in props[i]
+    for i in range(4, 7):                   # main + both minis, incl. the new one
+        assert props[i]["columnType"] == "BOOLEAN"
+        assert props[i]["columnName"] == header[i]
+
+
+def test_render_never_sends_an_empty_column_name_with_the_widen():
+    """Probed live (Q5c): updateTable rejects columnProperties carrying an empty
+    columnName -- "Table header row cell must have a value" -- and Sheets renames
+    an emptied header cell to "Column N" anyway (Q6a). So a departed target's
+    column is labelled, not left blank."""
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    minis = [_puzzle(103, "Mini 3")]        # #101 and #102 are both gone
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(7)]}]
+
+    updates, batch_calls, _get, _reconcile = _run_render(
+        minimeta, [], minis, [], sheets, existing_header=HEAD_2)
+
+    header = _written_header(updates)
+    assert all(label for label in header), header
+    assert header[5] == header[6] == REMOVED_COLUMN
+    widen = next(r["updateTable"] for body in batch_calls
+                 for r in body["requests"] if "updateTable" in r)
+    assert all(p["columnName"] for p in widen["table"]["columnProperties"])
 
 
 def test_render_feeder_matrix_writes_true_for_a_confirmed_claim():
@@ -300,7 +347,7 @@ def test_render_keeps_the_surviving_minis_column_when_the_first_is_deleted():
 
     header = _written_header(updates)
     assert header[6] == "Mini 2 #102"    # unmoved
-    assert header[5] == ""               # the deleted mini's column, blanked
+    assert header[5] == REMOVED_COLUMN   # the deleted mini's column, retired
     # ... and its data cells are cleared, so no tick outlives its target.
     clear = next(r["updateCells"] for body in batch_calls
                  for r in body["requests"] if "updateCells" in r
@@ -343,13 +390,14 @@ def test_render_keeps_both_neighbours_when_the_middle_mini_is_deleted():
 
     header = _written_header(updates)
     assert header == ["key", "item", "Len", "note",
-                      "main #100", "Mini 1 #101", "", "Mini 3 #103"]
+                      "main #100", "Mini 1 #101", REMOVED_COLUMN, "Mini 3 #103"]
 
 
 def test_render_pads_the_header_write_out_over_a_stale_label():
     """values.update never truncates, so a header shorter than the Table would
     leave the old rightmost label in place -- a second column for a target that
-    already has one, which parse_ticks would then union."""
+    already has one, which parse_ticks would then union. The pad cells land
+    INSIDE the Table, so they are named rather than emptied (probe Q5c/Q6a)."""
     minimeta = _minimeta(feeder_tab_page_id=500)
     survivor = _puzzle(102, "Mini 2")
     sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
@@ -360,7 +408,8 @@ def test_render_pads_the_header_write_out_over_a_stale_label():
 
     header = _written_header(updates)
     assert len(header) == 9
-    assert header[7:] == ["", ""]
+    assert header[7:] == [REMOVED_COLUMN, REMOVED_COLUMN]
+    assert "Mini 1 #101" not in header      # the stale label is gone
 
 
 def test_render_writes_a_confirmed_tick_into_the_stable_column():

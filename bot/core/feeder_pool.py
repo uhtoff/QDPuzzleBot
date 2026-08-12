@@ -106,6 +106,13 @@ KEY_PREFIX = "f:"
 BOT_COLUMNS = ["key", "item", "Len"]
 NOTE_COLUMN = "note"
 MAIN_COLUMN = "main"
+# What a departed target's tick column is retitled to. NOT "": a native Table
+# rejects columnProperties carrying an empty columnName ("Table header row cell
+# must have a value"), and Sheets silently renames an emptied header cell to
+# "Column N" anyway — both probed live 2026-08-12 (scripts/diagnose_feeder_matrix.py,
+# Q5c and Q6a). It carries no "#<id>", so target_id_from_label returns None for it
+# and parse_ticks ignores the column, which is the whole point.
+REMOVED_COLUMN = "(removed)"
 
 
 def feeder_length(text):
@@ -178,16 +185,17 @@ def stable_matrix_header(existing, minimeta, minis):
       * a surviving target keeps its current index, with its label refreshed so a
         rename is picked up (the id in the label is what identifies it, never the
         name — see target_column_label);
-      * a target that is gone has its label blanked and its index returned for the
-        caller to clear. Its ticks are meaningless and must not be inherited;
-        parse_ticks already ignores a column with no id, so the gap is harmless;
+      * a target that is gone has its label replaced with REMOVED_COLUMN and its
+        index returned for the caller to clear. Its ticks are meaningless and must
+        not be inherited; parse_ticks already ignores a column with no id, so the
+        retired column is harmless;
       * a second column carrying an id already placed is a duplicate left behind by
-        the re-packing bug, and is blanked the same way;
+        the re-packing bug, and is retired the same way;
       * a column with NO id is a solver's own — left completely alone;
       * a genuinely new target is APPENDED to the far right, never dropped into a
-        blanked gap: the gap only stops being dangerous once its clearing write has
-        actually landed, and a stray "" column is much cheaper than inheriting
-        someone else's ticks.
+        retired column: that column only stops being dangerous once its clearing
+        write has actually landed, and a spare column is much cheaper than
+        inheriting someone else's ticks.
 
     `existing` that carries no recognisable column at all (a blank tab, or a header
     row a solver deleted, leaving a DATA row in row 1) is not a record of anything —
@@ -209,7 +217,7 @@ def stable_matrix_header(existing, minimeta, minis):
             continue
         label = wanted.pop(target_id, None)
         if label is None:
-            header[idx] = ""
+            header[idx] = REMOVED_COLUMN
             blanked.append(idx)
         else:
             header[idx] = label

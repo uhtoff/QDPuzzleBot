@@ -5,6 +5,7 @@ from bot.core.feeder_pool import (
     feeder_length,
     matrix_header,
     matrix_rows,
+    REMOVED_COLUMN,
     parse_ticks,
     stable_matrix_header,
     target_id_from_label,
@@ -158,7 +159,8 @@ HEAD_3 = ["key", "item", "Len", "note", "main #100", "Mini 1 #101", "Mini 2 #102
 
 def test_deleting_the_first_mini_leaves_the_second_where_it_is():
     header, blanked = stable_matrix_header(HEAD_3, MINIMETA, [MINI_2])
-    assert header == ["key", "item", "Len", "note", "main #100", "", "Mini 2 #102"]
+    assert header == ["key", "item", "Len", "note",
+                      "main #100", REMOVED_COLUMN, "Mini 2 #102"]
     assert blanked == [5]
     # The naive rebuild would have put Mini 2 at index 5, over Mini 1's ticks.
     assert matrix_header(MINIMETA, [MINI_2]).index("Mini 2 #102") == 5
@@ -169,18 +171,19 @@ def test_deleting_a_middle_mini_moves_neither_of_its_neighbours():
     existing = HEAD_3 + ["Mini 3 #103"]
     header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_1, mini_3])
     assert header == ["key", "item", "Len", "note",
-                      "main #100", "Mini 1 #101", "", "Mini 3 #103"]
+                      "main #100", "Mini 1 #101", REMOVED_COLUMN, "Mini 3 #103"]
     assert blanked == [6]
 
 
 def test_a_new_mini_is_appended_and_never_reuses_a_blanked_gap():
     """A gap is only safe once its clearing write has landed; appending costs a
     column and cannot inherit anyone's ticks."""
-    existing = ["key", "item", "Len", "note", "main #100", "", "Mini 2 #102"]
+    existing = ["key", "item", "Len", "note",
+                "main #100", REMOVED_COLUMN, "Mini 2 #102"]
     mini_4 = Target(104, "Mini 4")
     header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_2, mini_4])
-    assert header == ["key", "item", "Len", "note",
-                      "main #100", "", "Mini 2 #102", "Mini 4 #104"]
+    assert header == ["key", "item", "Len", "note", "main #100", REMOVED_COLUMN,
+                      "Mini 2 #102", "Mini 4 #104"]
     assert blanked == []
 
 
@@ -203,7 +206,8 @@ def test_a_duplicated_id_left_by_the_repacking_bug_is_blanked():
     behind; parse_ticks would union them, handing one mini another's claims."""
     existing = ["key", "item", "Len", "note", "main #100", "Mini 2 #102", "Mini 2 #102"]
     header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_2])
-    assert header == ["key", "item", "Len", "note", "main #100", "Mini 2 #102", ""]
+    assert header == ["key", "item", "Len", "note",
+                      "main #100", "Mini 2 #102", REMOVED_COLUMN]
     assert blanked == [6]
 
 

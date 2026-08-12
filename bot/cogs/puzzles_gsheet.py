@@ -17,8 +17,8 @@ from bot.core.sheet_tables import (
     feeder_matrix_table_name, select_table,
 )
 from bot.core.feeder_pool import (
-    BOT_COLUMNS, KEY_PREFIX, matrix_header, matrix_rows, provided_item_ids,
-    stable_matrix_header, target_id_from_label,
+    BOT_COLUMNS, KEY_PREFIX, REMOVED_COLUMN, matrix_header, matrix_rows,
+    provided_item_ids, stable_matrix_header, target_id_from_label,
 )
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
@@ -1094,10 +1094,13 @@ class GoogleSheets(commands.Cog):
         Modelled on ensure_unassigned_table, not on _add_contribution_table: it is
         the only existing path that passes `columnProperties`, which is where the
         BOOLEAN column type goes. addTable spans ONLY the header row — growing
-        the Table later via reconcile_table's `updateTable {"fields": "range"}`
-        never touches columnProperties, so the type survives (probed live against
-        a real spreadsheet 2026-08-12; see
-        docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md).
+        the Table over more ROWS via reconcile_table's `updateTable {"fields":
+        "range"}` never touches columnProperties, so the type survives that
+        (probed live against a real spreadsheet 2026-08-12; see
+        docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md). Growing it over
+        more COLUMNS does NOT: the gained column comes back with no columnType at
+        all, so render_feeder_matrix re-sends columnProperties with its widen
+        (same probe, Q5).
 
         Returns the tab's sheetId (a tab pointer, like google_page_id /
         rollups.tab_page_id — NOT a native Table id) for the caller to persist.
@@ -1691,19 +1694,37 @@ class GoogleSheets(commands.Cog):
         table_end = (table or {}).get("range", {}).get("endColumnIndex", 0)
         # Pad the write out over everything that is currently there, so a label
         # left by an older, narrower header cannot survive as a second column for
-        # a target that already has one.
+        # a target that already has one. A pad cell that lands INSIDE the Table is
+        # named rather than emptied: a Table refuses an empty header cell (probed,
+        # Q5c) and Sheets renames one to "Column N" behind our back anyway (Q6a).
         width = max(len(header), len(existing_header), table_end)
         padded = header + [""] * (width - len(header))
+        table_span = max(table_end, len(header)) if table is not None else 0
+        padded = [label or REMOVED_COLUMN if i < table_span else label
+                  for i, label in enumerate(padded)]
         await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [padded])
 
+        first_tick = len(BOT_COLUMNS) + 1
         requests = []
         if table is not None and table_end < len(header):
+            # columnProperties must be re-sent WITH the widen: a column the Table
+            # gains under `"fields": "range"` alone comes back with no columnType
+            # at all, so a mini added after the tab was made would get a column
+            # with no checkbox in it — probed live 2026-08-12 (Q5a FAIL, Q5b PASS;
+            # scripts/diagnose_feeder_matrix.py). Row growth is the different case
+            # that does survive (Q2). Every name here is non-empty by construction
+            # (see the padding above), which the Table API requires.
             requests.append({"updateTable": {
                 "table": {
                     "tableId": table.get("tableId"),
                     "range": {**table["range"], "endColumnIndex": len(header)},
+                    "columnProperties": [
+                        {"columnIndex": i, "columnName": padded[i],
+                         **({"columnType": "BOOLEAN"} if i >= first_tick else {})}
+                        for i in range(len(header))
+                    ],
                 },
-                "fields": "range",
+                "fields": "range,columnProperties",
             }})
         for idx in blanked:
             # Clear the departed target's data cells too (row 1 down, unbounded):

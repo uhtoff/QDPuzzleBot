@@ -90,6 +90,22 @@ supplied for this purpose). Raw output is in the commit that added this section.
 | **Q2** the type survives `updateTable {"fields": "range"}` as the table grows | **PASS** — BOOLEAN still on indices 4 and 5 afterwards |
 | **Q3** a **ticked** cell reads back through `values().get` as | the **string** `'TRUE'` |
 | **Q4** an **all-unticked** BOOLEAN column reads back as | the **string** `'FALSE'` — *not* blank, and `values` **is** present |
+| **Q5a** the type is applied to a column the table **GAINS** via `updateTable {"fields": "range"}` | **FAIL** — the new column comes back with **no** `columnType` (BOOLEAN still only on 4, 5) |
+| **Q5b** re-sending `columnProperties` under `"fields": "range,columnProperties"` types it | **PASS** — BOOLEAN on 4, 5, 6 |
+| **Q5c** `columnProperties` may carry an **empty** `columnName` | **FAIL** — HTTP 400 *"Table header row cell must have a value"* |
+| **Q6a** an emptied header cell inside a Table stays empty | **No** — Sheets renames it `Column N` and keeps the BOOLEAN type |
+| **Q6b** a widen with `"fields": "range"` alone over an empty header cell | **PASS** — only the `columnProperties` payload rejects empties |
+| **Q6c** two retired columns may share one placeholder name | **PASS** — duplicate `columnName`s accepted |
+
+**Q5/Q6 were added by the post-feature review (2026-08-12).** Q2 probed **row** growth
+only; **column** growth behaves differently and had never been probed. Consequences, both
+now in `render_feeder_matrix`:
+
+- the widen sends `"fields": "range,columnProperties"` with the full column list, or a mini
+  added after the tab was created gets a column with no checkbox in it;
+- a departed target's column is retitled `REMOVED_COLUMN` (`"(removed)"`), never emptied —
+  Q5c rejects an empty `columnName` outright and Q6a shows an emptied header cell is not
+  really empty anyway. It carries no `#<id>`, so `parse_ticks` ignores it, which is the point.
 
 **Q4 contradicted the assumption in this plan.** It predicted blanks, or `values` omitted
 entirely. Real behaviour is an explicit `'FALSE'` per cell. `parse_ticks` treats anything
