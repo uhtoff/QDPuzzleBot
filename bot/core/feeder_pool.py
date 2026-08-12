@@ -161,6 +161,62 @@ def matrix_header(minimeta, minis):
     )
 
 
+def stable_matrix_header(existing, minimeta, minis):
+    """The header row to WRITE, keeping every surviving target's column WHERE IT IS.
+
+    Returns (header, blanked_indices) — the row to write, and the indices whose
+    data cells the caller must clear.
+
+    matrix_header derives a column's position from list position, so deleting a
+    mini re-packs every label to its left while the tick data underneath does not
+    move: the next read attributes the deleted mini's ticks to its right-hand
+    neighbour, and a confirmed tick is written over the wrong column. A position
+    must therefore be a property of the SHEET, not of the current mini list —
+    `existing` (the header row as it currently reads back) is that record.
+
+    The rules:
+      * a surviving target keeps its current index, with its label refreshed so a
+        rename is picked up (the id in the label is what identifies it, never the
+        name — see target_column_label);
+      * a target that is gone has its label blanked and its index returned for the
+        caller to clear. Its ticks are meaningless and must not be inherited;
+        parse_ticks already ignores a column with no id, so the gap is harmless;
+      * a second column carrying an id already placed is a duplicate left behind by
+        the re-packing bug, and is blanked the same way;
+      * a column with NO id is a solver's own — left completely alone;
+      * a genuinely new target is APPENDED to the far right, never dropped into a
+        blanked gap: the gap only stops being dangerous once its clearing write has
+        actually landed, and a stray "" column is much cheaper than inheriting
+        someone else's ticks.
+
+    `existing` that carries no recognisable column at all (a blank tab, or a header
+    row a solver deleted, leaving a DATA row in row 1) is not a record of anything —
+    the canonical header is written instead, which also repairs it.
+    """
+    desired = matrix_header(minimeta, minis)
+    first_tick = len(BOT_COLUMNS) + 1
+    existing = [str(cell) for cell in (existing or [])]
+    wanted = {target_id_from_label(label): label for label in desired[first_tick:]}
+    if not any(target_id_from_label(label) in wanted
+               for label in existing[first_tick:]):
+        return desired, []
+
+    header = desired[:first_tick] + existing[first_tick:]
+    blanked = []
+    for idx in range(first_tick, len(header)):
+        target_id = target_id_from_label(header[idx])
+        if target_id is None:
+            continue
+        label = wanted.pop(target_id, None)
+        if label is None:
+            header[idx] = ""
+            blanked.append(idx)
+        else:
+            header[idx] = label
+    header.extend(wanted.values())
+    return header, blanked
+
+
 def matrix_rows(items):
     """Desired rows for reconcile_table — the BOT-OWNED columns only.
 

@@ -18,7 +18,7 @@ from bot.core.sheet_tables import (
 )
 from bot.core.feeder_pool import (
     BOT_COLUMNS, KEY_PREFIX, matrix_header, matrix_rows, provided_item_ids,
-    target_id_from_label,
+    stable_matrix_header, target_id_from_label,
 )
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
@@ -1638,6 +1638,14 @@ class GoogleSheets(commands.Cog):
         reconcile_table, header + Table span kept in step with the current mini
         set, and confirmed claims re-ticked.
 
+        A tick column's position is a property of the SHEET, not of the mini list:
+        the existing header row is read back first and every surviving target keeps
+        the column it already had (see stable_matrix_header). Deleting a mini must
+        not re-pack the labels — the tick data underneath does not move with them,
+        so the next read would attribute the deleted mini's ticks to its right-hand
+        neighbour, and the confirmed-tick write below (which reads the same header)
+        would land on the wrong column.
+
         note and every tick column stay OUTSIDE reconcile_table's write range
         (data_col_count=3) — they are the solver's. The one deliberate exception
         is a CONFIRMED claim's own tick: solving proved it, so this writes TRUE
@@ -1656,7 +1664,6 @@ class GoogleSheets(commands.Cog):
         if page_id is None:
             return
         spreadsheet_id = self.get_spreadsheet_id()
-        header = matrix_header(minimeta, minis)
         table_name = feeder_matrix_table_name(page_id)
 
         sheet = None
@@ -1668,21 +1675,48 @@ class GoogleSheets(commands.Cog):
             return
         safe_name = sheet["properties"]["title"].replace("'", "''")
 
-        # A mini created/deleted since the tab was made adds/removes a column at
-        # the far right (matrix_header always appends new minis last, so nothing
-        # already on the sheet moves) — keep the header text and the Table's own
-        # column span in step with it. Plain overwrite: the header row carries no
-        # solver data, so there is nothing to diff.
-        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [header])
+        # A mini created or deleted since the tab was made changes the tick
+        # columns — but a column's position must NOT come from the current mini
+        # list. values.update writes exactly as many cells as the data has and
+        # never truncates, so a rebuilt header re-packs every label one column
+        # left of a deletion while the tick data underneath stays put: the next
+        # read hands the deleted mini's ticks to its neighbour. The header row as
+        # it currently reads back is the record of who owns which column, so read
+        # it and keep every survivor where it is (stable_matrix_header).
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!1:1")
+        existing_header = ((resp.get("values") or [[]]) or [[]])[0]
+        header, blanked = stable_matrix_header(existing_header, minimeta, minis)
+
         table = select_table(sheet.get("tables"), table_name)
-        if table is not None and table.get("range", {}).get("endColumnIndex", 0) < len(header):
-            await self.batch_update({"requests": [{"updateTable": {
+        table_end = (table or {}).get("range", {}).get("endColumnIndex", 0)
+        # Pad the write out over everything that is currently there, so a label
+        # left by an older, narrower header cannot survive as a second column for
+        # a target that already has one.
+        width = max(len(header), len(existing_header), table_end)
+        padded = header + [""] * (width - len(header))
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [padded])
+
+        requests = []
+        if table is not None and table_end < len(header):
+            requests.append({"updateTable": {
                 "table": {
                     "tableId": table.get("tableId"),
                     "range": {**table["range"], "endColumnIndex": len(header)},
                 },
                 "fields": "range",
-            }}]})
+            }})
+        for idx in blanked:
+            # Clear the departed target's data cells too (row 1 down, unbounded):
+            # its ticks are meaningless, and leaving them would let a later
+            # column reuse hand them to somebody else. `rows` omitted clears the
+            # range for the fields given.
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": 1,
+                          "startColumnIndex": idx, "endColumnIndex": idx + 1},
+                "fields": "userEnteredValue",
+            }})
+        if requests:
+            await self.batch_update({"requests": requests})
 
         await self.reconcile_table(
             page_id=page_id,

@@ -6,6 +6,7 @@ from bot.core.feeder_pool import (
     matrix_header,
     matrix_rows,
     parse_ticks,
+    stable_matrix_header,
     target_id_from_label,
 )
 
@@ -145,3 +146,90 @@ def test_parse_ticks_skips_rows_with_an_unparsable_key():
     header = ["key", "item", "Len", "note", "main #100"]
     grid = [["", "", "", "", "TRUE"], ["f:13", "B", "1", "", "TRUE"]]
     assert parse_ticks(header, grid, [100]) == {100: [13]}
+
+
+# --- stable_matrix_header: a column's index belongs to the SHEET ------------
+#
+# Every case uses at least two minis, arranged so that a re-packing
+# implementation (matrix_header's own list order) disagrees with a stable one.
+
+HEAD_3 = ["key", "item", "Len", "note", "main #100", "Mini 1 #101", "Mini 2 #102"]
+
+
+def test_deleting_the_first_mini_leaves_the_second_where_it_is():
+    header, blanked = stable_matrix_header(HEAD_3, MINIMETA, [MINI_2])
+    assert header == ["key", "item", "Len", "note", "main #100", "", "Mini 2 #102"]
+    assert blanked == [5]
+    # The naive rebuild would have put Mini 2 at index 5, over Mini 1's ticks.
+    assert matrix_header(MINIMETA, [MINI_2]).index("Mini 2 #102") == 5
+
+
+def test_deleting_a_middle_mini_moves_neither_of_its_neighbours():
+    mini_3 = Target(103, "Mini 3")
+    existing = HEAD_3 + ["Mini 3 #103"]
+    header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_1, mini_3])
+    assert header == ["key", "item", "Len", "note",
+                      "main #100", "Mini 1 #101", "", "Mini 3 #103"]
+    assert blanked == [6]
+
+
+def test_a_new_mini_is_appended_and_never_reuses_a_blanked_gap():
+    """A gap is only safe once its clearing write has landed; appending costs a
+    column and cannot inherit anyone's ticks."""
+    existing = ["key", "item", "Len", "note", "main #100", "", "Mini 2 #102"]
+    mini_4 = Target(104, "Mini 4")
+    header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_2, mini_4])
+    assert header == ["key", "item", "Len", "note",
+                      "main #100", "", "Mini 2 #102", "Mini 4 #104"]
+    assert blanked == []
+
+
+def test_a_renamed_mini_keeps_its_column_and_gets_the_new_name():
+    renamed = Target(101, "Renamed")
+    header, _blanked = stable_matrix_header(HEAD_3, MINIMETA, [renamed, MINI_2])
+    assert header[5] == "Renamed #101"
+    assert header[6] == "Mini 2 #102"
+
+
+def test_a_solvers_own_column_is_left_alone():
+    existing = HEAD_3 + ["my working"]
+    header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_1, MINI_2])
+    assert header == existing
+    assert blanked == []
+
+
+def test_a_duplicated_id_left_by_the_repacking_bug_is_blanked():
+    """Two columns claiming the same target is exactly what the old rebuild left
+    behind; parse_ticks would union them, handing one mini another's claims."""
+    existing = ["key", "item", "Len", "note", "main #100", "Mini 2 #102", "Mini 2 #102"]
+    header, blanked = stable_matrix_header(existing, MINIMETA, [MINI_2])
+    assert header == ["key", "item", "Len", "note", "main #100", "Mini 2 #102", ""]
+    assert blanked == [6]
+
+
+def test_an_unrecognisable_row_is_replaced_by_the_canonical_header():
+    """A blank tab, or a header row a solver deleted (leaving a DATA row in row
+    1), records nothing -- rebuild rather than preserve its cells."""
+    assert stable_matrix_header([], MINIMETA, [MINI_1]) == \
+        (matrix_header(MINIMETA, [MINI_1]), [])
+    data_row = ["f:12", "ALBATROSS", "9", "", "TRUE", ""]
+    assert stable_matrix_header(data_row, MINIMETA, [MINI_1]) == \
+        (matrix_header(MINIMETA, [MINI_1]), [])
+
+
+def test_the_bot_owned_prefix_is_always_canonical():
+    existing = ["", "", "", "", "main #100", "Mini 1 #101", "Mini 2 #102"]
+    header, _blanked = stable_matrix_header(existing, MINIMETA, [MINI_1, MINI_2])
+    assert header[:4] == ["key", "item", "Len", "note"]
+
+
+def test_ticks_are_not_inherited_by_the_surviving_mini():
+    """The end-to-end point of all of the above: read the resulting header back
+    over the UNMOVED tick data and nothing of Mini 1's lands on Mini 2."""
+    header, _blanked = stable_matrix_header(HEAD_3, MINIMETA, [MINI_2])
+    grid = [
+        ["f:12", "ALBATROSS", "9", "", "", "TRUE", ""],    # was Mini 1's tick
+        ["f:13", "MARZIPAN", "8", "", "", "", "TRUE"],     # is Mini 2's tick
+    ]
+    ticks = parse_ticks(header, grid, {100, 102})
+    assert ticks == {100: [], 102: [13]}

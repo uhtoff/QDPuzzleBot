@@ -11,7 +11,7 @@ tests/test_contribution_table_requests.py's own honesty about this split.
 import asyncio
 
 from bot.cogs.puzzles_gsheet import GoogleSheets
-from bot.core.feeder_pool import matrix_header, matrix_rows
+from bot.core.feeder_pool import matrix_header, matrix_rows, parse_ticks
 from bot.core.sheet_tables import feeder_matrix_table_name
 from bot.store.feeder_pool_data import FeederClaimData, FeederPoolItemData
 from bot.store.puzzle_data import PuzzleData
@@ -140,7 +140,10 @@ def _table(end_col):
                       "startColumnIndex": 0, "endColumnIndex": end_col}}
 
 
-def _run_render(minimeta, items, minis, claims, existing_sheets):
+def _run_render(minimeta, items, minis, claims, existing_sheets, existing_header=None):
+    """`existing_header` is the header row as it currently reads back off the tab
+    -- the record of which column belongs to which target. None means an empty
+    row 1 (a tab written for the first time)."""
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
 
@@ -164,6 +167,8 @@ def _run_render(minimeta, items, minis, claims, existing_sheets):
 
     async def _fake_values_get(spreadsheet_id, a1_range):
         values_get_calls.append(a1_range)
+        if a1_range.endswith("!1:1"):
+            return {"values": [existing_header]} if existing_header else {}
         return {"values": [["key"]] + [[f"f:{i.id}"] for i in items]}
     cog._values_get = _fake_values_get
 
@@ -237,7 +242,7 @@ def test_render_feeder_matrix_writes_true_for_a_confirmed_claim():
 
     _updates, batch_calls, get_calls, _reconcile = _run_render(minimeta, items, minis, claims, sheets)
 
-    assert get_calls == ["'Feeders'!A:A"]
+    assert get_calls == ["'Feeders'!1:1", "'Feeders'!A:A"]
     write = next(r["updateCells"] for body in batch_calls for r in body["requests"]
                  if "updateCells" in r
                  and r["updateCells"]["rows"][0]["values"][0]
@@ -259,7 +264,8 @@ def test_render_feeder_matrix_leaves_an_unconfirmed_claim_untouched():
 
     _updates, batch_calls, get_calls, _reconcile = _run_render(minimeta, items, minis, claims, sheets)
 
-    assert get_calls == []   # no need to even read the key column back
+    # No need to read the key column back -- only the header row is read.
+    assert "'Feeders'!A:A" not in get_calls
     assert not any("updateCells" in r for body in batch_calls for r in body["requests"])
 
 
@@ -267,6 +273,115 @@ def test_render_feeder_matrix_is_a_noop_without_a_tab():
     minimeta = _minimeta(feeder_tab_page_id=None)
     updates, batch_calls, get_calls, reconcile_calls = _run_render(minimeta, [], [], [], [])
     assert updates == [] and batch_calls == [] and get_calls == [] and reconcile_calls == []
+
+
+# --- Column stability when a mini is deleted --------------------------------
+#
+# values.update writes exactly as many cells as the data has and never truncates,
+# so a header rebuilt from the CURRENT mini list re-packs every label one column
+# to the left of a deletion while the tick data underneath stays put. Each case
+# uses at least two minis so that a re-packing implementation disagrees.
+
+HEAD_2 = ["key", "item", "Len", "note", "main #100", "Mini 1 #101", "Mini 2 #102"]
+
+
+def _written_header(updates):
+    return next(values[0] for a1, values in updates if a1.endswith("!A1"))
+
+
+def test_render_keeps_the_surviving_minis_column_when_the_first_is_deleted():
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    survivor = _puzzle(102, "Mini 2")          # Mini 1 (#101) has been deleted
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(7)]}]
+
+    updates, batch_calls, _get, _reconcile = _run_render(
+        minimeta, [], [survivor], [], sheets, existing_header=HEAD_2)
+
+    header = _written_header(updates)
+    assert header[6] == "Mini 2 #102"    # unmoved
+    assert header[5] == ""               # the deleted mini's column, blanked
+    # ... and its data cells are cleared, so no tick outlives its target.
+    clear = next(r["updateCells"] for body in batch_calls
+                 for r in body["requests"] if "updateCells" in r
+                 and "rows" not in r["updateCells"])
+    assert clear["range"]["startColumnIndex"] == 5
+    assert clear["range"]["endColumnIndex"] == 6
+    assert clear["range"]["startRowIndex"] == 1      # header row kept
+    assert "endRowIndex" not in clear["range"]       # to the bottom of the tab
+    assert clear["fields"] == "userEnteredValue"
+
+
+def test_the_surviving_mini_does_not_inherit_the_deleted_ones_ticks():
+    """The whole point: read the header the render just wrote back over the tick
+    data, which did NOT move, and nothing of Mini 1's lands on Mini 2."""
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    survivor = _puzzle(102, "Mini 2")
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(7)]}]
+
+    updates, _batch, _get, _reconcile = _run_render(
+        minimeta, [], [survivor], [], sheets, existing_header=HEAD_2)
+
+    grid = [
+        ["f:12", "ALBATROSS", "9", "", "", "TRUE", ""],   # was Mini 1's tick
+        ["f:13", "MARZIPAN", "8", "", "", "", "TRUE"],    # is Mini 2's tick
+    ]
+    ticks = parse_ticks(_written_header(updates), grid, {100, 102})
+    assert ticks == {100: [], 102: [13]}
+
+
+def test_render_keeps_both_neighbours_when_the_middle_mini_is_deleted():
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    minis = [_puzzle(101, "Mini 1"), _puzzle(103, "Mini 3")]   # #102 deleted
+    existing = HEAD_2 + ["Mini 3 #103"]
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(8)]}]
+
+    updates, _batch, _get, _reconcile = _run_render(
+        minimeta, [], minis, [], sheets, existing_header=existing)
+
+    header = _written_header(updates)
+    assert header == ["key", "item", "Len", "note",
+                      "main #100", "Mini 1 #101", "", "Mini 3 #103"]
+
+
+def test_render_pads_the_header_write_out_over_a_stale_label():
+    """values.update never truncates, so a header shorter than the Table would
+    leave the old rightmost label in place -- a second column for a target that
+    already has one, which parse_ticks would then union."""
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    survivor = _puzzle(102, "Mini 2")
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(9)]}]      # Table is wider than the header
+
+    updates, _batch, _get, _reconcile = _run_render(
+        minimeta, [], [survivor], [], sheets, existing_header=HEAD_2)
+
+    header = _written_header(updates)
+    assert len(header) == 9
+    assert header[7:] == ["", ""]
+
+
+def test_render_writes_a_confirmed_tick_into_the_stable_column():
+    """render's own write side reads the same rebuilt header, so a re-packing
+    implementation puts Mini 2's confirmed tick over Mini 1's leftovers."""
+    minimeta = _minimeta(feeder_tab_page_id=500)
+    survivor = _puzzle(102, "Mini 2")
+    items = [FeederPoolItemData(id=12, text="ALBATROSS"),
+             FeederPoolItemData(id=13, text="MARZIPAN")]
+    claims = [FeederClaimData(id=1, item_id=13, target_id=102, confirmed=True)]
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"},
+               "tables": [_table(7)]}]
+
+    _updates, batch_calls, _get, _reconcile = _run_render(
+        minimeta, items, [survivor], claims, sheets, existing_header=HEAD_2)
+
+    write = next(r["updateCells"] for body in batch_calls for r in body["requests"]
+                 if "updateCells" in r
+                 and r["updateCells"].get("rows"))
+    assert write["range"]["startColumnIndex"] == 6      # not 5
+    assert write["range"]["startRowIndex"] == 2         # f:13
 
 
 # --- Task 6: read_feeder_matrix ---------------------------------------------
