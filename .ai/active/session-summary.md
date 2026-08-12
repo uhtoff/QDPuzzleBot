@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: in progress — test(feeders): pin mini-thread claim targeting and the missing-parent guard @ d280b93
+Status: in progress — docs(spec): replace the sheet design with a matrix tab @ c98e547
 
 ## Goal
 
@@ -55,10 +55,12 @@ confirm-on-solve/demote-on-unsolve via the shared `service.solve()`/`unsolve()` 
 
 ## Next steps
 
-1. Write **Plan 2 — sheet surfaces** to `docs/superpowers/plans/`. Covers: the `Feeder Pool`
-   table on the parent tab, the `Feeder Claims` block on each mini tab (with the solver-owned
-   checkbox column), `!sync_feeders`, provided rows on the contribution table, and the shared
-   staleness badge.
+1. Write **Plan 2 — the matrix tab** to `docs/superpowers/plans/`. Covers: migration 044
+   (`puzzles.feeder_tab_page_id`), creating the `Feeders — <name>` tab with BOOLEAN tick
+   columns, adding/removing a column as Minis come and go, `!sync_claims`, provided rows on
+   the contribution table, and the shared staleness badge.
+   **Read the revised "Sheet surfaces" section of the spec first — the original two-table
+   design was unbuildable and is superseded.**
 2. Execute it the same way (subagent per task, two-stage review, mutation checks).
 3. Then Plan 3 (web routes + dashboard panel), per the project's command-parity principle.
 
@@ -81,5 +83,21 @@ tested but **not yet called by anything** — Plan 2 consumes them. That is inte
 
 ## Open questions
 
-- None blocking. Two decisions taken without the user (both flagged, both reversible):
-  case-insensitive dedup, and `!remove_minimeta` tearing down the pool.
+### Blocking Plan 2's completion
+
+- **A live probe against a real Google spreadsheet is required and has NOT been run.**
+  Nothing in this repo sets a checkbox or any data validation, so `columnType: "BOOLEAN"`
+  is unproven here. Three things the mocked suite structurally cannot verify: whether
+  `addTable` accepts `columnType` on a header-only range, what a ticked box reads back as
+  through `values().get` (formatted strings, not bools), and whether an all-unticked column
+  omits `values` entirely. A probe writes to a real spreadsheet — **needs the user's
+  say-so** before running.
+
+### Non-blocking
+
+- Decisions taken without the user, all flagged and reversible: case-insensitive dedup,
+  `!remove_minimeta` tearing down the pool, `!sync_claims` as the command name (the obvious
+  `!sync_feeders` is already an alias of `!sync` and would fail cog load).
+- `select_table`'s lone-unnamed-table fallback (`bot/core/sheet_tables.py:44`) ignores the
+  requested name. The matrix design avoids tripping it, so this is no longer urgent — but it
+  remains a latent trap for anyone who later adds a second table to a tab.
