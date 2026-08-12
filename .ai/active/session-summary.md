@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: in progress — feat(sheets): render the feeder matrix @ 135f89a
+Status: ready for handoff — Plan 2 complete: feat(service): keep the feeder matrix in step with the pool @ ba61513
 
 ## Goal
 
@@ -55,8 +55,9 @@ confirm-on-solve/demote-on-unsolve via the shared `service.solve()`/`unsolve()` 
 
 ## Next steps
 
-1. ~~Write Plan 2~~ **DONE** — `docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md`,
-   8 tasks.
+Plan 2 (`docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md`) is **complete**, all 8 tasks:
+
+1. ~~Write Plan 2~~ **DONE**.
 2. ~~Task 1: live probe~~ **DONE 2026-08-12** (`1495f0e`). Findings recorded in the plan
    file's "Read this before writing any Sheets code" section: BOOLEAN columnType survives
    `addTable`/`updateTable`, and both ticked/unticked cells read back as explicit strings
@@ -65,12 +66,28 @@ confirm-on-solve/demote-on-unsolve via the shared `service.solve()`/`unsolve()` 
    `4e2e0d0`).
 4. ~~Task 4: create the matrix tab~~ **DONE** (`685687c`) — `ensure_feeder_matrix_tab`.
 5. ~~Task 5: render the matrix~~ **DONE** (`135f89a`) — `render_feeder_matrix` +
-   `refresh_feeder_matrix`. Suite 2014 passed, ruff clean, basedpyright 0 errors,
-   `feeder_pool.py` still import-free.
-6. **Tasks 6–8 remain**: `!sync_claims` (pulls ticks back into claims), provided rows on
-   the minimeta's contribution table, and wiring `refresh_feeder_matrix` into the
-   pool-mutating call sites (`add_feeder_items`, `claim_feeder`, `create_mini`, etc.).
-7. Then Plan 3 (web routes + dashboard panel), per the project's command-parity principle.
+   `refresh_feeder_matrix`.
+6. ~~Task 6: `!sync_claims`~~ **DONE** (`9e91fb8`) — `read_feeder_matrix` (one Sheets read
+   of the whole tab) + `sync_feeder_claims` (routes every add/remove through `diff_ticks`,
+   never re-deriving its two rules).
+7. ~~Task 7: provided rows~~ **DONE** (`8442de7`) — `render_minimeta_contribution` grew
+   `items`/`claims` params to render a `provided:` row per feeder the minimeta claims
+   directly. Two pre-existing tests pinned the old 2-arg call shape (only one was named in
+   the task brief — the second was found by grepping every call site) and were updated to
+   pin the new 4-arg call exactly.
+8. ~~Task 8: lifecycle wiring~~ **DONE** (`ba61513`) — `refresh_feeder_matrix` hooked into
+   `create_mini`/`delete_mini` (sequential with `refresh_minimeta`, inline try/except) and
+   `solve`/`unsolve` (sequential sibling call by `confirm_feeder_claims`'s only two call
+   sites — `confirm_feeder_claims` itself was left untouched, since giving it its own
+   hunt/minimeta lookup risked depending on incidental rows in the shared test DB). The five
+   CRUD bang commands fire a new `refresh_feeder_matrix_safe` via `asyncio.create_task`,
+   mirroring the existing `refresh_unassigned_safe` pattern.
+
+Final state: full suite **2047 passed**, `ruff check` clean, `basedpyright bot/` 0 errors,
+`bot/core/feeder_pool.py` still import-free, working tree clean (this file aside).
+
+Next: **Plan 3** (web routes + dashboard panel), per the project's command-parity principle.
+No Plan 3 spec exists yet — write it before starting.
 
 `provided_item_ids` and `diff_ticks` in `bot/core/feeder_pool.py` are already written and
 tested but **not yet called by anything** — Plan 2 consumes them. That is intentional.
