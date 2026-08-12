@@ -57,11 +57,45 @@ def test_claim_feeder_records_the_claim():
     claim_db.add.assert_called_once_with(12, 101)
 
 
-def test_unclaim_feeder_removes_only_that_targets_claim():
+def test_unclaim_feeder_removes_an_unconfirmed_claim():
     svc = _service()
     with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
-        svc.unclaim_feeder(item_id=12, target_id=101)
+        claim_db.get.return_value = FeederClaimData(
+            id=1, item_id=12, target_id=101, confirmed=False)
+        status = svc.unclaim_feeder(item_id=12, target_id=101)
     claim_db.remove.assert_called_once_with(12, 101)
+    assert status == "removed"
+
+
+def test_unclaim_feeder_refuses_a_confirmed_claim():
+    """Confirmed claims are bot-owned -- solving proved them, and only unsolving
+    the mini undoes that. A refusal must not touch the row, or !unsolve_mini has
+    nothing left to demote."""
+    svc = _service()
+    with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
+        claim_db.get.return_value = FeederClaimData(
+            id=1, item_id=12, target_id=101, confirmed=True)
+        status = svc.unclaim_feeder(item_id=12, target_id=101)
+    claim_db.remove.assert_not_called()
+    assert status == "refused"
+
+
+def test_unclaim_feeder_reports_no_claim_to_remove():
+    svc = _service()
+    with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
+        claim_db.get.return_value = None
+        status = svc.unclaim_feeder(item_id=12, target_id=101)
+    claim_db.remove.assert_not_called()
+    assert status == "absent"
+
+
+def test_get_claim_delegates_to_the_dao():
+    svc = _service()
+    claim = FeederClaimData(id=1, item_id=12, target_id=101, confirmed=True)
+    with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
+        claim_db.get.return_value = claim
+        assert svc.get_claim(12, 101) is claim
+    claim_db.get.assert_called_once_with(12, 101)
 
 
 def test_get_feeder_pool_returns_items_and_claims_for_the_right_minimeta():

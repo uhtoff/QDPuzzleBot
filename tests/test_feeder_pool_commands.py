@@ -124,15 +124,53 @@ class TestUnclaimFeeder:
         assert ":x:" in ctx.send.call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_known_id_unclaims(self):
+    async def test_known_id_unclaims_an_unconfirmed_claim(self):
         parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
         cog = make_cog(parent)
         ctx = make_ctx()
         cog.service.get_feeder_item = MagicMock(return_value=_item(13, "ALBATROSS"))
+        cog.service.get_claim = MagicMock(
+            return_value=_claim(13, parent.id, confirmed=False))
 
         await Puzzles.unclaim_feeder.callback(cog, ctx, 13)
 
         cog.service.unclaim_feeder.assert_called_once_with(13, parent.id)
+        assert "no longer claims" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_confirmed_claim_is_refused_not_deleted(self):
+        """Confirmed claims are bot-owned -- solving proved them. Unclaiming must
+        refuse rather than delete, so !unsolve_mini still has a row to demote."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.get_feeder_item = MagicMock(return_value=_item(13, "ALBATROSS"))
+        cog.service.get_claim = MagicMock(
+            return_value=_claim(13, parent.id, confirmed=True))
+
+        await Puzzles.unclaim_feeder.callback(cog, ctx, 13)
+
+        cog.service.unclaim_feeder.assert_not_called()
+        msg = ctx.send.call_args[0][0]
+        assert ":x:" in msg
+        assert "!unsolve_mini" in msg
+
+    @pytest.mark.asyncio
+    async def test_no_claim_at_all_reports_honestly_instead_of_a_false_success(self):
+        """The old behaviour replied a plain success even though the DELETE
+        matched zero rows -- this pins the honest failure message instead."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.get_feeder_item = MagicMock(return_value=_item(13, "ALBATROSS"))
+        cog.service.get_claim = MagicMock(return_value=None)
+
+        await Puzzles.unclaim_feeder.callback(cog, ctx, 13)
+
+        cog.service.unclaim_feeder.assert_not_called()
+        msg = ctx.send.call_args[0][0]
+        assert ":x:" in msg
+        assert "white_check_mark" not in msg
 
 
 class TestEditFeeder:

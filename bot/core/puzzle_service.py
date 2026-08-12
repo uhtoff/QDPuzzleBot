@@ -2627,8 +2627,29 @@ class PuzzleService:
         """
         FeederClaimDb.add(item_id, target_id)
 
+    def get_claim(self, item_id, target_id):
+        """The claim `target_id` holds on `item_id`, or None. A seam for every
+        caller that needs to know before mutating — currently unclaim_feeder's
+        confirmed-claim guard."""
+        return FeederClaimDb.get(item_id, target_id)
+
     def unclaim_feeder(self, item_id, target_id):
+        """Drop `target_id`'s claim on `item_id` — unless it is confirmed.
+
+        Confirmed claims are bot-owned: solving proved them, and only unsolving
+        the mini undoes that (see confirm_feeder_claims). Refuses rather than
+        deleting, so `!unsolve_mini` still has a row to demote.
+
+        Returns "removed", "refused" (confirmed — untouched), or "absent" (no
+        such claim existed, so there was nothing to remove).
+        """
+        claim = self.get_claim(item_id, target_id)
+        if claim is None:
+            return "absent"
+        if claim.confirmed:
+            return "refused"
         FeederClaimDb.remove(item_id, target_id)
+        return "removed"
 
     def get_feeder_pool(self, minimeta):
         """(items, claims) for a minimeta's pool — one fetch each.

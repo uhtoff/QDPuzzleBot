@@ -1639,13 +1639,22 @@ class Puzzles(commands.Cog):
 
         Usage: `!unclaim_feeder <id>`
         Example: `!unclaim_feeder 13`
-        Only drops THIS puzzle's claim; other claims are untouched."""
+        Only drops THIS puzzle's claim; other claims are untouched. A CONFIRMED
+        claim (proved by solving) is refused — use `!unsolve_mini` instead."""
         minimeta, target = self._feeder_context(ctx)
         if minimeta is None or target is None:
             return await self.send_not_puzzle_channel(ctx)
         item = self.service.get_feeder_item(minimeta, item_id)
         if item is None:
             return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
+        claim = self.service.get_claim(item.id, target.id)
+        if claim is None:
+            return await ctx.send(
+                f":x: **{target.name}** does not claim **{item.text}**.")
+        if claim.confirmed:
+            return await ctx.send(
+                f":x: **{item.text}** is confirmed to **{target.name}** — it was "
+                f"proved by solving. Use `!unsolve_mini` to undo that.")
         self.service.unclaim_feeder(item.id, target.id)
         await ctx.send(
             f":white_check_mark: **{target.name}** no longer claims **{item.text}**.")

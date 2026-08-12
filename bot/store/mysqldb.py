@@ -1045,6 +1045,13 @@ class MySQLFeederClaimDb(_MySQLBaseDb):
             (target_id,))
         return [FeederClaimData.import_dict(r) for r in rows]
 
+    def get(self, item_id: int, target_id: int):
+        """The one claim `target_id` holds on `item_id`, or None."""
+        row = self._fetch_one(
+            "SELECT * FROM feeder_claims WHERE item_id = %s AND target_id = %s",
+            (item_id, target_id))
+        return FeederClaimData.import_dict(row) if row else None
+
     def add(self, item_id: int, target_id: int) -> None:
         """Claim an item for a target. Idempotent — re-claiming is a no-op."""
         self._exec(
