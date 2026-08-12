@@ -13,8 +13,10 @@ from discord.ext import commands
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
 from bot.core.sheet_tables import (
-    EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
+    EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name,
+    feeder_matrix_table_name, select_table,
 )
+from bot.core.feeder_pool import BOT_COLUMNS, matrix_header
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
 logger = logging.getLogger(__name__)
@@ -1074,6 +1076,72 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("ensure_evidence_table: native Table styling skipped")
         return table_id
+
+    async def ensure_feeder_matrix_tab(self, minimeta, minis):
+        """Idempotently create a Minimeta's feeder matrix tab: feeders down the
+        side, claim targets (main + every Mini) across the top, tick columns typed
+        BOOLEAN so a solver sees a checkbox.
+
+        Idempotent by minimeta.feeder_tab_page_id: if it is set and that tab still
+        exists, returns it untouched — no requests are issued at all. A hiccup
+        creating the native Table is therefore NOT retried by a later call once
+        the tab pointer is persisted; ensure_unassigned_table accepts the exact
+        same tradeoff (its caller guards on hunt.unassigned_table_id).
+
+        Modelled on ensure_unassigned_table, not on _add_contribution_table: it is
+        the only existing path that passes `columnProperties`, which is where the
+        BOOLEAN column type goes. addTable spans ONLY the header row — growing
+        the Table later via reconcile_table's `updateTable {"fields": "range"}`
+        never touches columnProperties, so the type survives (probed live against
+        a real spreadsheet 2026-08-12; see
+        docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md).
+
+        Returns the tab's sheetId (a tab pointer, like google_page_id /
+        rollups.tab_page_id — NOT a native Table id) for the caller to persist.
+        """
+        spreadsheet_id = self.get_spreadsheet_id()
+        existing = minimeta.feeder_tab_page_id
+        if existing is not None:
+            sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
+            if any(s["properties"]["sheetId"] == int(existing) for s in sheets):
+                return existing
+
+        assert spreadsheet_id is not None  # sheet ops run with a hunt spreadsheet in context
+        header = matrix_header(minimeta, minis)
+        tab_name = await self.get_unique_tab_name(f"Feeders — {minimeta.name}")
+        page_id = await self.create_blank_tab(spreadsheet_id, tab_name)
+        safe_name = tab_name.replace("'", "''")
+
+        # Header row, written plainly so data is visible even without the Table.
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [header])
+
+        # Native Table wrap, best-effort — mirrors generate_puzzle_tab's treatment
+        # of _add_contribution_table: a transient Sheets 500 here must not abort a
+        # user-facing operation. The tab and header above are unconditional; only
+        # the Table styling is deferred on failure.
+        try:
+            first_tick = len(BOT_COLUMNS) + 1   # past key, item, Len, note
+            column_properties = [{"columnIndex": i, "columnName": name}
+                                  for i, name in enumerate(header)]
+            for i in range(first_tick, len(header)):
+                column_properties[i]["columnType"] = "BOOLEAN"
+            body = {"requests": [{"addTable": {"table": {
+                "name": feeder_matrix_table_name(page_id),
+                "range": {
+                    "sheetId": page_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(header),
+                },
+                "columnProperties": column_properties,
+            }}}]}
+            await self.batch_update(body)
+        except Exception:
+            logger.exception(
+                "ensure_feeder_matrix_tab: native Table creation deferred for page %s "
+                "(transient Sheets error)", page_id)
+        return page_id
 
     # --- Task 6: contribution Table create --------------------------------
 

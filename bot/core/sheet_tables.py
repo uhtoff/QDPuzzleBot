@@ -28,6 +28,17 @@ def contribution_table_name(page_id):
     return f"Contributions {page_id}"
 
 
+def feeder_matrix_table_name(page_id):
+    """The name of a feeder matrix tab's Table.
+
+    Page-derived for the same reason as contribution_table_name: Table names must
+    be unique across the whole spreadsheet, and Google rejects '-' and
+    apostrophes. A matrix tab holds exactly one Table, so this name is also what
+    keeps it clear of select_table's lone-unnamed-table fallback trap.
+    """
+    return f"Feeder Matrix {page_id}"
+
+
 def select_table(tables, name=None):
     """The bot's Table among `tables` (a Sheet's `tables` list), or None.
 
