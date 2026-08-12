@@ -2745,6 +2745,15 @@ class PuzzleService:
             return
 
         async with rollup_lock(("minimeta", minimeta.id)):
+            # Re-read INSIDE the lock, exactly as refresh_target does: the caller's
+            # copy was loaded before the lock, so on a Minimeta's first refresh two
+            # racing triggers would both see feeder_tab_page_id=None and each create
+            # a tab -- the second committing over the first's pointer and orphaning
+            # it, solver notes and all. The window is several Sheets round trips wide.
+            fresh = PuzzleJsonDb.get_by_attr(id=minimeta.id)
+            if fresh is None:
+                return
+            minimeta = fresh
             minis = self.get_minis(minimeta.id)
             rollup = self._find_or_create_rollup_for_puzzle(hunt, minimeta)
             try:

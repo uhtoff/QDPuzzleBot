@@ -5,6 +5,7 @@ a MagicMock, so these assert the SERVICE's orchestration -- guards, tab-id
 persistence, badge bookkeeping, lock discipline -- not what Sheets does with the
 requests the cog would send (see tests/test_feeder_matrix_requests.py for that).
 """
+import asyncio
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,10 +41,14 @@ def _svc_with_sheets():
 
 
 @contextmanager
-def _patched(rollup_existing=None):
+def _patched(rollup_existing=None, row=None):
+    """`row` is what PuzzleJsonDb.get_by_attr returns -- refresh_feeder_matrix
+    re-reads the minimeta INSIDE its lock (see the concurrency test below), so
+    the DB's copy of the row, not the caller's, is what it renders."""
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
         rudb.get_by_attr.return_value = rollup_existing
+        pdb.get_by_attr.return_value = row
         yield pdb, rudb
 
 
@@ -56,7 +61,7 @@ class TestRefreshFeederMatrix:
         claims = [FeederClaimData(id=1, item_id=12, target_id=3, confirmed=True)]
         svc.get_feeder_pool = MagicMock(return_value=(items, claims))
         minis = [make_puzzle(id=10, name="Mini A", parent_puzzle_id=3)]
-        with _patched() as (pdb, _ru):
+        with _patched(row=minimeta) as (pdb, _ru):
             pdb.get_children.return_value = minis
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         gsheet.ensure_feeder_matrix_tab.assert_awaited_once_with(minimeta, minis)
@@ -79,7 +84,7 @@ class TestRefreshFeederMatrix:
         minimeta = _minimeta(feeder_tab_page_id=None)
         items = [FeederPoolItemData(id=12, text="ALBATROSS")]
         svc.get_feeder_pool = MagicMock(return_value=(items, []))
-        with _patched() as (pdb, _ru):
+        with _patched(row=minimeta) as (pdb, _ru):
             pdb.get_children.return_value = []
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         assert minimeta.feeder_tab_page_id == 500
@@ -91,7 +96,7 @@ class TestRefreshFeederMatrix:
         minimeta = _minimeta(feeder_tab_page_id=500)   # matches ensure's return value
         items = [FeederPoolItemData(id=12, text="ALBATROSS")]
         svc.get_feeder_pool = MagicMock(return_value=(items, []))
-        with _patched() as (pdb, _ru):
+        with _patched(row=minimeta) as (pdb, _ru):
             pdb.get_children.return_value = []
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         pdb.commit.assert_not_called()
@@ -102,7 +107,7 @@ class TestRefreshFeederMatrix:
         minimeta = _minimeta(feeder_tab_page_id=500)
         items = [FeederPoolItemData(id=12, text="ALBATROSS")]
         svc.get_feeder_pool = MagicMock(return_value=(items, []))
-        with _patched() as (pdb, rudb):
+        with _patched(row=minimeta) as (pdb, rudb):
             pdb.get_children.return_value = []
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         committed = rudb.commit.call_args[0][0]
@@ -119,7 +124,7 @@ class TestRefreshFeederMatrix:
         minimeta = _minimeta(feeder_tab_page_id=500)
         items = [FeederPoolItemData(id=12, text="ALBATROSS")]
         svc.get_feeder_pool = MagicMock(return_value=(items, []))
-        with _patched() as (pdb, rudb):
+        with _patched(row=minimeta) as (pdb, rudb):
             pdb.get_children.return_value = []
             with pytest.raises(RuntimeError, match="sheets down"):
                 await svc.refresh_feeder_matrix(_hunt(), minimeta)
@@ -138,6 +143,39 @@ class TestRefreshFeederMatrix:
         with _patched() as (_pdb, rudb):
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         rudb.commit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_first_refreshes_create_only_one_tab(self):
+        """Two triggers racing on a Minimeta's FIRST matrix render each loaded
+        their own copy of the row BEFORE the lock. Taking the lock is not enough:
+        the second holder must re-read inside it (as refresh_target does), or it
+        still sees feeder_tab_page_id=None, creates a second "Feeders — X (2)"
+        tab and commits over the pointer -- orphaning the first tab with whatever
+        a solver had already put on it. The window is several Sheets round trips
+        wide."""
+        svc, gsheet = _svc_with_sheets()
+        canonical = _minimeta()          # the row as the DB holds it
+        created = []
+
+        async def _ensure(minimeta, minis):
+            if minimeta.feeder_tab_page_id is not None:
+                return minimeta.feeder_tab_page_id      # idempotent, as the real one is
+            await asyncio.sleep(0)                      # the create/name/write round trips
+            created.append(500 + len(created))
+            return created[-1]
+        gsheet.ensure_feeder_matrix_tab = AsyncMock(side_effect=_ensure)
+        items = [FeederPoolItemData(id=12, text="ALBATROSS")]
+        svc.get_feeder_pool = MagicMock(return_value=(items, []))
+
+        with _patched(row=canonical) as (pdb, _ru):
+            pdb.get_children.return_value = []
+            await asyncio.gather(
+                svc.refresh_feeder_matrix(_hunt(), _minimeta()),
+                svc.refresh_feeder_matrix(_hunt(), _minimeta()),
+            )
+
+        assert created == [500]
+        assert canonical.feeder_tab_page_id == 500
 
     @pytest.mark.asyncio
     async def test_noop_without_hunt_or_minimeta(self):
@@ -160,7 +198,7 @@ class TestRefreshFeederMatrix:
         minimeta = _minimeta(feeder_tab_page_id=500)
         items = [FeederPoolItemData(id=12, text="ALBATROSS")]
         svc.get_feeder_pool = MagicMock(return_value=(items, []))
-        with _patched() as (pdb, _ru):
+        with _patched(row=minimeta) as (pdb, _ru):
             pdb.get_children.return_value = []
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         svc.refresh_minimeta.assert_not_awaited()
