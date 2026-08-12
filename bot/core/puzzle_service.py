@@ -19,6 +19,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb, FeederPoolDb, FeederClaimDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.core.feeder_pool import diff_ticks, parse_ticks, KEY_PREFIX, NOTE_COLUMN
 from bot.core import category_layout, hunt_archive, media_gc
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -2711,6 +2712,113 @@ class PuzzleService:
             except Exception as exc:
                 self._mark_rollup(rollup, ok=False, error=str(exc))
                 raise
+
+    async def refresh_feeder_matrix_safe(self, hunt, minimeta):
+        """Fire-and-forget wrapper for refresh_feeder_matrix. Never raises and
+        logs any failure (with minimeta id) to discord.log. Use this for every
+        asyncio.create_task(...) trigger of refresh_feeder_matrix — mirrors
+        refresh_unassigned_safe/refresh_evidence_safe."""
+        try:
+            await self.refresh_feeder_matrix(hunt, minimeta)
+        except Exception:
+            logger.exception(
+                "background refresh_feeder_matrix failed for minimeta %s",
+                getattr(minimeta, "id", "?"),
+            )
+
+    async def sync_feeder_claims(self, hunt, minimeta):
+        """Pull ticks off a Minimeta's feeder matrix tab back into claims.
+
+        One Sheets read for the whole tab (read_feeder_matrix) — _execute_lock
+        serialises every Sheets call process-wide, so a per-target read would
+        block every other hunt's Sheets traffic. parse_ticks maps each tick
+        column back to its target id by the id encoded in the header label,
+        then diff_ticks decides what to add/drop PER TARGET — it already
+        encodes "ignore a tick on an item no longer in the pool" and "never
+        drop a confirmed claim by unticking", so this must not re-derive
+        either rule.
+
+        Also adopts any note a solver typed in the tab's note column (the bot
+        never writes that column itself), then re-renders the matrix and the
+        minimeta's own contribution table so the sheet reflects the outcome —
+        the "provided:" rows depend on claims too. The two renders share
+        rollup_lock(("minimeta", id)) but are awaited SEQUENTIALLY, one fully
+        completing (and releasing the lock) before the other starts: nesting
+        that non-reentrant, no-timeout lock wedges the event loop permanently.
+
+        Returns a report dict (added/dropped claim pairs, contested/homeless
+        item ids), or None if there is nothing to sync (no sheets cog, or no
+        matrix tab yet).
+        """
+        if hunt is None or minimeta is None:
+            return None
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None or minimeta.feeder_tab_page_id is None:
+            return None
+
+        items, claims = self.get_feeder_pool(minimeta)
+        minis = self.get_minis(minimeta.id)
+        known_target_ids = {minimeta.id} | {m.id for m in minis}
+
+        header, grid = await gsheet_cog.read_feeder_matrix(minimeta.feeder_tab_page_id)
+        ticks = parse_ticks(header, grid, known_target_ids)
+
+        pool_item_ids = [i.id for i in items]
+        added, dropped = [], []
+        for target_id in known_target_ids:
+            current_ids = [c.item_id for c in claims if c.target_id == target_id]
+            confirmed_ids = [c.item_id for c in claims
+                             if c.target_id == target_id and c.confirmed]
+            to_add, to_remove = diff_ticks(
+                pool_item_ids, current_ids, ticks.get(target_id, []), confirmed_ids)
+            for item_id in to_add:
+                self.claim_feeder(item_id, target_id)
+                added.append((item_id, target_id))
+            for item_id in to_remove:
+                self.unclaim_feeder(item_id, target_id)
+                dropped.append((item_id, target_id))
+
+        # Adopt changed notes -- column D is solver-owned; the bot only ever
+        # reads it here, never writes it (render_feeder_matrix never touches it).
+        note_col = header.index(NOTE_COLUMN) if NOTE_COLUMN in header else None
+        if note_col is not None:
+            notes_by_item = {}
+            for row in grid:
+                if not row or not str(row[0]).startswith(KEY_PREFIX):
+                    continue
+                try:
+                    item_id = int(str(row[0])[len(KEY_PREFIX):])
+                except ValueError:
+                    continue
+                notes_by_item[item_id] = row[note_col] if note_col < len(row) else ""
+            for item in items:
+                note = notes_by_item.get(item.id)
+                if note is not None and note != (item.note or ""):
+                    FeederPoolDb.set_note(item.id, note)
+                    item.note = note
+
+        _, claims_after = self.get_feeder_pool(minimeta)
+        targets_by_item = {}
+        for c in claims_after:
+            targets_by_item.setdefault(c.item_id, set()).add(c.target_id)
+        contested = [i.id for i in items if len(targets_by_item.get(i.id, ())) > 1]
+        homeless = [i.id for i in items if not targets_by_item.get(i.id)]
+
+        try:
+            await self.refresh_feeder_matrix(hunt, minimeta)
+        except Exception:
+            logger.exception("sync_feeder_claims: matrix re-render failed for %s", minimeta.id)
+        try:
+            await self.refresh_minimeta(hunt, minimeta)
+        except Exception:
+            logger.exception("sync_feeder_claims: mini-list re-render failed for %s", minimeta.id)
+
+        return {
+            "added": added,
+            "dropped": dropped,
+            "contested": contested,
+            "homeless": homeless,
+        }
 
     @pushes_board()
     async def add_sheet(self, hunt, puzzle, name):

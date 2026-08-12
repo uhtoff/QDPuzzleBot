@@ -267,3 +267,51 @@ def test_render_feeder_matrix_is_a_noop_without_a_tab():
     minimeta = _minimeta(feeder_tab_page_id=None)
     updates, batch_calls, get_calls, reconcile_calls = _run_render(minimeta, [], [], [], [])
     assert updates == [] and batch_calls == [] and get_calls == [] and reconcile_calls == []
+
+
+# --- Task 6: read_feeder_matrix ---------------------------------------------
+
+def _run_read(page_id, sheets, values_response):
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": sheets}
+    cog.sheet_list = _fake_sheet_list
+
+    get_calls = []
+
+    async def _fake_values_get(spreadsheet_id, a1_range):
+        get_calls.append(a1_range)
+        return values_response
+    cog._values_get = _fake_values_get
+
+    header, grid = asyncio.run(cog.read_feeder_matrix(page_id))
+    return header, grid, get_calls
+
+
+def test_read_feeder_matrix_is_one_read_of_the_whole_tab():
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders — Meta"}}]
+    values_response = {"values": [
+        ["key", "item", "Len", "note", "main #1"],
+        ["f:12", "ALBATROSS", "9", "", "TRUE"],
+    ]}
+    header, grid, get_calls = _run_read(500, sheets, values_response)
+
+    assert get_calls == ["'Feeders — Meta'"]   # exactly one read, no A1 range slicing
+    assert header == ["key", "item", "Len", "note", "main #1"]
+    assert grid == [["f:12", "ALBATROSS", "9", "", "TRUE"]]
+
+
+def test_read_feeder_matrix_handles_a_missing_values_key():
+    """The API omits `values` entirely on an empty range -- every existing
+    caller writes `resp.get("values") or []`; this must too."""
+    sheets = [{"properties": {"sheetId": 500, "title": "Feeders"}}]
+    header, grid, _get = _run_read(500, sheets, {})
+    assert header == [] and grid == []
+
+
+def test_read_feeder_matrix_returns_empty_when_the_tab_is_gone():
+    header, grid, get_calls = _run_read(500, [], {"values": [["key"]]})
+    assert header == [] and grid == []
+    assert get_calls == []   # never even issues the values().get

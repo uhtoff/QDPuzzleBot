@@ -90,6 +90,7 @@ EXPECTED = [
     ("unclaim_feeder", "anyone"),
     ("edit_feeder", "anyone"),
     ("remove_feeder", "organiser"),
+    ("sync_claims", "anyone"),  # Task 6 (Plan 2): a refresh, not a mutation
     # --- anchors: unchanged by the batch ---
     ("convert_to_meta", "organiser"),
     ("delete_round", "organiser"),

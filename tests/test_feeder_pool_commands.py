@@ -499,3 +499,54 @@ class TestRemoveFeeder:
 
         kwargs = cog._confirm_destructive.call_args.kwargs
         assert kwargs.get("sheets_deleted") is False
+
+
+class TestSyncClaims:
+    @pytest.mark.asyncio
+    async def test_no_matrix_tab_reports_error_and_skips_the_service(self):
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        parent.feeder_tab_page_id = None
+        cog = make_cog(parent)
+        ctx = make_ctx()
+
+        await Puzzles.sync_claims.callback(cog, ctx)
+
+        cog.service.sync_feeder_claims.assert_not_called()
+        assert ":x:" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_sheets_connection_reports_error(self):
+        from unittest.mock import AsyncMock
+
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        parent.feeder_tab_page_id = 500
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.sync_feeder_claims = AsyncMock(return_value=None)
+
+        await Puzzles.sync_claims.callback(cog, ctx)
+
+        assert ":x:" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_reports_the_sync_outcome(self):
+        from unittest.mock import AsyncMock
+
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        parent.feeder_tab_page_id = 500
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.sync_feeder_claims = AsyncMock(return_value={
+            "added": [(12, 1)],
+            "dropped": [(13, 1), (14, 1)],
+            "contested": [15],
+            "homeless": [],
+        })
+
+        await Puzzles.sync_claims.callback(cog, ctx)
+
+        msg = ctx.send.call_args[0][0]
+        assert "Claimed: 1" in msg
+        assert "Unclaimed: 2" in msg
+        assert "Contested" in msg
+        assert "Homeless" not in msg

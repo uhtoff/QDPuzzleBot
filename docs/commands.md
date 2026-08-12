@@ -35,7 +35,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | Tier | Area | Commands |
 |---|---|---|
 | **Anyone** | Create | `!puzzle` (`!p`) · `!make_minimeta` · `!add_mini` · `!add_sheet` |
-| | Feeder pool | `!add_feeders` · `!feeders` · `!claim_feeder` · `!unclaim_feeder` · `!edit_feeder` |
+| | Feeder pool | `!add_feeders` · `!feeders` · `!claim_feeder` · `!unclaim_feeder` · `!edit_feeder` · `!sync_claims` |
 | | Solve | `!solve` (`!s`) · `!unsolve` (`!u`) · `!mark_as_complete` · `!add_solution` · `!change_solution` · `!partial` (`!ps`) · `!solve_mini` · `!unsolve_mini` |
 | | Tag | `!feeds` · `!feeds_only` · `!informs` · `!informs_only` · `!groups_with` · `!groups_only_with` · `!remove_from` |
 | | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` |
@@ -185,6 +185,7 @@ channel are on the minimeta itself.
 | `!unclaim_feeder` | `id` | Drop this puzzle's claim on a feeder; other claims are untouched. |
 | `!edit_feeder` | `id new-text` | Fix a feeder's text, keeping its claims and note. |
 | `!remove_feeder` | `id` | Permanently delete a feeder, with its claims and note, asking to confirm. Organisers/admins. To fix a typo use `!edit_feeder` instead. |
+| `!sync_claims` | — | Pull ticks off the feeder matrix sheet back into claims (and pick up any note typed there). A tick claims a feeder; an untick drops an unconfirmed claim — a confirmed one is never dropped this way. Ungated — it is a refresh. |
 
 ## Sheets
 

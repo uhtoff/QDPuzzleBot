@@ -1704,6 +1704,29 @@ class GoogleSheets(commands.Cog):
         if requests:
             await self.batch_update({"requests": requests})
 
+    async def read_feeder_matrix(self, page_id):
+        """One read of a Minimeta's feeder matrix tab: (header, grid).
+
+        `header` is the sheet's header row; `grid` is every data row beneath
+        it. A single values().get over the whole tab — sync_feeder_claims
+        must not issue one read per mini, since _execute_lock serialises
+        every Sheets call process-wide.
+
+        Returns ([], []) if the tab no longer exists, or if the range comes
+        back empty — the API omits `values` entirely in that case, so every
+        existing caller writes `resp.get("values") or []`.
+        """
+        spreadsheet_id = self.get_spreadsheet_id()
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
+        if tab_name is None:
+            return [], []
+        safe_name = tab_name.replace("'", "''")
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'")
+        values = resp.get("values") or []
+        if not values:
+            return [], []
+        return values[0], values[1:]
+
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
         """Render the unified contribution table on the target's tab.
 

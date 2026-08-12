@@ -1731,6 +1731,40 @@ class Puzzles(commands.Cog):
         await ctx.send(f":white_check_mark: Removed **{item.text}** from the pool.")
 
     @commands.command()
+    async def sync_claims(self, ctx):
+        """*Pull ticks off the feeder matrix sheet back into claims.*
+
+        Usage: `!sync_claims`
+        Example: `!sync_claims`
+        Run in the minimeta's channel or one of its mini threads. Ungated — it is a
+        refresh, not a mutation a solver couldn't already make with `!claim_feeder`/
+        `!unclaim_feeder`. Ticking a box claims a feeder; unticking drops an
+        unconfirmed claim (a confirmed one — proved by solving — is never dropped by
+        an untick; use `!unsolve_mini` instead). Also picks up any note typed in the
+        sheet's note column."""
+        minimeta, _target = self._feeder_context(ctx)
+        if minimeta is None:
+            return await self.send_not_puzzle_channel(ctx)
+        if not minimeta.feeder_tab_page_id:
+            return await ctx.send(
+                f":x: **{minimeta.name}** has no feeder matrix sheet yet — add a pool "
+                f"with `!add_feeders` first.")
+        report = await self.service.sync_feeder_claims(self.get_hunt(ctx), minimeta)
+        if report is None:
+            return await ctx.send(":x: Could not sync — no Google Sheets connection.")
+        lines = [
+            f"Claimed: {len(report['added'])}",
+            f"Unclaimed: {len(report['dropped'])}",
+        ]
+        if report["contested"]:
+            lines.append(f"Contested (claimed by more than one): {len(report['contested'])}")
+        if report["homeless"]:
+            lines.append(f"Homeless (unclaimed by anyone): {len(report['homeless'])}")
+        await ctx.send(
+            f":white_check_mark: Synced **{minimeta.name}**'s feeder matrix.\n" +
+            "\n".join(lines))
+
+    @commands.command()
     @with_puzzle_mutex(wait=True)
     async def add_mini(self, ctx, *args):
         """*Add a mini-puzzle (its own thread + sheet) to this minimeta.*
