@@ -52,6 +52,18 @@ def test_mine_wins_over_a_rival_unconfirmed_claim():
     assert claim_state(ALBATROSS, MINI_1, claims) == "taken"
 
 
+def test_mine_wins_when_a_rival_is_ALSO_confirmed():
+    """Both confirmed at once — reachable whenever two minis claimed the same feeder
+    and both got solved. This is the only case that pins the precedence: with a
+    merely-unconfirmed rival the two orderings agree, so checking 'taken' first
+    would pass every other test in this file.
+    """
+    claims = [Claim(ALBATROSS, MINI_2, confirmed=True),
+              Claim(ALBATROSS, MINI_1, confirmed=True)]
+    assert claim_state(ALBATROSS, MINI_2, claims) == "mine"
+    assert claim_state(ALBATROSS, MINI_1, claims) == "mine"
+
+
 NAMES = {MINI_1: "mini1", MINI_2: "mini2", 103: "mini3"}
 
 
@@ -116,6 +128,17 @@ def test_superseding_is_per_item_not_wholesale():
     assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
 
 
+def test_the_minimetas_own_confirmed_claim_does_not_supersede_itself():
+    """Defence in depth. `confirm_feeder_claims` only fires for puzzle_type 'Mini',
+    so a Minimeta's own claim is not confirmable today and this state is currently
+    unreachable. The guard is still correct, and without this test the clause that
+    implements it is unfalsifiable — remove `target_id != minimeta_id` and every
+    other test here still passes.
+    """
+    claims = [Claim(MARZIPAN, MINIMETA, confirmed=True)]
+    assert provided_item_ids(MINIMETA, claims) == [MARZIPAN]
+
+
 def test_claims_that_are_not_the_minimetas_are_ignored():
     claims = [Claim(ALBATROSS, MINI_1), Claim(MARZIPAN, MINI_2)]
     assert provided_item_ids(MINIMETA, claims) == []
@@ -147,6 +170,7 @@ def test_diff_ticks_ignores_a_tick_on_an_item_no_longer_in_the_pool():
     )
     assert add == [ALBATROSS]
     assert TERN not in add
+    assert remove == []
 
 
 def test_diff_ticks_never_removes_a_confirmed_claim():
@@ -160,6 +184,7 @@ def test_diff_ticks_never_removes_a_confirmed_claim():
     )
     assert remove == [MARZIPAN]
     assert ALBATROSS not in remove
+    assert add == []
 
 
 def test_diff_ticks_is_a_no_op_when_nothing_changed():
