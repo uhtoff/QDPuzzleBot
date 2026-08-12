@@ -3,6 +3,7 @@ import random
 import string
 import json
 import logging
+import unicodedata
 from mysql.connector.errors import IntegrityError
 from typing import TYPE_CHECKING, Any, List, Optional
 
@@ -28,6 +29,27 @@ logger = logging.getLogger(__name__)
 
 #: MariaDB/MySQL ER_DUP_ENTRY -- a UNIQUE index rejected the write.
 DUPLICATE_ENTRY_ERRNO = 1062
+
+#: feeder_pool_items.text is varchar(255) -- MariaDB is strict, so a longer
+#: line raises DataError (1406) rather than silently truncating.
+MAX_FEEDER_TEXT = 255
+
+
+def dedup_key(text):
+    """The key two given feeders collide on.
+
+    Must match the collation of `feeder_pool_items.text` (utf8mb4_uca1400_ai_ci --
+    case- and accent-insensitive), or Python's dedup and the UNIQUE index disagree
+    and add_many raises mid-paste, committing some lines and dropping the rest.
+
+    Lives here rather than in bot/core/feeder_pool.py because that module is
+    required to stay import-free (pure derivation over plain data), and this
+    needs `unicodedata` to strip accents.
+    """
+    stripped = "".join(
+        ch for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch))
+    return stripped.casefold()
 
 
 class _MySQLBaseDb:
@@ -951,15 +973,29 @@ class MySQLFeederPoolDb(_MySQLBaseDb):
         """Append `texts` that are not already in the pool. Returns the added ones.
 
         Re-pasting the same list is therefore harmless — an already-present text is
-        skipped rather than duplicated or errored.
+        skipped rather than duplicated or errored. Dedup is by `dedup_key`, matching
+        the case-/accent-insensitive collation of the UNIQUE index it protects — two
+        spellings of the same answer collide, and the first spelling committed wins;
+        text is still stored verbatim.
+
+        Raises ValueError, before anything is inserted, if any line is too long for
+        the column — a paste is all-or-nothing rather than half-applied.
         """
-        existing = {i.text for i in self.get_for_minimeta(minimeta_puzzle_id)}
+        for text in texts:
+            if len(text) > MAX_FEEDER_TEXT:
+                display = text if len(text) <= 60 else text[:57] + "..."
+                raise ValueError(
+                    f"line too long ({len(text)} > {MAX_FEEDER_TEXT} chars): "
+                    f"{display!r}")
+
+        existing = {dedup_key(i.text) for i in self.get_for_minimeta(minimeta_puzzle_id)}
         position = self.next_position(minimeta_puzzle_id)
         added = []
         for text in texts:
-            if text in existing:
+            key = dedup_key(text)
+            if key in existing:
                 continue
-            existing.add(text)
+            existing.add(key)
             item = FeederPoolItemData(
                 minimeta_puzzle_id=minimeta_puzzle_id, text=text, position=position)
             self.commit(item)
@@ -968,8 +1004,13 @@ class MySQLFeederPoolDb(_MySQLBaseDb):
         return added
 
     def set_text(self, item_id: int, text: str) -> None:
-        self._exec(
-            "UPDATE feeder_pool_items SET text = %s WHERE id = %s", (text, item_id))
+        try:
+            self._exec(
+                "UPDATE feeder_pool_items SET text = %s WHERE id = %s", (text, item_id))
+        except IntegrityError as exc:
+            if getattr(exc, "errno", None) == DUPLICATE_ENTRY_ERRNO:
+                raise ValueError(f"{text!r} is already in the pool") from exc
+            raise
 
     def set_note(self, item_id: int, note) -> None:
         self._exec(

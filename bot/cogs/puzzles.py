@@ -1574,7 +1574,10 @@ class Puzzles(commands.Cog):
             return await self.send_not_puzzle_channel(ctx)
         if not pasted.strip():
             return await ctx.send(":x: Give me the feeders, one per line.")
-        added = self.service.add_feeder_items(minimeta, pasted)
+        try:
+            added = self.service.add_feeder_items(minimeta, pasted)
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
         offered = len([ln for ln in pasted.splitlines() if ln.strip()])
         msg = (f":white_check_mark: Added {len(added)} feeder(s) to "
                f"**{minimeta.name}**'s pool.")
@@ -1661,7 +1664,10 @@ class Puzzles(commands.Cog):
         item = self.service.get_feeder_item(minimeta, item_id)
         if item is None:
             return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
-        self.service.edit_feeder_item(item.id, text.strip())
+        try:
+            self.service.edit_feeder_item(item.id, text.strip())
+        except ValueError as exc:
+            return await ctx.send(f":x: {exc}")
         await ctx.send(
             f":white_check_mark: `{item.id}` **{item.text}** → **{text.strip()}**.")
 

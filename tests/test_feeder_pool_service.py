@@ -35,6 +35,21 @@ def test_add_feeder_items_uppercases_nothing_and_keeps_order():
     pool_db.add_many.assert_called_once_with(100, ["Seventh Heaven", "albatross"])
 
 
+def test_add_feeder_items_propagates_an_over_length_rejection():
+    """add_feeder_items must not swallow the DAO's all-or-nothing ValueError --
+    a caught-and-ignored exception here would silently drop the paste."""
+    svc = _service()
+    minimeta = make_puzzle(id=100)
+    with patch("bot.core.puzzle_service.FeederPoolDb") as pool_db:
+        pool_db.add_many.side_effect = ValueError(
+            "line too long (300 > 255 chars): 'XXX...'")
+        try:
+            svc.add_feeder_items(minimeta, "X" * 300)
+            raise AssertionError("expected ValueError to propagate")
+        except ValueError:
+            pass
+
+
 def test_claim_feeder_records_the_claim():
     svc = _service()
     with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:

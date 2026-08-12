@@ -8,7 +8,7 @@ target), per migration 043.
 """
 from mysql.connector.errors import IntegrityError
 
-from bot.store import mydb
+from bot.store import FeederPoolDb, mydb
 from tests.conftest import live_hunt_id
 
 
@@ -126,3 +126,50 @@ def test_the_same_target_cannot_claim_one_item_twice():
     finally:
         _delete_puzzle(minimeta_id)
         _delete_puzzle(mini_id)
+
+
+def test_add_many_dedups_case_insensitively_against_the_uca1400_index():
+    """add_many's own dedup must agree with the index's collation
+    (utf8mb4_uca1400_ai_ci), or a mixed-case paste half-applies and raises
+    IntegrityError mid-paste. Only a live DB can catch a collation mismatch."""
+    minimeta_id = _insert_puzzle(name="dedup-minimeta-case")
+    try:
+        FeederPoolDb.add_many(minimeta_id, ["ONE"])
+        added = FeederPoolDb.add_many(minimeta_id, ["TWO", "one", "THREE"])
+
+        assert [i.text for i in added] == ["TWO", "THREE"], "'one' must be skipped"
+        items = FeederPoolDb.get_for_minimeta(minimeta_id)
+        assert [i.text for i in items] == ["ONE", "TWO", "THREE"]
+        assert [i.position for i in items] == [0, 1, 2], "positions must stay contiguous"
+    finally:
+        _delete_puzzle(minimeta_id)
+
+
+def test_add_many_dedups_accented_variants():
+    minimeta_id = _insert_puzzle(name="dedup-minimeta-accent")
+    try:
+        FeederPoolDb.add_many(minimeta_id, ["RESUME"])
+        added = FeederPoolDb.add_many(minimeta_id, ["RÉSUMÉ"])
+
+        assert added == [], "the accented variant must be skipped, not added"
+        items = FeederPoolDb.get_for_minimeta(minimeta_id)
+        assert [i.text for i in items] == ["RESUME"], "first spelling wins, stored verbatim"
+    finally:
+        _delete_puzzle(minimeta_id)
+
+
+def test_add_many_rejects_an_over_length_line_before_inserting_anything():
+    minimeta_id = _insert_puzzle(name="dedup-minimeta-overlength")
+    try:
+        FeederPoolDb.add_many(minimeta_id, ["ONE"])
+        try:
+            FeederPoolDb.add_many(minimeta_id, ["TWO", "X" * 300])
+            raise AssertionError("expected ValueError for an over-length line")
+        except ValueError:
+            pass
+
+        items = FeederPoolDb.get_for_minimeta(minimeta_id)
+        assert [i.text for i in items] == ["ONE"], (
+            "the paste must be all-or-nothing: TWO must not have been inserted")
+    finally:
+        _delete_puzzle(minimeta_id)
