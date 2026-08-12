@@ -114,7 +114,12 @@ def test_parse_ticks_ignores_a_column_whose_mini_was_deleted():
 
 
 def test_parse_ticks_treats_only_TRUE_as_ticked():
-    """values().get returns FORMATTED_VALUE strings, so a tick is the string 'TRUE'."""
+    """values().get returns FORMATTED_VALUE strings, so a tick is the string 'TRUE'.
+
+    Both unticked forms are pinned because a live probe (2026-08-12) showed a BOOLEAN
+    table column reads back as an explicit 'FALSE', not the blank this plan assumed.
+    The implementation was already correct for both; this test stops that being luck.
+    """
     header = ["key", "item", "Len", "note", "main #100"]
     grid = [["f:12", "A", "1", "", "FALSE"], ["f:13", "B", "1", "", ""]]
     assert parse_ticks(header, grid, [100]) == {100: []}

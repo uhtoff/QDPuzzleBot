@@ -79,9 +79,37 @@ git add scripts/diagnose_feeder_matrix.py
 git commit -m "chore(probe): script to verify BOOLEAN table columns against live Sheets"
 ```
 
-- [ ] **Step 4: STOP and report**
+- [x] **Step 4: RUN — done 2026-08-12. Findings below; Tasks 4–8 are unblocked.**
 
-Report to the controller that the probe is ready and needs permission plus a target spreadsheet. **Do not proceed to Task 4 or beyond until its findings are known** — Tasks 4–7 encode assumptions this probe exists to test. Tasks 2 and 3 are pure/DB and safe to continue with meanwhile.
+Run against a scratch spreadsheet (`1B3aizPgUdd6d6mO-tpuob0SajWOgP0UHBrrOmhO_rUg`, empty,
+supplied for this purpose). Raw output is in the commit that added this section.
+
+| Q | Result |
+|---|---|
+| **Q1** `addTable` accepts `columnProperties` with `columnType: "BOOLEAN"` on a header-only range | **PASS** — table created, both tick columns typed |
+| **Q2** the type survives `updateTable {"fields": "range"}` as the table grows | **PASS** — BOOLEAN still on indices 4 and 5 afterwards |
+| **Q3** a **ticked** cell reads back through `values().get` as | the **string** `'TRUE'` |
+| **Q4** an **all-unticked** BOOLEAN column reads back as | the **string** `'FALSE'` — *not* blank, and `values` **is** present |
+
+**Q4 contradicted the assumption in this plan.** It predicted blanks, or `values` omitted
+entirely. Real behaviour is an explicit `'FALSE'` per cell. `parse_ticks` treats anything
+that is not `'TRUE'` as unticked, so it is correct either way — but that was luck, not
+design, so the pure tests now pin `'FALSE'` explicitly rather than only the blank case.
+
+Two consequences worth carrying:
+
+- **Rows are right-trimmed far less than expected.** Because every tick cell holds an
+  explicit `'FALSE'`, a data row comes back full-width, and even an empty `note` in the
+  middle is preserved (`['f:13', 'MARZIPAN', '8', '', 'FALSE', 'FALSE']`). The
+  `idx < len(row)` guard in `parse_ticks` stays regardless — a row with no ticks at all
+  after its note could still trim.
+- **A cell written as `""` into a BOOLEAN column renders as an unticked checkbox and reads
+  back `'FALSE'`.** So `reconcile_table` appending a row without touching the tick columns
+  cannot corrupt them. Still unprobed: what a *never-written* cell in a BOOLEAN column reads
+  as. `parse_ticks` handles `''` and `'FALSE'` identically, so either answer is safe.
+
+One cosmetic note: the API omits `columnIndex` for index 0 in the `columnProperties` it
+returns (`{'columnName': 'key'}`). Do not treat its absence as a missing column.
 
 ---
 
