@@ -1485,7 +1485,11 @@ reply.
         if not await self._confirm_destructive(
             ctx,
             f"Delete feeder **{item.text}** and every claim on it? "
-            f"To fix a typo use `!edit_feeder` instead.",
+            f"To fix a typo use `!edit_feeder` instead, which keeps the claims.",
+            sheets_deleted=False,
+            confirm_label="Confirm delete",
+            title="⚠️ Confirm feeder deletion",
+            timeout_msg=":hourglass: Confirmation timed out — nothing was deleted.",
         ):
             return
         self.service.remove_feeder_item(item.id)
@@ -1498,9 +1502,15 @@ Add the imports these need at the top of `bot/cogs/puzzles.py`:
 from bot.core.feeder_pool import claim_state, rival_names
 ```
 
-`PuzzleJsonDb` and `is_organiser` are already imported there. Read `_confirm_destructive`
-(`bot/cogs/puzzles.py:998` is a caller) and match its real signature — the call above
-assumes `(ctx, description) -> bool`; if it differs, follow the real one.
+plus whatever `_build_feeder_pool_embed` needs from `bot.utils.chunking`.
+
+`PuzzleJsonDb` and `is_organiser` are already imported there.
+
+**On `_confirm_destructive`** — the real signature is
+`(ctx, description, *, sheets_deleted=True, confirm_label="Confirm delete", title=None,
+timeout_msg=None)`. The keyword overrides above are REQUIRED, not decoration: the default
+branch appends "**Google sheets will be permanently deleted (not recoverable).**", which is
+simply false for a feeder — deleting one touches no sheet at all.
 
 - [ ] **Step 3: Add the service lookup the commands need**
 
@@ -1554,7 +1564,9 @@ Expected: 8 passed.
 
 - [ ] **Step 5: Check the embed cannot exceed Discord's limits**
 
-`send_feeder_pool_embed` is referenced by `!feeders` above and still has to be written. A pool can hold dozens of items and Discord caps an embed field at 1024 characters, so it must truncate. `tests/test_mini_list_embed_limits.py` already covers exactly this problem for the mini list — read it, follow the same truncation approach, and add an equivalent test for the pool rather than inventing a second style.
+`_build_feeder_pool_embed` is referenced by `!feeders` above and still has to be written. A pool can hold dozens of items; Discord caps an embed field at 1024 characters and rejects the *whole* embed on breach — a past live incident (see the docstring of `tests/test_mini_list_embed_limits.py`) had exactly that kill `!solve` on a busy minimeta.
+
+**Do not write new truncation logic.** `split_lines_for_embed` in `bot/utils/chunking.py` already does this, and `Puzzles._build_mini_list_embed` (`bot/cogs/puzzles.py:2957`) is the worked example: description first (4096) spilling into "(cont.)" fields, with the remainder *counted in an overflow note* rather than silently dropped. Model the feeder version directly on it, and add an equivalent limits test.
 
 - [ ] **Step 6: Add gating assertions**
 
