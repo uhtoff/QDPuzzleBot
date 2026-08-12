@@ -215,3 +215,29 @@ class TestRefreshFeederMatrix:
             pdb.get_children.return_value = []
             await svc.refresh_feeder_matrix(_hunt(), minimeta)
         svc.refresh_minimeta.assert_not_awaited()
+
+
+class TestRefreshMinimetaLockReentry:
+    @pytest.mark.asyncio
+    async def test_does_not_call_refresh_feeder_matrix(self):
+        """The mirror of TestRefreshFeederMatrix::test_does_not_call_refresh_minimeta,
+        and worth having for the same reason: rollup_lock is a non-reentrant
+        asyncio.Lock with NO timeout, and both functions take the identical key
+        ("minimeta", id). Re-entering it either way round wedges the event loop
+        permanently -- silently, with no error and no traceback, which is precisely
+        why no other test can catch it. One direction being guarded says nothing
+        about the other."""
+        svc, gsheet = _svc_with_sheets()
+        gsheet.render_minimeta_contribution = AsyncMock()
+        svc.refresh_feeder_matrix = AsyncMock()
+        svc._record_rollup_tab = AsyncMock()
+        svc.get_feeder_pool = MagicMock(
+            return_value=([FeederPoolItemData(id=12, text="ALBATROSS")], []))
+        minimeta = _minimeta(feeder_tab_page_id=500)
+
+        with _patched(row=minimeta) as (pdb, _ru):
+            pdb.get_children.return_value = []
+            await svc.refresh_minimeta(_hunt(), minimeta)
+
+        gsheet.render_minimeta_contribution.assert_awaited_once()   # it really ran
+        svc.refresh_feeder_matrix.assert_not_awaited()
