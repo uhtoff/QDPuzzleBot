@@ -53,6 +53,7 @@ class PuzzleData:
     is_target: bool = False  # transient: derived at load from tag_group.target_puzzle_id (not a column)
     is_minimeta: bool = False  # transient: derived at load — True iff this puzzle has mini-children (not a column)
     parent_puzzle_id: Optional[int] = None
+    feeder_tab_page_id: Optional[int] = None
 
     @classmethod
     def import_dict(cls, puzzle_data: dict):
