@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: ready for handoff — Plan 2 complete: feat(service): keep the feeder matrix in step with the pool @ ba61513
+Status: in progress — Plans 1 & 2 COMPLETE, reviewed and fixed @ 825ccbe. Plan 3 (web + dashboard) not started; NO live hunt test yet.
 
 ## Goal
 
