@@ -100,3 +100,72 @@ def diff_ticks(pool_item_ids, current_item_ids, ticked_item_ids, confirmed_item_
     to_add = sorted(ticked - current)
     to_remove = sorted(current - ticked - confirmed)
     return to_add, to_remove
+
+
+KEY_PREFIX = "f:"
+BOT_COLUMNS = ["key", "item", "Len"]
+NOTE_COLUMN = "note"
+MAIN_COLUMN = "main"
+
+
+def feeder_length(text):
+    """Letter count excluding spaces, punctuation kept — '' for empty text.
+
+    Deliberately the same rule as bot/core/unassigned.py's unassigned_row, because
+    both columns answer the same solver question and disagreeing would be worse than
+    either choice.
+    """
+    if not text:
+        return ""
+    return len(text.replace(" ", ""))
+
+
+def matrix_header(minimeta, minis):
+    """The matrix tab's header row: bot columns, note, then one column per target.
+
+    `main` is the Minimeta's own tick column — how "the main meta uses this feeder
+    directly" is expressed. Minis follow in the order given (creation order), so a new
+    mini appends at the far right and nothing already on the sheet moves.
+    """
+    return BOT_COLUMNS + [NOTE_COLUMN, MAIN_COLUMN] + [m.name for m in minis]
+
+
+def matrix_rows(items):
+    """Desired rows for reconcile_table — the BOT-OWNED columns only.
+
+    note and the tick cells are the solver's. Including them here would hand them to
+    reconcile_table's write range and overwrite a solver's work on every render.
+    """
+    return [[f"{KEY_PREFIX}{i.id}", i.text, feeder_length(i.text)] for i in items]
+
+
+def parse_ticks(header, grid, target_by_column):
+    """{target_id: [item_id, ...]} read off the matrix.
+
+    `header` is the sheet's header row, `grid` the data rows beneath it, and
+    `target_by_column` maps a header label to a claim target id — a column whose label
+    is absent is a solver's own and is ignored.
+
+    Values arrive as FORMATTED_VALUE strings, so a ticked box is the string 'TRUE';
+    the API also right-trims rows, so a row can be shorter than the header. Rows whose
+    key does not parse are skipped: reconcile_table blanks pruned rows rather than
+    deleting them, so a blanked row outlives its feeder.
+    """
+    columns = [
+        (idx, target_by_column[label])
+        for idx, label in enumerate(header)
+        if label in target_by_column
+    ]
+    ticks = {target_id: [] for _, target_id in columns}
+    for row in grid:
+        if not row or not str(row[0]).startswith(KEY_PREFIX):
+            continue
+        try:
+            item_id = int(str(row[0])[len(KEY_PREFIX):])
+        except ValueError:
+            continue
+        for idx, target_id in columns:
+            cell = row[idx] if idx < len(row) else ""
+            if str(cell).strip().upper() == "TRUE":
+                ticks[target_id].append(item_id)
+    return ticks
