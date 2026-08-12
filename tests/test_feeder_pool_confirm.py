@@ -3,7 +3,7 @@
 Uses a real PuzzleService — `make_cog()` stubs `.service` with a MagicMock, which
 would make every assertion here pass regardless of the implementation.
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from bot.core.puzzle_service import PuzzleService
 from tests.conftest import make_hunt, make_puzzle
@@ -64,15 +64,21 @@ async def test_a_mini_with_its_type_retagged_still_confirms_on_solve():
     claim_db.set_confirmed_for_target.assert_called_once_with(101, True)
 
 
-async def test_confirming_targets_the_solved_mini_and_not_its_sibling():
-    """Two minis under the same parent — a hook that confirmed by POOL rather than
-    by TARGET would pass with only one mini in the test."""
+async def test_confirming_two_sibling_minis_in_turn_targets_each_by_its_own_id():
+    """Two minis under the same parent, confirmed one after another — a hook that
+    held onto stale state between calls (e.g. a variable captured once and reused)
+    would target the wrong id on the second call. The previous version of this
+    test called confirm_feeder_claims only once and asserted a redundant fact
+    already implied by assert_called_once_with(mini_a.id, True); it had no real
+    falsifying power despite its docstring's claim."""
     svc = _service()
     mini_a, mini_b = _mini(pid=101), _mini(pid=102)
     with patch("bot.core.puzzle_service.FeederClaimDb") as claim_db:
         await svc.confirm_feeder_claims(mini_a, confirmed=True)
-    claim_db.set_confirmed_for_target.assert_called_once_with(mini_a.id, True)
-    assert claim_db.set_confirmed_for_target.call_args.args[0] != mini_b.id
+        await svc.confirm_feeder_claims(mini_b, confirmed=True)
+    assert claim_db.set_confirmed_for_target.call_args_list == [
+        call(mini_a.id, True), call(mini_b.id, True),
+    ]
 
 
 async def test_solve_calls_the_hook():

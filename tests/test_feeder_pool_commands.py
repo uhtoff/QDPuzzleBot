@@ -85,6 +85,22 @@ class TestFeederContext:
         assert minimeta is parent
         assert target is mini
 
+    def test_a_mini_whose_parent_no_longer_exists_returns_none_none(self):
+        """An orphaned mini (parent_puzzle_id points at a puzzle that is gone) must
+        not resolve to a fabricated pool or crash -- removing the `parent is None`
+        guard would return (None, mini) here instead of (None, None)."""
+        mini = make_puzzle(
+            id=2, name="Orphan Mini", puzzle_type="Mini", parent_puzzle_id=999)
+        cog = make_cog(mini)
+        ctx = make_ctx()
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as db:
+            db.get_by_attr.return_value = None
+            minimeta, target = cog._feeder_context(ctx)
+
+        assert minimeta is None
+        assert target is None
+
     @pytest.mark.asyncio
     async def test_command_outside_puzzle_channel_sends_error_and_skips_service(self):
         cog = make_cog(None)
@@ -125,6 +141,25 @@ class TestClaimFeeder:
         cog.service.claim_feeder.assert_called_once_with(13, parent.id)
         ctx.send.assert_awaited_once()
         assert "ALBATROSS" in ctx.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_claim_from_a_mini_thread_targets_the_mini_not_the_minimeta(self):
+        """Every other claim_feeder test above runs from the minimeta's own
+        channel, where target and minimeta are the SAME object -- so
+        claim_feeder(item.id, minimeta.id) would pass those tests too. This one
+        runs from a mini thread, where the two differ, to actually pin which one
+        the command uses."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, name="Mini A", puzzle_type="Mini", parent_puzzle_id=1)
+        cog = make_cog(mini)
+        ctx = make_ctx()
+        cog.service.get_feeder_item = MagicMock(return_value=_item(13, "ALBATROSS"))
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as db:
+            db.get_by_attr.return_value = parent
+            await Puzzles.claim_feeder.callback(cog, ctx, 13)
+
+        cog.service.claim_feeder.assert_called_once_with(13, mini.id)
 
 
 class TestUnclaimFeeder:
@@ -188,6 +223,27 @@ class TestUnclaimFeeder:
         msg = ctx.send.call_args[0][0]
         assert ":x:" in msg
         assert "white_check_mark" not in msg
+
+    @pytest.mark.asyncio
+    async def test_unclaim_from_a_mini_thread_targets_the_mini_not_the_minimeta(self):
+        """Same gap as claim_feeder's mini-thread test: every test above runs from
+        the minimeta's own channel, where target and minimeta are the same
+        object. This one runs from a mini thread to pin which id get_claim/
+        unclaim_feeder are actually called with."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, name="Mini A", puzzle_type="Mini", parent_puzzle_id=1)
+        cog = make_cog(mini)
+        ctx = make_ctx()
+        cog.service.get_feeder_item = MagicMock(return_value=_item(13, "ALBATROSS"))
+        cog.service.get_claim = MagicMock(
+            return_value=_claim(13, mini.id, confirmed=False))
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as db:
+            db.get_by_attr.return_value = parent
+            await Puzzles.unclaim_feeder.callback(cog, ctx, 13)
+
+        cog.service.get_claim.assert_called_once_with(13, mini.id)
+        cog.service.unclaim_feeder.assert_called_once_with(13, mini.id)
 
 
 class TestEditFeeder:
