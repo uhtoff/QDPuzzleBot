@@ -1,7 +1,7 @@
 import functools
 import logging
 import random
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import discord
 from discord import app_commands
@@ -27,6 +27,7 @@ from bot.utils.components import (
 from bot.utils.text import flush_left
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority
 from bot.core import role_gate
+from bot.core.feeder_pool import claim_state, rival_names
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
@@ -1542,6 +1543,157 @@ class Puzzles(commands.Cog):
         )
         await self.info(ctx, update=True)
 
+    def _feeder_context(self, ctx):
+        """(minimeta, claim_target) for a feeder command, or (None, None).
+
+        In a Mini's thread the pool belongs to the PARENT and the claim target is the
+        Mini. In the Minimeta's own channel both are the Minimeta — which can itself
+        claim a feeder, that being how "the main meta uses a given feeder directly"
+        is expressed.
+        """
+        puzzle = self.get_puzzle(ctx)
+        if not puzzle:
+            return None, None
+        if puzzle.puzzle_type == "Mini" and puzzle.parent_puzzle_id:
+            parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+            if parent is None:
+                return None, None
+            return parent, puzzle
+        return puzzle, puzzle
+
+    @commands.command()
+    async def add_feeders(self, ctx, *, pasted: str = ""):
+        """*Add given feeders to this minimeta's pool, one per line.*
+
+        Usage: `!add_feeders <one feeder per line>`
+        Example: `!add_feeders ALBATROSS`
+        Run in the minimeta's channel or one of its mini threads. Re-pasting the same
+        list is harmless — feeders already in the pool are skipped."""
+        minimeta, _target = self._feeder_context(ctx)
+        if minimeta is None:
+            return await self.send_not_puzzle_channel(ctx)
+        if not pasted.strip():
+            return await ctx.send(":x: Give me the feeders, one per line.")
+        added = self.service.add_feeder_items(minimeta, pasted)
+        offered = len([ln for ln in pasted.splitlines() if ln.strip()])
+        msg = (f":white_check_mark: Added {len(added)} feeder(s) to "
+               f"**{minimeta.name}**'s pool.")
+        if offered > len(added):
+            msg += f" {offered - len(added)} already there."
+        await ctx.send(msg)
+
+    @commands.command()
+    async def feeders(self, ctx):
+        """*Show the given-feeder pool and who has claimed what.*
+
+        Usage: `!feeders`
+        Example: `!feeders`
+        Run in the minimeta's channel or one of its mini threads. State is shown from
+        THIS channel's point of view."""
+        minimeta, target = self._feeder_context(ctx)
+        if minimeta is None or target is None:
+            return await self.send_not_puzzle_channel(ctx)
+        items, claims = self.service.get_feeder_pool(minimeta)
+        if not items:
+            return await ctx.send(
+                f"**{minimeta.name}** has no feeder pool yet — add one with "
+                f"`!add_feeders`.")
+        names = {m.id: m.name for m in self.service.get_minis(minimeta.id)}
+        names[minimeta.id] = minimeta.name
+        lines = []
+        for item in items:
+            state = claim_state(item.id, target.id, claims)
+            rivals = rival_names(item.id, target.id, claims, names)
+            line = f"`{item.id}` **{item.text}** — {state}"
+            if rivals:
+                line += f" ({rivals})"
+            if item.note:
+                line += f" — _{item.note}_"
+            lines.append(line)
+        await ctx.send(embed=self._build_feeder_pool_embed(minimeta, lines))
+
+    @commands.command()
+    async def claim_feeder(self, ctx, item_id: int):
+        """*Claim a given feeder for this puzzle.*
+
+        Usage: `!claim_feeder <id>`
+        Example: `!claim_feeder 13`
+        The id is the number `!feeders` shows. Overlapping claims are allowed — a rival
+        claim is useful information, not an error."""
+        minimeta, target = self._feeder_context(ctx)
+        if minimeta is None or target is None:
+            return await self.send_not_puzzle_channel(ctx)
+        item = self.service.get_feeder_item(minimeta, item_id)
+        if item is None:
+            return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
+        self.service.claim_feeder(item.id, target.id)
+        await ctx.send(
+            f":white_check_mark: **{target.name}** claims **{item.text}**.")
+
+    @commands.command()
+    async def unclaim_feeder(self, ctx, item_id: int):
+        """*Drop this puzzle's claim on a given feeder.*
+
+        Usage: `!unclaim_feeder <id>`
+        Example: `!unclaim_feeder 13`
+        Only drops THIS puzzle's claim; other claims are untouched."""
+        minimeta, target = self._feeder_context(ctx)
+        if minimeta is None or target is None:
+            return await self.send_not_puzzle_channel(ctx)
+        item = self.service.get_feeder_item(minimeta, item_id)
+        if item is None:
+            return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
+        self.service.unclaim_feeder(item.id, target.id)
+        await ctx.send(
+            f":white_check_mark: **{target.name}** no longer claims **{item.text}**.")
+
+    @commands.command()
+    async def edit_feeder(self, ctx, item_id: int, *, text: str):
+        """*Fix a feeder's text, keeping its claims and note.*
+
+        Usage: `!edit_feeder <id> <new text>`
+        Example: `!edit_feeder 13 ALBATROSS`
+        Use this for a typo — `!remove_feeder` would throw away the claims and the note
+        attached to the feeder."""
+        minimeta, _target = self._feeder_context(ctx)
+        if minimeta is None:
+            return await self.send_not_puzzle_channel(ctx)
+        item = self.service.get_feeder_item(minimeta, item_id)
+        if item is None:
+            return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
+        self.service.edit_feeder_item(item.id, text.strip())
+        await ctx.send(
+            f":white_check_mark: `{item.id}` **{item.text}** → **{text.strip()}**.")
+
+    @commands.command()
+    @is_organiser()
+    async def remove_feeder(self, ctx, item_id: int):
+        """*Delete a feeder from the pool, with its claims and note.*
+
+        Usage: `!remove_feeder <id>`
+        Example: `!remove_feeder 13`
+        For a feeder that should never have been in the pool. To fix a typo use
+        `!edit_feeder`, which keeps the claims. Organisers/admins only; asks to
+        confirm. Not recoverable."""
+        minimeta, _target = self._feeder_context(ctx)
+        if minimeta is None:
+            return await self.send_not_puzzle_channel(ctx)
+        item = self.service.get_feeder_item(minimeta, item_id)
+        if item is None:
+            return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
+        if not await self._confirm_destructive(
+            ctx,
+            f"Delete feeder **{item.text}** and every claim on it? "
+            f"To fix a typo use `!edit_feeder` instead, which keeps the claims.",
+            sheets_deleted=False,
+            confirm_label="Confirm delete",
+            title="⚠️ Confirm feeder deletion",
+            timeout_msg=":hourglass: Confirmation timed out — nothing was deleted.",
+        ):
+            return
+        self.service.remove_feeder_item(item.id)
+        await ctx.send(f":white_check_mark: Removed **{item.text}** from the pool.")
+
     @commands.command()
     @with_puzzle_mutex(wait=True)
     async def add_mini(self, ctx, *args):
@@ -2985,6 +3137,51 @@ class Puzzles(commands.Cog):
 
         fit = split_lines_for_embed(
             self.create_mini_list(puzzle, minis, hunt),
+            reserved=reserved,
+            field_name_cost=len(continuation_name),
+            max_fields=MAX_FIELDS - 1,  # leave one slot for the overflow note
+        )
+
+        embed = discord.Embed(title=title, description=fit.description)
+        for value in fit.fields:
+            embed.add_field(name=continuation_name, value=value, inline=False)
+        if fit.dropped:
+            embed.add_field(
+                name=overflow_name,
+                value=f"…and {fit.dropped} more — {overflow_hint}",
+                inline=False,
+            )
+        return embed
+
+    def _build_feeder_pool_embed(
+        self,
+        minimeta: PuzzleData,
+        lines: List[str],
+        *,
+        overflow_hint: str = "re-run `!feeders`",
+    ) -> discord.Embed:
+        """Render the feeder-pool listing into one embed that respects Discord's
+        limits, the same way `_build_mini_list_embed` does for the mini list — see
+        that method's docstring for the live incident that made this necessary.
+
+        The list goes in the description (4096) and spills into "(cont.)" fields,
+        with anything past the per-embed budget counted rather than silently
+        dropped.
+        """
+        title = f"Feeder pool — {minimeta.name}"
+        continuation_name = f"{title} (cont.)"[:FIELD_NAME_LIMIT]
+        overflow_name = "More"
+        # The title, the field names and the overflow note all spend from the
+        # same 6000-char embed budget as the values. Reserve the fixed costs
+        # here; per-field names are charged as they are actually emitted.
+        reserved = (
+            len(title)
+            + len(overflow_name)
+            + len(f"…and 999 more — {overflow_hint}")
+        )
+
+        fit = split_lines_for_embed(
+            "\n".join(lines),
             reserved=reserved,
             field_name_cost=len(continuation_name),
             max_fields=MAX_FIELDS - 1,  # leave one slot for the overflow note

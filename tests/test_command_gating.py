@@ -83,6 +83,13 @@ EXPECTED = [
     ("remove_from", "anyone"),         # Tag area: tidying up without an organiser
     ("feeds_only", "anyone"),
     ("solve", "anyone"),
+    # --- feeder pool (Task 10): building is Create-area/ungated, destroying is organiser ---
+    ("add_feeders", "anyone"),
+    ("feeders", "anyone"),
+    ("claim_feeder", "anyone"),
+    ("unclaim_feeder", "anyone"),
+    ("edit_feeder", "anyone"),
+    ("remove_feeder", "organiser"),
     # --- anchors: unchanged by the batch ---
     ("convert_to_meta", "organiser"),
     ("delete_round", "organiser"),

@@ -35,12 +35,13 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | Tier | Area | Commands |
 |---|---|---|
 | **Anyone** | Create | `!puzzle` (`!p`) · `!make_minimeta` · `!add_mini` · `!add_sheet` |
+| | Feeder pool | `!add_feeders` · `!feeders` · `!claim_feeder` · `!unclaim_feeder` · `!edit_feeder` |
 | | Solve | `!solve` (`!s`) · `!unsolve` (`!u`) · `!mark_as_complete` · `!add_solution` · `!change_solution` · `!partial` (`!ps`) · `!solve_mini` · `!unsolve_mini` |
 | | Tag | `!feeds` · `!feeds_only` · `!informs` · `!informs_only` · `!groups_with` · `!groups_only_with` · `!remove_from` |
 | | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` |
 | | Read | `!info` · `!list_puzzles` (`!list`) · `!list_minis` · `!list_additional_sheets` · `!canvas` · `!info_bot` · `!invite` · `!starttime` · `!uptime` |
 | **Organisers/admins** | Create groups | `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) |
-| | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` · `!remove_sheet` |
+| | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` · `!remove_sheet` · `!remove_feeder` |
 | | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
 | | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
@@ -165,6 +166,25 @@ commands in the minimeta's channel; numbers come from `!list_minis`.
 | `!solve_mini` | `number answer` | Record a mini's answer. |
 | `!unsolve_mini` | `number` | Clear a mini's answer. |
 | `!delete_mini` | `number` (optional) | Permanently delete one mini (thread + sheet tab), asking to confirm. Organisers/admins. Give the number in the minimeta's channel, or run it with no number inside the mini's own thread. |
+
+## Feeder pool
+
+A Minimeta can own a pool of *given feeders* — finished answer strings a meta matching
+puzzle handed the solvers. Its Minis (and the Minimeta itself) claim items out of that
+pool; overlapping claims are legal — a rival claim is information, not an error. A claim
+confirms automatically when the claiming mini is solved. Run these in the minimeta's
+channel or any of its mini threads; the pool always belongs to the minimeta, and claims
+made from a mini thread are on that mini, while claims made from the minimeta's own
+channel are on the minimeta itself.
+
+| Command | Arguments | Does |
+|---|---|---|
+| `!add_feeders` | `one feeder per line` | Add given feeders to the pool. Re-pasting the same list is harmless — dupes are skipped. |
+| `!feeders` | — | Show the pool with each item's claim state and rivals, from this channel's point of view. |
+| `!claim_feeder` | `id` | Claim a feeder for this puzzle. The id comes from `!feeders`. |
+| `!unclaim_feeder` | `id` | Drop this puzzle's claim on a feeder; other claims are untouched. |
+| `!edit_feeder` | `id new-text` | Fix a feeder's text, keeping its claims and note. |
+| `!remove_feeder` | `id` | Permanently delete a feeder, with its claims and note, asking to confirm. Organisers/admins. To fix a typo use `!edit_feeder` instead. |
 
 ## Sheets
 
