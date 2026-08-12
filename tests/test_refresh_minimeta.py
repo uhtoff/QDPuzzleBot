@@ -38,8 +38,15 @@ def _patched(rollup_existing=None):
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
          patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
-         patch("bot.core.puzzle_service.RollupsJsonDb") as rudb:
+         patch("bot.core.puzzle_service.RollupsJsonDb") as rudb, \
+         patch("bot.core.puzzle_service.FeederPoolDb") as fpdb, \
+         patch("bot.core.puzzle_service.FeederClaimDb") as fcdb:
         rudb.get_by_attr.return_value = rollup_existing
+        # Task 7: refresh_minimeta now also fetches the feeder pool (for the
+        # contribution table's "provided:" rows) -- pin it empty so every test
+        # in this file stays deterministic regardless of what's changed by then.
+        fpdb.get_for_minimeta.return_value = []
+        fcdb.get_for_minimeta.return_value = []
         yield pdb, hdb, rdb, rudb
 
 
@@ -55,7 +62,11 @@ class TestRefreshMinimeta:
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_children.return_value = minis
             await svc.refresh_minimeta(_hunt(), minimeta)
-        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, minis)
+        # Task 7: render_minimeta_contribution's contract grew a `claims`
+        # parameter (the "provided:" rows) plus the `items` needed to resolve a
+        # provided item's text; the pool is empty here, so both are empty lists
+        # -- still an exact pin, not a wildcard.
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, minis, [], [])
 
     @pytest.mark.asyncio
     async def test_creates_puzzle_keyed_rollup_record(self):

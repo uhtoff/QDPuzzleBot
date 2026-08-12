@@ -737,9 +737,10 @@ class PuzzleService:
 
         async with rollup_lock(("minimeta", minimeta.id)):
             members = self.get_minis(minimeta.id)
+            items, claims = self.get_feeder_pool(minimeta)
             rollup = self._find_or_create_rollup_for_puzzle(hunt, minimeta)
             try:
-                await gsheet_cog.render_minimeta_contribution(minimeta, members)
+                await gsheet_cog.render_minimeta_contribution(minimeta, members, items, claims)
                 await self._record_rollup_tab(gsheet_cog, rollup, minimeta)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:

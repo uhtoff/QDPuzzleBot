@@ -17,7 +17,8 @@ from bot.core.sheet_tables import (
     feeder_matrix_table_name, select_table,
 )
 from bot.core.feeder_pool import (
-    BOT_COLUMNS, KEY_PREFIX, matrix_header, matrix_rows, target_id_from_label,
+    BOT_COLUMNS, KEY_PREFIX, matrix_header, matrix_rows, provided_item_ids,
+    target_id_from_label,
 )
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
@@ -1585,13 +1586,22 @@ class GoogleSheets(commands.Cog):
             return
         await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
 
-    async def render_minimeta_contribution(self, minimeta, members):
+    async def render_minimeta_contribution(self, minimeta, members, items, claims):
         """Render the contribution table on a minimeta's own tab.
 
         Synthesizes a 'Feeder' row for each mini-puzzle child, keyed by puzzle id
-        for stable reconciliation. Lazily promotes the tab to target layout (inserts
-        the 4-column contribution area at A–D) if the Table is not yet present —
-        this handles both new minimetas and ones created before this feature."""
+        for stable reconciliation, plus a 'Provided' row for every feeder the
+        minimeta itself claims directly (provided_item_ids) — rendered on the
+        claim, not on confirmation, because the confirming event for a main-meta
+        claim would be solving the main meta itself. A feeder confirmed to
+        another target supersedes its provided row (provided_item_ids already
+        encodes this); nothing is deleted, so unsolving that target's mini
+        restores it. `items` is the minimeta's feeder pool, needed here only to
+        look up a provided item's text by id.
+
+        Lazily promotes the tab to target layout (inserts the 4-column
+        contribution area at A–D) if the Table is not yet present — this
+        handles both new minimetas and ones created before this feature."""
         page_id = minimeta.google_page_id
         if page_id is None:
             return
@@ -1609,6 +1619,12 @@ class GoogleSheets(commands.Cog):
             for m in members
             if m.id != minimeta.id
         ]
+        items_by_id = {i.id: i for i in items}
+        for item_id in provided_item_ids(minimeta.id, claims):
+            item = items_by_id.get(item_id)
+            if item is None:
+                continue
+            rows.append([f"provided:{item_id}", "—", "Provided", item.text])
         await self.reconcile_table(
             page_id=page_id,
             desired_rows=rows,

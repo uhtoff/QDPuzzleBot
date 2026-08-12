@@ -507,10 +507,13 @@ class TestWebDataMinisPayload:
 
 
 class TestRefreshMiniMetaUsesStandardPath:
+    @patch("bot.core.puzzle_service.FeederPoolDb")
+    @patch("bot.core.puzzle_service.FeederClaimDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.RollupsJsonDb")
     @patch("bot.core.puzzle_service.rollup_lock")
-    async def test_calls_render_minimeta_contribution(self, lock_cm, RollupsDb, PuzzleDb):
+    async def test_calls_render_minimeta_contribution(
+            self, lock_cm, RollupsDb, PuzzleDb, FeederClaimDb, FeederPoolDb):
         """refresh_minimeta must call render_minimeta_contribution (standard path)."""
         from unittest.mock import AsyncMock, MagicMock
         from bot.core.puzzle_service import PuzzleService
@@ -520,6 +523,11 @@ class TestRefreshMiniMetaUsesStandardPath:
         children = [make_puzzle(id=2, parent_puzzle_id=1)]
         PuzzleDb.get_children.return_value = children
         RollupsDb.get_by_attr.return_value = None
+        # Task 7: refresh_minimeta now also fetches the feeder pool (for the
+        # contribution table's "provided:" rows) -- pin it empty, unrelated to
+        # what this test is about.
+        FeederPoolDb.get_for_minimeta.return_value = []
+        FeederClaimDb.get_for_minimeta.return_value = []
 
         gsheet = MagicMock()
         gsheet.render_minimeta_contribution = AsyncMock()
@@ -537,7 +545,10 @@ class TestRefreshMiniMetaUsesStandardPath:
         svc = PuzzleService(bot)
         await svc.refresh_minimeta(hunt, minimeta)
 
-        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children)
+        # Task 7: render_minimeta_contribution's contract grew `items`/`claims`
+        # parameters (the "provided:" rows) -- both empty here, still an exact
+        # pin, not a wildcard.
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children, [], [])
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.RollupsJsonDb")
