@@ -37,3 +37,21 @@ def claim_state(item_id, viewing_target_id, claims):
     if rivals:
         return "claimed"
     return "free"
+
+
+def rival_names(item_id, viewing_target_id, claims, names):
+    """Comma-joined names of the OTHER targets claiming `item_id`.
+
+    `names` maps target id to display name; a target with no name is skipped
+    (it has been deleted, or is not part of this pool's rendering). Sorted, not
+    insertion-ordered: an unstable order would rewrite the sheet row on every
+    reconcile even when nothing changed.
+    """
+    rivals = sorted(
+        names[claim.target_id]
+        for claim in claims
+        if claim.item_id == item_id
+        and claim.target_id != viewing_target_id
+        and claim.target_id in names
+    )
+    return ", ".join(rivals)
