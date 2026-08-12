@@ -1307,6 +1307,10 @@ class PuzzleService:
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
 
+        # A Mini solving proves which feeders it used — confirm its pool claims.
+        # Before the best-effort sheet work below, which is allowed to throw.
+        await self.confirm_feeder_claims(puzzle, confirmed=True)
+
         # M8: archive the mini-puzzle thread on solve.
         if puzzle.parent_puzzle_id is not None and guild is not None:
             thread = guild.get_channel_or_thread(puzzle.channel_id)
@@ -1392,6 +1396,9 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+
+        # The inverse of solve(): the claims go back to contested, losing nothing.
+        await self.confirm_feeder_claims(puzzle, confirmed=False)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         for tag in puzzle.tags:
@@ -2558,6 +2565,25 @@ class PuzzleService:
     # A Minimeta owns a pool of given feeder strings; its Minis (and the Minimeta
     # itself) claim items out of it. See
     # docs/superpowers/specs/2026-08-12-feeder-pool-design.md.
+
+    async def confirm_feeder_claims(self, puzzle, confirmed):
+        """Confirm (or demote) every feeder claim held by `puzzle`.
+
+        Solving a Mini is proof that the feeders it claimed belong to it, so
+        confirmation is automatic rather than a manual tick; unsolving is the exact
+        inverse. Only a Mini qualifies — an ordinary puzzle's solve says nothing
+        about any pool.
+
+        Rival claims on the same feeders are deliberately left alone. A losing claim
+        is information worth keeping, and deleting it would make unsolve lossy.
+
+        Sheet rendering is a later plan's job; this only moves the DB state.
+        """
+        if getattr(puzzle, "puzzle_type", None) != "Mini":
+            return
+        if getattr(puzzle, "parent_puzzle_id", None) is None:
+            return
+        FeederClaimDb.set_confirmed_for_target(puzzle.id, confirmed)
 
     def add_feeder_items(self, minimeta, pasted):
         """Append the non-blank lines of `pasted` to `minimeta`'s pool.
