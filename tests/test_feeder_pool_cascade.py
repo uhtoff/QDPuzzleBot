@@ -128,6 +128,25 @@ def test_the_same_target_cannot_claim_one_item_twice():
         _delete_puzzle(mini_id)
 
 
+def test_deleting_the_feeder_pool_cascades_its_claims():
+    """delete_for_minimeta (the DAO remove_minimeta now calls) deletes every pool
+    item for the minimeta; their claims must cascade with them (migration 043),
+    the same as deleting the minimeta puzzle itself."""
+    minimeta_id = _insert_puzzle(name="pool-teardown-minimeta")
+    mini_id = _insert_puzzle(name="pool-teardown-mini")
+    try:
+        item_id = _insert_pool_item(minimeta_id, "MARZIPAN")
+        _insert_claim(item_id, mini_id)
+
+        FeederPoolDb.delete_for_minimeta(minimeta_id)
+
+        assert _pool_item_count(item_id) == 0, "pool item survived delete_for_minimeta"
+        assert _claim_targets(item_id) == [], "claim survived its pool item"
+    finally:
+        _delete_puzzle(minimeta_id)
+        _delete_puzzle(mini_id)
+
+
 def test_add_many_dedups_case_insensitively_against_the_uca1400_index():
     """add_many's own dedup must agree with the index's collation
     (utf8mb4_uca1400_ai_ci), or a mixed-case paste half-applies and raises

@@ -1020,6 +1020,13 @@ class MySQLFeederPoolDb(_MySQLBaseDb):
         """Delete a pool item. Its claims cascade (migration 043)."""
         self._exec("DELETE FROM feeder_pool_items WHERE id = %s", (item_id,))
 
+    def delete_for_minimeta(self, minimeta_puzzle_id: int) -> None:
+        """Delete every pool item for a minimeta (remove_minimeta's teardown).
+        Their claims cascade (migration 043)."""
+        self._exec(
+            "DELETE FROM feeder_pool_items WHERE minimeta_puzzle_id = %s",
+            (minimeta_puzzle_id,))
+
 
 class MySQLFeederClaimDb(_MySQLBaseDb):
     TABLE_NAME = 'feeder_claims'

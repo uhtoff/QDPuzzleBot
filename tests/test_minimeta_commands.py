@@ -11,6 +11,9 @@ def _make_cog_with_info(puzzle, hunt=None):
     """Like make_cog but also stubs cog.info (used in TestPinRefresh)."""
     cog = make_cog(puzzle, hunt)
     cog.info = AsyncMock()
+    # !remove_minimeta's confirmation copy now checks the feeder pool; default to
+    # empty so tests that don't care about it aren't forced to configure it.
+    cog.service.get_feeder_pool = MagicMock(return_value=([], []))
     return cog
 
 
@@ -113,6 +116,47 @@ class TestRemoveMiniMeta:
         ctx.send.assert_called_once()
         assert "not a minimeta" in ctx.send.call_args[0][0].lower()
         cog.info.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_confirmation_mentions_the_feeder_pool_when_one_exists(self):
+        """A minimeta with pool items should not have its confirmation copy stay
+        silent about the pool being wiped too."""
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(puzzle, MagicMock())
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+        cog.service.get_feeder_pool = MagicMock(
+            return_value=([MagicMock(), MagicMock()], []))
+        captured = {}
+
+        async def _confirm(_ctx, description, **kwargs):
+            captured["description"] = description
+            return True
+        cog._confirm_destructive = AsyncMock(side_effect=_confirm)
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        assert "feeder" in captured["description"].lower()
+        assert "2" in captured["description"]
+
+    @pytest.mark.asyncio
+    async def test_confirmation_omits_the_feeder_pool_when_there_is_none(self):
+        """The two confirmation-copy tests must render different text -- otherwise
+        neither is pinning anything."""
+        puzzle = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(puzzle, MagicMock())  # defaults get_feeder_pool to empty
+        ctx = make_ctx()
+        cog.service.remove_minimeta = AsyncMock()
+        captured = {}
+
+        async def _confirm(_ctx, description, **kwargs):
+            captured["description"] = description
+            return True
+        cog._confirm_destructive = AsyncMock(side_effect=_confirm)
+
+        await Puzzles.remove_minimeta.callback(cog, ctx)
+
+        assert "feeder" not in captured["description"].lower()
 
 
 class TestListMinis:

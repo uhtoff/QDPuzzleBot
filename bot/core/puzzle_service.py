@@ -2069,6 +2069,13 @@ class PuzzleService:
         if rollup is not None:
             RollupsJsonDb.delete(rollup.id)
 
+        # Symmetric with everything else this teardown removes: the pool's FK is
+        # to the puzzle itself, which survives (it reverts to an ordinary puzzle
+        # rather than being deleted), so nothing else would clear it. Left behind,
+        # !feeders keeps listing a stale pool and re-running !make_minimeta would
+        # silently resurrect it. Its claims cascade (migration 043).
+        FeederPoolDb.delete_for_minimeta(puzzle.id)
+
         puzzle.puzzle_type = None
         PuzzleJsonDb.commit(puzzle)
 

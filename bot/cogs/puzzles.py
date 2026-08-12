@@ -1529,9 +1529,11 @@ class Puzzles(commands.Cog):
         # deletes every one of them plus the rollup, and none of it comes back.
         minis = self.service.get_minis(puzzle.id)
         count = f"{len(minis)} mini-puzzle(s)" if minis else "every mini-puzzle"
+        pool_items, _pool_claims = self.service.get_feeder_pool(puzzle)
+        pool_note = f", its feeder pool ({len(pool_items)} feeder(s))" if pool_items else ""
         if not await self._confirm_destructive(
                 ctx, f"Remove minimeta **{puzzle.name}**, deleting {count} "
-                     f"(threads + sheet tabs) and its rollup table?"):
+                     f"(threads + sheet tabs) and its rollup table{pool_note}?"):
             return
         try:
             await self.service.remove_minimeta(ctx.guild, self.get_hunt(ctx), puzzle)

@@ -590,6 +590,26 @@ class TestRemoveMinimeta:
         assert minimeta.puzzle_type is None
         PuzzleDb.commit.assert_called_with(minimeta)
 
+    @patch("bot.core.puzzle_service.FeederPoolDb")
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_deletes_the_feeder_pool(self, PuzzleDb, RollupDb, FeederPoolDb):
+        """remove_minimeta deletes every mini, the rollup, and clears puzzle_type,
+        but the pool's FK is to the puzzle (which still exists) -- so nothing else
+        tears it down. Without this call, !feeders keeps listing a stale pool and
+        re-running !make_minimeta silently resurrects it."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        svc.get_minis = MagicMock(return_value=[])
+        svc.delete_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=None)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        FeederPoolDb.delete_for_minimeta.assert_called_once_with(1)
+
     @patch("bot.core.puzzle_service.RollupsJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_raises_when_not_minimeta(self, PuzzleDb, RollupDb):
