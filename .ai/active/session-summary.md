@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: in progress — docs(spec): replace the sheet design with a matrix tab @ c98e547
+Status: in progress — fix(core): identify matrix tick columns by target id, not by name @ 4e2e0d0
 
 ## Goal
 
@@ -55,13 +55,11 @@ confirm-on-solve/demote-on-unsolve via the shared `service.solve()`/`unsolve()` 
 
 ## Next steps
 
-1. Write **Plan 2 — the matrix tab** to `docs/superpowers/plans/`. Covers: migration 044
-   (`puzzles.feeder_tab_page_id`), creating the `Feeders — <name>` tab with BOOLEAN tick
-   columns, adding/removing a column as Minis come and go, `!sync_claims`, provided rows on
-   the contribution table, and the shared staleness badge.
-   **Read the revised "Sheet surfaces" section of the spec first — the original two-table
-   design was unbuildable and is superseded.**
-2. Execute it the same way (subagent per task, two-stage review, mutation checks).
+1. ~~Write Plan 2~~ **DONE** — `docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md`,
+   8 tasks. Tasks 2 (migration 044) and 3 (pure matrix helpers) are **implemented**.
+2. **Tasks 4–8 are BLOCKED on the live Sheets probe** (Task 1). They encode assumptions the
+   probe exists to test; building on a guess would mean a green suite proving nothing about
+   the part most likely to be wrong.
 3. Then Plan 3 (web routes + dashboard panel), per the project's command-parity principle.
 
 `provided_item_ids` and `diff_ticks` in `bot/core/feeder_pool.py` are already written and
