@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: in progress — fix(core): identify matrix tick columns by target id, not by name @ 4e2e0d0
+Status: in progress — feat(sheets): render the feeder matrix @ 135f89a
 
 ## Goal
 
@@ -56,11 +56,21 @@ confirm-on-solve/demote-on-unsolve via the shared `service.solve()`/`unsolve()` 
 ## Next steps
 
 1. ~~Write Plan 2~~ **DONE** — `docs/superpowers/plans/2026-08-12-feeder-pool-matrix.md`,
-   8 tasks. Tasks 2 (migration 044) and 3 (pure matrix helpers) are **implemented**.
-2. **Tasks 4–8 are BLOCKED on the live Sheets probe** (Task 1). They encode assumptions the
-   probe exists to test; building on a guess would mean a green suite proving nothing about
-   the part most likely to be wrong.
-3. Then Plan 3 (web routes + dashboard panel), per the project's command-parity principle.
+   8 tasks.
+2. ~~Task 1: live probe~~ **DONE 2026-08-12** (`1495f0e`). Findings recorded in the plan
+   file's "Read this before writing any Sheets code" section: BOOLEAN columnType survives
+   `addTable`/`updateTable`, and both ticked/unticked cells read back as explicit strings
+   (`'TRUE'`/`'FALSE'`), never blank or omitted.
+3. ~~Tasks 2–3: migration 044 + pure matrix helpers~~ **DONE** (`677014a`, `584b4d0`,
+   `4e2e0d0`).
+4. ~~Task 4: create the matrix tab~~ **DONE** (`685687c`) — `ensure_feeder_matrix_tab`.
+5. ~~Task 5: render the matrix~~ **DONE** (`135f89a`) — `render_feeder_matrix` +
+   `refresh_feeder_matrix`. Suite 2014 passed, ruff clean, basedpyright 0 errors,
+   `feeder_pool.py` still import-free.
+6. **Tasks 6–8 remain**: `!sync_claims` (pulls ticks back into claims), provided rows on
+   the minimeta's contribution table, and wiring `refresh_feeder_matrix` into the
+   pool-mutating call sites (`add_feeder_items`, `claim_feeder`, `create_mini`, etc.).
+7. Then Plan 3 (web routes + dashboard panel), per the project's command-parity principle.
 
 `provided_item_ids` and `diff_ticks` in `bot/core/feeder_pool.py` are already written and
 tested but **not yet called by anything** — Plan 2 consumes them. That is intentional.
@@ -83,13 +93,9 @@ tested but **not yet called by anything** — Plan 2 consumes them. That is inte
 
 ### Blocking Plan 2's completion
 
-- **A live probe against a real Google spreadsheet is required and has NOT been run.**
-  Nothing in this repo sets a checkbox or any data validation, so `columnType: "BOOLEAN"`
-  is unproven here. Three things the mocked suite structurally cannot verify: whether
-  `addTable` accepts `columnType` on a header-only range, what a ticked box reads back as
-  through `values().get` (formatted strings, not bools), and whether an all-unticked column
-  omits `values` entirely. A probe writes to a real spreadsheet — **needs the user's
-  say-so** before running.
+- None currently. The live probe (Task 1) ran 2026-08-12 against a scratch spreadsheet;
+  findings are recorded in the plan file and Tasks 4–5 were built against them, not against
+  the plan's original (partly wrong) assumptions.
 
 ### Non-blocking
 
