@@ -3,10 +3,16 @@
 Automating the given-feeder list for a **meta matching puzzle**.
 
 > **Revised 2026-08-12 (after Plan 1 shipped).** The original sheet design put a `Feeder
-> Pool` table on the Minimeta's own tab and a `Feeder Claims` block on each Mini's tab.
-> **That design was unbuildable** and is superseded by the matrix tab below — see
-> "Why not two tables on the existing tabs". The data model, the claim/confirm rules and
-> the provided rows are unchanged; only the sheet surfaces and the sync command name are.
+> Pool` table on the Minimeta's own tab and a `Feeder Claims` block on each Mini's tab. It
+> is superseded by the matrix tab below. The data model, the claim/confirm rules and the
+> provided rows are unchanged; only the sheet surfaces and the sync command name are.
+>
+> **Correction to an earlier draft of this revision:** it claimed two bot-owned tables
+> cannot share a tab at all. That is false, and the false version should not be quoted.
+> Table identity was already solved by procedurally generated names
+> (`contribution_table_name(page_id)`), and `reconcile_table` takes its key column from
+> *the table's own range*, so two tables in different **column bands** read different key
+> columns and coexist fine. The real constraint is narrower — see below.
 
 ## The puzzle shape
 
@@ -187,28 +193,39 @@ already spends its one `tab_page_id` on the mini-list.
 
 ### Why not two tables on the existing tabs
 
-The original design is not merely awkward, it is **destructive**, and the reason is worth
-recording so it is not re-proposed.
+Recorded precisely, because an earlier draft of this section overstated the case and a wrong
+reason is worse than none.
 
-`reconcile_table` builds its row map by reading the **entire** key column of the tab —
-`'Tab'!A:A` (`bot/cogs/puzzles_gsheet.py:1210`) — and treats every non-empty key below the
-header as a live row. `diff_rows` then classifies any key not in the caller's desired set
-as a **prune**, and prunes are blanked. Two bot-owned tables sharing a tab's key column
-therefore blank each other's rows on every render, forever.
+**What is not a problem.** Table identity is already solved: every table the bot creates is
+given a procedurally generated, page-derived name, and `select_table` matches on it
+(`bot/core/sheet_tables.py`). And `reconcile_table` reads the key column of **the table's
+own range** — `key_col = rng.get("startColumnIndex", 0)`, then `{key_letter}:{key_letter}`
+(`bot/cogs/puzzles_gsheet.py:1200-1210`) — not column A. Two tables in different column
+bands therefore read different key columns and coexist without interfering.
 
-Three further obstacles, all verified in the code:
+**What is a problem — three things, all verified:**
 
-- **`select_table` falls back to a lone unnamed table regardless of the name asked for**
-  (`bot/core/sheet_tables.py:44`). With a second bot table present, a transient failure
-  during creation could route contribution rows into the pool table — reintroducing the
-  exact bug that module was written to prevent.
-- **A Mini's tab has no contribution area and no promote path.** Minis are created as
-  ordinary puzzles, so row 3 onward is solver grid; a claims block at A4 lands on their work.
-- **The Minimeta's tab has no free column band.** `promote_tab_to_target` already pushed the
-  solver grid to E+, and nothing bounds how far right it extends.
+1. **Two tables sharing a column band destroy each other.** Stack a second table *below* the
+   contribution table in columns A–D and both read the same key column; `diff_rows`
+   classifies the other table's keys as prunes, and prunes are blanked. Every render, both
+   directions, forever. So a second table needs its own band — which leads to (2) and (3).
+2. **A Mini's tab has no contribution area and no promote path.** Minis are created as
+   ordinary puzzles, so row 3 onward is solver grid. There is no equivalent of
+   `promote_tab_to_target` to make room, so a claims block lands on their work.
+3. **The Minimeta's tab has no *guaranteed* free band.** `promote_tab_to_target` pushed the
+   solver grid to E+, and nothing bounds how far right it extends — so any band we pick may
+   already be occupied on a real hunt.
 
-The matrix tab sidesteps all four: its own tab, its own key column, no pre-existing solver
-grid, and no second table anywhere.
+A fourth, lesser hazard: **`select_table` falls back to a lone unnamed table regardless of
+the name requested** (`bot/core/sheet_tables.py:44`). That only bites when one of the two
+tables is missing — e.g. after a transient failure during creation — but it would then route
+contribution rows into the wrong table. It is a pre-existing trap, not created by either
+design, and remains latent for anyone who later adds a second table to a tab.
+
+**The matrix was chosen on its merits, not because the alternative was impossible:** one
+overview of the whole assignment problem, a single read instead of one per mini, and free
+sorting and filtering — including by `Len`, which is how enumeration patterns get spotted.
+Obstacles (2) and (3) are what make the per-mini variant genuinely unattractive.
 
 ### What the matrix costs, and the escape hatch
 
