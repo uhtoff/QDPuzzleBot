@@ -2,6 +2,12 @@
 
 Automating the given-feeder list for a **meta matching puzzle**.
 
+> **Revised 2026-08-12 (after Plan 1 shipped).** The original sheet design put a `Feeder
+> Pool` table on the Minimeta's own tab and a `Feeder Claims` block on each Mini's tab.
+> **That design was unbuildable** and is superseded by the matrix tab below — see
+> "Why not two tables on the existing tabs". The data model, the claim/confirm rules and
+> the provided rows are unchanged; only the sheet surfaces and the sync command name are.
+
 ## The puzzle shape
 
 A meta matching puzzle hands solvers a flat list of finished answers — the *given
@@ -28,8 +34,8 @@ every mini's own sheet tab, and confirmed automatically when a mini is solved.
   visible.
 - Automatic confirmation of a mini's claims when that mini is solved; automatic demotion
   on unsolve.
-- A `Feeder Pool` table on the parent's tab and a `Feeder Claims` block on every mini's
-  tab, with a solver-tickable claim column read back on an explicit sync.
+- A **matrix tab** per Minimeta: feeders down the side, claim targets across the top,
+  solver-tickable checkbox cells read back on an explicit sync.
 - **Provided rows**: feeders claimed for the main meta rendered into the parent's existing
   contribution table alongside the mini answers.
 - Dashboard panel mirroring the pool, per the web-parity principle.
@@ -129,73 +135,101 @@ Decisions embedded here:
 Derivation lives in `bot/core/feeder_pool.py` and is pure — the highest-value unit tests in
 the feature sit here.
 
+Since the revision to a matrix tab, `state` and `rival_names` are consumed by the **Discord
+`!feeders` embed** rather than by a sheet column: the matrix shows every claim at a glance,
+so it needs no derived state column. Both remain correct and load-bearing.
+
 ## Sheet surfaces
 
-Three surfaces are written. Two are new native Tables reconciled by name, riding
-`reconcile_table` unchanged; the third is the parent's **existing** contribution table,
-which gains provided rows (see "Provided rows").
+**One dedicated tab per Minimeta, laid out as a matrix.** Feeders down the side, claim
+targets across the top, a checkbox in each cell — which is how a matching puzzle is
+actually solved.
 
-**Parent tab — `Feeder Pool <page_id>`.** A second table on a tab that already carries
-`Contributions <page_id>`; `select_table` resolves them by name.
-
-```
- key    item             claimed by       confirmed  │ main   note
- ────────── bot-owned, data_col_count=4 ─────────────┼── solver-owned ──
- f:12   ALBATROSS        mini1            mini1      │        fits SEA
- f:13   MARZIPAN         mini1            —          │ [x]    for the main?
- f:14   QUAY             —                —          │        homeless
-```
-
-The `main` column is where a claim **for the Minimeta itself** is ticked. Claims for minis
-are ticked on mini tabs, but the main meta has no mini tab of its own, so its claim column
-lives here — the same solver-owned-column pattern, one column further right.
-
-**Each mini tab — `Feeder Claims <page_id>`.**
+Tab name: `Feeders — <minimeta name>`, created through `get_unique_tab_name`. Its
+`sheetId` is stored in a new nullable column `puzzles.feeder_tab_page_id` (migration 044),
+because the Minimeta's existing `google_page_id` names its own puzzle tab and `rollups`
+already spends its one `tab_page_id` on the mini-list.
 
 ```
- key    item             state     elsewhere      │ claim
- ────────── bot-owned, data_col_count=4 ──────────┼── solver-owned ──
- f:14   QUAY             free      —              │  [x]
- f:13   MARZIPAN         claimed   mini1          │  [ ]
- f:12   ALBATROSS        taken     mini1          │  [ ]
- f:15   TERN             claimed   mini1, mini3   │  [x]
+ A(hidden)  B            C         D      E       F       G
+ key        item         note      main   mini1   mini2   mini3
+ f:12       ALBATROSS    fits SEA  [ ]    [x]     [ ]     [ ]
+ f:13       MARZIPAN     clash?    [ ]    [x]     [x]     [ ]
+ f:14       QUAY                   [ ]    [ ]     [ ]     [ ]
+ f:15       TERN         for main? [x]    [ ]     [ ]     [ ]
+ └── bot-owned ──┘       └──────── solver-owned ─────────────┘
+     data_col_count=2
 ```
 
-`state` and `elsewhere` are split rather than combined so the native Table's filter
-dropdown gives exactly three buckets: filter `state=free` for what is genuinely up for
-grabs, sort by `state` to sink settled items. Naming the rivals is the point — an
-unconfirmed claim by another mini is *useful information*, not noise, even when it turns
-out to be wrong.
+- **Columns A–B are bot-owned** and reconciled by `reconcile_table` with
+  `data_col_count=2`. Everything from C rightward is preserved untouched, by the same
+  column-span rule the Unassigned table's Notes column already relies on
+  (`bot/cogs/puzzles_gsheet.py:1204`).
+- **`note` sits at C, immediately after `item`**, so that adding a mini appends a column at
+  the far right and *nothing moves*. Putting note last would make every new mini shift it.
+- **One tick column per claim target**, `main` first (the Minimeta itself), then the Minis in
+  creation order. The header row is bot-written; the cells below are the solver's.
+- **The bot does write into the tick columns, but only to restore a confirmed tick.**
+  Confirmed claims are bot-owned: unticking one does not undo it, and the next render puts
+  it back. Unsolving the mini is how it is undone. `diff_ticks`
+  (`bot/core/feeder_pool.py`) already encodes exactly this and is the only place the rule
+  lives.
+- Tick columns are declared `columnType: "BOOLEAN"` in the `addTable` request's
+  `columnProperties`, so the checkbox applies to rows as the Table grows.
+  `reconcile_table`'s resize sends `"fields": "range"` only, so a column type set at
+  creation is never clobbered.
 
-**Authority is uniform: the bot owns every column except the solver-owned one at the far
-right of each table.** `note` and `claim` sit outside the bot-written span, so
-`reconcile_table` structurally cannot clobber them. `item` sits *inside* the span, which is
-why text is not sheet-editable (see "Editing a feeder's text").
+### Why not two tables on the existing tabs
 
-The claim column is a boolean data-validation range. **This is the only genuinely new
-Sheets call in the feature**; everything else is an existing method.
+The original design is not merely awkward, it is **destructive**, and the reason is worth
+recording so it is not re-proposed.
+
+`reconcile_table` builds its row map by reading the **entire** key column of the tab —
+`'Tab'!A:A` (`bot/cogs/puzzles_gsheet.py:1210`) — and treats every non-empty key below the
+header as a live row. `diff_rows` then classifies any key not in the caller's desired set
+as a **prune**, and prunes are blanked. Two bot-owned tables sharing a tab's key column
+therefore blank each other's rows on every render, forever.
+
+Three further obstacles, all verified in the code:
+
+- **`select_table` falls back to a lone unnamed table regardless of the name asked for**
+  (`bot/core/sheet_tables.py:44`). With a second bot table present, a transient failure
+  during creation could route contribution rows into the pool table — reintroducing the
+  exact bug that module was written to prevent.
+- **A Mini's tab has no contribution area and no promote path.** Minis are created as
+  ordinary puzzles, so row 3 onward is solver grid; a claims block at A4 lands on their work.
+- **The Minimeta's tab has no free column band.** `promote_tab_to_target` already pushed the
+  solver grid to E+, and nothing bounds how far right it extends.
+
+The matrix tab sidesteps all four: its own tab, its own key column, no pre-existing solver
+grid, and no second table anywhere.
 
 ## Sync
 
-`sync_feeder_claims(hunt, minimeta)` — the explicit pull:
+`!sync_claims` — the explicit pull. (`!sync_claims` is **not available**: it is already an
+alias of `!sync`, and discord.py raises `CommandRegistrationError` at cog load on a
+duplicate, so reusing it would fail the bot at startup rather than shadow anything.)
 
-1. Read the claim column from every mini tab, plus the `main` claim column and the note
-   column from the parent pool tab.
-2. Diff ticks against `feeder_claims`; insert and delete **unconfirmed** rows only.
-3. Adopt changed notes.
-4. **Ignore any key not currently in the pool.** `reconcile_table` blanks pruned rows
-   rather than deleting them (`:1166`), so a tick can survive on the blanked row of a
-   removed item. Without this rule that stale tick resurrects a dead claim.
-5. Re-render all three surfaces — one tick changes `state` on every other mini's block,
-   and a `main` tick adds or removes a provided row.
+1. **One** `values().get` over the whole feeder tab. Because the matrix is a single tab
+   there is no N-tab read — which matters more than quota arithmetic suggests, since
+   `_execute_lock` (`bot/utils/gsheets.py:37`) serialises every Sheets call process-wide, so
+   N reads would block every other hunt's Sheets traffic for the duration.
+2. Map the header row to claim targets, then run `diff_ticks` **per tick column**, inserting
+   and deleting unconfirmed claims only.
+3. Adopt changed notes from column C via the already-built, currently-unused
+   `FeederPoolDb.set_note`.
+4. **Ignore any key not currently in the pool.** `reconcile_table` blanks pruned rows rather
+   than deleting them, so a tick can outlive its item. `diff_ticks` already implements this;
+   the sync must route through it rather than re-deriving it.
+5. Re-render the matrix and the parent's contribution table.
 6. Report: claims added, claims dropped, newly contested items, still-homeless count.
 
-**Confirmed claims are bot-owned.** Unticking a confirmed claim does not undo it; the next
-render restores the tick. Unsolving the mini is the way to undo a confirmation.
+Values come back as **FORMATTED_VALUE strings**, so a ticked box reads as `"TRUE"`, not a
+bool — and an all-unticked column may omit `values` entirely rather than returning blanks.
 
-Reading N mini tabs wants a `_values_batch_get` on the gsheet cog (the existing
-`_values_get` at `bot/cogs/puzzles_gsheet.py:846` takes a single range). N separate calls is
-an acceptable first cut — each is already retry-wrapped — but the batch form is preferred.
+**Do not take `rollup_lock` around a call to `refresh_minimeta`.** `asyncio.Lock` is not
+reentrant and never times out, so re-entry wedges the event loop permanently — no error, no
+timeout, until restart (`bot/core/locks.py:24`).
 
 ## Confirm on solve
 
@@ -247,12 +281,11 @@ its mini-list.
 This feature adds more writes than there are slots: the pool table is a second write to the
 parent's tab, and each mini's claim block is a write to a different tab again.
 
-**Decision: share the Minimeta's existing badge, and don't badge the mini claim blocks.**
+**Decision: share the Minimeta's existing badge.** The matrix tab has no badge of its own.
 
-- A failure of *either* the mini-list render or the pool render marks the Minimeta stale.
+- A failure of *either* the mini-list render or the matrix render marks the Minimeta stale.
   The badge does not say which failed. It doesn't need to: the fix for both is
-  `!sync_feeders`, which rewrites every surface and reports what it fixed.
-- Mini claim blocks are best-effort and unbadged. They self-heal on the next sync.
+  `!sync_claims`, which rewrites every surface and reports what it fixed.
 - The DB is never wrong, only the sheet drifts, so the exposure is bounded: a write that
   fails during confirm-on-solve stays invisible until someone syncs.
 
@@ -320,8 +353,13 @@ no special handling, it falls out of the same derivation.
 
 ### Constraints
 
-- Only feeders claimed to the Minimeta itself (`target_id = minimeta.id`) appear. Never the
-  whole pool — that would tip every loose string into the meta's answer table.
+- Only feeders claimed to the Minimeta itself (`target_id = minimeta.id`) appear — driven by
+  the `main` column of the matrix. Never the whole pool: that would tip every loose string
+  into the meta's answer table.
+- **`render_minimeta_contribution(minimeta, members)` has no claims argument**
+  (`bot/cogs/puzzles_gsheet.py:1518`), and both `bot/core/puzzle_service.py:741` and
+  `tests/test_refresh_minimeta.py`'s `assert_awaited_once_with(minimeta, minis)` pin the
+  current shape. Adding provided rows changes that signature and both call sites.
 - `render_minimeta_contribution` builds its rows inline rather than via
   `contribution_rows`, so the provided rows are appended there.
 - `provided:<item_id>` is a fresh key namespace, so the column-A diff is unaffected.
@@ -340,7 +378,7 @@ web equivalent, per the project's parity principle.
 | `!feeders <minimeta>` (list embed) | pool data in the board payload | ungated |
 | `!edit_feeder <key> <text>` | `PATCH /puzzles/<id>/feeders/<item_id>` | ungated |
 | `!remove_feeder <key>` | `DELETE /puzzles/<id>/feeders/<item_id>` | organiser |
-| `!sync_feeders <minimeta>` | `POST /puzzles/<id>/feeders/sync` | ungated |
+| `!sync_claims <minimeta>` | `POST /puzzles/<id>/feeders/sync` | ungated |
 
 Gating follows the 2026-08-11 audit's area-based principle: building a pool is a
 Create-area operation (like `!make_minimeta`, ungated); destroying part of one is not (like
@@ -355,55 +393,194 @@ and click-to-assign, live-pushed via the existing board-push Notifier.
 
 ## New machinery
 
+Revised after the matrix decision. Plan 1 (core) has shipped; this is what Plans 2–3 add.
+
 | New | Reused unchanged |
 |---|---|
-| 1 migration, 2 tables | the append/update/prune diff engine (`reconcile_table`) |
-| `bot/core/feeder_pool.py` — pure: row shaping, `state` derivation, tick diffing | table-selection-by-name (`select_table`) |
-| 2 sheet renderers, thin wrappers modelled on `render_minimeta_contribution`, plus provided rows appended inside it | solver-owned-column span preservation; the contribution table's `Type` vocabulary and sourceless-row precedent |
-| boolean data-validation for the claim column — the only new Sheets call | board push, audit log, locks; the Minimeta's existing staleness badge, shared (see "Staleness") |
-| `_values_batch_get` (or N calls as a first cut) | the `refresh_minimeta` lifecycle to hang renders off |
-| ~4 service methods + the solve/unsolve hook | both solve entrypoints, via the one seam |
-| 5 commands, 5 routes, 1 dashboard panel | |
+| migration 044 — `puzzles.feeder_tab_page_id` | `reconcile_table`'s append/update/prune engine, and its solver-owned column-span preservation |
+| the matrix tab: create, name via `get_unique_tab_name`, header row, one tick column per target | `select_table` (single bot table per tab — the case it was designed for) |
+| `columnType: "BOOLEAN"` in `addTable`'s `columnProperties` — **no checkbox or data-validation code exists anywhere in this repo today** | `execute_with_retry` backoff; callers participate by routing through existing helpers |
+| column add/remove as Minis come and go | the Minimeta's existing staleness badge |
+| a row-shaping function for the matrix (no equivalent of `contribution_rows` exists for it) | `claim_state` / `rival_names` / `provided_item_ids` / `diff_ticks` — all built and tested in Plan 1 |
+| reading a non-key column and mapping it back to keys | `values().get` + the `key_to_row` pattern |
+| `!sync_claims` + its web route | board push, audit log, locks |
+| provided rows appended in `render_minimeta_contribution` (signature change) | the contribution table's `Type` vocabulary and `informs:free:` sourceless-row precedent |
 
-A medium feature, not a subsystem. The expensive part — a bidirectional sheet sync with
-conflict rules — already exists and already has a precedent for a solver-owned column
-inside a bot-owned table.
+**No `_values_batch_get` is needed** — a single tab means a single read. That was only
+required by the superseded multi-tab design.
 
 ## Testing
 
-**Pure, and the highest value —** `bot/core/feeder_pool.py`:
+**Pure, and still the highest value —** `bot/core/feeder_pool.py` (shipped in Plan 1):
+`claim_state` across all four values from two viewing targets; `provided_item_ids` including
+the supersede rule; `diff_ticks` including a stale tick on a pruned row and the
+never-drop-a-confirmed-claim rule. Every case uses at least two items and two minis, so a
+transposed id cannot pass.
 
-- `state` derivation across all four values, from more than one viewing target. A single
-  item or a single viewer cannot catch a transposed target id, so every case uses at least
-  two minis and two items.
-- Tick diffing: added, dropped, unchanged, and a tick on a key absent from the pool
-  (must be ignored, not adopted).
-- Confirmed claims are never dropped by an untick.
-- Provided-row selection: a claim to the Minimeta yields a row; the same claim superseded by
-  a confirmed claim elsewhere does not; unsuperseding restores it. Tested with at least two
-  items and two minis, so a transposed target id cannot pass.
+**Service level —** confirm-on-solve and its inverse, exercised through **both** entrypoints
+(`bot/cogs/puzzles.py` and `bot/web/actions.py`), not just the service.
 
-**Service level —** confirm-on-solve and its inverse:
+**Gating —** `tests/test_web_route_gating.py` and `tests/test_command_gating.py` assert whole
+maps, so every new command and route must be added there or the suite flags the gap.
 
-- Solving a mini confirms exactly its own claims and no others.
-- Rival claims survive confirmation and read as `taken`.
-- Unsolve restores the exact pre-solve contested set.
-- A Sheets failure during the post-solve render leaves the solve applied and the rollup
-  badged, not the solve rolled back.
+### What the suite cannot verify — read this before trusting a green run
 
-**Both edges —** the solve hook must be probed through *both* entrypoints
-(`bot/cogs/puzzles.py` and `bot/web/actions.py`), not just the service, or the test proves
-nothing about the parity that motivated the shared seam. The existing
-`tests/test_solve_equivalence.py` is the model.
+**Every Sheets test in this repo asserts request shape against mocks.**
+`tests/test_contribution_table_requests.py` says so in its own header: it patches the cog's
+batch/low-level seams and asserts the `batchUpdate` request bodies. That verifies column
+indices, ranges, request ordering and which table name was targeted. It verifies **nothing**
+about what Google does with those requests.
 
-**Gating —** the route→tier map in `tests/test_web_route_gating.py` and the command probe in
-`tests/test_command_gating.py` both assert whole maps, so the five new commands and routes
-must be added there or the suite will flag the gap.
+Concretely, a plan can gate on *"the `addTable` request carries `columnType: BOOLEAN` at
+column index 3"*. It **cannot** gate on:
 
-**Not gate-verified:** the sheet rendering itself. The Google Sheets calls are mocked in
-tests, so column spans, the data-validation checkbox, and the multiple-tables-per-tab
-resolution are verified by inspection and by trying it on a real hunt sheet — not by the
-suite. Worth one manual pass on staging before this is considered done.
+- the checkbox actually rendering,
+- what a ticked box reads back as through `values().get` (formatted strings, not bools — and
+  an all-unticked column may omit `values` entirely),
+- whether `addTable` accepts `columnType` on a header-only range,
+- how the tab behaves once a solver sorts or filters it.
+
+Those need a **live probe against a real spreadsheet**. The project's established form for
+this is a one-off script under `scripts/` (`diagnose_addtable.py`, `diagnose_generate.py`)
+plus a recorded manual session (`.ai/archive/2026-06-26-milestone-d-live-test/`). Plan 2 is
+not done until that probe has been run and its result recorded — a green suite is not
+evidence here, and saying otherwise would misrepresent the coverage.
+
+One live finding already on record, so it is not re-derived: **a native Table sharing columns
+with header merges above it is fine** — the column-overlap hypothesis was tested and
+disproven. A Table must still not *overlap* a merged range.
+
+## Acceptance criteria
+
+Criteria 1–8 are **delivered by Plan 1** (verified: suite 1981 green at `288c9a5`).
+
+1. A Minimeta with an empty pool behaves exactly as it does today.
+2. Pasting 30 feeders creates 30 items in paste order; re-pasting the same list adds nothing —
+   including when the re-paste differs only in case or accents.
+3. An over-length line is rejected without inserting any of the paste.
+4. Solving a mini confirms its claims and leaves rival claims intact.
+5. Unsolving restores the exact contested set from before the solve.
+6. Editing a feeder's text preserves its claims and note; removing one cascades both away.
+7. A confirmed claim cannot be dropped by `!unclaim_feeder` — only by unsolving.
+8. Everything keys on `parent_puzzle_id`, so retyping a mini with `!type` changes nothing.
+
+Criteria 9–17 are **Plan 2**:
+
+9. A Minimeta with a non-empty pool gets one `Feeders — <name>` tab, recorded in
+   `puzzles.feeder_tab_page_id`, and creating it a second time is a no-op.
+10. The matrix carries one tick column per claim target, `main` first, then Minis in creation
+    order; adding a Mini appends a column at the far right and moves nothing.
+11. Ticking a cell and running `!sync_claims` creates that claim; unticking removes it.
+12. A tick on a row whose feeder was removed is ignored, not adopted.
+13. Unticking a **confirmed** claim does not remove it, and the next render restores the tick.
+14. A note typed in column C survives every render and is adopted on sync.
+15. Solving a mini ticks and locks its claims; unsolving releases them.
+16. A feeder ticked in the `main` column appears as a `provided:<id>` row on the parent's
+    contribution table with `Type = Provided`; a confirmed claim elsewhere removes it.
+17. A failed matrix render marks the Minimeta "sheet stale", and `!sync_claims` clears it.
+
+**Not gate-verifiable** (see "What the suite cannot verify"): 9's real tab creation, the
+checkbox rendering in 10, and the read-back format underlying 11–13. Those require the live
+probe.
+
+## Constraints
+
+- Only feeders claimed to the Minimeta itself (`target_id = minimeta.id`) appear — driven by
+  the `main` column of the matrix. Never the whole pool: that would tip every loose string
+  into the meta's answer table.
+- **`render_minimeta_contribution(minimeta, members)` has no claims argument**
+  (`bot/cogs/puzzles_gsheet.py:1518`), and both `bot/core/puzzle_service.py:741` and
+  `tests/test_refresh_minimeta.py`'s `assert_awaited_once_with(minimeta, minis)` pin the
+  current shape. Adding provided rows changes that signature and both call sites.
+- `render_minimeta_contribution` builds its rows inline rather than via
+  `contribution_rows`, so the provided rows are appended there.
+- `provided:<item_id>` is a fresh key namespace, so the column-A diff is unaffected.
+- The contribution table is therefore a **third surface that re-renders on feeder changes**
+  — on sync, and on confirm-on-solve (confirming to a mini can supersede a main claim and
+  remove a row).
+
+## Command and route surface
+
+Naming follows the existing `!make_minimeta` / `!create_mini` family. Every command has a
+web equivalent, per the project's parity principle.
+
+| Command | Route | Gate |
+|---|---|---|
+| `!add_feeders <minimeta>` + multi-line paste | `POST /puzzles/<id>/feeders` | ungated |
+| `!feeders <minimeta>` (list embed) | pool data in the board payload | ungated |
+| `!edit_feeder <key> <text>` | `PATCH /puzzles/<id>/feeders/<item_id>` | ungated |
+| `!remove_feeder <key>` | `DELETE /puzzles/<id>/feeders/<item_id>` | organiser |
+| `!sync_claims <minimeta>` | `POST /puzzles/<id>/feeders/sync` | ungated |
+
+Gating follows the 2026-08-11 audit's area-based principle: building a pool is a
+Create-area operation (like `!make_minimeta`, ungated); destroying part of one is not (like
+`!remove_minimeta`, organiser); syncing is a refresh (ungated).
+
+Re-pasting into `!add_feeders` is additive — new lines append, existing ones are left alone
+(the `UNIQUE (minimeta_puzzle_id, text)` constraint makes this a natural upsert), so
+pasting the list twice is harmless.
+
+Dashboard: a Feeder Pool panel on the Minimeta, showing the pool with claims, state, notes,
+and click-to-assign, live-pushed via the existing board-push Notifier.
+
+## New machinery
+
+Revised after the matrix decision. Plan 1 (core) has shipped; this is what Plans 2–3 add.
+
+| New | Reused unchanged |
+|---|---|
+| migration 044 — `puzzles.feeder_tab_page_id` | `reconcile_table`'s append/update/prune engine, and its solver-owned column-span preservation |
+| the matrix tab: create, name via `get_unique_tab_name`, header row, one tick column per target | `select_table` (single bot table per tab — the case it was designed for) |
+| `columnType: "BOOLEAN"` in `addTable`'s `columnProperties` — **no checkbox or data-validation code exists anywhere in this repo today** | `execute_with_retry` backoff; callers participate by routing through existing helpers |
+| column add/remove as Minis come and go | the Minimeta's existing staleness badge |
+| a row-shaping function for the matrix (no equivalent of `contribution_rows` exists for it) | `claim_state` / `rival_names` / `provided_item_ids` / `diff_ticks` — all built and tested in Plan 1 |
+| reading a non-key column and mapping it back to keys | `values().get` + the `key_to_row` pattern |
+| `!sync_claims` + its web route | board push, audit log, locks |
+| provided rows appended in `render_minimeta_contribution` (signature change) | the contribution table's `Type` vocabulary and `informs:free:` sourceless-row precedent |
+
+**No `_values_batch_get` is needed** — a single tab means a single read. That was only
+required by the superseded multi-tab design.
+
+## Testing
+
+**Pure, and still the highest value —** `bot/core/feeder_pool.py` (shipped in Plan 1):
+`claim_state` across all four values from two viewing targets; `provided_item_ids` including
+the supersede rule; `diff_ticks` including a stale tick on a pruned row and the
+never-drop-a-confirmed-claim rule. Every case uses at least two items and two minis, so a
+transposed id cannot pass.
+
+**Service level —** confirm-on-solve and its inverse, exercised through **both** entrypoints
+(`bot/cogs/puzzles.py` and `bot/web/actions.py`), not just the service.
+
+**Gating —** `tests/test_web_route_gating.py` and `tests/test_command_gating.py` assert whole
+maps, so every new command and route must be added there or the suite flags the gap.
+
+### What the suite cannot verify — read this before trusting a green run
+
+**Every Sheets test in this repo asserts request shape against mocks.**
+`tests/test_contribution_table_requests.py` says so in its own header: it patches the cog's
+batch/low-level seams and asserts the `batchUpdate` request bodies. That verifies column
+indices, ranges, request ordering and which table name was targeted. It verifies **nothing**
+about what Google does with those requests.
+
+Concretely, a plan can gate on *"the `addTable` request carries `columnType: BOOLEAN` at
+column index 3"*. It **cannot** gate on:
+
+- the checkbox actually rendering,
+- what a ticked box reads back as through `values().get` (formatted strings, not bools — and
+  an all-unticked column may omit `values` entirely),
+- whether `addTable` accepts `columnType` on a header-only range,
+- how the tab behaves once a solver sorts or filters it.
+
+Those need a **live probe against a real spreadsheet**. The project's established form for
+this is a one-off script under `scripts/` (`diagnose_addtable.py`, `diagnose_generate.py`)
+plus a recorded manual session (`.ai/archive/2026-06-26-milestone-d-live-test/`). Plan 2 is
+not done until that probe has been run and its result recorded — a green suite is not
+evidence here, and saying otherwise would misrepresent the coverage.
+
+One live finding already on record, so it is not re-derived: **a native Table sharing columns
+with header merges above it is fine** — the column-overlap hypothesis was tested and
+disproven. A Table must still not *overlap* a merged range.
 
 ## Acceptance criteria
 
@@ -425,7 +602,7 @@ suite. Worth one manual pass on staging before this is considered done.
    claims.
 10. Sorting a mini's block by hand does not break the next sync.
 11. A failed pool render marks the Minimeta "sheet stale" in the dashboard, and a
-    subsequent `!sync_feeders` clears it.
+    subsequent `!sync_claims` clears it.
 12. Ticking a feeder's `main` column and syncing adds a `provided:<id>` row to the parent's
     contribution table, with `Type = Provided` and the feeder text in `Content`, sitting
     alongside the `Feeder` rows for the mini answers.
