@@ -1437,9 +1437,13 @@ class PuzzleService:
                 except Exception:
                     logger.exception("unsolve: minimeta rollup refresh failed for parent %s",
                                      puzzle.parent_puzzle_id)
-                # confirm_feeder_claims (above) just demoted this mini's claims --
-                # untick them on the matrix. Sequential with refresh_minimeta above,
-                # never nested: both take rollup_lock(("minimeta", id)).
+                # confirm_feeder_claims (above) just demoted this mini's claims to
+                # unconfirmed -- re-render so the matrix and its rollup reflect that.
+                # The ticks THEMSELVES stay: render_feeder_matrix has no untick path
+                # (it only ever writes TRUE, for a confirmed claim), and a demoted
+                # claim is still a claim, so its tick is still true. Sequential with
+                # refresh_minimeta above, never nested: both take
+                # rollup_lock(("minimeta", id)).
                 try:
                     await self.refresh_feeder_matrix(hunt, parent)
                 except Exception:
@@ -2726,8 +2730,11 @@ class PuzzleService:
         puzzle), so a matrix render failure and a mini-list render failure are
         both visible on the one staleness indicator.
 
-        No-ops entirely when the pool is empty: a Minimeta that never uses this
-        feature must behave exactly as it does today — no tab, no render.
+        No-ops when the pool is empty AND no tab has ever been made: a Minimeta
+        that never uses this feature must behave exactly as it does today — no
+        tab, no render. Once the tab exists an EMPTIED pool still reconciles, to
+        zero rows: otherwise !remove_feeder on the last item would leave that
+        item's row on the sheet forever.
 
         Serialized on the SAME lock key as refresh_minimeta (("minimeta", id)),
         since both write the same rollup row. That key is shared ON PURPOSE —
@@ -2738,7 +2745,7 @@ class PuzzleService:
         if hunt is None or minimeta is None:
             return
         items, claims = self.get_feeder_pool(minimeta)
-        if not items:
+        if not items and minimeta.feeder_tab_page_id is None:
             return
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:

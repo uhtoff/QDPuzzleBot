@@ -1774,7 +1774,7 @@ class Puzzles(commands.Cog):
         minimeta, _target = self._feeder_context(ctx)
         if minimeta is None:
             return await self.send_not_puzzle_channel(ctx)
-        if not minimeta.feeder_tab_page_id:
+        if minimeta.feeder_tab_page_id is None:
             return await ctx.send(
                 f":x: **{minimeta.name}** has no feeder matrix sheet yet — add a pool "
                 f"with `!add_feeders` first.")

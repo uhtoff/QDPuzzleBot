@@ -182,8 +182,14 @@ class TestSyncFeederClaims:
 
     @pytest.mark.asyncio
     async def test_re_renders_the_matrix_and_the_mini_list_sequentially(self):
-        """Both renders share rollup_lock(("minimeta", id)) -- this pins that
-        both happen, each fully awaited (never nested)."""
+        """Pins that BOTH renders happen -- the "provided:" rows on the
+        minimeta's own table depend on claims too, so re-rendering only the matrix
+        would leave them stale.
+
+        It cannot pin the lock discipline the two share: both are AsyncMocks here,
+        so no rollup_lock is ever taken and a nested implementation would pass this
+        identically. The structural guards for that live in
+        tests/test_feeder_matrix_service.py (both directions)."""
         svc, _gsheet = _svc(HEADER, [], [], [], [_mini()])
 
         await svc.sync_feeder_claims(_hunt(), _minimeta())

@@ -191,12 +191,14 @@ class TestSolveUnsolveMatrixWiring:
         await svc.unsolve(None, make_hunt(), mini)   # must not raise
 
 
-class TestSyncClaimsCommandFiresTheSafeWrapper:
-    """The five CRUD commands fire refresh_feeder_matrix_safe via
-    asyncio.create_task, never awaited directly -- mirrors refresh_unassigned_safe's
-    established fire-and-forget pattern (bot/cogs/puzzles.py). Only claim_feeder is
-    exercised here; the other four (add_feeders/unclaim_feeder/edit_feeder/
-    remove_feeder) follow the identical one-line pattern."""
+class TestFeederCommandsFireTheSafeWrapper:
+    """The five CRUD commands fire refresh_feeder_matrix_safe as a background
+    task, never awaited directly -- mirrors refresh_unassigned_safe's established
+    fire-and-forget pattern (bot/cogs/puzzles.py), with a strong reference held on
+    the task (see TestBackgroundRefreshReferences in
+    tests/test_feeder_pool_commands.py). Only claim_feeder is exercised here; the
+    other four (add_feeders/unclaim_feeder/edit_feeder/remove_feeder) follow the
+    identical one-line pattern."""
 
     @pytest.mark.asyncio
     async def test_claim_feeder_fires_the_safe_refresh(self):

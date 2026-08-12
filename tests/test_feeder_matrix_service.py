@@ -68,7 +68,7 @@ class TestRefreshFeederMatrix:
         gsheet.render_feeder_matrix.assert_awaited_once_with(minimeta, items, minis, claims)
 
     @pytest.mark.asyncio
-    async def test_skips_entirely_when_the_pool_is_empty(self):
+    async def test_skips_entirely_when_the_pool_is_empty_and_there_is_no_tab(self):
         svc, gsheet = _svc_with_sheets()
         minimeta = _minimeta()
         svc.get_feeder_pool = MagicMock(return_value=([], []))
@@ -77,6 +77,19 @@ class TestRefreshFeederMatrix:
         gsheet.ensure_feeder_matrix_tab.assert_not_awaited()
         gsheet.render_feeder_matrix.assert_not_awaited()
         rudb.commit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_emptied_pool_still_reconciles_to_zero_rows(self):
+        """Once the tab exists, an empty pool is a state to RENDER, not a reason to
+        skip: !remove_feeder on the last item would otherwise leave that item's row
+        on the sheet forever. Only "never had a pool" (no tab) stays a no-op."""
+        svc, gsheet = _svc_with_sheets()
+        minimeta = _minimeta(feeder_tab_page_id=500)
+        svc.get_feeder_pool = MagicMock(return_value=([], []))
+        with _patched(row=minimeta) as (pdb, _ru):
+            pdb.get_children.return_value = []
+            await svc.refresh_feeder_matrix(_hunt(), minimeta)
+        gsheet.render_feeder_matrix.assert_awaited_once_with(minimeta, [], [], [])
 
     @pytest.mark.asyncio
     async def test_persists_the_tab_page_id_returned_by_ensure(self):
