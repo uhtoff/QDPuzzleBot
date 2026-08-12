@@ -1589,7 +1589,11 @@ class Puzzles(commands.Cog):
         msg = (f":white_check_mark: Added {len(added)} feeder(s) to "
                f"**{minimeta.name}**'s pool.")
         if offered > len(added):
-            msg += f" {offered - len(added)} already there."
+            # add_many dedups the paste against ITSELF as well as the existing
+            # pool, so a skipped line may never have been "already there" --
+            # "A\nA\nB" into an empty pool skips one A that was never in the pool.
+            # "duplicate" is true either way; "already there" was not.
+            msg += f" {offered - len(added)} duplicate(s) skipped."
         await ctx.send(msg)
 
     @commands.command()
@@ -3190,7 +3194,7 @@ class Puzzles(commands.Cog):
         minimeta: PuzzleData,
         lines: List[str],
         *,
-        overflow_hint: str = "re-run `!feeders`",
+        overflow_hint: str = "narrow the pool (e.g. `!remove_feeder`) to see the rest",
     ) -> discord.Embed:
         """Render the feeder-pool listing into one embed that respects Discord's
         limits, the same way `_build_mini_list_embed` does for the mini list — see

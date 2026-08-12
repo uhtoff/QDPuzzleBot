@@ -1016,9 +1016,9 @@ class MySQLFeederPoolDb(_MySQLBaseDb):
         self._exec(
             "UPDATE feeder_pool_items SET note = %s WHERE id = %s", (note, item_id))
 
-    def delete(self, item_id: int, /) -> None:
-        """Delete a pool item. Its claims cascade (migration 043)."""
-        self._exec("DELETE FROM feeder_pool_items WHERE id = %s", (item_id,))
+    # delete(item_id) is inherited from _MySQLBaseDb -- it is a verbatim
+    # re-implementation of the base's `DELETE FROM \`{TABLE_NAME}\` WHERE id = %s`,
+    # so there is nothing to override here. Its claims still cascade (migration 043).
 
     def delete_for_minimeta(self, minimeta_puzzle_id: int) -> None:
         """Delete every pool item for a minimeta (remove_minimeta's teardown).
@@ -1060,10 +1060,19 @@ class MySQLFeederClaimDb(_MySQLBaseDb):
         return FeederClaimData.import_dict(row) if row else None
 
     def add(self, item_id: int, target_id: int) -> None:
-        """Claim an item for a target. Idempotent — re-claiming is a no-op."""
+        """Claim an item for a target. Idempotent — re-claiming is a no-op.
+
+        ON DUPLICATE KEY UPDATE id = id (a no-op write) rather than INSERT
+        IGNORE: IGNORE swallows every error the statement could raise, not just
+        the duplicate-key one it is meant for -- an FK violation (a stale or
+        foreign item_id/target_id) would silently no-op under a checkmark
+        instead of surfacing. The no-op update also leaves `confirmed` alone, so
+        re-claiming an already-confirmed item cannot reset it to 0.
+        """
         self._exec(
-            "INSERT IGNORE INTO feeder_claims (item_id, target_id, confirmed)"
-            " VALUES (%s, %s, 0)", (item_id, target_id))
+            "INSERT INTO feeder_claims (item_id, target_id, confirmed)"
+            " VALUES (%s, %s, 0)"
+            " ON DUPLICATE KEY UPDATE id = id", (item_id, target_id))
 
     def remove(self, item_id: int, target_id: int) -> None:
         self._exec(

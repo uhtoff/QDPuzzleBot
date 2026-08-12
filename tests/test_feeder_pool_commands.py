@@ -228,7 +228,7 @@ class TestAddFeeders:
         assert ":x:" in ctx.send.call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_added_count_and_dupe_note(self):
+    async def test_added_count_and_skipped_note(self):
         parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
         cog = make_cog(parent)
         ctx = make_ctx()
@@ -241,7 +241,26 @@ class TestAddFeeders:
         cog.service.add_feeder_items.assert_called_once_with(parent, "A\nB\n\n")
         msg = ctx.send.call_args[0][0]
         assert "Added 1 feeder" in msg
-        assert "1 already there" in msg
+        assert "1 duplicate" in msg
+
+    @pytest.mark.asyncio
+    async def test_within_paste_duplicates_are_not_reported_as_already_there(self):
+        """add_many dedups the paste against ITSELF too, so 'A\\nA\\nB' into an
+        EMPTY pool must not claim anything was 'already there' -- it wasn't; it
+        was a duplicate within the same paste. Wording, not count math, is the
+        thing under test here: 'already there' would be a false claim."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        cog = make_cog(parent)
+        ctx = make_ctx()
+        cog.service.add_feeder_items = MagicMock(
+            return_value=[_item(1, "A"), _item(2, "B")]
+        )
+
+        await Puzzles.add_feeders.callback(cog, ctx, pasted="A\nA\nB")
+
+        msg = ctx.send.call_args[0][0]
+        assert "already there" not in msg.lower()
+        assert "1 duplicate" in msg
 
 
 class TestFeedersCommand:
