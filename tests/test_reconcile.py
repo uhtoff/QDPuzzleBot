@@ -332,6 +332,32 @@ async def test_collect_orphan_tabs_skips_structural_tabs():
     assert report.orphan_tabs == [(999, "old-puzzle")]
 
 
+async def test_collect_orphan_tabs_keeps_a_feeder_matrix_tab():
+    """A Minimeta's feeder matrix tab is bot-managed and tracked by
+    puzzle.feeder_tab_page_id, so it is not an orphan. Its title is
+    "Feeders — <name>", which is not (and cannot be) in RESERVED_TAB_TITLES, so
+    the page id is the only thing that keeps it: without it `!reconcile apply`
+    deletes every matrix tab, destroying every solver note and unsynced tick.
+    """
+    def _sheet(sheet_id, title):
+        return {"properties": {"sheetId": sheet_id, "title": title}}
+
+    gcog = MagicMock()
+    gcog.get_spreadsheet_id.return_value = "SS"
+    gcog.sheet_list = AsyncMock(return_value={"sheets": [
+        _sheet(100, "Matching Meta"),         # the minimeta's own tab
+        _sheet(500, "Feeders — Matching Meta"),  # its matrix tab
+        _sheet(999, "old-puzzle"),            # genuine orphan
+    ]})
+    svc = _service_with_gsheet(gcog)
+    hunt = make_hunt(id=1, google_sheet_id="SS", solved_sheet_id="ARC")
+    minimeta = _puzzle(google_page_id="100")
+    minimeta.feeder_tab_page_id = 500      # an int, unlike google_page_id
+    report = ReconcileReport()
+    await svc._collect_orphan_tabs(hunt, [minimeta], report)
+    assert report.orphan_tabs == [(999, "old-puzzle")]
+
+
 # --------------------------------------------------------------------------
 # Task 5: Orphan deletion
 # --------------------------------------------------------------------------

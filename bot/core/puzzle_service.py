@@ -614,6 +614,14 @@ class PuzzleService:
             for sheet in getattr(puzzle, "additional_sheets", None) or []:
                 if sheet.google_page_id:
                     valid.add(str(sheet.google_page_id))
+        # A Minimeta's feeder matrix tab is bot-managed but titled
+        # "Feeders — <name>", so RESERVED_TAB_TITLES cannot cover it -- its page
+        # id is the only thing keeping it out of the orphan sweep. Stringified
+        # like every other id here: feeder_tab_page_id is stored as an int.
+        for puzzle in puzzles:
+            page_id = getattr(puzzle, "feeder_tab_page_id", None)
+            if page_id is not None:
+                valid.add(str(page_id))
         # Bot-managed structural tabs tracked on the hunt are never orphans.
         for page_id in (getattr(hunt, "unassigned_sheet_page_id", None),
                         getattr(hunt, "evidence_sheet_page_id", None)):
