@@ -18,7 +18,7 @@ import discord
 import pytz
 from googleapiclient.errors import HttpError
 
-from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
+from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb, FeederPoolDb, FeederClaimDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive, media_gc
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
@@ -2553,6 +2553,68 @@ class PuzzleService:
         except Exception:
             logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
         return mini
+
+    # --- Feeder pool (meta matching puzzles) ------------------------------
+    # A Minimeta owns a pool of given feeder strings; its Minis (and the Minimeta
+    # itself) claim items out of it. See
+    # docs/superpowers/specs/2026-08-12-feeder-pool-design.md.
+
+    def add_feeder_items(self, minimeta, pasted):
+        """Append the non-blank lines of `pasted` to `minimeta`'s pool.
+
+        Text is stored verbatim — a given feeder is quoted from the puzzle, so
+        normalising case would misrepresent it. Re-pasting the same list is
+        harmless: add_many skips texts already present.
+
+        Returns the FeederPoolItemData rows actually added.
+        """
+        texts = [line.strip() for line in pasted.splitlines()]
+        texts = [t for t in texts if t]
+        return FeederPoolDb.add_many(minimeta.id, texts)
+
+    def edit_feeder_item(self, item_id, text):
+        """Retype a feeder. Its claims and note are untouched — which is why this
+        exists rather than remove-and-re-add."""
+        FeederPoolDb.set_text(item_id, text)
+
+    def remove_feeder_item(self, item_id):
+        """Delete a feeder. Its claims cascade (migration 043)."""
+        FeederPoolDb.delete(item_id)
+
+    def get_feeder_item(self, minimeta, item_id):
+        """One pool item by id, or None if it is not in THIS minimeta's pool.
+
+        Scoped deliberately: an id is a small integer a solver types, so an unscoped
+        lookup would let a command in one minimeta's channel edit or delete another
+        minimeta's feeder.
+        """
+        item = FeederPoolDb.get_by_id(item_id)
+        if item is None or item.minimeta_puzzle_id != minimeta.id:
+            return None
+        return item
+
+    def claim_feeder(self, item_id, target_id):
+        """Claim a feeder for a target (a Mini, or the Minimeta itself).
+
+        Overlapping claims are legal and deliberate: a rival claim is information,
+        and contests are surfaced rather than rejected.
+        """
+        FeederClaimDb.add(item_id, target_id)
+
+    def unclaim_feeder(self, item_id, target_id):
+        FeederClaimDb.remove(item_id, target_id)
+
+    def get_feeder_pool(self, minimeta):
+        """(items, claims) for a minimeta's pool — one fetch each.
+
+        Every derived view (state, rivals, provided rows) is computed from these two
+        lists by bot/core/feeder_pool.py, so callers fetch once rather than querying
+        per item.
+        """
+        return (
+            FeederPoolDb.get_for_minimeta(minimeta.id),
+            FeederClaimDb.get_for_minimeta(minimeta.id),
+        )
 
     @pushes_board()
     async def add_sheet(self, hunt, puzzle, name):
