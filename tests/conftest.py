@@ -250,4 +250,5 @@ def make_cog(puzzle=None, hunt=None):
     # Fire-and-forget async refreshes are wrapped in asyncio.create_task, so they
     # must return awaitables even when a test doesn't care about them.
     cog.service.refresh_informs_targets = AsyncMock()
+    cog.service.refresh_feeder_matrix_safe = AsyncMock()
     return cog

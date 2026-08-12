@@ -1585,6 +1585,9 @@ class Puzzles(commands.Cog):
             added = self.service.add_feeder_items(minimeta, pasted)
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        if added:
+            asyncio.create_task(
+                self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         offered = len([ln for ln in pasted.splitlines() if ln.strip()])
         msg = (f":white_check_mark: Added {len(added)} feeder(s) to "
                f"**{minimeta.name}**'s pool.")
@@ -1651,6 +1654,8 @@ class Puzzles(commands.Cog):
         if item is None:
             return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
         self.service.claim_feeder(item.id, target.id)
+        asyncio.create_task(
+            self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: **{target.name}** claims **{item.text}**.")
 
@@ -1677,6 +1682,8 @@ class Puzzles(commands.Cog):
                 f":x: **{item.text}** is confirmed to **{target.name}** — it was "
                 f"proved by solving. Use `!unsolve_mini` to undo that.")
         self.service.unclaim_feeder(item.id, target.id)
+        asyncio.create_task(
+            self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: **{target.name}** no longer claims **{item.text}**.")
 
@@ -1698,6 +1705,8 @@ class Puzzles(commands.Cog):
             self.service.edit_feeder_item(item.id, text.strip())
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        asyncio.create_task(
+            self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: `{item.id}` **{item.text}** → **{text.strip()}**.")
 
@@ -1728,6 +1737,8 @@ class Puzzles(commands.Cog):
         ):
             return
         self.service.remove_feeder_item(item.id)
+        asyncio.create_task(
+            self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(f":white_check_mark: Removed **{item.text}** from the pool.")
 
     @commands.command()

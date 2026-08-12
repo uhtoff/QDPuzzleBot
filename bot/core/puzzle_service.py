@@ -1348,6 +1348,14 @@ class PuzzleService:
                 except Exception:
                     logger.exception("solve: minimeta rollup refresh failed for parent %s",
                                      puzzle.parent_puzzle_id)
+                # confirm_feeder_claims (above) just confirmed this mini's claims --
+                # re-tick them on the matrix. Sequential with refresh_minimeta above,
+                # never nested: both take rollup_lock(("minimeta", id)).
+                try:
+                    await self.refresh_feeder_matrix(hunt, parent)
+                except Exception:
+                    logger.exception("solve: feeder matrix refresh failed for parent %s",
+                                     puzzle.parent_puzzle_id)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1419,6 +1427,14 @@ class PuzzleService:
                     await self.refresh_minimeta(hunt, parent)
                 except Exception:
                     logger.exception("unsolve: minimeta rollup refresh failed for parent %s",
+                                     puzzle.parent_puzzle_id)
+                # confirm_feeder_claims (above) just demoted this mini's claims --
+                # untick them on the matrix. Sequential with refresh_minimeta above,
+                # never nested: both take rollup_lock(("minimeta", id)).
+                try:
+                    await self.refresh_feeder_matrix(hunt, parent)
+                except Exception:
+                    logger.exception("unsolve: feeder matrix refresh failed for parent %s",
                                      puzzle.parent_puzzle_id)
 
         # M8: unarchive the mini-puzzle thread.
@@ -2501,6 +2517,16 @@ class PuzzleService:
         minimeta = PuzzleJsonDb.get_by_attr(id=mini.parent_puzzle_id)
         await self.delete_puzzle(guild, hunt, mini)
         await self.refresh_minimeta(hunt, minimeta)
+        # Best-effort, unlike refresh_minimeta above: a matrix render failure here
+        # must not turn a successful delete into a raised exception. Sequential
+        # with refresh_minimeta, never nested — see refresh_feeder_matrix's
+        # docstring on the shared, non-reentrant rollup_lock key.
+        try:
+            await self.refresh_feeder_matrix(hunt, minimeta)
+        except Exception:
+            logger.exception(
+                "delete_mini: feeder matrix refresh failed for %s",
+                getattr(minimeta, "id", "?"))
         return minimeta
 
     async def delete_mini_by_number(self, guild, hunt, minimeta_id, number):
@@ -2568,6 +2594,15 @@ class PuzzleService:
             await self.refresh_minimeta(hunt, minimeta)
         except Exception:
             logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
+        # A new mini widens the feeder matrix with its own tick column, IF the
+        # minimeta has a pool at all (refresh_feeder_matrix no-ops otherwise).
+        # Sequential with the refresh_minimeta call above, never nested — both
+        # take rollup_lock(("minimeta", id)), and each await here fully
+        # completes (releasing the lock) before the next one starts.
+        try:
+            await self.refresh_feeder_matrix(hunt, minimeta)
+        except Exception:
+            logger.exception("create_mini: feeder matrix refresh failed for %s", minimeta.id)
         return mini
 
     # --- Feeder pool (meta matching puzzles) ------------------------------
