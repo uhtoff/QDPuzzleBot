@@ -79,3 +79,24 @@ def provided_item_ids(minimeta_id, claims):
         claim.item_id for claim in claims
         if claim.target_id == minimeta_id and claim.item_id not in confirmed_elsewhere
     ]
+
+
+def diff_ticks(pool_item_ids, current_item_ids, ticked_item_ids, confirmed_item_ids):
+    """What to change for ONE target after reading its tick column off a sheet.
+
+    Returns (to_add, to_remove), both sorted item-id lists.
+
+    Two rules the sheet forces:
+      * A tick on an item that is no longer in the pool is ignored. reconcile_table
+        blanks pruned rows instead of deleting them, so a tick outlives its item.
+      * A confirmed claim is never removed by an untick — it is bot-owned, and the
+        next render puts the tick back. Unsolving the mini is how it is undone.
+    """
+    pool = set(pool_item_ids)
+    ticked = {item_id for item_id in ticked_item_ids if item_id in pool}
+    current = set(current_item_ids)
+    confirmed = set(confirmed_item_ids)
+
+    to_add = sorted(ticked - current)
+    to_remove = sorted(current - ticked - confirmed)
+    return to_add, to_remove

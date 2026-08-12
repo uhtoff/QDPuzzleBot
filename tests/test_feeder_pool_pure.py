@@ -1,7 +1,7 @@
 """Unit tests for the pure feeder-pool helpers. No DB, no Discord, no Sheets."""
 from dataclasses import dataclass
 
-from bot.core.feeder_pool import claim_state, provided_item_ids, rival_names
+from bot.core.feeder_pool import claim_state, diff_ticks, provided_item_ids, rival_names
 
 
 @dataclass
@@ -119,3 +119,55 @@ def test_superseding_is_per_item_not_wholesale():
 def test_claims_that_are_not_the_minimetas_are_ignored():
     claims = [Claim(ALBATROSS, MINI_1), Claim(MARZIPAN, MINI_2)]
     assert provided_item_ids(MINIMETA, claims) == []
+
+
+QUAY, TERN = 14, 15
+
+
+def test_diff_ticks_adds_new_ticks_and_removes_cleared_ones():
+    add, remove = diff_ticks(
+        pool_item_ids=[ALBATROSS, MARZIPAN, QUAY],
+        current_item_ids=[ALBATROSS],
+        ticked_item_ids=[MARZIPAN, QUAY],
+        confirmed_item_ids=[],
+    )
+    assert add == [MARZIPAN, QUAY]
+    assert remove == [ALBATROSS]
+
+
+def test_diff_ticks_ignores_a_tick_on_an_item_no_longer_in_the_pool():
+    """reconcile_table BLANKS pruned rows rather than deleting them, so a solver's
+    tick can survive on a removed item's row. Adopting it would resurrect a dead
+    claim."""
+    add, remove = diff_ticks(
+        pool_item_ids=[ALBATROSS],
+        current_item_ids=[],
+        ticked_item_ids=[ALBATROSS, TERN],
+        confirmed_item_ids=[],
+    )
+    assert add == [ALBATROSS]
+    assert TERN not in add
+
+
+def test_diff_ticks_never_removes_a_confirmed_claim():
+    """Confirmed claims are bot-owned: unticking one does not undo it (unsolving
+    the mini does), and the next render restores the tick."""
+    add, remove = diff_ticks(
+        pool_item_ids=[ALBATROSS, MARZIPAN],
+        current_item_ids=[ALBATROSS, MARZIPAN],
+        ticked_item_ids=[],
+        confirmed_item_ids=[ALBATROSS],
+    )
+    assert remove == [MARZIPAN]
+    assert ALBATROSS not in remove
+
+
+def test_diff_ticks_is_a_no_op_when_nothing_changed():
+    add, remove = diff_ticks(
+        pool_item_ids=[ALBATROSS, MARZIPAN],
+        current_item_ids=[ALBATROSS],
+        ticked_item_ids=[ALBATROSS],
+        confirmed_item_ids=[],
+    )
+    assert add == []
+    assert remove == []
