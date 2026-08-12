@@ -16,7 +16,9 @@ from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name,
     feeder_matrix_table_name, select_table,
 )
-from bot.core.feeder_pool import BOT_COLUMNS, matrix_header
+from bot.core.feeder_pool import (
+    BOT_COLUMNS, KEY_PREFIX, matrix_header, matrix_rows, target_id_from_label,
+)
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
 
 logger = logging.getLogger(__name__)
@@ -1614,6 +1616,93 @@ class GoogleSheets(commands.Cog):
             grey_below=True,
             table_name=contribution_table_name(page_id),
         )
+
+    async def render_feeder_matrix(self, minimeta, items, minis, claims):
+        """Render a Minimeta's feeder matrix tab: bot-owned rows (key/item/Len) via
+        reconcile_table, header + Table span kept in step with the current mini
+        set, and confirmed claims re-ticked.
+
+        note and every tick column stay OUTSIDE reconcile_table's write range
+        (data_col_count=3) — they are the solver's. The one deliberate exception
+        is a CONFIRMED claim's own tick: solving proved it, so this writes TRUE
+        there directly, undoing any untick a solver made since the last render.
+        confirm_feeder_claims / diff_ticks own the inverse — only unsolving the
+        mini removes it.
+
+        numeric_cols=(2,) is required, not cosmetic: Len is a number-typed Table
+        column and rejects a string — feeder_length("") returns "", which
+        reconcile_table already writes as a blank cell for exactly this reason.
+
+        No-ops if the tab has not been created yet (feeder_tab_page_id is None) —
+        callers ensure the tab first.
+        """
+        page_id = minimeta.feeder_tab_page_id
+        if page_id is None:
+            return
+        spreadsheet_id = self.get_spreadsheet_id()
+        header = matrix_header(minimeta, minis)
+        table_name = feeder_matrix_table_name(page_id)
+
+        sheet = None
+        for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
+            if s["properties"]["sheetId"] == int(page_id):
+                sheet = s
+                break
+        if sheet is None:
+            return
+        safe_name = sheet["properties"]["title"].replace("'", "''")
+
+        # A mini created/deleted since the tab was made adds/removes a column at
+        # the far right (matrix_header always appends new minis last, so nothing
+        # already on the sheet moves) — keep the header text and the Table's own
+        # column span in step with it. Plain overwrite: the header row carries no
+        # solver data, so there is nothing to diff.
+        await self._values_update(spreadsheet_id, f"'{safe_name}'!A1", [header])
+        table = select_table(sheet.get("tables"), table_name)
+        if table is not None and table.get("range", {}).get("endColumnIndex", 0) < len(header):
+            await self.batch_update({"requests": [{"updateTable": {
+                "table": {
+                    "tableId": table.get("tableId"),
+                    "range": {**table["range"], "endColumnIndex": len(header)},
+                },
+                "fields": "range",
+            }}]})
+
+        await self.reconcile_table(
+            page_id=page_id,
+            desired_rows=matrix_rows(items),
+            data_col_count=len(BOT_COLUMNS),      # 3 — note and ticks are the solver's
+            numeric_cols=(2,),                    # Len, so the column sorts numerically
+            grey_below=True,
+            table_name=table_name,
+        )
+
+        confirmed = [c for c in claims if c.confirmed]
+        if not confirmed:
+            return
+        target_col = {}
+        for idx, label in enumerate(header):
+            target_id = target_id_from_label(label)
+            if target_id is not None:
+                target_col[target_id] = idx
+        key_letter = self._col_letter(0)
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{key_letter}")
+        vals = resp.get("values") or []
+        key_to_row = {str(row[0]): i for i, row in enumerate(vals) if row}
+        requests = []
+        for claim in confirmed:
+            row = key_to_row.get(f"{KEY_PREFIX}{claim.item_id}")
+            col = target_col.get(claim.target_id)
+            if row is None or col is None:
+                continue
+            requests.append({"updateCells": {
+                "range": {"sheetId": page_id, "startRowIndex": row, "endRowIndex": row + 1,
+                          "startColumnIndex": col, "endColumnIndex": col + 1},
+                "fields": "userEnteredValue",
+                "rows": [{"values": [{"userEnteredValue": {"boolValue": True}}]}],
+            }})
+        if requests:
+            await self.batch_update({"requests": requests})
 
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
         """Render the unified contribution table on the target's tab.

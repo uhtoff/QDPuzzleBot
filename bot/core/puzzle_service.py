@@ -2673,6 +2673,45 @@ class PuzzleService:
             FeederClaimDb.get_for_minimeta(minimeta.id),
         )
 
+    async def refresh_feeder_matrix(self, hunt, minimeta):
+        """Ensure and render a Minimeta's feeder matrix tab, then badge the
+        shared per-puzzle rollup record — `rollups.target_puzzle_id` is the SAME
+        row refresh_minimeta badges (UNIQUE(target_puzzle_id): one badge per
+        puzzle), so a matrix render failure and a mini-list render failure are
+        both visible on the one staleness indicator.
+
+        No-ops entirely when the pool is empty: a Minimeta that never uses this
+        feature must behave exactly as it does today — no tab, no render.
+
+        Serialized on the SAME lock key as refresh_minimeta (("minimeta", id)),
+        since both write the same rollup row. That key is shared ON PURPOSE —
+        never call refresh_minimeta from inside this lock, or vice versa: it is
+        the identical non-reentrant, no-timeout asyncio.Lock, and re-entering it
+        wedges the event loop permanently.
+        """
+        if hunt is None or minimeta is None:
+            return
+        items, claims = self.get_feeder_pool(minimeta)
+        if not items:
+            return
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return
+
+        async with rollup_lock(("minimeta", minimeta.id)):
+            minis = self.get_minis(minimeta.id)
+            rollup = self._find_or_create_rollup_for_puzzle(hunt, minimeta)
+            try:
+                page_id = await gsheet_cog.ensure_feeder_matrix_tab(minimeta, minis)
+                if minimeta.feeder_tab_page_id != page_id:
+                    minimeta.feeder_tab_page_id = page_id
+                    PuzzleJsonDb.commit(minimeta)
+                await gsheet_cog.render_feeder_matrix(minimeta, items, minis, claims)
+                self._mark_rollup(rollup, ok=True)
+            except Exception as exc:
+                self._mark_rollup(rollup, ok=False, error=str(exc))
+                raise
+
     @pushes_board()
     async def add_sheet(self, hunt, puzzle, name):
         """Create an extra working sheet (name optional). Raises
