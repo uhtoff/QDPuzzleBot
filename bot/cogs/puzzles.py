@@ -154,6 +154,24 @@ def with_hunt_sheet_mutex():
     return decorator
 
 
+# Strong references to in-flight feeder-matrix refreshes. The event loop keeps
+# only a WEAK reference to a bare create_task(), so a task no caller holds can be
+# collected mid-flight -- see bot/core/category_layout.py's _pending_consolidations,
+# which this mirrors. The neighbouring refresh_unassigned_safe calls get away with
+# a bare create_task because they finish in milliseconds; refresh_feeder_matrix
+# issues 5-8 sequential Sheets round trips through the process-wide _execute_lock,
+# which is squarely in the "seconds" bucket bot/core/media_tiling.py warns about.
+_pending_matrix_refreshes: set = set()
+
+
+def _spawn_matrix_refresh(coro):
+    """Run `coro` in the background, holding a strong reference until it finishes."""
+    task = asyncio.create_task(coro)
+    _pending_matrix_refreshes.add(task)
+    task.add_done_callback(_pending_matrix_refreshes.discard)
+    return task
+
+
 class Puzzles(commands.Cog):
     MAX_CHANNELS_PER_CATEGORY = _channels.MAX_CHANNELS_PER_CATEGORY
     MAX_CHANNELS_PER_GUILD = 500
@@ -1586,7 +1604,7 @@ class Puzzles(commands.Cog):
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
         if added:
-            asyncio.create_task(
+            _spawn_matrix_refresh(
                 self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         offered = len([ln for ln in pasted.splitlines() if ln.strip()])
         msg = (f":white_check_mark: Added {len(added)} feeder(s) to "
@@ -1654,7 +1672,7 @@ class Puzzles(commands.Cog):
         if item is None:
             return await ctx.send(f":x: No feeder `{item_id}` in this pool.")
         self.service.claim_feeder(item.id, target.id)
-        asyncio.create_task(
+        _spawn_matrix_refresh(
             self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: **{target.name}** claims **{item.text}**.")
@@ -1682,7 +1700,7 @@ class Puzzles(commands.Cog):
                 f":x: **{item.text}** is confirmed to **{target.name}** — it was "
                 f"proved by solving. Use `!unsolve_mini` to undo that.")
         self.service.unclaim_feeder(item.id, target.id)
-        asyncio.create_task(
+        _spawn_matrix_refresh(
             self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: **{target.name}** no longer claims **{item.text}**.")
@@ -1705,7 +1723,7 @@ class Puzzles(commands.Cog):
             self.service.edit_feeder_item(item.id, text.strip())
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
-        asyncio.create_task(
+        _spawn_matrix_refresh(
             self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(
             f":white_check_mark: `{item.id}` **{item.text}** → **{text.strip()}**.")
@@ -1737,7 +1755,7 @@ class Puzzles(commands.Cog):
         ):
             return
         self.service.remove_feeder_item(item.id)
-        asyncio.create_task(
+        _spawn_matrix_refresh(
             self.service.refresh_feeder_matrix_safe(self.get_hunt(ctx), minimeta))
         await ctx.send(f":white_check_mark: Removed **{item.text}** from the pool.")
 

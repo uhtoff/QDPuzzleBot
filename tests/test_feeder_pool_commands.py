@@ -571,3 +571,46 @@ class TestSyncClaims:
         assert "Unclaimed: 2" in msg
         assert "Contested" in msg
         assert "Homeless" not in msg
+
+
+class TestBackgroundRefreshReferences:
+    @pytest.mark.asyncio
+    async def test_the_matrix_refresh_task_is_strongly_referenced(self):
+        """asyncio keeps only a WEAK reference to a bare create_task(), so a task
+        no caller holds can be collected mid-flight. refresh_feeder_matrix issues
+        5-8 sequential Sheets round trips through the process-wide _execute_lock,
+        which is long enough for a collection to land in the middle of it (see
+        bot/core/media_tiling.py) -- unlike the millisecond refresh_unassigned_safe
+        calls the pattern was copied from."""
+        import asyncio
+
+        from bot.cogs import puzzles as puzzles_module
+
+        release = asyncio.Event()
+
+        async def slow():
+            await release.wait()
+
+        puzzles_module._pending_matrix_refreshes.clear()
+        task = puzzles_module._spawn_matrix_refresh(slow())
+        assert task in puzzles_module._pending_matrix_refreshes, \
+            "task not strongly referenced — GC could drop it mid-refresh"
+        release.set()
+        await task
+        assert task not in puzzles_module._pending_matrix_refreshes, \
+            "done-callback did not release the reference"
+
+    def test_every_feeder_command_spawns_through_the_helper(self):
+        """A trigger site added with a bare create_task would silently
+        reintroduce the bug, so pin that no feeder-matrix refresh is spawned any
+        other way."""
+        import inspect
+        import re
+
+        from bot.cogs import puzzles as puzzles_module
+
+        spawned_by = re.findall(
+            r"(\w+)\(\s*\n\s*self\.service\.refresh_feeder_matrix_safe",
+            inspect.getsource(puzzles_module))
+        assert len(spawned_by) == 5                      # every feeder mutation
+        assert set(spawned_by) == {"_spawn_matrix_refresh"}
