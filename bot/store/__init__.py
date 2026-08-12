@@ -28,11 +28,12 @@ from .tag_group_data import TagGroupData, MissingTagGroupError, resolve_group, G
 from .rollup_data import RollupData
 from .hunt_data import HuntData, MissingHuntError
 from .evidence_data import EvidenceData
+from .feeder_pool_data import FeederPoolItemData, FeederClaimData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
 from .puzzle_image_data import PuzzleImageData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLFeederPoolDb, MySQLFeederClaimDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb
 
 from bot.utils import config
 
@@ -170,6 +171,8 @@ if config.storage == 'mysql':
     )
     MessageDb = MySQLMessageDb(mydb=message_db_conn)
     EvidenceJsonDb = MySQLEvidenceDb(mydb=mydb)
+    FeederPoolDb = MySQLFeederPoolDb(mydb=mydb)
+    FeederClaimDb = MySQLFeederClaimDb(mydb=mydb)
     MediaJsonDb = MySQLMediaDb(mydb=mydb)
     CanvasJsonDb = MySQLHuntCanvasDb(mydb=mydb)
     CanvasRegionJsonDb = MySQLCanvasRegionDb(mydb=mydb)

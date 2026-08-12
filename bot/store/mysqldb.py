@@ -18,6 +18,7 @@ from .rollup_data import RollupData
 from .hunt_data import HuntData
 from .puzzle_settings import GuildSettings
 from .evidence_data import EvidenceData
+from .feeder_pool_data import FeederPoolItemData, FeederClaimData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
@@ -922,6 +923,103 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         finally:
             cursor.close()
         return EvidenceData.import_dict(row) if row else None
+
+
+class MySQLFeederPoolDb(_MySQLBaseDb):
+    TABLE_NAME = 'feeder_pool_items'
+
+    def get_for_minimeta(self, minimeta_puzzle_id: int):
+        """Every pool item for a minimeta, in paste order."""
+        rows = self._fetch_all(
+            "SELECT * FROM feeder_pool_items WHERE minimeta_puzzle_id = %s"
+            " ORDER BY position ASC, id ASC",
+            (minimeta_puzzle_id,))
+        return [FeederPoolItemData.import_dict(r) for r in rows]
+
+    def get_by_id(self, item_id: int):
+        row = self._fetch_one(
+            "SELECT * FROM feeder_pool_items WHERE id = %s", (item_id,))
+        return FeederPoolItemData.import_dict(row) if row else None
+
+    def next_position(self, minimeta_puzzle_id: int) -> int:
+        row = self._fetch_one(
+            "SELECT COALESCE(MAX(position), -1) AS p FROM feeder_pool_items"
+            " WHERE minimeta_puzzle_id = %s", (minimeta_puzzle_id,))
+        return int(row["p"]) + 1 if row else 0
+
+    def add_many(self, minimeta_puzzle_id: int, texts):
+        """Append `texts` that are not already in the pool. Returns the added ones.
+
+        Re-pasting the same list is therefore harmless — an already-present text is
+        skipped rather than duplicated or errored.
+        """
+        existing = {i.text for i in self.get_for_minimeta(minimeta_puzzle_id)}
+        position = self.next_position(minimeta_puzzle_id)
+        added = []
+        for text in texts:
+            if text in existing:
+                continue
+            existing.add(text)
+            item = FeederPoolItemData(
+                minimeta_puzzle_id=minimeta_puzzle_id, text=text, position=position)
+            self.commit(item)
+            added.append(item)
+            position += 1
+        return added
+
+    def set_text(self, item_id: int, text: str) -> None:
+        self._exec(
+            "UPDATE feeder_pool_items SET text = %s WHERE id = %s", (text, item_id))
+
+    def set_note(self, item_id: int, note) -> None:
+        self._exec(
+            "UPDATE feeder_pool_items SET note = %s WHERE id = %s", (note, item_id))
+
+    def delete(self, item_id: int, /) -> None:
+        """Delete a pool item. Its claims cascade (migration 043)."""
+        self._exec("DELETE FROM feeder_pool_items WHERE id = %s", (item_id,))
+
+
+class MySQLFeederClaimDb(_MySQLBaseDb):
+    TABLE_NAME = 'feeder_claims'
+
+    def get_for_minimeta(self, minimeta_puzzle_id: int):
+        """Every claim against every item in one minimeta's pool.
+
+        The pure derivation module (added in a later task) computes all per-item and
+        per-target state from this one list, so callers fetch once and pass it around
+        rather than querying per item.
+        """
+        rows = self._fetch_all(
+            "SELECT c.* FROM feeder_claims c"
+            " JOIN feeder_pool_items i ON i.id = c.item_id"
+            " WHERE i.minimeta_puzzle_id = %s"
+            " ORDER BY c.item_id ASC, c.target_id ASC",
+            (minimeta_puzzle_id,))
+        return [FeederClaimData.import_dict(r) for r in rows]
+
+    def get_for_target(self, target_id: int):
+        rows = self._fetch_all(
+            "SELECT * FROM feeder_claims WHERE target_id = %s ORDER BY item_id ASC",
+            (target_id,))
+        return [FeederClaimData.import_dict(r) for r in rows]
+
+    def add(self, item_id: int, target_id: int) -> None:
+        """Claim an item for a target. Idempotent — re-claiming is a no-op."""
+        self._exec(
+            "INSERT IGNORE INTO feeder_claims (item_id, target_id, confirmed)"
+            " VALUES (%s, %s, 0)", (item_id, target_id))
+
+    def remove(self, item_id: int, target_id: int) -> None:
+        self._exec(
+            "DELETE FROM feeder_claims WHERE item_id = %s AND target_id = %s",
+            (item_id, target_id))
+
+    def set_confirmed_for_target(self, target_id: int, confirmed: bool) -> None:
+        """Confirm (or demote) every claim held by one target — the solve/unsolve hook."""
+        self._exec(
+            "UPDATE feeder_claims SET confirmed = %s WHERE target_id = %s",
+            (1 if confirmed else 0, target_id))
 
 
 class MySQLMediaDb(_MySQLBaseDb):
