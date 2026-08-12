@@ -40,6 +40,8 @@ every mini's own sheet tab, and confirmed automatically when a mini is solved.
 - Feeders that themselves need solving. A feeder is finished text — it never gets a
   channel, a thread, or a sheet tab.
 - Timed/background polling of the sheets. Sync is explicit.
+- Surfacing given feeders in the parent's **contribution** table alongside the mini
+  answers. Deferred — see "Deferred: provided rows".
 - Any change to existing Minimeta behaviour. An empty pool renders nothing.
 
 ## Relevant files
@@ -256,6 +258,43 @@ item. Typos are fixed by `!edit_feeder <key> <new text>` or inline in the dashbo
 The key (`f:<id>`) is independent of the text, so editing a keyed row is unambiguous — the
 obstacle to editing it in the sheet is purely that `item` sits inside the bot-written span,
 not any identity problem.
+
+## Deferred: provided rows
+
+**Not built initially.** Recorded so the shape is settled if it is wanted later.
+
+The main puzzle is a meta over its mini answers and *sometimes over a given feeder
+directly*. Those two kinds of input need to sit together somewhere for the meta to be
+solvable, and the natural home is the parent's existing contribution table rather than a
+third table.
+
+That table is already shaped for it. `CONTRIBUTION_HEADER = ["key", "Source", "Type",
+"Content"]` (`bot/cogs/puzzles_gsheet.py:921`); `Type` is already a vocabulary (`Feeder`,
+`Group`, `Information`); keys are already namespaced; and `bot/core/contribution.py`
+already renders a row with **no puzzle behind it** — `informs:free:<eid>`, sourceless
+evidence belonging to the hunt, with `—` in the Source column. A given feeder is that same
+shape:
+
+```
+ key            Source     Type      Content
+ feeds:101      Mini 1     Feeder    SEABIRDS
+ feeds:102      Mini 2     Feeder    NIGHTFALL
+ provided:13    —          Provided  MARZIPAN
+```
+
+`Content` then holds exactly what the meta operates on, and `Type` distinguishes a mini
+answer from a given feeder; one filter separates them.
+
+Constraints if built:
+
+- Only feeders **confirmed to the Minimeta itself** (`target_id = minimeta.id`) appear.
+  Never the whole pool — that would tip every loose string into the meta's answer table.
+- `render_minimeta_contribution` builds its rows inline rather than via
+  `contribution_rows`, so the provided rows are appended there.
+- `provided:<item_id>` is a fresh key namespace, so the column-A diff is unaffected.
+
+Deferring costs nothing structurally: `target_id = minimeta.id` claims already exist in the
+data model and already render in the pool table.
 
 ## Command and route surface
 
