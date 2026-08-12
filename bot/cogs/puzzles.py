@@ -1613,6 +1613,16 @@ class Puzzles(commands.Cog):
             state = claim_state(item.id, target.id, claims)
             rivals = rival_names(item.id, target.id, claims, names)
             line = f"`{item.id}` **{item.text}** — {state}"
+            # claim_state deliberately reports 'free' for the viewer's own
+            # unconfirmed claim (correct for the sheet's separate 'mine' column),
+            # but the Discord embed has no such column -- mark it here instead, so
+            # a claim you just made isn't invisible. A CONFIRMED claim already
+            # renders as 'mine' via claim_state, so it needs no extra marker.
+            mine_claim = next(
+                (c for c in claims if c.item_id == item.id and c.target_id == target.id),
+                None)
+            if mine_claim is not None and not mine_claim.confirmed:
+                line += " — **yours**"
             if rivals:
                 line += f" ({rivals})"
             if item.note:

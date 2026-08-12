@@ -290,6 +290,38 @@ class TestFeedersCommand:
         assert "Mini B" not in line_10
 
     @pytest.mark.asyncio
+    async def test_the_viewers_own_unconfirmed_claim_is_marked(self):
+        """claim_state reports 'free' for the viewer's own unconfirmed claim --
+        correct for the sheet's separate 'mine' column, but the Discord embed has
+        no such column, so a claim you just made would otherwise be invisible. A
+        renderer that renders both lines identically must fail."""
+        parent = make_puzzle(id=1, name="Minimeta", puzzle_type="Minimeta")
+        mini = make_puzzle(id=2, name="Mini A", puzzle_type="Mini", parent_puzzle_id=1)
+        cog = make_cog(mini)
+        ctx = make_ctx()
+
+        item_mine = _item(10, "ALBATROSS")
+        item_unclaimed = _item(11, "BEAGLE")
+        cog.service.get_feeder_pool = MagicMock(
+            return_value=(
+                [item_mine, item_unclaimed],
+                [_claim(10, mini.id, confirmed=False)],
+            )
+        )
+        cog.service.get_minis = MagicMock(return_value=[mini])
+
+        with patch("bot.cogs.puzzles.PuzzleJsonDb") as db:
+            db.get_by_attr.return_value = parent
+            await Puzzles.feeders.callback(cog, ctx)
+
+        embed = ctx.send.call_args.kwargs["embed"]
+        text = embed.description
+        line_10 = next(line for line in text.splitlines() if "ALBATROSS" in line)
+        line_11 = next(line for line in text.splitlines() if "BEAGLE" in line)
+        assert "yours" in line_10.lower()
+        assert "yours" not in line_11.lower()
+
+    @pytest.mark.asyncio
     async def test_embed_respects_discord_limits_for_a_large_pool(self):
         """60 feeders with long rival-claim text - big enough to force the
         description-then-fields spill AND overflow into the drop-counted note
