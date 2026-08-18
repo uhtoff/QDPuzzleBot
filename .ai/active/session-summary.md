@@ -3,7 +3,7 @@
 Tool: Claude Code
 Worktree: /home/russ/projects/puzzbot
 Started: 2026-08-12
-Status: in progress — Plans 1 & 2 COMPLETE, reviewed and fixed @ 825ccbe. Plan 3 (web + dashboard) not started; NO live hunt test yet.
+Status: in progress — docs(handoff): Plans 1-2 complete, reviewed and fixed @ f51646c
 
 ## Goal
 
