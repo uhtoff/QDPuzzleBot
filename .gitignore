@@ -169,3 +169,6 @@ cardboard*.json
 
 # Sample hunt images used while designing the canvas (big binaries, not source)
 images/
+
+# Machine-local session scratch — see global agent instructions (.ai convention)
+/.ai/active/
