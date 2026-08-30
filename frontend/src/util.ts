@@ -1,4 +1,5 @@
 import { notifications } from "@mantine/notifications";
+import { priorityColor, priorityRank } from "./lib/priority";
 import { statusTone } from "./lib/statusTone";
 import type { BoardGroup, Puzzle } from "./types";
 
@@ -135,17 +136,6 @@ export function answerLength(solution: string | null): number {
   return (solution.match(/[\p{L}\p{N}]/gu) ?? []).length;
 }
 
-export function priorityColor(priority: string | null): string {
-  switch ((priority || "").toLowerCase()) {
-    case "high":
-      return "red";
-    case "low":
-      return "gray";
-    default:
-      return "blue";
-  }
-}
-
 const STATUS_TONE_COLOR: Record<ReturnType<typeof statusTone>, string> = {
   solved: "green",
   stuck: "red",
@@ -161,19 +151,14 @@ export function statusColor(status: string | null): string {
 // Re-exported so components can keep importing display helpers from one place;
 // the logic lives in lib/ (like statusTone) so it is unit-testable without Mantine.
 export { formatStatus, formatPriority } from "./lib/statusLabel";
+export { priorityColor };
 
-const PRIORITY_RANK: Record<string, number> = { high: 0, low: 2 };
 const META_KIND_RANK: Record<string, number> = {
   runaround: 0,
   metameta: 1,
   meta: 2,
   capstone: 3,
 };
-
-function priorityRank(p: Puzzle): number {
-  if (!p.priority) return 3;
-  return PRIORITY_RANK[p.priority.toLowerCase()] ?? 1;
-}
 
 function metaKindRank(p: Puzzle): number {
   if (!p.meta_kind) return 4;
@@ -188,7 +173,7 @@ export function sortPuzzles(puzzles: Puzzle[], groupCode?: string | null): Puzzl
       if (aT !== bT) return aT ? -1 : 1;
     }
     if (a.solved !== b.solved) return a.solved ? 1 : -1;
-    const pd = priorityRank(a) - priorityRank(b);
+    const pd = priorityRank(a.priority) - priorityRank(b.priority);
     if (pd !== 0) return pd;
     const md = metaKindRank(a) - metaKindRank(b);
     if (md !== 0) return md;
