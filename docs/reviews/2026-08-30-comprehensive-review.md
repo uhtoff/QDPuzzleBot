@@ -46,6 +46,42 @@ Notes from the tranche:
   `config.database`. Verified end to end: `DB_DSN=puzzlebot_prod` aborts at exit 4 before
   collection, writing nothing.
 
+**Tranche 3 — frontend state & targeting, merged to `staging` 2026-08-31.** Gates after
+the tranche: 1926 backend tests, 52 vitest (was 39), tsc + vite build clean, ruff clean,
+basedpyright 0 errors.
+
+| Finding | Status | Commit |
+|---|---|---|
+| H4 convert-to-feeder targeted the wrong puzzle | fixed (`lib/groupTarget`) | `27ce164` |
+| M23 `"very high"` sorted and rendered as `"medium"` | fixed (both halves) | `aded3d4` |
+| M24 SolveModal answer text crossed puzzles | fixed (reset on id change) | `49b44ab` |
+| M25 PuzzleDrawer drafts crossed puzzles | fixed (reset + two keyed children) | `49b44ab` |
+| C6 ctrl+wheel zoom dead on an in-place pending→ready | fixed (callback ref) | `7a17373` |
+| — third hand-rolled target lookup, stale docstring count | tidied | `1636e19` |
+
+Notes from the tranche:
+
+- **M24/M25/C6 are inspection-only, by necessity.** The vitest setup is node-only — no
+  jsdom or happy-dom — so component behaviour cannot be tested in this repo without a
+  dependency decision that is not a reviewer's to make. Typecheck, vitest and the vite
+  build all pass, but **nothing in the suite goes red if any of those three regresses.**
+  Adding a DOM test environment is the open question; see `.ai/active/open-questions.md`.
+- **M23 had a second site the review missed:** `priorityColor` switched only on
+  `high`/`low`, so `"very high"` fell to the `default: "blue"` — the same calm blue as
+  medium. That is the "renders" half of the finding. `"very high"` now shares the red
+  band with `"high"`; giving it its own shade would be a palette decision, not a defect
+  fix, and was deliberately not taken.
+- **C6's cause was deeper than reported.** The wrapper is not merely un-re-attached: while
+  `tile_status` is `pending` it is **not in the tree at all**, so `ref.current` is null
+  when the effect runs and never runs again. `key={canvas.id}` genuinely does not cover
+  it — that handles switching canvases, not an in-place transition.
+- **H4's fix found two more copies** of the same hand-rolled target lookup (`Column`,
+  `BoardGroup`), both now on the shared helper. Every other `is_meta` use in the SPA was
+  checked and is legitimately "is a target of anything".
+- **Corroborated (already logged as a low, no new finding):** the SPA's `PRIORITY_OPTIONS`
+  is hardcoded at `PuzzleEditCells.tsx:28`, duplicating `bot/core/constants.py:37` by hand
+  with no endpoint serving it. Correct today, hand-synced.
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
