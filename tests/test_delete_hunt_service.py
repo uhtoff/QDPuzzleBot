@@ -204,3 +204,47 @@ async def test_delete_hunt_removes_the_hunts_media_files(tmp_path):
     assert not uploads.exists()
     assert not tiles.exists()
     assert (other / "keep.png").exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_does_not_delete_per_puzzle_tabs():
+    """The whole Drive file goes at the end of delete_hunt, so deleting each
+    puzzle's TAB first is pure waste — N serialised Sheets batchUpdates (all
+    behind the process-wide _execute_lock) for tabs that are about to vanish
+    with the file (review M20).
+
+    Both files are deleted wholesale, and a puzzle's tab lives in exactly one of
+    them (the archive iff on_solved_sheet, which is only ever set when the hunt
+    has a solved sheet), so no tab survives. The puzzle's DB row and Discord
+    channel are still torn down per puzzle — only the sheet call goes.
+    """
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    gsheet = MagicMock()
+    gsheet.delete_puzzle_spreadsheet = AsyncMock()
+    gsheet.delete_hunt_spreadsheet = AsyncMock()
+
+    p1 = MagicMock(id=101, channel_id=11); p1.name = "p1"; p1.on_solved_sheet = False
+    p2 = MagicMock(id=102, channel_id=12); p2.name = "p2"; p2.on_solved_sheet = True
+    p3 = MagicMock(id=103, channel_id=13); p3.name = "p3"; p3.on_solved_sheet = False
+
+    with patch("bot.core.puzzle_service.HuntJsonDb"), \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete:
+        pdb.get_all_from_hunt.return_value = [p1, p2, p3]
+        rdb.get_all.return_value = []
+        await svc.delete_hunt(guild, hunt)
+
+    # No per-tab deletes at all — not one per puzzle, not one total.
+    gsheet.delete_puzzle_spreadsheet.assert_not_awaited()
+
+    # Both whole files still go, so every tab (working AND archive) is removed.
+    called_ids = [c.args[0] for c in gsheet.delete_hunt_spreadsheet.call_args_list]
+    assert called_ids.count("SHEET_ID") == 1
+    assert called_ids.count("ARCH_ID") == 1
+
+    # The rest of the per-puzzle teardown is untouched.
+    assert [c.args[0] for c in pdb.delete.call_args_list] == [101, 102, 103]
+    # 11/12/13 are the three puzzle channels; 60 is the hunt channel deleted last.
+    assert [c.args[1] for c in safe_delete.call_args_list] == [11, 12, 13, 60]

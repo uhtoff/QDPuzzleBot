@@ -3041,56 +3041,62 @@ class PuzzleService:
         if gsheet_cog is None:
             return
 
-        # Lazy-create the tab + native Table. ensure_evidence_table pins the tab to
-        # index 1 (after Unassigned Feeders), writes the header and wraps it in a
-        # Table, and returns the table id to persist on the hunt.
-        dirty = False
-        if hunt.evidence_sheet_page_id is None:
-            page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, "Evidence")
-            hunt.evidence_sheet_page_id = page_id
-            dirty = True
+        # Serialize per hunt PER TAB, exactly as refresh_unassigned does and for
+        # the same reason (M22) -- reconcile_table's read-then-write means two
+        # concurrent evidence refreshes lose one another's appended rows. The
+        # ("evidence", hunt.id) key is deliberately distinct from the unassigned
+        # one: different tabs, no shared rows, no reason to queue behind it.
+        async with rollup_lock(("evidence", hunt.id)):
+            # Lazy-create the tab + native Table. ensure_evidence_table pins the tab to
+            # index 1 (after Unassigned Feeders), writes the header and wraps it in a
+            # Table, and returns the table id to persist on the hunt.
+            dirty = False
+            if hunt.evidence_sheet_page_id is None:
+                page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, "Evidence")
+                hunt.evidence_sheet_page_id = page_id
+                dirty = True
 
-        if hunt.evidence_table_id is None:
-            table_id = await gsheet_cog.ensure_evidence_table(hunt.evidence_sheet_page_id)
-            hunt.evidence_table_id = table_id
-            dirty = True
+            if hunt.evidence_table_id is None:
+                table_id = await gsheet_cog.ensure_evidence_table(hunt.evidence_sheet_page_id)
+                hunt.evidence_table_id = table_id
+                dirty = True
 
-        if dirty:
-            HuntJsonDb.commit(hunt)
+            if dirty:
+                HuntJsonDb.commit(hunt)
 
-        # Reconcile the native Table against the full desired set. The hidden id
-        # column (col A) is the reconcile key — evidence item ids are unique, unlike
-        # the Source Puzzle name. Columns: id, Source Puzzle, Note, Target Puzzle,
-        # Logged At.
-        items = EvidenceJsonDb.get_all(hunt.id)
-        puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
-                      | {i.target_puzzle_id for i in items if i.target_puzzle_id})
-        names = resolve_puzzle_names(puzzle_ids)
-        sheet_names = resolve_sheet_names(
-            getattr(i, "source_sheet_id", None) for i in items)
-        region_names = resolve_region_names(
-            getattr(i, "source_region_id", None) for i in items)
-        rows = [
-            [
-                i.id,
-                # A null source is evidence belonging to the hunt rather than to
-                # a puzzle; the old fallback rendered it as "Puzzle None". A
-                # hunt-level working sheet names itself.
-                (names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}")
-                 if i.source_puzzle_id
-                 else (evidence_source_label(i, sheet_names, region_names) or "—")),
-                evidence_cell_content(i),
-                names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
-                str(i.created_at)[:16] if i.created_at else "",
+            # Reconcile the native Table against the full desired set. The hidden id
+            # column (col A) is the reconcile key — evidence item ids are unique, unlike
+            # the Source Puzzle name. Columns: id, Source Puzzle, Note, Target Puzzle,
+            # Logged At.
+            items = EvidenceJsonDb.get_all(hunt.id)
+            puzzle_ids = ({i.source_puzzle_id for i in items if i.source_puzzle_id}
+                          | {i.target_puzzle_id for i in items if i.target_puzzle_id})
+            names = resolve_puzzle_names(puzzle_ids)
+            sheet_names = resolve_sheet_names(
+                getattr(i, "source_sheet_id", None) for i in items)
+            region_names = resolve_region_names(
+                getattr(i, "source_region_id", None) for i in items)
+            rows = [
+                [
+                    i.id,
+                    # A null source is evidence belonging to the hunt rather than to
+                    # a puzzle; the old fallback rendered it as "Puzzle None". A
+                    # hunt-level working sheet names itself.
+                    (names.get(i.source_puzzle_id, f"Puzzle {i.source_puzzle_id}")
+                     if i.source_puzzle_id
+                     else (evidence_source_label(i, sheet_names, region_names) or "—")),
+                    evidence_cell_content(i),
+                    names.get(i.target_puzzle_id, "") if i.target_puzzle_id else "",
+                    str(i.created_at)[:16] if i.created_at else "",
+                ]
+                for i in items
             ]
-            for i in items
-        ]
-        await gsheet_cog.reconcile_table(
-            page_id=hunt.evidence_sheet_page_id,
-            desired_rows=rows,
-            data_col_count=5,
-            table_name=EVIDENCE_TABLE_NAME,
-        )
+            await gsheet_cog.reconcile_table(
+                page_id=hunt.evidence_sheet_page_id,
+                desired_rows=rows,
+                data_col_count=5,
+                table_name=EVIDENCE_TABLE_NAME,
+            )
 
     async def refresh_evidence_safe(self, hunt):
         """Fire-and-forget wrapper for refresh_evidence. Never raises and logs
@@ -3223,45 +3229,58 @@ class PuzzleService:
 
         tab_name = "Unassigned Feeders"
 
-        # Lazy-create tab + table
-        dirty = False
-        if hunt.unassigned_sheet_page_id is None:
-            try:
-                page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, tab_name)
-            except Exception:
-                # A tab with this name may already exist from an earlier run —
-                # reuse it rather than failing (addSheet errors on duplicate names).
-                page_id = await gsheet_cog.get_page_id_by_name(tab_name)
-                if page_id is None:
-                    raise
-            hunt.unassigned_sheet_page_id = page_id
-            dirty = True
+        # Serialize per hunt PER TAB (M22). reconcile_table is read-then-write
+        # across three awaits (read the key column, next_row = max(existing)+1,
+        # then batch_update), so two of the ~21 fire-and-forget refreshes
+        # interleaving compute the same next_row and the second append overwrites
+        # the first. Keyed ("unassigned", hunt.id) rather than hunt.id alone: the
+        # Evidence tab is a different tab that cannot race this one, so a shared
+        # per-hunt key would serialize the two for nothing.
+        #
+        # Deadlock-safe on the same grounds as refresh_meta: every caller is
+        # lock-free (fire-and-forget create_task sites, plus the awaited
+        # !rebuild_unassigned, which holds no rollup lock), and nothing inside
+        # takes another lock.
+        async with rollup_lock(("unassigned", hunt.id)):
+            # Lazy-create tab + table
+            dirty = False
+            if hunt.unassigned_sheet_page_id is None:
+                try:
+                    page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, tab_name)
+                except Exception:
+                    # A tab with this name may already exist from an earlier run —
+                    # reuse it rather than failing (addSheet errors on duplicate names).
+                    page_id = await gsheet_cog.get_page_id_by_name(tab_name)
+                    if page_id is None:
+                        raise
+                hunt.unassigned_sheet_page_id = page_id
+                dirty = True
 
-        if hunt.unassigned_table_id is None:
-            table_id = await gsheet_cog.ensure_unassigned_table(
-                hunt.unassigned_sheet_page_id,
-                show_round,
+            if hunt.unassigned_table_id is None:
+                table_id = await gsheet_cog.ensure_unassigned_table(
+                    hunt.unassigned_sheet_page_id,
+                    show_round,
+                )
+                hunt.unassigned_table_id = table_id
+                dirty = True
+
+            if dirty:
+                HuntJsonDb.commit(hunt)
+
+            # Fetch current unassigned puzzles from DB and reconcile the native Table
+            # against the full desired set — reconcile_table does the single diff
+            # (read sheet keys, append/update/prune) and grows the Table. Column 3
+            # (Length) is number-typed, so it must be written numeric.
+            pool = PuzzleJsonDb.get_unassigned(hunt.id)
+            desired = [unassigned_row(p) for p in pool]
+
+            await gsheet_cog.reconcile_table(
+                page_id=hunt.unassigned_sheet_page_id,
+                desired_rows=desired,
+                data_col_count=4,   # id, name, answer, length (Notes col E is solver-owned)
+                numeric_cols=(3,),
+                table_name=UNASSIGNED_TABLE_NAME,
             )
-            hunt.unassigned_table_id = table_id
-            dirty = True
-
-        if dirty:
-            HuntJsonDb.commit(hunt)
-
-        # Fetch current unassigned puzzles from DB and reconcile the native Table
-        # against the full desired set — reconcile_table does the single diff
-        # (read sheet keys, append/update/prune) and grows the Table. Column 3
-        # (Length) is number-typed, so it must be written numeric.
-        pool = PuzzleJsonDb.get_unassigned(hunt.id)
-        desired = [unassigned_row(p) for p in pool]
-
-        await gsheet_cog.reconcile_table(
-            page_id=hunt.unassigned_sheet_page_id,
-            desired_rows=desired,
-            data_col_count=4,   # id, name, answer, length (Notes col E is solver-owned)
-            numeric_cols=(3,),
-            table_name=UNASSIGNED_TABLE_NAME,
-        )
 
     async def refresh_unassigned_safe(self, hunt, show_round=False):
         """Fire-and-forget wrapper for the background reconcile.
@@ -3492,15 +3511,16 @@ class PuzzleService:
         """
         failed_channels = []
 
-        # Delete each puzzle's sheet tab + DB row + Discord channel
+        # Delete each puzzle's DB row + Discord channel. Deliberately NO per-puzzle
+        # tab delete here (unlike delete_round/delete_puzzle, where the spreadsheet
+        # survives): both Drive files are deleted wholesale below, taking every tab
+        # with them, so a per-puzzle deleteSheet would be N serialised Sheets calls
+        # (all behind gsheets._execute_lock, blocking every other hunt) for tabs
+        # about to vanish. A puzzle's tab is in the working file, or in the archive
+        # file when on_solved_sheet — and on_solved_sheet is only ever set when the
+        # hunt has a solved sheet, which is deleted here too (review M20).
         puzzles = PuzzleJsonDb.get_all_from_hunt(hunt.id)
         for puzzle in puzzles:
-            gsheet_cog = self._gsheet_cog(hunt)
-            if gsheet_cog is not None:
-                try:
-                    await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
-                except Exception:
-                    logger.exception("delete_hunt: sheet delete failed for puzzle %s", puzzle.id)
             PuzzleJsonDb.delete(puzzle.id)
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
