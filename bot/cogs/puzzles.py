@@ -1344,7 +1344,7 @@ class Puzzles(commands.Cog):
         await ctx.send(":white_check_mark: Channel moved to solved")
 
 
-    @commands.hybrid_command(description="Show all tags on the puzzle (admin only)",)
+    @commands.hybrid_command(description="Show all tags on the puzzle (organisers/admins)",)
     @is_organiser()
     async def list_tags(self, ctx):
         """*List the tag IDs on this puzzle plus all available group tags (troubleshooting).*
@@ -3092,8 +3092,8 @@ class Puzzles(commands.Cog):
         • `!list` : List all puzzles in this {kind}.
         • `!info` will re-post this message.
 {tagging_hints}        • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this {kind}.
-        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the {kind}.
-        • `!rename_meta <puzzle-name>` (admin only) will rename the {rename_target}.
+        • `!sync` (organisers/admins) when used in this channel will assign all the puzzles in the category to the {kind}.
+        • `!rename_meta <puzzle-name>` (organisers/admins) will rename the {rename_target}.
         """),
                         inline=False,
                     )
@@ -3131,7 +3131,7 @@ class Puzzles(commands.Cog):
         • `!feeds {tag_group.group_code}` when used in another puzzle channel will add it to this round as a feeder but not move it (e.g. if a puzzle feeds multiple rounds).
         • `!informs {tag_group.group_code}` when used in another puzzle channel will tag it as informing this round — it contributes to the round without being a standard feeder.
         • `!remove_from {tag_group.group_code}` when used in another puzzle channel will remove it from this round.
-        • `!sync` (admin only) when used in this channel will assign all the puzzles in the category to the round.
+        • `!sync` (organisers/admins) when used in this channel will assign all the puzzles in the category to the round.
         """),
                         inline=False,
                     )
@@ -3170,7 +3170,7 @@ class Puzzles(commands.Cog):
                     "`!feeds <meta_code>` tags this puzzle as a feeder of a meta/round (code is "
                     "in the meta's pinned message); `!informs <meta_code>` tags it as informing "
                     "one without being a standard feeder",
-                    "`!rename_puzzle <puzzle-name>` (admin only) will rename the puzzle.",
+                    "`!rename_puzzle <puzzle-name>` (organisers/admins) will rename the puzzle.",
                 ),
             ),
             inline=False,
