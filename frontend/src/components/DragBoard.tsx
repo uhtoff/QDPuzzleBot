@@ -45,6 +45,7 @@ import {
 } from "../api";
 import { formatStatus, fullDeletePuzzleCount, notifyError, showSheetWarning, sortPuzzles, statusColor } from "../util";
 import { puzzlesById } from "../lib/boardPuzzles";
+import { groupTarget } from "../lib/groupTarget";
 import { AddToGroupPicker } from "./AddToGroupPicker";
 import { ConfirmModal } from "./ConfirmModal";
 import { getKind, kindColorVar } from "./MetaBadge";
@@ -351,9 +352,7 @@ function Column({
   // A plain group / Unassigned Feeders has no target, so no kind line — only a
   // group with a target (meta/capstone/metameta/runaround) carries one, in the
   // target puzzle's own kind colour.
-  const targetPuzzle = group.target_puzzle_id
-    ? group.puzzles.find((p) => p.id === group.target_puzzle_id) ?? null
-    : null;
+  const targetPuzzle = groupTarget(group);
   const kind = targetPuzzle ? getKind(targetPuzzle) : null;
   return (
     <Paper
@@ -668,7 +667,10 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   }
 
   function onConvertGroupToFeeder(group: BoardGroup) {
-    const target = group.puzzles.find((p) => p.is_meta) ?? null;
+    // The group's OWN target — never the first `is_meta` member: is_meta means
+    // "target of ANY group", so in a metameta that picks a foreign group's
+    // target, and the modal then names one puzzle while converting another.
+    const target = groupTarget(group);
     if (target) setConvertTarget(target); // reuses the existing convert-to-feeder modal + preview
   }
 
