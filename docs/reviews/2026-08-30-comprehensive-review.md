@@ -15,10 +15,36 @@ construction. Full evidence including the verification traces:
 
 ## Status — what has since been fixed
 
-Nothing actioned yet (table to be filled in as fixes land, per the 2026-08-07 convention).
+Fixes land in tranches grouped by shared fix shape (plan: `.ai/active/current-spec.md`).
+Every entry below was written as a failing test first, verified red *for the right
+reason*, then mutation-proved (guard broken again, confirmed red, restored).
+
+**Tranche 1 — sharp singletons, merged to `staging` 2026-08-30.** Gates after the
+tranche: 1926 passed (was 1894), ruff clean, basedpyright 0 errors.
 
 | Finding | Status | Commit |
 |---|---|---|
+| H1 `bridge_channels_conn` shared across threads | fixed (one shared lock spanning `dict_cursor()`) | `4ae8112` |
+| H2 cross-hunt `puzzle_id` on region routes | fixed (`_require_hunt_puzzle`, `cross_hunt_puzzle`) | `953df4b` |
+| M4 `!update_settings` admin-lockout side door | fixed (auth/identity keys refused) | `8312a66` |
+| M37 live-DB family had no test-database guard | fixed (`pytest_sessionstart` refusal) | `93e8ced` |
+
+Notes from the tranche:
+
+- **H2 is object scoping, not a tier change** — `test_a_non_organiser_can_draw` still
+  passes; a member still draws on their own hunt's canvas. `update_region` checks the
+  *effective* `puzzle_id`, since a stored link is re-asserted by every PATCH that keeps
+  it; clearing a bad link still works via `puzzle_id: null`.
+- **`create_puzzle_from_region` has no equivalent hole** (checked while fixing H2): the
+  only puzzle id it passes is one it just created in the visible hunt, and its body
+  inputs (`name`, `role`, `round_id`) are each separately validated. Fix deliberately
+  scoped to the two region routes.
+- **M4's refusal also covers the `!update_puzzle_setting(s)` alias**, which is a strict
+  improvement: puzzle rows carry none of these fields, so that path previously fell
+  through to "Unrecognized key".
+- **M37 also covers the `DB_DSN` env override**, since `Config` resolves it into the same
+  `config.database`. Verified end to end: `DB_DSN=puzzlebot_prod` aborts at exit 4 before
+  collection, writing nothing.
 
 ## Decisions taken — 2026-08-30
 
