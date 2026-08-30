@@ -2497,7 +2497,7 @@ def _require_hunt_media(media_id, hunt_id):
     could point at another hunt's private upload: a canvas serving that
     hunt's bytes to anyone who can see this one, an evidence item or puzzle
     image citing it, or an /api/evidence POST attributing it to the wrong
-    hunt. Same check, four call sites -- unified on one error key,
+    hunt. Same check, three call sites -- unified on one error key,
     `cross_hunt_media`.
     """
     from bot.store import MediaJsonDb

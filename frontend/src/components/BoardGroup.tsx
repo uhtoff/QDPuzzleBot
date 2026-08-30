@@ -35,6 +35,7 @@ import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
+import { groupTarget } from "../lib/groupTarget";
 
 interface Props {
   group: BoardGroupType;
@@ -63,9 +64,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   // A plain group / Unassigned Feeders has no target, so no kind bar — only a
   // group with a target (meta/capstone/metameta/runaround) carries one, in the
   // target puzzle's own kind colour. Mirrors the Arrange board's group lines.
-  const targetPuzzle = group.target_puzzle_id
-    ? group.puzzles.find((p) => p.id === group.target_puzzle_id) ?? null
-    : null;
+  const targetPuzzle = groupTarget(group);
   const groupKind = targetPuzzle ? getKind(targetPuzzle) : null;
   // Puzzles a full delete actually removes (excludes shared feeders and foreign
   // targets, which are kept & relocated) — the warning must not over-promise.
