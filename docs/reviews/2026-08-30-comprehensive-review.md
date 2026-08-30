@@ -20,6 +20,26 @@ Nothing actioned yet (table to be filled in as fixes land, per the 2026-08-07 co
 | Finding | Status | Commit |
 |---|---|---|
 
+## Decisions taken — 2026-08-30
+
+Four questions gated the fix planning. All four are now settled; the fix plan lives in
+`.ai/active/current-spec.md` (8 tranches, grouped by shared fix shape).
+
+- **D1 — canvas route tiers (M7, C8): containers organiser, content member.** The gating
+  *map* is wrong, not the code. Canvas create/update/delete stay organiser; region
+  create/update/delete, `retile`, `ocr-preview` and `create-puzzle-from-region` stay
+  member-tier — the design the three route/test docstrings already state. The fix is to
+  correct `EXPECTED` in `tests/test_web_route_gating.py` and to remove the resolver's
+  condition-blindness, **not** to change any route's tier.
+  `test_a_non_organiser_can_draw` stands.
+- **D2 — M29 approved.** Replace the hand-rolled route prologue with a shared helper that
+  makes an archived-check exemption explicit and named rather than an omission.
+- **D3 — the `failed_round_ids` rename is approved**, with a design step first: see the
+  Naming section — the field carries two id spaces, so a rename alone leaves it false.
+- **D4 — non-finding.** Serving hunt-site credentials to guild members on archived hunts
+  (`api.py:155`, `auth.py:303-309`) is **intended** under the 2026-06-21 visibility model.
+  Confirmed by the user; not to be "fixed". Struck from Uncertainties below.
+
 ## Overall assessment
 
 The codebase is in good health and clearly improving. Every quality gate is green, the
@@ -751,9 +771,14 @@ targets, frontend imports) before being reported.
 The `web_*` twin collapse is effectively complete: no model-mutating twin survives; all
 4 survivors are presentation-only on shared seams.
 
-- **Route prologue helper adoption (M29):** ~30 older actions.py handlers hand-roll
-  resolve→archived-gate→cog-check→guild-resolve→error-map that newer routes get from a
-  helper; the divergences are where the archived-check and notify gaps live (M31).
+- **Route prologue helper adoption (M29):** measured, not estimated — of 61 routes in
+  `actions.py`, 15 already go through a `*_ctx` helper, 40 hand-roll the resolve step, and
+  **15 hand-roll the full prologue** (resolve + archived + gate). A further **7 hand-rolled
+  routes carry no archived check at all** (`patch_hunt_settings:987`, `set_hunt_role:1022`,
+  `post_hunt_archive:1089`, `post_hunt_solved_sheet:1117`, `convert_to_feeder_preview:1273`,
+  `delete_hunt:1543`, `get_puzzle_images:2880`) — some legitimately exempt, and today a
+  deliberate exemption is indistinguishable from an oversight. That is what makes this a
+  correctness fix rather than tidying. Approved as D2.
 - **create_meta type knowledge (M30):** the web route re-encodes the bang command_map's
   meta/capstone/runaround rules by hand.
 - **Solved-sheet creation (C7)** is duplicated between web and bang and has already
@@ -768,8 +793,14 @@ The `web_*` twin collapse is effectively complete: no model-mutating twin surviv
 
 - `SheetRefreshError.failed_round_ids` now also receives *puzzle* ids from
   solve/change_solution/add_solution — the name asserts a type the data no longer has.
-  Internal-only; the rename is mechanical (no schema/API impact) but needs sign-off per
-  house rules.
+  **Approved as D3**, with a design step first: the field carries two id spaces —
+  tag_group ids from rollup-refresh failures, and puzzle ids appended when the
+  solved-sheet archive fails (`puzzle_service.py:1357`, `failed.append(puzzle.id)`) —
+  while the message renders both as `"(round ids: …)"`. A rename alone leaves it false.
+  Recommended: split into `failed_group_ids` + `failed_puzzle_ids` with the message
+  rendering each kind. Blast radius is 9 references in 3 files (5 in `bot/core/errors.py`,
+  4 test assertions); the 8 raise sites pass the list positionally. No schema, no API, no
+  serialised data.
 - The *clue* → *evidence* vocabulary straddle: the model and newer surfaces say
   evidence; `log_clue(s)`, `!clue` and friends keep the old noun. Best resolved along
   with the dead-twin cleanup (M32) rather than as its own rename.
@@ -783,7 +814,8 @@ The `web_*` twin collapse is effectively complete: no model-mutating twin surviv
   *enforced*, and several admin mutating routes have no route-level test at all (M36).
 - The web gating test misclassifies 6 deliberately-open canvas/region routes as
   organiser and cannot detect ungating of update/delete_canvas (M7) — the guardrail and
-  the code disagree and both suites pass.
+  the code disagree and both suites pass. **Resolved by D1: the map is wrong, not the
+  code** — correct `EXPECTED` and make the resolver condition-aware; no tier changes.
 - The bang-command tier map is a sample (26 gated commands unpinned) while the web map
   is exhaustive (M34); remove-minimeta's exception-ordering branch is untested while
   both siblings test it (M35).
@@ -824,10 +856,10 @@ The `web_*` twin collapse is effectively complete: no model-mutating twin surviv
 - **One finding refuted in verification** (and excluded): "!status accepts
   solved/backsolved" — the guard landed in `ad90908`; the finder read pre-fix
   behaviour.
-- **Needs verification (deliberately not asserted):** hunt_detail serves the hunt-site
-  username/password to any guild member once a hunt is archived (and for legacy
-  role_id=0 hunts) via the 2026-06-21 visibility fallback (`api.py:155`,
-  `auth.py:303-309`). Confirm intent before treating as a defect.
+- **Resolved (was: needs verification).** hunt_detail serving the hunt-site
+  username/password to any guild member once a hunt is archived (`api.py:155`,
+  `auth.py:303-309`) is **intended** under the 2026-06-21 visibility model — confirmed by
+  the user, recorded as D4. Not a defect.
 - The 86 lows are finder-reported only.
 - Production state was unreachable; frontend findings are source-traced, not
   browser-reproduced.
