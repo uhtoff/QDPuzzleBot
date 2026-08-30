@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import threading
 
 import aiohttp
 import discord
@@ -21,6 +22,16 @@ KIND_COMMAND = 3
 
 _QUEUE_MAXSIZE = 10000
 _REFRESH_SECONDS = 60
+
+# Serialises every use of `bridge_channels_conn` (see the gating helpers below).
+# The dedicated connection stopped the bridge sharing `mydb` with the event loop,
+# but its own two users still overlap: discord.py runs each on_message listener as
+# its own Task, so `_lookup_puzzle_channel` can be on several executor threads at
+# once, and `_refresh_loop` adds `_load_puzzle_channels` on top every 60s (and
+# clears the negative cache, so a burst of lookups follows each refresh). A
+# mysql.connector connection is not thread-safe; concurrent use previously caused
+# a SIGABRT heap corruption. Module-level because both helpers are staticmethods.
+_CHANNELS_CONN_LOCK = threading.Lock()
 
 
 class MessageBridge(commands.Cog):
@@ -71,12 +82,13 @@ class MessageBridge(commands.Cog):
         # (mysql.connector connections aren't thread-safe to share; doing so caused a
         # SIGABRT heap-corruption crash under concurrent access).
         from bot.store import bridge_channels_conn
-        cur = bridge_channels_conn.dict_cursor()
-        try:
-            cur.execute("SELECT channel_id FROM puzzles WHERE channel_id IS NOT NULL")
-            rows = cur.fetchall() or []
-        finally:
-            cur.close()
+        with _CHANNELS_CONN_LOCK:
+            cur = bridge_channels_conn.dict_cursor()
+            try:
+                cur.execute("SELECT channel_id FROM puzzles WHERE channel_id IS NOT NULL")
+                rows = cur.fetchall() or []
+            finally:
+                cur.close()
         return {int(r["channel_id"]) for r in rows}
 
     async def _refresh_loop(self):
@@ -92,12 +104,13 @@ class MessageBridge(commands.Cog):
     def _lookup_puzzle_channel(channel_id: int) -> bool:
         # See _load_puzzle_channels above: dedicated connection, not the shared `mydb`.
         from bot.store import bridge_channels_conn
-        cur = bridge_channels_conn.dict_cursor()
-        try:
-            cur.execute("SELECT 1 FROM puzzles WHERE channel_id=%s LIMIT 1", (channel_id,))
-            return cur.fetchone() is not None
-        finally:
-            cur.close()
+        with _CHANNELS_CONN_LOCK:
+            cur = bridge_channels_conn.dict_cursor()
+            try:
+                cur.execute("SELECT 1 FROM puzzles WHERE channel_id=%s LIMIT 1", (channel_id,))
+                return cur.fetchone() is not None
+            finally:
+                cur.close()
 
     async def _is_puzzle_channel(self, channel_id: int) -> bool:
         """Lazy gate: new puzzle channels are captured on their first message
