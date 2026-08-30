@@ -114,6 +114,35 @@ Notes from the tranche:
   `docs/commands.md` — the 2026-08-08 levelling held. Only the user-facing copy had
   drifted.
 
+**Tranche 5 — lock-regime stragglers, merged to `staging` 2026-08-31.** Gates after the
+tranche: 2031 backend tests (was 2024), ruff clean, basedpyright 0 errors.
+
+| Finding | Status | Commit |
+|---|---|---|
+| M2 `!sync` wrote member edges under only the context lock | fixed (one sorted acquisition) | `80e2875` |
+| M5 bang `!convert_to_puzzle` took no lock at all | fixed | `80e2875` |
+| M28 bang creates had no `hunt_create_lock` | fixed (both paths) | `80e2875` |
+| M26 web demote-to-feeder outside the sorted acquisition | fixed | `a14ee26` |
+
+Notes from the tranche:
+
+- **All four were real, and two were worse than reported.** M26 and M5 do not merely lose
+  an update: the concurrent command's pre-change snapshot re-INSERTs an edge against a
+  `tag_group` row that has just been deleted, and MariaDB rejects it — **FK 1452 on
+  `tags.RoundID`**, reproduced in both cases. `TagGroupJsonDb.delete` drops the group's
+  rows from `tags` as well, which is what makes these demotes group-wide.
+- **M5's mutation is precisely the M26 defect** (locking only the context puzzle), found
+  independently by the other agent working in parallel — mutual corroboration.
+- **A deadlock was avoided, not introduced.** `!sync`'s fix required *removing*
+  `with_puzzle_mutex`: adding an acquisition inside it would have nested target-then-members,
+  the exact H5 cycle against the delete/archive edges. Every path was checked against
+  `bulk_re_edge`'s documented internal locking first; none reaches it.
+- **Every mutation check deliberately still takes *a* lock** — a wrong lock set (M2), the
+  context puzzle only (M5), a per-message key (M28), a nested second acquisition (M26) — so
+  none of these tests can be satisfied by merely locking something.
+- `hunt_create_lock`'s docstring now records the bang edge and the one-way
+  `puzzle lock → hunt_create_lock → layout/rollup` order that keeps it cycle-free.
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
