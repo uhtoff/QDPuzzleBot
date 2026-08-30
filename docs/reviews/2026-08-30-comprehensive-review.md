@@ -633,7 +633,7 @@ rate observed for mediums (1 in 52), expect a few of these to be wrong.
 - puzzles.hunt_id has neither FK nor index; puzzles.channel_id has no index — the one core child edge left out of the 022/037/038 FK sweep (2nd sweep rated this medium: "the last unprotected owning edge") — `migrations/022_delete_cascades.sql:1`
 - datetime.utcnow() deprecation (flagged 2026-08-07) still open; line numbers have drifted — `bot/store/mysqldb.py:940`
 - Evidence ordering lacks the ', id' tie-break its three sibling DAOs use, and log() returns sub-second precision the column drops — `bot/store/mysqldb.py:864`
-- dbtest.py is still present and still broken (ImportError on names removed by the taggroup rename) — `dbtest.py:4`
+- ~~dbtest.py is still present and still broken~~ — **withdrawn 2026-08-30**: `dbtest.py` is gitignored (`.gitignore:2`) and has never been tracked on `staging`, so there is nothing for the repo to remove. The broken copy is a local scratch file on this machine; deleting it is a personal-machine choice, not a repo change.
 - TagGroupData.sort_by_tag_group_start is dead and would crash on the NULL start_time rows the promote paths create — `bot/store/tag_group_data.py:196`
 - Dashboard connection pool lacks the connect_timeout hardening the #89 fix gave MySQLReconnector *(2nd sweep)* — `bot/web/data.py:36`
 - Dead DAO surface: MySQLPuzzleJsonDb.get and .get_all (with a never-used hunt_id parameter), plus two never-raised exception classes *(2nd sweep)* — `bot/store/mysqldb.py:452`
@@ -758,8 +758,9 @@ targets, frontend imports) before being reported.
   by `api.add_evidence` (M32 — the two survivors also disagree on locking).
 - Dead frontend exports: `useConvertToGroup`, `useConvertToMetapuzzle`, `useUpdateMark`
   (`api.ts:224`).
-- `dbtest.py` still present and broken (ImportError on renamed symbols) — the 2026-08-07
-  dead-code removal missed it.
+- ~~`dbtest.py` still present and broken~~ — **withdrawn 2026-08-30.** It is gitignored
+  (`.gitignore:2`) and never tracked, so the 2026-08-07 removal did not "miss" it: there
+  was nothing in the repo to remove. The stale local copy is a personal-machine artifact.
 - Dead DAO surface: unused `MySQLPuzzleJsonDb.get/.get_all` variants, two never-raised
   exception classes (`mysqldb.py:452`); `TagGroupData.sort_by_tag_group_start` dead and
   would crash on NULL start_time rows.
