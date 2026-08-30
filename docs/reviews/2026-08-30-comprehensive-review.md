@@ -212,7 +212,7 @@ None found.
 
 **Impact.** Staging's live-DB test family runs against a schema staging cannot reproduce from scratch; a fresh DB built from staging's migrations diverges from the DB the tests were green on. A future staging migration that takes the 043/044 numbers with different content will interleave by filename sort against what the DB already recorded — the known parallel-worktree number-collision hazard. The extra nullable column is harmless today, but the migration → deploy → code ordering is now entangled across branches sharing one DB.
 
-**Direction.** Reconcile before the feeder-pool branch merges: either land 043/044 on staging soon, or renumber them on the branch; meanwhile treat 043/044 as reserved numbers on staging. No code change needed in this tree.
+**Direction.** **Decided 2026-08-30: leave `meta-matching` alone; 043/044 are permanently reserved and staging's next migration is `045`.** Safe because `migrate.py` tracks by filename, not number — gaps are inert, a lower-numbered file arriving later still applies (no silent skip), and the `[applied, file missing]` orphans are `cmd_status` cosmetics `cmd_migrate` never reads. The residual half — `puzzlebot_test` not being reproducible from staging's migrations alone — is **accepted**: staging references `feeder_pool` and `feeder_tab_page_id` zero times, and the objects are two unused tables plus one nullable column. Rebuilding the test DB from 000–042 remains the option if reproducibility is ever wanted. No code change in this tree.
 
 ### M9 — _fetch_one-backed lookups without LIMIT 1 raise InternalError('Unread result found') the moment a de-facto-unique column gains a duplicate
 
