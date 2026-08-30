@@ -1306,7 +1306,7 @@ async def convert_to_feeder(puzzle_id):
 
     Destructive: deletes the puzzle's meta round, orphaning every feeder tagged to
     it (the frontend confirms against the preview count first). Mirrors the solve
-    family's edge wrapper — organiser-gated, puzzle-locked, audited, board pushed —
+    family's edge wrapper — organiser-gated, group-locked, audited, board pushed —
     and treats a Sheets failure as a non-fatal warning (the demotion is committed)."""
     ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
     if err:
@@ -1320,7 +1320,14 @@ async def convert_to_feeder(puzzle_id):
 
     from bot.store import HuntJsonDb, PuzzleJsonDb
 
-    async with puzzle_lock(puzzle_id):
+    # Target + every member, in ONE sorted acquisition (H5), like the other convert
+    # edges and delete_round. This demote is group-wide even though it never reaches
+    # bulk_re_edge: TagGroupJsonDb.delete drops the group's rows in `tags` too, so a
+    # member's in-flight commit would re-INSERT its edge against the deleted group
+    # (#27) — an FK violation, not merely a lost update. Nothing on
+    # PuzzleService.convert_to_puzzle's path takes a puzzle lock, so this single
+    # acquisition cannot nest.
+    async with puzzles_lock(convert_lock_ids(puzzle_id=puzzle_id)):
         puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
         if puzzle is None:
             return jsonify({"error": "puzzle_not_found"}), 404
