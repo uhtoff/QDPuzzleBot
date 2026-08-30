@@ -2,11 +2,66 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from bot.store.hunt_data import HuntData
 from bot.store.puzzle_data import PuzzleData
 from bot.store.tag_group_data import TagGroupData
 
 _LIVE_HUNT_ID = None
+
+# --- test-database guard ---------------------------------------------------
+#
+# A dozen store-layer files (test_tag_edges, test_hunt_category_cascade, ...)
+# run real INSERT/DELETE statements against whatever database `config.database`
+# names -- there is nothing in the tests themselves that checks it is a *test*
+# database. On a checkout whose config.json carries production credentials (a
+# deployed host, or a developer who copied them), `pytest` would write to, and
+# delete rows from, production. So refuse the whole session up front rather
+# than trusting each live test to check for itself: a guard you have to
+# remember to request is the bug, not the fix.
+
+_TEST_DATABASE_SUFFIX = "_test"
+
+
+def _is_test_database(name):
+    """True only for a database name that ends in ``_test``.
+
+    Deliberately strict and with no environment escape hatch: an override is
+    exactly what a misconfigured production host would end up setting.
+    """
+    return isinstance(name, str) and name.endswith(_TEST_DATABASE_SUFFIX)
+
+
+def guard_test_database(name):
+    """Raise ``pytest.UsageError`` unless ``name`` is a test database.
+
+    Pure in the database name, so it can be driven directly by
+    tests/test_test_database_guard.py -- it neither reads the config nor
+    connects to MySQL (connecting would re-introduce the import-time database
+    dependency that the lazy-connect change removed).
+    """
+    if _is_test_database(name):
+        return
+    raise pytest.UsageError(
+        f"REFUSING TO RUN THE TEST SUITE against database {name!r}: it is not a "
+        f"test database (the name must end in '{_TEST_DATABASE_SUFFIX}'). This "
+        "suite inserts and deletes real rows, so running it here risks "
+        'destroying live data. Point the "database" key in config.json at a '
+        'local test database (e.g. "puzzlebot_test") and run pytest again.'
+    )
+
+
+def pytest_sessionstart(session):
+    """Refuse the session before a single test can touch the database.
+
+    `pytest_sessionstart` fires before collection, so this runs earlier than
+    any test module import, fixture, or query -- and it fails once, loudly,
+    for the whole run instead of once per live test.
+    """
+    from bot.utils import config
+
+    guard_test_database(config.database)
 
 
 def live_hunt_id():
