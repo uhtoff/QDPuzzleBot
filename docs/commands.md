@@ -250,7 +250,7 @@ until it finishes.
 | `!set_admin_roles` | | `[@Role ...]` | any | admins/mods | Pin the admin tier to specific roles, by id. No roles clears the list and reverts to name matching. Refuses if you hold none of the roles given (it would lock you out of this command). Web: **Server settings**. |
 | `!set_organiser_roles` | | `[@Role ...]` | any | admins/mods | Pin the organiser tier to specific roles, by id. No roles clears the list and reverts to name matching. Web: **Server settings**. |
 | `!show_puzzle_settings` *(slash)* | | — | puzzle channel | admins/mods | Dump the puzzle's fields/values. |
-| `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). |
+| `!update_settings` | `!update_setting`, `!update_puzzle_setting(s)` | `key value` | any | admins/mods | Set one setting field (quote values with spaces). Refuses the authorisation and guild-identity keys (`admin_role_ids`, `organiser_role_ids`, `guild_id`, `guild_name`) — use `!set_admin_roles` / `!set_organiser_roles`, which validate the roles and guard against locking you out. |
 | `!debug_puzzle_channel` | | — | puzzle channel | admins/mods | Dump the puzzle's full record as JSON. |
 
 ## Utility (bot)

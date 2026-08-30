@@ -44,6 +44,32 @@ from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
 
+# Settings columns !update_settings refuses to write, mapped to what to do
+# instead (M4). This command is a raw escape hatch: it setattrs whatever string
+# passes its type gate and commits, so it would otherwise be a third write path
+# to these columns with none of the checks the two dedicated edges carry.
+#   - The auth columns are validated against the guild's own roles, and guarded
+#     against pinning ids the caller does not hold, by !set_admin_roles /
+#     !set_organiser_roles and by the dashboard's guild-settings PATCH. Stored
+#     ids are the ONLY grant for a tier (bot/core/role_gate.py — no fallback to
+#     role names once configured), so junk written here gates every admin out of
+#     both surfaces, including out of the commands that would undo it.
+#   - The identity columns key the guild row the whole auth model resolves
+#     through; rewriting them orphans the settings from the guild.
+# Recovery from either is direct SQL, so this path refuses them outright.
+PROTECTED_SETTING_KEYS = {
+    "admin_role_ids":
+        "Use `!set_admin_roles`, which checks the roles exist in this guild and "
+        "refuses a change that would lock you out.",
+    "organiser_role_ids":
+        "Use `!set_organiser_roles`, which checks the roles exist in this guild.",
+    "guild_id":
+        "This is the key every setting for this guild is stored under; changing "
+        "it would orphan them.",
+    "guild_name":
+        "This is filled in from Discord when the guild's settings row is created.",
+}
+
 
 def _holds(ctx, tier):
     """True if the command author holds *tier* in this guild, per role_gate:
@@ -2639,7 +2665,18 @@ class Puzzles(commands.Cog):
         Example: `!update_settings discord_bot_emoji ":dog:"`
         Quote a value containing spaces. Inspect available keys with `!show_settings`.
         Use the `!update_puzzle_settings` alias to target the puzzle in this channel.
-        Admins/mods only."""
+        The authorisation and guild-identity keys (`admin_role_ids`,
+        `organiser_role_ids`, `guild_id`, `guild_name`) are refused here — set the
+        role ids with `!set_admin_roles` / `!set_organiser_roles`, which validate
+        them and won't lock you out. Admins/mods only."""
+        # Refused before anything is resolved or written, so a protected key can
+        # never reach a commit (see PROTECTED_SETTING_KEYS).
+        if setting_key in PROTECTED_SETTING_KEYS:
+            await ctx.send(
+                f":x: `{setting_key}` cannot be set from this command — it would "
+                f"skip the checks that keep this guild's settings recoverable. "
+                f"{PROTECTED_SETTING_KEYS[setting_key]}")
+            return
         command = ctx.invoked_with
         if command not in ("update_puzzle_setting", "update_puzzle_settings"):
             settings = self.get_settings(ctx)
