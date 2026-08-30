@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDisclosure } from "@mantine/hooks";
 import {
   ActionIcon,
@@ -73,6 +73,29 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
   const rename = useRenamePuzzle(uid);
+
+  // The Drawer is a single long-lived instance: opening a different puzzle
+  // swaps the `puzzle` prop underneath it and does NOT remount, so every
+  // draft below described the previously viewed puzzle until it was cleared by
+  // hand. That is how a note typed for A got saved onto B, and how the rename
+  // box could sit open pre-filled with A's name over B's drawer.
+  //
+  // Keyed on the puzzle id, so it fires on every switch and on close
+  // (`puzzle` goes null), which is what stops an abandoned draft surviving.
+  // Anything added to this component that describes one puzzle belongs here.
+  useEffect(() => {
+    setText("");
+    setSheetName("");
+    setLinkUrl("");
+    closeLink();
+    setRenameEditing(false);
+    setRenameTemp("");
+    setSolveOpen(false);
+    setDeleteOpen(false);
+    // A note index, so the most obviously wrong thing to carry over: index 3
+    // of A's notes is a different note, or none at all, in B's.
+    setEraseIndex(null);
+  }, [puzzle?.id]);
 
   function submitNote() {
     const note = text.trim();
@@ -176,7 +199,10 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
                 />
               </MetaRow>
               <MetaRow label="Type">
+                {/* Keyed: TypeCell keeps its own edit draft, which this
+                    component cannot reach from the reset effect above. */}
                 <TypeCell
+                  key={puzzle.id}
                   value={puzzle.puzzle_type}
                   onSave={(puzzle_type) =>
                     update.mutate({ puzzleId: puzzle.id, patch: { puzzle_type } }, { onError: notifyError })
@@ -254,7 +280,10 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
           )}
 
           <Divider label="Images" labelPosition="left" />
-          <PuzzleImages puzzleId={puzzle.id} puzzleName={puzzle.name} uid={uid} editable={editable} />
+          {/* Keyed for the same reason: it holds the markup target and the
+              remove-confirmation target, both of which are images belonging to
+              whichever puzzle was open when they were picked. */}
+          <PuzzleImages key={puzzle.id} puzzleId={puzzle.id} puzzleName={puzzle.name} uid={uid} editable={editable} />
 
           <Divider label="Sheets" labelPosition="left" />
           <Stack gap="xs">

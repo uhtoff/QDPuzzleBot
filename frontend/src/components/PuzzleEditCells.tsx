@@ -210,11 +210,21 @@ export function SolveModal({ puzzle, uid, onClose }: { puzzle: SolveTarget | nul
     onClose();
   }
 
-  // When the puzzle changes: prefill change with current solution, collapse Advanced.
+  // Every field below is a draft answer for ONE puzzle, and this modal is a
+  // long-lived instance whose `puzzle` prop swaps underneath it — so all of
+  // them have to be reset together when the puzzle changes, not just the one
+  // being prefilled. Clearing only `changeText` left an answer typed for
+  // puzzle A sitting in the Answer box when the modal reopened on puzzle B,
+  // where a single click on Solve submitted A's answer against B.
+  //
+  // The reset also runs when `puzzle` goes null (the modal closing), which is
+  // what makes an abandoned draft not survive to the next puzzle at all.
   useEffect(() => {
-    if (puzzle?.solution && puzzle.solved) {
-      setChangeText(puzzle.solution);
-    }
+    setFullText("");
+    setPartialText("");
+    setAddText("");
+    // Prefill only for the amend case; otherwise this box must be empty too.
+    setChangeText(puzzle?.solved && puzzle.solution ? puzzle.solution : "");
     setAdvancedOpen(false);
   }, [puzzle?.id]);
 
