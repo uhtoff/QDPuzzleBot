@@ -143,6 +143,54 @@ Notes from the tranche:
 - `hunt_create_lock`'s docstring now records the bang edge and the one-way
   `puzzle lock → hunt_create_lock → layout/rollup` order that keeps it cycle-free.
 
+**Tranche 4 (Sheets) — PARTIAL. Safe subset merged to `staging` 2026-08-31; the other
+seven are blocked on decisions.** Gates: 2036 backend tests (was 2031).
+
+| Finding | Status | Commit |
+|---|---|---|
+| M20 `delete_hunt` deleted every tab, then the files anyway | fixed | `509a055` |
+| M22 unassigned/evidence refreshes raced on their tab | fixed (per-tab `rollup_lock`) | `509a055` |
+| M14, M16, M17, M18, M19, M21, C5 | **blocked** — see `.ai/active/open-questions.md` Q1–Q3 | — |
+
+A research pass (`.ai/active/sheets-tranche-research.md`) re-confirmed all nine against
+current source and **corrected this review in three places**:
+
+- **M16's prescribed fix does not work.** Guarding on `select_table(...)` does not close it:
+  `select_table` does not short-circuit on a name miss, it falls through to
+  "if there is exactly one table, use it" — and M16's scenario is exactly one solver table.
+  **M16 and M17 are one fix**, needing a strict name match. The existing test uses a lone
+  *unnamed* table, so it would have passed under both the old guard and the "fixed" one.
+- **M14's fix is not a copy of its sibling.** `ensure_evidence_table` does a `_values_clear`
+  over the whole tab (`ensure_unassigned_table` does not), so adopting a pre-existing
+  "Evidence" tab by name then blanks it — correct for a bot leftover, silent data loss if a
+  human made it. That is Q1.
+- **Narrowing `select_table` is a regression risk, not a corruption risk.** Git archaeology
+  found three contribution-table naming eras (unnamed → `"Contributions"` → the tab's name →
+  `Contributions {page_id}`), so the legacy population is mostly *named*. Narrowing to
+  "unnamed only" would reclassify legacy tables as not-ours and blank those rollups
+  permanently, with only a log line. That is Q2.
+
+Also established: the tranche is **three clusters plus three singletons**, not the one
+shared seam this review assumed — a generic "tolerate-already-done" wrapper would have to
+know each operation's idempotency probe, which is the whole content of each fix. And
+**four of the nine rest on unverified Google Sheets API assumptions** (does `addSheet` 400
+on a duplicate title; does deleting a Table's columns remove the Table). The entire Sheets
+test surface asserts request shapes and call ordering only — nothing verifies what Google
+actually does. That is Q3.
+
+Two further items found while fixing M22, not previously logged:
+
+- **`_ROLLUP_LOCKS` is a latent cross-test hazard.** It is a module-global
+  `defaultdict(asyncio.Lock)` that outlives each test's event loop, so two tests contending
+  the *same key* fail with `RuntimeError: Lock is bound to a different event loop`
+  regardless of the behaviour under test. The new tests avoid it with per-test hunt ids;
+  `tests/test_rollup_lock.py` contends key `5` and is safe only because nothing else does.
+  A trap for the next person adding a lock test.
+- **`ensure_evidence_table` poisons its own retry guard**: it swallows an `addTable` failure
+  and returns `page_id` as a sentinel, which is committed to `hunt.evidence_table_id`, so
+  the `is None` guard never fires again and the native Table is never retried.
+  `ensure_unassigned_table` carries the identical sentinel. Degrades rather than wedges.
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
