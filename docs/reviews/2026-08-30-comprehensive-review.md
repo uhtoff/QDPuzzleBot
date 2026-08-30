@@ -82,6 +82,38 @@ Notes from the tranche:
   is hardcoded at `PuzzleEditCells.tsx:28`, duplicating `bot/core/constants.py:37` by hand
   with no endpoint serving it. Correct today, hand-synced.
 
+**Tranche 6 — the gating guardrails, merged to `staging` 2026-08-31.** Gates after the
+tranche: 2024 backend tests (was 1926), ruff clean, basedpyright 0 errors.
+
+| Finding | Status | Commit |
+|---|---|---|
+| M7 route map misclassified 6 canvas routes; resolver blind to ungating | fixed (map + guard-aware resolver) | `02d4358` |
+| C8 new ungated mutating routes joined the residue silently | fixed (every route must be listed) | `02d4358` |
+| M34 bang tier map was a sample (21 of 84) | fixed (census, 84 of 84) | `594903f` |
+| M36 admin mutating routes had no behavioural test | fixed (10 routes, both directions) | `e8288e3` |
+| — five stale "(admin only)" strings on organiser commands | fixed (low, rode along) | `a2691d4` |
+
+Notes from the tranche:
+
+- **Per D1 no route's tier changed** — the map was wrong, not the code. The six canvas
+  *content* routes moved to the file's existing ungated list with the rationale recorded
+  at both sites, citing the three docstrings that already state the design.
+- **The resolver was blind to the exact regression it exists to catch.** Flipping
+  `require_manage=True`→`False` in `update_canvas`/`delete_canvas` — silently ungating a
+  destructive route — left the resolved map unchanged (47 passed). It now fails naming the
+  route. The resolver's docstring records what it still cannot see (guards on anything but
+  a bare parameter, non-literal arguments, gates not reached by a direct call) and notes
+  that both assumptions err towards claiming *more* protection than the code has.
+- **M36 proved the "nothing was written" half is load-bearing on its own**, by making
+  handlers mutate *and then* refuse: the status stayed 403 and the tests still went red.
+  That is exactly the status-code-only weakness this review flagged elsewhere.
+- **`link` and `make-minimeta` are not admin-tier** — both are deliberately ungated, so
+  what M36 pins for them is the archived-hunt refusal plus a member being allowed, which
+  is what would fail on a later silent tightening.
+- **Zero enforced-vs-documented tier disagreements** across all 84 commands against
+  `docs/commands.md` — the 2026-08-08 levelling held. Only the user-facing copy had
+  drifted.
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
