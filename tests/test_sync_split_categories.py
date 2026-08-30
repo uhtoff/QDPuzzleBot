@@ -75,14 +75,19 @@ class TestSyncSplitCategories:
 
         cog, ctx = _make_sync_ctx(primary, extra_categories=[solved])
 
-        def _puzzle_for_channel(channel_id):
-            return {101: primary_puzzle, 202: solved_puzzle}.get(channel_id)
+        # !sync now scans the categories, then RE-READS each puzzle by id under
+        # the group lock (see Puzzles.sync), so the stub has to answer both
+        # lookups. Same two puzzles either way — the assertion below is unchanged.
+        def _puzzle_for_channel(channel_id=None, id=None):
+            if channel_id is not None:
+                return {101: primary_puzzle, 202: solved_puzzle}.get(channel_id)
+            return {1: primary_puzzle, 2: solved_puzzle}.get(id)
 
         with patch("bot.cogs.puzzles.TagGroupJsonDb") as tgdb, \
              patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb, \
              patch("bot.cogs.puzzles.TagGroupCategoryDb") as tgcdb:
             tgdb.get_by_attr.return_value = target_group
-            pdb.get_by_attr.side_effect = lambda channel_id: _puzzle_for_channel(channel_id)
+            pdb.get_by_attr.side_effect = _puzzle_for_channel
             tgcdb.get_for_group.return_value = [
                 TagGroupCategoryData(group_id=5, category_id=1, role=ROLE_UNSOLVED, seq=0),
                 TagGroupCategoryData(group_id=5, category_id=2, role=ROLE_SOLVED, seq=0),

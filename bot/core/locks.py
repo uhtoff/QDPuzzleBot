@@ -131,10 +131,17 @@ async def hunt_create_lock(hunt_id):
     and the create it guards form one atomic critical section — a double-submit
     (or two concurrent creators) can't both pass the check and each create a row.
 
-    Held at the edges (web handlers) around check+create; the lock-free
-    PuzzleService it calls never re-acquires it. create_puzzle/create_tag_group
-    take deeper locks (category_layout.layout_lock, rollup_lock) only AFTER this
-    one and never the reverse, so there is no lock-ordering cycle."""
+    Held at the edges around check+create -- the web handlers, and since M28 the
+    bang !puzzle and round-create paths too; the lock-free PuzzleService it calls
+    never re-acquires it. create_puzzle/create_tag_group take deeper locks
+    (category_layout.layout_lock, rollup_lock) only AFTER this one and never the
+    reverse, so there is no lock-ordering cycle.
+
+    The bang edge can nest this under a puzzle lock, when !puzzle runs in a round
+    channel and with_puzzle_mutex already holds the group's target. That order is
+    strictly one-way -- puzzle lock -> hunt_create_lock -> layout_lock/rollup_lock
+    -- because nothing acquires a puzzle lock while holding this one, so it adds
+    no cycle. Keep it that way: acquiring a puzzle lock inside this would."""
     async with _HUNT_CREATE_LOCKS[hunt_id]:
         yield
 

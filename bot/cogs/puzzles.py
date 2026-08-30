@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 # Per-puzzle async mutex — shared with the web edge via bot/core/locks so a
 # dashboard write serializes against the matching bang-command (see M4).
-from bot.core.locks import _PUZZLE_LOCKS, puzzles_lock, convert_lock_ids, hunt_sheet_lock
+from bot.core.locks import (_PUZZLE_LOCKS, puzzles_lock, convert_lock_ids,
+                            hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import SheetRefreshError
 from bot.core.puzzle_service import TYPE_DEFAULTS, GROUP_TYPES
 from bot.cogs.ui import ConfirmView
@@ -856,28 +857,38 @@ class Puzzles(commands.Cog):
         if hunt is None:
             return await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
 
-        if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id):
-            return await ctx.send(
-                f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or "
-                "will lead to a duplicate channel name, please use a different name"
-            )
-
-        if await self.check_available_space(ctx, 1) is False:
-            return await ctx.send(
-                ":x: There is no free channel to create this puzzle, please inform "
-                "the moderators."
-            )
-
         env = self.environment.get(ctx.message.id)
         round_data = env.get("tag_group") if env else None
 
-        try:
-            await self.service.create_puzzle(
-                guild, hunt, round_data, puzzle_name,
-                is_meta=False, notifier=DiscordNotifier(self.bot),
-            )
-        except RuntimeError:
-            return await ctx.send(":x: Failed to create puzzle (server full?).")
+        # Serialize check+create per hunt, exactly as POST /hunts/<uid>/puzzles
+        # does: create_puzzle takes no lock of its own (bot/core is lock-free by
+        # convention) and awaits Sheets and Discord for seconds between the check
+        # and the INSERT, so two near-simultaneous !p's would otherwise both pass
+        # the check and each create a same-named puzzle.
+        #
+        # Nested under with_puzzle_mutex when this runs in a round channel (the
+        # group's target is in context). That is a strict one-way order —
+        # puzzle lock -> hunt_create_lock -> layout_lock/rollup_lock — with no
+        # path taking a puzzle lock while holding hunt_create_lock, so it adds
+        # no cycle (see hunt_create_lock's docstring in bot/core/locks.py).
+        async with hunt_create_lock(hunt.id):
+            if PuzzleJsonDb.check_duplicates_in_hunt(puzzle_name, hunt.id):
+                return await ctx.send(
+                    f":exclamation: Puzzle **{puzzle_name}** already exists in this hunt or "
+                    "will lead to a duplicate channel name, please use a different name"
+                )
+            if await self.check_available_space(ctx, 1) is False:
+                return await ctx.send(
+                    ":x: There is no free channel to create this puzzle, please inform "
+                    "the moderators."
+                )
+            try:
+                await self.service.create_puzzle(
+                    guild, hunt, round_data, puzzle_name,
+                    is_meta=False, notifier=DiscordNotifier(self.bot),
+                )
+            except RuntimeError:
+                return await ctx.send(":x: Failed to create puzzle (server full?).")
         asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
     # --- legacy create twins removed (Phase 5 strangle) ---
@@ -1856,7 +1867,11 @@ class Puzzles(commands.Cog):
         aliases=["sync_meta", "sync_feeders", "sync_round"],
     )
     @is_organiser()
-    @with_puzzle_mutex(wait=True)
+    # Deliberately no with_puzzle_mutex: that locks only the puzzle in context
+    # (the group's target), and !sync writes EVERY member's edges. Like the
+    # convert commands, it takes the whole group in one sorted puzzles_lock
+    # below instead — a second, nested acquisition is what creates a lock-order
+    # cycle (H5, see bot/core/locks.py).
     async def sync(self, ctx):
         """*Tag every puzzle in this category to the category's group with its default edge.*
 
@@ -1892,14 +1907,42 @@ class Puzzles(commands.Cog):
                 sync_categories.append(extra_category)
                 seen_category_ids.add(extra_category.id)
 
-        updated = 0
-        errors = []
+        # Which puzzles this sync will write. Resolved BEFORE the lock (the same
+        # pre-existing window convert_lock_ids and the delete edges have: a puzzle
+        # whose channel appears after this walk is not covered), because we need
+        # the id set to take the lock.
+        member_ids = []
         for category in sync_categories:
             for channel in category.channels:
                 puz = PuzzleJsonDb.get_by_attr(channel_id=channel.id)
                 if puz is None:
                     continue
                 if puz.id == target_group.target_puzzle_id:
+                    continue
+                member_ids.append(puz.id)
+
+        updated = 0
+        errors = []
+        # ONE sorted acquisition (H5) over every puzzle this writes — the puzzles
+        # being tagged in, plus the target this used to hold via with_puzzle_mutex.
+        # Without the members' own locks, a command already in flight on one of
+        # them commits its pre-sync snapshot afterwards and its tag-edge diff
+        # silently deletes the edge we just wrote (#27).
+        #
+        # Spelled out rather than reusing convert_lock_ids: sync's set is the
+        # puzzles found in the CATEGORIES (which may not be members yet), not the
+        # group's current membership. Sorted acquisition over a subset of the same
+        # global key space is still cycle-free.
+        lock_ids = set(member_ids)
+        if target_group.target_puzzle_id:
+            lock_ids.add(target_group.target_puzzle_id)
+        async with puzzles_lock(lock_ids):
+            for puzzle_id in member_ids:
+                # Re-read under the lock rather than trusting the pre-lock scan:
+                # commit() writes the object it is handed field by field, so a
+                # stale snapshot would clobber a concurrent write (H4).
+                puz = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+                if puz is None:
                     continue
                 try:
                     await self.service.tag_edge_only(puz, target_group, default_edge, guild=None)
@@ -2141,6 +2184,10 @@ class Puzzles(commands.Cog):
 
         group_type, create_meta, suffix = command_map[command_key]
         hunt = self.get_hunt(ctx)
+        # The sole caller (!round) refuses outside a Hunt channel, where
+        # cog_before_invoke always resolves the hunt. Named because the create
+        # lock below is keyed on hunt.id.
+        assert hunt is not None
 
         # --- Delegate to service ---
         meta_puzzle_name = (
@@ -2149,12 +2196,17 @@ class Puzzles(commands.Cog):
 
         try:
             notifier = DiscordNotifier(self.bot)
-            new_round, puzzle = await self.service.create_tag_group(
-                ctx.guild, hunt, round_name,
-                notifier=notifier,
-                meta_puzzle_name=meta_puzzle_name,
-                round_type=group_type,
-            )
+            # Same per-hunt create lock as the web /metas route: create_tag_group
+            # runs its OWN duplicate check internally and then awaits Discord for
+            # seconds before committing the row, so the whole call has to be the
+            # critical section or two concurrent !round's both pass the check.
+            async with hunt_create_lock(hunt.id):
+                new_round, puzzle = await self.service.create_tag_group(
+                    ctx.guild, hunt, round_name,
+                    notifier=notifier,
+                    meta_puzzle_name=meta_puzzle_name,
+                    round_type=group_type,
+                )
             # Runaround post-create: set source_mode to subtree
             if group_type == "Runaround":
                 await self.service.set_source_mode(hunt, new_round, "subtree")
@@ -2451,8 +2503,18 @@ class Puzzles(commands.Cog):
             await ctx.channel.send(":x: This puzzle is already a feeder.")
             return
 
+        # Target + every member, in ONE sorted acquisition (H5) — the same set the
+        # convert siblings and the delete/archive edges take. Demoting deletes the
+        # group, cascade-deleting every member's edge rows, so a member command
+        # holding a pre-demote snapshot would otherwise commit afterwards and try
+        # to re-INSERT its edge against the deleted group. Like the other convert
+        # commands this carries no with_puzzle_mutex, so this is its only
+        # acquisition; the puzzle is re-read under it rather than trusting the
+        # pre-lock snapshot.
         try:
-            await self.service.convert_to_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
+            async with puzzles_lock(convert_lock_ids(puzzle_id=puzzle.id)):
+                puzzle = PuzzleJsonDb.get_by_attr(id=puzzle.id) or puzzle
+                await self.service.convert_to_puzzle(ctx.guild, self.get_hunt(ctx), puzzle)
         except RuntimeError as e:
             await ctx.send(f":x: {e}")
             return
