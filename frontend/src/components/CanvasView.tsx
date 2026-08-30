@@ -84,7 +84,6 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
   // observation rather than a window listener: this panel sits inside a
   // layout that can change width without the window resizing at all.
   const { ref: sizeRef, width: viewW, height: viewH } = useElementSize();
-  const wrapRefs = useMergedRef(wrapRef, sizeRef);
   const viewport = { w: viewW, h: viewH };
 
   const fit = useCallback(() => {
@@ -162,7 +161,14 @@ export function CanvasView({ canvas, uid, puzzlesById, editable, onOpenRegion, o
   // as a wheel event with ctrlKey set, so this covers both gestures with one
   // handler; a plain scroll is left alone so the page can still scroll past
   // the canvas.
-  useWheelZoom(wrapRef, zoomAt);
+  //
+  // A callback ref, merged in below rather than read out of wrapRef: the
+  // wrapper is NOT in the tree while tile_status is 'pending' (see the early
+  // return further down), and a canvas flips pending -> ready in place. An
+  // effect keyed off a RefObject never learns that the element finally
+  // appeared, so the listener was never attached for such a canvas.
+  const wheelRef = useWheelZoom(zoomAt);
+  const wrapRefs = useMergedRef(wrapRef, sizeRef, wheelRef);
 
   const onPointerDown = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();

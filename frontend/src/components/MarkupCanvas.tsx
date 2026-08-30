@@ -155,7 +155,6 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
    *  height is auto — so a percentage max-height on the <img> has nothing to
    *  resolve against. Measuring the frame gives it a real pixel cap. */
   const { ref: frameSizeRef, height: frameH } = useElementSize();
-  const frameRefs = useMergedRef(frameRef, frameSizeRef);
 
   /** Whether Ctrl is currently down, purely so the cursor advertises that a
    *  drag would pan. Window-level because the pointer may be nowhere near the
@@ -195,7 +194,10 @@ export function MarkupCanvas({ mediaId, alt, onSave }: Props) {
   }, []);
 
   // Ctrl+wheel zooms about the cursor; a plain scroll still scrolls the modal.
-  useWheelZoom(frameRef, zoomAt);
+  // The hook hands back a callback ref so attachment follows the element rather
+  // than this component's mount — see useWheelZoom.
+  const wheelRef = useWheelZoom(zoomAt);
+  const frameRefs = useMergedRef(frameRef, frameSizeRef, wheelRef);
 
   // The buttons anchor on the viewport centre, not (0,0): zooming about a
   // corner walks the image away from whatever is being looked at.
