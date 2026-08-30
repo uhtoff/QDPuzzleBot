@@ -53,6 +53,11 @@ def web():
     # real DB, whether or not the test cares about puzzle images.
     pidb.get_by_region.return_value = None
     pidb.get_by_puzzle.return_value = []
+    # Linking a region now looks its target up to prove it belongs to this
+    # hunt; without a stand-in every linked-region test would reach the real
+    # DAO and be refused as cross-hunt.
+    pzdb = MagicMock()
+    pzdb.get_by_attr.return_value = SimpleNamespace(id=9, hunt_id=10)
 
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
@@ -66,6 +71,7 @@ def web():
         patch("bot.store.CanvasRegionJsonDb", rdb),
         patch("bot.store.MediaJsonDb", mdb),
         patch("bot.store.HuntJsonDb", hdb),
+        patch("bot.store.PuzzleJsonDb", pzdb),
         patch("bot.core.puzzle_images.PuzzleImageJsonDb", pidb),
         # Phase 4: _push_board was replaced by _notify_board, which publishes
         # straight to events.publish rather than through cog.service.notifier
@@ -76,7 +82,8 @@ def web():
     pub = mocks[-1]
     try:
         yield SimpleNamespace(app=app, client=app.test_client(), cog=cog, ctx=ctx,
-                             cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb, pub=pub)
+                             cdb=cdb, rdb=rdb, mdb=mdb, pidb=pidb, pzdb=pzdb,
+                             pub=pub)
     finally:
         stop_patches(patches)
 
@@ -240,6 +247,115 @@ class TestRegionWrites:
             resp = await web.client.post("/api/canvases/3/regions",
                                          json={"shape": RECT})
         assert resp.status_code == 401
+
+
+class TestRegionCrossHuntPuzzle:
+    """A region's puzzle_id comes straight off the request body, so it must be
+    checked against the canvas's own hunt -- the same object-scoping bar the
+    media ids on these routes already meet. An informs link writes a real
+    evidence row against its target, so an unchecked id lands a contribution in
+    ANOTHER hunt's puzzle."""
+
+    async def test_creating_with_a_puzzle_from_another_hunt_is_400(self, web):
+        pdb = MagicMock()
+        pdb.get_by_attr.return_value = SimpleNamespace(id=9, hunt_id=99)
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb") as edb, \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            # A usable return value, so an unguarded route succeeds cleanly
+            # rather than dying on serialisation -- the failure this pins is
+            # the write landing, not a 500.
+            rdb.create.return_value = _region(puzzle_id=9, role="informs")
+            resp = await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "informs"})
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error"] == "cross_hunt_puzzle"
+        # Refused, not merely reported: no region row, no evidence pointing
+        # into hunt 99, and no crop decoded for a write that never lands.
+        rdb.create.assert_not_called()
+        edb.log.assert_not_called()
+        edb.set_target.assert_not_called()
+        crop.assert_not_awaited()
+
+    async def test_creating_with_an_unknown_puzzle_is_400(self, web):
+        pdb = MagicMock()
+        pdb.get_by_attr.return_value = None
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb"), \
+             patch("bot.web.actions._crop_region_media", AsyncMock()):
+            rdb.create.return_value = _region(puzzle_id=9, role="locates")
+            resp = await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "locates"})
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error"] == "cross_hunt_puzzle"
+        rdb.create.assert_not_called()
+
+    async def test_creating_with_a_puzzle_from_this_hunt_still_works(self, web):
+        """The positive control: this is an object-scoping check, not a new
+        permission bar -- linking within the hunt must be unaffected."""
+        pdb = MagicMock()
+        pdb.get_by_attr.return_value = SimpleNamespace(id=9, hunt_id=10)
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb"), \
+             patch("bot.web.actions._crop_region_media", AsyncMock(return_value=99)):
+            rdb.create.return_value = _region(puzzle_id=9, role="informs")
+            resp = await web.client.post(
+                "/api/canvases/3/regions",
+                json={"shape": RECT, "puzzle_id": 9, "role": "informs"})
+        assert resp.status_code == 201
+        rdb.create.assert_called_once()
+
+    async def test_patching_to_a_puzzle_from_another_hunt_is_400(self, web):
+        pdb = MagicMock()
+        pdb.get_by_attr.return_value = SimpleNamespace(id=9, hunt_id=99)
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.CanvasRegionJsonDb") as rdb, \
+             patch("bot.core.canvas.EvidenceJsonDb") as edb, \
+             patch("bot.web.actions._crop_region_media", AsyncMock()) as crop:
+            # First read is the pre-edit row (unlinked, so the link CHANGES and
+            # the evidence row would be written); second is what the route
+            # serialises back.
+            rdb.get_by_id.side_effect = [_region(),
+                                         _region(puzzle_id=9, role="informs")]
+            resp = await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "informs"})
+        assert resp.status_code == 400
+        assert (await resp.get_json())["error"] == "cross_hunt_puzzle"
+        rdb.update.assert_not_called()
+        edb.log.assert_not_called()
+        edb.set_target.assert_not_called()
+        crop.assert_not_awaited()
+
+    async def test_patching_within_the_hunt_still_works(self, web):
+        pdb = MagicMock()
+        pdb.get_by_attr.return_value = SimpleNamespace(id=9, hunt_id=10)
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.update_region") as upd, \
+             patch("bot.web.actions._crop_region_media", AsyncMock(return_value=77)):
+            upd.return_value = _region(puzzle_id=9, role="informs")
+            resp = await web.client.patch(
+                "/api/canvases/3/regions/5",
+                json={"puzzle_id": 9, "role": "informs"})
+        assert resp.status_code == 200
+        assert upd.call_args.kwargs["puzzle_id"] == 9
+
+    async def test_patching_an_unlinked_field_does_not_need_a_puzzle_lookup(self, web):
+        """An unlinked region PATCHed for its label carries no puzzle_id, so
+        the check must not turn a plain edit into a 400."""
+        pdb = MagicMock()
+        with patch("bot.store.PuzzleJsonDb", pdb), \
+             patch("bot.core.canvas.update_region") as upd:
+            upd.return_value = _region(label="named")
+            resp = await web.client.patch("/api/canvases/3/regions/5",
+                                          json={"label": "named"})
+        assert resp.status_code == 200
+        pdb.get_by_attr.assert_not_called()
 
 
 class TestRegionCropEvidence:

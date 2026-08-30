@@ -2507,6 +2507,24 @@ def _require_hunt_media(media_id, hunt_id):
     return media, None
 
 
+def _require_hunt_puzzle(puzzle_id, hunt_id):
+    """(puzzle, err) -- the puzzle must exist and belong to `hunt_id`.
+
+    A region's link target arrives in the request body, so without this a
+    region on this hunt's canvas could be pointed at another hunt's -- another
+    GUILD's -- puzzle. An informs link is not merely cosmetic: it writes a real
+    evidence_items row against the target, so an unchecked id lands a
+    contribution, and a crop of this hunt's picture, inside a hunt the caller
+    cannot see. Same object-scoping bar `_require_hunt_media` sets for the ids
+    beside it -- one error key, `cross_hunt_puzzle`.
+    """
+    from bot.store import PuzzleJsonDb
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None or puzzle.hunt_id != hunt_id:
+        return None, (jsonify({"error": "cross_hunt_puzzle"}), 400)
+    return puzzle, None
+
+
 async def _media_ctx(media_id):
     """(ctx, media_row, err) for an image the current user may mark up.
 
@@ -2721,6 +2739,12 @@ async def create_region(canvas_id):
     assert ctx is not None and canvas_row is not None
     body = await request.get_json(silent=True) or {}
     shape, role, puzzle_id = body.get("shape"), body.get("role"), body.get("puzzle_id")
+    # Before the crop, not after: a request that is about to be refused should
+    # not pay for a decode of the canvas original.
+    if puzzle_id is not None:
+        _puzzle, err = _require_hunt_puzzle(puzzle_id, ctx["hunt"]["id"])
+        if err:
+            return err
     media_id = None
     if role in (canvas_service.INFORMS, canvas_service.LOCATES) and puzzle_id is not None:
         media_id = await _crop_region_media(canvas_row, shape)
@@ -2760,6 +2784,13 @@ async def update_region(canvas_id, region_id):
     note = body.get("note") if "note" in body else existing.note
     puzzle_id = body.get("puzzle_id") if "puzzle_id" in body else existing.puzzle_id
     role = body.get("role") if "role" in body else existing.role
+    # The effective id, not only a body-supplied one: a link already stored is
+    # re-asserted by every PATCH that keeps it, and clearing a bad one still
+    # works because that sends puzzle_id null and skips the check entirely.
+    if puzzle_id is not None:
+        _puzzle, err = _require_hunt_puzzle(puzzle_id, ctx["hunt"]["id"])
+        if err:
+            return err
     link_changed = (existing.puzzle_id != puzzle_id or existing.role != role)
     media_id = None
     if (link_changed and role in (canvas_service.INFORMS, canvas_service.LOCATES)
