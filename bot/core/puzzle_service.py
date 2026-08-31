@@ -27,7 +27,9 @@ from bot.store.tag_group_data import TagGroupData
 from bot.store.hunt_data import HuntData
 from bot.core.locks import rollup_lock, puzzle_lock
 from bot.core.errors import SheetRefreshError
-from bot.core.sheet_tables import EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME
+from bot.core.sheet_tables import (
+    EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
+)
 from bot.utils import config, urls
 from bot.core.discord_channels import (
     clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
@@ -269,6 +271,24 @@ class PuzzleService:
             delay = 0
         logger.warning("Gave up deferred rename of channel %s after repeated rate limits", channel.id)
         self._pending_renames.pop(channel.id, None)
+
+    async def _has_contribution_table(self, gsheet_cog, page_id):
+        """True when the bot's OWN contribution Table is on `page_id`'s tab.
+
+        The licence for demote_tab_to_puzzle, which deletes the tab's four
+        leftmost columns. "Any native Table is present" is NOT that licence: a
+        solver may add a table of their own to a tab the bot never promoted (a
+        minimeta made but never rendered; a convert_to_meta whose
+        promote_tab_to_group failed after is_target was committed), and demoting
+        then destroys columns A-D of their grid with no undo. Matching is by the
+        name the bot gives its own Table — see bot/core/sheet_tables.py.
+        """
+        sheets = (await gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id()))["sheets"]
+        return any(
+            select_table(s.get("tables"), contribution_table_name(page_id)) is not None
+            for s in sheets
+            if s["properties"]["sheetId"] == int(page_id)
+        )
 
     def _gsheet_cog(self, hunt):
         """Resolve the GoogleSheets cog and point it at this hunt's spreadsheets.
@@ -1483,8 +1503,13 @@ class PuzzleService:
              if target_group is None or gid != target_group.id])
 
         gsheet_cog = self._gsheet_cog(hunt)
-        if gsheet_cog is not None:
-            await gsheet_cog.demote_tab_to_puzzle(puzzle)
+        # Same guard as remove_minimeta: demote only a tab the bot actually
+        # promoted. convert_to_meta commits is_target BEFORE promote_tab_to_group,
+        # so a Sheets failure there leaves a targeted puzzle on an untouched tab —
+        # demoting that deletes columns A-D of an ordinary solver grid.
+        if gsheet_cog is not None and puzzle.google_page_id:
+            if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
+                await gsheet_cog.demote_tab_to_puzzle(puzzle)
         return orphaned
 
     async def absorb_category(self, guild, hunt, category):
@@ -2045,17 +2070,13 @@ class PuzzleService:
 
         # Revert the minimeta's own tab. render_minimeta_contribution promotes the tab
         # to target layout, so demote_tab_to_puzzle (the inverse) strips the Table.
-        # Guard on the Table actually existing — a minimeta made but never rendered has
-        # no Table, and demoting it would delete the solver grid.
+        # Guard on OUR Table actually existing — a minimeta made but never rendered has
+        # none, and demoting it would delete the solver grid (see
+        # _has_contribution_table; "any Table" used to be enough, and a solver's own
+        # table on the tab was enough to trigger the delete).
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None and puzzle.google_page_id:
-            sheets = (await gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id()))["sheets"]
-            has_table = any(
-                bool(s.get("tables"))
-                for s in sheets
-                if s["properties"]["sheetId"] == int(puzzle.google_page_id)
-            )
-            if has_table:
+            if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
                 await gsheet_cog.demote_tab_to_puzzle(puzzle)
 
         rollup = RollupsJsonDb.get_by_attr(target_puzzle_id=puzzle.id)

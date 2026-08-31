@@ -870,3 +870,76 @@ class TestConvertRefreshesPinAndHostGlyphs:
             await cog.service.convert_to_type(MagicMock(), hunt, puz, "Capstone")
         reglyphed = [c.args[2] for c in cog.service._refresh_channel_glyph.await_args_list]
         assert reglyphed == [puz, host_target]
+
+
+class TestConvertToPuzzleDemoteGuard:
+    """M16 (sibling of remove_minimeta's guard): convert_to_puzzle demoted the
+    tab unconditionally.
+
+    convert_to_meta commits ``is_target=True`` BEFORE promote_tab_to_group, so a
+    Sheets failure there leaves a targeted puzzle whose tab was never promoted —
+    no contribution columns, no Table of ours. Demoting that tab deletes columns
+    A-D of an ordinary puzzle tab (the solver grid), with no undo. Demote only
+    when the bot's own contribution Table is actually on the tab.
+    """
+
+    @staticmethod
+    def _svc_with_tables(tables):
+        from bot.core.puzzle_service import PuzzleService
+        bot = MagicMock()
+        bot.get_cog.return_value = None
+        svc = PuzzleService(bot)
+        svc.safe_rename = AsyncMock()
+        svc._refresh_channel_glyph = AsyncMock()
+        svc._refresh_host_target_glyphs = AsyncMock()
+        svc.notifier = MagicMock()
+        svc.notifier.refresh_info = AsyncMock()
+        svc.notifier.board_changed = AsyncMock()
+        svc.feeders_orphaned_by_convert = MagicMock(return_value=[])
+        gsheet = MagicMock()
+        gsheet.get_spreadsheet_id.return_value = "SS"
+        sheet = {"properties": {"sheetId": 77}}
+        if tables is not None:
+            sheet["tables"] = tables
+        gsheet.sheet_list = AsyncMock(return_value={"sheets": [sheet]})
+        gsheet.demote_tab_to_puzzle = AsyncMock()
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        return svc, gsheet
+
+    async def _run(self, svc, meta):
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+             patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb:
+            pdb.commit.side_effect = lambda p: None
+            tgdb.get_by_attr.return_value = None   # group already gone
+            await svc.convert_to_puzzle(None, make_hunt(), meta)
+
+    @pytest.mark.asyncio
+    async def test_demotes_when_our_contribution_table_is_present(self):
+        meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[])
+        meta.google_page_id = 77
+        svc, gsheet = self._svc_with_tables(
+            [{"tableId": "t", "name": "Contributions 77"}])
+        await self._run(svc, meta)
+        gsheet.demote_tab_to_puzzle.assert_awaited_once_with(meta)
+        assert not meta.is_target
+
+    @pytest.mark.asyncio
+    async def test_refuses_to_demote_a_tab_holding_only_a_solver_table(self):
+        meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[])
+        meta.google_page_id = 77
+        svc, gsheet = self._svc_with_tables([{"tableId": "x", "name": "Table5"}])
+        await self._run(svc, meta)
+        gsheet.demote_tab_to_puzzle.assert_not_awaited()
+        # The DB demotion still stands — only the destructive sheet edit is skipped.
+        assert not meta.is_target
+
+    @pytest.mark.asyncio
+    async def test_refuses_to_demote_a_tab_that_was_never_promoted(self):
+        # convert_to_meta's promote_tab_to_group failed: is_target committed,
+        # tab untouched, no Table at all.
+        meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[])
+        meta.google_page_id = 77
+        svc, gsheet = self._svc_with_tables(None)
+        await self._run(svc, meta)
+        gsheet.demote_tab_to_puzzle.assert_not_awaited()
+        assert not meta.is_target

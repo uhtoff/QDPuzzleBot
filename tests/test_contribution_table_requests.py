@@ -14,6 +14,7 @@ import pytest
 import bot.cogs.puzzles_gsheet as gsheet_mod
 from bot.cogs.puzzles_gsheet import GoogleSheets
 from bot.cogs import sheet_layout
+from bot.core.sheet_tables import UNASSIGNED_TABLE_NAME, contribution_table_name
 from bot.store.puzzle_data import PuzzleData
 from bot.utils import config
 
@@ -72,7 +73,7 @@ def test_add_contribution_table_covers_header_and_hides_key_col():
                for r in body["requests"] if "addTable" in r)
     # Named with a page-unique, char-safe literal (Google rejects Table names with
     # '-'/apostrophes, and "X - meta" tabs would break addTable). The Table is
-    # scan-located, never looked up by name.
+    # found again by exactly this name — see bot/core/sheet_tables.select_table.
     assert add["name"] == "Contributions 900"
     assert add["range"]["sheetId"] == 900
     # 4 columns A-D
@@ -133,7 +134,7 @@ def test_reconcile_table_numeric_length_and_resizes_table():
     async def _fake_sheet_list(spreadsheet_id=None):
         return {"sheets": [{
             "properties": {"sheetId": 700, "title": "Unassigned Feeders", "index": 0},
-            "tables": [{"tableId": "UT", "range": {
+            "tables": [{"tableId": "UT", "name": UNASSIGNED_TABLE_NAME, "range": {
                 "sheetId": 700, "startRowIndex": 0, "startColumnIndex": 0,
                 "endRowIndex": 1, "endColumnIndex": 5}}],
         }]}
@@ -152,7 +153,8 @@ def test_reconcile_table_numeric_length_and_resizes_table():
 
     desired = [[1, "Solved", "CAT", 3], [2, "Open", "", ""]]
     asyncio.run(cog.reconcile_table(page_id=700, desired_rows=desired,
-                                    data_col_count=4, numeric_cols=(3,)))
+                                    data_col_count=4, numeric_cols=(3,),
+                                    table_name=UNASSIGNED_TABLE_NAME))
     flat = [r for body in sent for r in body["requests"]]
     append = [r for r in flat if "updateCells" in r][-1]["updateCells"]["rows"]
     assert append[0]["values"][3] == {"userEnteredValue": {"numberValue": 3}}
@@ -616,7 +618,7 @@ def _reconcile_with_table(grey_below):
         return {"sheets": [{
             "properties": {"sheetId": 900, "title": "Meta",
                            "gridProperties": {"rowCount": 50}},
-            "tables": [{"tableId": "T", "range": {
+            "tables": [{"tableId": "T", "name": contribution_table_name(900), "range": {
                 "startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}]}]}
     cog.sheet_list = _fake_sheet_list
 
@@ -632,7 +634,8 @@ def _reconcile_with_table(grey_below):
     cog.batch_update = fake_batch
     asyncio.run(cog.reconcile_table(
         page_id=900, desired_rows=[["feeds:2", "Feeder", "Alpha", "WORD"]],
-        data_col_count=4, grey_below=grey_below))
+        data_col_count=4, grey_below=grey_below,
+        table_name=contribution_table_name(900)))
     return sent
 
 
@@ -1454,9 +1457,113 @@ def test_reconcile_refuses_to_write_when_no_table_is_ours():
     assert sent == []
 
 
-def test_reconcile_still_uses_a_lone_unnamed_table():
-    # Legacy tab, one Table created before the naming settled: still ours.
-    legacy = {"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0,
-                                        "endColumnIndex": 4}}
-    sent = _reconcile_over([legacy], "Contributions 900")
-    assert _written_rows(sent) == [4]
+def test_reconcile_refuses_a_lone_table_that_is_not_ours():
+    # Replaces test_reconcile_still_uses_a_lone_unnamed_table (M17): a name miss
+    # is a miss, however many tables are on the tab. A solver who adds the FIRST
+    # table to a tab whose own Table creation was deferred used to be handed the
+    # target's rollup rows (and have their table resized over their data).
+    sent = _reconcile_over([_THEIRS], "Contributions 900")
+    assert sent == []
+
+
+def test_reconcile_refuses_a_lone_unnamed_table():
+    # Same miss for a nameless table: nothing the bot creates today is unnamed,
+    # so an unnamed table on a tab is a solver's.
+    unnamed = {"tableId": "T", "range": {"startRowIndex": 3, "startColumnIndex": 0,
+                                         "endColumnIndex": 4}}
+    sent = _reconcile_over([unnamed], "Contributions 900")
+    assert sent == []
+
+
+def test_reconcile_still_writes_when_the_tab_has_no_table_at_all():
+    # The documented no-Table fallback survives the strict match: a tab whose
+    # Table creation was deferred still gets its rollup written plainly (header
+    # at row 0, so the first data row is 1) — only the Table resize is skipped.
+    sent = _reconcile_over([], "Contributions 900")
+    assert _written_rows(sent) == [1]
+    assert not [r for body in sent for r in body["requests"] if "updateTable" in r]
+
+
+def test_select_table_matches_by_name():
+    from bot.core.sheet_tables import select_table
+    assert select_table([_THEIRS, _OURS], "Contributions 900") is _OURS
+
+
+def test_select_table_misses_rather_than_guessing_at_a_lone_table():
+    from bot.core.sheet_tables import select_table
+    assert select_table([_THEIRS], "Contributions 900") is None
+    assert select_table([{"tableId": "T"}], "Contributions 900") is None
+
+
+def test_select_table_with_no_name_never_guesses():
+    from bot.core.sheet_tables import select_table
+    assert select_table([_OURS], None) is None
+    assert select_table([], "Contributions 900") is None
+
+
+# --- M17: _ensure_contribution_table must not accept a solver's table ---------
+#
+# generate_puzzle_tab tolerates a transient Sheets 500 on the contribution
+# Table's creation and defers it to the first render. In that window the tab has
+# no Table of ours; if a solver adds one of their own, "a Table exists" is true
+# while OUR table still does not exist, so creation is skipped forever and the
+# reconciler is pointed at the solver's data.
+
+
+def _ensure_over(tables, a1_value="", page_id=900):
+    """Run _ensure_contribution_table over a tab holding `tables`; return
+    (add_calls, promote_calls)."""
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    sheet = {"properties": {"sheetId": page_id, "title": "Meta"}, "tables": tables}
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [sheet]}
+
+    cog.sheet_list = _fake_sheet_list
+
+    async def _fake_page_name(pid, spreadsheet_id=None):
+        return "Meta"
+
+    cog.get_page_name_by_id = _fake_page_name
+
+    async def _fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [[a1_value]]} if a1_value else {"values": []}
+
+    cog._values_get = _fake_values_get
+    added, promoted = [], []
+
+    async def _fake_add(pid, header_row=0):
+        added.append((pid, header_row))
+
+    cog._add_contribution_table = _fake_add
+
+    async def _fake_promote(puzzle):
+        promoted.append(puzzle)
+
+    cog.promote_tab_to_target = _fake_promote
+
+    p = PuzzleData()
+    p.id = 1
+    p.name = "Meta"
+    p.url = "http://m"
+    p.google_page_id = page_id
+    asyncio.run(cog._ensure_contribution_table(p))
+    return added, promoted
+
+
+def test_ensure_creates_our_table_when_only_a_solver_table_is_present():
+    added, promoted = _ensure_over([_THEIRS])
+    assert added == [(900, sheet_layout.FROZEN_ROWS)]
+    assert promoted == []
+
+
+def test_ensure_skips_creation_when_our_named_table_is_present():
+    added, promoted = _ensure_over([_THEIRS, _OURS])
+    assert added == []
+    assert promoted == []
+
+
+def test_ensure_creates_our_table_when_the_tab_has_none():
+    added, _promoted = _ensure_over([])
+    assert added == [(900, sheet_layout.FROZEN_ROWS)]

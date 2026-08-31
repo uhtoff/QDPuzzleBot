@@ -616,6 +616,18 @@ class TestRemoveMinimeta:
 
         RollupDb.delete.assert_called_once_with(7)
 
+    @staticmethod
+    def _gsheet_with_tables(tables):
+        """A GoogleSheets stub whose sheet 99 holds `tables` (None = no key)."""
+        gsheet = MagicMock()
+        gsheet.get_spreadsheet_id.return_value = "SS"
+        sheet = {"properties": {"sheetId": 99}}
+        if tables is not None:
+            sheet["tables"] = tables
+        gsheet.sheet_list = AsyncMock(return_value={"sheets": [sheet]})
+        gsheet.demote_tab_to_puzzle = AsyncMock()
+        return gsheet
+
     @patch("bot.core.puzzle_service.RollupsJsonDb")
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     async def test_demotes_tab_when_rollup_table_present(self, PuzzleDb, RollupDb):
@@ -625,18 +637,37 @@ class TestRemoveMinimeta:
         minimeta.google_page_id = "99"
         svc.get_minis = MagicMock(return_value=[])
         svc.delete_puzzle = AsyncMock()
-        gsheet = MagicMock()
-        gsheet.get_spreadsheet_id.return_value = "SS"
-        gsheet.sheet_list = AsyncMock(return_value={
-            "sheets": [{"properties": {"sheetId": 99}, "tables": [{"id": "t"}]}]
-        })
-        gsheet.demote_tab_to_puzzle = AsyncMock()
+        # OUR rollup table, named the way render_minimeta_contribution creates it.
+        gsheet = self._gsheet_with_tables(
+            [{"tableId": "t", "name": "Contributions 99"}])
         svc._gsheet_cog = MagicMock(return_value=gsheet)
         RollupDb.get_by_attr.return_value = None
 
         await svc.remove_minimeta(None, make_hunt(), minimeta)
 
         gsheet.demote_tab_to_puzzle.assert_awaited_once_with(minimeta)
+        assert minimeta.puzzle_type is None
+
+    @patch("bot.core.puzzle_service.RollupsJsonDb")
+    @patch("bot.core.puzzle_service.PuzzleJsonDb")
+    async def test_skips_demote_when_the_only_table_is_a_solver_s(self, PuzzleDb, RollupDb):
+        """M16: "any native Table" is not "our rollup Table". A minimeta made but
+        never rendered has no Table of ours; if a solver has added one of their
+        own, demoting deletes columns A-D of an unpromoted tab — their data, no
+        undo. Only the bot's own named table licenses the demote."""
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService(MagicMock())
+        minimeta = make_puzzle(id=1, puzzle_type="Minimeta")
+        minimeta.google_page_id = "99"
+        svc.get_minis = MagicMock(return_value=[])
+        svc.delete_puzzle = AsyncMock()
+        gsheet = self._gsheet_with_tables([{"tableId": "x", "name": "Table5"}])
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        RollupDb.get_by_attr.return_value = None
+
+        await svc.remove_minimeta(None, make_hunt(), minimeta)
+
+        gsheet.demote_tab_to_puzzle.assert_not_awaited()
         assert minimeta.puzzle_type is None
 
     @patch("bot.core.puzzle_service.RollupsJsonDb")

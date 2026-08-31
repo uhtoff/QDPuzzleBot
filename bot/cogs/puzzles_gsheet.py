@@ -1094,14 +1094,15 @@ class GoogleSheets(commands.Cog):
         Table names must be unique within a spreadsheet AND char-safe (Google
         rejects '-'/apostrophes), so name the Table "Contributions <page_id>":
         page_id is unique per tab, so no two targets collide, and it sidesteps the
-        round bug where a "X - meta" tab name broke addTable. The name is internal
-        — reconcile_table locates the Table by scanning the page, never by name."""
+        round bug where a "X - meta" tab name broke addTable. The name is how the
+        Table is found again: reconcile_table/_ensure_contribution_table match on
+        it exactly (bot/core/sheet_tables.py), so creation and lookup must both
+        go through contribution_table_name."""
         table_id = page_id
-        # The Table is located by scanning the page's tables (see reconcile_table),
-        # never by name, so the name is internal. Google rejects Table names that
-        # contain '-' or apostrophes (spaces are fine) — and the !round path suffixes
-        # its meta name with " - meta", so a tab-derived name breaks addTable and the
-        # rollup is silently deferred (the round bug). Use a page-unique, char-safe id.
+        # Google rejects Table names that contain '-' or apostrophes (spaces are
+        # fine) — and the !round path suffixes its meta name with " - meta", so a
+        # tab-derived name breaks addTable and the rollup is silently deferred
+        # (the round bug). Use a page-unique, char-safe id.
         table_name = contribution_table_name(page_id)
         header_range = {
             "sheetId": page_id,
@@ -1185,9 +1186,11 @@ class GoogleSheets(commands.Cog):
         tables = sheet.get("tables", []) or []
         table = select_table(tables, table_name)
         if table is None and tables:
-            # Several Tables and none is ours: writing would append this target's
-            # rows into a solver's table and resize it over them. Skip instead —
-            # the next reconcile self-heals once the named Table exists.
+            # There ARE Tables here and none of them is ours — including the case
+            # of a single one, which is a solver's when the name misses. Writing
+            # would append this target's rows into their table and resize it over
+            # them. Skip instead; the next reconcile self-heals once the named
+            # Table exists (_ensure_contribution_table creates it).
             logger.error(
                 "reconcile_table: no Table named %r on page %s (%d present) — "
                 "refusing to write into a table that is not ours",
@@ -1494,10 +1497,13 @@ class GoogleSheets(commands.Cog):
         spreadsheet_id = self.get_spreadsheet_id()
         for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if s["properties"]["sheetId"] == int(page_id):
-                # Ours specifically, not "a Table exists": a solver's table on the
-                # tab must not stand in for the contribution Table, or the rollup
-                # is deferred forever. select_table still accepts a lone unnamed
-                # Table, so a legacy tab does not get a second one bolted on.
+                # Ours specifically, not "a Table exists": select_table matches
+                # strictly on the name the bot gave its own Table, so a solver's
+                # table on the tab cannot stand in for the contribution Table.
+                # It used to — generate_puzzle_tab defers Table creation past a
+                # transient Sheets 500, and in that window a solver's table was
+                # the lone one on the tab, so creation was skipped forever and
+                # the reconciler wrote the rollup into their data instead.
                 if select_table(s.get("tables"), contribution_table_name(page_id)):
                     return
                 break

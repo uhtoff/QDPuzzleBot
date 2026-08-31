@@ -7,10 +7,26 @@ moving a table around the tab is enough to change it. Picking `tables[0]` was
 therefore a coin flip, and when it came up wrong the reconciler wrote a target's
 feeder rows into a solver's table (and resized that table to cover them).
 
-Every table the bot creates is given a name it chooses, so the name is the
-deterministic handle: match on it, fall back to the sole table on a tab (older
-tabs whose table was created before the naming settled), and otherwise return
-nothing so the caller can refuse rather than guess.
+Every Table the bot creates is given a name it chooses, so the name is the
+deterministic handle: match on it, and otherwise return nothing so the caller
+can create its own Table (or refuse to write) rather than guess.
+
+Matching is STRICT — there is deliberately no "lone table on the tab must be
+ours" fallback. That fallback existed for tabs whose Table predated the naming,
+and it silently re-created the bug it was meant to fix: a tab whose own Table
+creation was deferred (generate_puzzle_tab tolerates a transient Sheets 500)
+holds no Table of ours, so a solver's table is the lone one and was handed the
+target's rollup. It also made "any Table is ours" the demote guard in
+remove_minimeta/convert_to_puzzle, which deletes columns A-D of an unpromoted
+tab. A name miss now means "we have no Table here", which is what lets
+_ensure_contribution_table actually create one.
+
+Legacy names, for the record: contribution Tables were created unnamed
+(095faaa), then "Contributions" (4cdd7e7), then named after the tab itself
+(7532c15), and have been `f"Contributions {page_id}"` since 8c69ba7. The owner
+confirmed no live spreadsheet still carries one of the older forms. If a rollup
+ever does come back blank on an old sheet, the one-line remedy is an allowlist
+of those legacy names here — not a return of the positional fallback.
 """
 
 UNASSIGNED_TABLE_NAME = "Unassigned Feeders"
@@ -31,18 +47,12 @@ def contribution_table_name(page_id):
 def select_table(tables, name=None):
     """The bot's Table among `tables` (a Sheet's `tables` list), or None.
 
-    None means "do not write": either the tab has no Table at all, or it has
-    several and none of them is ours, in which case any choice would be a guess
-    at a solver's table.
+    None means "the bot has no Table on this tab": either there is no Table at
+    all, or none of the ones present carries the name the bot gave its own. Any
+    other pick would be a guess at a solver's table — see the module docstring
+    for why the lone-table fallback is gone.
     """
-    tables = tables or []
-    if name is not None:
-        for t in tables:
-            if t.get("name") == name:
-                return t
-    # A single Table predating the naming above is unambiguously the bot's: the
-    # bot is what put a Table on a target/unassigned/evidence tab in the first
-    # place. With two or more and no name match, it is not.
-    if len(tables) == 1:
-        return tables[0]
+    for t in tables or []:
+        if name is not None and t.get("name") == name:
+            return t
     return None
