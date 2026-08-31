@@ -191,6 +191,55 @@ Two further items found while fixing M22, not previously logged:
   the `is None` guard never fires again and the native Table is never retried.
   `ensure_unassigned_table` carries the identical sentinel. Degrades rather than wedges.
 
+### Decisions D5–D9 (2026-08-31) unblocked the rest
+
+All five open questions were answered; reasoning is preserved in
+`.ai/active/open-questions.md`. The two that changed the work materially:
+
+- **D8 — no hunt has used an archive spreadsheet since the new bot.** So no
+  `additional_sheets` row is archived today, and backfilling migration `045` to "main" is
+  *correct*, not merely safe. Tranche 2 (H3/M15) is unblocked.
+- **D5 — M14's collision is directional.** A puzzle named "Evidence" created *after* the
+  hunt's Evidence tab is harmless (puzzle tabs uniquify via `get_unique_tab_name`); a
+  puzzle taking the title *first* is what wedges, because the hunt-level `create_blank_tab`
+  passes a literal title. The fix decides by *ownership*: if the existing tab belongs to a
+  puzzle, create under a unique name; if it belongs to no puzzle it is a bot leftover and
+  may be adopted. **This also fixes a latent corruption in `refresh_unassigned`**, whose
+  adopt-by-name fallback would otherwise adopt a puzzle's tab and write rollup rows into a
+  live solving grid — the very sibling this review told us to copy.
+
+**Second Sheets batch, merged 2026-08-31.** Gates: 2062 backend tests (was 2036),
+52 vitest, ruff clean, basedpyright 0 errors.
+
+| Finding | Status | Commit |
+|---|---|---|
+| M16 demote guard matched any Table | fixed | `0d0b911` |
+| M17 `select_table`'s lone-table fallback | fixed (strict name match) | `0d0b911` |
+| — `convert_to_puzzle` demoted with no guard at all | fixed (third site, found in passing) | `0d0b911` |
+| M31 six mutations never pushed to the board | fixed | `a8c70db` |
+| M32 dead clue-logging twin | deleted | `a8c70db` |
+
+Notes:
+
+- **M16 and M17 are one fix, and the review's prescribed fix for M16 would not have
+  worked.** Guarding on `select_table` alone still matched a lone solver table. Only the
+  strict name match closes it — which also closes C5's reachable path.
+- **A third unguarded site turned up**: `convert_to_puzzle` called `demote_tab_to_puzzle`
+  unconditionally, reachable because `convert_to_meta` commits `is_target=True` *before*
+  `promote_tab_to_group`, so a Sheets failure leaves a promoted flag on an unpromoted tab.
+- **M32's deletion was verified, not assumed.** The concern was that `log_clue` held
+  `puzzle_lock` while its replacement does not. It is not a real gap: `log_clues` has no
+  read-modify-write; `!clue`/`!clues` already call it lock-free, so `log_clue` was the
+  outlier; the one affected race is benign and hand-correctable, and an insert racing a
+  delete is handled by `ON DELETE CASCADE`; and the omission was a documented decision in
+  the image-evidence plan.
+- **The C8 forward guard caught its own subject on first use** — deleting the `/clues`
+  route made `test_every_route_is_accounted_for` fail naming the stale inventory entry.
+- **Behaviour change worth knowing:** on a minimeta tab holding only a solver's table,
+  `render_minimeta_contribution` now promotes (inserting the A–D band, shifting their grid
+  right) rather than writing the rollup into their table. Disruptive but correct and
+  visible, where the old path corrupted silently.
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
