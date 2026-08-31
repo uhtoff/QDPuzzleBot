@@ -304,6 +304,42 @@ which layout the tab is in (plain / target / indeterminate), and have promote, d
 `_ensure_contribution_table` all consult it. A1-only is not sufficient for any of them.
 
 
+**Fourth batch, 2026-08-31 — Tranche 2 and the rest of Tranche 4.** Gates: 2090 backend
+tests (was 2068), ruff clean, basedpyright 0 errors. Migration `045` applied to
+`puzzlebot_test`.
+
+| Finding | Status | Commit |
+|---|---|---|
+| Tranche 8 — `failed_round_ids` split (D9) | fixed | `59253a9`, `7c3ddd9` |
+| H3 — target's extras archived but unflagged | fixed (migration `045`) | `79191aa` |
+| M15 — extra-sheet links keyed on `puzzle.solved` | fixed (same column) | `79191aa` |
+| M19 — `move_puzzle_sheet` had no compensation | fixed (delete goes last) | `d71a22b` |
+| M18 — promote not idempotent | fixed (`_tab_layout` probe) | `96de637` |
+| C5 — demote destructively non-idempotent | fixed (same probe) | `96de637` |
+
+Notes:
+
+- **Migration `045`'s pre-flight did not come back empty.** Six `additional_sheets` rows
+  on `puzzlebot_test` matched the "might be archived" query. Checked against the live
+  Sheets API rather than assumed: every one of the six page ids exists on **neither** the
+  main nor the solved spreadsheet — dangling rows pointing at deleted tabs. The backfill
+  to 0 is correct, and those six are direct evidence for M19, whose failure window
+  produces exactly that. **Re-run the pre-flight before applying `045` to production.**
+- **The Tranche 8 split briefly rebased `SheetRefreshError` off `RuntimeError`.** A dozen
+  sites catch a bare `except RuntimeError` around service calls and convert it to a 400;
+  only four list `except SheetRefreshError` first. Off `RuntimeError` the rest would have
+  turned into unhandled 500s, and **the whole suite passed either way** — nothing asserted
+  the inheritance. It does now, and that test is the only one of 2090 that goes red on the
+  change.
+- **This review's advice has now been wrong three times in the Sheets tranche**, each time
+  in the same direction: it names a sibling to copy without checking that the sibling does
+  what the fix needs. M16's `select_table` guard, M14's `refresh_unassigned` fallback, and
+  M18's "the same check `_ensure_contribution_table` uses". Treat "mirror X" in this
+  document as a lead, not an instruction.
+- Still open in Tranche 4: **M21** only, and it is unblocked now that M17 and M18 have
+  landed.
+
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
