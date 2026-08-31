@@ -340,6 +340,34 @@ Notes:
   landed.
 
 
+### C9 resolved — production migration status, checked 2026-08-31
+
+`python migrate.py status` was run on the production host. Result:
+
+- **042 is applied on prod.** The 2026-08-07 review's "not yet deployed to prod" row was
+  stale and has been corrected. Both of C9's indistinguishable bad states are excluded:
+  prod does not lack the UNIQUE index, and it did not apply it blind. **042's
+  `ALTER ... ADD UNIQUE INDEX` is self-verifying** — with duplicate `group_code`s it fails
+  and the migration is never recorded. It IS recorded, so there were no duplicates at
+  apply time, which is precisely what its manual pre-flight existed to establish. The
+  mint race is closed in production.
+- **043 and 044 do not appear on prod at all** — not even as "applied, file missing", which
+  is how they show on `puzzlebot_test`. They are purely an artefact of the `meta-matching`
+  branch against the shared test database. M8's accept-and-reserve decision holds, and
+  production was never touched by them.
+- **045 is absent rather than pending**, because its file is not deployed yet — prod runs
+  older code. **Its pre-flight has NOT been run against production and must be before it
+  is applied.** Unlike 042, 045 is *not* self-verifying: `ADD COLUMN ... NOT NULL DEFAULT 0`
+  succeeds unconditionally, so a row that really is on the archive would be silently
+  flagged as living on the main spreadsheet — reproducing the exact 400 the migration
+  exists to prevent. On `puzzlebot_test` that query returned six rows, all of which proved
+  to be dangling references rather than archived sheets; production needs its own answer.
+
+The general lesson worth keeping: a migration whose constraint fails loudly needs no
+manual pre-flight ledger, because a recorded apply IS the evidence. One that only adds a
+defaulted column does, because nothing about the apply can tell you the default was right.
+
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in

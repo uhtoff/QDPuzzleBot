@@ -52,7 +52,7 @@ green (1658 tests, basedpyright 0 errors, ruff clean).
 | Keyboard reachability (pointer-only interactions) | **won't fix** — see the decision below | — |
 | `statusTone` tinted `"partially solved"` green | fixed — reads as in-flight (amber) | this tranche |
 | `backfill_hunt_uids.py` spent | deleted — prod confirmed 83 hunts, 0 missing uids | this tranche |
-| Missing UNIQUE on `tag_group.group_code` | fixed (migration 042) — **not yet deployed to prod** | this tranche |
+| Missing UNIQUE on `tag_group.group_code` | fixed (migration 042) — **deployed and applied on prod**, confirmed 2026-08-31 | this tranche |
 | Rate limiting on member-level create routes | **won't fix** — see the decision below | — |
 
 **M10 (`change-type` tier drift) — resolved, levelled at organiser** (`81cda53`). The
