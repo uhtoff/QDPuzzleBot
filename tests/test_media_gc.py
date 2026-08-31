@@ -245,7 +245,7 @@ def test_sweep_deletes_row_file_and_tiles(swept):
 
     assert not original.exists()
     assert not tiles.exists()
-    db.delete.assert_called_once_with(7)
+    db.delete_if_still_orphaned.assert_called_once_with(7)
     assert (stats.count, stats.bytes_freed) == (1, 1024)
 
 
@@ -270,7 +270,7 @@ def test_sweep_tolerates_missing_files(swept):
     db, root, run = swept
     stats = run([_media(7, "uploads/10/gone.png", tile_status="ready")])
 
-    db.delete.assert_called_once_with(7)
+    db.delete_if_still_orphaned.assert_called_once_with(7)
     assert stats.count == 1
 
 
@@ -279,7 +279,7 @@ def test_sweep_counts_the_row_even_when_the_file_cannot_be_removed(swept):
     with patch.object(media_gc.shutil, "rmtree", side_effect=OSError("busy")):
         stats = run([_media(7, "uploads/10/a.png", tile_status="ready", size=5)])
 
-    db.delete.assert_called_once_with(7)
+    db.delete_if_still_orphaned.assert_called_once_with(7)
     assert (stats.count, stats.bytes_freed) == (1, 5)
 
 
@@ -287,7 +287,7 @@ def test_sweep_of_nothing_reports_nothing(swept):
     db, root, run = swept
     stats = run([])
 
-    db.delete.assert_not_called()
+    db.delete_if_still_orphaned.assert_not_called()
     assert (stats.count, stats.bytes_freed) == (0, 0)
 
 
@@ -299,7 +299,66 @@ def test_sweep_sums_every_row(swept):
                  _media(8, "uploads/10/b.png", size=25)])
 
     assert (stats.count, stats.bytes_freed) == (2, 125)
-    assert [c.args[0] for c in db.delete.call_args_list] == [7, 8]
+    assert [c.args[0] for c in db.delete_if_still_orphaned.call_args_list] == [7, 8]
+
+
+def test_a_row_claimed_mid_sweep_is_not_deleted_and_keeps_its_files(swept):
+    """delete_if_still_orphaned returning 0 means something got attached to the
+    row between orphaned_media() building the list and this row's own turn in
+    the loop (C3). The row and its files must survive untouched."""
+    db, root, run = swept
+    original = root / "uploads/10/a.png"
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"bytes")
+    tiles = root / "tiles/10/7"
+    tiles.mkdir(parents=True)
+    (tiles / "0_0.jpg").write_bytes(b"tile")
+    db.delete_if_still_orphaned.return_value = 0
+
+    stats = run([_media(7, "uploads/10/a.png", tile_status="ready", size=1024)])
+
+    assert original.exists()
+    assert tiles.exists()
+    assert (stats.count, stats.bytes_freed) == (0, 0)
+
+
+def test_a_sweep_deletes_the_row_before_touching_files(swept):
+    """Ordering is the fix for the second half of C3: a crash between the two
+    steps must leave no row pointing at deleted bytes, so the row goes first."""
+    db, root, run = swept
+    order = []
+
+    def _row_delete(media_id):
+        order.append("row")
+        return 1
+
+    db.delete_if_still_orphaned.side_effect = _row_delete
+
+    with patch.object(media_gc, "_remove_files",
+                       side_effect=lambda media: order.append("files")):
+        run([_media(7, "uploads/10/a.png")])
+
+    assert order == ["row", "files"]
+
+
+def test_a_claimed_row_does_not_stop_the_sweep(swept):
+    """Two rows, first claimed and second not: proves a skip is a `continue`,
+    not an abort. A single-row test cannot distinguish the two."""
+    db, root, run = swept
+    claimed = root / "uploads/10/a.png"
+    claimed.parent.mkdir(parents=True)
+    claimed.write_bytes(b"a")
+    unclaimed = root / "uploads/10/b.png"
+    unclaimed.write_bytes(b"b")
+    db.delete_if_still_orphaned.side_effect = [0, 1]
+
+    stats = run([_media(7, "uploads/10/a.png", size=100),
+                 _media(8, "uploads/10/b.png", size=25)])
+
+    assert claimed.exists()
+    assert not unclaimed.exists()
+    assert stats.count == 1
+    assert stats.bytes_freed == 25
 
 
 def test_sweep_skips_the_tile_dir_for_untiled_media(swept):

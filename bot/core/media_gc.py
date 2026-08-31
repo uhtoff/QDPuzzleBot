@@ -8,9 +8,14 @@ way back. This is the way back — a manual, per-hunt sweep of rows nothing poin
 at.
 
 Lock-free by the bot/core convention: callers lock. No lock exists for this and
-none is needed — `sweep` re-derives the orphan list itself rather than trusting
-an earlier report, so anything attached in between simply survives to the next
-run.
+none is needed — but the safety is NOT that `sweep` re-derives the orphan list
+itself. The list is derived once and then acted on row by row, so a row can be
+attached to something (evidence, canvas, puzzle image, region crop) after the
+list was built but before its own turn in the loop; re-deriving the list up
+front does nothing for that row. The actual guard is per-row: each delete
+re-asserts the same four reference checks at the moment it runs
+(`delete_if_still_orphaned`), so a row claimed mid-sweep fails its own DELETE
+and survives untouched -- files included -- to be re-evaluated on the next run.
 """
 import datetime
 import logging
@@ -98,8 +103,11 @@ def sweep(hunt_id: int) -> SweepStats:
     count = 0
     bytes_freed = 0
     for media in orphaned_media(hunt_id):
+        if not MediaJsonDb.delete_if_still_orphaned(media.id):
+            logger.info("media sweep: media %s claimed mid-sweep, skipping",
+                       media.id)
+            continue  # claimed mid-sweep -- leave the files alone
         _remove_files(media)
-        MediaJsonDb.delete(media.id)
         count += 1
         bytes_freed += media.size or 0
     if count:

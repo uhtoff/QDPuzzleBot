@@ -1024,6 +1024,29 @@ class MySQLMediaDb(_MySQLBaseDb):
         )
         return [MediaData.import_dict(r) for r in rows]
 
+    def delete_if_still_orphaned(self, media_id: int) -> int:
+        """Delete this media row only if nothing references it, returning rowcount.
+
+        get_orphaned derives a list; this re-checks the single row at the moment
+        of deletion, closing the window in which a sweep's own iteration lets a
+        newly-attached image be deleted anyway (C3). A 0 return means the row
+        was claimed while the sweep was running and must be left alone -- files
+        included.
+        """
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM media WHERE id = %s"
+                " AND NOT EXISTS (SELECT 1 FROM evidence_items ei WHERE ei.media_id = %s)"
+                " AND NOT EXISTS (SELECT 1 FROM hunt_canvases hc WHERE hc.media_id = %s)"
+                " AND NOT EXISTS (SELECT 1 FROM puzzle_images pi WHERE pi.media_id = %s)"
+                " AND NOT EXISTS (SELECT 1 FROM canvas_regions cr WHERE cr.crop_media_id = %s)",
+                (media_id, media_id, media_id, media_id, media_id),
+            )
+            return cursor.rowcount
+        finally:
+            cursor.close()
+
 
 class MySQLHuntCanvasDb(_MySQLBaseDb):
     TABLE_NAME = 'hunt_canvases'
