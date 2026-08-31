@@ -357,6 +357,18 @@ class MySQLAdditionalSheetsDb(_MySQLBaseDb):
             sheets.append(sheet)
         return sheets
 
+    def get_by_page_id(self, page_id):
+        """Return the additional sheet occupying this tab, or None.
+
+        Covers BOTH hunt-level working sheets and puzzle-owned extra sheets --
+        unlike get_by_hunt, which deliberately excludes the latter. Used to prove
+        a tab is not somebody's before the bot adopts it by name (D5).
+        """
+        return self._fetch_one(
+            "SELECT * FROM additional_sheets WHERE google_page_id = %s LIMIT 1",
+            (str(page_id),),
+        )
+
     def get_names_by_ids(self, sheet_ids):
         """Return a {sheet_id: puzzle_name} map for the given ids, in one query.
 

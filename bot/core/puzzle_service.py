@@ -3053,6 +3053,44 @@ class PuzzleService:
             items.append(item)
         return items
 
+    def _tab_claimed_by_puzzle(self, page_id) -> bool:
+        """True when a puzzle's own tab, or any additional sheet, occupies this page.
+
+        Two indexed lookups rather than a scan -- this runs only on the
+        duplicate-name branch, so it is off the hot path entirely.
+        """
+        if PuzzleJsonDb.get_by_attr(google_page_id=str(page_id)):
+            return True
+        return bool(SheetsJsonDb.get_by_page_id(page_id))
+
+    async def _ensure_bot_tab(self, hunt, gsheet_cog, tab_name) -> int:
+        """Create `tab_name` on the hunt spreadsheet, tolerating one that exists.
+
+        Returns the page id to treat as ours. A tab that no puzzle and no
+        additional sheet claims is a leftover from an earlier run and is adopted;
+        anything else keeps its contents and we take a uniquified name instead
+        (D5).
+
+        Adopting by name alone is never safe. ensure_evidence_table opens with a
+        full-tab _values_clear and runs exactly on this path, so a stolen tab is
+        a wiped tab; ensure_unassigned_table is milder but still writes the bot
+        header over A1 and reconciles rows into a live solving grid.
+        """
+        try:
+            return await gsheet_cog.create_blank_tab(hunt.google_sheet_id, tab_name)
+        except Exception:
+            page_id = await gsheet_cog.get_page_id_by_name(tab_name)
+            if page_id is None:
+                # Nothing carries the name, so this was not a duplicate-name
+                # rejection -- a quota trip or a dead token. Let it surface.
+                raise
+
+        if not self._tab_claimed_by_puzzle(page_id):
+            return page_id
+
+        unique = await gsheet_cog.get_unique_tab_name(tab_name, hunt.google_sheet_id)
+        return await gsheet_cog.create_blank_tab(hunt.google_sheet_id, unique)
+
     async def refresh_evidence(self, hunt):
         """Render the Evidence sheet tab as a native Table (mirrors Unassigned
         Feeders). Lazily creates the tab + Table, pins the tab just after Unassigned
@@ -3073,8 +3111,8 @@ class PuzzleService:
             # Table, and returns the table id to persist on the hunt.
             dirty = False
             if hunt.evidence_sheet_page_id is None:
-                page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, "Evidence")
-                hunt.evidence_sheet_page_id = page_id
+                hunt.evidence_sheet_page_id = await self._ensure_bot_tab(
+                    hunt, gsheet_cog, "Evidence")
                 dirty = True
 
             if hunt.evidence_table_id is None:
@@ -3266,15 +3304,8 @@ class PuzzleService:
             # Lazy-create tab + table
             dirty = False
             if hunt.unassigned_sheet_page_id is None:
-                try:
-                    page_id = await gsheet_cog.create_blank_tab(hunt.google_sheet_id, tab_name)
-                except Exception:
-                    # A tab with this name may already exist from an earlier run —
-                    # reuse it rather than failing (addSheet errors on duplicate names).
-                    page_id = await gsheet_cog.get_page_id_by_name(tab_name)
-                    if page_id is None:
-                        raise
-                hunt.unassigned_sheet_page_id = page_id
+                hunt.unassigned_sheet_page_id = await self._ensure_bot_tab(
+                    hunt, gsheet_cog, tab_name)
                 dirty = True
 
             if hunt.unassigned_table_id is None:
