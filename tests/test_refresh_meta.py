@@ -284,5 +284,6 @@ class TestSolveFailureIsolation:
         # Both metas attempted; the archive still ran despite the first failure.
         assert gsheet.render_contribution.await_count == 2
         gsheet.move_puzzle_to_solved_sheet.assert_awaited_once()
-        assert exc.value.failed_round_ids == [5]
+        assert exc.value.failed_group_ids == [5]
+        assert exc.value.failed_puzzle_ids == []
         assert puzzle.solved is True

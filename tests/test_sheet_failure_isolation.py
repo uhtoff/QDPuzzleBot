@@ -42,7 +42,8 @@ def test_solve_archive_failure_still_commits_and_pushes(SheetsDb, RoundDb, Puzzl
     with pytest.raises(SheetRefreshError) as exc:
         asyncio.run(svc.solve(None, hunt, puzzle, "ANSWER"))
 
-    assert puzzle.id in exc.value.failed_round_ids
+    assert puzzle.id in exc.value.failed_puzzle_ids
+    assert exc.value.failed_group_ids == []
     assert puzzle.solved is True
     assert PuzzleDb.commit.call_count == 2  # pre- and post-archive commit both ran
     svc.notifier.board_changed.assert_awaited_once()  # push still fires
@@ -65,7 +66,8 @@ def test_change_solution_sheet_failure_still_pushes(RoundDb, PuzzleDb):
     with pytest.raises(SheetRefreshError) as exc:
         asyncio.run(svc.change_solution(None, hunt, puzzle, "NEW"))
 
-    assert puzzle.id in exc.value.failed_round_ids
+    assert puzzle.id in exc.value.failed_puzzle_ids
+    assert exc.value.failed_group_ids == []
     assert puzzle.solution == "NEW"
     svc.notifier.board_changed.assert_awaited_once()
 
@@ -87,6 +89,7 @@ def test_add_solution_sheet_failure_still_pushes(RoundDb, PuzzleDb):
     with pytest.raises(SheetRefreshError) as exc:
         asyncio.run(svc.add_solution(None, hunt, puzzle, "EXTRA"))
 
-    assert puzzle.id in exc.value.failed_round_ids
+    assert puzzle.id in exc.value.failed_puzzle_ids
+    assert exc.value.failed_group_ids == []
     assert puzzle.solution == "OLD/EXTRA"
     svc.notifier.board_changed.assert_awaited_once()

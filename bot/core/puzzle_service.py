@@ -898,7 +898,7 @@ class PuzzleService:
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
         if failed:
-            raise SheetRefreshError(failed)
+            raise SheetRefreshError(failed_group_ids=failed)
 
     def _drop_local_edge(self, puzzle, group, edge):
         """Remove one edge in DB + memory (pooled-exclusivity helper)."""
@@ -962,7 +962,7 @@ class PuzzleService:
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
         if failed:
-            raise SheetRefreshError(failed)
+            raise SheetRefreshError(failed_group_ids=failed)
 
     @pushes_board()
     async def bulk_re_edge(self, tag_group, new_edge, hunt, *, refresh=True):
@@ -1339,13 +1339,14 @@ class PuzzleService:
         # Failure isolation: attempt every meta this puzzle feeds, badge any that
         # fail, and keep going (one stale sheet must not skip the others, the group
         # solve_time stamp, or the archive below).
-        failed = []
+        failed_group_ids = []
+        failed_puzzle_ids = []
         for tag in puzzle.tags:
             target_group = TagGroupJsonDb.get_by_attr(id=tag)
             try:
                 await self.refresh_target(hunt, target_group)
             except Exception:
-                failed.append(tag)
+                failed_group_ids.append(tag)
             if target_group and target_group.target_puzzle_id == puzzle.id:
                 target_group.solve_time = datetime.datetime.now(tz=pytz.UTC)
                 target_group.status = "solved"   # M6: a group is solved when its meta is
@@ -1374,7 +1375,7 @@ class PuzzleService:
                 await gsheet_cog.move_puzzle_to_solved_sheet(puzzle)
             except Exception:
                 logger.exception("solve: failed to archive spreadsheet for puzzle %s", puzzle.id)
-                failed.append(puzzle.id)
+                failed_puzzle_ids.append(puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
@@ -1382,8 +1383,8 @@ class PuzzleService:
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
-        if failed:
-            raise SheetRefreshError(failed)
+        if failed_group_ids or failed_puzzle_ids:
+            raise SheetRefreshError(failed_group_ids=failed_group_ids, failed_puzzle_ids=failed_puzzle_ids)
         return True
 
     @pushes_board()
@@ -1665,7 +1666,7 @@ class PuzzleService:
         if category is not None:
             category_layout.maybe_consolidate_category(guild, category)
         if failed:
-            raise SheetRefreshError(failed)
+            raise SheetRefreshError(failed_group_ids=failed)
 
     @pushes_board()
     async def delete_round(self, guild, hunt, tag_group, keep_puzzles=True):
@@ -1900,7 +1901,7 @@ class PuzzleService:
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed = await self.refresh_targets(hunt, tag_groups)
         if failed:
-            raise SheetRefreshError(failed)
+            raise SheetRefreshError(failed_group_ids=failed)
 
     @pushes_board()
     async def change_solution(self, guild, hunt, puzzle, solution):
@@ -1912,21 +1913,22 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.refresh_targets(hunt, tag_groups)
+        failed_group_ids = await self.refresh_targets(hunt, tag_groups)
+        failed_puzzle_ids = []
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             # Failure isolation (same reasoning as solve()'s archive call): the
             # solution change is already committed, so a Sheets failure here must
-            # not swallow any metas already collected in `failed` above, nor skip
-            # the board push that tells the dashboard the mutation applied.
+            # not swallow any metas already collected in `failed_group_ids` above, nor
+            # skip the board push that tells the dashboard the mutation applied.
             try:
                 await gsheet_cog.update_solution(puzzle)
             except Exception:
                 logger.exception("change_solution: failed to update sheet for puzzle %s", puzzle.id)
-                failed.append(puzzle.id)
+                failed_puzzle_ids.append(puzzle.id)
 
-        if failed:
-            raise SheetRefreshError(failed)
+        if failed_group_ids or failed_puzzle_ids:
+            raise SheetRefreshError(failed_group_ids=failed_group_ids, failed_puzzle_ids=failed_puzzle_ids)
 
     @pushes_board()
     async def add_solution(self, guild, hunt, puzzle, solution):
@@ -1938,17 +1940,18 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
-        failed = await self.refresh_targets(hunt, tag_groups)
+        failed_group_ids = await self.refresh_targets(hunt, tag_groups)
+        failed_puzzle_ids = []
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             try:
                 await gsheet_cog.update_solution(puzzle)
             except Exception:
                 logger.exception("add_solution: failed to update sheet for puzzle %s", puzzle.id)
-                failed.append(puzzle.id)
+                failed_puzzle_ids.append(puzzle.id)
 
-        if failed:
-            raise SheetRefreshError(failed)
+        if failed_group_ids or failed_puzzle_ids:
+            raise SheetRefreshError(failed_group_ids=failed_group_ids, failed_puzzle_ids=failed_puzzle_ids)
 
     @pushes_board()
     async def update_puzzle_field(self, hunt, puzzle, field, value):
@@ -2447,7 +2450,7 @@ class PuzzleService:
                     failed.append(tag)
 
         if failed:
-            raise SheetRefreshError(failed)
+            raise SheetRefreshError(failed_group_ids=failed)
 
     @pushes_board()
     async def rename_group(self, guild, hunt, tag_group, name):
