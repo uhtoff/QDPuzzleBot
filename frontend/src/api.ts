@@ -221,18 +221,6 @@ export function useRemoveHuntSheet(uid: string) {
   });
 }
 
-export function useLogClue(uid: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ puzzleId, note }: { puzzleId: number; note: string }) =>
-      apiSend<{ ok: boolean }>(`/api/puzzles/${puzzleId}/clues`, "POST", { note }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hunt", uid] });
-      qc.invalidateQueries({ queryKey: ["evidence", uid] });
-    },
-  });
-}
-
 export function useUploadMedia(huntUid: string) {
   return useMutation({
     mutationFn: async (file: File) => {

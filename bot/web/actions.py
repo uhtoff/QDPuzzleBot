@@ -597,44 +597,6 @@ async def set_puzzle_link(puzzle_id):
     return jsonify({"ok": True})
 
 
-# --- Log a clue (any member of the hunt's guild) --------------------------
-
-@actions_bp.route("/puzzles/<int:puzzle_id>/clues", methods=["POST"])
-@login_required
-async def log_clue(puzzle_id):
-    """Log a single clue/note for a puzzle, via the bot (mirrors !clue). No role gate."""
-    ctx, err = await _visible_hunt_for_puzzle(puzzle_id)
-    if err:
-        return err
-    assert ctx is not None
-    if ctx["hunt"]["archived"]:
-        return jsonify({"error": "hunt_archived"}), 403
-
-    body = await request.get_json(silent=True) or {}
-    note = (body.get("note") or "").strip()
-    if not note:
-        return jsonify({"error": "empty_note"}), 400
-
-    from bot.store import HuntJsonDb, PuzzleJsonDb
-
-    async with puzzle_lock(puzzle_id):
-        puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
-        if puzzle is None:
-            return jsonify({"error": "puzzle_not_found"}), 404
-
-        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
-        cog = puzzles_cog()
-        if cog is None:
-            return jsonify({"error": "bot_unavailable"}), 503
-
-        await cog.service.log_clues(hunt_obj, puzzle, [note])
-        asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
-        asyncio.create_task(cog.service.refresh_informs_targets(hunt_obj, puzzle))
-        await _audit("clue", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
-
-    return jsonify({"ok": True})
-
-
 # --- Make minimeta (organiser+) ------------------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/make-minimeta", methods=["POST"])
@@ -1108,6 +1070,7 @@ async def post_hunt_archive(uid):
 
     hunt_obj.archived = bool(archived)
     HuntJsonDb.commit(hunt_obj)
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("hunt_archive", hunt_uid=uid, detail=f"archived={bool(archived)}")
     return jsonify({"ok": True, "archived": bool(archived)})
 
@@ -2429,6 +2392,16 @@ async def update_evidence(item_id):
             asyncio.create_task(cog.service.refresh_target_for_puzzle(hunt_obj, item.target_puzzle_id))
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
+    # Unconditional, and deliberately not left to the service: the only push
+    # this route ever had came from the @pushes_board tag_with_edge/untag_from
+    # behind link/unlink_informs_for_evidence_safe, which run ONLY when an
+    # informs edge moves. A note edit, a media swap, or a target change on an
+    # item with no edge is board-visible (HuntBoard.tsx invalidates
+    # ["evidence", uid] on every board event) and pushed nothing. When an edge
+    # DOES move both fire; the duplicate is harmless — a board event carries no
+    # payload, so a second one is one more cache invalidation of the same keys,
+    # which react-query collapses into the refetch already in flight.
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("update_evidence", puzzle_id=item.source_puzzle_id, hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"id": item.id, "target_puzzle_id": item.target_puzzle_id,
                     "note": item.note, "media_id": item.media_id})
@@ -2466,6 +2439,10 @@ async def delete_evidence(item_id):
                 hunt_obj, old.target_puzzle_id))
         asyncio.create_task(cog.service.refresh_evidence_safe(hunt_obj))
 
+    # Same gap as update_evidence: deleting an item with no target runs no
+    # decorated service call at all, so without this the row vanishes from the
+    # DB and stays on every open Evidence panel.
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("delete_evidence", hunt_uid=hunt_obj.uid)
     return jsonify({"ok": True})
 
@@ -2639,6 +2616,7 @@ async def create_canvas(uid):
         hunt_id=ctx["hunt"]["id"], media_id=media.id,
         name=(body.get("name") or "").strip()[:255],
         note=(body.get("note") or None))
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("create_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.canvas_to_json(row, [], media)), 201
 
@@ -2657,6 +2635,7 @@ async def update_canvas(canvas_id):
     CanvasJsonDb.update(canvas_id, name=name.strip()[:255], note=note or None)
     row = CanvasJsonDb.get_by_id(canvas_id)
     assert row is not None
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("update_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify(web_data.canvas_to_json(
         row, CanvasRegionJsonDb.get_by_canvas(canvas_id),
@@ -2692,6 +2671,7 @@ async def delete_canvas(canvas_id):
             shutil.rmtree(tiles, ignore_errors=True)
         except Exception:
             logger.exception("could not remove tiles for media %s", media.id)
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("delete_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
 

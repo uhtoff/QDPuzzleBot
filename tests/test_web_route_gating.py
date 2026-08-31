@@ -137,7 +137,6 @@ UNGATED_REMAINDER = [
     ("POST", "/hunts/<uid>/media"),
     ("POST", "/hunts/<uid>/sheets"),
     ("POST", "/media/<int:media_id>/markup"),
-    ("POST", "/puzzles/<int:puzzle_id>/clues"),
     ("POST", "/puzzles/<int:puzzle_id>/images"),
     ("POST", "/puzzles/<int:puzzle_id>/link"),
     ("POST", "/puzzles/<int:puzzle_id>/notes"),

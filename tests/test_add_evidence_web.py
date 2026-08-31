@@ -166,8 +166,10 @@ class TestSourcelessAndImageEvidence:
 
 class TestAddEvidenceAudit:
     """Task 17 Step 3b: moving the dashboard's clue-logging off the actions
-    blueprint's /clues route (which calls _audit("clue", ...)) must not
-    silently drop the audit trail. /api/evidence carries the same call."""
+    blueprint's /clues route (which called _audit("clue", ...)) must not
+    silently drop the audit trail. /api/evidence carries the same call, and is
+    now the only clue-logging write route — /clues was deleted with its unused
+    useLogClue hook (M32)."""
 
     async def test_audits_a_sourced_clue(self, web):
         audit = AsyncMock()
