@@ -164,6 +164,48 @@ class TestCanvasDelete:
         assert resp.status_code == 403
         web.cdb.delete.assert_not_called()
 
+    async def test_deleting_a_canvas_resets_the_media_so_it_can_be_retiled(self, web, tmp_path):
+        """C4: without this reset, the rmtree above removes the pyramid but the
+        media row keeps believing tile_status='ready' with its old tile_levels.
+        retile_canvas treats 'ready' as nothing to do and refuses with 409, so
+        the only way back was a manual DB edit."""
+        tiles = tmp_path / "tiles" / "10" / "7"
+        tiles.mkdir(parents=True)
+        with patch("bot.core.message_media.media_root", return_value=tmp_path):
+            resp = await web.client.delete("/api/canvases/3")
+        assert resp.status_code == 200
+        web.mdb.update_tiles.assert_called_once_with(7, "pending", 0)
+
+    async def test_a_canvas_recreated_from_the_same_media_can_be_retiled(self, web, tmp_path):
+        """The flow C4 is actually about: delete a canvas, then build a new one
+        from the same uploaded image. Before the fix the media row stayed
+        'ready' with no pyramid on disk, so retile_canvas's state machine
+        believed it was already fine and refused with 409 forever.
+
+        Driven through the real delete and retile routes: the fixture's
+        mdb.get_by_id always returns the same SimpleNamespace, so wiring
+        update_tiles' side effect to mutate it in place lets that one mock
+        stand in for the DB row across both requests.
+        """
+        media = web.mdb.get_by_id.return_value
+        assert media.tile_status == "ready"
+
+        def _apply_update(media_id, tile_status, tile_levels=0):
+            media.tile_status = tile_status
+            media.tile_levels = tile_levels
+        web.mdb.update_tiles.side_effect = _apply_update
+
+        tiles = tmp_path / "tiles" / "10" / "7"
+        tiles.mkdir(parents=True)
+        with patch("bot.core.message_media.media_root", return_value=tmp_path):
+            del_resp = await web.client.delete("/api/canvases/3")
+        assert del_resp.status_code == 200
+
+        with patch("bot.web.actions.schedule_tiling") as tile:
+            retile_resp = await web.client.post("/api/canvases/3/retile")
+        assert retile_resp.status_code == 202
+        assert tile.called
+
 
 class TestRegionWrites:
     async def test_a_non_organiser_can_draw(self, web):

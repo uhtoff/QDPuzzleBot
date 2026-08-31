@@ -2568,6 +2568,23 @@ async def delete_canvas(canvas_id):
             shutil.rmtree(tiles, ignore_errors=True)
         except Exception:
             logger.exception("could not remove tiles for media %s", media.id)
+        if media.tile_status == "ready":
+            # The pyramid we just removed is gone, but the row still believes
+            # it is 'ready' — that combination is what left retile_canvas's
+            # state machine refusing to help (a 'ready' row is a 409, on the
+            # theory that rebuilding a good pyramid is pure cost). Reset to
+            # 'pending', the same value a fresh upload gets when it needs
+            # tiling, so the row and the pyramid agree again and a later
+            # retile (or a new canvas built on the same media) can rebuild it.
+            # 'none' rows are left alone: that image was never a tiling
+            # candidate, and flipping it to 'pending' would misrepresent it as
+            # one. Best effort, matching the rmtree above: a failure here
+            # leaves a stale 'ready' row, which is recoverable by hand and far
+            # better than turning a successful delete into a 500.
+            try:
+                MediaJsonDb.update_tiles(media.id, "pending", 0)
+            except Exception:
+                logger.exception("could not reset tile status for media %s", media.id)
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("delete_canvas", hunt_uid=ctx["hunt"]["uid"])
     return jsonify({"ok": True})
