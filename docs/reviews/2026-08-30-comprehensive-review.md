@@ -240,6 +240,36 @@ Notes:
   right) rather than writing the rollup into their table. Disruptive but correct and
   visible, where the old path corrupted silently.
 
+**Third Sheets batch, merged 2026-08-31.** Gates: 2068 backend tests (was 2062),
+ruff clean, basedpyright 0 errors.
+
+| Finding | Status | Commit |
+|---|---|---|
+| M14 `refresh_evidence` wedged on an existing "Evidence" tab | fixed (`_ensure_bot_tab`) | `b5595ba` |
+| — `refresh_unassigned`'s adopt-by-name fallback | fixed (same seam, D5's latent corruption) | `b5595ba` |
+
+Notes:
+
+- **The `_values_clear` asymmetry this review flagged as Q1 is what set the shape of the
+  fix.** Both refreshes now go through one `_ensure_bot_tab` helper on the service, which
+  adopts a tab only when nothing claims it. Two indexed lookups decide that, and they run
+  only on the duplicate-name branch.
+- **The ownership test went wider than D5 specified.** D5 says "belongs to a puzzle";
+  the implementation also rejects a tab claimed by any *additional sheet*, via a new
+  `SheetsJsonDb.get_by_page_id`. `get_by_hunt` could not serve — it deliberately excludes
+  puzzle-owned sheets — and a puzzle's extra working tab is exactly as destroyable as its
+  main one.
+- **A non-duplicate create failure is no longer swallowed.** If nothing carries the name,
+  the `create_blank_tab` failure was a quota trip or a dead token, and it now surfaces
+  instead of being converted into a missing page id.
+- **`.ai/active/current-spec.md` still carried the uncorrected instruction** to copy
+  `refresh_unassigned`'s fallback (its Phase 5 M14 line), even though this review had
+  already corrected it at the Q1 note. The spec has been amended; worth knowing that the
+  two documents drifted apart on a point that mattered.
+- Still open in Tranche 4: **M18 + C5** (gated on D7's live scratch-spreadsheet exercise,
+  not yet run), **M19** (ships with H3), and **M21** (last — it rewrites M17/M18's lines).
+
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
