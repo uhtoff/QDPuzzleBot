@@ -190,6 +190,82 @@ class TestUnsolveMiniCommand:
         ctx.send.assert_called_once()
 
 
+class TestMiniCommandsSurfaceStaleSheets:
+    """A failed meta refresh must not swallow the confirmation (M27 follow-up).
+
+    service.solve has raised SheetRefreshError since M5, and service.unsolve
+    started raising it with M27. Both !solve_mini and !unsolve_mini caught only
+    ValueError, so the error escaped the command as a generic failure -- for an
+    operation whose DB mutation was already committed and whose board push had
+    already fired. The operator was told it failed when it had not.
+
+    That is the same misreporting M27 set out to fix, one level up: !unsolve_mini
+    is the gap M27 introduced, !solve_mini is the identical one it exposed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_solve_mini_reports_the_result_and_warns(self):
+        from bot.core.errors import SheetRefreshError
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(parent)
+        cog._warn_stale_sheets = AsyncMock()
+        ctx = make_ctx()
+        cog.service.solve_mini_by_number = AsyncMock(
+            side_effect=SheetRefreshError(failed_group_ids=[5]))
+
+        await Puzzles.solve_mini.callback(cog, ctx, 2, "ANSWER")
+
+        cog._warn_stale_sheets.assert_awaited_once()
+        sent = " ".join(str(c[0][0]) for c in ctx.send.call_args_list if c[0])
+        assert "#2" in sent, sent
+        assert ":x:" not in sent, sent
+
+    @pytest.mark.asyncio
+    async def test_unsolve_mini_reports_the_result_and_warns(self):
+        from bot.core.errors import SheetRefreshError
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(parent)
+        cog._warn_stale_sheets = AsyncMock()
+        ctx = make_ctx()
+        cog.service.unsolve_mini_by_number = AsyncMock(
+            side_effect=SheetRefreshError(failed_group_ids=[5]))
+
+        await Puzzles.unsolve_mini.callback(cog, ctx, 1)
+
+        cog._warn_stale_sheets.assert_awaited_once()
+        sent = " ".join(str(c[0][0]) for c in ctx.send.call_args_list if c[0])
+        assert "#1" in sent, sent
+        assert ":x:" not in sent, sent
+
+    @pytest.mark.asyncio
+    async def test_a_clean_mini_solve_warns_about_nothing(self):
+        """The keeper, so "always warn" and "warn on failure" disagree."""
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = _make_cog_with_info(parent)
+        cog._warn_stale_sheets = AsyncMock()
+        ctx = make_ctx()
+        cog.service.solve_mini_by_number = AsyncMock(return_value=True)
+
+        await Puzzles.solve_mini.callback(cog, ctx, 2, "ANSWER")
+
+        cog._warn_stale_sheets.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_bad_number_is_still_a_plain_refusal(self):
+        """ValueError handling must survive: it is a user error, not a stale
+        sheet, and must not be reported as one."""
+        parent = make_puzzle(id=1, puzzle_type="Minimeta")
+        cog = make_cog(parent)
+        cog._warn_stale_sheets = AsyncMock()
+        ctx = make_ctx()
+        cog.service.solve_mini_by_number = AsyncMock(side_effect=ValueError("No mini #9"))
+
+        await Puzzles.solve_mini.callback(cog, ctx, 9, "X")
+
+        cog._warn_stale_sheets.assert_not_awaited()
+        assert ":x:" in ctx.send.call_args[0][0]
+
+
 class TestPinRefresh:
     """add_mini / solve_mini / unsolve_mini must refresh the minimeta's pinned
     info (mirroring add_sheet) so the mini list in the pin stays current."""

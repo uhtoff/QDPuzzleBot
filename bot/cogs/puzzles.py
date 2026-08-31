@@ -1671,14 +1671,24 @@ class Puzzles(commands.Cog):
         solution = " ".join(args).strip()
         if not solution:
             return await ctx.send(":x: Provide a solution: `!solve_mini 2 ANSWER`")
+        # A stale meta sheet is a warning, not a failure: the solve is already
+        # committed and the board push has already fired, so reporting it as an
+        # error tells the operator the opposite of what happened. Mirrors
+        # !solve / !unsolve. ValueError stays an early return -- that one really
+        # is a user error.
+        sheet_warning = None
         try:
             await self.service.solve_mini_by_number(
                 ctx.guild, self.get_hunt(ctx), puzzle.id, number, solution
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        except SheetRefreshError as exc:
+            sheet_warning = exc
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Solved mini #{number}: **{solution}**")
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
 
     @commands.command()
     @with_puzzle_mutex(wait=True)
@@ -1691,14 +1701,23 @@ class Puzzles(commands.Cog):
         puzzle = self.get_puzzle(ctx)
         if not puzzle:
             return await self.send_not_puzzle_channel(ctx)
+        # As !solve_mini: the unsolve is committed before the meta refresh runs,
+        # so a stale sheet is a warning. service.unsolve only began reporting
+        # these with M27 -- before that they were swallowed and this handler had
+        # nothing to catch.
+        sheet_warning = None
         try:
             await self.service.unsolve_mini_by_number(
                 ctx.guild, self.get_hunt(ctx), puzzle.id, number
             )
         except ValueError as exc:
             return await ctx.send(f":x: {exc}")
+        except SheetRefreshError as exc:
+            sheet_warning = exc
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Mini #{number} unmarked as solved.")
+        if sheet_warning:
+            await self._warn_stale_sheets(ctx, sheet_warning)
 
     def _resolve_mini_to_delete(self, ctx, number):
         """Resolve which mini `!delete_mini` targets, from either context.
