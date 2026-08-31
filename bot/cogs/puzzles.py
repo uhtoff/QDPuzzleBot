@@ -4237,10 +4237,24 @@ class Puzzles(commands.Cog):
         Example: `!start_reminders`
         Run in a channel of the hunt. Organisers/admins only. Stop it with `!stop_reminders`."""
         channel = self.get_hunt_channel(ctx)
-        if self.reminder_loop.is_running():
-            self.reminder_loop.cancel()
         self.reminder_index = 0
-        self.reminder_loop.start(channel)
+        # NOTE: reminder_loop is a single tasks.Loop per cog instance, not
+        # per-guild -- restarting it repoints every guild's reminders at
+        # `channel`. Making it per-guild is a real design decision (a dict of
+        # raw asyncio.Tasks would lose Loop's reconnect/backoff; runtime-built
+        # Loop objects are a bigger change) and is deliberately deferred, not
+        # built here (C1).
+        if self.reminder_loop.is_running():
+            # tasks.Loop.cancel() is asynchronous: the loop's task hasn't
+            # actually finished by the time the next statement runs, so a
+            # follow-up start() races it and discord.py raises
+            # RuntimeError("Task is already launched..."). restart() is
+            # discord.py's supported idiom for this -- it cancels the running
+            # task and defers the restart to a done-callback once cancellation
+            # completes, avoiding the race.
+            self.reminder_loop.restart(channel)
+        else:
+            self.reminder_loop.start(channel)
         await ctx.send(":white_check_mark: Reminder loop started.")
 
     @commands.hybrid_command(description="Stop the reminder loop (organisers only)",)
