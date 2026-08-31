@@ -16,7 +16,7 @@ LIVE MySQL (puzzlebot_test), following the live-DB convention of
 tests/test_hunt_category_cascade.py -- the point is proving the SQL join
 resolves the *right* row, which a mocked cursor can't demonstrate.
 """
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -138,3 +138,54 @@ def test_check_duplicates_still_refuses_a_duplicate_within_one_guild():
     finally:
         _delete_hunt(hunt_a)
         _delete_guild(guild_a)
+
+
+# ---------------------------------------------------------------------------
+# The service-layer half. Mocked rather than live: create_hunt drives Discord
+# category/channel creation, so the DAO is the only part worth exercising here.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invoking_snowflake, expected", [
+    (222, "existing_role_confirm"),   # name taken in ANOTHER guild -> proceeds
+    (111, "hunt_exists"),             # name taken in THIS guild    -> refused
+])
+async def test_create_hunt_scopes_its_duplicate_check_to_the_invoking_guild(
+        invoking_snowflake, expected):
+    """The cog's !hunt pre-check was scoped, but service.create_hunt still ran
+    the GLOBAL check -- so the command would accept a cross-guild duplicate and
+    the service would then refuse it with hunt_exists. Half-applied is worse
+    than not applied: the two layers disagreed.
+
+    The fake mirrors the real DAO: with no guild_id it answers globally (the old
+    behaviour), with one it answers per guild. So the cross-guild case goes red
+    against an unscoped call site, which is exactly the regression.
+
+    "existing_role_confirm" is the sentinel because it is the one RuntimeError
+    create_hunt re-raises rather than swallowing -- reaching it proves the
+    duplicate check let us past.
+    """
+    from bot.core.puzzle_service import PuzzleService
+
+    OWNER = 111
+    TAKEN = "Mystery Hunt"
+
+    def fake_check(value, field="name", guild_id=None):
+        if guild_id is None:
+            return value == TAKEN                      # old global behaviour
+        return guild_id == OWNER and value == TAKEN
+
+    bot = MagicMock()
+    bot.get_cog.return_value = None
+    svc = PuzzleService(bot)
+    guild = MagicMock()
+    guild.id = invoking_snowflake
+
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch.object(svc, "_resolve_gating_role",
+                      new=AsyncMock(side_effect=RuntimeError("existing_role_confirm"))):
+        hdb.check_duplicates.side_effect = fake_check
+        with pytest.raises(RuntimeError) as exc:
+            await svc.create_hunt(guild, name=TAKEN, url=None, start_timestamp=0)
+
+    assert expected in str(exc.value), str(exc.value)

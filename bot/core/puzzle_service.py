@@ -3635,7 +3635,14 @@ class PuzzleService:
         """
         if layout_mode not in ("channel", "forum"):
             raise RuntimeError("bad_layout_mode")
-        if HuntJsonDb.check_duplicates(name):
+        # Scoped to the INVOKING guild (M6). guild.id is the Discord snowflake --
+        # deliberately not this method's own guild_id kwarg, which carries the
+        # guilds table's row id. Unscoped, this refused a name already used in a
+        # DIFFERENT guild, so !hunt's own guild-scoped pre-check would accept a
+        # cross-guild duplicate and then this would reject it.
+        # guild is dereferenced unguarded a few lines below (create_category),
+        # so it is required here too -- no None branch to invent.
+        if HuntJsonDb.check_duplicates(name, guild_id=guild.id):
             raise RuntimeError("hunt_exists")
 
         # existing_role_confirm must propagate (entry point prompts + retries);
