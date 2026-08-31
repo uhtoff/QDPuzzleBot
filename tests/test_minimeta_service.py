@@ -482,28 +482,9 @@ class TestUnsolveMiniByNumber:
         assert svc.unsolve.call_args[0][2].id == 10
 
 
-class TestWebDataMinisPayload:
-    def test_mini_puzzles_excluded_from_main_list(self):
-        """Puzzles with parent_puzzle_id must not appear in the main puzzle list."""
-        import inspect
-        from bot.web import data
-        src = inspect.getsource(data.get_hunt_puzzles)
-        assert "parent_puzzle_id IS NULL" in src
-
-    def test_minimeta_payload_shape(self):
-        """Minimeta puzzle payload must include a mini_puzzles key."""
-        import inspect
-        from bot.web import data
-        src = inspect.getsource(data.get_hunt_puzzles)
-        assert "mini_puzzles" in src
-
-    def test_rollup_stale_queried_for_minimetas(self):
-        """get_hunt_puzzles must query puzzle-keyed rollups (minimeta stale badges)."""
-        import inspect
-        from bot.web import data
-        src = inspect.getsource(data.get_hunt_puzzles)
-        assert "target_puzzle_id IS NOT NULL" in src
-        assert "rollup_stale" in src
+# TestWebDataMinisPayload lived here and asserted substrings of
+# inspect.getsource(data.get_hunt_puzzles). Replaced by behavioural coverage in
+# tests/test_hunt_puzzles_payload.py, which executes the function (M33).
 
 
 class TestRefreshMiniMetaUsesStandardPath:
