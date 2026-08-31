@@ -816,6 +816,7 @@ class Puzzles(commands.Cog):
         description="Use a separate 'solved puzzles sheet' for solved feeders (admin only)",
     )
     @is_admin()
+    @with_hunt_sheet_mutex()
     async def use_solved_sheet(self, ctx):
         """*Use a separate 'solved puzzles sheet' to hold solved feeders (metas stay on the main sheet).*
 
@@ -829,16 +830,17 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         assert hunt is not None  # Hunt channel checked above
 
-        if len(hunt.solved_sheet_id)>0:
-            await ctx.send(":x: This hunt is already using a solved puzzles sheet")
+        # One seam with the web route (C7). The decorator above holds
+        # hunt_sheet_lock, which is what makes the exists-check and the create
+        # atomic; the service stays lock-free per the bot/core convention.
+        try:
+            await self.service.create_hunt_solved_sheet(hunt)
+        except RuntimeError as exc:
+            if str(exc) == "solved_sheet_exists":
+                await ctx.send(":x: This hunt is already using a solved puzzles sheet")
+            else:
+                await ctx.send(":x: Could not create the solved puzzles sheet")
             return
-
-        gsheet_cog = self.get_gsheet_cog(ctx)
-        if gsheet_cog is not None:
-            google_drive_id = await gsheet_cog.create_solved_sheet(hunt.name)
-            hunt.solved_sheet_id = google_drive_id
-
-        HuntJsonDb.commit(hunt)
 
         await ctx.send(":white_check_mark: The hunt has been set to use a solved puzzles sheet")
         await self.info(ctx, update=True)

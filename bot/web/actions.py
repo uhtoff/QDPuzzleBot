@@ -17,7 +17,7 @@ import pytz
 from googleapiclient.errors import HttpError
 from quart import Blueprint, jsonify, request
 
-from .typed_app import bot_app, puzzles_cog, gsheet_cog
+from .typed_app import bot_app, puzzles_cog
 
 from . import data, events
 from bot.web import data as web_data
@@ -1072,20 +1072,24 @@ async def post_hunt_solved_sheet(uid):
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
 
-    if hunt_obj.solved_sheet_id:
-        return jsonify({"error": "solved_sheet_exists"}), 409
+    cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
 
-    gs_cog = gsheet_cog()
-    if gs_cog is None:
-        return jsonify({"error": "gsheet_unavailable"}), 503
-
-    gs_cog.set_spreadsheet_id(hunt_obj.google_sheet_id)
-    gs_cog.set_solved_sheet_id(hunt_obj.solved_sheet_id)
-
+    # One seam with !use_solved_sheet (C7); the lock is held here, at the edge,
+    # so the check and the create are one critical section. Unlocked, two
+    # invocations both passed the check and created two Drive spreadsheets.
     try:
-        sheet_id = await gs_cog.create_solved_sheet(hunt_obj.name)
-        hunt_obj.solved_sheet_id = sheet_id
-        HuntJsonDb.commit(hunt_obj)
+        async with hunt_sheet_lock(hunt_obj.id):
+            sheet_id = await cog.service.create_hunt_solved_sheet(hunt_obj)
+    except RuntimeError as exc:
+        slug = str(exc)
+        if slug == "solved_sheet_exists":
+            return jsonify({"error": slug}), 409
+        if slug == "gsheet_unavailable":
+            return jsonify({"error": slug}), 503
+        logger.exception("web solved sheet creation failed for hunt %s", hunt_obj.id)
+        return jsonify({"error": "sheet_creation_failed"}), 500
     except Exception:
         logger.exception("web solved sheet creation failed for hunt %s", hunt_obj.id)
         return jsonify({"error": "sheet_creation_failed"}), 500

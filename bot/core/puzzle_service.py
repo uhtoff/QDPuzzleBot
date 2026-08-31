@@ -2656,6 +2656,35 @@ class PuzzleService:
         sheet_id = sheets[index - 1].id
         await self.remove_sheet(hunt, puzzle, sheet_id)
 
+    async def create_hunt_solved_sheet(self, hunt) -> str:
+        """Create the hunt's solved-puzzles spreadsheet and record it (C7).
+
+        Returns the new spreadsheet id. Raises RuntimeError("solved_sheet_exists")
+        when the hunt already has one, and RuntimeError("gsheet_unavailable")
+        when the Sheets cog is not loaded.
+
+        Lock-free by the bot/core convention -- hunt_sheet_lock is held at the
+        EDGE (see its docstring), so both callers wrap this call and the service
+        never re-acquires it. That wrapping is what makes the exists-check and
+        the create one critical section: unlocked, two invocations (a
+        double-click, or bang and web together) both passed the check and
+        created two Drive spreadsheets, orphaning one.
+
+        The web route and !use_solved_sheet each hand-rolled this and had
+        already drifted: the bang tested `len(hunt.solved_sheet_id) > 0`, which
+        raises TypeError on a NULL column, and committed the hunt row even with
+        no Sheets cog. Truthiness covers both spellings of "not set", and the
+        commit happens only after a sheet really exists.
+        """
+        if hunt.solved_sheet_id:
+            raise RuntimeError("solved_sheet_exists")
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            raise RuntimeError("gsheet_unavailable")
+        hunt.solved_sheet_id = await gsheet_cog.create_solved_sheet(hunt.name)
+        HuntJsonDb.commit(hunt)
+        return hunt.solved_sheet_id
+
     @pushes_board()
     async def add_hunt_sheet(self, hunt, name):
         """Create a working sheet that belongs to the HUNT, not to a puzzle.

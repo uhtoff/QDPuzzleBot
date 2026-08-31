@@ -76,6 +76,9 @@ def web():
     cog.service.set_puzzle_url = AsyncMock()
     cog.service.refresh_unassigned_safe = AsyncMock()
     cog.service.notifier.refresh_info = AsyncMock()
+    # C7: both edges now go through one service seam instead of hand-rolling
+    # check -> create -> commit against the GoogleSheets cog.
+    cog.service.create_hunt_solved_sheet = AsyncMock(return_value="NEWSHEET")
 
     gs_cog = MagicMock()
     gs_cog.create_solved_sheet = AsyncMock(return_value="NEWSHEET")
@@ -162,7 +165,10 @@ GATED = [
           lambda w: [w.hdb.commit]),
     _spec("post_hunt_solved_sheet", "admin", "POST", "/api/hunts/U1/solved-sheet",
           {},
-          lambda w: [w.gs_cog.create_solved_sheet, w.hdb.commit]),
+          # Same assertion -- "the privileged caller's write happens" -- re-pointed
+          # at the seam that now performs it. The create and the commit both moved
+          # inside service.create_hunt_solved_sheet (C7).
+          lambda w: [w.cog.service.create_hunt_solved_sheet]),
     _spec("reconcile", "organiser", "POST", "/api/hunts/U1/reconcile?mode=apply",
           {},
           lambda w: [w.cog.service.reconcile]),
