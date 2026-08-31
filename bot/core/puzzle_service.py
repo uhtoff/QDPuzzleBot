@@ -471,8 +471,13 @@ class PuzzleService:
         home_group = TagGroupJsonDb.get_by_attr(id=puzzle.tags[0])
         if home_group is None or not home_group.category_id:
             return None, home_group
-        category = discord.utils.get(guild.categories, id=home_group.category_id)
-        return category, home_group
+        # Delegate rather than re-derive: for an in-place-converted / channel-mode
+        # group, category_id names a CHANNEL, and a bare guild.categories lookup
+        # returns None -- after which _reconcile_channel recreates the puzzle's
+        # channel at guild ROOT, outside the hunt's role-gating overwrites (M3).
+        # category_layout._home_category has carried that fallback all along, and
+        # this service already calls it in three other places.
+        return category_layout._home_category(guild, home_group), home_group
 
     async def _reconcile_channel(self, guild, hunt, puzzle, report, *, apply, hunt_category_ids=()):
         """Make the puzzle's Discord channel match the DB. Returns the list of

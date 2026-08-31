@@ -119,6 +119,66 @@ def test_channel_ok_when_id_resolves_and_in_right_category(monkeypatch):
     assert report == []  # no actions: already correct
 
 
+def test_a_channel_home_group_resolves_to_the_channels_parent_category():
+    """M3. For an in-place-converted / channel-mode group, category_id names a
+    CHANNEL, not a category. PuzzleService._home_category looked only at
+    guild.categories and returned None, so _reconcile_channel then recreated the
+    puzzle's channel with category=None -- at guild ROOT, outside the hunt's
+    role-gating overwrites, i.e. visible to @everyone on a gated hunt.
+
+    category_layout._home_category has had the channel-parent fallback all along
+    and the service already calls it in three other places.
+    """
+    cat = _category(500)
+    home_channel = SimpleNamespace(id=700, name="home", category=cat)
+    # category_id names the CHANNEL: no category in guild.categories matches it.
+    guild = _guild_with(channels=[home_channel], categories=[cat])
+    svc = _service()
+    p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
+
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
+                      return_value=SimpleNamespace(id=10, category_id=700)):
+        category, home_group = svc._home_category(guild, p)
+
+    assert category is cat, "a channel-home group must resolve to its parent category"
+    assert home_group is not None
+
+
+def test_a_category_home_group_still_resolves_directly():
+    """The keeper. Two shapes, so "always use the fallback" and "use it only when
+    the direct lookup misses" disagree."""
+    cat = _category(500)
+    guild = _guild_with(channels=[], categories=[cat])
+    svc = _service()
+    p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
+
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
+                      return_value=SimpleNamespace(id=10, category_id=500)):
+        category, _ = svc._home_category(guild, p)
+
+    assert category is cat
+
+
+def test_a_replacement_channel_for_a_channel_home_group_is_not_created_at_root():
+    """The consequence the finding is actually about."""
+    cat = _category(500)
+    home_channel = SimpleNamespace(id=700, name="home", category=cat)
+    guild = _guild_with(channels=[home_channel], categories=[cat])
+    svc = _service(notifier=AsyncMock())
+    p = _puzzle(channel_id=None, channel_name="tide", tags=[10])
+    created = SimpleNamespace(id=777, name="tide", mention="<#777>", category=cat)
+    goc = AsyncMock(return_value=(created, True))
+
+    with patch.object(ps.TagGroupJsonDb, "get_by_attr",
+                      return_value=SimpleNamespace(id=10, category_id=700)), \
+         patch.object(ps, "get_or_create_channel", new=goc), \
+         patch.object(ps, "solve_divider_position", return_value=False), \
+         patch.object(ps.PuzzleJsonDb, "commit"):
+        asyncio.run(svc._reconcile_channel(guild, _hunt(), p, None, apply=True))
+
+    assert goc.await_args.kwargs.get("category") is cat, goc.await_args
+
+
 def test_channel_missing_and_no_existing_creates_and_welcomes():
     guild = _guild_with(channels=[], categories=[_category(500)])
     notifier = AsyncMock()
