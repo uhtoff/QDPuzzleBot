@@ -3006,10 +3006,12 @@ async def ocr_canvas_region(canvas_id):
     media = MediaJsonDb.get_by_id(canvas_row.media_id)
     if media is None:
         return jsonify({"error": "canvas_missing_media"}), 400
-    loop = asyncio.get_running_loop()
     try:
-        text = await loop.run_in_executor(
-            None, _crop_and_extract_text, media_root() / media.path, rect)
+        # Cropping a region decodes the whole sheet, so this contends for the
+        # same memory as a pyramid build -- the bound _crop_region_media already
+        # uses, which this route bypassed via the default executor (M10).
+        text = await run_bounded_image_work(
+            _crop_and_extract_text, media_root() / media.path, rect)
     except Exception:
         logger.exception("OCR failed for canvas media %s", media.id)
         return jsonify({"error": "ocr_failed"}), 500

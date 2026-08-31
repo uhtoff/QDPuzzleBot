@@ -713,6 +713,30 @@ class TestCanvasOcrPreview:
         assert (await resp.get_json())["text"] == "HYDROGEN"
         extract.assert_called_once_with(b"PNGBYTES")
 
+    async def test_the_crop_and_ocr_run_under_the_shared_image_bound(self, web):
+        """M10. Cropping a region decodes the whole sheet, so this contends for
+        exactly the memory MAX_CONCURRENT_TILING exists to cap -- but the route
+        used a bare run_in_executor, and the default executor allows
+        min(32, cpus+4) workers. A handful of concurrent OCR clicks could peak
+        multi-GB on the Plesk box.
+
+        This pins that the seam is used; the semaphore's own behaviour is
+        media_tiling's to guarantee.
+        """
+        from unittest.mock import AsyncMock
+        web.mdb.get_by_id.return_value = SimpleNamespace(
+            id=7, hunt_id=10, path="uploads/10/orig.png")
+        bounded = AsyncMock(return_value="HYDROGEN")
+        with patch("bot.web.actions.run_bounded_image_work", bounded):
+            resp = await web.client.post(
+                "/api/canvases/3/ocr-preview", json={"shape": RECT})
+
+        assert resp.status_code == 200
+        assert (await resp.get_json())["text"] == "HYDROGEN"
+        bounded.assert_awaited_once()
+        from bot.web.actions import _crop_and_extract_text
+        assert bounded.await_args.args[0] is _crop_and_extract_text
+
     async def test_malformed_shape_is_a_400(self, web):
         resp = await web.client.post(
             "/api/canvases/3/ocr-preview",

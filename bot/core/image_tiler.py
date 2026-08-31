@@ -141,6 +141,23 @@ def _dims(im) -> tuple[int, int]:
     return int(im.width), int(im.height)  # pyright: ignore[reportArgumentType]
 
 
+def probe_dimensions_bytes(raw: bytes) -> tuple[int, int]:
+    """Read (width, height) from image BYTES, without decoding the pixels.
+
+    The Path-taking sibling below cannot serve a caller that never writes a
+    file. The OCR preview routes hold an upload in memory and still have to
+    apply MAX_PIXELS before anything decodes it: validate_image_bytes caps
+    BYTES and sniffs the type, and its own docstring notes callers remain
+    subject to the pixel ceiling in media_ingest -- which those routes are not
+    callers of (C2).
+    """
+    import pyvips
+    im = pyvips.Image.new_from_buffer(raw, "")
+    if not isinstance(im, pyvips.Image):
+        raise ValueError("not a single-page image")
+    return _dims(im)
+
+
 def probe_dimensions(src: Path) -> tuple[int, int]:
     """Read (width, height) from the header without decoding the pixels."""
     import pyvips

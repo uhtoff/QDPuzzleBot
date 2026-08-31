@@ -407,7 +407,9 @@ async def ocr_evidence_preview(uid):
     before "Log clue" is ever clicked. The real upload still only happens
     through upload_media, unchanged.
     """
+    from bot.core.image_tiler import exceeds_pixel_limit, probe_dimensions_bytes
     from bot.core.media_store import MediaRejected, max_upload_bytes, validate_image_bytes
+    from bot.core.media_tiling import run_bounded_image_work
     from bot.core.ocr import extract_text
     hunt, guild_or_status = await _load_visible_hunt(uid)
     if hunt is None:
@@ -424,9 +426,22 @@ async def ocr_evidence_preview(uid):
         validate_image_bytes(raw)
     except MediaRejected as exc:
         return jsonify({"error": str(exc)}), 400
-    loop = asyncio.get_running_loop()
+    # The byte cap is not a pixel cap: PNG compresses a flat raster enormously,
+    # so a ~1MB upload can decode to 1.6Gpx. Probe the header before anything
+    # touches the pixels (C2).
     try:
-        text = await loop.run_in_executor(None, extract_text, raw)
+        width, height = probe_dimensions_bytes(raw)
+    except Exception:
+        logger.exception("could not read dimensions for an OCR preview upload")
+        return jsonify({"error": "Not a supported image."}), 400
+    if exceeds_pixel_limit(width, height):
+        return jsonify({"error": "Image too large (too many pixels)."}), 400
+
+    try:
+        # Under the shared image-work bound, not the default executor: a full
+        # decode plus a tesseract run is exactly what MAX_CONCURRENT_TILING
+        # exists to cap, and this route is member-tier (M10).
+        text = await run_bounded_image_work(extract_text, raw)
     except Exception:
         logger.exception("OCR failed for an uploaded evidence preview")
         return jsonify({"error": "ocr_failed"}), 500

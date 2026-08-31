@@ -384,22 +384,83 @@ class TestMediaTiles:
         assert resp.status_code == 401
 
 
+_PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02"
+    b"\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe"
+    b"\x02\xfe\r\xefF\xb8\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+"""A real 1x1 PNG. The OCR-preview route now reads the header to enforce the
+pixel ceiling (C2), so a payload that merely STARTS with the PNG magic no longer
+gets that far -- it is not an image and is refused as one."""
+
+
 class TestEvidenceOcrPreview:
     """POST /api/hunts/<uid>/evidence/ocr-preview -- extracts text from an
     about-to-be-logged clue image, without saving it anywhere. Reuses
     upload_media's own sniffing/size validation, on the same permission bar
     (any member who can see an unarchived hunt)."""
 
+    async def test_the_ocr_runs_under_the_shared_image_bound(self, web):
+        """M10. Same unbounded executor hop as the canvas route had. Both halves
+        ship together: a bound honoured on one of two routes is not a bound."""
+        from unittest.mock import AsyncMock
+        app, _, _ = web
+        bounded = AsyncMock(return_value="HYDROGEN")
+        # api.py imports it inside the function, so the lookup happens at call
+        # time against the source module -- patch it there.
+        with patch("bot.core.media_tiling.run_bounded_image_work", bounded):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("crop.png", _PNG_1X1, "image/png")},
+            )
+
+        assert resp.status_code == 200
+        bounded.assert_awaited_once()
+
+    async def test_a_pixel_bomb_is_rejected_before_any_decode(self, web):
+        """C2. validate_image_bytes caps BYTES and sniffs the type; its own
+        docstring says callers stay subject to media_ingest's pixel ceiling --
+        and this route is not a media_ingest caller. A crafted small PNG can
+        force a ~350MP decode plus a tesseract run per request, which with the
+        missing semaphore was the cheapest DoS lever on the box.
+        """
+        app, _, _ = web
+        with patch("bot.core.image_tiler.probe_dimensions_bytes",
+                   return_value=(40000, 40000)), \
+             patch("bot.core.ocr.extract_text") as extract:
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("bomb.png", _PNG_1X1, "image/png")},
+            )
+
+        assert resp.status_code == 400
+        extract.assert_not_called()
+
+    async def test_an_ordinary_image_still_passes_the_ceiling(self, web):
+        """The keeper: two sizes, so "reject everything" and "reject the bomb"
+        disagree."""
+        app, _, _ = web
+        with patch("bot.core.image_tiler.probe_dimensions_bytes",
+                   return_value=(1200, 800)), \
+             patch("bot.core.ocr.extract_text", return_value="HYDROGEN"):
+            resp = await app.test_client().post(
+                "/api/hunts/U1/evidence/ocr-preview",
+                files={"file": _file("ok.png", _PNG_1X1, "image/png")},
+            )
+
+        assert resp.status_code == 200
+        assert (await resp.get_json())["text"] == "HYDROGEN"
+
     async def test_extracts_text_from_the_upload(self, web):
         app, _, _ = web
         with patch("bot.core.ocr.extract_text", return_value="HYDROGEN") as extract:
             resp = await app.test_client().post(
                 "/api/hunts/U1/evidence/ocr-preview",
-                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+                files={"file": _file("crop.png", _PNG_1X1, "image/png")},
             )
         assert resp.status_code == 200
         assert (await resp.get_json())["text"] == "HYDROGEN"
-        extract.assert_called_once_with(b"\x89PNG\r\n\x1a\npayload")
+        extract.assert_called_once_with(_PNG_1X1)
 
     async def test_rejects_an_svg(self, web):
         """Same sniffing as the real upload route -- the declared content type
@@ -438,7 +499,7 @@ class TestEvidenceOcrPreview:
              patch("bot.core.ocr.extract_text", return_value="HYDROGEN"):
             resp = await app.test_client().post(
                 "/api/hunts/U1/evidence/ocr-preview",
-                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+                files={"file": _file("crop.png", _PNG_1X1, "image/png")},
             )
         assert resp.status_code == 400
         body = await resp.get_json()
@@ -450,7 +511,7 @@ class TestEvidenceOcrPreview:
         with patch("bot.core.ocr.extract_text", side_effect=RuntimeError("boom")):
             resp = await app.test_client().post(
                 "/api/hunts/U1/evidence/ocr-preview",
-                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+                files={"file": _file("crop.png", _PNG_1X1, "image/png")},
             )
         assert resp.status_code == 500
         assert (await resp.get_json())["error"] == "ocr_failed"
@@ -460,7 +521,7 @@ class TestEvidenceOcrPreview:
         with patch("bot.core.ocr.extract_text", return_value="text"):
             await app.test_client().post(
                 "/api/hunts/U1/evidence/ocr-preview",
-                files={"file": _file("crop.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+                files={"file": _file("crop.png", _PNG_1X1, "image/png")},
             )
         mdb.create.assert_not_called()
 
