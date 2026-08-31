@@ -290,6 +290,10 @@ def test_promote_inserts_columns_before_adding_table():
     cog.get_spreadsheet_id = lambda: "LIVE"
 
     async def fake_values_get(spreadsheet_id, a1_range):
+        # promote probes A1:B1 first to decide whether the tab already carries
+        # the contribution columns (M18). This tab is PLAIN, so it must insert.
+        if a1_range.endswith("!A1:B1"):
+            return {"values": [[sheet_layout.PUZZLE_TAB_CELLS[0]["value"], ""]]}
         return {"values": [["flavour"], ["progress"]]}
 
     cog._values_get = fake_values_get
@@ -321,6 +325,9 @@ def _promote_alpha():
     cog.get_spreadsheet_id = lambda: "LIVE"
 
     async def fake_values_get(spreadsheet_id, a1_range):
+        # PLAIN layout: promote's geometry probe must see work to do (M18).
+        if a1_range.endswith("!A1:B1"):
+            return {"values": [[sheet_layout.PUZZLE_TAB_CELLS[0]["value"], ""]]}
         return {"values": [["saved"]]}
 
     cog._values_get = fake_values_get
@@ -434,6 +441,11 @@ def _demote_alpha():
     cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     async def fake_values_get(spreadsheet_id, a1_range):
+        # TARGET layout: demote removes the contribution columns only from a tab
+        # verifiably still carrying them -- a second delete eats solver work and
+        # Sheets does not error on it (C5).
+        if a1_range.endswith("!A1:B1"):
+            return {"values": [["", sheet_layout.PUZZLE_TAB_CELLS[0]["value"]]]}
         return {"values": [["saved"]]}
 
     cog._values_get = fake_values_get
@@ -495,6 +507,11 @@ def test_demote_does_not_rename_tab():
     cog.get_page_name_by_id = _fake_get_page_name_by_id
 
     async def fake_values_get(spreadsheet_id, a1_range):
+        # TARGET layout: demote removes the contribution columns only from a tab
+        # verifiably still carrying them -- a second delete eats solver work and
+        # Sheets does not error on it (C5).
+        if a1_range.endswith("!A1:B1"):
+            return {"values": [["", sheet_layout.PUZZLE_TAB_CELLS[0]["value"]]]}
         return {"values": [["saved"]]}
 
     cog._values_get = fake_values_get

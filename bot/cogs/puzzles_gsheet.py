@@ -723,9 +723,17 @@ class GoogleSheets(commands.Cog):
         tab_name = await self.get_page_name_by_id(page_id)
         safe_name = tab_name.replace("'", "''") if tab_name else None
 
+        # 0. Only a TARGET tab has contribution columns to remove. A retry after
+        #    a mid-operation failure finds the tab already back at offset 0, and
+        #    deleting again takes four columns of real solver work -- silently,
+        #    since Sheets does not error on it (C5). Step 1 is gated with it: it
+        #    reads at offset+1, which is the wrong cells on a plain tab.
+        layout = await self._tab_layout(page_id, tab_name)
+        in_target_layout = layout == self.LAYOUT_TARGET
+
         # 1. Save flavour/progress/solution from the current target header (offset 1).
         saved = {}
-        if safe_name is not None:
+        if in_target_layout and safe_name is not None:
             shift = self.TARGET_HEADER_SHIFT
             for label, ref in [("flavour", "B2"),
                                ("progress", config.puzzle_cell_progress),
@@ -740,12 +748,13 @@ class GoogleSheets(commands.Cog):
                     saved[label] = (vals[0][0], row, col)
 
         # 2. Delete the contribution columns (solver grid slides back to column A).
-        await self.batch_update({"requests": [{
-            "deleteDimension": {
-                "range": {"sheetId": page_id, "dimension": "COLUMNS",
-                          "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
-            }
-        }]})
+        if in_target_layout:
+            await self.batch_update({"requests": [{
+                "deleteDimension": {
+                    "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                              "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
+                }
+            }]})
 
         # 3. Wipe + regenerate the plain puzzle header at offset 0, restore values.
         requests = [
@@ -1437,6 +1446,45 @@ class GoogleSheets(commands.Cog):
 
     CONTRIBUTION_WIDTH = 4   # cols A-D
 
+    # The header layouts a contribution tab can be in. Telling them apart needs
+    # A1 AND B1: a live probe against a scratch spreadsheet (D7, 2026-08-31)
+    # confirmed that a tab whose columns were inserted but whose header was never
+    # stamped returns the SAME empty A1 as a correctly promoted one -- Sheets
+    # omits "values" entirely in both cases. A1 alone cannot separate them, so
+    # the review's advice to reuse "the same check _ensure_contribution_table
+    # uses" (which reads only A1) would not have worked.
+    LAYOUT_PLAIN = "plain"      # offset 0: "Puzzle Title:" at A1
+    LAYOUT_TARGET = "target"    # offset 1: A1 blank, "Puzzle Title:" at B1
+    LAYOUT_UNKNOWN = "unknown"  # neither: half-promoted, or not a puzzle tab
+
+    async def _tab_layout(self, page_id, tab_name=None):
+        """Which header layout this tab is currently in. One A1:B1 read.
+
+        The guard for every geometry-shifting mutation on a contribution tab.
+        Both M18 (promote inserts 4 more columns per retry) and C5 (demote
+        deletes 4 more) are retries that assumed a layout instead of checking
+        it, and neither raises when wrong -- a second deleteDimension of the
+        same range succeeds silently, eating real solver columns.
+        """
+        from bot.cogs import sheet_layout
+        spreadsheet_id = self.get_spreadsheet_id()
+        if tab_name is None:
+            tab_name = await self.get_page_name_by_id(page_id)
+        if tab_name is None:
+            return self.LAYOUT_UNKNOWN
+        safe_name = tab_name.replace("'", "''")
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A1:B1")
+        rows = resp.get("values") or []
+        row = rows[0] if rows else []
+        label = sheet_layout.PUZZLE_TAB_CELLS[0]["value"]
+        a1 = row[0] if len(row) > 0 else ""
+        b1 = row[1] if len(row) > 1 else ""
+        if a1 == label:
+            return self.LAYOUT_PLAIN
+        if b1 == label:
+            return self.LAYOUT_TARGET
+        return self.LAYOUT_UNKNOWN
+
     async def promote_tab_to_target(self, puzzle):
         """Transform an existing puzzle tab into a target tab in place, ending in
         the SAME geometry as a freshly generated target: header at offset 1, the
@@ -1457,6 +1505,23 @@ class GoogleSheets(commands.Cog):
             return
         safe_name = tab_name.replace("'", "''")
         offset = self.TARGET_HEADER_SHIFT
+
+        # 0. Only a PLAIN tab needs the column insert. Promote is re-entered
+        #    whenever step 4 failed (M18), and re-inserting walks the solver grid
+        #    four columns right every time. Steps 1-3 are skipped too, not just
+        #    the insert: step 1 reads the at-risk values at offset-0 positions,
+        #    which on an already-shifted tab are the wrong cells.
+        layout = await self._tab_layout(page_id, tab_name)
+        if layout != self.LAYOUT_PLAIN:
+            if layout == self.LAYOUT_UNKNOWN:
+                # Columns in, header never stamped (a step-3 failure) -- or not
+                # our tab at all. Either way, shifting it again is the damage.
+                logger.warning(
+                    "promote_tab_to_target: tab %s (page %s) is in neither plain nor "
+                    "target layout; adding the Table without shifting it. Its header "
+                    "may need stamping by hand.", tab_name, page_id)
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            return
 
         # 1. Save at-risk values BEFORE the insert: flavour is user-owned; progress
         #    and solution are bot-written but carry solve state worth preserving.
@@ -1543,12 +1608,9 @@ class GoogleSheets(commands.Cog):
         if tab_name is None:
             await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
             return
-        safe_name = tab_name.replace("'", "''")
-        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!A1")
-        values = resp.get("values") or []
-        a1_value = values[0][0] if values and values[0] else ""
-        plain_title_label = sheet_layout.PUZZLE_TAB_CELLS[0]["value"]  # "Puzzle Title:"
-        if a1_value == plain_title_label:
+        # One shared geometry probe rather than this function's own A1 read --
+        # see _tab_layout for why A1 alone is not sufficient (D7).
+        if await self._tab_layout(page_id, tab_name) == self.LAYOUT_PLAIN:
             await self.promote_tab_to_target(puzzle)
             return
         await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
@@ -1563,15 +1625,11 @@ class GoogleSheets(commands.Cog):
         page_id = minimeta.google_page_id
         if page_id is None:
             return
-        spreadsheet_id = self.get_spreadsheet_id()
-        sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
-        has_table = any(
-            bool(select_table(s.get("tables"), contribution_table_name(page_id)))
-            for s in sheets
-            if s["properties"]["sheetId"] == int(page_id)
-        )
-        if not has_table:
-            await self.promote_tab_to_target(minimeta)
+        # _ensure_contribution_table is the stronger form of the bare has_table
+        # test that used to live here (M18): it probes the tab's actual geometry
+        # before promoting, where "no Table -> promote" re-shifted a
+        # tableless-but-already-promoted tab and inserted four more columns.
+        await self._ensure_contribution_table(minimeta)
         rows = [
             [f"feeds:{m.id}", m.name, "Feeder", m.solution.upper() if m.solution else ""]
             for m in members
