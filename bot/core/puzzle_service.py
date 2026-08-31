@@ -1750,6 +1750,18 @@ class PuzzleService:
                 "cannot delete a target puzzle; delete its tag group or "
                 "demote the target first"
             )
+        # Minis are children keyed by parent_puzzle_id, and that FK is ON DELETE
+        # SET NULL -- so deleting their parent left the rows behind with a null
+        # parent, which is exactly what get_unassigned selects on. They surfaced
+        # on the Unassigned Feeders tab and the board, each holding a thread id
+        # whose parent channel had just been deleted (M1).
+        #
+        # Deleted directly rather than through delete_mini: that seam re-renders
+        # the parent's rollup after every removal, and the parent is about to be
+        # deleted -- its own docstring warns against exactly that. Recursion is
+        # bounded because a mini has no children of its own.
+        for mini in PuzzleJsonDb.get_children(puzzle.id):
+            await self.delete_puzzle(guild, hunt, mini)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
@@ -1828,6 +1840,15 @@ class PuzzleService:
                 or (not p.is_target and set(p.tags) <= {tag_group.id})
             ]
             to_keep = [p for p in all_puzzles if p not in to_delete]
+
+        # Minis are deliberately untagged (see create_mini), so
+        # get_all_from_tag_group never returns them and neither branch could
+        # ever have swept them -- they were orphaned instead (M1). Extend AFTER
+        # to_keep is computed, and only over what is actually being deleted:
+        # the narrow branch RELOCATES its members, and a relocated puzzle's
+        # minis must move with it, not die with the round.
+        for parent in list(to_delete):
+            to_delete.extend(PuzzleJsonDb.get_children(parent.id))
 
         failed_channels = []
         other_fed_group_ids = set()
