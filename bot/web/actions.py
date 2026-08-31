@@ -2137,14 +2137,8 @@ async def create_meta(uid):
     guild = bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     try:
         from bot.core.notifier import DiscordNotifier
-        # Mirror the bang path's meta naming: a Round's target puzzle is named
-        # "<name> - meta" (other types keep the group name). See _round_impl.
-        if group_type == "Group":
-            meta_puzzle_name = False
-        elif group_type == "Round":
-            meta_puzzle_name = name + " - meta"
-        else:
-            meta_puzzle_name = name
+        from bot.core.puzzle_service import default_source_mode_for, meta_puzzle_name_for
+        meta_puzzle_name = meta_puzzle_name_for(group_type, name)
         stored_type = GROUP_TYPE_INPUT_ALIASES.get(group_type, group_type)
         # Same per-hunt create lock as create_puzzle: create_tag_group runs its own
         # duplicate check internally, so the whole call must be the critical section
@@ -2156,10 +2150,10 @@ async def create_meta(uid):
                 meta_puzzle_name=meta_puzzle_name,
                 round_type=stored_type,
             )
-        # Runaround groups aggregate over their subtree, not just direct feeders;
-        # set source_mode like the bang path does after creation.
-        if stored_type == "Runaround":
-            await cog.service.set_source_mode(hunt_obj, new_round, "subtree")
+        # Post-create: some types override the column's source_mode default.
+        source_mode = default_source_mode_for(stored_type)
+        if source_mode:
+            await cog.service.set_source_mode(hunt_obj, new_round, source_mode)
     except RuntimeError as exc:
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:

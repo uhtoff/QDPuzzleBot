@@ -2177,23 +2177,30 @@ class Puzzles(commands.Cog):
           !group            → Group (no meta puzzle)
         """
         from bot.core.notifier import DiscordNotifier
+        from bot.core.puzzle_service import (
+            GROUP_TYPE_INPUT_ALIASES,
+            default_source_mode_for,
+            meta_puzzle_name_for,
+        )
 
         command_key = command.casefold()
 
-        # command_map: key → (group_type, create_meta_puzzle, meta_name_suffix)
+        # command_map: key → input label (the type as offered to the user; see
+        # GROUP_TYPE_INPUT_ALIASES for how it maps to the stored type).
         command_map = {
-            "r": ("Metapuzzle", True, " - meta"),
-            "round": ("Metapuzzle", True, " - meta"),
-            "mp": ("Metapuzzle", True, None),
-            "metapuzzle": ("Metapuzzle", True, None),
-            "capstone": ("Capstone", True, None),
-            "cs": ("Capstone", True, None),
-            "runaround": ("Runaround", True, None),
-            "ra": ("Runaround", True, None),
-            "group": ("Group", False, None),
+            "r": "Round",
+            "round": "Round",
+            "mp": "Metapuzzle",
+            "metapuzzle": "Metapuzzle",
+            "capstone": "Capstone",
+            "cs": "Capstone",
+            "runaround": "Runaround",
+            "ra": "Runaround",
+            "group": "Group",
         }
 
-        group_type, create_meta, suffix = command_map[command_key]
+        input_label = command_map[command_key]
+        group_type = GROUP_TYPE_INPUT_ALIASES.get(input_label, input_label)
         hunt = self.get_hunt(ctx)
         # The sole caller (!round) refuses outside a Hunt channel, where
         # cog_before_invoke always resolves the hunt. Named because the create
@@ -2201,9 +2208,7 @@ class Puzzles(commands.Cog):
         assert hunt is not None
 
         # --- Delegate to service ---
-        meta_puzzle_name = (
-            round_name + suffix if suffix else round_name
-        ) if create_meta else False
+        meta_puzzle_name = meta_puzzle_name_for(input_label, round_name)
 
         try:
             notifier = DiscordNotifier(self.bot)
@@ -2218,9 +2223,10 @@ class Puzzles(commands.Cog):
                     meta_puzzle_name=meta_puzzle_name,
                     round_type=group_type,
                 )
-            # Runaround post-create: set source_mode to subtree
-            if group_type == "Runaround":
-                await self.service.set_source_mode(hunt, new_round, "subtree")
+            # Post-create: some types override the column's source_mode default.
+            source_mode = default_source_mode_for(group_type)
+            if source_mode:
+                await self.service.set_source_mode(hunt, new_round, source_mode)
             return new_round, puzzle
         except RuntimeError as exc:
             err_code = str(exc)

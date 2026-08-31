@@ -201,6 +201,36 @@ GROUP_TYPE_INPUT_ALIASES = {"Round": "Metapuzzle"}
 # GROUP_TYPES, so a new type or alias surfaces in the dropdown automatically.
 CREATE_META_TYPES = tuple(GROUP_TYPE_INPUT_ALIASES) + GROUP_TYPES
 
+# The source_mode a freshly created group has before anything overrides it --
+# the column default. Only a type whose TYPE_DEFAULTS entry differs from this
+# needs a post-create set_source_mode call.
+GROUP_DEFAULT_SOURCE_MODE = "round"
+
+# Create-time target-puzzle naming, keyed on the INPUT LABEL rather than the
+# stored type. "Round" and "Metapuzzle" both store as "Metapuzzle" but name
+# their target differently, so TYPE_DEFAULTS -- keyed by stored type -- cannot
+# express this. That is why the review's "key it off TYPE_DEFAULTS" does not
+# work as stated (M30).
+CREATE_META_NAME_SUFFIX = {"Round": " - meta"}
+
+
+def meta_puzzle_name_for(input_label, name):
+    """Name for the target puzzle of a group created as `input_label`.
+
+    Returns False for a type that has no target puzzle, matching
+    create_tag_group's `meta_puzzle_name` contract.
+    """
+    stored = GROUP_TYPE_INPUT_ALIASES.get(input_label, input_label)
+    if stored == "Group":
+        return False
+    return name + CREATE_META_NAME_SUFFIX.get(input_label, "")
+
+
+def default_source_mode_for(round_type):
+    """The source_mode this stored type wants, or None if it wants the default."""
+    mode = TYPE_DEFAULTS.get(round_type, {}).get("default_source_mode")
+    return mode if mode and mode != GROUP_DEFAULT_SOURCE_MODE else None
+
 
 def default_edge_for_group(group) -> str:
     """The edge a newly-added puzzle should get to maintain the group's status quo:
