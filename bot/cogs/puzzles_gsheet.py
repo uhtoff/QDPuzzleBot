@@ -1200,10 +1200,17 @@ class GoogleSheets(commands.Cog):
     # --- Task 7: generalized key-anchored reconciler ----------------------
 
     async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=(),
-                              grey_below=False, table_name=None):
+                              grey_below=False, table_name=None, sheet_snapshot=None):
         """Incrementally reconcile the native Table on `page_id` against the FULL
         `desired_rows` (the single source of truth — callers pass the whole desired
         set, not a pre-diff).
+
+        `sheet_snapshot`, when given, is the `sheets` list from an already-fetched
+        `sheet_list(spreadsheet_id)` response for THIS spreadsheet, taken during
+        THIS render — pass one only when the caller is certain nothing has created
+        or promoted a tab since the fetch, or the snapshot's absence of the Table
+        would be read as the Table not existing. When None (the default), this
+        fetches its own snapshot exactly as before.
 
         Adaptive: locates the Table on the page and reads its own range, so the
         header row and key (first) column come from where the Table actually sits
@@ -1230,7 +1237,9 @@ class GoogleSheets(commands.Cog):
         spreadsheet_id = self.get_spreadsheet_id()
 
         sheet = None
-        for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
+        sheets = (sheet_snapshot if sheet_snapshot is not None
+                  else (await self.sheet_list(spreadsheet_id))["sheets"])
+        for s in sheets:
             if s["properties"]["sheetId"] == int(page_id):
                 sheet = s
                 break
@@ -1334,15 +1343,20 @@ class GoogleSheets(commands.Cog):
                 "rows": [{"values": _row_cells(row)} for row in appends],
             }})
 
-        if requests:
-            await self.batch_update({"requests": requests})
+        # Fold the data write, the Table resize and the grey-below formatting into
+        # ONE batch_update: writes are the capped resource (60 req/min), and a
+        # 50-round hunt's !rebuild issues this per target. Order matters — later
+        # requests in the SAME batchUpdate still apply after earlier ones (Sheets
+        # executes a batch's requests in list order), so keep the same relative
+        # order the three separate calls had before: data writes, then the resize,
+        # then the grey-below formatting.
 
         # Grow the Table so the data rows actually belong to it. Never shrinks:
         # blanked prune rows stay part of the table's extent until a user sorts
         # them out manually.
         if table_id is not None:
             end_row = next_row + len(appends)
-            await self.batch_update({"requests": [{"updateTable": {
+            requests.append({"updateTable": {
                 "table": {
                     "tableId": table_id,
                     "range": {"sheetId": page_id,
@@ -1351,7 +1365,7 @@ class GoogleSheets(commands.Cog):
                               "endColumnIndex": end_col},
                 },
                 "fields": "range",
-            }}]})
+            }})
 
             # Social-contract grey: shade the table's columns below the last data
             # row down to the bottom of the sheet ("bot-managed, don't type here").
@@ -1363,23 +1377,23 @@ class GoogleSheets(commands.Cog):
             if grey_below:
                 row_count = sheet["properties"].get(
                     "gridProperties", {}).get("rowCount", end_row)
-                fmt_reqs = []
                 if end_row > header_row + 1:
-                    fmt_reqs.append({"repeatCell": {
+                    requests.append({"repeatCell": {
                         "range": {"sheetId": page_id, "startRowIndex": header_row + 1,
                                   "endRowIndex": end_row, "startColumnIndex": key_col,
                                   "endColumnIndex": end_col},
                         "cell": {"userEnteredFormat": {}},
                         "fields": "userEnteredFormat.backgroundColor"}})
                 if row_count > end_row:
-                    fmt_reqs.append({"repeatCell": {
+                    requests.append({"repeatCell": {
                         "range": {"sheetId": page_id, "startRowIndex": end_row,
                                   "endRowIndex": row_count, "startColumnIndex": key_col,
                                   "endColumnIndex": end_col},
                         "cell": {"userEnteredFormat": {"backgroundColor": self.SOCIAL_GREY}},
                         "fields": "userEnteredFormat.backgroundColor"}})
-                if fmt_reqs:
-                    await self.batch_update({"requests": fmt_reqs})
+
+        if requests:
+            await self.batch_update({"requests": requests})
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
@@ -1606,11 +1620,19 @@ class GoogleSheets(commands.Cog):
 
         Lets a creation failure propagate so the caller's refresh_target/!rebuild
         badges and reports it, rather than quietly reporting success while never
-        writing the rollup."""
+        writing the rollup.
+
+        Returns the `sheets` snapshot fetched here (the list from `sheet_list`'s
+        response) when the Table was already present and nothing was created or
+        promoted — that snapshot is still accurate and a caller may hand it to
+        `reconcile_table` as `sheet_snapshot` to skip its own fetch. Returns None
+        on every path that creates or promotes a tab: a snapshot taken before such
+        a mutation must not be reused to conclude the tab still lacks the Table."""
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
-        for s in (await self.sheet_list(spreadsheet_id))["sheets"]:
+        sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
+        for s in sheets:
             if s["properties"]["sheetId"] == int(page_id):
                 # Ours specifically, not "a Table exists": select_table matches
                 # strictly on the name the bot gave its own Table, so a solver's
@@ -1620,18 +1642,19 @@ class GoogleSheets(commands.Cog):
                 # the lone one on the tab, so creation was skipped forever and
                 # the reconciler wrote the rollup into their data instead.
                 if select_table(s.get("tables"), contribution_table_name(page_id)):
-                    return
+                    return sheets
                 break
         tab_name = await self.get_page_name_by_id(page_id)
         if tab_name is None:
             await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
-            return
+            return None
         # One shared geometry probe rather than this function's own A1 read --
         # see _tab_layout for why A1 alone is not sufficient (D7).
         if await self._tab_layout(page_id, tab_name) == self.LAYOUT_PLAIN:
             await self.promote_tab_to_target(puzzle)
-            return
+            return None
         await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+        return None
 
     async def render_minimeta_contribution(self, minimeta, members):
         """Render the contribution table on a minimeta's own tab.
@@ -1647,7 +1670,7 @@ class GoogleSheets(commands.Cog):
         # test that used to live here (M18): it probes the tab's actual geometry
         # before promoting, where "no Table -> promote" re-shifted a
         # tableless-but-already-promoted tab and inserted four more columns.
-        await self._ensure_contribution_table(minimeta)
+        snapshot = await self._ensure_contribution_table(minimeta)
         rows = [
             [f"feeds:{m.id}", m.name, "Feeder", m.solution.upper() if m.solution else ""]
             for m in members
@@ -1659,6 +1682,7 @@ class GoogleSheets(commands.Cog):
             data_col_count=len(self.CONTRIBUTION_HEADER),
             grey_below=True,
             table_name=contribution_table_name(page_id),
+            sheet_snapshot=snapshot,
         )
 
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
@@ -1670,7 +1694,7 @@ class GoogleSheets(commands.Cog):
         # Self-heal: creates/promotes the Table if it's missing (see
         # _ensure_contribution_table); raises if it still can't be made, which
         # refresh_target/!rebuild badge and report rather than silently no-op.
-        await self._ensure_contribution_table(target_puzzle)
+        snapshot = await self._ensure_contribution_table(target_puzzle)
         # The target's own row is excluded — a meta is not a contribution of itself.
         # Its self-edge is 'target', so select_rollup_members already drops it from
         # every mode (round wants feeds/informs, explicit wants 'none', subtree skips
@@ -1690,6 +1714,7 @@ class GoogleSheets(commands.Cog):
             data_col_count=len(self.CONTRIBUTION_HEADER),
             grey_below=True,
             table_name=contribution_table_name(target_puzzle.google_page_id),
+            sheet_snapshot=snapshot,
         )
 
 

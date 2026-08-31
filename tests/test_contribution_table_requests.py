@@ -563,7 +563,8 @@ def test_render_contribution_builds_rows_and_reconciles():
     captured = {}
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
-                             numeric_cols=(), grey_below=False, table_name=None):
+                             numeric_cols=(), grey_below=False, table_name=None,
+                             sheet_snapshot=None):
         captured["page_id"] = page_id
         captured["rows"] = desired_rows
         captured["cols"] = data_col_count
@@ -603,7 +604,8 @@ def test_render_contribution_includes_self_feeding_target():
     captured = {}
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
-                             numeric_cols=(), grey_below=False, table_name=None):
+                             numeric_cols=(), grey_below=False, table_name=None,
+                             sheet_snapshot=None):
         captured["rows"] = desired_rows
 
     cog.reconcile_table = fake_reconcile
@@ -703,6 +705,74 @@ def test_reconcile_no_grey_by_default():
     sent = _reconcile_with_table(grey_below=False)
     assert _bg_ranges(sent, _SOCIAL_GREY) == []
     assert _clear_ranges(sent) == []
+
+
+# --- M13: one batchUpdate per render, and a shared sheet snapshot -------------
+#
+# reconcile_table used to issue three sequential batchUpdate calls per render
+# (data write, Table resize, grey-below formatting) against a 60 req/min quota.
+# Folded into one. Separately, callers that already hold a same-render sheet
+# snapshot (from _ensure_contribution_table's own fetch) can hand it to
+# reconcile_table via sheet_snapshot= to skip its otherwise-duplicate fetch.
+
+
+def test_a_render_sends_one_write_not_three():
+    # Load-bearing: this is the actual write-count reduction M13 is about.
+    sent = _reconcile_with_table(grey_below=True)
+    assert len(sent) == 1
+    kinds = [next(iter(r)) for r in sent[0]["requests"]]
+    assert "updateCells" in kinds              # the data write
+    assert "updateTable" in kinds              # the Table resize
+    assert kinds.count("repeatCell") == 2      # grey-below: clear data rows + shade below
+
+
+def _snapshot_900():
+    return [{
+        "properties": {"sheetId": 900, "title": "Meta",
+                       "gridProperties": {"rowCount": 50}},
+        "tables": [{"tableId": "T", "name": contribution_table_name(900), "range": {
+            "startRowIndex": 3, "startColumnIndex": 0, "endColumnIndex": 4}}],
+    }]
+
+
+def test_a_supplied_snapshot_is_used_instead_of_refetching():
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = AsyncMock()
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["key"]]}
+    cog._values_get = fake_values_get
+
+    async def fake_batch(body, archive=False):
+        pass
+    cog.batch_update = fake_batch
+
+    asyncio.run(cog.reconcile_table(
+        page_id=900, desired_rows=[["feeds:2", "Feeder", "Alpha", "WORD"]],
+        data_col_count=4, table_name=contribution_table_name(900),
+        sheet_snapshot=_snapshot_900()))
+    cog.sheet_list.assert_not_awaited()
+
+
+def test_no_snapshot_still_fetches():
+    # The keeper: proves "never fetch" and "fetch when not supplied" disagree.
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.sheet_list = AsyncMock(return_value={"sheets": _snapshot_900()})
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": [["key"]]}
+    cog._values_get = fake_values_get
+
+    async def fake_batch(body, archive=False):
+        pass
+    cog.batch_update = fake_batch
+
+    asyncio.run(cog.reconcile_table(
+        page_id=900, desired_rows=[["feeds:2", "Feeder", "Alpha", "WORD"]],
+        data_col_count=4, table_name=contribution_table_name(900)))
+    cog.sheet_list.assert_awaited_once()
 
 
 # --- Bold static labels (live-test fix #4) ----------------------------------
@@ -1037,7 +1107,7 @@ def test_render_contribution_creates_missing_table_then_reconciles():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = fake_add
@@ -1081,7 +1151,7 @@ def test_render_contribution_promotes_never_promoted_legacy_tab():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None):
         reconciled.append(page_id)
 
     cog.promote_tab_to_target = fake_promote
@@ -1118,7 +1188,7 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = boom
