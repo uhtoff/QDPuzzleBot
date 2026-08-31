@@ -368,6 +368,46 @@ manual pre-flight ledger, because a recorded apply IS the evidence. One that onl
 defaulted column does, because nothing about the apply can tell you the default was right.
 
 
+### D8 was false in production — caught by 045's pre-flight, 2026-08-31
+
+D8 held that no hunt had used a solved/archive spreadsheet since the current bot, so no
+`additional_sheets` row could be on one, making 045's backfill-everything-to-0 *correct*
+rather than merely safe. **That is true of `puzzlebot_test` and false of production.**
+
+045's pre-flight returned **seven** rows on production. Each page id was checked against
+the live Sheets API (metadata only) and **six are genuinely on their hunt's solved
+spreadsheet** — real tabs on MITMH 2026 and FlatDurian Hunt, not the dangling references
+the same query produced on `puzzlebot_test`:
+
+| id | tab | puzzle | where it actually is |
+|---|---|---|---|
+| 6 | Name Badges | Physical Items | **main** |
+| 7 | Long Grid | strand type game | archive |
+| 8 | No Clues | Can you really call it a crossword if… | archive |
+| 9 | Meta | Can you really call it a crossword if… | archive |
+| 10 | The Palace and Its Cats | Doubles Games | archive |
+| 11 | Sunshine East of Eden | Doubles Games | archive |
+| 12 | Hope | Puzzles Within Puzzles Within Puzzles | archive |
+
+**Applying 045 alone to production would have introduced H3 rather than fixed it.** A row
+flagged 0 whose tab is on the archive is exactly H3's state: restore addresses an
+archive-side page id to the main spreadsheet, Sheets answers a non-retryable 400, and
+`unsolve` has no try/except around it. Unsolving any of those four puzzles would
+half-restore it.
+
+Migration `046` corrects the six, keyed on `(id, google_page_id)` pairs so it is a no-op in
+any environment whose data differs — verified as exactly that on `puzzlebot_test`, where it
+applied and changed nothing. Id 6 is deliberately left at 0: its tab really is still on the
+main spreadsheet despite its puzzle being solved.
+
+**The lesson is about the pre-flight, not about D8.** D8 was a reasonable inference from the
+evidence available when it was made, and it was checked against the only database anyone
+could see. A migration that cannot fail loudly needs its assumption re-tested in every
+environment it will touch, because "correct here" is not "correct there" — and the cost of
+skipping that check was a data-corrupting migration shipped to live hunts under the banner
+of a data-corruption fix.
+
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
