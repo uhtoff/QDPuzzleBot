@@ -527,7 +527,6 @@ class GoogleSheets(commands.Cog):
         return new_sheet_id
 
     async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
-        was_archived = puzzle_data.on_solved_sheet
         if puzzle_data.on_solved_sheet:
             puzzle_data.on_solved_sheet = False
             puzzle_data.google_page_id = await self.move_puzzle_sheet(False, puzzle_data.google_page_id,
@@ -536,9 +535,14 @@ class GoogleSheets(commands.Cog):
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                if self.get_solved_sheet_id() and was_archived:
+                # Each extra returns on ITS OWN flag, not the puzzle's. Keying
+                # this on puzzle_data.on_solved_sheet left a target's archived
+                # extras behind, then addressed their archive-side page ids to
+                # the main spreadsheet -- a non-retryable 400 (H3).
+                if self.get_solved_sheet_id() and sheet.on_solved_sheet:
                     current_name = await self.get_page_name_by_id(sheet.google_page_id, self.get_solved_sheet_id())
                     sheet.google_page_id = await self.move_puzzle_sheet(False, sheet.google_page_id, current_name)
+                    sheet.on_solved_sheet = False
                 requests.extend([self.update_cell("", self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
@@ -597,9 +601,14 @@ class GoogleSheets(commands.Cog):
         }
         await self.batch_update(updates)
         for sheet in puzzle_data.additional_sheets:
-            if self.get_solved_sheet_id():
+            # Guarded on a real page id, as the in-place loop above already is --
+            # an extra with no tab cannot be copied anywhere (H3).
+            if self.get_solved_sheet_id() and len(sheet.google_page_id) > 0:
                 current_name = await self.get_page_name_by_id(sheet.google_page_id)
                 sheet.google_page_id = await self.move_puzzle_sheet(True, sheet.google_page_id, current_name)
+                # Record it PER SHEET. A target's own tab stays live, so
+                # puzzle_data.on_solved_sheet cannot speak for its extras.
+                sheet.on_solved_sheet = True
         if puzzle_data.is_target is False and self.get_solved_sheet_id():
             puzzle_data.google_page_id = await self.move_puzzle_sheet(True, puzzle_data.google_page_id, puzzle_data.name)
             puzzle_data.on_solved_sheet = True

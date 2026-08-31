@@ -1,0 +1,82 @@
+-- 045_additional_sheets_location.sql
+-- H3 from the 2026-08-30 comprehensive review: a solved TARGET's extra sheets
+-- are archived but never flagged, so unsolve writes archive-resident sheetIds
+-- into the MAIN spreadsheet.
+--
+-- WHY A COLUMN AND NOT A GUARD.
+--
+-- move_puzzle_to_solved_sheet (puzzles_gsheet.py) moves EVERY additional sheet
+-- to the solved spreadsheet whenever the hunt has one -- there is no is_target
+-- check on that loop. But only a NON-target puzzle gets on_solved_sheet = 1.
+-- So for a solved meta/capstone the extras sit on the archive while the puzzle
+-- row says "not archived", and nothing anywhere records where an individual
+-- extra sheet actually lives.
+--
+-- restore_puzzle_from_solved_sheet then keys every extra off the PUZZLE's
+-- on_solved_sheet. For a target that is 0, so the extras are not moved back --
+-- yet their update_cell / move_sheet_to_index / revert_tab_colour requests are
+-- still batched against the main spreadsheet, referencing page ids that exist
+-- only in the archive. Sheets answers 400, which is not retryable, and unsolve
+-- has no try/except around the call. The puzzle is left half-restored.
+--
+-- The review offered two directions: mirror the is_target guard onto the move
+-- loop, or record the location per sheet. The guard is the smaller change but
+-- it only stops NEW damage and leaves the model unable to say where a sheet
+-- is; the same question is asked again by M15 (additional-sheet LINKS are
+-- keyed on puzzle.solved, so they 404 on a hunt with no solved sheet). One
+-- column answers both, so that is what this does.
+--
+-- SCOPE: schema only. additional_sheets gains the location bit that puzzles
+-- has carried since migration 024. The application changes that read and write
+-- it ship alongside; this file is safe to apply before them, because the
+-- default matches the behaviour of the code that predates it.
+--
+-- The column mirrors puzzles.on_solved_sheet (024) in name and meaning, and
+-- this table's own `puzzle` / `solved` columns in nullability. Deliberately
+-- NOT a location string: it is the same one bit the puzzles table already
+-- spells this way, and a second vocabulary for it would have to be translated
+-- at every seam.
+--
+-- PRE-FLIGHT. Every existing row is backfilled to 0, meaning "on the main
+-- spreadsheet". That is not merely the safe default, it is believed CORRECT:
+-- no hunt has used a solved spreadsheet since the current bot, so no extra
+-- sheet has ever actually been moved to one. A row that contradicts it would
+-- be an extra belonging to a solved puzzle on a hunt that HAS a solved sheet.
+-- Re-run this before applying to any other environment:
+--
+--   SELECT s.id AS sheet_id, s.puzzle_id, p.name AS puzzle, h.name AS hunt
+--     FROM additional_sheets s
+--     JOIN puzzles p ON p.id = s.puzzle_id
+--     JOIN hunts   h ON h.id = p.hunt_id
+--    WHERE p.solved = 1
+--      AND h.solved_sheet_id IS NOT NULL
+--      AND h.solved_sheet_id <> '';
+--
+-- An empty result means the backfill below is correct and this migration
+-- applies cleanly. Rows there are extras that MIGHT really be on the archive:
+-- set their on_solved_sheet to 1 after applying, or unsolve those puzzles
+-- before applying. Do NOT guess -- an extra flagged main while living on the
+-- archive reproduces exactly the 400 this migration exists to prevent.
+--
+-- WHAT IT ACTUALLY RETURNED ON puzzlebot_test, 2026-08-31: SIX rows, not zero
+-- (sheet ids 35, 40, 41, 97, 98, 109 across two test hunts). They were checked
+-- against the live Sheets API rather than assumed, and every one of the six
+-- page ids exists on NEITHER the hunt's main spreadsheet NOR its solved
+-- spreadsheet -- they are dangling rows pointing at tabs that no longer exist,
+-- not archived sheets. So 0 is correct for them as well, and the backfill
+-- stands. Note the query is a PROXY: it asks "could this be archived", not "is
+-- it", so a non-empty result is a prompt to go and look, not a verdict.
+--
+-- Those six are also evidence for M19 in the same review: _reconcile_tabs
+-- repairs only a puzzle's MAIN tab and never its additional sheets, so a
+-- dangling extra is never healed once created.
+--
+-- Hunt-level working sheets (puzzle_id IS NULL) are excluded by the JOIN and
+-- are never archived; 0 is unconditionally right for them.
+--
+-- ADD COLUMN ... NOT NULL DEFAULT 0 fills existing rows with 0 as it runs, so
+-- no separate UPDATE is needed and the file is re-runnable only in the sense
+-- that a second apply fails loudly on the duplicate column.
+
+ALTER TABLE `additional_sheets`
+  ADD COLUMN `on_solved_sheet` tinyint(1) NOT NULL DEFAULT 0 AFTER `google_page_id`;

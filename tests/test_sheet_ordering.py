@@ -294,7 +294,11 @@ async def test_restore_puzzle_from_solved_sheet_moves_additional_sheets_back_whe
     puzzle.is_target = False
     puzzle.on_solved_sheet = True
     puzzle.solved = False  # unsolve() clears this before restore is called
-    puzzle.additional_sheets = [AdditionalSheetData(google_page_id="archive-extra")]
+    # Archived extras carry their OWN flag since migration 045 -- an archived
+    # puzzle whose extra lacks it is a state move_puzzle_to_solved_sheet cannot
+    # produce. The assertions below are unchanged: both tabs still move back.
+    puzzle.additional_sheets = [
+        AdditionalSheetData(google_page_id="archive-extra", on_solved_sheet=True)]
 
     async def fake_batch_update(body, archive=False):
         pass

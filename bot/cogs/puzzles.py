@@ -15,6 +15,7 @@ from bot.utils import config
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
     resolve_group, MediaJsonDb, CanvasJsonDb
+from bot.store.puzzle_data import AdditionalSheetData
 from bot.utils.chunking import (
     FIELD_NAME_LIMIT,
     MAX_FIELDS,
@@ -566,13 +567,21 @@ class Puzzles(commands.Cog):
         else:
             return hunt.google_sheet_id
 
-    def get_additional_sheet_spreadsheet(self, ctx=None, puzzle: Optional[PuzzleData] = None, hunt: Optional[HuntData] = None):
-        """Return the spreadsheet id for additional sheets (solved puzzles sheet when solved)."""
-        assert puzzle is not None  # callers always pass it; default is keyword-style only
+    def get_additional_sheet_spreadsheet(self, ctx=None, sheet: Optional[AdditionalSheetData] = None, hunt: Optional[HuntData] = None):
+        """Return the spreadsheet id THIS additional sheet actually lives on.
+
+        Takes the sheet, not the puzzle. Keyed on puzzle.solved it returned the
+        archive whenever the puzzle was solved -- but extras only move there if
+        the hunt HAS a solved sheet, and solved_sheet_id defaults to "", so a
+        default hunt built 'spreadsheets/d//edit#gid=...' dead links (M15).
+        Since 045 the location is recorded per sheet, as get_puzzle_sheet has
+        always done for the main tab.
+        """
+        assert sheet is not None  # callers always pass it; default is keyword-style only
         if hunt is None:
             hunt = self.get_hunt(ctx)
         assert hunt is not None  # puzzle contexts always resolve their hunt
-        if puzzle.solved:
+        if sheet.on_solved_sheet:
             return hunt.solved_sheet_id
         else:
             return hunt.google_sheet_id
@@ -1839,10 +1848,12 @@ class Puzzles(commands.Cog):
         assert puzzle is not None  # callers always pass it; default is keyword-style only
         sheet_links = ""
         count = 1
-        spreadsheet_id = self.get_additional_sheet_spreadsheet(ctx, puzzle, hunt)
         for sheet in puzzle.additional_sheets:
-            spreadsheet_url = urls.spreadsheet_url(spreadsheet_id,
-                                                   sheet.google_page_id)
+            # Resolved per sheet: two extras on one puzzle can be in different
+            # places once a target has been solved (M15/H3).
+            spreadsheet_url = urls.spreadsheet_url(
+                self.get_additional_sheet_spreadsheet(ctx, sheet, hunt),
+                sheet.google_page_id)
             sheet_links += f"{count}: [{sheet.puzzle_name}]({spreadsheet_url})\n"
             count+=1
         return sheet_links

@@ -193,7 +193,10 @@ class TestListSheetsCommand:
         from bot.cogs.puzzles import Puzzles
         puzzle = make_puzzle(id=5, hunt_id=10, name="Alpha")
         puzzle.additional_sheets = [
-            SimpleNamespace(id=1, puzzle_name="grid 2", google_page_id="P1")]
+            # on_solved_sheet is read per sheet since migration 045; this test
+            # is about link numbering, so the value just has to be present.
+            SimpleNamespace(id=1, puzzle_name="grid 2", google_page_id="P1",
+                            on_solved_sheet=False)]
         cog = make_cog(puzzle=puzzle, hunt=make_hunt(id=10))
         cog.environment = {}
         cog.service.get_hunt_sheets = MagicMock()

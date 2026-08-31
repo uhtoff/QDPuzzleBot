@@ -25,6 +25,10 @@ class AdditionalSheetData:
     puzzle_name: str = ""
     solution: str = ""
     solved: bool = False
+    # Where this sheet's tab actually lives (migration 045). Mirrors
+    # puzzles.on_solved_sheet. A TARGET is never archived itself, but its extras
+    # are, so the puzzle's flag cannot answer this question for them (H3).
+    on_solved_sheet: bool = False
 
 @dataclass_json
 @dataclass
