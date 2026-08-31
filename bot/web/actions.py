@@ -859,7 +859,7 @@ _SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "
 async def patch_hunt_settings(uid):
     """Update whitelisted per-hunt settings. Admin only."""
     ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
-        _visible_hunt_by_uid(uid), allow_archived=True, need_cog=False)
+        _visible_hunt_by_uid(uid), need_cog=False)
     if err:
         return err
     assert ctx is not None
@@ -897,7 +897,7 @@ async def set_hunt_role(uid):
     {"ok": True, "failed_categories": [...]}, or a needs_confirm prompt when the
     role already exists."""
     ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
-        _visible_hunt_by_uid(uid), allow_archived=True, need_cog=False)
+        _visible_hunt_by_uid(uid), need_cog=False)
     if err:
         return err
     assert ctx is not None
@@ -993,7 +993,7 @@ async def post_hunt_archive(uid):
 async def post_hunt_solved_sheet(uid):
     """Create the hunt's solved puzzles Google Sheet (one-way). Admin only."""
     ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
-        _visible_hunt_by_uid(uid), allow_archived=True, need_cog=False)
+        _visible_hunt_by_uid(uid), need_cog=False)
     if err:
         return err
     assert ctx is not None
@@ -1154,7 +1154,7 @@ async def convert_to_feeder_preview(puzzle_id):
     """Read-only preview for the convert confirm dialog: how many feeders (and
     which) demoting this metapuzzle would orphan by deleting its round."""
     ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
-        _visible_hunt_for_puzzle(puzzle_id), allow_archived=True, tier="organiser", need_cog=False)
+        _visible_hunt_for_puzzle(puzzle_id), tier="organiser", need_cog=False)
     if err:
         return err
     assert ctx is not None
