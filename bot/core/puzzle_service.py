@@ -1445,6 +1445,12 @@ class PuzzleService:
             SheetsJsonDb.commit(sheet)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
+        # Collected and reported at the end, exactly as solve does (M27): these
+        # used to be logged and swallowed, which left the bang's
+        # `except SheetRefreshError` unreachable and made it claim
+        # ":white_check_mark: Sheets all restored." over a meta sheet still
+        # showing the retracted answer.
+        failed_group_ids = []
         for tag in puzzle.tags:
             try:
                 target_group = TagGroupJsonDb.get_by_attr(id=tag)
@@ -1452,6 +1458,7 @@ class PuzzleService:
                     await self.refresh_target(hunt, target_group)
             except Exception:
                 logger.exception("unsolve: meta refresh failed for group %s", tag)
+                failed_group_ids.append(tag)
 
         # M8: re-render the parent minimeta's sheet so the unsolved mini's answer clears.
         if puzzle.parent_puzzle_id is not None:
@@ -1482,6 +1489,12 @@ class PuzzleService:
 
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
+
+        # Last, so everything above still runs. The DB mutation is committed and
+        # pushes_board fires on this error by design -- only a meta sheet is
+        # stale, and !rebuild is the right remedy, which is what the message says.
+        if failed_group_ids:
+            raise SheetRefreshError(failed_group_ids=failed_group_ids)
 
     @pushes_board()
     async def convert_to_puzzle(self, guild, hunt, puzzle):

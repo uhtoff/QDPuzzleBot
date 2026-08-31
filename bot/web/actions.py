@@ -2180,14 +2180,22 @@ async def unsolve_puzzle(puzzle_id):
         guild = bot.get_guild(int(snowflake)) if snowflake else None
         # Capture before service.unsolve clears it, for the channel message.
         prev_solution = puzzle.solution or ""
+        warning = None
         try:
             await cog.service.unsolve(guild, hunt_obj, puzzle)
+        except SheetRefreshError as exc:
+            # The unsolve is committed; only a meta sheet went stale. Mirrors the
+            # solve sibling. Without this the newly-reporting service (M27) would
+            # 500 on an operation that in fact succeeded.
+            warning = str(exc)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         await cog.web_post_unsolved(guild, hunt_obj, puzzle, prev_solution)
         await _audit("unsolve", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         await _refresh_parent_minimeta_pin(cog, guild, hunt_obj, puzzle)
 
+        if warning:
+            return jsonify({"ok": True, "sheet_warning": warning})
         return jsonify({"ok": True})
 
 
