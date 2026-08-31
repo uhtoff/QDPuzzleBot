@@ -86,3 +86,43 @@ async def test_bang_delete_target_sends_clear_message():
     )
     assert "target" in sent.lower()
     assert "Channel deletion failed" not in sent
+
+
+@pytest.mark.asyncio
+async def test_web_delete_on_an_archived_hunt_is_refused():
+    """The archived 403 on this route was verified by NOTHING until now.
+
+    Found by mutation while extracting the shared route prologue (M29): flipping
+    `delete_puzzle`'s call to `allow_archived=True` left all 2105 tests green.
+    Sibling routes do cover it (tests/test_delete_mini_web.py), so the gap was
+    this route specifically -- and delete is the worst one to leave unpinned,
+    since an archived hunt is exactly the state a stray delete should not touch.
+    """
+    cog = MagicMock()
+    cog.service.delete_puzzle = AsyncMock()
+    app = make_web_app("actions", cog=cog)
+
+    ctx = make_hunt_ctx(archived=True)
+    pdb = MagicMock()
+    pdb.get_by_attr.return_value = make_puzzle(id=7)
+    hdb = MagicMock()
+    hdb.get_by_attr.return_value = make_hunt()
+
+    patches = [
+        patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
+        patch("bot.web.actions._visible_hunt_for_puzzle", AsyncMock(return_value=(ctx, None))),
+        patch("bot.web.actions.require_organiser", AsyncMock(return_value=None)),
+        patch("bot.web.actions._audit", AsyncMock()),
+        patch("bot.web.actions.puzzle_lock", _noop_lock),
+        patch("bot.store.PuzzleJsonDb", pdb),
+        patch("bot.store.HuntJsonDb", hdb),
+    ]
+    start_patches(patches)
+    try:
+        resp = await app.test_client().delete("/api/puzzles/7")
+        assert resp.status_code == 403
+        assert (await resp.get_json())["error"] == "hunt_archived"
+        # The refusal must come BEFORE any deletion is attempted.
+        cog.service.delete_puzzle.assert_not_awaited()
+    finally:
+        stop_patches(patches)
