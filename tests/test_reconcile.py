@@ -253,6 +253,95 @@ def test_tab_no_cog_is_noop():
 
 
 # --------------------------------------------------------------------------
+# M12: reconcile() fetches each spreadsheet's tab snapshot ONCE per run,
+# instead of _reconcile_tabs issuing one full spreadsheets().get per puzzle.
+# --------------------------------------------------------------------------
+
+def test_the_snapshot_is_fetched_once_per_spreadsheet_not_once_per_puzzle():
+    """Three puzzles, not one: with a single puzzle, per-puzzle fetching and
+    shared fetching both make exactly one call and the test would prove
+    nothing about the fix. _collect_orphan_tabs does its own separate,
+    already-single fetch of the main spreadsheet; it is mocked out here so
+    its call isn't conflated with the snapshot fetch under test.
+
+    get_page_name_by_id is wired to genuinely re-invoke sheet_list (the real
+    production relationship — see puzzles_gsheet.get_page_name_by_id), not
+    stubbed as a standalone no-op: if _tab_present ever fell back to it per
+    puzzle, this call count would jump from 2 to 5, so the assertion below
+    is sensitive to that regression, not just to whether the fetch happens
+    at all."""
+    gcog = _gcog(page_name="Tide")
+    gcog.sheet_list = AsyncMock(return_value={"sheets": [
+        {"properties": {"sheetId": 42, "title": "Tide"}},
+    ]})
+
+    async def _get_page_name_by_id(page_id, spreadsheet_id=None):
+        sheets = (await gcog.sheet_list(spreadsheet_id))["sheets"]
+        for s in sheets:
+            if s["properties"]["sheetId"] == int(page_id):
+                return s["properties"].get("title")
+        return None
+    gcog.get_page_name_by_id = AsyncMock(side_effect=_get_page_name_by_id)
+    svc = _service_with_gsheet(gcog)
+    puzzles = [_puzzle(name=f"P{i}", google_page_id="42", tags=[]) for i in range(3)]
+    guild = _guild_with(channels=[], categories=[])
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=puzzles), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_collect_orphan_tabs", new=AsyncMock(return_value=None)):
+        report = asyncio.run(svc.reconcile(guild, _hunt(), apply=True))
+    # _hunt() carries both a main spreadsheet and a solved spreadsheet, so the
+    # snapshot is fetched twice total -- not once per puzzle, which would be
+    # 3+ calls against three puzzles.
+    assert gcog.sheet_list.await_count == 2
+    assert report.failures == []
+
+
+def test_a_puzzle_on_the_solved_sheet_is_checked_against_the_solved_snapshot():
+    """A single flat id set across both spreadsheets would pass this only by
+    accident: the two page ids are each present in only their OWN
+    spreadsheet's snapshot, so a correct implementation must key by
+    spreadsheet id to judge both puzzles present."""
+    gcog = _gcog(page_name="unused")  # per-puzzle fallback must not be reached
+
+    async def _sheet_list(spreadsheet_id=None):
+        if spreadsheet_id == "SS":
+            return {"sheets": [{"properties": {"sheetId": 10}}]}
+        if spreadsheet_id == "ARC":
+            return {"sheets": [{"properties": {"sheetId": 20}}]}
+        raise AssertionError(f"unexpected spreadsheet id {spreadsheet_id!r}")
+    gcog.sheet_list = AsyncMock(side_effect=_sheet_list)
+    svc = _service_with_gsheet(gcog)
+    p_main = _puzzle(name="Main", google_page_id="10", on_solved_sheet=False, tags=[])
+    p_solved = _puzzle(name="Archived", google_page_id="20", on_solved_sheet=True, tags=[])
+    guild = _guild_with(channels=[], categories=[])
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt",
+                      return_value=[p_main, p_solved]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_collect_orphan_tabs", new=AsyncMock(return_value=None)):
+        report = asyncio.run(svc.reconcile(guild, _hunt(), apply=True))
+    assert not any(a.kind == "tab_create" for a in report.actions)
+    gcog.get_page_name_by_id.assert_not_awaited()
+
+
+def test_a_failed_snapshot_fetch_falls_back_instead_of_aborting():
+    gcog = _gcog(page_name=None)  # per-puzzle path reports the tab missing
+    gcog.sheet_list = AsyncMock(side_effect=RuntimeError("quota exceeded"))
+    svc = _service_with_gsheet(gcog)
+    p = _puzzle(google_page_id="42", tags=[])
+    guild = _guild_with(channels=[], categories=[])
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_collect_orphan_tabs", new=AsyncMock(return_value=None)):
+        report = asyncio.run(svc.reconcile(guild, _hunt(), apply=False))
+    assert any(a.kind == "tab_create" for a in report.actions)
+    assert report.failures == []
+    gcog.get_page_name_by_id.assert_awaited()
+
+
+# --------------------------------------------------------------------------
 # Task 4: Top-level reconcile() — drive + orphan collection
 # --------------------------------------------------------------------------
 

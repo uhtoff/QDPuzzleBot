@@ -546,9 +546,45 @@ class PuzzleService:
                 )
         return actions
 
-    async def _reconcile_tabs(self, hunt, puzzle, *, apply):
+    async def _fetch_present_tab_ids(self, hunt):
+        """Fetch each of the hunt's spreadsheets' tab ids ONCE, for _reconcile_tabs
+        to use as an O(1) membership test across an entire reconcile() run instead
+        of one full spreadsheets().get per puzzle (M12). Keyed by spreadsheet id,
+        because a puzzle's tab lives on either the main spreadsheet or the
+        archive/solved spreadsheet (puzzle.on_solved_sheet). Returns None when
+        there is no GoogleSheets cog.
+
+        Staleness within the run is fine: recreating puzzle A's missing tab does
+        not change whether puzzle B's distinct page id was present in the
+        snapshot -- each puzzle is judged only against its own id. Do NOT refresh
+        the snapshot mid-loop. Raises on a fetch failure; the caller decides how
+        to degrade.
+        """
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return None
+        present_ids = {}
+        main_id = gsheet_cog.get_spreadsheet_id()
+        sheets = (await gsheet_cog.sheet_list(main_id))["sheets"]
+        present_ids[main_id] = frozenset(
+            str(s["properties"]["sheetId"]) for s in sheets)
+        solved_id = gsheet_cog.get_solved_sheet_id()
+        if solved_id:
+            sheets = (await gsheet_cog.sheet_list(solved_id))["sheets"]
+            present_ids[solved_id] = frozenset(
+                str(s["properties"]["sheetId"]) for s in sheets)
+        return present_ids
+
+    async def _reconcile_tabs(self, hunt, puzzle, *, apply, present_ids=None):
         """Ensure the puzzle's Sheets tab(s) exist. Recreate a missing tab and write
-        the fresh sheetId back to the DB. No-op without a GoogleSheets cog."""
+        the fresh sheetId back to the DB. No-op without a GoogleSheets cog.
+
+        present_ids, when given, is the {spreadsheet_id: frozenset(str(page_id))}
+        snapshot from _fetch_present_tab_ids -- a set-membership test replacing
+        the per-call get_page_name_by_id scan (M12). Leave it None (the default)
+        to keep the original per-puzzle lookup, e.g. for a caller reconciling a
+        single puzzle outside of a full reconcile() run.
+        """
         actions = []
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
@@ -559,6 +595,8 @@ class PuzzleService:
         async def _tab_present(page_id):
             if not page_id:
                 return False
+            if present_ids is not None:
+                return str(page_id) in present_ids.get(spreadsheet, frozenset())
             return await gsheet_cog.get_page_name_by_id(page_id, spreadsheet) is not None
 
         if not await _tab_present(puzzle.google_page_id):
@@ -581,13 +619,24 @@ class PuzzleService:
         rounds = TagGroupJsonDb.get_all(hunt.id)
         hunt_category_ids = self._hunt_category_ids(hunt, rounds)
 
+        try:
+            present_ids = await self._fetch_present_tab_ids(hunt)
+        except Exception:  # noqa: BLE001
+            # A slow reconcile beats one that refuses to run: fall back to the
+            # per-puzzle get_page_name_by_id lookup inside _reconcile_tabs.
+            logger.exception(
+                "reconcile: could not pre-fetch tab snapshot; falling back to "
+                "per-puzzle tab lookups")
+            present_ids = None
+
         for puzzle in puzzles:
             try:
                 for action in await self._reconcile_channel(
                         guild, hunt, puzzle, report, apply=apply,
                         hunt_category_ids=hunt_category_ids):
                     report.actions.append(action)
-                for action in await self._reconcile_tabs(hunt, puzzle, apply=apply):
+                for action in await self._reconcile_tabs(
+                        hunt, puzzle, apply=apply, present_ids=present_ids):
                     report.actions.append(action)
             except Exception as error:  # noqa: BLE001
                 logger.exception("reconcile: failed for puzzle %s", puzzle.name)
