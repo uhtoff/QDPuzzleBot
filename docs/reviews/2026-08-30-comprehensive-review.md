@@ -389,11 +389,16 @@ the same query produced on `puzzlebot_test`:
 | 11 | Sunshine East of Eden | Doubles Games | archive |
 | 12 | Hope | Puzzles Within Puzzles Within Puzzles | archive |
 
-**Applying 045 alone to production would have introduced H3 rather than fixed it.** A row
-flagged 0 whose tab is on the archive is exactly H3's state: restore addresses an
-archive-side page id to the main spreadsheet, Sheets answers a non-retryable 400, and
-`unsolve` has no try/except around it. Unsolving any of those four puzzles would
-half-restore it.
+**Applying 045 alone would have written six false rows.** A row flagged 0 whose tab is on
+the archive is exactly H3's state: restore addresses an archive-side page id to the main
+spreadsheet, Sheets answers a non-retryable 400, and `unsolve` has no try/except around it.
+
+**The consequence is currently gated, not live** — a correction to the first version of this
+entry, which overstated it. Both hunts are archived, and archiving deletes their channels,
+so `!unsolve` has nowhere to run; the web route is archived-gated and returns 403. The flag
+being wrong has no effect while that holds. It matters because archiving is *reversible* by
+design — `post_hunt_archive` is deliberately exempt from the archived guard precisely so a
+hunt can be reopened — so the six rows become live the moment either is unarchived.
 
 Migration `046` corrects the six, keyed on `(id, google_page_id)` pairs so it is a no-op in
 any environment whose data differs — verified as exactly that on `puzzlebot_test`, where it

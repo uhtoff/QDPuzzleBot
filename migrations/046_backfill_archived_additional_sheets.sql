@@ -28,13 +28,27 @@
 -- spreadsheet despite its puzzle being solved -- the extras were never moved.
 -- 0 is correct for it, and forcing it to 1 would create the mirror-image bug.
 --
--- WHAT GOES WRONG WITHOUT THIS. A row flagged 0 while its tab lives on the
--- archive is exactly the state H3 describes: restore_puzzle_from_solved_sheet
--- leaves the sheet where it is and then addresses its archive-side page id to
--- the MAIN spreadsheet. Sheets answers 400, which is not retryable, and
--- unsolve has no try/except around it -- so unsolving any of those four
--- puzzles half-restores it. 045 would have introduced, on live hunts, the
--- precise failure it was written to prevent.
+-- WHAT GOES WRONG WITHOUT THIS -- AND HOW URGENT IT ACTUALLY IS.
+--
+-- A row flagged 0 while its tab lives on the archive is exactly the state H3
+-- describes: restore_puzzle_from_solved_sheet leaves the sheet where it is and
+-- then addresses its archive-side page id to the MAIN spreadsheet. Sheets
+-- answers 400, which is not retryable, and unsolve has no try/except around it,
+-- so the puzzle is left half-restored.
+--
+-- That is NOT reachable for these six rows today. Both hunts are archived, and
+-- archiving condenses every channel into threads and deletes the categories and
+-- channels (!archive_hunt) -- so the bang !unsolve has no channel to run in, and
+-- the web route goes through _route_ctx with no allow_archived and returns 403.
+-- The wrong flag is inert while that holds.
+--
+-- It is worth correcting anyway, for two reasons. Archiving is REVERSIBLE by
+-- design -- post_hunt_archive is deliberately exempt from the archived guard so
+-- a hunt can be reopened -- and the moment either hunt is unarchived the flag is
+-- live again. And the column's whole job is to record where a tab is; six rows
+-- asserting "main" about tabs on the archive are simply false, whatever reads
+-- them. One UPDATE now, versus a half-restored puzzle on a hunt someone has
+-- just reopened.
 --
 -- WHY IT IS A SEPARATE FILE. 045 has already been applied to puzzlebot_test,
 -- and an applied migration is not edited -- even though this runner tracks by
