@@ -54,6 +54,8 @@ async def test_a_targets_extras_are_flagged_when_they_are_archived():
 
     with (
         patch.object(cog, "batch_update", new=AsyncMock()),
+        # The end index for every move in the batch is fetched once (M21).
+        patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": []})),
         patch.object(cog, "move_sheet_to_end", new=AsyncMock(return_value={})),
         patch.object(cog, "_solution_bg_request", return_value={}),
         patch.object(cog, "_header_shift", return_value=0),
@@ -86,6 +88,8 @@ async def test_an_extra_with_no_page_id_is_never_archived():
     move = AsyncMock(return_value="should-not-happen")
     with (
         patch.object(cog, "batch_update", new=AsyncMock()),
+        # The end index for every move in the batch is fetched once (M21).
+        patch.object(cog, "sheet_list", new=AsyncMock(return_value={"sheets": []})),
         patch.object(cog, "move_sheet_to_end", new=AsyncMock(return_value={})),
         patch.object(cog, "_solution_bg_request", return_value={}),
         patch.object(cog, "_header_shift", return_value=0),

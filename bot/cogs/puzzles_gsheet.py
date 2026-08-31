@@ -103,8 +103,14 @@ class GoogleSheets(commands.Cog):
 
     async def sheet_list(self, spreadsheet_id = None):
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
+        # Every Sheets read in the bot funnels through here, so the payload size
+        # is worth constraining (M21). An audit of all call sites found they read
+        # only ["sheets"], ["properties"] (sheetId/title/index/hidden) and
+        # .get("tables") -- anything added to that list must be added here too.
         response = await execute_with_retry(
-            get_sheet().get(spreadsheetId=spreadsheet_id), on_retry=self._notify_retry
+            get_sheet().get(spreadsheetId=spreadsheet_id,
+                            fields="sheets(properties,tables)"),
+            on_retry=self._notify_retry
         )
         if "sheets" not in response:
             # A valid spreadsheet always reports at least one sheet, so a response
@@ -359,13 +365,19 @@ class GoogleSheets(commands.Cog):
     def move_sheet_to_start(self, sheet_id = None):
         return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
-    async def move_sheet_to_end(self, sheet_id = None):
+    async def move_sheet_to_end(self, sheet_id = None, end_index = None):
         # The Sheets API evaluates updateSheetProperties index moves against
         # pre-move positions, so len(sheets) (not len(sheets) - 1) is the index
         # that lands the tab truly last.
-        sheets = (await self.sheet_list()).get('sheets',[])
-        new_index = len(sheets)
-        return self._sheet_props_request(sheet_id, 'index', new_index)
+        #
+        # `end_index` lets a caller building SEVERAL move requests for one batch
+        # compute that number once (M21). Nothing has moved while the batch is
+        # being assembled, so every fetch after the first returned the same
+        # answer -- move_puzzle_to_solved_sheet paid for one per additional
+        # sheet. Omit it and the count is fetched, as every other caller does.
+        if end_index is None:
+            end_index = len((await self.sheet_list()).get('sheets', []))
+        return self._sheet_props_request(sheet_id, 'index', end_index)
 
     async def compute_insert_index(self, is_target: bool, puzzles) -> int:
         """Return the correct tab insertion index for a new puzzle.
@@ -602,7 +614,12 @@ class GoogleSheets(commands.Cog):
     async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData):
         offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
-        main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id)
+        # One tab count for every move request in this batch (M21): they are all
+        # assembled before the single batch_update below, so nothing moves in
+        # between and each re-fetch returned the same number.
+        end_index = len((await self.sheet_list()).get('sheets', []))
+        main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id,
+                                                     end_index=end_index)
         requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self._solution_bg_request(puzzle_data, self.SOLUTION_GREEN),
@@ -610,7 +627,8 @@ class GoogleSheets(commands.Cog):
             self.change_tab_colour('green', puzzle_data.google_page_id)])
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                sheet_move_req = await self.move_sheet_to_end(sheet.google_page_id)
+                sheet_move_req = await self.move_sheet_to_end(sheet.google_page_id,
+                                                              end_index=end_index)
                 requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
