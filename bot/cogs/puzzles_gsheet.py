@@ -504,6 +504,29 @@ class GoogleSheets(commands.Cog):
         await self.delete_sheet(puzzle_data.google_page_id, puzzle_data.on_solved_sheet)
 
     async def move_puzzle_sheet(self, to_solved, page, tab_name):
+        """Move a tab between the live and solved spreadsheets. Returns the new page id.
+
+        ORDER MATTERS: copy, rename, THEN delete the original (M19). The delete is
+        the only destructive step and the only one whose failure cannot be undone,
+        so it goes last.
+
+        The new page id escapes solely through this return value -- callers do
+        `sheet.google_page_id = await move_puzzle_sheet(...)` -- so any exception
+        before that assignment leaves the DB holding the OLD id, which must
+        therefore still name a live tab. Deleting first broke that: a failure in
+        the rename window left the original deleted and the DB pointing at it,
+        permanently, because _reconcile_tabs repairs a puzzle's main tab only and
+        never its additional sheets.
+
+        Both remaining failure windows are now recoverable. A rename failure
+        leaves the original untouched and an unnamed copy on the destination; a
+        delete failure leaves the named copy plus a duplicate original. A stray
+        tab is fixable by hand, a dangling page id is not.
+
+        Renaming before the delete does not change the name chosen: the delete
+        targets the SOURCE spreadsheet, and get_unique_tab_name reads the
+        destination.
+        """
         spreadsheet_to = self.get_solved_sheet_id() if to_solved else self.get_spreadsheet_id()
         spreadsheet_from = self.get_spreadsheet_id() if to_solved else self.get_solved_sheet_id()
         copy_req = get_sheet().sheets().copyTo(
@@ -513,7 +536,6 @@ class GoogleSheets(commands.Cog):
         )
         copied = await execute_with_retry(copy_req, on_retry=self._notify_retry)
         new_sheet_id = copied['sheetId']
-        await self.delete_sheet(page, not to_solved)
         unique_title = await self.get_unique_tab_name(tab_name, spreadsheet_to)
         bu_req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_to,
@@ -524,6 +546,7 @@ class GoogleSheets(commands.Cog):
             },
         )
         await execute_with_retry(bu_req, on_retry=self._notify_retry)
+        await self.delete_sheet(page, not to_solved)
         return new_sheet_id
 
     async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
