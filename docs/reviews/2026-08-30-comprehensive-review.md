@@ -270,6 +270,40 @@ Notes:
   not yet run), **M19** (ships with H3), and **M21** (last — it rewrites M17/M18's lines).
 
 
+### D7 live probe, 2026-08-31 — what Google actually does
+
+Run against a throwaway spreadsheet owned by the bot's service account (no hunt, no
+production sheet, no DB). This is the first verification in the Sheets tranche that is
+not a request-shape assertion. Four results, two of which change the work:
+
+1. **`insertDimension` (COLUMNS 0-4, `inheritFromBefore: False`) shifts by exactly 4.**
+   A tab whose A1 held `"Puzzle Title:"` has it at **E1** afterwards, A1 blank. As assumed.
+2. **A blank cell returns NO `values` key at all** — the response is just
+   `{"majorDimension": "ROWS"}`. So `resp.get("values") or []` is correct, and the
+   existing `a1_value` idiom is safe. As assumed.
+3. **A1 ALONE CANNOT TELL A HALF-PROMOTED TAB FROM A FULLY-PROMOTED ONE.** Both return
+   no `values` key for A1. This **refutes M18's stated direction**, which says to detect
+   already-shifted geometry with "A1 blank + B1 label ... the same check
+   `_ensure_contribution_table` uses" — those are two different checks, and the one
+   `_ensure_contribution_table` actually performs reads **only A1**
+   (`puzzles_gsheet.py`, the `_values_get(... '!A1')` call). Copying it would not
+   distinguish the states, and promote would insert four more columns exactly as M18
+   describes. **The probe must read `A1:B1` and key on B1.**
+4. **A duplicate `addTable` fails 400 — with an unrelated-sounding message.** Not "table
+   exists" but *"You cannot add alternating background colors to a range that already has
+   alternating background colors."* Any tolerate-already-done handling that sniffs the
+   error string must match THAT text. 400 is non-retryable, so the retry machinery will
+   not paper over it.
+5. **A second `deleteDimension` of the same range succeeds silently**, eating four more
+   real columns. There is **no error to catch** — C5's damage cannot be handled
+   defensively after the fact, only prevented by probing geometry first. This is what
+   makes C5 a correctness fix rather than an error-handling one.
+
+Consequence for the fix: extract a named geometry probe that reads `A1:B1` and returns
+which layout the tab is in (plain / target / indeterminate), and have promote, demote and
+`_ensure_contribution_table` all consult it. A1-only is not sufficient for any of them.
+
+
 ## Decisions taken — 2026-08-30
 
 Four questions gated the fix planning. All four are now settled; the fix plan lives in
