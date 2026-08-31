@@ -230,7 +230,8 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            row = self._fetch_one(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
+            row = self._fetch_one(
+                f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
             if row:
                 return HuntData.import_dict(row)
             logger.info(f"Unable to find hunt for {keyword} - {value}")
@@ -433,7 +434,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 
     def get(self, guild_id, puzzle_id, round_id, hunt_id) -> PuzzleData:
         """Retrieve single puzzle from database"""
-        row = self._fetch_one("SELECT * FROM puzzles WHERE channel_id = %s", (puzzle_id,))
+        row = self._fetch_one(
+            "SELECT * FROM puzzles WHERE channel_id = %s ORDER BY `id` ASC LIMIT 1", (puzzle_id,))
         if row:
             return self.construct_puzzle(row)
         raise MissingPuzzleError(f"Unable to find puzzle {puzzle_id} for {round_id}")
@@ -442,7 +444,8 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         """Retrieve puzzle by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
         if keyword:
-            row = self._fetch_one(f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s", (value,))
+            row = self._fetch_one(
+                f"SELECT * FROM `{self.TABLE_NAME}` WHERE `{keyword}` = %s ORDER BY `id` ASC LIMIT 1", (value,))
             if row:
                 return self.construct_puzzle(row)
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
@@ -1305,7 +1308,8 @@ class MySQLGuildSettingsDb():
     def get(self, guild_id: int) -> Optional[GuildSettings]:
         cursor = self.mydb.dict_cursor()
         try:
-            cursor.execute("SELECT * FROM guilds WHERE guild_id = %s", (guild_id,))
+            cursor.execute(
+                "SELECT * FROM guilds WHERE guild_id = %s ORDER BY `id` ASC LIMIT 1", (guild_id,))
             row = cursor.fetchone()
         finally:
             cursor.close()
