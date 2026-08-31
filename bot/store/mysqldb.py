@@ -237,6 +237,47 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             logger.info(f"Unable to find hunt for {keyword} - {value}")
             return None
 
+    def get_by_name_for_guild(self, name, guild_snowflake):
+        """Retrieve a Hunt by name, scoped to the Discord guild that owns it (M6).
+
+        `hunts.guild_id` FKs `guilds.id` (the guilds table's own row id), NOT the
+        Discord snowflake -- see bot/web/notifier.py's board_changed for the same
+        confusion causing a silent failure elsewhere. Scoping by the invoking
+        guild's snowflake therefore needs the join below, not a bare
+        `hunts.guild_id = %s`. A name is not unique even within one guild, so this
+        takes the oldest match (see get_by_attr / tests/test_single_row_lookups.py).
+        """
+        row = self._fetch_one(
+            "SELECT hunts.* FROM `hunts` JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE guilds.guild_id = %s AND hunts.name = %s "
+            "ORDER BY hunts.id ASC LIMIT 1",
+            (guild_snowflake, name),
+        )
+        if row:
+            return HuntData.import_dict(row)
+        logger.info(f"Unable to find hunt named {name} for guild {guild_snowflake}")
+        return None
+
+    def check_duplicates(self, value, field='name', guild_id=None):
+        """Duplicate check for hunts, optionally scoped to a Discord guild (M6).
+
+        The base implementation (`_MySQLBaseDb.check_duplicates`) is a bare
+        `WHERE field = value` with no guild filter, making hunt names one
+        namespace across every guild the bot serves. When `guild_id` (a Discord
+        guild snowflake) is given, the check is scoped to that guild via the same
+        guilds-join used by get_by_name_for_guild, so the same name is free to
+        exist in more than one guild. Callers that omit guild_id keep the
+        previous global behaviour.
+        """
+        if guild_id is None:
+            return super().check_duplicates(value, field)
+        row = self._fetch_one(
+            f"SELECT 1 FROM `{self.TABLE_NAME}` JOIN `guilds` ON hunts.guild_id = guilds.id "
+            f"WHERE guilds.guild_id = %s AND hunts.`{field}` = %s LIMIT 1",
+            (guild_id, value),
+        )
+        return row is not None
+
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     GENERATED_UNIQUE_FIELDS = ('group_code',)

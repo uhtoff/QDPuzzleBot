@@ -711,7 +711,7 @@ class Puzzles(commands.Cog):
             arg, role = arg.split(", ", 1)
         if ":" in arg:
             hunt_name, hunt_url = arg.split(":", 1)
-            if HuntJsonDb.check_duplicates(hunt_name):
+            if HuntJsonDb.check_duplicates(hunt_name, guild_id=ctx.guild.id):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
             new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode)
             if new_hunt is None:
@@ -778,9 +778,9 @@ class Puzzles(commands.Cog):
         hunt_name, role_name = (part.strip() for part in arg.split(", ", 1))
         if not hunt_name or not role_name:
             return await ctx.send("Usage: `!set_hunt_role hunt-name, role-name`")
-        hunt = HuntJsonDb.get_by_attr(name=hunt_name)
+        hunt = HuntJsonDb.get_by_name_for_guild(hunt_name, ctx.guild.id)
         if hunt is None:
-            return await ctx.send(f":x: No hunt named **{hunt_name}**.")
+            return await ctx.send(f":x: No hunt named **{hunt_name}** in this server.")
 
         confirm_existing = False
         while True:
