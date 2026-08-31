@@ -463,9 +463,14 @@ class PuzzleService:
 
     # --- !reconcile ---
 
-    def _home_category(self, guild, puzzle):
+    def _home_category_for_puzzle(self, guild, puzzle):
         """Discord category the puzzle's single channel belongs in = tags[0]'s group.
-        Returns (category_or_None, home_group_or_None)."""
+        Returns (category_or_None, home_group_or_None).
+
+        Named for its argument because category_layout._home_category answers a
+        different question (a GROUP's category, returned bare rather than as a
+        tuple) and this file calls both, four lines apart.
+        """
         if not puzzle.tags:
             return None, None
         home_group = TagGroupJsonDb.get_by_attr(id=puzzle.tags[0])
@@ -494,7 +499,7 @@ class PuzzleService:
         if puzzle.parent_puzzle_id is not None:
             return []
         actions = []
-        category, home_group = self._home_category(guild, puzzle)
+        category, home_group = self._home_category_for_puzzle(guild, puzzle)
         want_name = self.desired_channel_name(guild, hunt, puzzle)
 
         # 1. Stored id resolves to a live channel: fix category/name drift only.

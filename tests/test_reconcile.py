@@ -121,7 +121,7 @@ def test_channel_ok_when_id_resolves_and_in_right_category(monkeypatch):
 
 def test_a_channel_home_group_resolves_to_the_channels_parent_category():
     """M3. For an in-place-converted / channel-mode group, category_id names a
-    CHANNEL, not a category. PuzzleService._home_category looked only at
+    CHANNEL, not a category. PuzzleService._home_category_for_puzzle looked only at
     guild.categories and returned None, so _reconcile_channel then recreated the
     puzzle's channel with category=None -- at guild ROOT, outside the hunt's
     role-gating overwrites, i.e. visible to @everyone on a gated hunt.
@@ -138,7 +138,7 @@ def test_a_channel_home_group_resolves_to_the_channels_parent_category():
 
     with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=700)):
-        category, home_group = svc._home_category(guild, p)
+        category, home_group = svc._home_category_for_puzzle(guild, p)
 
     assert category is cat, "a channel-home group must resolve to its parent category"
     assert home_group is not None
@@ -154,7 +154,7 @@ def test_a_category_home_group_still_resolves_directly():
 
     with patch.object(ps.TagGroupJsonDb, "get_by_attr",
                       return_value=SimpleNamespace(id=10, category_id=500)):
-        category, _ = svc._home_category(guild, p)
+        category, _ = svc._home_category_for_puzzle(guild, p)
 
     assert category is cat
 
