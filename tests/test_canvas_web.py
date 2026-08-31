@@ -642,6 +642,43 @@ class TestCreatePuzzleFromRegion:
         assert create.upd.call_args.kwargs["media_id"] == 55
 
 
+    async def test_promoting_a_region_with_an_inked_crop_does_not_recrop(
+            self, web, create):
+        """M11. Promoting a region to a puzzle performs the same link change as
+        update_region, through the same canvas_service.update_region -- but
+        without update_region's guard it regenerated the crop unconditionally.
+        The old media row is then swept by the GC 24h later and its
+        media_markup rows CASCADE, so a member's annotations are destroyed
+        silently and permanently.
+        """
+        web.rdb.get_by_id.return_value = _region(
+            puzzle_id=None, role=None, crop_media_id=61)
+        with patch("bot.web.actions._crop_region_media", AsyncMock()) as crop, \
+             patch("bot.core.markup.list_marks", return_value=[SimpleNamespace(id=1)]):
+            await web.client.post(
+                "/api/canvases/3/regions/5/create-puzzle",
+                json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+
+        crop.assert_not_awaited()
+        assert create.upd.call_args.kwargs["media_id"] == 61
+
+    async def test_promoting_a_region_with_an_uninked_crop_still_recrops(
+            self, web, create):
+        """Paired with the test above: a guard that never re-crops would pass
+        that one alone, and silently stop producing puzzle images."""
+        web.rdb.get_by_id.return_value = _region(
+            puzzle_id=None, role=None, crop_media_id=61)
+        with patch("bot.web.actions._crop_region_media",
+                   AsyncMock(return_value=55)) as crop, \
+             patch("bot.core.markup.list_marks", return_value=[]):
+            await web.client.post(
+                "/api/canvases/3/regions/5/create-puzzle",
+                json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+
+        crop.assert_awaited_once()
+        assert create.upd.call_args.kwargs["media_id"] == 55
+
+
 class TestCropRegionMedia:
     """The crop-and-save helper itself: the canvas's ORIGINAL (untiled) source
     file in, a new standalone media row out."""

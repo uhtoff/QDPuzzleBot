@@ -2416,6 +2416,26 @@ async def _media_ctx(media_id):
     return ctx, media, None
 
 
+async def _region_crop_media_id(canvas_row, existing, shape):
+    """The media id a region should point at after a (re)link.
+
+    Reuses the existing crop whenever it already carries markup, instead of
+    regenerating one underneath it. Ink is drawn on one specific image, so a
+    fresh crop leaves every mark pointing at nothing it was drawn against -- and
+    the orphaned media row is swept by the GC 24 hours later, taking its
+    media_markup rows with it via CASCADE. The loss is silent and permanent.
+
+    update_region has guarded this since the canvas work landed;
+    create_puzzle_from_region performed the same link change through the same
+    canvas_service.update_region and did not (M11). One helper so the third
+    caller cannot drift again.
+    """
+    from bot.core import markup
+    if existing is not None and existing.crop_media_id and markup.list_marks(existing.crop_media_id):
+        return existing.crop_media_id
+    return await _crop_region_media(canvas_row, shape)
+
+
 async def _crop_region_media(canvas_row, shape):
     """Crop `shape`'s rect out of the canvas's original image and save it as
     its own media row, so an informs-region's evidence carries the actual
@@ -2659,16 +2679,10 @@ async def update_region(canvas_id, region_id):
     media_id = None
     if (link_changed and role in (canvas_service.INFORMS, canvas_service.LOCATES)
             and puzzle_id is not None):
-        from bot.core import markup
-        # Ink is drawn on one specific image: regenerating the crop underneath
-        # it would leave every existing mark pointing at nothing it was drawn
-        # against. Reuse the existing crop rather than replace it whenever it
-        # already carries markup. Nothing in the UI can change a region's
-        # shape today, but PATCH accepts one, so this path is real.
-        if existing.crop_media_id and markup.list_marks(existing.crop_media_id):
-            media_id = existing.crop_media_id
-        else:
-            media_id = await _crop_region_media(canvas_row, shape)
+        # Nothing in the UI can change a region's shape today, but PATCH accepts
+        # one, so this path is real. See _region_crop_media_id for why an inked
+        # crop is reused rather than regenerated.
+        media_id = await _region_crop_media_id(canvas_row, existing, shape)
     try:
         region = canvas_service.update_region(
             region_id=region_id, hunt_id=ctx["hunt"]["id"], shape=shape,
@@ -2949,7 +2963,9 @@ async def create_puzzle_from_region(canvas_id, region_id):
     link_changed = (existing.puzzle_id != puzzle.id or existing.role != role)
     media_id = None
     if link_changed and role in (canvas_service.INFORMS, canvas_service.LOCATES):
-        media_id = await _crop_region_media(canvas_row, shape)
+        # Same guard as update_region: promoting a region to a puzzle must not
+        # destroy a member's annotations on its crop (M11).
+        media_id = await _region_crop_media_id(canvas_row, existing, shape)
     try:
         region = canvas_service.update_region(
             region_id=region_id, hunt_id=hunt_obj.id,
