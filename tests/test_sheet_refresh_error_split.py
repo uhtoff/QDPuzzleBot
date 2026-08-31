@@ -53,3 +53,16 @@ def test_plurals_agree_with_each_list_independently():
 
     assert "1 meta sheet " in message
     assert "2 puzzle sheets " in message
+
+
+def test_it_still_subclasses_runtimeerror():
+    """Load-bearing inheritance, not decoration.
+
+    A dozen sites in bot/web/actions.py and bot/cogs/puzzles.py catch a bare
+    `except RuntimeError` around service calls and turn it into a 400 with an
+    error slug. Only four of them list `except SheetRefreshError` first. If this
+    class stops being a RuntimeError, the rest stop catching it and a handled
+    400 becomes an unhandled 500 -- with no other test in the suite going red.
+    That is not hypothetical: it happened once during this split.
+    """
+    assert issubclass(SheetRefreshError, RuntimeError)

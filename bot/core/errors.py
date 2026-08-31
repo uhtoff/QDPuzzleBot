@@ -1,7 +1,7 @@
 """Shared service-layer exceptions (M5)."""
 
 
-class SheetRefreshError(Exception):
+class SheetRefreshError(RuntimeError):
     """Raised when a sheet-side step failed after the DB change was committed.
 
     Two id spaces, deliberately separate (D9):
