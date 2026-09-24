@@ -18,7 +18,9 @@ from dataclasses import dataclass, field
 
 import discord
 
-from bot.store import PuzzleJsonDb
+from bot.store import GuildSettingsDb, PuzzleJsonDb
+from bot.core import role_gate
+from bot.core.constants import ADMIN_ROLES
 from bot.core.discord_channels import DELETE_REASON
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,10 @@ class HuntArchiveReport:
     categories_deleted: int = 0
     failures: list = field(default_factory=list)
     final_name: str = ""
+    # archive_hunt_to_hub only: the hub channel the history landed in.
+    hub_channel_id: int = 0
+    # archive_hunt_to_hub only: True once the bot has left the emptied team server.
+    left_guild: bool = False
 
 
 def resolve_team_name(guild, hunt, invoker) -> str:
@@ -66,6 +72,61 @@ def archived_channel_name(hunt, team) -> str:
     if start is not None:
         return f"{start:%Y-%m} {hunt.name} - {team}"
     return f"{hunt.name} - {team}"
+
+
+class HubUnavailable(Exception):
+    """The named hub can't take this archive. Raised before anything is
+    touched; the message is shown to the invoker as-is."""
+
+
+async def _hub_member(hub, user_id):
+    """The invoker's member object on the hub, or None. Once the hub is chunked
+    the cache is complete, so a miss is authoritative."""
+    member = hub.get_member(user_id)
+    if member is None and not hub.chunked:
+        try:
+            member = await hub.fetch_member(user_id)
+        except discord.NotFound:
+            member = None
+    return member
+
+
+async def resolve_hub(bot, hub_guild_id, guild, invoker):
+    """(hub guild, hub `guilds` row) for !archive_hunt_to_hub, or HubUnavailable.
+
+    The invoker must hold the Admin tier ON THE HUB, so nobody can dump a hunt
+    into a hub they don't run. The row is needed to re-home the hunt:
+    hunts.guild_id is an FK to guilds.id (the row id), not the snowflake."""
+    if hub_guild_id == guild.id:
+        raise HubUnavailable("that's this server — use !archive_hunt to archive in place")
+    hub = bot.get_guild(hub_guild_id)
+    if hub is None:
+        raise HubUnavailable(f"the bot isn't in server {hub_guild_id}")
+    member = await _hub_member(hub, invoker.id)
+    if member is None:
+        raise HubUnavailable(f"you aren't a member of {hub.name}")
+    if not role_gate.member_holds_tier({r.id for r in member.roles}, hub, ADMIN_ROLES):
+        raise HubUnavailable(f"you aren't an admin on {hub.name}")
+    row = GuildSettingsDb.get(hub.id)
+    if row is None:
+        raise HubUnavailable(f"{hub.name} has no guilds row (re-invite the bot there)")
+    return hub, row
+
+
+def archive_topic(hunt) -> str:
+    """Topic tagging a hub archive channel with its hunt, so a re-run finds it."""
+    return f"puzzbot-archive:{hunt.uid}"
+
+
+async def ensure_hub_archive_channel(hub, hunt, name):
+    """The hub channel this hunt archives into: the one already tagged for it
+    (a prior partial run), else a new uncategorised one named *name*, the same
+    place archive_hunt leaves its surviving channel today."""
+    marker = archive_topic(hunt)
+    for ch in hub.text_channels:
+        if ch.topic == marker:
+            return ch
+    return await hub.create_text_channel(name, topic=marker)
 
 
 def thread_name_for_channel(channel) -> str:
