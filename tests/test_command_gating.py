@@ -100,6 +100,7 @@ EXPECTED = [
     ("archive_category", "admin"),
     ("archive_channel", "admin"),
     ("archive_hunt", "admin"),
+    ("archive_hunt_to_hub", "admin"),
     ("archive_round", "admin"),
     ("archive_solved_manually", "admin"),
     ("debug_puzzle_channel", "admin"),

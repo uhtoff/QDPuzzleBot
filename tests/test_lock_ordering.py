@@ -415,6 +415,41 @@ async def test_bang_archive_hunt_confirms_before_locking():
     assert order == ["confirm", "lock"]
 
 
+@pytest.mark.asyncio
+async def test_bang_archive_hunt_to_hub_confirms_before_locking():
+    from bot.cogs.puzzles import Puzzles
+    from bot.core import hunt_archive
+    from tests.conftest import make_cog, make_ctx
+
+    hunt = make_hunt(channel_id=999)
+    cog = make_cog(hunt=hunt)
+    cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock(return_value=hunt_archive.HuntArchiveReport(
+        channels_archived=4, final_name="H - me", hub_channel_id=3000))
+    ctx = make_ctx()
+    ctx.author.display_name = "me"
+
+    order = []
+
+    async def confirm(*_args, **_kwargs):
+        order.append("confirm")
+        return True
+
+    cog._confirm_destructive = confirm
+
+    hub = MagicMock(); hub.get_channel.return_value.send = AsyncMock()
+
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock, \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(return_value=(hub, MagicMock()))):
+        PuzzleDb.get_all_from_hunt.return_value = [MagicMock(id=3), MagicMock(id=1)]
+        lock_mock.side_effect = lambda ids: order.append("lock") or _null_cm()
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+
+    assert order == ["confirm", "lock"]
+
+
 @contextlib.asynccontextmanager
 async def _null_cm():
     yield

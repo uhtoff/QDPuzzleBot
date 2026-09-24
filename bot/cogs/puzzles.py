@@ -181,6 +181,16 @@ def with_hunt_sheet_mutex():
     return decorator
 
 
+def _archive_summary(report):
+    """The completion line shared by !archive_hunt and !archive_hunt_to_hub."""
+    summary = (f":white_check_mark: Archived hunt into **{report.final_name}** — "
+               f"{report.channels_archived} channel(s), {report.messages_moved} message(s) moved, "
+               f"{report.voice_deleted} voice channel(s) removed.")
+    if report.failures:
+        summary += f"\n:warning: {len(report.failures)} channel(s) failed: {', '.join(report.failures)}"
+    return summary
+
+
 class Puzzles(commands.Cog):
     MAX_CHANNELS_PER_CATEGORY = _channels.MAX_CHANNELS_PER_CATEGORY
     MAX_CHANNELS_PER_GUILD = 500
@@ -4029,12 +4039,68 @@ class Puzzles(commands.Cog):
                     pass
 
             report = await self.service.archive_hunt(ctx.guild, hunt, ctx.author, on_progress=on_progress)
-            summary = (f":white_check_mark: Archived hunt into **{report.final_name}** — "
-                       f"{report.channels_archived} channel(s), {report.messages_moved} message(s) moved, "
-                       f"{report.voice_deleted} voice channel(s) removed.")
-            if report.failures:
-                summary += f"\n:warning: {len(report.failures)} channel(s) failed: {', '.join(report.failures)}"
+            summary = _archive_summary(report)
             await ctx.send(summary)
+
+    @commands.command()
+    @is_admin()
+    async def archive_hunt_to_hub(self, ctx, hub_id: int):
+        """*Archive the whole hunt onto another server (the hub), then leave this one.*
+
+        Usage: `!archive_hunt_to_hub <hub server id>`
+        Example: `!archive_hunt_to_hub 123456789012345678`
+        Run in any channel of the hunt. Admins/mods only, and you must be an admin
+        on the hub too. Condenses every channel (the general one included) into
+        threads on a new channel on the hub, deletes all its categories/channels,
+        moves the hunt to the hub on the dashboard, and removes the bot from this
+        server if no other hunt uses it. Asks to confirm. Google sheets are kept.
+        Bang-only: no web-dashboard equivalent, by design."""
+        hunt = self.get_hunt(ctx)
+        if hunt is None:
+            await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        if getattr(hunt, "layout_mode", "") == "forum":
+            await ctx.send(":x: !archive_hunt_to_hub is not available for forum hunts yet")
+            return
+        try:
+            hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
+        except hunt_archive.HubUnavailable as e:
+            await ctx.send(f":x: {e}")
+            return
+        team = hunt_archive.resolve_team_name(ctx.guild, hunt, ctx.author)
+        final = hunt_archive.archived_channel_name(hunt, team)
+        desc = (f"Archive hunt **{hunt.name}** to **{hub.name}**? Condense every channel "
+                f"(this one included) into threads on a new channel **{final}** there, "
+                f"delete all its categories and channels (including voice), move the hunt "
+                f"to {hub.name} on the dashboard, and remove the bot from this server if no "
+                f"other hunt uses it. Google sheets are kept. **Not reversible.**")
+        # Confirm BEFORE locking — same reasoning as archive_hunt.
+        if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
+            return
+        member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
+        async with puzzles_lock(member_puzzle_ids):
+            status = await ctx.send("⏳ Archiving…")
+
+            async def on_progress(done, total, name):
+                try:
+                    await status.edit(content=f"⏳ Archived {done}/{total} — {name}")
+                except discord.HTTPException:
+                    pass
+
+            report = await self.service.archive_hunt_to_hub(
+                ctx.guild, hunt, ctx.author, hub, hub_row, on_progress=on_progress)
+            summary = _archive_summary(report)
+            if report.left_guild:
+                summary += "\nThe bot has left this server; its owner can now delete it."
+            hub_channel = hub.get_channel(report.hub_channel_id)
+            if hub_channel is not None:
+                await hub_channel.send(summary)
+            try:
+                # The channel this ran in is usually archived by now, and the bot
+                # may have left the server, so this reply is best-effort only.
+                await ctx.send(summary)
+            except discord.HTTPException:
+                pass
 
     @commands.command()
     @is_organiser()
