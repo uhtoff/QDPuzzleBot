@@ -3855,6 +3855,40 @@ class PuzzleService:
                 (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
                 if c is not None]
 
+    async def _archive_channel_into(self, guild, dest, webhook, ch, report):
+        """Archive one hunt channel onto *dest*: a text channel becomes a thread
+        (then is deleted), the solve divider and voice/other channels are just
+        deleted. Failures are isolated onto *report*."""
+        try:
+            if ch.name == self._SOLVE_DIVIDER_NAME:
+                if not await self._safe_delete_channel(guild, ch.id):
+                    report.failures.append(
+                        getattr(ch, "name", str(getattr(ch, "id", "?"))))
+            elif isinstance(ch, discord.TextChannel):
+                thread_name = hunt_archive.thread_name_for_channel(ch)
+                if self._archive_thread_exists(dest, thread_name):
+                    # A prior run archived this but failed to delete it — finish that.
+                    if await self._safe_delete_channel(guild, ch.id):
+                        report.channels_skipped += 1
+                    else:
+                        report.failures.append(
+                            getattr(ch, "name", str(getattr(ch, "id", "?"))))
+                else:
+                    r = await hunt_archive.archive_and_delete_channel(
+                        self.bot, dest, webhook, ch, thread_name=thread_name)
+                    report.channels_archived += 1
+                    report.messages_moved += r.messages_moved
+            else:  # voice / stage / other
+                if await self._safe_delete_channel(guild, ch.id):
+                    report.voice_deleted += 1
+                else:
+                    report.failures.append(
+                        getattr(ch, "name", str(getattr(ch, "id", "?"))))
+        except Exception:
+            logger.exception("archive_hunt: failed on channel %s",
+                             getattr(ch, "name", getattr(ch, "id", "?")))
+            report.failures.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
+
     async def _sweep_hunt_categories(self, guild, dest, webhook, categories, report, *,
                                      keep_channel_id, keep_category_id, on_progress):
         """Condense every channel in *categories* into threads on *dest* (deleting
@@ -3868,35 +3902,7 @@ class PuzzleService:
                 if ch.id == keep_channel_id:
                     continue
                 done += 1
-                try:
-                    if ch.name == self._SOLVE_DIVIDER_NAME:
-                        if not await self._safe_delete_channel(guild, ch.id):
-                            report.failures.append(
-                                getattr(ch, "name", str(getattr(ch, "id", "?"))))
-                    elif isinstance(ch, discord.TextChannel):
-                        thread_name = hunt_archive.thread_name_for_channel(ch)
-                        if self._archive_thread_exists(dest, thread_name):
-                            # A prior run archived this but failed to delete it — finish that.
-                            if await self._safe_delete_channel(guild, ch.id):
-                                report.channels_skipped += 1
-                            else:
-                                report.failures.append(
-                                    getattr(ch, "name", str(getattr(ch, "id", "?"))))
-                        else:
-                            r = await hunt_archive.archive_and_delete_channel(
-                                self.bot, dest, webhook, ch, thread_name=thread_name)
-                            report.channels_archived += 1
-                            report.messages_moved += r.messages_moved
-                    else:  # voice / stage / other
-                        if await self._safe_delete_channel(guild, ch.id):
-                            report.voice_deleted += 1
-                        else:
-                            report.failures.append(
-                                getattr(ch, "name", str(getattr(ch, "id", "?"))))
-                except Exception:
-                    logger.exception("archive_hunt: failed on channel %s",
-                                     getattr(ch, "name", getattr(ch, "id", "?")))
-                    report.failures.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
+                await self._archive_channel_into(guild, dest, webhook, ch, report)
                 if on_progress is not None:
                     await on_progress(done, total, getattr(ch, "name", ""))
             if category.id != keep_category_id:
