@@ -3831,23 +3831,10 @@ class PuzzleService:
         used to make archive_hunt resumable after a partial run."""
         return any(getattr(t, "name", None) == thread_name for t in getattr(dest, "threads", []))
 
-    async def archive_hunt(self, guild, hunt, invoker, *, on_progress=None):
-        """Condense a whole hunt into threads on its general channel, delete its
-        categories/channels (voice included), rename the surviving channel, and
-        mark the hunt archived. Google Sheets and DB rows are kept.
-
-        Per-channel failures are isolated and collected on the report; one bad
-        channel never aborts the run.
-        """
-        report = hunt_archive.HuntArchiveReport()
-        dest = guild.get_channel(hunt.channel_id)
-        if dest is None:
-            report.failures.append("general-channel-missing")
-            return report
-        webhook = await hunt_archive.ensure_webhook(dest)
-
-        # Every category the hunt owns: main + solved-by-name + any split/overflow
-        # categories the hunt's own general container owns + each group's categories.
+    def _hunt_categories(self, guild, hunt):
+        """Every live category the hunt owns: main + solved-by-name + any
+        split/overflow categories the hunt's own general container owns + each
+        group's categories."""
         category_ids = set()
         if hunt.category_id:
             category_ids.add(hunt.category_id)
@@ -3864,20 +3851,21 @@ class PuzzleService:
             for row in category_layout.group_categories(tg, TagGroupCategoryDb):
                 if row.category_id:
                     category_ids.add(row.category_id)
+        return [c for c in
+                (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
+                if c is not None]
 
-        dest_category_id = dest.category.id if dest.category is not None else None
-        categories = [c for c in
-                      (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
-                      if c is not None]
-        # Process dest's own category last so we never strand the surviving channel.
-        ordered = ([c for c in categories if c.id != dest_category_id] +
-                   [c for c in categories if c.id == dest_category_id])
-
-        total = sum(1 for c in ordered for ch in c.channels if ch.id != dest.id)
+    async def _sweep_hunt_categories(self, guild, dest, webhook, categories, report, *,
+                                     keep_channel_id, keep_category_id, on_progress):
+        """Condense every channel in *categories* into threads on *dest* (deleting
+        each), then delete every category except *keep_category_id*.
+        *keep_channel_id* is skipped: the surviving archive channel when *dest*
+        lives in the hunt's own guild, None when *dest* is on a hub."""
+        total = sum(1 for c in categories for ch in c.channels if ch.id != keep_channel_id)
         done = 0
-        for category in ordered:
+        for category in categories:
             for ch in list(category.channels):
-                if ch.id == dest.id:
+                if ch.id == keep_channel_id:
                     continue
                 done += 1
                 try:
@@ -3911,13 +3899,47 @@ class PuzzleService:
                     report.failures.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
                 if on_progress is not None:
                     await on_progress(done, total, getattr(ch, "name", ""))
-            if category.id != dest_category_id:
+            if category.id != keep_category_id:
                 try:
                     await category.delete(reason=self._DISCORD_DELETE_REASON)
                     report.categories_deleted += 1
                 except Exception:
                     logger.exception("archive_hunt: could not delete category %s", category.id)
                     report.failures.append(getattr(category, "name", str(category.id)))
+
+    def _drop_split_layout_rows(self, hunt):
+        """Archive keeps every hunt/tag_group DB row (only the flag below
+        changes), so no FK cascade ever fires — drop the split-layout join
+        rows explicitly, or they point at the deleted categories forever and
+        is_split() stays true for the archived hunt and every archived round."""
+        HuntCategoryDb.delete_for_group(hunt.id)
+        for tg in TagGroupJsonDb.get_all(hunt.id):
+            TagGroupCategoryDb.delete_for_group(tg.id)
+
+    async def archive_hunt(self, guild, hunt, invoker, *, on_progress=None):
+        """Condense a whole hunt into threads on its general channel, delete its
+        categories/channels (voice included), rename the surviving channel, and
+        mark the hunt archived. Google Sheets and DB rows are kept.
+
+        Per-channel failures are isolated and collected on the report; one bad
+        channel never aborts the run.
+        """
+        report = hunt_archive.HuntArchiveReport()
+        dest = guild.get_channel(hunt.channel_id)
+        if dest is None:
+            report.failures.append("general-channel-missing")
+            return report
+        webhook = await hunt_archive.ensure_webhook(dest)
+
+        categories = self._hunt_categories(guild, hunt)
+        dest_category_id = dest.category.id if dest.category is not None else None
+        # Process dest's own category last so we never strand the surviving channel.
+        ordered = ([c for c in categories if c.id != dest_category_id] +
+                   [c for c in categories if c.id == dest_category_id])
+        await self._sweep_hunt_categories(
+            guild, dest, webhook, ordered, report,
+            keep_channel_id=dest.id, keep_category_id=dest_category_id,
+            on_progress=on_progress)
 
         # dest survives alone: detach it and delete its now-empty category.
         if dest_category_id is not None:
@@ -3936,13 +3958,7 @@ class PuzzleService:
         report.final_name = hunt_archive.archived_channel_name(hunt, team)
         await self.safe_rename(dest, report.final_name)
 
-        # Archive keeps every hunt/tag_group DB row (only the flag below
-        # changes), so no FK cascade ever fires — drop the split-layout join
-        # rows explicitly, or they point at the deleted categories forever and
-        # is_split() stays true for the archived hunt and every archived round.
-        HuntCategoryDb.delete_for_group(hunt.id)
-        for tg in TagGroupJsonDb.get_all(hunt.id):
-            TagGroupCategoryDb.delete_for_group(tg.id)
+        self._drop_split_layout_rows(hunt)
 
         hunt.archived = True
         HuntJsonDb.commit(hunt)
