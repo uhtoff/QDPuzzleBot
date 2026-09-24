@@ -375,10 +375,10 @@ list and in `guilds` rows, cluttering the dashboard's guild picker.
    Discord UI — appears in `hunt_access_log` and in the hub mirror, with mod elevation
    recorded distinctly.
 5. A hub mod who clicks join on a team server can immediately see the hunt channels and run
-   `!archive_hunt` there, without any human holding Administrator in that server.
+   `!archive_hunt_to_hub` there, without any human holding Administrator in that server.
 6. Re-running `!setup_server` after a partial failure completes the setup without creating
    duplicate roles, channels, categories or invites.
-7. `!archive_hunt` lands the hunt's history in the hub, intact, before the server is
+7. `!archive_hunt_to_hub` lands the hunt's history in the hub, intact, before the server is
    discarded.
 8. The role panel's buttons still work after a bot restart.
 9. After the team server is abandoned or deleted, its archived hunt is still visible on the
@@ -391,7 +391,7 @@ Existing seams this leans on, all confirmed present:
 - `bot/cogs/settings.py:28` — `on_guild_join` already registers the guild.
 - `bot/cogs/settings.py:32` — `_ensure_guild_settings`, the check-then-create pattern.
 - `bot/cogs/puzzles.py:628` — `create_hunt`, already accepting a `role_name`.
-- `bot/cogs/puzzles.py:3698` — `archive_hunt`, needing a cross-guild target.
+- `bot/cogs/puzzles.py` — `archive_hunt_to_hub`, the cross-guild archive (`archive_hunt` stays in-place).
 - `bot/web/auth.py:255` — `hunt_visible`, unchanged by this design.
 - `bot/cogs/ui.py` — home for the new persistent role-panel view.
 
