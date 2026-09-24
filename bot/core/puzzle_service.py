@@ -3964,6 +3964,55 @@ class PuzzleService:
         HuntJsonDb.commit(hunt)
         return report
 
+    async def archive_hunt_to_hub(self, guild, hunt, invoker, hub, hub_row, *, on_progress=None):
+        """Archive a hunt living on a team server into *hub* (already validated
+        by hunt_archive.resolve_hub): condense EVERY channel, the general one
+        included since the whole server is about to be abandoned, into threads on
+        a per-hunt hub channel. Then re-home the hunt row to the hub so the
+        dashboard still shows it once the team server is gone, and leave the team
+        server if nothing else is homed there.
+
+        Re-runnable: the hub channel is found again by its topic, and threads
+        already written are skipped by name (see _sweep_hunt_categories)."""
+        report = hunt_archive.HuntArchiveReport()
+        team = hunt_archive.resolve_team_name(guild, hunt, invoker)
+        report.final_name = hunt_archive.archived_channel_name(hunt, team)
+        dest = await hunt_archive.ensure_hub_archive_channel(hub, hunt, report.final_name)
+        report.hub_channel_id = dest.id
+        webhook = await hunt_archive.ensure_webhook(dest)
+
+        categories = self._hunt_categories(guild, hunt)
+        general = guild.get_channel(hunt.channel_id)
+        general_category_id = (general.category.id
+                               if general is not None and general.category is not None else None)
+        # The general channel is where admins usually run this: take it last.
+        ordered = ([c for c in categories if c.id != general_category_id] +
+                   [c for c in categories if c.id == general_category_id])
+        await self._sweep_hunt_categories(
+            guild, dest, webhook, ordered, report,
+            keep_channel_id=None, keep_category_id=None, on_progress=on_progress)
+
+        self._drop_split_layout_rows(hunt)
+
+        # Re-home. hunts.guild_id is the guilds ROW id, not a snowflake. role_id
+        # stays as a historical record: archived hunts never reach the role check,
+        # and 0 would mean "legacy hunt".
+        team_guild_row_id = hunt.guild_id
+        hunt.guild_id = hub_row.id
+        hunt.channel_id = dest.id
+        hunt.archived = True
+        HuntJsonDb.commit(hunt)
+
+        # Leave only a clean, unreferenced server: on failure an admin must be able
+        # to re-run from a surviving channel.
+        if not report.failures and HuntJsonDb.count_for_guild(team_guild_row_id) == 0:
+            try:
+                await guild.leave()
+                report.left_guild = True
+            except discord.HTTPException:
+                logger.exception("archive_hunt_to_hub: could not leave team guild %s", guild.id)
+        return report
+
     # -- Hunt settings -------------------------------------------------
 
     _UNSET = object()
