@@ -2,7 +2,6 @@
 half-built hub archive channel again on a re-run."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import discord
 import pytest
 
 from bot.core import hunt_archive
@@ -124,3 +123,23 @@ async def test_ensure_hub_archive_channel_creates_an_uncategorised_tagged_channe
     assert got is created
     hub.create_text_channel.assert_awaited_once_with(
         "H - team", topic="puzzbot-archive:abc")
+
+
+async def test_resolve_hub_refuses_when_the_bot_lacks_hub_permissions():
+    hub = _hub(_member(7))
+    hub.me.guild_permissions.manage_webhooks = False
+    with patch("bot.core.hunt_archive.role_gate") as rg, \
+         patch("bot.core.hunt_archive.GuildSettingsDb") as gsdb:
+        rg.member_holds_tier.return_value = True
+        gsdb.get.return_value = MagicMock()
+        with pytest.raises(hunt_archive.HubUnavailable, match="Manage Webhooks"):
+            await hunt_archive.resolve_hub(_bot(hub), HUB, _team(), _invoker())
+    hub.get_member.assert_not_called()
+
+
+async def test_ensure_hub_archive_channel_truncates_the_name_to_100_chars():
+    hub = MagicMock(); hub.text_channels = []
+    hub.create_text_channel = AsyncMock(return_value=MagicMock())
+    await hunt_archive.ensure_hub_archive_channel(hub, _hunt("abc"), "x" * 150)
+    hub.create_text_channel.assert_awaited_once_with(
+        "x" * 100, topic="puzzbot-archive:abc")

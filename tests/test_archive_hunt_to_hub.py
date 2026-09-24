@@ -43,8 +43,9 @@ def _team():
     main_cat = MagicMock(); main_cat.id = 50; main_cat.channels = [general]; main_cat.delete = AsyncMock()
     general.category = main_cat
     round_cat = MagicMock(); round_cat.id = 70; round_cat.channels = [puzzle, voice]; round_cat.delete = AsyncMock()
+    puzzle.category = round_cat; voice.category = round_cat
     g = MagicMock(); g.id = 2000; g.categories = [main_cat, round_cat]
-    g.get_channel.return_value = general
+    g.get_channel.side_effect = {60: general, 71: puzzle}.get
     g.leave = AsyncMock()
     return SimpleNamespace(guild=g, general=general, puzzle=puzzle, voice=voice,
                            main_cat=main_cat, round_cat=round_cat)
@@ -64,6 +65,7 @@ def _patched(svc, *, archive_side_effect=None, count=0):
             hdb=p("bot.core.puzzle_service.HuntJsonDb"),
             tgcdb=p("bot.core.puzzle_service.TagGroupCategoryDb"),
             pdb=p("bot.core.hunt_archive.PuzzleJsonDb"),
+            svc_pdb=p("bot.core.puzzle_service.PuzzleJsonDb"),
             hook=p("bot.core.hunt_archive.ensure_webhook", new=AsyncMock(return_value=MagicMock())),
             archive=p("bot.core.hunt_archive.archive_and_delete_channel",
                       new=AsyncMock(side_effect=archive_side_effect,
@@ -74,6 +76,7 @@ def _patched(svc, *, archive_side_effect=None, count=0):
         m.tgdb.get_all.return_value = [tg]
         m.tgcdb.get_for_group.return_value = []
         m.pdb.get_by_attr.return_value = None
+        m.svc_pdb.get_all_from_hunt.return_value = [MagicMock(channel_id=71)]
         m.hdb.count_for_guild.return_value = count
         yield m
 
@@ -117,15 +120,44 @@ async def test_archives_every_channel_to_the_hub_rehomes_and_leaves():
     assert report.channels_archived == 2
 
 
-async def test_a_failed_channel_still_rehomes_but_keeps_the_bot_in_the_server():
+async def test_a_partial_run_moves_nothing_and_keeps_failed_categories():
     svc, hunt, t = _service(), _hunt(), _team()
     boom = [RuntimeError("boom"), hunt_archive.ChannelArchiveResult(messages_moved=1)]
     with _patched(svc, archive_side_effect=boom) as m:
         report = await _run(svc, hunt, t, m)
     assert report.failures == ["text71"]
-    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (9, 3000, True)
+    # Nothing commits: the hunt still resolves on the team server for a re-run.
+    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (5, 60, False)
+    m.hdb.commit.assert_not_called()
+    m.hdb.count_for_guild.assert_not_called()
     t.guild.leave.assert_not_awaited()       # an admin must be able to re-run
     assert report.left_guild is False
+    # The failed channel's category survives, so the channel isn't orphaned.
+    t.round_cat.delete.assert_not_awaited()
+    t.main_cat.delete.assert_awaited_once()
+
+
+async def test_a_rerun_archives_an_orphaned_puzzle_channel_then_rehomes():
+    svc, hunt, t = _service(), _hunt(), _team()
+    t.guild.categories = []
+    t.puzzle.category = None
+    t.guild.get_channel.side_effect = {71: t.puzzle}.get   # general already gone
+    with _patched(svc) as m:
+        m.tgdb.get_all.return_value = []
+        report = await _run(svc, hunt, t, m)
+    assert [c.args[3] for c in m.archive.await_args_list] == [t.puzzle]
+    assert report.failures == []
+    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (9, 3000, True)
+    t.guild.leave.assert_awaited_once()
+
+
+async def test_an_uncategorised_general_channel_is_archived():
+    svc, hunt, t = _service(), _hunt(), _team()
+    t.general.category = None
+    t.main_cat.channels = []
+    with _patched(svc) as m:
+        await _run(svc, hunt, t, m)
+    assert t.general in [c.args[3] for c in m.archive.await_args_list]
 
 
 async def test_another_hunt_on_the_team_server_keeps_the_bot_there():

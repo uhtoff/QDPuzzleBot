@@ -12,6 +12,7 @@ def _hunt():
     h = MagicMock()
     h.name = "H"; h.role_id = 0; h.start_time = None
     h.channel_id = 60; h.layout_mode = "channel"
+    h.archived = False
     return h
 
 
@@ -66,3 +67,38 @@ async def test_names_the_hub_then_reports_there_even_if_ctx_channel_is_gone():
     summary = hub_channel.send.await_args.args[0]
     assert "H - me" in summary
     assert "left this server" in summary
+
+
+async def test_refuses_an_archived_hunt_before_resolving_the_hub():
+    hunt = _hunt(); hunt.archived = True
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+    ctx.send.assert_awaited_once_with(
+        ":x: This hunt is already archived. Moving an in-place archive onto a hub isn't supported yet.")
+    resolve.assert_not_awaited()
+    cog.service.archive_hunt_to_hub.assert_not_awaited()
+
+
+async def test_a_failing_hub_send_still_replies_in_ctx():
+    hunt = _hunt()
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    hub, hub_channel = _hub()
+    hub_channel.send = AsyncMock(side_effect=discord.HTTPException(
+        MagicMock(status=403, reason="Forbidden"), "Missing Access"))
+    cog.service.archive_hunt_to_hub = AsyncMock(return_value=hunt_archive.HuntArchiveReport(
+        channels_archived=4, final_name="H - me", hub_channel_id=3000, left_guild=False))
+    ctx = _ctx()
+    status = MagicMock(edit=AsyncMock())
+    ctx.send = AsyncMock(side_effect=[status, MagicMock()])
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(return_value=(hub, MagicMock()))), \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+        PuzzleDb.get_all_from_hunt.return_value = []
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+    hub_channel.send.assert_awaited_once()
+    assert ctx.send.await_count == 2
+    assert "H - me" in ctx.send.await_args.args[0]

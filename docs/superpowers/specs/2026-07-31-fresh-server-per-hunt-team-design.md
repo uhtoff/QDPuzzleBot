@@ -321,7 +321,9 @@ no webhook URL sitting in the database as a credential.
 **`archive_hunt_to_hub` must also re-point the hunt row at the hub** — `guild_id` to the hub's
 `guilds` row, `channel_id` to the new hub channel — otherwise archived hunts disappear
 from the dashboard entirely. *the bot leaves only when no hunt row, archived or not, still
-references the team server's `guilds` row, and only after a run with no failures.*
+references the team server's `guilds` row, and only after a run with no failures. The hunt
+row is re-homed only after a run with no failures; a partial run leaves the hunt resolvable on
+the team server so a re-run finishes it.*
 
 `hunt_visible` resolves the hunt's guild snowflake and returns False when it is absent from
 the user's `membership`, **before** the `archived` short-circuit runs

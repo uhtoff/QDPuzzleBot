@@ -289,6 +289,7 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             "SELECT COUNT(*) AS n FROM `hunts` WHERE guild_id = %s", (guild_row_id,))
         return int(row["n"]) if row else 0
 
+
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     GENERATED_UNIQUE_FIELDS = ('group_code',)

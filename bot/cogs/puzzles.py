@@ -4062,6 +4062,9 @@ class Puzzles(commands.Cog):
         if getattr(hunt, "layout_mode", "") == "forum":
             await ctx.send(":x: !archive_hunt_to_hub is not available for forum hunts yet")
             return
+        if getattr(hunt, "archived", False):
+            await ctx.send(":x: This hunt is already archived. Moving an in-place archive onto a hub isn't supported yet.")
+            return
         try:
             hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
         except hunt_archive.HubUnavailable as e:
@@ -4092,9 +4095,15 @@ class Puzzles(commands.Cog):
             summary = _archive_summary(report)
             if report.left_guild:
                 summary += "\nThe bot has left this server; its owner can now delete it."
+            if report.failures:
+                summary += ("\nNothing was moved to the hub dashboard yet and the bot is staying: "
+                            "re-run !archive_hunt_to_hub <hub id> from any remaining hunt channel to finish.")
             hub_channel = hub.get_channel(report.hub_channel_id)
             if hub_channel is not None:
-                await hub_channel.send(summary)
+                try:
+                    await hub_channel.send(summary)
+                except discord.HTTPException:
+                    logger.exception("archive_hunt_to_hub: could not post summary to hub channel %s", report.hub_channel_id)
             try:
                 # The channel this ran in is usually archived by now, and the bot
                 # may have left the server, so this reply is best-effort only.

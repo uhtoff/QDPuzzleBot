@@ -3890,14 +3890,18 @@ class PuzzleService:
             report.failures.append(getattr(ch, "name", str(getattr(ch, "id", "?"))))
 
     async def _sweep_hunt_categories(self, guild, dest, webhook, categories, report, *,
-                                     keep_channel_id, keep_category_id, on_progress):
+                                     keep_channel_id, keep_category_id, on_progress,
+                                     keep_failed_categories=False):
         """Condense every channel in *categories* into threads on *dest* (deleting
         each), then delete every category except *keep_category_id*.
         *keep_channel_id* is skipped: the surviving archive channel when *dest*
-        lives in the hunt's own guild, None when *dest* is on a hub."""
+        lives in the hunt's own guild, None when *dest* is on a hub.
+        With *keep_failed_categories*, a category is also kept if any of its
+        channels failed, so the survivor isn't orphaned out of it."""
         total = sum(1 for c in categories for ch in c.channels if ch.id != keep_channel_id)
         done = 0
         for category in categories:
+            failures_before = len(report.failures)
             for ch in list(category.channels):
                 if ch.id == keep_channel_id:
                     continue
@@ -3905,6 +3909,8 @@ class PuzzleService:
                 await self._archive_channel_into(guild, dest, webhook, ch, report)
                 if on_progress is not None:
                     await on_progress(done, total, getattr(ch, "name", ""))
+            if keep_failed_categories and len(report.failures) > failures_before:
+                continue
             if category.id != keep_category_id:
                 try:
                     await category.delete(reason=self._DISCORD_DELETE_REASON)
@@ -3978,8 +3984,14 @@ class PuzzleService:
         dashboard still shows it once the team server is gone, and leave the team
         server if nothing else is homed there.
 
-        Re-runnable: the hub channel is found again by its topic, and threads
-        already written are skipped by name (see _sweep_hunt_categories)."""
+        History and the hunt row move only on a clean run. After any failure the
+        hunt row is left untouched (still resolvable on the team server) and a
+        category holding a failed channel is kept, so a re-run from any remaining
+        hunt channel finishes a partial one: the hub channel is found again by
+        its topic, and threads already written are skipped by name (see
+        _archive_channel_into). Hunt channels outside the swept categories
+        (e.g. orphaned by a partial run, or an uncategorised general channel)
+        are archived too."""
         report = hunt_archive.HuntArchiveReport()
         team = hunt_archive.resolve_team_name(guild, hunt, invoker)
         report.final_name = hunt_archive.archived_channel_name(hunt, team)
@@ -3994,9 +4006,27 @@ class PuzzleService:
         # The general channel is where admins usually run this: take it last.
         ordered = ([c for c in categories if c.id != general_category_id] +
                    [c for c in categories if c.id == general_category_id])
+        swept_ids = {c.id for c in categories}
+        stragglers = {}
+        candidate_ids = [hunt.channel_id] + [
+            p.channel_id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.channel_id]
+        for cid in candidate_ids:
+            ch = guild.get_channel(cid)
+            if ch is None or ch.id in stragglers:
+                continue
+            if ch.category is None or ch.category.id not in swept_ids:
+                stragglers[ch.id] = ch
         await self._sweep_hunt_categories(
             guild, dest, webhook, ordered, report,
-            keep_channel_id=None, keep_category_id=None, on_progress=on_progress)
+            keep_channel_id=None, keep_category_id=None, on_progress=on_progress,
+            keep_failed_categories=True)
+        for done, ch in enumerate(stragglers.values(), start=1):
+            await self._archive_channel_into(guild, dest, webhook, ch, report)
+            if on_progress is not None:
+                await on_progress(done, len(stragglers), getattr(ch, "name", ""))
+
+        if report.failures:
+            return report
 
         self._drop_split_layout_rows(hunt)
 
@@ -4009,9 +4039,8 @@ class PuzzleService:
         hunt.archived = True
         HuntJsonDb.commit(hunt)
 
-        # Leave only a clean, unreferenced server: on failure an admin must be able
-        # to re-run from a surviving channel.
-        if not report.failures and HuntJsonDb.count_for_guild(team_guild_row_id) == 0:
+        # Leave only an unreferenced server (failures already returned above).
+        if HuntJsonDb.count_for_guild(team_guild_row_id) == 0:
             try:
                 await guild.leave()
                 report.left_guild = True

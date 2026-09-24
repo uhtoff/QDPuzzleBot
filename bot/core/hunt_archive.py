@@ -102,6 +102,9 @@ async def resolve_hub(bot, hub_guild_id, guild, invoker):
     hub = bot.get_guild(hub_guild_id)
     if hub is None:
         raise HubUnavailable(f"the bot isn't in server {hub_guild_id}")
+    perms = hub.me.guild_permissions
+    if not (perms.manage_channels and perms.manage_webhooks):
+        raise HubUnavailable(f"the bot needs Manage Channels and Manage Webhooks on {hub.name}")
     member = await _hub_member(hub, invoker.id)
     if member is None:
         raise HubUnavailable(f"you aren't a member of {hub.name}")
@@ -126,7 +129,7 @@ async def ensure_hub_archive_channel(hub, hunt, name):
     for ch in hub.text_channels:
         if ch.topic == marker:
             return ch
-    return await hub.create_text_channel(name, topic=marker)
+    return await hub.create_text_channel(name[:100], topic=marker)  # Discord's cap
 
 
 def thread_name_for_channel(channel) -> str:
