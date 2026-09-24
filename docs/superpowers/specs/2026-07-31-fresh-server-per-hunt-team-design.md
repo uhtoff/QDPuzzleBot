@@ -1,7 +1,7 @@
 # Fresh Discord server per hunt-team — design
 
 **Date:** 2026-07-31
-**Status:** Design, approved in discussion — not yet an implementation plan
+**Status:** Design approved; slice 1 (cross-server archive, as !archive_hunt_to_hub) implemented — see plan 2026-09-24.
 **Supersedes:** the *reusable pool* decision in
 `docs/future/2026-07-05-multi-server-hunt-architecture-design.md`. That doc's problem
 statement, Discord constraints, and rejected approaches all still stand and are not
@@ -96,7 +96,7 @@ command fills in the rest:
    `drive_resources_id`, `website_url`.
 3. Call the existing `create_hunt` (`bot/cogs/puzzles.py:628`, already takes a
    `role_name`) to build the hunt row, team role and category tree.
-4. Record `roster_role_id` and `archive_channel_id` against the hunt.
+4. Record `roster_role_id` against the hunt.
 5. Upload the standard emoji set (bots may create emojis; templates cannot carry them). With
    `--organisers`, also create the `Organiser` role, which arms the organiser-tier gate.
 6. Post the welcome message and the join/leave role panel in `#lobby`.
@@ -294,10 +294,13 @@ server alone.
 guild where it is played, gated by a role in that guild — which is exactly what
 `hunt_visible` checks. No rename, no auth change. What is new:
 
-- **`hub_guild_id` in `config.json`**, not the schema. There is exactly one hub, so a
-  config key beats a per-row column.
+- **No stored hub or archive channel.** *Changed 2026-09-24:* the hub is named on the
+  command, `!archive_hunt_to_hub <hub server id>`, which checks that the invoker is an
+  admin on that hub. The bot creates a new uncategorised hub channel per hunt, named as
+  archived channels are today, and tags it with the topic `puzzbot-archive:<hunt uid>` so
+  a re-run resumes into it. `!setup_server` may later store a default hub. Implemented by
+  `docs/superpowers/plans/2026-09-24-cross-server-hunt-archive.md`.
 - **`hunts.roster_role_id`** — the hub-side role that is the DM list.
-- **`hunts.archive_channel_id`** — the hub channel `!archive_hunt` writes threads into.
 - **`hunt_invites`** — `code`, `hunt_id`, `role_id`, `user_id`, `used_at`. Must be
   persistent: the code→role map is what `on_member_join` consults, and an in-memory map
   dies with the next restart mid-hunt. It also records who was invited versus who arrived.
@@ -305,9 +308,9 @@ guild where it is played, gated by a role in that guild — which is exactly wha
 
 ## Archiving and teardown
 
-`!archive_hunt` (`bot/cogs/puzzles.py:3698`) writes its history threads into
-`hunts.archive_channel_id` on the hub rather than the local `#general`, which is about to
-vanish.
+`!archive_hunt_to_hub <hub id>` writes the hunt's history threads into a new per-hunt
+channel on the hub, the team server's general channel included. `!archive_hunt` is
+unchanged and still archives in place.
 
 **No webhook.** The July doc reached for a cross-guild webhook, but the bot is a member of
 the hub and can fetch that channel and create threads directly — one less moving part, and
@@ -315,9 +318,10 @@ no webhook URL sitting in the database as a credential.
 
 ### Re-homing the hunt row to the hub
 
-**`archive_hunt` must also re-point the hunt row at the hub** — `guild_id` to the hub's
-`guilds` row, `channel_id` to the hub archive channel — otherwise archived hunts disappear
-from the dashboard entirely.
+**`archive_hunt_to_hub` must also re-point the hunt row at the hub** — `guild_id` to the hub's
+`guilds` row, `channel_id` to the new hub channel — otherwise archived hunts disappear
+from the dashboard entirely. *the bot leaves only when no hunt row, archived or not, still
+references the team server's `guilds` row, and only after a run with no failures.*
 
 `hunt_visible` resolves the hunt's guild snowflake and returns False when it is absent from
 the user's `membership`, **before** the `archived` short-circuit runs
