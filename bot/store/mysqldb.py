@@ -278,6 +278,17 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         )
         return row is not None
 
+    def count_for_guild(self, guild_row_id) -> int:
+        """How many hunt rows, archived or not, point at `guilds.id` *guild_row_id*.
+
+        archive_hunt_to_hub leaves a team server only when this is zero: an
+        archived hunt still homed there would vanish from the dashboard once the
+        bot left, because hunt_visible needs the user to share that guild with
+        the bot."""
+        row = self._fetch_one(
+            "SELECT COUNT(*) AS n FROM `hunts` WHERE guild_id = %s", (guild_row_id,))
+        return int(row["n"]) if row else 0
+
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     GENERATED_UNIQUE_FIELDS = ('group_code',)
