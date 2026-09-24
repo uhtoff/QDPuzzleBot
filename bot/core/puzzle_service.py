@@ -4037,7 +4037,8 @@ class PuzzleService:
                 return report
 
         # General is gone, so a failure here must not strand the hunt: best-effort.
-        if general_category_id is not None:
+        # Only a hunt category: a foreign one may hold other channels or hunts.
+        if general_category_id is not None and general_category_id in swept_ids:
             cat = discord.utils.get(guild.categories, id=general_category_id)
             if cat is not None:
                 try:

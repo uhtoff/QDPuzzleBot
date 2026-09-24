@@ -242,3 +242,19 @@ async def test_resume_discards_a_partial_thread_and_recopies_the_channel():
     assert r.m.archive.await_args.args[3] is r.t.puzzle
     r.m.safe_del.assert_not_awaited()
     assert (r.report.channels_skipped, r.report.channels_archived, r.report.failures) == (0, 1, [])
+
+
+async def test_general_in_a_non_hunt_category_leaves_that_category_alone():
+    svc, hunt, t = _service(), _hunt(), _team()
+    other = MagicMock(); other.id = 99; other.channels = [t.general]; other.delete = AsyncMock()
+    t.general.category = other
+    t.main_cat.channels = []
+    # Resolvable on the guild (so only the guard can spare it), but not a hunt category.
+    t.guild.categories = [t.main_cat, t.round_cat, other]
+    with _patched(svc) as m:
+        report = await _run(svc, hunt, t, m)
+    assert t.general in [c.args[3] for c in m.archive.await_args_list]
+    other.delete.assert_not_awaited()
+    assert report.failures == []
+    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (9, 3000, True)
+    t.guild.leave.assert_awaited_once()
