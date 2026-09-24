@@ -102,3 +102,22 @@ async def test_a_failing_hub_send_still_replies_in_ctx():
     hub_channel.send.assert_awaited_once()
     assert ctx.send.await_count == 2
     assert "H - me" in ctx.send.await_args.args[0]
+
+
+async def test_a_partial_run_tells_the_admin_to_rerun_from_general():
+    hunt = _hunt()
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    hub, hub_channel = _hub()
+    cog.service.archive_hunt_to_hub = AsyncMock(return_value=hunt_archive.HuntArchiveReport(
+        final_name="H - me", hub_channel_id=3000, failures=["x"]))
+    ctx = _ctx()
+    ctx.send = AsyncMock(side_effect=[MagicMock(edit=AsyncMock()), MagicMock()])
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(return_value=(hub, MagicMock()))), \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+        PuzzleDb.get_all_from_hunt.return_value = []
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+    summary = ctx.send.await_args.args[0]
+    assert "re-run !archive_hunt_to_hub" in summary
+    assert "general channel" in summary

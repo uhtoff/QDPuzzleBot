@@ -4096,8 +4096,8 @@ class Puzzles(commands.Cog):
             if report.left_guild:
                 summary += "\nThe bot has left this server; its owner can now delete it."
             if report.failures:
-                summary += ("\nNothing was moved to the hub dashboard yet and the bot is staying: "
-                            "re-run !archive_hunt_to_hub <hub id> from any remaining hunt channel to finish.")
+                summary += ("\nThe hunt hasn't been moved on the dashboard yet and the bot is staying: "
+                            "re-run !archive_hunt_to_hub <hub id> from this hunt's general channel to finish.")
             hub_channel = hub.get_channel(report.hub_channel_id)
             if hub_channel is not None:
                 try:

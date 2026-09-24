@@ -3983,14 +3983,15 @@ class PuzzleService:
         dashboard still shows it once the team server is gone, and leave the team
         server if nothing else is homed there.
 
-        History and the hunt row move only on a clean run. After any failure the
-        hunt row is left untouched (still resolvable on the team server) and a
-        category holding a failed channel is kept, so a re-run from any remaining
-        hunt channel finishes a partial one: the hub channel is found again by
-        its topic, and threads already written are skipped by name (see
-        _archive_channel_into). Hunt channels outside the swept categories
-        (e.g. orphaned by a partial run, or an uncategorised general channel)
-        are archived too."""
+        History and the hunt row move only on a clean run. The general channel
+        is archived last, and only once everything else succeeded, so a failed
+        run always leaves it (and its category) in place to re-run from. After
+        any failure the hunt row is left untouched (still resolvable on the team
+        server) and a category holding a failed channel is kept. A re-run
+        finishes a partial one: the hub channel is found again by its topic, and
+        threads already completely written are skipped (see
+        _archive_channel_into). Puzzle channels outside the swept categories
+        (e.g. orphaned by a partial run) are archived too."""
         report = hunt_archive.HuntArchiveReport()
         team = hunt_archive.resolve_team_name(guild, hunt, invoker)
         report.final_name = hunt_archive.archived_channel_name(hunt, team)
@@ -4007,7 +4008,7 @@ class PuzzleService:
                    [c for c in categories if c.id == general_category_id])
         swept_ids = {c.id for c in categories}
         stragglers = {}
-        candidate_ids = [hunt.channel_id] + [
+        candidate_ids = [
             p.channel_id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.channel_id]
         for cid in candidate_ids:
             ch = guild.get_channel(cid)
@@ -4015,10 +4016,12 @@ class PuzzleService:
                 continue
             if ch.category is None or ch.category.id not in swept_ids:
                 stragglers[ch.id] = ch
+        # Everything but the general channel and its category: a failure below
+        # must leave general standing so the run can be re-run from it.
         await self._sweep_hunt_categories(
             guild, dest, webhook, ordered, report,
-            keep_channel_id=None, keep_category_id=None, on_progress=on_progress,
-            keep_failed_categories=True)
+            keep_channel_id=hunt.channel_id, keep_category_id=general_category_id,
+            on_progress=on_progress, keep_failed_categories=True)
         for done, ch in enumerate(stragglers.values(), start=1):
             await self._archive_channel_into(guild, dest, webhook, ch, report)
             if on_progress is not None:
@@ -4026,6 +4029,23 @@ class PuzzleService:
 
         if report.failures:
             return report
+
+        # Everything else is clean: now the general channel (wherever it sits).
+        if general is not None:
+            await self._archive_channel_into(guild, dest, webhook, general, report)
+            if report.failures:
+                return report
+
+        # General is gone, so a failure here must not strand the hunt: best-effort.
+        if general_category_id is not None:
+            cat = discord.utils.get(guild.categories, id=general_category_id)
+            if cat is not None:
+                try:
+                    await cat.delete(reason=self._DISCORD_DELETE_REASON)
+                    report.categories_deleted += 1
+                except Exception:
+                    logger.exception("archive_hunt_to_hub: could not delete general category %s",
+                                     general_category_id)
 
         self._drop_split_layout_rows(hunt)
 

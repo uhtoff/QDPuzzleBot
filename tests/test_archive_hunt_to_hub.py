@@ -134,7 +134,50 @@ async def test_a_partial_run_moves_nothing_and_keeps_failed_categories():
     assert report.left_guild is False
     # The failed channel's category survives, so the channel isn't orphaned.
     t.round_cat.delete.assert_not_awaited()
-    t.main_cat.delete.assert_awaited_once()
+    # General (and so its category) is kept for the re-run: it goes only last,
+    # once everything else is clean.
+    t.main_cat.delete.assert_not_awaited()
+    assert t.general not in [c.args[3] for c in m.archive.await_args_list]
+
+
+async def test_a_failed_voice_delete_keeps_general_for_the_rerun():
+    svc, hunt, t = _service(), _hunt(), _team()
+    with _patched(svc) as m:
+        m.safe_del.side_effect = lambda guild, cid: {72: False}.get(cid, True)
+        report = await _run(svc, hunt, t, m)
+    assert report.failures == ["voice72"]
+    assert [c.args[3] for c in m.archive.await_args_list] == [t.puzzle]
+    t.main_cat.delete.assert_not_awaited()
+    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (5, 60, False)
+    m.hdb.commit.assert_not_called()
+    t.guild.leave.assert_not_awaited()
+
+
+async def test_a_failed_general_archive_commits_nothing():
+    svc, hunt, t = _service(), _hunt(), _team()
+
+    async def archive(bot, dest, webhook, ch, **kw):
+        if ch is t.general:
+            raise RuntimeError("boom")
+        return hunt_archive.ChannelArchiveResult(messages_moved=1)
+
+    with _patched(svc, archive_side_effect=archive) as m:
+        report = await _run(svc, hunt, t, m)
+    assert report.failures == ["text60"]
+    m.hdb.commit.assert_not_called()
+    t.guild.leave.assert_not_awaited()
+    t.main_cat.delete.assert_not_awaited()
+
+
+async def test_a_failed_general_category_delete_does_not_block_the_rehome():
+    svc, hunt, t = _service(), _hunt(), _team()
+    t.main_cat.delete = AsyncMock(side_effect=discord.HTTPException(
+        MagicMock(status=500, reason="x"), "boom"))
+    with _patched(svc) as m:
+        report = await _run(svc, hunt, t, m)
+    assert report.failures == []
+    assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (9, 3000, True)
+    t.guild.leave.assert_awaited_once()
 
 
 async def test_a_rerun_archives_an_orphaned_puzzle_channel_then_rehomes():
