@@ -166,3 +166,36 @@ async def test_another_hunt_on_the_team_server_keeps_the_bot_there():
         report = await _run(svc, hunt, t, m)
     t.guild.leave.assert_not_awaited()
     assert report.left_guild is False
+
+
+async def _resume(complete):
+    """_archive_channel_into on a channel whose thread already exists on dest."""
+    svc, t = _service(), _team()
+    dest = _text(3000)
+    thread = MagicMock(); thread.name = "text71 (round)"
+    report = hunt_archive.HuntArchiveReport()
+    with _patched(svc) as m, \
+         patch("bot.core.hunt_archive.archive_thread_state",
+               new=AsyncMock(return_value=(thread, complete))) as state, \
+         patch("bot.core.hunt_archive.discard_partial_thread", new=AsyncMock()) as discard, \
+         patch("bot.core.hunt_archive.thread_name_for_channel", return_value="text71 (round)"):
+        await svc._archive_channel_into(t.guild, dest, MagicMock(), t.puzzle, report)
+    state.assert_awaited_once_with(dest, "text71 (round)")
+    return SimpleNamespace(m=m, t=t, report=report, discard=discard, thread=thread, dest=dest)
+
+
+async def test_resume_finishes_a_completely_archived_channel_without_recopying():
+    r = await _resume(complete=True)
+    r.m.safe_del.assert_awaited_once_with(r.t.guild, 71)
+    r.m.archive.assert_not_awaited()
+    r.discard.assert_not_awaited()
+    assert (r.report.channels_skipped, r.report.channels_archived, r.report.failures) == (1, 0, [])
+
+
+async def test_resume_discards_a_partial_thread_and_recopies_the_channel():
+    r = await _resume(complete=False)
+    r.discard.assert_awaited_once_with(r.dest, r.thread)
+    r.m.archive.assert_awaited_once()
+    assert r.m.archive.await_args.args[3] is r.t.puzzle
+    r.m.safe_del.assert_not_awaited()
+    assert (r.report.channels_skipped, r.report.channels_archived, r.report.failures) == (0, 1, [])

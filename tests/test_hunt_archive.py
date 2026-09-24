@@ -2,6 +2,8 @@
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
+import pytest
 
 from bot.core import hunt_archive
 
@@ -114,7 +116,7 @@ def _source(messages):
 
 def _dest_and_webhook():
     dest = MagicMock()
-    dest.send = AsyncMock(return_value=MagicMock())
+    dest.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
     dest.create_thread = AsyncMock(return_value=MagicMock())
     webhook = MagicMock()
     webhook.send = AsyncMock(return_value=MagicMock())
@@ -172,3 +174,58 @@ async def test_archive_and_delete_deletes_source_on_success():
     dest, webhook = _dest_and_webhook()
     await hunt_archive.archive_and_delete_channel(_bot(), dest, webhook, src, thread_name="t")
     src.delete.assert_awaited_once()
+
+
+async def test_routine_marks_the_thread_complete_after_the_copy():
+    src = _source([_msg(1, content="x", author_id=222)])
+    dest, webhook = _dest_and_webhook()
+    await hunt_archive.archive_channel_to_thread(_bot(), dest, webhook, src, thread_name="t")
+    placeholder = dest.send.return_value
+    placeholder.edit.assert_awaited_once()
+    assert placeholder.edit.await_args.kwargs["content"] == (
+        "Archive of channel chan" + hunt_archive.ARCHIVE_COMPLETE_MARK)
+
+
+async def test_routine_leaves_the_thread_unmarked_when_the_copy_dies():
+    src = _source([_msg(1, content="x", author_id=222)])
+    dest, webhook = _dest_and_webhook()
+    webhook.send = AsyncMock(side_effect=RuntimeError("socket died"))
+    with pytest.raises(RuntimeError):
+        await hunt_archive.archive_channel_to_thread(_bot(), dest, webhook, src, thread_name="t")
+    dest.send.return_value.edit.assert_not_awaited()
+
+
+def _thread(id, name):
+    t = MagicMock(); t.id = id; t.name = name
+    return t
+
+
+async def test_thread_state_none_when_no_thread_matches():
+    dest = MagicMock(); dest.threads = [_thread(1, "other")]
+    dest.fetch_message = AsyncMock()
+    assert await hunt_archive.archive_thread_state(dest, "t") == (None, False)
+    dest.fetch_message.assert_not_awaited()
+
+
+async def test_thread_state_complete_when_starter_carries_the_mark():
+    wanted = _thread(2, "t")
+    dest = MagicMock(); dest.threads = [_thread(1, "other"), wanted]
+    dest.fetch_message = AsyncMock(return_value=MagicMock(
+        content="Archive of channel c" + hunt_archive.ARCHIVE_COMPLETE_MARK))
+    assert await hunt_archive.archive_thread_state(dest, "t") == (wanted, True)
+    dest.fetch_message.assert_awaited_once_with(2)
+
+
+async def test_thread_state_incomplete_when_starter_lacks_the_mark():
+    wanted = _thread(2, "t")
+    dest = MagicMock(); dest.threads = [wanted]
+    dest.fetch_message = AsyncMock(return_value=MagicMock(content="Archive of channel c"))
+    assert await hunt_archive.archive_thread_state(dest, "t") == (wanted, False)
+
+
+async def test_thread_state_incomplete_when_starter_is_gone():
+    wanted = _thread(2, "t")
+    dest = MagicMock(); dest.threads = [wanted]
+    dest.fetch_message = AsyncMock(
+        side_effect=discord.NotFound(MagicMock(status=404, reason="x"), "gone"))
+    assert await hunt_archive.archive_thread_state(dest, "t") == (wanted, False)

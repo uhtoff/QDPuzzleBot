@@ -31,6 +31,9 @@ ATTACH_TIMEOUT = 30
 SEND_DELAY = 0.1
 # Discord thread-name hard cap.
 MAX_THREAD_NAME = 100
+# Appended to an archive thread's starter message once its whole history was
+# copied; a thread without it was left by a failed or interrupted copy.
+ARCHIVE_COMPLETE_MARK = " — complete"
 
 
 @dataclass
@@ -210,7 +213,40 @@ async def archive_channel_to_thread(bot, dest, webhook, source, *, thread_name) 
             result.messages_skipped += 1
             logger.warning("Skipping message from %s while archiving: %s", author.display_name, e)
         await asyncio.sleep(SEND_DELAY)
+    # Only reached when the whole history was copied: marks the thread done.
+    await placeholder.edit(content=f"Archive of channel {source.name}{ARCHIVE_COMPLETE_MARK}")
     return result
+
+
+async def archive_thread_state(dest, thread_name):
+    """(thread, complete) for an active archive thread named *thread_name* on
+    *dest*, or (None, False) if there is none. Complete means its starter
+    message carries ARCHIVE_COMPLETE_MARK, which archive_channel_to_thread only
+    writes after the whole history was copied, so a thread left by a failed or
+    interrupted copy reads as incomplete.
+
+    Threads written before the mark existed carry none, so a resumed run
+    spanning that deploy re-copies them instead of skipping them: history is
+    duplicated rather than lost."""
+    thread = next((t for t in getattr(dest, "threads", [])
+                   if getattr(t, "name", None) == thread_name), None)
+    if thread is None:
+        return None, False
+    try:
+        starter = await dest.fetch_message(thread.id)
+    except discord.NotFound:
+        return thread, False
+    return thread, (starter.content or "").endswith(ARCHIVE_COMPLETE_MARK)
+
+
+async def discard_partial_thread(dest, thread):
+    """Delete an incomplete archive thread and its starter message, so the
+    channel can be copied again from scratch."""
+    await thread.delete()
+    try:
+        await dest.get_partial_message(thread.id).delete()
+    except discord.HTTPException:
+        pass
 
 
 async def archive_and_delete_channel(bot, dest, webhook, source, *, thread_name) -> ChannelArchiveResult:

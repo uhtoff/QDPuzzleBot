@@ -3826,11 +3826,6 @@ class PuzzleService:
         HuntJsonDb.delete(hunt.id)
         return failed_channels
 
-    def _archive_thread_exists(self, dest, thread_name):
-        """True if an active thread with *thread_name* already exists on *dest* —
-        used to make archive_hunt resumable after a partial run."""
-        return any(getattr(t, "name", None) == thread_name for t in getattr(dest, "threads", []))
-
     def _hunt_categories(self, guild, hunt):
         """Every live category the hunt owns: main + solved-by-name + any
         split/overflow categories the hunt's own general container owns + each
@@ -3866,7 +3861,8 @@ class PuzzleService:
                         getattr(ch, "name", str(getattr(ch, "id", "?"))))
             elif isinstance(ch, discord.TextChannel):
                 thread_name = hunt_archive.thread_name_for_channel(ch)
-                if self._archive_thread_exists(dest, thread_name):
+                thread, complete = await hunt_archive.archive_thread_state(dest, thread_name)
+                if complete:
                     # A prior run archived this but failed to delete it — finish that.
                     if await self._safe_delete_channel(guild, ch.id):
                         report.channels_skipped += 1
@@ -3874,6 +3870,9 @@ class PuzzleService:
                         report.failures.append(
                             getattr(ch, "name", str(getattr(ch, "id", "?"))))
                 else:
+                    if thread is not None:
+                        # A prior run died mid-copy: its thread is partial. Start over.
+                        await hunt_archive.discard_partial_thread(dest, thread)
                     r = await hunt_archive.archive_and_delete_channel(
                         self.bot, dest, webhook, ch, thread_name=thread_name)
                     report.channels_archived += 1

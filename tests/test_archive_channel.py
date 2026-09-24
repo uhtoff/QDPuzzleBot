@@ -48,7 +48,7 @@ def _make_archive_to(moved_message):
     webhook = MagicMock()
     webhook.send = AsyncMock(return_value=moved_message)
     archive_to.webhooks = AsyncMock(return_value=[webhook])
-    archive_to.send = AsyncMock(return_value=MagicMock())
+    archive_to.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
     archive_to.create_thread = AsyncMock(return_value=MagicMock())
     archive_to.create_webhook = AsyncMock()
     return archive_to, webhook
