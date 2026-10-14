@@ -1,7 +1,7 @@
 # Fresh Discord server per hunt-team — design
 
 **Date:** 2026-07-31
-**Status:** Design approved; slice 1 (cross-server archive, as !archive_hunt_to_hub) implemented — see plan 2026-09-24.
+**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14.
 **Supersedes:** the *reusable pool* decision in
 `docs/future/2026-07-05-multi-server-hunt-architecture-design.md`. That doc's problem
 statement, Discord constraints, and rejected approaches all still stand and are not
@@ -58,13 +58,12 @@ Contents:
 | Item | Configuration | Why |
 | --- | --- | --- |
 | `@everyone` | `View Channels` removed | Clone is locked down by default |
-| `hunt-team` role | No special permissions | Gates the hunt; the `clone()` seed's subject |
 | `mod` role | Manage Channels + Manage Messages, **not** Administrator | Organisers get no puzzle sight by default. **Must be named to match `ADMIN_ROLES`** (`bot/core/constants.py:10`) — the bot's own command gates check role *names* |
 | `#lobby` | `@everyone: allow View` | Only visible channel; holds welcome + role panel |
 | `#bot-commands` | `hunt-team: allow View` | Matches `GuildSettings.discord_bot_channel` |
-| `Hunt` category | `@everyone: deny View`, `hunt-team: allow View` | **Replaces the manual overwrite seam** |
-| `#general` (in `Hunt`) | Inherits | Where `!archive_hunt` writes threads today |
 | Server settings | Notifications = mentions only; join messages suppressed; verification low | Puzzle channels are noisy |
+
+*Changed 2026-10-14:* no hunt-team role, Hunt category or #general in the template — create_hunt makes the category, its #general and the gating overwrites itself, from a team role named after the hub roster role.
 
 The pre-gated `Hunt` category is the single biggest win: today the hunt-role view
 overwrite is set **by hand** on the first hunt category and later categories `clone()`
@@ -83,7 +82,9 @@ just as `create_guild` is, so the bot cannot self-serve either:
 optional third step follows — **transfer ownership to a member of that team**, after which
 the group account leaves. Whether to transfer is decided per team; see *Ownership and admin*.
 
-### The bot: `!setup_server <hunt-uid> <team-name> [--organisers]`
+### The bot: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`
+
+*Changed 2026-10-14 (plan 2026-10-14-setup-server.md):* the hunt is created here, on the team server; the hub role is made by hand and passed in; the invoker must be a hub admin; settings are copied from the hub's row; admin is pinned to mod by id; a run-once lock (guilds.setup_complete_time) is written last. Emoji upload and --organisers are dropped. Steps 6's role panel and 7's invites remain for slices 3–4.
 
 `on_guild_join` already creates the `guilds` row (`bot/cogs/settings.py:28`), so the
 command fills in the rest:
@@ -300,7 +301,8 @@ guild where it is played, gated by a role in that guild — which is exactly wha
   archived channels are today, and tags it with the topic `puzzbot-archive:<hunt uid>` so
   a re-run resumes into it. `!setup_server` may later store a default hub. Implemented by
   `docs/superpowers/plans/2026-09-24-cross-server-hunt-archive.md`.
-- **`hunts.roster_role_id`** — the hub-side role that is the DM list.
+- **`hunts.roster_role_id`** — the hub-side role that is the DM list — made by hand on the hub and passed to !setup_server (2026-10-14).
+- **`guilds.setup_complete_time`** — !setup_server's run-once lock (migration 047).
 - **`hunt_invites`** — `code`, `hunt_id`, `role_id`, `user_id`, `used_at`. Must be
   persistent: the code→role map is what `on_member_join` consults, and an in-memory map
   dies with the next restart mid-hunt. It also records who was invited versus who arrived.

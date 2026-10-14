@@ -134,6 +134,37 @@ applied turns up nothing and looks like a missing implementation. It is not.
   someone outside the team and confirm it is not.
 - `!reconcile` (report mode, no `apply`) → no surprises.
 
+## Team servers (one per team per hunt)
+
+For a multi-team hunt each team plays on its own server, made fresh from a guild
+template. Sections 1–6 above do not apply: `!setup_server` does them.
+
+**Once: build the template.** Make a model server with exactly:
+
+- `@everyone`: **View Channels off** (the server is locked down by default).
+- A `mod` role: Manage Channels + Manage Messages, **not** Administrator.
+- `#lobby`: `@everyone` allowed to view (the only channel newcomers see).
+- `#bot-commands`.
+- Notifications = mentions only, join messages off, verification low.
+
+Then Server Settings → Server Template → generate the `discord.new/…` link. No hunt
+category: the bot creates and gates it. Re-sync the template when the model drifts.
+
+**Per team, per hunt:**
+
+1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
+2. Using the shared group account, open the template link to create the server.
+3. Invite the bot with Administrator (`permissions=8`).
+4. In Server Settings → Roles, drag the bot's role above `mod`.
+5. In the new server: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
+   You must be an admin on the hub. If it stops, fix what it says and re-run the same
+   command; once it reports complete it is locked on that server.
+6. Optionally transfer server ownership to a member of that team and have the group
+   account leave.
+7. Give players the team role (until invite DMs land in a later release).
+
+At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.
+
 ## Capacity, when planning a server per hunt
 
 A Discord server holds **50 categories**, and the layout is one category per round or
