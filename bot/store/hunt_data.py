@@ -28,6 +28,9 @@ class HuntData:
     archived: bool = False
     layout_mode: str = "channel"
     role_id: int = 0
+    # The HUB role (made by hand on the hub) listing this team-server hunt's
+    # players: slice 3's invite DM list. 0/None on hub-hosted hunts.
+    roster_role_id: int = 0
     start_timestamp: int = 0
     username: str = ""
     password: str = ""

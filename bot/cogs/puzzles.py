@@ -65,6 +65,8 @@ PROTECTED_SETTING_KEYS = {
         "refuses a change that would lock you out.",
     "organiser_role_ids":
         "Use `!set_organiser_roles`, which checks the roles exist in this guild.",
+    "setup_complete_time":
+        "This is !setup_server's run-once lock; it is set when setup completes.",
     "guild_id":
         "This is the key every setting for this guild is stored under; changing "
         "it would orphan them.",

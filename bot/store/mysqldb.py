@@ -1427,3 +1427,18 @@ class MySQLGuildSettingsDb():
         # None (no row yet) or a stale copy, which would otherwise shadow this
         # freshly-written row until process restart.
         self.cached_settings[settings.guild_id] = settings
+
+    def mark_setup_complete(self, settings: GuildSettings):
+        """Stamp guilds.setup_complete_time with now (UTC): !setup_server's
+        run-once lock. Its own UPDATE, never part of commit(), so no ordinary
+        settings write can clear it."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(
+                "UPDATE `guilds` SET `setup_complete_time`=%s WHERE `id`=%s",
+                (now.replace(tzinfo=None), settings.id))
+        finally:
+            cursor.close()
+        settings.setup_complete_time = now
+        self.cached_settings[settings.guild_id] = settings

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import datetime
 import json
+from typing import Optional
 from dataclasses_json import dataclass_json
 
 
@@ -22,6 +23,10 @@ class GuildSettings:
     # every guild starts in.
     admin_role_ids: str = ""
     organiser_role_ids: str = ""
+    # !setup_server's run-once lock (migration 047). Set ONLY by
+    # GuildSettingsDb.mark_setup_complete -- commit() deliberately never writes
+    # it, so no ordinary settings write can clear it.
+    setup_complete_time: Optional[datetime.datetime] = None
 
     @classmethod
     def import_dict(cls, settings: dict):
