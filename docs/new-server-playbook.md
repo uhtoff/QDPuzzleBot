@@ -144,7 +144,7 @@ template. Sections 1–6 above do not apply: `!setup_server` does them.
 - `@everyone`: **View Channels off** (the server is locked down by default).
 - A `mod` role: Manage Channels + Manage Messages, **not** Administrator.
 - `#lobby`: `@everyone` allowed to view (the only channel newcomers see).
-- `#bot-commands`.
+- `#bot-commands`: `mod` allowed to view (only admin commands need it).
 - Notifications = mentions only, join messages off, verification low.
 
 Then Server Settings → Server Template → generate the `discord.new/…` link. No hunt

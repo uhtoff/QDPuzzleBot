@@ -60,14 +60,12 @@ Contents:
 | `@everyone` | `View Channels` removed | Clone is locked down by default |
 | `mod` role | Manage Channels + Manage Messages, **not** Administrator | Organisers get no puzzle sight by default. **Must be named to match `ADMIN_ROLES`** (`bot/core/constants.py:10`) — the bot's own command gates check role *names* |
 | `#lobby` | `@everyone: allow View` | Only visible channel; holds welcome + role panel |
-| `#bot-commands` | `hunt-team: allow View` | Matches `GuildSettings.discord_bot_channel` |
+| `#bot-commands` | `mod: allow View` | Matches `GuildSettings.discord_bot_channel`; only admin commands (!hunt, !set_hunt_role) require it |
 | Server settings | Notifications = mentions only; join messages suppressed; verification low | Puzzle channels are noisy |
 
 *Changed 2026-10-14:* no hunt-team role, Hunt category or #general in the template — create_hunt makes the category, its #general and the gating overwrites itself, from a team role named after the hub roster role.
 
-The pre-gated `Hunt` category is the single biggest win: today the hunt-role view
-overwrite is set **by hand** on the first hunt category and later categories `clone()`
-from it. The template ships it pre-wired, so the manual step disappears.
+The manual hunt-role overwrite step disappears all the same: `!setup_server` calls `create_hunt` with the team role, and `create_hunt` gates the new category itself (`_gating_overwrites`), so no human sets an overwrite by hand.
 
 ### The human, per team per hunt
 
@@ -90,20 +88,19 @@ the group account leaves. Whether to transfer is decided per team; see *Ownershi
 command fills in the rest:
 
 1. **Preflight, refuse loudly on failure:** bot has the needed permissions; the bot's
-   managed role sits **above** both `hunt-team` and `mod` (it cannot assign a role above
+   managed role sits **above** `mod` and above the team role if a prior run created it (it cannot assign a role above
    its own, and it must be able to grant `mod` for elevation); the expected template roles
    and channels exist, with the mod role named to match `ADMIN_ROLES`.
-2. Populate `GuildSettings` — `discord_bot_channel`, `drive_parent_id`,
-   `drive_resources_id`, `website_url`.
+2. Copy `website_url`, `drive_parent_id`, `drive_resources_id`, `discord_bot_emoji` and `discord_use_voice_channels` from the hub's `guilds` row; set `discord_bot_channel` to `bot-commands`; pin `admin_role_ids` to the `mod` role's id.
 3. Call the existing `create_hunt` (`bot/cogs/puzzles.py:628`, already takes a
-   `role_name`) to build the hunt row, team role and category tree.
+   `role_name`) with `role_name` = the hub role's name, to build the hunt row, team role and category tree.
 4. Record `roster_role_id` against the hunt.
-5. Upload the standard emoji set (bots may create emojis; templates cannot carry them). With
-   `--organisers`, also create the `Organiser` role, which arms the organiser-tier gate.
+5. *(Dropped 2026-10-14: no emoji set exists to upload, and `--organisers` is not needed on a single-team server.)*
 6. Post the welcome message and the join/leave role panel in `#lobby`.
 7. Create one **single-use invite per rostered player** and DM it, recording each in
    `hunt_invites`.
 8. Report per-step status, including every player whose DM failed.
+9. Stamp `guilds.setup_complete_time` as the very last step; the command refuses on any server where it is set.
 
 ## Invite delivery
 
@@ -181,7 +178,7 @@ regardless — that tier is never affected by the gate.
 `any(r.name in ORGANISER_ROLE_NAMES for r in guild.roles)`, not whether anyone holds it, and
 hierarchy position is irrelevant. Since this is a per-hunt choice (expected to be used for
 MIT only) rather than a property of the template, `!setup_server` takes an `--organisers`
-flag that creates the role. One template then serves both cases.
+flag that creates the role *(Dropped 2026-10-14; see the !setup_server section.)*. One template then serves both cases.
 
 **Trap to avoid:** creating the role and assigning it to nobody locks all 21 commands to
 `mod` holders, leaving the team unable to do routine puzzle management. When the flag is
@@ -364,7 +361,7 @@ list and in `guilds` rows, cluttering the dashboard's guild picker.
 | Player has DMs closed | Unavoidable. `!setup_server` reports every failure so an organiser can pass the invite along; `!invite <user>` re-issues. |
 | Player joins a team mid-hunt | `on_member_update` on the hub DMs an invite automatically when a roster role is gained for a live hunt. |
 | `!setup_server` dies halfway | Discord side-effects cannot roll back, so every step is check-then-create — the pattern `_ensure_guild_settings` already uses (`bot/cogs/settings.py:32`). Re-running finishes the job instead of duplicating it. |
-| Bot's role sits below `hunt-team` | Caught in preflight and reported as a one-drag fix, rather than surfacing as an inscrutable permissions error mid-build. |
+| Bot's role sits below `mod` | Caught in preflight and reported as a one-drag fix, rather than surfacing as an inscrutable permissions error mid-build. |
 | Bot loses Administrator or is removed | The hunt is stranded and only a human can restore it. A startup check warns when a live hunt's guild is missing or the bot's permissions are insufficient. |
 | Someone joins with no tracked invite | Lands in `#lobby` with no role; the panel is their way in. |
 
