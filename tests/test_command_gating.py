@@ -179,6 +179,7 @@ EXPECTED = [
     ("priority", "anyone"),
     ("puzzle", "anyone"),              # creating a puzzle is a solver action
     ("remove_from", "anyone"),         # Tag area: tidying up without an organiser
+    ("setup_server", "anyone"),        # Bang-only; hub-admin check is runtime
     ("solve", "anyone"),
     ("solve_mini", "anyone"),
     ("starttime", "anyone"),           # Utility cog

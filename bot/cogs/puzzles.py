@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive, media_gc
+from bot.core import category_layout, hunt_archive, media_gc, server_setup
 
 logger = logging.getLogger(__name__)
 
@@ -4112,6 +4112,53 @@ class Puzzles(commands.Cog):
                 await ctx.send(summary)
             except discord.HTTPException:
                 pass
+
+    @commands.command()
+    @commands.guild_only()
+    async def setup_server(self, ctx, hub_id: int, roster_role_id: int, hunt_url: str, *, hunt_name: str):
+        """*Set up a server freshly made from the team-server template (runs once).*
+
+        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>`
+        Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
+        You must be an admin on the hub; no role is needed here, since nobody but the
+        owner is in a fresh server. Checks the server matches the template, copies the
+        hub's settings, pins `mod` as the admin role, creates the hunt gated to a team
+        role named after the hub role, and records that hub role as the hunt's roster.
+        If it stops partway, re-run the same command to finish; once complete it is
+        locked on this server. Bang-only: the bot must already be here."""
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        if settings is None:
+            await ctx.send(":x: This server has no settings row yet — remove the bot and re-invite it.")
+            return
+        if settings.setup_complete_time is not None:
+            await ctx.send(f":x: This server was already set up ({settings.setup_complete_time:%Y-%m-%d}); "
+                           "!setup_server only runs once per server.")
+            return
+        try:
+            hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
+            targets = server_setup.preflight(ctx.guild, settings, hub, roster_role_id, hunt_name)
+        except (hunt_archive.HubUnavailable, server_setup.SetupRefused) as e:
+            await ctx.send(f":x: {e}")
+            return
+        await ctx.send(f"⏳ Setting up **{hunt_name}** for **{targets.roster_role.name}**…")
+        report = await server_setup.run_setup(
+            self.service, ctx.guild, ctx.author, targets, settings, hub_row, hunt_name, hunt_url)
+        if report.hunt_created and report.hunt is not None:
+            from bot.core.notifier import DiscordNotifier
+            try:
+                await DiscordNotifier(self.bot).welcome(
+                    ctx.guild, report.hunt, channel=self.bot.get_channel(report.hunt.channel_id))
+            except discord.HTTPException:
+                logger.exception("setup_server: could not post the hunt welcome")
+        lines = [f"• {s}" for s in report.steps]
+        if report.error:
+            lines.append(f":x: Setup stopped: {report.error}")
+            lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
+        else:
+            lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
+            lines.append("Next: give players the team role (invites by DM arrive in a later release), "
+                         "and transfer ownership to a team member if wanted.")
+        await ctx.send("\n".join(lines))
 
     @commands.command()
     @is_organiser()

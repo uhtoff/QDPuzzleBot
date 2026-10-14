@@ -18,6 +18,7 @@ import discord
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES
 from bot.core.discord_channels import clean_category_name
 from bot.store import GuildSettingsDb, HuntJsonDb
+from bot.store.hunt_data import HuntData
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ WELCOME_MARK = "— puzzbot team server"
 @dataclass
 class SetupReport:
     steps: list = field(default_factory=list)   # one line per step done, in order
-    hunt: Optional[object] = None
+    hunt: Optional[HuntData] = None
     hunt_created: bool = False
     error: str = ""                              # set when the run stopped; lock not written
 
