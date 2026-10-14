@@ -155,13 +155,17 @@ category: the bot creates and gates it. Re-sync the template when the model drif
 1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
 2. Using the shared group account, open the template link to create the server.
 3. Invite the bot with Administrator (`permissions=8`).
-4. In Server Settings → Roles, drag the bot's role above `mod`.
-5. In the new server: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
-   You must be an admin on the hub. If it stops, fix what it says and re-run the same
-   command; once it reports complete it is locked on that server.
-6. Optionally transfer server ownership to a member of that team and have the group
+4. Delete the bot's join greeting from `#lobby` — it describes the hub's manual setup,
+   which `!setup_server` does for you.
+5. In Server Settings → Roles, drag the bot's role above `mod`.
+6. In the new server: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
+   You must be the server's owner and an admin on the hub. If it stops, fix what it says
+   and re-run the same command; once it reports complete it is locked on that server.
+7. Optionally transfer server ownership to a member of that team and have the group
    account leave.
-7. Give players the team role (until invite DMs land in a later release).
+8. Give players the team role (until invite DMs land in a later release). Give `mod` to
+   whoever will run admin commands on this server (e.g. `!archive_hunt_to_hub` at hunt
+   end) — after setup nobody holds it.
 
 At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.
 

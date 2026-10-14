@@ -1428,7 +1428,7 @@ class MySQLGuildSettingsDb():
         # freshly-written row until process restart.
         self.cached_settings[settings.guild_id] = settings
 
-    def mark_setup_complete(self, settings: GuildSettings):
+    def mark_setup_complete(self, settings: GuildSettings) -> None:
         """Stamp guilds.setup_complete_time with now (UTC): !setup_server's
         run-once lock. Its own UPDATE, never part of commit(), so no ordinary
         settings write can clear it."""

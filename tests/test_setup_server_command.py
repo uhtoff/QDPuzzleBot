@@ -18,6 +18,15 @@ HUB.name = "The Hub"
 TARGETS = MagicMock()
 TARGETS.roster_role.name = "Team Rocket"
 
+AUTHOR_ID = 42
+
+
+def _ctx():
+    ctx = make_ctx()
+    ctx.author.id = AUTHOR_ID
+    ctx.guild.owner_id = AUTHOR_ID
+    return ctx
+
 
 async def _call(cog, ctx, settings, resolve=None, preflight=None, run=None):
     hub, hub_row = HUB, HUB_ROW
@@ -40,21 +49,21 @@ def _sent(ctx):
 
 
 async def test_a_locked_server_refuses_before_anything_else():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     res, pre, rs, _, _ = await _call(cog, ctx, _settings(locked=True))
     assert "already set up" in _sent(ctx)
     res.assert_not_awaited(); pre.assert_not_called(); rs.assert_not_awaited()
 
 
 async def test_a_server_with_no_settings_row_refuses():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     res, _, rs, _, _ = await _call(cog, ctx, None)
     assert ctx.send.await_args.args[0].startswith(":x:")
     res.assert_not_awaited(); rs.assert_not_awaited()
 
 
 async def test_a_bad_hub_refuses_before_preflight():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     bad = AsyncMock(side_effect=hunt_archive.HubUnavailable("you aren't an admin on The Hub"))
     _, pre, rs, _, _ = await _call(cog, ctx, _settings(), resolve=bad)
     ctx.send.assert_awaited_once_with(":x: you aren't an admin on The Hub")
@@ -62,15 +71,32 @@ async def test_a_bad_hub_refuses_before_preflight():
 
 
 async def test_a_preflight_refusal_makes_nothing():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     refuse = MagicMock(side_effect=server_setup.SetupRefused("the template's #lobby channel is missing"))
     _, _, rs, _, _ = await _call(cog, ctx, _settings(), preflight=refuse)
     ctx.send.assert_awaited_once_with(":x: the template's #lobby channel is missing")
     rs.assert_not_awaited()
 
 
+async def test_a_non_owner_non_admin_is_refused_before_anything_else():
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
+    ctx.guild.owner_id = AUTHOR_ID + 1
+    with patch("bot.cogs.puzzles._holds", return_value=False):
+        res, _, rs, _, _ = await _call(cog, ctx, _settings())
+    assert "Only this server's owner" in _sent(ctx)
+    res.assert_not_awaited(); rs.assert_not_awaited()
+
+
+async def test_a_team_server_admin_who_is_not_owner_may_run_it():
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
+    ctx.guild.owner_id = AUTHOR_ID + 1
+    with patch("bot.cogs.puzzles._holds", return_value=True):
+        _, _, rs, _, _ = await _call(cog, ctx, _settings())
+    rs.assert_awaited_once()
+
+
 async def test_a_full_run_passes_everything_through_and_reports_locked():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     settings = _settings()
     hunt = MagicMock(); hunt.channel_id = 61
     run = AsyncMock(return_value=server_setup.SetupReport(
@@ -80,13 +106,15 @@ async def test_a_full_run_passes_everything_through_and_reports_locked():
     pre.assert_called_once_with(ctx.guild, settings, HUB, 70, "Big Hunt")
     assert run.await_args.args == (cog.service, ctx.guild, ctx.author, TARGETS,
                                    settings, hub_row, "Big Hunt", "https://hunt.example")
-    notifier.return_value.welcome.assert_awaited_once()
+    notifier.return_value.welcome.assert_awaited_once_with(
+        ctx.guild, hunt, channel=cog.bot.get_channel.return_value)
+    cog.bot.get_channel.assert_called_with(61)
     sent = _sent(ctx)
     assert "Created hunt **Big Hunt**" in sent and "locked" in sent
 
 
 async def test_a_stopped_run_says_to_rerun_and_does_not_claim_locked():
-    cog = make_cog(); cog.bot = MagicMock(); ctx = make_ctx()
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     run = AsyncMock(return_value=server_setup.SetupReport(steps=["Settings copied"], error="sheets down"))
     _, _, _, notifier, _ = await _call(cog, ctx, _settings(), run=run)
     sent = _sent(ctx)

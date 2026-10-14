@@ -77,11 +77,14 @@ def preflight(guild, settings, hub, roster_role_id, hunt_name) -> SetupTargets:
     hunt = HuntJsonDb.get_by_name_for_guild(hunt_name, guild.id)
     if HuntJsonDb.count_for_guild(settings.id) > (1 if hunt is not None else 0):
         raise SetupRefused("this server already has another hunt — a team server holds one")
+    if hunt is not None and hunt.roster_role_id and hunt.roster_role_id != roster_role_id:
+        raise SetupRefused(f"this server's hunt is already tied to hub role {hunt.roster_role_id} "
+                           "— re-run with that id")
     if hunt is None:
         leftover = discord.utils.get(guild.categories, name=clean_category_name(hunt_name))
         if leftover is not None:
             raise SetupRefused(f"a `{leftover.name}` category is left from an earlier run "
-                               "that saved no hunt — delete it, then re-run")
+                               "that saved no hunt — delete it and its channels, then re-run")
     return SetupTargets(mod_role, lobby, bot_channel, roster_role, hunt)
 
 
@@ -139,8 +142,10 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
             report.steps.append(f"Hunt **{hunt.name}** was already created; reusing it.")
         report.hunt = hunt
         if not hunt.role_id:
-            raise RuntimeError(f"the hunt isn't gated — run `!set_hunt_role {hunt.name}, {team}`, "
-                               "then re-run !setup_server")
+            raise RuntimeError(
+                f"the hunt isn't gated — give yourself `{targets.mod_role.name}`, run "
+                f"`!set_hunt_role {hunt.name}, {team}` in #{targets.bot_channel.name}, "
+                "then re-run !setup_server")
 
         if hunt.roster_role_id != targets.roster_role.id:
             hunt.roster_role_id = targets.roster_role.id

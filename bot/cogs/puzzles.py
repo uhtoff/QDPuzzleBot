@@ -4120,8 +4120,8 @@ class Puzzles(commands.Cog):
 
         Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>`
         Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
-        You must be an admin on the hub; no role is needed here, since nobody but the
-        owner is in a fresh server. Checks the server matches the template, copies the
+        You must be this server's owner (or an admin here) and an admin on the hub.
+        Checks the server matches the template, copies the
         hub's settings, pins `mod` as the admin role, creates the hunt gated to a team
         role named after the hub role, and records that hub role as the hunt's roster.
         If it stops partway, re-run the same command to finish; once complete it is
@@ -4133,6 +4133,9 @@ class Puzzles(commands.Cog):
         if settings.setup_complete_time is not None:
             await ctx.send(f":x: This server was already set up ({settings.setup_complete_time:%Y-%m-%d}); "
                            "!setup_server only runs once per server.")
+            return
+        if ctx.author.id != ctx.guild.owner_id and not _holds(ctx, ADMIN_ROLES):
+            await ctx.send(":x: Only this server's owner (or an admin here) can run !setup_server.")
             return
         try:
             hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)

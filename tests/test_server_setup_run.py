@@ -128,6 +128,7 @@ async def test_an_ungated_hunt_stops_before_the_lock():
     service = MagicMock(); service.create_hunt = AsyncMock(return_value=_hunt(role_id=0))
     report, gdb, _ = await _run(_targets(), service)
     assert "!set_hunt_role" in report.error
+    assert "#bot-commands" in report.error
     gdb.mark_setup_complete.assert_not_called()
 
 

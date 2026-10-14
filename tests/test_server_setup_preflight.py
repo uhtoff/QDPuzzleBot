@@ -143,9 +143,33 @@ def test_refuses_a_server_that_already_has_another_hunt():
         _run(existing=None, count=1)
 
 
+def test_refuses_an_existing_hunt_plus_another():
+    hunt = MagicMock()
+    hunt.roster_role_id = 0
+    with pytest.raises(SetupRefused, match="another hunt"):
+        _run(existing=hunt, count=2)
+
+
 def test_a_rerun_picks_up_the_hunt_a_partial_run_created():
     hunt = MagicMock()
     hunt.name = "Big Hunt"
+    hunt.roster_role_id = ROSTER          # already tied to this run's hub role
+    targets = _run(existing=hunt, count=1)
+    assert targets.hunt is hunt
+
+
+def test_refuses_a_rerun_naming_a_different_hub_role():
+    hunt = MagicMock()
+    hunt.name = "Big Hunt"
+    hunt.roster_role_id = ROSTER + 1
+    with pytest.raises(SetupRefused, match="already tied"):
+        _run(existing=hunt, count=1)
+
+
+def test_a_rerun_with_no_roster_role_recorded_yet_passes():
+    hunt = MagicMock()
+    hunt.name = "Big Hunt"
+    hunt.roster_role_id = 0
     targets = _run(existing=hunt, count=1)
     assert targets.hunt is hunt
 
