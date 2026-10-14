@@ -9,14 +9,17 @@ completed one can never run again.
 
 Spec: docs/superpowers/specs/2026-07-31-fresh-server-per-hunt-team-design.md.
 """
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import Optional
 
 import discord
 
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES
 from bot.core.discord_channels import clean_category_name
-from bot.store import HuntJsonDb
+from bot.store import GuildSettingsDb, HuntJsonDb
+
+logger = logging.getLogger(__name__)
 
 # What the guild template provides. TEMPLATE_MOD_ROLE must stay one of
 # ADMIN_ROLES, so the gate works by name before the tier is pinned by id.
@@ -79,3 +82,78 @@ def preflight(guild, settings, hub, roster_role_id, hunt_name) -> SetupTargets:
             raise SetupRefused(f"a `{leftover.name}` category is left from an earlier run "
                                "that saved no hunt — delete it, then re-run")
     return SetupTargets(mod_role, lobby, bot_channel, roster_role, hunt)
+
+
+# Ends the lobby welcome; a re-run that finds a bot message carrying it skips the post.
+WELCOME_MARK = "— puzzbot team server"
+
+
+@dataclass
+class SetupReport:
+    steps: list = field(default_factory=list)   # one line per step done, in order
+    hunt: Optional[object] = None
+    hunt_created: bool = False
+    error: str = ""                              # set when the run stopped; lock not written
+
+
+def _welcome_text(hunt, team):
+    return (f"Welcome to **{team}**'s server for **{hunt.name}**. Hunt channels appear "
+            f"once you have the **{team}** role. If this is the only channel you can see, "
+            f"ask an organiser on the hub. {WELCOME_MARK}")
+
+
+async def _has_welcome(lobby, bot_id):
+    async for message in lobby.history(limit=50):
+        if message.author.id == bot_id and WELCOME_MARK in message.content:
+            return True
+    return False
+
+
+async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url):
+    """Do the setup steps, then stamp the run-once lock. Never raises: a failure
+    lands in report.error, with the lock unwritten so a re-run finishes the job."""
+    report = SetupReport()
+    try:
+        settings.guild_name = guild.name
+        settings.website_url = hub_row.website_url
+        settings.drive_parent_id = hub_row.drive_parent_id
+        settings.drive_resources_id = hub_row.drive_resources_id
+        settings.discord_bot_emoji = hub_row.discord_bot_emoji
+        settings.discord_use_voice_channels = hub_row.discord_use_voice_channels
+        settings.discord_bot_channel = targets.bot_channel.name
+        settings.admin_role_ids = str(targets.mod_role.id)
+        GuildSettingsDb.commit(settings)
+        report.steps.append(f"Settings copied from the hub; admin pinned to `{targets.mod_role.name}`.")
+
+        team = targets.roster_role.name
+        hunt = targets.hunt
+        if hunt is None:
+            hunt = await service.create_hunt(
+                guild, name=hunt_name, url=hunt_url, start_timestamp=0,
+                role_name=team, guild_id=settings.id, creator=invoker,
+                confirm_existing_role=True)
+            report.hunt_created = True
+            report.steps.append(f"Created hunt **{hunt.name}**, gated to **{team}**.")
+        else:
+            report.steps.append(f"Hunt **{hunt.name}** was already created; reusing it.")
+        report.hunt = hunt
+        if not hunt.role_id:
+            raise RuntimeError(f"the hunt isn't gated — run `!set_hunt_role {hunt.name}, {team}`, "
+                               "then re-run !setup_server")
+
+        if hunt.roster_role_id != targets.roster_role.id:
+            hunt.roster_role_id = targets.roster_role.id
+            HuntJsonDb.commit(hunt)
+        report.steps.append(f"Hub role **{team}** recorded as the hunt's roster.")
+
+        if await _has_welcome(targets.lobby, guild.me.id):
+            report.steps.append(f"#{targets.lobby.name} welcome already posted.")
+        else:
+            await targets.lobby.send(_welcome_text(hunt, team))
+            report.steps.append(f"Posted the welcome in #{targets.lobby.name}.")
+
+        GuildSettingsDb.mark_setup_complete(settings)
+    except Exception as exc:
+        logger.exception("setup_server stopped on guild %s", guild.id)
+        report.error = str(exc) or type(exc).__name__
+    return report
