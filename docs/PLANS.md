@@ -641,6 +641,26 @@ read-path pool offload, FK cascades) were filtered out — **do not redo them.**
 | ✅ **DONE** Audit log for web actions (`f2d97e3`) | web solves/creates run as the single bot identity, no record of which human acted | S | `bot/web/actions.py` |
 | ✅ **DONE** Refresh auth on the activity WebSocket | membership resolved once at connect; a kicked user keeps streaming until disconnect | S | `bot/web/api.py` *(re-resolves every 60s; delivered `feature/quick-wins`)* |
 
+### Ideas borrowed from Jolly Roger (2026-10-16)
+
+[Jolly Roger](https://github.com/deathandmayhem/jolly-roger) (Death and Mayhem's hunt tool) overlaps
+heavily with this bot; its main difference is self-hosted per-puzzle chat + WebRTC audio, which we
+deliberately leave to Discord. Checked against its code (shallow clone, head `cd3446a`): it creates a
+**Google Sheet per puzzle** in a **folder per hunt** by copying one template, but never writes cell
+values — no meta roll-ups, contribution tables or evidence tabs, which stay ours. Candidates, in
+rough order of value:
+
+| Item | Why | Effort | Where |
+|---|---|---|---|
+| Per-puzzle spreadsheets (per-hunt option) | Faster sheets for solvers, fewer "busy spreadsheet" 500s, and solve/unsolve becomes one Drive folder move that keeps the file id (kills the page-id-changes-on-move bug class: H3, M19, migrations 045/046). **Spiked 2026-10-16:** the service account has its own 15 GB quota (331 MB used); copying the hunt template into a folder works and keeps all 105 named functions (none reference a tab, so trimming tabs is safe); copy ≈ 2.4–3.0 s back-to-back regardless of template size (trimming to REFERENCE only saved ~0.05 s), occasional cold-start spikes to ~12 s; trim + header in ONE batchUpdate (0.8 s); move to a Solved subfolder is one Drive call (1.3 s). Folder is storage only — the summary sheet/dashboard is the index (Drive has no custom sort). Set `importFunctionsExternalUrlAccessAllowed` on each copy (Jolly Roger does) so `IMAGE()`-based functions like `COUNTRY_FLAG` don't prompt per file | L | **Phase 0 prerequisite:** replace the global `_execute_lock` (`bot/utils/gsheets.py:36`) with a per-thread `Http`, or one 2.5 s copy stalls every hunt's Sheets calls. **Phase 1:** a "where does this puzzle's sheet live" seam replacing the request-scoped single spreadsheet (`set_spreadsheet_id`, `puzzles_gsheet.py`; `google_page_id` 90 refs / 7 files, `solved_sheet_id` 45 refs / 7 files) — surface as a structure change before building. Then create/solve/unsolve, minis + extras as tabs inside their puzzle's file, sheet links (`bot/web/api.py:34`), `!reconcile`. Beware the per-hunt-mode rot the forum layout shows — plan for files to become the default |
+| Activity indicators on the dashboard | Viewer/message activity per puzzle ("hot"/"quiet") so people find where help is needed; Jolly Roger shows viewer counts + sparklines | M | data already recorded by `MySQLChannelActivityDb` (`bot/store/mysqldb.py`) via `bot/cogs/activity.py`; mostly SPA work (`frontend/src/components/PuzzleTable.tsx`) plus a board-payload field in `bot/web/data.py` |
+| Dingwords | A user registers words; the bot DMs them when one appears in a puzzle channel of a hunt they can see | S–M | new listener on `on_message` (the activity cog already sees every message); per-user word list table + `!dingword add/remove/list` (+ dashboard equivalent per the command-parity principle) |
+| Bookmarks | Per-user watch list of puzzles, pinned to the top of the dashboard, optionally notified on solve/status change | S–M | per-user table keyed by dashboard user id; SPA toggle + filter; notify via the existing board-push events |
+
+Considered and not adopted: self-hosted chat/audio (Discord already provides chat, voice, mobile,
+notifications; audio would need a hosted mediasoup SFU + TURN), and an operator guess queue (most
+hunts take submissions on their own site).
+
 ### Security hardening (lower priority — internal, role-gated site)
 
 - ✅ **DONE** (`d45a74e`) Sanitize raw `str(exc)` in error responses (`actions.py`); reject the
