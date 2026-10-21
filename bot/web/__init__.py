@@ -8,6 +8,7 @@ does nothing and the bot behaves exactly as before.
 import asyncio
 import logging
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -62,11 +63,28 @@ def _dist_dir():
     return Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
+# The dashboard's client-side routes (frontend/src/App.tsx), each with an
+# optional trailing slash. Only these fall back to index.html; keep in step with
+# the <Route> list there.
+_CLIENT_ROUTES = (
+    re.compile(r"hunts/[A-Za-z0-9_-]+/?"),
+    re.compile(r"guilds/\d+/settings/?"),
+)
+
+
+def _is_client_route(path: str) -> bool:
+    return any(rx.fullmatch(path) for rx in _CLIENT_ROUTES)
+
+
 def _register_spa(app):
     """Serve the built SPA so the whole dashboard is a single upstream.
 
-    Static assets are served from disk; any non-/api path falls back to
-    index.html so client-side routes (e.g. /hunts/ABC123) work on refresh.
+    Real built files are served from disk, and the known client-side routes
+    (e.g. /hunts/ABC123) fall back to index.html so they work on refresh.
+    Everything else is a 404 — dotfiles, anything with a file extension that
+    isn't a real file, and unknown paths. Answering every scanner probe
+    (/wp-login.php, /.env, …) with the dashboard and a 200 got the site
+    flagged for phishing.
     """
     from quart import abort, send_from_directory
 
@@ -92,9 +110,20 @@ def _register_spa(app):
     async def spa_catchall(path):
         if path.startswith("api/"):
             abort(404)
+        segments = path.split("/")
+        # Dotfiles and dot-directories (.env, .git/, .well-known/) are never served,
+        # even if one ends up in the build output.
+        if any(seg.startswith(".") for seg in segments):
+            abort(404)
         if os.path.isfile(os.path.join(dist_dir, path)):
             return await send_from_directory(dist_dir, path)
-        return await _send_index()
+        # A path with a file extension that isn't a real file is a miss, not a
+        # client route (a stale hashed asset, wp-login.php, …).
+        if "." in segments[-1]:
+            abort(404)
+        if _is_client_route(path):
+            return await _send_index()
+        abort(404)
 
 
 def create_app(bot):
