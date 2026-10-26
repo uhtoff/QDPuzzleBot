@@ -23,7 +23,7 @@ dataclasses-json = "==0.6.7"
 pytz = "==2026.3.post1"
 google-api-python-client = "==2.198.0"
 quart = "==0.21.0"
-aiohttp = "==3.14.3"
+aiohttp = "==3.14.4"
 python-slugify = "==8.0.4"
 # The "binary" extra is load-bearing: the wheel bundles libvips, so tiling needs
 # no apt package and no root on the deploy host.
@@ -31,7 +31,7 @@ pyvips = {extras = ["binary"], version = "==3.1.1"}
 pytesseract = "==0.3.13"
 # Imported directly by bot/core/ocr.py; declared here rather than relied on as
 # pytesseract's transitive dep so a loosened pytesseract pin can't drop it.
-pillow = "==12.3.0"
+pillow = "==13.0.0"
 
 [requires]
 python_version = "3.12"
