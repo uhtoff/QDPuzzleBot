@@ -48,8 +48,8 @@ export default function Login() {
           </Button>
           <Text c="dimmed" ta="center" size="xs">
             The button takes you to discord.com to sign in. We never see your Discord
-            password: Discord only tells us who you are (your username and avatar), so we
-            can show the hunts your team can see.
+            password: Discord only tells us who you are, so we can show the hunts your
+            team can see.
           </Text>
           {site.contact && (
             <Text c="dimmed" ta="center" size="xs">
