@@ -58,6 +58,12 @@ class Config:
         self.web_archive_media_dir = web.get("archive_media_dir", "")
         # Reject attachments larger than this (bytes). Default 25 MB (Discord free cap).
         self.web_attachment_max_bytes = int(web.get("attachment_max_bytes", 26214400))
+        # What the logged-out landing page says about this instance (served by
+        # /api/auth/site). A bare unexplained "Log in with Discord" page reads as
+        # phishing, so each instance names itself; the test one says it's a test.
+        self.web_site_name = web.get("site_name", "Puzzbot")
+        self.web_test_instance = bool(web.get("test_instance", False))
+        self.web_contact = web.get("contact", "")
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))

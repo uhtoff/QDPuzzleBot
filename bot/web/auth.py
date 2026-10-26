@@ -78,6 +78,17 @@ async def logout():
     return jsonify({"ok": True})
 
 
+@auth_bp.route("/site")
+async def site():
+    """Public facts about this instance for the login page. Deliberately needs no
+    session: it is what a signed-out visitor sees before choosing to log in."""
+    return jsonify({
+        "name": config.web_site_name,
+        "test_instance": config.web_test_instance,
+        "contact": config.web_contact,
+    })
+
+
 @auth_bp.route("/me")
 async def me():
     user = session.get("user")
