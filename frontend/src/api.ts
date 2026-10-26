@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { onAuthLost } from "./queryClient";
 import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
+import type { SiteInfo } from "./lib/siteInfo";
 
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1] ?? "";
@@ -134,6 +135,16 @@ export async function logout() {
     method: "POST",
     credentials: "include",
     headers: { "X-CSRF-Token": csrfToken() },
+  });
+}
+
+/** Public instance description for the landing page; needs no session. */
+export function useSiteInfo() {
+  return useQuery({
+    queryKey: ["site"],
+    queryFn: () => apiGet<SiteInfo>("/api/auth/site"),
+    retry: false,
+    staleTime: Infinity,
   });
 }
 

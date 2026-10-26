@@ -27,6 +27,9 @@
     "frontend_dist": "",
     "bridge_enabled": false,
     "archive_media_dir": "",
-    "attachment_max_bytes": 26214400
+    "attachment_max_bytes": 26214400,
+    "site_name": "Puzzbot",
+    "test_instance": false,
+    "contact": ""
   }
 }
