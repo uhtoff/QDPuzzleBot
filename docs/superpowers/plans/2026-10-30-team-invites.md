@@ -8,6 +8,7 @@
 - `!invite_player <user>` re-issues one invite, falling back to DMing the invoker to pass on.
 - On arrival, the bot grants the team role to anyone holding the hub role, regardless of how they got in.
 - The template greeting and `!setup_server`'s completion message walk the person setting up through the whole sequence.
+- `!archive_hunt_to_hub` no longer needs the hub's id on a team server (Task 6).
 
 **Architecture:**
 - **Logic:** a new ctx-free module, `bot/core/team_invites.py`, in the style of `bot/core/role_panel.py`. It holds:
@@ -1603,6 +1604,195 @@ git commit -m "feat(invites): the full setup walk-through, and docs for slice 4"
 
 ---
 
+### Task 6: `!archive_hunt_to_hub` finds the hub by itself
+
+**Why:** a hunt made by `!setup_server` stores its hub role (`hunts.roster_role_id`), and role ids are unique across Discord. So the role's server *is* the hub, and asking for its id is redundant. Join already finds the hub this way (`role_panel.find_roster_role`). Decided with the user 2026-10-30:
+- the id becomes optional, and when omitted the hunt's hub is used;
+- a given id is still accepted, for hunts with no hub role;
+- a given id that disagrees with the hunt's hub role is refused, so nobody archives to the wrong server by mistake.
+
+**Files:**
+- Modify: `bot/core/hunt_archive.py` (a new pure function `choose_hub_id`, after `class HubUnavailable`)
+- Modify: `bot/cogs/puzzles.py` (`archive_hunt_to_hub`: signature, docstring, and the hub-choosing lines before `resolve_hub`)
+- Test: `tests/test_choose_hub_id.py` (new), `tests/test_archive_hunt_to_hub_command.py` (three new tests, and the `_hunt` helper)
+- Modify: `docs/commands.md`, `docs/new-server-playbook.md`, the spec
+
+**Interfaces:**
+- Consumes: `role_panel.find_roster_role(bot, roster_role_id)` (its `.guild.id` is the hub's snowflake); `hunt_archive.resolve_hub(bot, hub_guild_id, guild, invoker)` (unchanged).
+- Produces: `hunt_archive.choose_hub_id(given_hub_id: Optional[int], roster_hub_id: Optional[int]) -> int`, which raises `HubUnavailable`.
+
+`hunt_archive` must **not** import `role_panel`, because `role_panel` already imports `hunt_archive`. The cog looks the role up and passes the hub's id in, which keeps `choose_hub_id` a pure function.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/test_choose_hub_id.py`:
+
+```python
+"""choose_hub_id: !archive_hunt_to_hub's hub is the server holding the hunt's hub
+role when there is one; an explicit id is for hunts without one, and an id that
+disagrees with the hub role is refused rather than trusted."""
+import pytest
+
+from bot.core.hunt_archive import HubUnavailable, choose_hub_id
+
+HUB, OTHER = 1000, 2000
+
+
+def test_no_id_uses_the_hub_role_s_server():
+    assert choose_hub_id(None, HUB) == HUB
+
+
+def test_no_id_and_no_hub_role_asks_for_the_id():
+    with pytest.raises(HubUnavailable, match="server id"):
+        choose_hub_id(None, None)
+
+
+def test_an_id_is_used_when_the_hunt_has_no_hub_role():
+    assert choose_hub_id(OTHER, None) == OTHER
+
+
+def test_an_id_matching_the_hub_role_is_fine():
+    assert choose_hub_id(HUB, HUB) == HUB
+
+
+def test_an_id_disagreeing_with_the_hub_role_is_refused():
+    with pytest.raises(HubUnavailable) as exc:
+        choose_hub_id(OTHER, HUB)
+    assert str(HUB) in str(exc.value) and str(OTHER) in str(exc.value)
+```
+
+In `tests/test_archive_hunt_to_hub_command.py`, the `_hunt()` helper builds a `MagicMock` with no `roster_role_id`. An auto-created attribute would read as a truthy hub role. Add `h.roster_role_id = 0` to it: that is the shape of a hunt with no hub role, the same as every hunt before slice 2. No existing assertion changes. Do the same for any hunt mock passed to `archive_hunt_to_hub` in `tests/test_lock_ordering.py` (grep `archive_hunt_to_hub.callback` there). Then append:
+
+```python
+async def test_with_no_id_it_archives_to_the_hunt_s_hub():
+    hunt = _hunt(); hunt.roster_role_id = 70
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    roster = MagicMock(); roster.guild.id = 1000
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.role_panel.find_roster_role", return_value=roster) as find, \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(side_effect=hunt_archive.HubUnavailable("stop here"))) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx)
+    find.assert_called_once_with(cog.bot, 70)
+    resolve.assert_awaited_once_with(cog.bot, 1000, ctx.guild, ctx.author)
+
+
+async def test_an_id_disagreeing_with_the_hunt_s_hub_is_refused_before_resolving():
+    hunt = _hunt(); hunt.roster_role_id = 70
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    roster = MagicMock(); roster.guild.id = 1000
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.role_panel.find_roster_role", return_value=roster), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 2000)
+    resolve.assert_not_awaited()
+    cog.service.archive_hunt_to_hub.assert_not_awaited()
+    reply = ctx.send.await_args.args[0]
+    assert reply.startswith(":x:") and "1000" in reply
+
+
+async def test_no_id_on_a_hunt_without_a_hub_role_asks_for_one():
+    cog = make_cog(hunt=_hunt()); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx)
+    resolve.assert_not_awaited()
+    assert "server id" in ctx.send.await_args.args[0]
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `timeout 180 pipenv run python -m pytest tests/test_choose_hub_id.py tests/test_archive_hunt_to_hub_command.py tests/test_lock_ordering.py -q > /tmp/test.log 2>&1`
+Expected:
+- `tests/test_choose_hub_id.py` errors on `ImportError: cannot import name 'choose_hub_id'`;
+- the three new command tests fail (`archive_hunt_to_hub` still requires `hub_id`);
+- every pre-existing test still passes.
+
+- [ ] **Step 3: Implement**
+
+In `bot/core/hunt_archive.py`, directly after the `HubUnavailable` class, add:
+
+```python
+def choose_hub_id(given_hub_id, roster_hub_id):
+    """The hub server !archive_hunt_to_hub archives to. *roster_hub_id* is the
+    server holding the hunt's hub role (None if it has none): role ids are
+    unique, so that server is the hub. An explicit *given_hub_id* is for hunts
+    without a hub role; one that disagrees with the hub role is refused."""
+    if given_hub_id is None:
+        if roster_hub_id is None:
+            raise HubUnavailable("this hunt has no hub role to find its hub from — give the "
+                                 "hub's server id: `!archive_hunt_to_hub <hub server id>`")
+        return roster_hub_id
+    if roster_hub_id is not None and given_hub_id != roster_hub_id:
+        raise HubUnavailable(f"this hunt's hub role is on server {roster_hub_id}, not "
+                             f"{given_hub_id} — leave the id out to archive there")
+    return given_hub_id
+```
+
+In `bot/cogs/puzzles.py`, `archive_hunt_to_hub`:
+- change the signature `async def archive_hunt_to_hub(self, ctx, hub_id: int):` to `async def archive_hunt_to_hub(self, ctx, hub_id: Optional[int] = None):`;
+- in the docstring, change ``Usage: `!archive_hunt_to_hub <hub server id>` `` to ``Usage: `!archive_hunt_to_hub [hub server id]` ``, and add after the `Example:` line:
+
+```
+        On a team server made by !setup_server, leave the id out: the hub is the
+        server holding the hunt's hub role. Give it only for hunts without one.
+```
+
+- replace
+
+```python
+        try:
+            hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
+        except hunt_archive.HubUnavailable as e:
+```
+
+with
+
+```python
+        roster = (role_panel.find_roster_role(self.bot, hunt.roster_role_id)
+                  if hunt.roster_role_id else None)
+        try:
+            hub_id = hunt_archive.choose_hub_id(hub_id, roster.guild.id if roster else None)
+            hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
+        except hunt_archive.HubUnavailable as e:
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `timeout 180 pipenv run python -m pytest tests/test_choose_hub_id.py tests/test_archive_hunt_to_hub_command.py tests/test_lock_ordering.py tests/test_archive_hunt_to_hub.py tests/test_hunt_archive.py -q > /tmp/test.log 2>&1`
+Expected: all pass.
+
+- [ ] **Step 5: Prove the mismatch guard is load-bearing**
+
+Temporarily delete the `if roster_hub_id is not None and given_hub_id != roster_hub_id:` branch (both of its lines). Confirm `test_an_id_disagreeing_with_the_hub_role_is_refused` and `test_an_id_disagreeing_with_the_hunt_s_hub_is_refused_before_resolving` fail. Restore by editing the lines back, and re-run to green.
+
+- [ ] **Step 6: Docs**
+
+- `docs/commands.md`, the detailed row beginning `` | `!archive_hunt_to_hub <hub server id>` ``: change that first cell to `` `!archive_hunt_to_hub [hub server id]` ``, and add as the last sentence of the description cell (before its closing `|`): ``On a team server made by `!setup_server` leave the id out — the hub is found from the hunt's hub role; an id that disagrees with it is refused.``
+- `docs/new-server-playbook.md`: change ``At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.`` to ``At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.``
+- Spec: directly under the heading `## Archiving and teardown`, insert:
+
+```markdown
+*Changed 2026-10-30 (plan 2026-10-30-team-invites.md, Task 6):* the hub id is optional. A hunt made by `!setup_server` stores its hub role, whose server is the hub (`hunt_archive.choose_hub_id`); an explicit id is for hunts without one, and one that disagrees with the hub role is refused.
+```
+
+- [ ] **Step 7: Full verification, then commit**
+
+Run: `timeout 300 pipenv run python -m pytest tests/ -q > /tmp/test.log 2>&1`, and confirm all pass (`tail -n 5 /tmp/test.log`).
+Run: `pipenv run ruff check bot/core/hunt_archive.py bot/cogs/puzzles.py tests/test_choose_hub_id.py tests/test_archive_hunt_to_hub_command.py tests/test_lock_ordering.py`, and confirm `All checks passed!`
+
+```bash
+git add bot/core/hunt_archive.py bot/cogs/puzzles.py tests/test_choose_hub_id.py tests/test_archive_hunt_to_hub_command.py tests/test_lock_ordering.py docs/commands.md docs/new-server-playbook.md docs/superpowers/specs/2026-07-31-fresh-server-per-hunt-team-design.md
+git commit -m "feat(archive): !archive_hunt_to_hub finds the hub from the hunt's hub role"
+```
+
+(Leave `tests/test_lock_ordering.py` out of `git add` if it needed no change.)
+
+---
+
 ## Manual acceptance (test deployment, after merge to staging)
 
 First apply migration **048** to the test database. If the test subscription's deploy runs `deploy.sh`, that happens automatically; otherwise run `pipenv run python migrate.py migrate`. Then restart the bot on the merged code.
@@ -1618,3 +1808,4 @@ First apply migration **048** to the test database. If the test subscription's d
 7. **Late joiner:** give a third account the hub role on the hub. It gets a DM by itself within seconds.
 8. **Closed DMs:** that third account turns off DMs from server members (Privacy Settings on the hub), and its role is removed and re-added. Expected: `#bot-commands` gets a "couldn't DM … `!invite_player <id>`" line with no link. Then run `!invite_player <id>`, and the link arrives in **your** DMs.
 9. **Wrong person:** someone without the hub role who arrives via a forwarded link gets no team role, and Join refuses them.
+10. **Archive without an id:** at the end, run `!archive_hunt_to_hub` (no id) in a hunt channel. It names the right hub in its confirmation. A different hub's id is refused.
