@@ -146,3 +146,4 @@ def test_the_welcome_points_at_join_for_the_team():
     text = server_setup.welcome_text(_hunt(), "Team Rocket")
     assert "**Join**" in text and "Team Rocket" in text and "Big Hunt" in text
     assert text.endswith(server_setup.WELCOME_MARK)
+    assert "**Leave**" in text and "`mod`" in text

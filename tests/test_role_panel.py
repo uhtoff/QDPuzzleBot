@@ -130,6 +130,22 @@ async def test_a_hub_admin_who_already_plays_still_gets_mod():
     assert w.member.add_roles.await_args.args == (w.mod,)
 
 
+async def test_join_asks_the_hub_about_the_hub_member():
+    w = World(hub_admin=True, hub_roles=(OTHER_HUB_ROLE,))
+    with ExitStack() as stack:
+        w._patched(stack)
+        holds = stack.enter_context(patch(
+            "bot.core.role_panel.role_gate.member_holds_tier", return_value=True))
+        hub_member = stack.enter_context(patch(
+            "bot.core.role_panel.hunt_archive.hub_member",
+            new=AsyncMock(return_value=w.hub_member)))
+        await role_panel.join(w.bot, w.guild, w.member, HUNT_ID)
+    hub_member.assert_awaited_once_with(w.hub, USER)
+    ids, guild, _names = holds.call_args.args
+    assert guild is w.hub
+    assert ids == {OTHER_HUB_ROLE}
+
+
 async def test_a_hub_member_without_the_roster_role_is_refused():
     w = World(hub_roles=(OTHER_HUB_ROLE,))
     reply = await w.join()

@@ -123,7 +123,7 @@ def welcome_text(hunt, team):
     return (f"Welcome to **{team}**'s server for **{hunt.name}**. Click **Join** to get "
             f"the **{team}** role and see the hunt channels — it's for people with "
             f"**{team}** on the hub, and hub admins also get `mod` here. **Leave** "
-            f"gives the role back. {WELCOME_MARK}")
+            f"removes it, and `mod` too. {WELCOME_MARK}")
 
 
 async def _has_welcome(lobby, bot_id):

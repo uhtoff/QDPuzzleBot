@@ -4159,8 +4159,8 @@ class Puzzles(commands.Cog):
             lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
         else:
             lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
-            lines.append("Next: give players the team role (invites by DM arrive in a later release), "
-                         "and transfer ownership to a team member if wanted.")
+            lines.append("Next: players with the hub role click **Join** in #lobby (hub admins get "
+                         "`mod` too); transfer server ownership to a team member if wanted.")
         await ctx.send("\n".join(lines))
 
     @commands.command()

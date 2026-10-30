@@ -161,6 +161,11 @@ Then Server Settings → Server Template → generate the `discord.new/…` link
 category: the bot creates and gates it. Re-sync the template (same screen) when the model
 drifts; existing team servers are unaffected.
 
+**Pin the hub's admin roles first** (`!set_admin_roles` on the hub, once). Join grants
+`mod` on team servers to anyone in the hub's Admin tier, and an unpinned tier is matched
+by role *name* — anyone on the hub with Manage Roles could mint an `admin` role and
+collect `mod` everywhere.
+
 **Per team, per hunt:**
 
 1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
