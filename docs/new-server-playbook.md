@@ -139,24 +139,41 @@ applied turns up nothing and looks like a missing implementation. It is not.
 For a multi-team hunt each team plays on its own server, made fresh from a guild
 template. Sections 1–6 above do not apply: `!setup_server` does them.
 
-**Once: build the template.** Make a model server with exactly:
+**Once: build the template.** Using the shared group account (whoever generates the
+template owns it, and only the owner can re-sync it), make a model server with exactly:
 
-- `@everyone`: **View Channels off** (the server is locked down by default).
-- A `mod` role: Manage Channels + Manage Messages, **not** Administrator.
-- `#lobby`: `@everyone` allowed to view (the only channel newcomers see).
-- `#bot-commands`: `mod` allowed to view (only admin commands need it).
-- Notifications = mentions only, join messages off, verification low.
+- **No default channels.** A new server comes with *Text Channels*/`#general` and *Voice
+  Channels*/*General*; delete all four, or every clone inherits them.
+- `@everyone`: **View Channels off** on the role itself (Server Settings → Roles →
+  `@everyone`), not as a channel override — `!setup_server` reads the role permission and
+  refuses a server where it is on.
+- A role named exactly `mod` (one only): Manage Channels + Manage Messages, **not**
+  Administrator, and View Channels left off so it sees only what overrides grant.
+- `#lobby` at top level: `@everyone` allowed View Channel + Read Message History (the only
+  channel newcomers see).
+- `#bot-commands` at top level: `mod` allowed View Channel (only admin commands need it).
+- Server Settings → **Engagement** (not Overview): System Messages off (or no system
+  channel), Default Notifications = Only @mentions. Safety Setup: verification Low.
+- Do **not** invite the bot to the model server — templates carry no bots, so it would
+  only leave a stray settings row behind.
 
 Then Server Settings → Server Template → generate the `discord.new/…` link. No hunt
-category: the bot creates and gates it. Re-sync the template when the model drifts.
+category: the bot creates and gates it. Re-sync the template (same screen) when the model
+drifts; existing team servers are unaffected.
 
 **Per team, per hunt:**
 
 1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
-2. Using the shared group account, open the template link to create the server.
-3. Invite the bot with Administrator (`permissions=8`).
+2. Using the shared group account, open the template link to create the server. If the
+   desktop app ignores the `discord.new/<code>` link, open
+   `https://discord.com/template/<code>` in a browser instead.
+3. Invite the bot with Administrator:
+   `https://discord.com/oauth2/authorize?client_id=<bot application id>&scope=bot&permissions=8`
+   (the id is the Developer Portal's **Application ID** for the instance you mean — test
+   and live are different bots).
 4. Delete the bot's join greeting from `#lobby` — it describes the hub's manual setup,
-   which `!setup_server` does for you.
+   which `!setup_server` does for you, and with no system channel it lands in `#lobby`
+   where every player sees it.
 5. In Server Settings → Roles, drag the bot's role above `mod`.
 6. In the new server: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
    You must be the server's owner and an admin on the hub. If it stops, fix what it says
