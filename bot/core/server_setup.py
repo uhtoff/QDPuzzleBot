@@ -43,6 +43,25 @@ class SetupTargets:
     hunt: Optional[object] = None      # a prior partial run's HuntData
 
 
+def _template_parts(guild):
+    """The template's `mod` roles (all of them — preflight wants exactly one),
+    #lobby and #bot-commands, each None when missing."""
+    mods = [r for r in guild.roles if r.name == TEMPLATE_MOD_ROLE]
+    lobby = discord.utils.get(guild.text_channels, name=LOBBY_CHANNEL)
+    bot_channel = discord.utils.get(guild.text_channels, name=BOT_CHANNEL)
+    return mods, lobby, bot_channel
+
+
+def looks_like_template(guild) -> bool:
+    """True if *guild* has the template's shape, by the same checks preflight
+    refuses on: @everyone can't see channels, one `mod` role, #lobby and
+    #bot-commands. Picks the join greeting; it decides nothing else."""
+    if guild.default_role.permissions.view_channel:
+        return False
+    mods, lobby, bot_channel = _template_parts(guild)
+    return len(mods) == 1 and lobby is not None and bot_channel is not None
+
+
 def preflight(guild, settings, hub, roster_role_id, hunt_name) -> SetupTargets:
     """Everything !setup_server needs, or SetupRefused naming the fix."""
     me = guild.me
@@ -51,15 +70,13 @@ def preflight(guild, settings, hub, roster_role_id, hunt_name) -> SetupTargets:
     if guild.default_role.permissions.view_channel:
         raise SetupRefused("@everyone can see channels here, so this server wasn't made "
                            "from the template — clone the template and start again")
-    mods = [r for r in guild.roles if r.name == TEMPLATE_MOD_ROLE]
+    mods, lobby, bot_channel = _template_parts(guild)
     if len(mods) != 1:
         raise SetupRefused(f"expected exactly one `{TEMPLATE_MOD_ROLE}` role, found {len(mods)}")
     mod_role = mods[0]
     if mod_role.position >= me.top_role.position:
         raise SetupRefused(f"drag the bot's role above `{TEMPLATE_MOD_ROLE}` in "
                            "Server Settings → Roles, then re-run")
-    lobby = discord.utils.get(guild.text_channels, name=LOBBY_CHANNEL)
-    bot_channel = discord.utils.get(guild.text_channels, name=BOT_CHANNEL)
     for name, channel in ((LOBBY_CHANNEL, lobby), (BOT_CHANNEL, bot_channel)):
         if channel is None:
             raise SetupRefused(f"the template's #{name} channel is missing")

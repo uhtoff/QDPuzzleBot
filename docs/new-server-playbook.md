@@ -171,11 +171,11 @@ drifts; existing team servers are unaffected.
    `https://discord.com/oauth2/authorize?client_id=<bot application id>&scope=bot&permissions=8`
    (the id is the Developer Portal's **Application ID** for the instance you mean — test
    and live are different bots).
-4. Delete the bot's join greeting from `#lobby` — it describes the hub's manual setup,
-   which `!setup_server` does for you, and with no system channel it lands in `#lobby`
-   where every player sees it.
+4. The bot recognises the template and posts the next two steps in `#bot-commands`
+   (players can't see it). If its greeting lands in `#lobby` instead, the server didn't
+   match the template — check it against the list above, and delete that greeting.
 5. In Server Settings → Roles, drag the bot's role above `mod`.
-6. In the new server: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
+6. In `#bot-commands`: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
    You must be the server's owner and an admin on the hub. If it stops, fix what it says
    and re-run the same command; once it reports complete it is locked on that server.
 7. Optionally transfer server ownership to a member of that team and have the group

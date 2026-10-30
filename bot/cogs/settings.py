@@ -6,8 +6,10 @@ The settings here are unrelated to puzzle_settings.py
 
 import logging
 
+import discord
 from discord.ext import commands
 
+from bot.core import server_setup
 from bot.store import GuildSettings, GuildSettingsDb
 
 logger = logging.getLogger(__name__)
@@ -44,12 +46,35 @@ Both are also available on the dashboard under **Server settings**. \
 `!help` lists everything else."""
 
 
+# The join greeting for a server cloned from the team-server template, where
+# !setup_server does both of SETUP_MESSAGE's manual steps. Posted in
+# #bot-commands: only the owner and `mod` see it, and players never do.
+TEMPLATE_SETUP_MESSAGE = f"""\
+:wave: **Thanks for adding me!** This looks like a team server made from the template. \
+To finish setting it up:
+
+**1.** In Server Settings → Roles, drag my role above `{server_setup.TEMPLATE_MOD_ROLE}`.
+**2.** Here in #{server_setup.BOT_CHANNEL}, run:
+```
+!setup_server <hub server id> <hub role id> <hunt url> <hunt name>
+```
+You must be this server's owner and an admin on the hub. To copy the ids, turn on \
+Developer Mode (User Settings → Advanced), then right-click the hub's server icon, \
+and the team's role in the hub's Server Settings → Roles.
+
+If it stops partway, fix what it says and re-run the same command."""
+
+
 async def _post_setup_message(guild):
-    """Best-effort welcome in the system channel, else the first channel we can
-    write to. Never raises: a guild that will not let us post must still get its
-    settings row."""
+    """Best-effort welcome: a template clone gets TEMPLATE_SETUP_MESSAGE in
+    #bot-commands; anything else gets SETUP_MESSAGE in the system channel, else
+    the first channel we can write to. Never raises: a guild that will not let
+    us post must still get its settings row."""
     try:
-        channel = guild.system_channel
+        text, channel = SETUP_MESSAGE, guild.system_channel
+        if server_setup.looks_like_template(guild):
+            text = TEMPLATE_SETUP_MESSAGE
+            channel = discord.utils.get(guild.text_channels, name=server_setup.BOT_CHANNEL)
         if channel is None or not channel.permissions_for(guild.me).send_messages:
             channel = next(
                 (c for c in guild.text_channels
@@ -59,7 +84,7 @@ async def _post_setup_message(guild):
         if channel is None:
             logger.info("guild %s: nowhere to post the setup message", guild.id)
             return
-        await channel.send(SETUP_MESSAGE)
+        await channel.send(text)
     except Exception:
         logger.exception("guild %s: failed to post the setup message", guild.id)
 
