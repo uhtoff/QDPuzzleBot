@@ -82,7 +82,7 @@ class HubUnavailable(Exception):
     touched; the message is shown to the invoker as-is."""
 
 
-async def _hub_member(hub, user_id):
+async def hub_member(hub, user_id):
     """The invoker's member object on the hub, or None. Once the hub is chunked
     the cache is complete, so a miss is authoritative."""
     member = hub.get_member(user_id)
@@ -108,7 +108,7 @@ async def resolve_hub(bot, hub_guild_id, guild, invoker):
     perms = hub.me.guild_permissions
     if not (perms.manage_channels and perms.manage_webhooks):
         raise HubUnavailable(f"the bot needs Manage Channels and Manage Webhooks on {hub.name}")
-    member = await _hub_member(hub, invoker.id)
+    member = await hub_member(hub, invoker.id)
     if member is None:
         raise HubUnavailable(f"you aren't a member of {hub.name}")
     if not role_gate.member_holds_tier({r.id for r in member.roles}, hub, ADMIN_ROLES):
