@@ -106,6 +106,7 @@ EXPECTED = [
     ("debug_puzzle_channel", "admin"),
     ("delete_hunt", "admin"),
     ("hunt", "admin"),
+    ("post_role_panel", "admin"),
     ("set_admin_roles", "admin"),
     ("set_hunt_role", "admin"),
     ("set_login", "admin"),

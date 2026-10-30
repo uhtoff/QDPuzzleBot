@@ -4164,6 +4164,43 @@ class Puzzles(commands.Cog):
         await ctx.send("\n".join(lines))
 
     @commands.command()
+    @commands.guild_only()
+    @is_admin()
+    async def post_role_panel(self, ctx, *, hunt_name: str):
+        """*Post the #lobby Join/Leave panel for a team server's hunt.*
+
+        Usage: `!post_role_panel <hunt name>`
+        Example: `!post_role_panel Big Hunt`
+        !setup_server posts it for you; use this if it was deleted, or on a server
+        set up before the panel existed. Join is for people with the hunt's hub
+        role, and hub admins (who also get `mod`). Run in the bot channel.
+        Admins/mods only."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        hunt = HuntJsonDb.get_by_name_for_guild(hunt_name, ctx.guild.id)
+        if hunt is None:
+            await ctx.send(f":x: No hunt named **{hunt_name}** on this server.")
+            return
+        if hunt.archived:
+            await ctx.send(f":x: **{hunt.name}** is archived.")
+            return
+        if not hunt.roster_role_id:
+            await ctx.send(f":x: **{hunt.name}** isn't tied to a hub role (only hunts made by "
+                           "!setup_server are), so Join would have nobody to check against.")
+            return
+        lobby = discord.utils.get(ctx.guild.text_channels, name=server_setup.LOBBY_CHANNEL)
+        if lobby is None:
+            await ctx.send(f":x: This server has no #{server_setup.LOBBY_CHANNEL} channel.")
+            return
+        team_role = ctx.guild.get_role(hunt.role_id)
+        if team_role is None:
+            await ctx.send(f":x: **{hunt.name}**'s team role is missing on this server.")
+            return
+        await lobby.send(server_setup.welcome_text(hunt, team_role.name),
+                         view=role_panel.panel_view(hunt.id))
+        await ctx.send(f":white_check_mark: Posted the Join/Leave panel in {lobby.mention}.")
+
+    @commands.command()
     @is_organiser()
     @with_puzzle_mutex(wait=False)
     async def delete_puzzle(self, ctx):
