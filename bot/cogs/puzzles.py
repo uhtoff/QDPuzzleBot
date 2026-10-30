@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive, media_gc, role_panel, server_setup
+from bot.core import category_layout, hunt_archive, media_gc, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -4199,6 +4199,56 @@ class Puzzles(commands.Cog):
         await lobby.send(server_setup.welcome_text(hunt, team_role.name),
                          view=role_panel.panel_view(hunt.id))
         await ctx.send(f":white_check_mark: Posted the Join/Leave panel in {lobby.mention}.")
+
+    @commands.command()
+    @commands.guild_only()
+    @is_admin()
+    async def send_invites(self, ctx, *, hunt_name: str):
+        """*DM a private invite to everyone with the hunt's hub role.*
+
+        Usage: `!send_invites <hunt name>`
+        Example: `!send_invites Big Hunt`
+        Each person gets a single-use invite to this server by DM, and the team
+        role as soon as they arrive. Anyone already here or already invited is
+        skipped, so re-running is safe; after the first run, anyone given the hub
+        role is DM'd automatically. Names anyone whose DMs are closed — use
+        `!invite_player` for them. Run in the bot channel. Admins/mods only."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        hunt = HuntJsonDb.get_by_name_for_guild(hunt_name, ctx.guild.id)
+        if hunt is None:
+            await ctx.send(f":x: No hunt named **{hunt_name}** on this server.")
+            return
+        if hunt.archived:
+            await ctx.send(f":x: **{hunt.name}** is archived.")
+            return
+        if not hunt.roster_role_id:
+            await ctx.send(f":x: **{hunt.name}** isn't tied to a hub role (only hunts made by "
+                           "!setup_server are), so there's nobody to invite.")
+            return
+        await ctx.send(f"⏳ Sending invites for **{hunt.name}**…")
+        report = await team_invites.send_invites(self.bot, ctx.guild, hunt)
+        await ctx.send(team_invites.report_text(report))
+
+    @commands.command()
+    @commands.guild_only()
+    @is_admin()
+    async def invite_player(self, ctx, user: discord.User):
+        """*DM one person a fresh private invite to this team server.*
+
+        Usage: `!invite_player <user id or name>`
+        Example: `!invite_player 123456789012345678`
+        For someone with the hunt's hub role whose invite DM failed or got lost.
+        If their DMs are closed, the invite is DM'd to you to pass on privately.
+        Run in the bot channel. Admins/mods only."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        hunt = HuntJsonDb.live_team_hunt_for_guild(ctx.guild.id)
+        if hunt is None:
+            await ctx.send(":x: This server has no live hunt with a hub role (only !setup_server "
+                           "makes those).")
+            return
+        await ctx.send(await team_invites.invite_one(self.bot, ctx.guild, hunt, user, ctx.author))
 
     @commands.command()
     @is_organiser()
