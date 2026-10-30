@@ -180,9 +180,12 @@ drifts; existing team servers are unaffected.
    and re-run the same command; once it reports complete it is locked on that server.
 7. Optionally transfer server ownership to a member of that team and have the group
    account leave.
-8. Give players the team role (until invite DMs land in a later release). Give `mod` to
-   whoever will run admin commands on this server (e.g. `!archive_hunt_to_hub` at hunt
-   end) — after setup nobody holds it.
+8. Players click **Join** in `#lobby`: it gives the team role to anyone holding the hub
+   role, and hub admins also get `mod` (so they can run `!archive_hunt_to_hub` at hunt
+   end). Nobody else can use it. **Leave** takes both away; someone given `mod` by hand
+   who isn't a hub admin can't get it back through Join. Until invite DMs land, players
+   still need an invite link to reach the server. `!post_role_panel <hunt name>`
+   re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.
 

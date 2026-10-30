@@ -1,7 +1,7 @@
 # Fresh Discord server per hunt-team — design
 
 **Date:** 2026-07-31
-**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14.
+**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14; slice 3 (#lobby role panel) — plan 2026-10-30.
 **Supersedes:** the *reusable pool* decision in
 `docs/future/2026-07-05-multi-server-hunt-architecture-design.md`. That doc's problem
 statement, Discord constraints, and rejected approaches all still stand and are not
@@ -119,6 +119,8 @@ Related commands:
   player joining a team mid-hunt.
 
 ## The `#lobby` role panel
+
+*Changed 2026-10-30 (plan 2026-10-30-lobby-role-panel.md):* Join is gated — the clicker must be on the hub and hold the hunt's roster role there, or be a hub admin (who also gets this server's pinned Admin-tier roles, i.e. `mod`). Until slice 4's single-use invites exist, players arrive by ordinary links, so server membership alone is not a safe gate. The buttons are a `DynamicItem` in `bot/core/role_panel.py` (custom_id `hunt_role:<join|leave>:<hunts.id>`, registered once with `bot.add_dynamic_items`), not a View in `bot/cogs/ui.py`; the panel is attached to the `#lobby` welcome; `!post_role_panel <hunt name>` re-posts it.
 
 A **persistent** view (`timeout=None`, fixed `custom_id`s of the form
 `hunt_role:join:<hunt_uid>` / `hunt_role:leave:<hunt_uid>`), registered with

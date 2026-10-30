@@ -44,7 +44,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
 | | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
-| **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` · `!setup_server` |
+| **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` · `!setup_server` · `!post_role_panel` |
 | | Settings | `!set_login` · `!set_start` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
 | | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
 | | Archive | `!archive_hunt` · `!archive_hunt_to_hub` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
@@ -64,7 +64,8 @@ Two things the table can't show:
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
 | `!hunt` | `!h` | `name:url[, role][, forum]` | bot channel | admins/mods | Create a hunt: category, general channel, sheet. Optional role gates visibility; append `, forum` for forum-backed layout (a forum channel per round) — **legacy**, being left to go stale in favor of the category-based layout; don't build new group features against it. |
-| `!setup_server` | | `hub-id hub-role-id hunt-url hunt name` | a fresh team server | server owner + hub admin | Set up a server just made from the team-server template: checks it matches the template, copies the hub's settings, pins `mod` as the admin role, creates the hunt gated to a team role named after the hub role, records the hub role as the hunt's roster, and posts a `#lobby` welcome. Re-run to finish a run that stopped partway; once complete it refuses for good on that server. See the [new server playbook](new-server-playbook.md#team-servers-one-per-team-per-hunt). |
+| `!setup_server` | | `hub-id hub-role-id hunt-url hunt name` | a fresh team server | server owner + hub admin | Set up a server just made from the team-server template: checks it matches the template, copies the hub's settings, pins `mod` as the admin role, creates the hunt gated to a team role named after the hub role, records the hub role as the hunt's roster, and posts the `#lobby` welcome with its Join/Leave panel. Re-run to finish a run that stopped partway; once complete it refuses for good on that server. See the [new server playbook](new-server-playbook.md#team-servers-one-per-team-per-hunt). |
+| `!post_role_panel` | | `hunt name` | bot channel | admins/mods | Post the `#lobby` Join/Leave panel for a hunt made by `!setup_server` — `!setup_server` already posts one; use this if it was deleted or the server predates the panel. Join is for people holding the hunt's hub role (hub admins also get `mod`); Leave removes both. Old panels keep working. |
 | `!use_solved_sheet` *(slash)* | `!set_to_archive` | — | Hunt channel | admins/mods | Use a separate "solved puzzles sheet": solved feeders move there, metas stay on the main sheet. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |
