@@ -106,3 +106,49 @@ async def leave(guild, member, hunt_id):
     except discord.Forbidden:
         return _CANT_GRANT
     return f"Done — removed {_names(to_remove)}. Click **Join** to come back."
+
+
+# -- The buttons ---------------------------------------------------------------
+# A DynamicItem, not a View registered per hunt: the custom_id carries the action
+# and the hunt id, so one bot.add_dynamic_items(HuntRoleButton) at cog load makes
+# every panel ever posted work after a restart, with no view state stored.
+
+CUSTOM_ID_TEMPLATE = r"hunt_role:(?P<action>join|leave):(?P<hunt_id>[0-9]+)"
+
+
+class HuntRoleButton(discord.ui.DynamicItem[discord.ui.Button], template=CUSTOM_ID_TEMPLATE):
+    def __init__(self, action, hunt_id):
+        joining = action == "join"
+        super().__init__(discord.ui.Button(
+            label="Join" if joining else "Leave",
+            style=discord.ButtonStyle.success if joining else discord.ButtonStyle.secondary,
+            custom_id=f"hunt_role:{action}:{hunt_id}",
+        ))
+        self.action = action
+        self.hunt_id = hunt_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(match["action"], int(match["hunt_id"]))
+
+    async def callback(self, interaction):
+        # Deferred first: the hub lookup can fetch a member, and an unanswered
+        # click fails in Discord after three seconds.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            if self.action == "join":
+                text = await join(interaction.client, interaction.guild, interaction.user, self.hunt_id)
+            else:
+                text = await leave(interaction.guild, interaction.user, self.hunt_id)
+        except Exception:
+            logger.exception("role panel %s failed for hunt %s", self.action, self.hunt_id)
+            text = "Something went wrong — ask an organiser."
+        await interaction.followup.send(text, ephemeral=True)
+
+
+def panel_view(hunt_id):
+    """The Join / Leave buttons for *hunt_id*, to attach to a #lobby message."""
+    view = discord.ui.View(timeout=None)
+    view.add_item(HuntRoleButton("join", hunt_id))
+    view.add_item(HuntRoleButton("leave", hunt_id))
+    return view

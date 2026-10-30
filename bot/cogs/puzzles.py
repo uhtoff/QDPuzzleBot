@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive, media_gc, server_setup
+from bot.core import category_layout, hunt_archive, media_gc, role_panel, server_setup
 
 logger = logging.getLogger(__name__)
 
@@ -4420,4 +4420,6 @@ class Puzzles(commands.Cog):
         return self.bot.get_channel(hunt.channel_id)
 
 async def setup(bot):
+    # Every #lobby role panel ever posted keeps working across restarts.
+    bot.add_dynamic_items(role_panel.HuntRoleButton)
     await bot.add_cog(Puzzles(bot))
