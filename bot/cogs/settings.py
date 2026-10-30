@@ -60,9 +60,14 @@ To finish setting it up:
 ```
 You must be this server's owner and an admin on the hub. To copy the ids, turn on \
 Developer Mode (User Settings → Advanced), then right-click the hub's server icon, \
-and the team's role in the hub's Server Settings → Roles.
-
-If it stops partway, fix what it says and re-run the same command."""
+and the team's role in the hub's Server Settings → Roles. If it stops partway, fix \
+what it says and re-run the same command.
+**3.** Click **Join** in #{server_setup.LOBBY_CHANNEL}. As a hub admin you also get \
+`{server_setup.TEMPLATE_MOD_ROLE}`, which the next step needs.
+**4.** Check the server looks right, then run `!send_invites <hunt name>` here: everyone \
+with the hub role gets a private invite by DM, and anyone given the role later is \
+invited automatically.
+**5.** Optionally, transfer server ownership to someone on the team."""
 
 
 async def _post_setup_message(guild):

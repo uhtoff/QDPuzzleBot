@@ -118,3 +118,15 @@ async def test_ordinary_server_still_gets_the_manual_setup_greeting():
     assert len(_lobby(g).sent) == 1                     # first writable channel
     assert "!set_admin_roles" in _lobby(g).sent[0]
     assert _bot_commands(g).sent == []
+
+
+async def test_template_greeting_walks_through_the_whole_setup():
+    g = _template_guild()
+    await _join(g)
+    text = _bot_commands(g).sent[0]
+    steps = ["above `mod`", "!setup_server <hub server id>", "**Join**",
+             "!send_invites <hunt name>", "ownership"]
+    for step in steps:
+        assert step in text, step
+    positions = [text.index(s) for s in steps]
+    assert positions == sorted(positions), "steps are out of order"

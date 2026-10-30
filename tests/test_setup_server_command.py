@@ -120,3 +120,11 @@ async def test_a_stopped_run_says_to_rerun_and_does_not_claim_locked():
     sent = _sent(ctx)
     assert "sheets down" in sent and "re-run" in sent and "locked" not in sent
     notifier.return_value.welcome.assert_not_awaited()
+
+
+async def test_a_completed_setup_points_at_join_then_send_invites():
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
+    await _call(cog, ctx, _settings())
+    text = _sent(ctx)
+    assert "**Join**" in text and "!send_invites Big Hunt" in text
+    assert text.index("**Join**") < text.index("!send_invites Big Hunt")

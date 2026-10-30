@@ -176,21 +176,28 @@ collect `mod` everywhere.
    `https://discord.com/oauth2/authorize?client_id=<bot application id>&scope=bot&permissions=8`
    (the id is the Developer Portal's **Application ID** for the instance you mean — test
    and live are different bots).
-4. The bot recognises the template and posts the next two steps in `#bot-commands`
+4. The bot recognises the template and posts the remaining steps in `#bot-commands`
    (players can't see it). If its greeting lands in `#lobby` instead, the server didn't
    match the template — check it against the list above, and delete that greeting.
 5. In Server Settings → Roles, drag the bot's role above `mod`.
 6. In `#bot-commands`: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
    You must be the server's owner and an admin on the hub. If it stops, fix what it says
    and re-run the same command; once it reports complete it is locked on that server.
-7. Optionally transfer server ownership to a member of that team and have the group
+7. Click **Join** in `#lobby`. As a hub admin you also get `mod`, which you need for the
+   next step (and for `!archive_hunt_to_hub` at hunt end).
+8. Check the server looks right, then in `#bot-commands`: `!send_invites <hunt name>`.
+   Everyone with the hub role gets a private, single-use invite by DM, and the bot gives
+   them the team role as they arrive. The reply names anyone whose DMs are closed — run
+   `!invite_player <user id>` for each (if their DMs are still closed, the invite is DM'd
+   to you to pass on). Re-running is safe: anyone already here or invited is skipped. From
+   then on, anyone given the hub role is DM'd an invite automatically.
+9. Optionally transfer server ownership to a member of that team and have the group
    account leave.
-8. Players click **Join** in `#lobby`: it gives the team role to anyone holding the hub
-   role, and hub admins also get `mod` (so they can run `!archive_hunt_to_hub` at hunt
-   end). Nobody else can use it. **Leave** takes both away; someone given `mod` by hand
-   who isn't a hub admin can't get it back through Join. Until invite DMs land, players
-   still need an invite link to reach the server. `!post_role_panel <hunt name>`
-   re-posts the panel if it goes missing.
+
+Anyone who arrives some other way lands in `#lobby`: **Join** gives them the team role if
+they hold the hub role, and nothing otherwise. **Leave** removes the team role and `mod`;
+someone given `mod` by hand who isn't a hub admin can't get it back through Join.
+`!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.
 

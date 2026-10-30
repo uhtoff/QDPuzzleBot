@@ -1,7 +1,7 @@
 # Fresh Discord server per hunt-team — design
 
 **Date:** 2026-07-31
-**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14; slice 3 (#lobby role panel) — plan 2026-10-30.
+**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14; slice 3 (#lobby role panel) — plan 2026-10-30; slice 4 (invites) — plan 2026-10-30.
 **Supersedes:** the *reusable pool* decision in
 `docs/future/2026-07-05-multi-server-hunt-architecture-design.md`. That doc's problem
 statement, Discord constraints, and rejected approaches all still stand and are not
@@ -103,6 +103,13 @@ command fills in the rest:
 9. Stamp `guilds.setup_complete_time` as the very last step; the command refuses on any server where it is set.
 
 ## Invite delivery
+
+*Changed 2026-10-30 (plan 2026-10-30-team-invites.md):*
+- **Arrival grant:** the team role is granted on arrival by the hub role alone (the Join check), not by matching the invite used. Discord doesn't report which invite was used, and a forwarded invite would otherwise grant the role.
+- **`hunt_invites`** records who was DM'd, so nobody is DM'd twice and `joined_at` shows who arrived.
+- **`!send_invites <hunt name>`** sends the first DMs, run by a mod after checking the server, rather than `!setup_server`. Its first completed run stamps `hunts.invites_sent_time`, which switches on the late-joiner listener.
+- **The spec's `!invite <user>` is `!invite_player <user>`,** because `!invite` already shows the bot's own link. If the player's DMs are closed, it DMs the link to the invoker to pass on.
+- **Failed DMs** delete the invite and record nothing. A failed late-joiner DM is reported by name, never by link, in the team server's `#bot-commands`.
 
 Private by construction: a `max_uses=1` invite per player, delivered by DM. No link
 exists in any channel. The bot can DM them because it shares the permanent hub with them.
