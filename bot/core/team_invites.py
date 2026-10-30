@@ -157,3 +157,66 @@ async def invite_one(bot, guild, hunt, user, invoker):
         return (f":incoming_envelope: {user.display_name}'s DMs are closed, so I've DM'd "
                 "the invite to you to pass on.")
     return f":incoming_envelope: DM'd a fresh invite to **{user.display_name}**."
+
+
+# -- Events (routed by bot/cogs/team_servers.py) -----------------------------------
+
+async def on_join(bot, member):
+    """Someone joined a server. On a team server, a holder of the hunt's hub role
+    gets the team role at once, however they got in; anyone else is left to
+    #lobby. Hub admins are not given `mod` here -- they opt in with Join."""
+    if member.bot:
+        return
+    hunt = HuntJsonDb.live_team_hunt_for_guild(member.guild.id)
+    if hunt is None:
+        return
+    roster = role_panel.find_roster_role(bot, hunt.roster_role_id)
+    team_role = member.guild.get_role(hunt.role_id)
+    if roster is None or team_role is None:
+        return
+    on_hub = await hunt_archive.hub_member(roster.guild, member.id)
+    if on_hub is None or roster.id not in {r.id for r in on_hub.roles}:
+        return
+    HuntInviteDb.mark_joined(hunt.id, member.id)
+    if team_role.id not in {r.id for r in member.roles}:
+        await member.add_roles(team_role, reason=f"joined with {roster.name} on the hub: {hunt.name}")
+
+
+async def _tell_mods(guild, text):
+    """A line for the team server's #bot-commands (owner + mod only)."""
+    channel = discord.utils.get(guild.text_channels, name=server_setup.BOT_CHANNEL)
+    if channel is None:
+        logger.warning("guild %s has no #%s for: %s", guild.id, server_setup.BOT_CHANNEL, text)
+        return
+    try:
+        await channel.send(text)
+    except discord.HTTPException:
+        logger.exception("could not post to #%s on guild %s", server_setup.BOT_CHANNEL, guild.id)
+
+
+async def on_hub_roles_added(bot, member, added_role_ids):
+    """Someone was given roles. For each that is the hub role of a live hunt whose
+    invites have gone out, DM them an invite -- unless they're already on that
+    team server or already DM'd. A failed DM is reported by name in the team
+    server's #bot-commands, never with the link."""
+    if member.bot:
+        return
+    for role_id in added_role_ids:
+        for hunt, guild_snowflake in HuntJsonDb.live_invited_hunts_for_roster(role_id):
+            team_guild = bot.get_guild(guild_snowflake)
+            if team_guild is None or team_guild.get_member(member.id) is not None:
+                continue
+            if member.id in HuntInviteDb.invited_user_ids(hunt.id):
+                continue
+            role = member.guild.get_role(role_id)
+            team = role.name if role is not None else "your team"
+            try:
+                delivered = await deliver(team_guild, hunt, team, member)
+            except InviteUnavailable as exc:
+                logger.warning("late-joiner invite for %s on guild %s: %s",
+                               member.id, guild_snowflake, exc)
+                delivered = False
+            if not delivered:
+                await _tell_mods(team_guild, (
+                    f":warning: **{member.display_name}** was just given **{team}** on the "
+                    f"hub, but I couldn't DM them an invite. Run `!invite_player {member.id}` here."))
