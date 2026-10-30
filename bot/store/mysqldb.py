@@ -289,6 +289,73 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             "SELECT COUNT(*) AS n FROM `hunts` WHERE guild_id = %s", (guild_row_id,))
         return int(row["n"]) if row else 0
 
+    def live_team_hunt_for_guild(self, guild_snowflake):
+        """The live hunt on the guild whose Discord id is *guild_snowflake* that has
+        a hub roster role -- a team server holds exactly one -- or None. Hub-hosted
+        hunts have no roster role, so the hub itself never matches."""
+        row = self._fetch_one(
+            "SELECT hunts.* FROM `hunts` JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE guilds.guild_id = %s AND hunts.archived = 0 "
+            "AND hunts.roster_role_id IS NOT NULL AND hunts.roster_role_id <> 0 "
+            "ORDER BY hunts.id ASC LIMIT 1",
+            (guild_snowflake,),
+        )
+        return HuntData.import_dict(row) if row else None
+
+    def live_invited_hunts_for_roster(self, roster_role_id):
+        """[(hunt, team guild snowflake)] for live hunts whose hub roster role is
+        *roster_role_id* and whose invites have gone out (invites_sent_time set):
+        the hunts a newly-given hub role should trigger an invite DM for."""
+        rows = self._fetch_all(
+            "SELECT hunts.*, guilds.guild_id AS guild_snowflake FROM `hunts` "
+            "JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE hunts.roster_role_id = %s AND hunts.archived = 0 "
+            "AND hunts.invites_sent_time IS NOT NULL ORDER BY hunts.id ASC",
+            (roster_role_id,),
+        )
+        return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
+
+    def mark_invites_sent(self, hunt_id):
+        """Stamp hunts.invites_sent_time with now (UTC) unless already set: the first
+        completed !send_invites wins. Its own UPDATE -- HuntData has no such field,
+        so the generic commit() can never clear it."""
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "UPDATE `hunts` SET `invites_sent_time` = COALESCE(`invites_sent_time`, %s) "
+            "WHERE `id` = %s",
+            (now, hunt_id),
+        )
+
+
+class MySQLHuntInviteDb(_MySQLBaseDb):
+    """hunt_invites: one row per single-use team-server invite DM'd to a holder of
+    a hunt's hub role (slice 4). A record, not a gate."""
+    TABLE_NAME = 'hunt_invites'
+
+    def record(self, hunt_id, user_id, code):
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "INSERT INTO `hunt_invites` (hunt_id, user_id, code, created_at) "
+            "VALUES (%s, %s, %s, %s)",
+            (hunt_id, user_id, code, now),
+        )
+
+    def invited_user_ids(self, hunt_id):
+        """Everyone ever DM'd an invite for *hunt_id*."""
+        rows = self._fetch_all(
+            "SELECT DISTINCT user_id FROM `hunt_invites` WHERE hunt_id = %s", (hunt_id,))
+        return {int(r["user_id"]) for r in rows}
+
+    def mark_joined(self, hunt_id, user_id):
+        """Note that *user_id* arrived on *hunt_id*'s team server (a no-op for
+        someone who was never DM'd)."""
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "UPDATE `hunt_invites` SET joined_at = %s "
+            "WHERE hunt_id = %s AND user_id = %s AND joined_at IS NULL",
+            (now, hunt_id, user_id),
+        )
+
 
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'

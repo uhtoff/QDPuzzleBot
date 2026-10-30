@@ -32,7 +32,7 @@ from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
 from .puzzle_image_data import PuzzleImageData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb, MySQLHuntInviteDb
 
 from bot.utils import config
 
@@ -145,6 +145,7 @@ if config.storage == 'mysql':
     TagGroupCategoryDb = MySQLTagGroupCategoryDb(mydb=mydb)
     HuntCategoryDb = MySQLHuntCategoryDb(mydb=mydb)
     HuntJsonDb = MySQLHuntJsonDb(mydb=mydb)
+    HuntInviteDb = MySQLHuntInviteDb(mydb=mydb)
     SheetsJsonDb = MySQLAdditionalSheetsDb(mydb=mydb)
     RollupsJsonDb = MySQLRollupJsonDb(mydb=mydb)
     # The activity writer fires on *every* human message and is drained on a
