@@ -48,7 +48,7 @@ def _guild():
 
 
 def _hunt(role_id=71, roster_role_id=0):
-    h = MagicMock(); h.name = "Big Hunt"; h.role_id = role_id; h.roster_role_id = roster_role_id
+    h = MagicMock(); h.id = 42; h.name = "Big Hunt"; h.role_id = role_id; h.roster_role_id = roster_role_id
     return h
 
 
@@ -88,6 +88,8 @@ async def test_a_fresh_run_does_every_step_then_locks():
 
     targets.lobby.send.assert_awaited_once()
     assert server_setup.WELCOME_MARK in targets.lobby.send.await_args.args[0]
+    view = targets.lobby.send.await_args.kwargs["view"]
+    assert [c.custom_id for c in view.children] == ["hunt_role:join:42", "hunt_role:leave:42"]
     gdb.mark_setup_complete.assert_called_once_with(settings)
 
 
@@ -138,3 +140,9 @@ async def test_a_failed_welcome_never_locks():
     report, gdb, _ = await _run(targets)
     assert "no perms" in report.error
     gdb.mark_setup_complete.assert_not_called()
+
+
+def test_the_welcome_points_at_join_for_the_team():
+    text = server_setup.welcome_text(_hunt(), "Team Rocket")
+    assert "**Join**" in text and "Team Rocket" in text and "Big Hunt" in text
+    assert text.endswith(server_setup.WELCOME_MARK)

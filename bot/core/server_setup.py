@@ -17,6 +17,7 @@ import discord
 
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES
 from bot.core.discord_channels import clean_category_name
+from bot.core import role_panel
 from bot.store import GuildSettingsDb, HuntJsonDb
 from bot.store.hunt_data import HuntData
 
@@ -117,10 +118,12 @@ class SetupReport:
     error: str = ""                              # set when the run stopped; lock not written
 
 
-def _welcome_text(hunt, team):
-    return (f"Welcome to **{team}**'s server for **{hunt.name}**. Hunt channels appear "
-            f"once you have the **{team}** role. If this is the only channel you can see, "
-            f"ask an organiser on the hub. {WELCOME_MARK}")
+def welcome_text(hunt, team):
+    """The #lobby welcome; the Join / Leave panel is attached to this message."""
+    return (f"Welcome to **{team}**'s server for **{hunt.name}**. Click **Join** to get "
+            f"the **{team}** role and see the hunt channels — it's for people with "
+            f"**{team}** on the hub, and hub admins also get `mod` here. **Leave** "
+            f"gives the role back. {WELCOME_MARK}")
 
 
 async def _has_welcome(lobby, bot_id):
@@ -172,7 +175,8 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
         if await _has_welcome(targets.lobby, guild.me.id):
             report.steps.append(f"#{targets.lobby.name} welcome already posted.")
         else:
-            await targets.lobby.send(_welcome_text(hunt, team))
+            await targets.lobby.send(welcome_text(hunt, team),
+                                     view=role_panel.panel_view(hunt.id))
             report.steps.append(f"Posted the welcome in #{targets.lobby.name}.")
 
         GuildSettingsDb.mark_setup_complete(settings)
