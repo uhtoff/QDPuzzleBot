@@ -8,7 +8,9 @@ forwarded one gets its holder nothing beyond #lobby. hunt_invites records who wa
 DM'd, so nobody is DM'd twice and a mod can see who hasn't arrived. Invite links
 appear only in DMs, never in a channel.
 """
+import asyncio
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import discord
@@ -71,6 +73,22 @@ async def deliver(guild, hunt, team, user):
     return True
 
 
+# One lock per (hunt, person): the !send_invites sweep and the late-joiner listener
+# can reach the same person at once, and each checks the ledger before awaiting
+# Discord. Bounded by roster size, so never pruned.
+_delivery_locks = defaultdict(asyncio.Lock)
+
+
+async def deliver_once(guild, hunt, team, user):
+    """deliver(), unless *user* was already invited -- checked under a lock shared
+    by every automatic path, so two of them can't both DM. None when skipped.
+    !invite_player bypasses this on purpose: it is an explicit reissue."""
+    async with _delivery_locks[(hunt.id, user.id)]:
+        if user.id in HuntInviteDb.invited_user_ids(hunt.id):
+            return None
+        return await deliver(guild, hunt, team, user)
+
+
 async def send_invites(bot, guild, hunt):
     """!send_invites: DM an invite to every holder of the hunt's hub role who is
     neither on this server nor already DM'd. A completed run (DM failures and
@@ -113,7 +131,11 @@ async def _invite_pass(guild, hunt, roster, report, attempted, second=False):
                 report.already_invited += 1
         else:
             attempted.add(person.id)
-            delivered = await deliver(guild, hunt, roster.name, person)
+            delivered = await deliver_once(guild, hunt, roster.name, person)
+            if delivered is None:
+                if not second:
+                    report.already_invited += 1
+                continue
             (report.sent if delivered else report.failed).append(person.display_name)
 
 
@@ -229,7 +251,7 @@ async def on_hub_roles_added(bot, member, added_role_ids):
             role = member.guild.get_role(role_id)
             team = role.name if role is not None else "your team"
             try:
-                delivered = await deliver(team_guild, hunt, team, member)
+                delivered = await deliver_once(team_guild, hunt, team, member)
             except InviteUnavailable as exc:
                 logger.warning("late-joiner invite for %s on guild %s: %s",
                                member.id, guild_snowflake, exc)
@@ -237,6 +259,8 @@ async def on_hub_roles_added(bot, member, added_role_ids):
                     f":warning: **{member.display_name}** was just given **{team}** on the "
                     f"hub, but I couldn't create an invite: {exc}. Fix that, then run "
                     f"`!invite_player {member.id}` here."))
+                continue
+            if delivered is None:
                 continue
             if not delivered:
                 await _tell_mods(team_guild, (

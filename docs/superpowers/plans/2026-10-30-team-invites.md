@@ -49,7 +49,7 @@
   - removing the team role when someone loses the hub role (not in the spec; a later decision);
   - the access log (slice 5);
   - a dashboard equivalent;
-  - a race guard between `!send_invites` and a simultaneous late-joiner DM to the same person (worst case, one person gets two invites).
+  - a race guard between `!send_invites` and a simultaneous late-joiner DM to the same person (worst case, one person gets two invites). *Changed 2026-10-31:* added after the staging assessment (`docs/reviews/2026-10-31-staging-assessment.md`, finding 1) — `team_invites.deliver_once` holds a per-(hunt, person) lock and re-checks the ledger.
 
 ## Roadmap
 

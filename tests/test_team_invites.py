@@ -186,7 +186,9 @@ async def test_someone_given_the_hub_role_during_the_run_is_invited_in_a_second_
     type(w.roster).members = PropertyMock(side_effect=[[ann, bob], [ann, bob, late]])
     with ExitStack() as stack:
         idb, hdb = w.patched(stack)
-        idb.invited_user_ids.side_effect = [set(), {1, 2}]
+        ledger = set()
+        idb.record.side_effect = lambda hunt_id, uid, code: ledger.add(uid)
+        idb.invited_user_ids.side_effect = lambda hunt_id: set(ledger)
         report = await team_invites.send_invites(w.bot, w.guild, _hunt())
     assert report.sent == ["Ann", "Bob", "Late"]
     assert report.already_invited == 0
@@ -201,9 +203,18 @@ async def test_a_second_pass_that_cannot_make_an_invite_sets_the_error_but_keeps
     type(w.roster).members = PropertyMock(side_effect=[[ann], [ann, late]])
     with ExitStack() as stack:
         idb, hdb = w.patched(stack)
-        idb.invited_user_ids.side_effect = [set(), {1}]
-        stack.enter_context(patch("bot.core.team_invites.deliver", new=AsyncMock(
-            side_effect=[True, team_invites.InviteUnavailable("no lobby")])))
+        ledger = set()
+        idb.invited_user_ids.side_effect = lambda hunt_id: set(ledger)
+        outcomes = iter([True, team_invites.InviteUnavailable("no lobby")])
+
+        async def fake_deliver(guild, hunt, team, user):
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            ledger.add(user.id)
+            return outcome
+
+        stack.enter_context(patch("bot.core.team_invites.deliver", new=fake_deliver))
         report = await team_invites.send_invites(w.bot, w.guild, _hunt())
     assert report.sent == ["Ann"] and report.error == "no lobby"
     hdb.mark_invites_sent.assert_called_once_with(HUNT_ID)
