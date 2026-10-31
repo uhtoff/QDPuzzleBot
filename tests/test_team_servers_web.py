@@ -57,10 +57,14 @@ def web():
     hdb.get_by_attr.side_effect = lambda uid: next(
         (h for h, _ in rows if h.uid == uid), None)
     idb = MagicMock()
-    idb.for_hunt.side_effect = lambda hid: [
+    inv_rows = [
         {"user_id": 2, "created_at": _dt(1), "joined_at": _dt(2)},
         {"user_id": 5, "created_at": _dt(3), "joined_at": None, "code": SECRET},
-    ] if hid == 10 else []
+    ]
+    idb.for_hunt.side_effect = lambda hid: inv_rows if hid == 10 else []
+    idb.for_hunts.side_effect = lambda ids: {10: inv_rows} if 10 in ids else {}
+    hdb.guild_snowflake_for_hunt.side_effect = lambda hid: {
+        h.id: s for h, s in rows}.get(hid)
     ldb = MagicMock()
     ldb.for_hunt.side_effect = lambda hid: [
         {"id": 1, "created_at": _dt(1), "hunt_id": hid, "user_id": 1, "username": "fay",
@@ -72,7 +76,7 @@ def web():
     app = make_web_app("actions", cog=MagicMock())
     state = SimpleNamespace(
         require_admin=AsyncMock(return_value=None), hub=hub, team=team, bot=bot,
-        hdb=hdb, running=running)
+        hdb=hdb, idb=idb, running=running)
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.actions.require_admin", state.require_admin),
@@ -105,6 +109,8 @@ async def test_list_running_and_archived(web):
                         "archived": False, "team_server": "Rocket HQ",
                         "on_server_count": 3, "invited_waiting_count": 1}
     assert hunts[1]["archived"] is True
+    web.idb.for_hunts.assert_called_once_with([10, 11])
+    web.idb.for_hunt.assert_not_called()
     assert hunts[1]["team_server"] is None and hunts[1]["on_server_count"] is None
 
 

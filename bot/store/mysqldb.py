@@ -339,6 +339,15 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         )
         return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
 
+    def guild_snowflake_for_hunt(self, hunt_id):
+        """The Discord snowflake of the guild now homing *hunt_id*, or None."""
+        row = self._fetch_one(
+            "SELECT guilds.guild_id AS guild_snowflake FROM `hunts` "
+            "JOIN `guilds` ON hunts.guild_id = guilds.id WHERE hunts.id = %s",
+            (hunt_id,),
+        )
+        return int(row["guild_snowflake"]) if row else None
+
     def mark_invites_sent(self, hunt_id):
         """Stamp hunts.invites_sent_time with now (UTC) unless already set: the first
         completed !send_invites wins. Its own UPDATE -- HuntData has no such field,
@@ -399,6 +408,24 @@ class MySQLHuntInviteDb(_MySQLBaseDb):
             "WHERE hunt_id = %s ORDER BY id ASC",
             (hunt_id,),
         )
+
+    def for_hunts(self, hunt_ids):
+        """{hunt_id: invite rows} for many hunts in one query (rows as for_hunt,
+        still no code column). Hunts with no invites are absent."""
+        hunt_ids = list(hunt_ids)
+        if not hunt_ids:
+            return {}
+        marks = ", ".join(["%s"] * len(hunt_ids))
+        rows = self._fetch_all(
+            "SELECT hunt_id, user_id, created_at, joined_at FROM `hunt_invites` "
+            f"WHERE hunt_id IN ({marks}) ORDER BY id ASC",
+            tuple(hunt_ids),
+        )
+        out = {}
+        for r in rows:
+            out.setdefault(int(r["hunt_id"]), []).append(
+                {k: r[k] for k in ("user_id", "created_at", "joined_at")})
+        return out
 
     def forget(self, hunt_id, user_id):
         """Drop *user_id*'s invite rows for *hunt_id*, so being given the hub role

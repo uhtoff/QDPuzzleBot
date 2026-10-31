@@ -1634,7 +1634,8 @@ async def _guild_settings_ctx(guild_id):
 def _team_hunt_out(hub, hunt, snowflake, bot, *, count=False):
     """The list/detail summary of one team hunt, plus the team guild when the bot
     can see it (running hunts only; an archived hunt's row lives on the hub)."""
-    team_guild = None if hunt.archived else bot.get_guild(int(snowflake))
+    team_guild = (None if hunt.archived or snowflake is None
+                  else bot.get_guild(int(snowflake)))
     here = None
     if count and team_guild is not None:
         here = sum(1 for m in team_guild.members if not m.bot)
@@ -1662,12 +1663,14 @@ async def list_team_hunts(guild_id):
     _row, hub, _settings = resolved
     bot = bot_app().bot
     hunts = []
-    for hunt, snowflake in team_access.hub_team_hunts(hub, HuntJsonDb.team_hunts()):
+    team_rows = team_access.hub_team_hunts(hub, HuntJsonDb.team_hunts())
+    invites = HuntInviteDb.for_hunts([h.id for h, _ in team_rows])
+    for hunt, snowflake in team_rows:
         out, team_guild = _team_hunt_out(hub, hunt, snowflake, bot, count=True)
         here_ids = ({m.id for m in team_guild.members}
                     if team_guild is not None else set())
         out["invited_waiting_count"] = len(
-            team_access.waiting(HuntInviteDb.for_hunt(hunt.id), here_ids))
+            team_access.waiting(invites.get(hunt.id, []), here_ids))
         hunts.append(out)
     return jsonify({"hunts": hunts})
 
@@ -1686,9 +1689,8 @@ async def get_team_hunt(guild_id, uid):
     if (hunt is None or not hunt.roster_role_id
             or hub.get_role(int(hunt.roster_role_id)) is None):
         return jsonify({"error": "hunt_not_found"}), 404
-    snowflake = next((s for h, s in HuntJsonDb.team_hunts() if h.id == hunt.id), None)
-    out, team_guild = _team_hunt_out(
-        hub, hunt, snowflake if snowflake is not None else 0, bot)
+    snowflake = HuntJsonDb.guild_snowflake_for_hunt(hunt.id)
+    out, team_guild = _team_hunt_out(hub, hunt, snowflake, bot)
 
     def name_of(user_id):
         for g in (hub, team_guild):

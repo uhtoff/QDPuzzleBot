@@ -35,6 +35,18 @@ def test_team_hunts_and_invite_rows_against_the_real_schema():
         assert [r["user_id"] for r in rows] == [111, 222]
         assert all(set(r) == {"user_id", "created_at", "joined_at"} for r in rows)
         assert rows[0]["joined_at"] is not None and rows[1]["joined_at"] is None
+
+        HuntInviteDb.record(old, 333, "SECRETCODE3")
+        grouped = HuntInviteDb.for_hunts([live, old, plain])
+        assert {k: [r["user_id"] for r in v] for k, v in grouped.items()} == {
+            live: [111, 222], old: [333]}
+        assert all(set(r) == {"user_id", "created_at", "joined_at"}
+                   for v in grouped.values() for r in v)
+        assert HuntInviteDb.for_hunts([]) == {}
+
+        assert HuntJsonDb.guild_snowflake_for_hunt(live) == TEAM_SNOW
+        assert HuntJsonDb.guild_snowflake_for_hunt(old) == HUB_SNOW
+        assert HuntJsonDb.guild_snowflake_for_hunt(plain + 10**6) is None
     finally:
         for h in ids:
             _exec("DELETE FROM hunt_invites WHERE hunt_id = %s", (h,))
