@@ -1,7 +1,7 @@
 # Slice 5b — Team servers page, and the hub's template link
 
 **Date:** 2026-10-31
-**Status:** Design, awaiting approval.
+**Status:** Approved 2026-10-31.
 **Builds on:** slice 5 (`docs/superpowers/specs/2026-10-31-access-log-and-hub-admin-channel-design.md`),
 which collects the data this page shows.
 
@@ -152,7 +152,10 @@ the start — the fields the hunt's `AdminSettingsPanel` already edits (website 
 time + timezone, shared username/password, URL separator, puzzle prefix) — plus a
 solved-puzzle-sheet option (`!use_solved_sheet` has no dashboard equivalent yet; 5c adds
 it there and to the hunt panel) and, once the roadmap's per-puzzle sheets exist, their
-option too (user request, 2026-10-31).
+option too (user request, 2026-10-31). The hunt part of the form should reuse the dashboard's create-hunt
+form (`POST /api/hunts`, `frontend/src/components/CreateControls.tsx`), which is already
+richer than `!hunt` because Discord commands can't comfortably stack many options (user
+note, 2026-10-31).
 
 ## Constraints
 
