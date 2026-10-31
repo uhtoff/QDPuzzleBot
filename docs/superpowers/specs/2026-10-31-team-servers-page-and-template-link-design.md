@@ -147,6 +147,13 @@ of that hub's roles (excluding `@everyone`, bot-managed and admin roles), plus h
 name, and runs the same `server_setup` code as `!setup_server`. Inviting the bot and
 dragging its role above `mod` stay manual; the page checks the role order first.
 
+5c also offers, as an optional "advanced" section, the hunt settings an organiser sets at
+the start — the fields the hunt's `AdminSettingsPanel` already edits (website URL, start
+time + timezone, shared username/password, URL separator, puzzle prefix) — plus a
+solved-puzzle-sheet option (`!use_solved_sheet` has no dashboard equivalent yet; 5c adds
+it there and to the hunt panel) and, once the roadmap's per-puzzle sheets exist, their
+option too (user request, 2026-10-31).
+
 ## Constraints
 
 - Migration → deploy → code; a push deploys (`deploy.sh` runs `migrate.py`). Check 050 is
