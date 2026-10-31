@@ -4046,11 +4046,13 @@ class Puzzles(commands.Cog):
 
     @commands.command()
     @is_admin()
-    async def archive_hunt_to_hub(self, ctx, hub_id: int):
+    async def archive_hunt_to_hub(self, ctx, hub_id: Optional[int] = None):
         """*Archive the whole hunt onto another server (the hub), then leave this one.*
 
-        Usage: `!archive_hunt_to_hub <hub server id>`
+        Usage: `!archive_hunt_to_hub [hub server id]`
         Example: `!archive_hunt_to_hub 123456789012345678`
+        On a team server made by !setup_server, leave the id out: the hub is the
+        server holding the hunt's hub role. Give it only for hunts without one.
         Run in any channel of the hunt. Admins/mods only, and you must be an admin
         on the hub too. Condenses every channel (the general one included) into
         threads on a new channel on the hub, deletes all its categories/channels,
@@ -4067,7 +4069,10 @@ class Puzzles(commands.Cog):
         if getattr(hunt, "archived", False):
             await ctx.send(":x: This hunt is already archived. Moving an in-place archive onto a hub isn't supported yet.")
             return
+        roster = (role_panel.find_roster_role(self.bot, hunt.roster_role_id)
+                  if hunt.roster_role_id else None)
         try:
+            hub_id = hunt_archive.choose_hub_id(hub_id, roster.guild.id if roster else None)
             hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
         except hunt_archive.HubUnavailable as e:
             await ctx.send(f":x: {e}")

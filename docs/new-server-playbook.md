@@ -199,7 +199,7 @@ they hold the hub role, and nothing otherwise. **Leave** removes the team role a
 someone given `mod` by hand who isn't a hub admin can't get it back through Join.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
-At hunt end, `!archive_hunt_to_hub <hub id>` moves the history to the hub.
+At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
 
 ## Capacity, when planning a server per hunt
 

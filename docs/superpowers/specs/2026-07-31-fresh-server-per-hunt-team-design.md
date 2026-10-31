@@ -316,6 +316,8 @@ guild where it is played, gated by a role in that guild — which is exactly wha
 
 ## Archiving and teardown
 
+*Changed 2026-10-30 (plan 2026-10-30-team-invites.md, Task 6):* the hub id is optional. A hunt made by `!setup_server` stores its hub role, whose server is the hub (`hunt_archive.choose_hub_id`); an explicit id is for hunts without one, and one that disagrees with the hub role is refused.
+
 `!archive_hunt_to_hub <hub id>` writes the hunt's history threads into a new per-hunt
 channel on the hub, the team server's general channel included. `!archive_hunt` is
 unchanged and still archives in place.

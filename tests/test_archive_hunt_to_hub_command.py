@@ -13,6 +13,7 @@ def _hunt():
     h.name = "H"; h.role_id = 0; h.start_time = None
     h.channel_id = 60; h.layout_mode = "channel"
     h.archived = False
+    h.roster_role_id = 0
     return h
 
 
@@ -121,3 +122,42 @@ async def test_a_partial_run_tells_the_admin_to_rerun_from_general():
     summary = ctx.send.await_args.args[0]
     assert "re-run !archive_hunt_to_hub" in summary
     assert "general channel" in summary
+
+
+async def test_with_no_id_it_archives_to_the_hunt_s_hub():
+    hunt = _hunt(); hunt.roster_role_id = 70
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    roster = MagicMock(); roster.guild.id = 1000
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.role_panel.find_roster_role", return_value=roster) as find, \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(side_effect=hunt_archive.HubUnavailable("stop here"))) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx)
+    find.assert_called_once_with(cog.bot, 70)
+    resolve.assert_awaited_once_with(cog.bot, 1000, ctx.guild, ctx.author)
+
+
+async def test_an_id_disagreeing_with_the_hunt_s_hub_is_refused_before_resolving():
+    hunt = _hunt(); hunt.roster_role_id = 70
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    roster = MagicMock(); roster.guild.id = 1000
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.role_panel.find_roster_role", return_value=roster), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 2000)
+    resolve.assert_not_awaited()
+    cog.service.archive_hunt_to_hub.assert_not_awaited()
+    reply = ctx.send.await_args.args[0]
+    assert reply.startswith(":x:") and "1000" in reply
+
+
+async def test_no_id_on_a_hunt_without_a_hub_role_asks_for_one():
+    cog = make_cog(hunt=_hunt()); cog.bot = MagicMock()
+    cog.service.archive_hunt_to_hub = AsyncMock()
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx)
+    resolve.assert_not_awaited()
+    assert "server id" in ctx.send.await_args.args[0]

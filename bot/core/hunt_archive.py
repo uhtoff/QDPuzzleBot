@@ -82,6 +82,22 @@ class HubUnavailable(Exception):
     touched; the message is shown to the invoker as-is."""
 
 
+def choose_hub_id(given_hub_id, roster_hub_id):
+    """The hub server !archive_hunt_to_hub archives to. *roster_hub_id* is the
+    server holding the hunt's hub role (None if it has none): role ids are
+    unique, so that server is the hub. An explicit *given_hub_id* is for hunts
+    without a hub role; one that disagrees with the hub role is refused."""
+    if given_hub_id is None:
+        if roster_hub_id is None:
+            raise HubUnavailable("this hunt has no hub role to find its hub from — give the "
+                                 "hub's server id: `!archive_hunt_to_hub <hub server id>`")
+        return roster_hub_id
+    if roster_hub_id is not None and given_hub_id != roster_hub_id:
+        raise HubUnavailable(f"this hunt's hub role is on server {roster_hub_id}, not "
+                             f"{given_hub_id} — leave the id out to archive there")
+    return given_hub_id
+
+
 async def hub_member(hub, user_id):
     """The invoker's member object on the hub, or None. Once the hub is chunked
     the cache is complete, so a miss is authoritative."""
