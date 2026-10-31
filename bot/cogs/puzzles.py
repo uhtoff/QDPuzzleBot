@@ -577,7 +577,7 @@ class Puzzles(commands.Cog):
         archive whenever the puzzle was solved -- but extras only move there if
         the hunt HAS a solved sheet, and solved_sheet_id defaults to "", so a
         default hunt built 'spreadsheets/d//edit#gid=...' dead links (M15).
-        Since 045 the location is recorded per sheet, as get_puzzle_sheet has
+        That fallback rule now lives in bot.core.sheet_location. Since 045 the location is recorded per sheet, as get_puzzle_sheet has
         always done for the main tab.
         """
         assert sheet is not None  # callers always pass it; default is keyword-style only
