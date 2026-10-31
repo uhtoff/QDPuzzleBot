@@ -163,10 +163,12 @@ async def on_departed(bot, member):
     for action, detail in rows:
         HuntAccessLogDb.record(hunt.id, member.id, member.display_name, action, via,
                                actor_id, detail)
-    if via in LOUD_VIAS:
+    if any(not _is_quiet(a, via) for a, _ in rows):
         text = f":door: **{member.display_name}** left **{guild.name}**"
         if via == "hand":
             text += f" (removed by <@{actor_id}>)"
+        elif via == "self":
+            text += " (left on their own)"
         elif via == "hub_role_lost":
             text += " (they lost the hub role)"
         elif via == "hub_admin_lost":

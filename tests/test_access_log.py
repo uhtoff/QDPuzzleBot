@@ -265,3 +265,13 @@ async def test_elevate_is_posted_whatever_the_via_except_button():
     access_notes.expect(TEAM_GUILD, PERSON, MOD, "arrival")
     await w.change(gained=[w.mod])
     w.post.assert_awaited_once()
+
+
+async def test_a_mod_leaving_by_themselves_is_posted():
+    w = World()
+    w.member.roles = [w.team_role, w.mod]
+    await w.run(access_log.on_departed, w.member)
+    assert [(r[3], r[4]) for r in w.rows()] == [
+        ("depart", "self"), ("revoke", "self"), ("demote", "self")]
+    w.post.assert_awaited_once()
+    assert "Fay" in w.post.await_args.args[1] and "mod" in w.post.await_args.args[1]
