@@ -80,23 +80,41 @@ async def send_invites(bot, guild, hunt):
     if roster is None:
         report.error = "I can't find this hunt's hub role"
         return report
+    if not roster.guild.chunked:
+        await roster.guild.chunk()
+    attempted = set()  # ids DM'd (or tried) in pass 1; a closed-DM person isn't recorded
+    try:
+        await _invite_pass(guild, hunt, roster, report, attempted)
+    except InviteUnavailable as exc:
+        report.error = str(exc)
+        return report
+    HuntJsonDb.mark_invites_sent(hunt.id)
+    # Anyone given the hub role while the first pass ran was missed by both it and
+    # the late-joiner listener (off until the stamp above): one more pass.
+    try:
+        await _invite_pass(guild, hunt, roster, report, attempted, second=True)
+    except InviteUnavailable as exc:
+        report.error = str(exc)
+    return report
+
+
+async def _invite_pass(guild, hunt, roster, report, attempted, second=False):
+    """One sweep of the hub role's holders, DMing those neither here nor already
+    invited. Raises InviteUnavailable when no invite can be made."""
     invited = HuntInviteDb.invited_user_ids(hunt.id)
     for person in roster.members:
-        if person.bot:
+        if person.bot or person.id in attempted:
             continue
         if guild.get_member(person.id) is not None:
-            report.already_here += 1
+            if not second:
+                report.already_here += 1
         elif person.id in invited:
-            report.already_invited += 1
+            if not second:
+                report.already_invited += 1
         else:
-            try:
-                delivered = await deliver(guild, hunt, roster.name, person)
-            except InviteUnavailable as exc:
-                report.error = str(exc)
-                return report
+            attempted.add(person.id)
+            delivered = await deliver(guild, hunt, roster.name, person)
             (report.sent if delivered else report.failed).append(person.display_name)
-    HuntJsonDb.mark_invites_sent(hunt.id)
-    return report
 
 
 def report_text(report):
@@ -215,7 +233,11 @@ async def on_hub_roles_added(bot, member, added_role_ids):
             except InviteUnavailable as exc:
                 logger.warning("late-joiner invite for %s on guild %s: %s",
                                member.id, guild_snowflake, exc)
-                delivered = False
+                await _tell_mods(team_guild, (
+                    f":warning: **{member.display_name}** was just given **{team}** on the "
+                    f"hub, but I couldn't create an invite: {exc}. Fix that, then run "
+                    f"`!invite_player {member.id}` here."))
+                continue
             if not delivered:
                 await _tell_mods(team_guild, (
                     f":warning: **{member.display_name}** was just given **{team}** on the "

@@ -207,6 +207,17 @@ async def test_a_failed_dm_is_reported_to_the_team_server_by_name_not_link():
     assert "discord.gg" not in text
 
 
+async def test_an_uncreatable_invite_says_so_with_the_reason_and_no_link():
+    w = World()
+    w.team_guild.text_channels = [w.bot_commands]  # no #lobby
+    await w.given(ROSTER)
+    text = w.bot_commands.send.await_args.args[0]
+    assert "couldn't create an invite" in text and "#lobby" in text
+    assert "!invite_player 5" in text
+    assert "discord.gg" not in text
+    assert "couldn't DM" not in text
+
+
 # --- the listener cog --------------------------------------------------------------
 
 async def test_a_join_is_routed_to_team_invites():

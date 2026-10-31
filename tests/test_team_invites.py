@@ -2,7 +2,7 @@
 holders of the hunt's hub role, record who was DM'd, leave nothing behind when a
 DM fails, and never put a link anywhere but a DM."""
 from contextlib import ExitStack
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, call, patch
 
 import discord
 
@@ -40,6 +40,8 @@ class World:
                  hub_roles_of=None, roster_found=True):
         self.hub = MagicMock()
         self.hub.name = "The Hub"
+        self.hub.chunked = True
+        self.hub.chunk = AsyncMock()
         self.roster = MagicMock()
         self.roster.id = ROSTER
         self.roster.name = "Team Rocket"
@@ -177,6 +179,47 @@ async def test_an_unfindable_hub_role_stops_the_run():
 
 
 # --- report_text -------------------------------------------------------------------
+
+async def test_someone_given_the_hub_role_during_the_run_is_invited_in_a_second_pass():
+    ann, bob, late = _person(1, "Ann"), _person(2, "Bob"), _person(9, "Late")
+    w = World(members=[ann, bob])
+    type(w.roster).members = PropertyMock(side_effect=[[ann, bob], [ann, bob, late]])
+    with ExitStack() as stack:
+        idb, hdb = w.patched(stack)
+        idb.invited_user_ids.side_effect = [set(), {1, 2}]
+        report = await team_invites.send_invites(w.bot, w.guild, _hunt())
+    assert report.sent == ["Ann", "Bob", "Late"]
+    assert report.already_invited == 0
+    for p in (ann, bob, late):
+        p.send.assert_awaited_once()
+    hdb.mark_invites_sent.assert_called_once_with(HUNT_ID)
+
+
+async def test_a_second_pass_that_cannot_make_an_invite_sets_the_error_but_keeps_the_stamp():
+    ann, late = _person(1, "Ann"), _person(9, "Late")
+    w = World(members=[ann])
+    type(w.roster).members = PropertyMock(side_effect=[[ann], [ann, late]])
+    with ExitStack() as stack:
+        idb, hdb = w.patched(stack)
+        idb.invited_user_ids.side_effect = [set(), {1}]
+        stack.enter_context(patch("bot.core.team_invites.deliver", new=AsyncMock(
+            side_effect=[True, team_invites.InviteUnavailable("no lobby")])))
+        report = await team_invites.send_invites(w.bot, w.guild, _hunt())
+    assert report.sent == ["Ann"] and report.error == "no lobby"
+    hdb.mark_invites_sent.assert_called_once_with(HUNT_ID)
+
+
+async def test_an_unchunked_hub_is_chunked_before_anyone_is_dmd():
+    ann = _person(1, "Ann")
+    w = World(members=[ann])
+    w.hub.chunked = False
+    order = []
+    w.hub.chunk = AsyncMock(side_effect=lambda: order.append("chunk"))
+    ann.send.side_effect = lambda *a, **k: order.append("dm")
+    await w.send()
+    w.hub.chunk.assert_awaited_once()
+    assert order == ["chunk", "dm"]
+
 
 def test_the_report_names_people_and_never_carries_a_link():
     text = team_invites.report_text(InviteReport(

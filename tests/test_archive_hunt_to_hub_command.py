@@ -43,6 +43,19 @@ async def test_refuses_a_bad_hub_without_asking_to_confirm():
     cog.service.archive_hunt_to_hub.assert_not_awaited()
 
 
+async def test_an_unseen_hub_role_is_named_not_reported_as_missing():
+    hunt = _hunt(); hunt.roster_role_id = 70
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    ctx = _ctx()
+    with patch("bot.cogs.puzzles.role_panel.find_roster_role", return_value=None), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub", new=AsyncMock()) as resolve:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, None)
+    resolve.assert_not_awaited()
+    reply = ctx.send.await_args.args[0]
+    assert "can't see" in reply and "70" in reply
+    assert "!archive_hunt_to_hub <hub server id>" in reply
+
+
 async def test_names_the_hub_then_reports_there_even_if_ctx_channel_is_gone():
     hunt = _hunt()
     cog = make_cog(hunt=hunt); cog.bot = MagicMock()

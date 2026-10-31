@@ -114,6 +114,8 @@ command fills in the rest:
 Private by construction: a `max_uses=1` invite per player, delivered by DM. No link
 exists in any channel. The bot can DM them because it shares the permanent hub with them.
 
+*Superseded 2026-10-30 — see the Changed note under Invite delivery.*
+
 `on_member_join` looks the used invite code up in `hunt_invites` and **grants the team
 role automatically**, so a DM'd player goes from click to playing with no further action.
 Invited players therefore never touch the role panel.
@@ -309,7 +311,7 @@ guild where it is played, gated by a role in that guild — which is exactly wha
   `docs/superpowers/plans/2026-09-24-cross-server-hunt-archive.md`.
 - **`hunts.roster_role_id`** — the hub-side role that is the DM list — made by hand on the hub and passed to !setup_server (2026-10-14).
 - **`guilds.setup_complete_time`** — !setup_server's run-once lock (migration 047).
-- **`hunt_invites`** — `code`, `hunt_id`, `role_id`, `user_id`, `used_at`. Must be
+- *Superseded 2026-10-30 — see the Changed note under Invite delivery.* **`hunt_invites`** — `code`, `hunt_id`, `role_id`, `user_id`, `used_at`. Must be
   persistent: the code→role map is what `on_member_join` consults, and an in-memory map
   dies with the next restart mid-hunt. It also records who was invited versus who arrived.
 - **`hunt_access_log`** — see *Access audit trail*.
@@ -317,6 +319,8 @@ guild where it is played, gated by a role in that guild — which is exactly wha
 ## Archiving and teardown
 
 *Changed 2026-10-30 (plan 2026-10-30-team-invites.md, Task 6):* the hub id is optional. A hunt made by `!setup_server` stores its hub role, whose server is the hub (`hunt_archive.choose_hub_id`); an explicit id is for hunts without one, and one that disagrees with the hub role is refused.
+
+*Superseded 2026-10-30 — see the Changed note above: the hub id is optional.*
 
 `!archive_hunt_to_hub <hub id>` writes the hunt's history threads into a new per-hunt
 channel on the hub, the team server's general channel included. `!archive_hunt` is
@@ -366,6 +370,8 @@ The bot leaving is the part that matters. Left in place, dead guilds accumulate 
 list and in `guilds` rows, cluttering the dashboard's guild picker.
 
 ## Failure cases
+
+*Superseded 2026-10-30 — see the Changed note under Invite delivery.* (rows below that mention `!setup_server` reporting DM failures or `!invite <user>`).
 
 | Case | Handling |
 | --- | --- |

@@ -194,8 +194,9 @@ collect `mod` everywhere.
 9. Optionally transfer server ownership to a member of that team and have the group
    account leave.
 
-Anyone who arrives some other way lands in `#lobby`: **Join** gives them the team role if
-they hold the hub role, and nothing otherwise. **Leave** removes the team role and `mod`;
+Anyone who arrives holding the hub role gets the team role automatically, however they got
+in. Someone who arrives without it lands in `#lobby` with nothing, and someone already on the
+server who is later given the hub role clicks **Join** to get the team role. **Leave** removes the team role and `mod`;
 someone given `mod` by hand who isn't a hub admin can't get it back through Join.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 

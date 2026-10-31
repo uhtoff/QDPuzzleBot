@@ -4071,6 +4071,11 @@ class Puzzles(commands.Cog):
             return
         roster = (role_panel.find_roster_role(self.bot, hunt.roster_role_id)
                   if hunt.roster_role_id else None)
+        if hunt.roster_role_id and roster is None and hub_id is None:
+            await ctx.send(f":x: I can't see this hunt's hub role (id {hunt.roster_role_id}) — "
+                           "am I still on the hub? Give the hub's server id: "
+                           "`!archive_hunt_to_hub <hub server id>`")
+            return
         try:
             hub_id = hunt_archive.choose_hub_id(hub_id, roster.guild.id if roster else None)
             hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
@@ -4217,7 +4222,7 @@ class Puzzles(commands.Cog):
         Each person gets a single-use invite to this server by DM, and the team
         role as soon as they arrive. Anyone already here or already invited is
         skipped, so re-running is safe; after the first run, anyone given the hub
-        role is DM'd automatically. Names anyone whose DMs are closed — use
+        role is DM'd automatically. Lists anyone whose DMs are closed; use
         `!invite_player` for them. Run in the bot channel. Admins/mods only."""
         if not (await self.check_is_bot_channel(ctx)):
             return
