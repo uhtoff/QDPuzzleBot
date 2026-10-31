@@ -171,6 +171,13 @@ hunt, next to Server settings, showing: who is on the team server now; who was i
 but hasn't arrived (`hunt_invites`); and the full access history (`hunt_access_log`).
 Read-only first. It gets its own design and plan.
 
+*Known gap for 5b (final review, 2026-10-31):* the team role `!setup_server` gives the person
+who runs it is usually **not** in `hunt_access_log` — `_resolve_gating_role` adds it before
+`roster_role_id` is committed, so the listener doesn't yet see a live team hunt. 5b's
+"who has access now" should either write that `grant` row at the end of `run_setup` or read
+current membership from Discord rather than from the log alone. Also, an `arrive` row can
+land after its `grant` row; don't assume order.
+
 ## Constraints
 
 - **Migration → deploy → code** (`migrate.py` golden rule). A push deploys: `deploy.sh`
