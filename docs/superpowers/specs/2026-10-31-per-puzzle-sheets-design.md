@@ -149,9 +149,11 @@ meta and back out" — user).
   - Up-links from a feeder to its meta stay valid: targets never move to the solved
     spreadsheet.
   - Down-links to a feeder change when the feeder is solved and its tab moves; the bot
-    rewrites them then. The reconciler today only rewrites a row whose **text** changed — an
-    informs row's text doesn't change on solve — so the link must be part of the change
-    comparison (`docs/PLANS.md`).
+    rewrites them then. (Corrected 2026-10-31 from the code map: `reconcile_table` already
+    rewrites every present row on each render, so there is no text comparison to extend —
+    `docs/PLANS.md` was wrong on that. The real hazard is ordering: `service.solve` renders
+    the target tables *before* `move_puzzle_to_solved_sheet`, so the targets must be
+    re-rendered after the move.)
 - **Minis link up to their minimeta.** A mini isn't tagged, so "the puzzles it feeds" would
   give it no up-link; the point is getting to the meta quickly, so a mini's header links to
   its parent minimeta too. (My call.)
