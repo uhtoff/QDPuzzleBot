@@ -3729,7 +3729,7 @@ class PuzzleService:
         # tab delete here (unlike delete_round/delete_puzzle, where the spreadsheet
         # survives): both Drive files are deleted wholesale below, taking every tab
         # with them, so a per-puzzle deleteSheet would be N serialised Sheets calls
-        # (all behind gsheets._execute_lock, blocking every other hunt) for tabs
+        # (N Sheets round trips on the worker pool) for tabs
         # about to vanish. A puzzle's tab is in the working file, or in the archive
         # file when on_solved_sheet — and on_solved_sheet is only ever set when the
         # hunt has a solved sheet, which is deleted here too (review M20).

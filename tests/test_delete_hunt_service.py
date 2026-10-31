@@ -210,7 +210,7 @@ async def test_delete_hunt_removes_the_hunts_media_files(tmp_path):
 async def test_delete_hunt_does_not_delete_per_puzzle_tabs():
     """The whole Drive file goes at the end of delete_hunt, so deleting each
     puzzle's TAB first is pure waste — N serialised Sheets batchUpdates (all
-    behind the process-wide _execute_lock) for tabs that are about to vanish
+    each a Sheets round trip) for tabs that are about to vanish
     with the file (review M20).
 
     Both files are deleted wholesale, and a puzzle's tab lives in exactly one of

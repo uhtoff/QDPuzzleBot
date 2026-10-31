@@ -7,6 +7,9 @@ import threading
 import time
 from http.client import HTTPException
 
+import google_auth_httplib2
+import httplib2
+
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -26,19 +29,26 @@ _MAX_DELAY = 60.0
 _sheets_service = None
 _drive_service = None
 
-# The googleapiclient service and its underlying httplib2.Http are NOT thread-safe,
-# and we drive .execute() both on the event loop (execute_sync) and on worker
-# threads (execute_with_retry -> asyncio.to_thread). Two concurrent .execute()
-# calls on the shared Http corrupt the C heap ("free(): corrupted unsorted
-# chunks" / abort). Serialize every .execute() so only one runs at a time. The
-# lock is held solely around the single blocking call — never across an await or a
-# nested Sheets call — so it cannot deadlock.
-_execute_lock = threading.Lock()
+# The googleapiclient service's shared httplib2.Http is NOT thread-safe, and we
+# drive .execute() both on the event loop (execute_sync) and on worker threads
+# (execute_with_retry -> asyncio.to_thread); concurrent .execute() calls on one
+# Http corrupted the C heap (e01c81f). Rather than serialise every call behind
+# one global lock (a slow Drive copy would stall every hunt), each thread gets
+# its own Http and passes it to request.execute(http=...). Request objects are
+# built without I/O, so only .execute() needs the per-thread Http.
+_thread_local = threading.local()
 
 
-def _execute_locked(request):
-    with _execute_lock:
-        return request.execute()
+def _thread_http():
+    http = getattr(_thread_local, "http", None)
+    if http is None:
+        http = google_auth_httplib2.AuthorizedHttp(_credentials(), http=httplib2.Http())
+        _thread_local.http = http
+    return http
+
+
+def _execute(request):
+    return request.execute(http=_thread_http())
 
 
 def _credentials():
@@ -108,7 +118,7 @@ def execute_sync(request, max_retries=_MAX_RETRIES):
     attempt = 0
     while True:
         try:
-            return _execute_locked(request)
+            return _execute(request)
         except Exception as error:
             if not _is_retryable(error) or attempt >= max_retries:
                 raise
@@ -137,7 +147,7 @@ async def execute_with_retry(request, max_retries=_MAX_RETRIES, on_retry=None):
     notified = False
     while True:
         try:
-            return await asyncio.to_thread(_execute_locked, request)
+            return await asyncio.to_thread(_execute, request)
         except Exception as error:
             if not _is_retryable(error) or attempt >= max_retries:
                 raise
