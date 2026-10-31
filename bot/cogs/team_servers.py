@@ -6,7 +6,7 @@ import logging
 
 from discord.ext import commands
 
-from bot.core import team_invites
+from bot.core import access_log, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +21,27 @@ class TeamServers(commands.Cog):
             await team_invites.on_join(self.bot, member)
         except Exception:
             logger.exception("team-server arrival failed for member %s", getattr(member, "id", "?"))
+        try:
+            await access_log.on_arrived(self.bot, member)
+        except Exception:
+            logger.exception("access-log arrival failed for member %s", getattr(member, "id", "?"))
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        try:
+            await access_log.on_departed(self.bot, member)
+        except Exception:
+            logger.exception("access-log departure failed for member %s", getattr(member, "id", "?"))
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
         added = {r.id for r in after.roles} - {r.id for r in before.roles}
         removed = {r.id for r in before.roles} - {r.id for r in after.roles}
+        if added or removed:
+            try:
+                await access_log.on_roles_changed(self.bot, before, after)
+            except Exception:
+                logger.exception("access-log role change failed for member %s", getattr(after, "id", "?"))
         if added:
             try:
                 await team_invites.on_hub_roles_added(self.bot, after, added)
