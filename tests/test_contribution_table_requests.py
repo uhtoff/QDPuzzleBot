@@ -156,6 +156,24 @@ def test_reconcile_table_link_cells_and_clearable_fields():
     assert vals[2] == {"userEnteredValue": {"stringValue": "Gamma"}}
 
 
+def test_reconcile_table_empty_text_link_is_a_plain_empty_cell():
+    """A textFormatRun at startIndex 0 on an empty string may be rejected by the
+    live API, failing the whole roll-up batch: an empty-text Link with a uri is
+    written as a plain empty cell, while a non-empty one keeps its link."""
+    from bot.core.sheet_location import Link
+    cog = _cog()
+    sent = _capture_lowlevel(cog, ["feeds:2"])
+    desired = [["feeds:2", Link("", "https://x/a"), Link("Named", "https://x/n")]]
+    asyncio.run(cog.reconcile_table(page_id=900, desired_rows=desired, data_col_count=3))
+    flat = [r for body in sent for r in body["requests"]]
+    update = next(r["updateCells"] for r in flat if "updateCells" in r
+                  and r["updateCells"]["range"]["startRowIndex"] == 1)
+    vals = update["rows"][0]["values"]
+    assert vals[1] == {"userEnteredValue": {"stringValue": ""}}
+    assert vals[2]["textFormatRuns"][0]["format"]["link"]["uri"] == "https://x/n"
+    assert update["fields"] == LINK_FIELDS  # an old link in the cell is still cleared
+
+
 def test_reconcile_table_numeric_length_and_resizes_table():
     """Number-typed Length column is written numeric (blank when unsolved), and the
     native Table is resized to cover header + data so rows belong to it."""

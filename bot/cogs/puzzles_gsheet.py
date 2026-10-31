@@ -1310,7 +1310,9 @@ class GoogleSheets(commands.Cog):
                 return {}   # blank cell — valid in a number-typed Table column
             if isinstance(v, Link):
                 cell: dict = {"userEnteredValue": {"stringValue": v.text}}
-                if v.uri:
+                # No run on empty text: a run at startIndex 0 of "" may be
+                # rejected by the API, failing the whole batch.
+                if v.uri and v.text:
                     cell["textFormatRuns"] = [
                         {"startIndex": 0, "format": {"link": {"uri": v.uri}}}]
                 return cell
