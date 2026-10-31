@@ -6,7 +6,7 @@ import logging
 
 from discord.ext import commands
 
-from bot.core import access_log, team_invites
+from bot.core import access_log, startup_check, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,17 @@ logger = logging.getLogger(__name__)
 class TeamServers(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._checked = False
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._checked:
+            return
+        self._checked = True
+        try:
+            await startup_check.run(self.bot)
+        except Exception:
+            logger.exception("startup team-server check failed")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
