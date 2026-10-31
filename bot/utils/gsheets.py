@@ -37,11 +37,22 @@ _drive_service = None
 # built without I/O, so only .execute() needs the per-thread Http.
 _thread_local = threading.local()
 
+# One thread Http carries both Sheets and Drive calls, so its credentials need
+# scopes for both. A service-account credential with no scopes cannot refresh a
+# token (RefreshError invalid_scope); build() scopes its own copy from the
+# discovery doc, but the thread Http bypasses that. `drive` and `spreadsheets`
+# are the broadest scopes of each API's discovery set, so they cover every call.
+_THREAD_SCOPES = (
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+)
+
 
 def _thread_http():
     http = getattr(_thread_local, "http", None)
     if http is None:
-        http = google_auth_httplib2.AuthorizedHttp(_credentials(), http=build_http())
+        http = google_auth_httplib2.AuthorizedHttp(
+            _credentials().with_scopes(_THREAD_SCOPES), http=build_http())
         _thread_local.http = http
     return http
 
