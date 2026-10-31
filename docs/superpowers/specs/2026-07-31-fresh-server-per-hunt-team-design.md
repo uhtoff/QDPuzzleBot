@@ -218,7 +218,7 @@ Why the role exists at all, given the server already holds exactly one team:
 
 ## Access audit trail
 
-*Changed 2026-10-31 (slice 5, plan 2026-10-31-access-log.md; design 2026-10-31-access-log-and-hub-admin-channel-design.md):* `hunt_access_log` (migration 049) records grant/revoke, elevate/demote, arrive/depart with a `via`. The hub mirror is superseded: the hub admin channel (`discord_bot_channel`) gets only a quiet list (hand changes, bot removals, non-button mod changes, failures, mod invites, startup warnings), not one line per change.
+*Changed 2026-10-31 (slice 5, plan 2026-10-31-access-log.md; design 2026-10-31-access-log-and-hub-admin-channel-design.md):* `hunt_access_log` (migration 049) records grant/revoke, elevate/demote, arrive/depart with a `via`. The hub mirror is superseded: the hub admin channel (`discord_bot_channel`) gets only the access lines a mod needs to see (hand changes, removals by the bot when someone loses the hub role or hub admin, non-button mod changes, failures), plus mod invites and startup warnings, not one line per change. The bot posts nothing there while `@everyone` can see the channel.
 
 Role grants and removals do land in Discord's guild audit log (annotatable via the
 `reason=` parameter), but that log lives in the **team server**, retains 45 days, and is

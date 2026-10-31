@@ -168,10 +168,12 @@ collect `mod` everywhere.
 
 **Hide the hub's command channel from `@everyone`.** The hub's `discord_bot_channel` is
 the hub admin channel: it receives the mod invite (`!mod_invite <hunt name>` re-posts it;
-`!setup_server` posts it on a clean finish) and the quiet access lines (hand role changes,
-bot removals, non-button mod changes, failures) and a startup warning when a team server
-is missing the bot, its Administrator, or a role at or above `mod`. The bot refuses to post
-an invite there if `@everyone` can see the channel.
+`!setup_server` posts it on a clean finish) and only the access lines a mod needs to see
+(hand role changes, removals by the bot when someone loses the hub role or hub admin,
+non-button mod changes, failures), plus a startup warning when a team server is missing the
+bot, its Administrator, or its top role strictly above `mod`. If the hub can't be found the warning goes only to the log. While
+`@everyone` can see the channel the bot refuses to post anything there (invites, access
+lines, failures, warnings).
 
 **Per team, per hunt:**
 
