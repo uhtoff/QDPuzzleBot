@@ -41,3 +41,13 @@ def additional_sheet_location(hunt, sheet) -> SheetLocation:
 def hunt_sheet_location(hunt, page_id) -> SheetLocation:
     """A hunt's own working sheet is always on the hunt's main spreadsheet."""
     return SheetLocation(hunt.google_sheet_id, page_id)
+
+
+@dataclass(frozen=True)
+class Link:
+    """A table cell's text plus an optional link target.
+
+    ``uri=None`` renders as plain text. Never used as a row key.
+    """
+    text: str
+    uri: str | None

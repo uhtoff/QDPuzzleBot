@@ -125,6 +125,37 @@ def test_reconcile_table_appends_updates_prunes():
     assert append["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "none:3"}}
 
 
+LINK_FIELDS = "userEnteredValue,textFormatRuns"
+
+
+def test_reconcile_table_link_cells_and_clearable_fields():
+    from bot.core.sheet_location import Link
+    cog = _cog()
+    sent = _capture_lowlevel(cog, ["feeds:2", "informs:9"])
+    desired = [["feeds:2", Link("Alpha", "https://x/a"), "plain"],   # update
+               ["none:3", Link("Beta", "https://x/b"), Link("Gamma", None)]]  # append
+    asyncio.run(cog.reconcile_table(page_id=900, desired_rows=desired, data_col_count=3))
+    flat = [r for body in sent for r in body["requests"]]
+    updates = [r["updateCells"] for r in flat if "updateCells" in r]
+    assert len(updates) == 3
+    # every updateCells (update, prune, append) can clear an old link
+    assert all(u["fields"] == LINK_FIELDS for u in updates)
+    update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
+    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
+    assert update["rows"][0]["values"][1] == {
+        "userEnteredValue": {"stringValue": "Alpha"},
+        "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": "https://x/a"}}}]}
+    assert "textFormatRuns" not in update["rows"][0]["values"][0]
+    assert "textFormatRuns" not in update["rows"][0]["values"][2]
+    assert prune["rows"][0]["values"] == [{}, {}, {}]
+    vals = append["rows"][0]["values"]
+    assert vals[1]["textFormatRuns"][0]["format"]["link"]["uri"] == "https://x/b"
+    assert vals[1]["userEnteredValue"] == {"stringValue": "Beta"}
+    # Link with no uri is plain text
+    assert vals[2] == {"userEnteredValue": {"stringValue": "Gamma"}}
+
+
 def test_reconcile_table_numeric_length_and_resizes_table():
     """Number-typed Length column is written numeric (blank when unsolved), and the
     native Table is resized to cover header + data so rows belong to it."""

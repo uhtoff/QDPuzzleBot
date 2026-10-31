@@ -12,6 +12,7 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
+from bot.core.sheet_location import Link
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
 )
@@ -1299,6 +1300,12 @@ class GoogleSheets(commands.Cog):
                 if s and s.lstrip("-").isdigit():
                     return {"userEnteredValue": {"numberValue": int(s)}}
                 return {}   # blank cell — valid in a number-typed Table column
+            if isinstance(v, Link):
+                cell: dict = {"userEnteredValue": {"stringValue": v.text}}
+                if v.uri:
+                    cell["textFormatRuns"] = [
+                        {"startIndex": 0, "format": {"link": {"uri": v.uri}}}]
+                return cell
             return {"userEnteredValue": {"stringValue": str(v)}}
 
         def _row_cells(row):
@@ -1315,7 +1322,7 @@ class GoogleSheets(commands.Cog):
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
                           "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
                           "endColumnIndex": key_col + data_col_count},
-                "fields": "userEnteredValue",
+                "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": _row_cells(row)}],
             }})
         # Prunes: blank the table's own columns in place, never delete the row —
@@ -1327,7 +1334,7 @@ class GoogleSheets(commands.Cog):
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
                           "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
                           "endColumnIndex": key_col + data_col_count},
-                "fields": "userEnteredValue",
+                "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": blank_cells}],
             }})
         # Appends: write new rows strictly after the highest row currently in use.
@@ -1339,7 +1346,7 @@ class GoogleSheets(commands.Cog):
                 "range": {"sheetId": page_id, "startRowIndex": next_row,
                           "endRowIndex": next_row + len(appends), "startColumnIndex": key_col,
                           "endColumnIndex": key_col + data_col_count},
-                "fields": "userEnteredValue",
+                "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": _row_cells(row)} for row in appends],
             }})
 
