@@ -30,12 +30,12 @@ def _ctx():
 
 async def _call(cog, ctx, settings, resolve=None, preflight=None, run=None):
     hub, hub_row = HUB, HUB_ROW
-    with patch("bot.cogs.puzzles.GuildSettingsDb") as gdb, \
-         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+    with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
+         patch("bot.core.server_setup.hunt_archive.resolve_hub",
                new=resolve or AsyncMock(return_value=(hub, hub_row))) as res, \
-         patch("bot.cogs.puzzles.server_setup.preflight",
+         patch("bot.core.server_setup.preflight",
                new=preflight or MagicMock(return_value=TARGETS)) as pre, \
-         patch("bot.cogs.puzzles.server_setup.run_setup",
+         patch("bot.core.server_setup.run_setup",
                new=run or AsyncMock(return_value=server_setup.SetupReport(steps=["did a thing"]))) as rs, \
          patch("bot.core.notifier.DiscordNotifier") as notifier:
         gdb.get.return_value = settings
@@ -81,7 +81,7 @@ async def test_a_preflight_refusal_makes_nothing():
 async def test_a_non_owner_non_admin_is_refused_before_anything_else():
     cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     ctx.guild.owner_id = AUTHOR_ID + 1
-    with patch("bot.cogs.puzzles._holds", return_value=False):
+    with patch("bot.core.server_setup.role_gate.member_holds_tier", return_value=False):
         res, _, rs, _, _ = await _call(cog, ctx, _settings())
     assert "Only this server's owner" in _sent(ctx)
     res.assert_not_awaited(); rs.assert_not_awaited()
@@ -90,7 +90,7 @@ async def test_a_non_owner_non_admin_is_refused_before_anything_else():
 async def test_a_team_server_admin_who_is_not_owner_may_run_it():
     cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
     ctx.guild.owner_id = AUTHOR_ID + 1
-    with patch("bot.cogs.puzzles._holds", return_value=True):
+    with patch("bot.core.server_setup.role_gate.member_holds_tier", return_value=True):
         _, _, rs, _, _ = await _call(cog, ctx, _settings())
     rs.assert_awaited_once()
 

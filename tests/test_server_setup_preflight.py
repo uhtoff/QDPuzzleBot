@@ -51,6 +51,7 @@ def _hub(roster=None):
 def _settings():
     s = MagicMock()
     s.id = 7
+    s.setup_complete_time = None   # preflight now also reports 'already set up'
     return s
 
 

@@ -4195,49 +4195,13 @@ class Puzzles(commands.Cog):
         role named after the hub role, and records that hub role as the hunt's roster.
         If it stops partway, re-run the same command to finish; once complete it is
         locked on this server. Bang-only: the bot must already be here."""
-        settings = GuildSettingsDb.get(ctx.guild.id)
-        if settings is None:
-            await ctx.send(":x: This server has no settings row yet — remove the bot and re-invite it.")
-            return
-        if settings.setup_complete_time is not None:
-            await ctx.send(f":x: This server was already set up ({settings.setup_complete_time:%Y-%m-%d}); "
-                           "!setup_server only runs once per server.")
-            return
-        if ctx.author.id != ctx.guild.owner_id and not _holds(ctx, ADMIN_ROLES):
-            await ctx.send(":x: Only this server's owner (or an admin here) can run !setup_server.")
-            return
-        try:
-            hub, hub_row = await hunt_archive.resolve_hub(self.bot, hub_id, ctx.guild, ctx.author)
-            targets = server_setup.preflight(ctx.guild, settings, hub, roster_role_id, hunt_name)
-        except (hunt_archive.HubUnavailable, server_setup.SetupRefused) as e:
-            await ctx.send(f":x: {e}")
-            return
-        await ctx.send(f"⏳ Setting up **{hunt_name}** for **{targets.roster_role.name}**…")
-        report = await server_setup.run_setup(
-            self.service, ctx.guild, ctx.author, targets, settings, hub_row, hunt_name, hunt_url)
-        if report.hunt_created and report.hunt is not None:
-            from bot.core.notifier import DiscordNotifier
-            try:
-                await DiscordNotifier(self.bot).welcome(
-                    ctx.guild, report.hunt, channel=self.bot.get_channel(report.hunt.channel_id))
-            except discord.HTTPException:
-                logger.exception("setup_server: could not post the hunt welcome")
-        lines = [f"• {s}" for s in report.steps]
-        if report.error:
-            lines.append(f":x: Setup stopped: {report.error}")
-            lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
-        else:
-            lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
-            if report.hunt is not None:
-                invite_reply, posted_in = await mod_invite.post(self.bot, ctx.guild, report.hunt)
-                if posted_in is not None:
-                    lines.append(f"A mod invite for hub admins is in the hub's #{posted_in}.")
-                else:
-                    lines.append(invite_reply)
-            lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
-                         f"the server, then run `!send_invites {hunt_name}` to DM everyone with "
-                         "the hub role. Transfer server ownership to a team member if wanted.")
-        await ctx.send("\n".join(lines))
+        async def announce(team_name):
+            await ctx.send(f"⏳ Setting up **{hunt_name}** for **{team_name}**…")
+
+        outcome = await server_setup.perform_setup(
+            self.bot, self.service, ctx.guild, ctx.author, hub_id, roster_role_id,
+            hunt_name, hunt_url, on_start=announce)
+        await ctx.send("\n".join(outcome.lines))
 
     @commands.command()
     @commands.guild_only()

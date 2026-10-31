@@ -17,7 +17,7 @@ import discord
 
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES
 from bot.core.discord_channels import clean_category_name
-from bot.core import role_panel
+from bot.core import hunt_archive, role_gate, role_panel
 from bot.store import GuildSettingsDb, HuntJsonDb
 from bot.store.hunt_data import HuntData
 
@@ -63,24 +63,44 @@ def looks_like_template(guild) -> bool:
     return len(mods) == 1 and lobby is not None and bot_channel is not None
 
 
+def already_set_up_text(settings) -> str:
+    return (f"This server was already set up ({settings.setup_complete_time:%Y-%m-%d}); "
+            "!setup_server only runs once per server.")
+
+
+def template_problems(guild, settings) -> list:
+    """Every hub-free reason this server can't be set up as it stands, in the
+    order preflight raises them (empty list = good). Wording is what the
+    command shows; the dashboard lists them all."""
+    problems = []
+    if settings.setup_complete_time is not None:
+        problems.append(already_set_up_text(settings))
+    me = guild.me
+    if not me.guild_permissions.administrator:
+        problems.append("the bot needs Administrator here — re-invite it with permissions=8")
+    if guild.default_role.permissions.view_channel:
+        problems.append("@everyone can see channels here, so this server wasn't made "
+                        "from the template — clone the template and start again")
+    mods, lobby, bot_channel = _template_parts(guild)
+    if len(mods) != 1:
+        problems.append(f"expected exactly one `{TEMPLATE_MOD_ROLE}` role, found {len(mods)}")
+    elif mods[0].position >= me.top_role.position:
+        problems.append(f"drag the bot's role above `{TEMPLATE_MOD_ROLE}` in "
+                        "Server Settings → Roles, then re-run")
+    for name, channel in ((LOBBY_CHANNEL, lobby), (BOT_CHANNEL, bot_channel)):
+        if channel is None:
+            problems.append(f"the template's #{name} channel is missing")
+    return problems
+
+
 def preflight(guild, settings, hub, roster_role_id, hunt_name) -> SetupTargets:
     """Everything !setup_server needs, or SetupRefused naming the fix."""
     me = guild.me
-    if not me.guild_permissions.administrator:
-        raise SetupRefused("the bot needs Administrator here — re-invite it with permissions=8")
-    if guild.default_role.permissions.view_channel:
-        raise SetupRefused("@everyone can see channels here, so this server wasn't made "
-                           "from the template — clone the template and start again")
+    problems = template_problems(guild, settings)
+    if problems:
+        raise SetupRefused(problems[0])
     mods, lobby, bot_channel = _template_parts(guild)
-    if len(mods) != 1:
-        raise SetupRefused(f"expected exactly one `{TEMPLATE_MOD_ROLE}` role, found {len(mods)}")
     mod_role = mods[0]
-    if mod_role.position >= me.top_role.position:
-        raise SetupRefused(f"drag the bot's role above `{TEMPLATE_MOD_ROLE}` in "
-                           "Server Settings → Roles, then re-run")
-    for name, channel in ((LOBBY_CHANNEL, lobby), (BOT_CHANNEL, bot_channel)):
-        if channel is None:
-            raise SetupRefused(f"the template's #{name} channel is missing")
 
     roster_role = hub.get_role(roster_role_id)
     if roster_role is None or roster_role.is_default() or roster_role.managed:
@@ -133,7 +153,8 @@ async def _has_welcome(lobby, bot_id):
     return False
 
 
-async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url):
+async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
+                    *, start_timestamp=0, username="", password="", create_solved_sheet=False):
     """Do the setup steps, then stamp the run-once lock. Never raises: a failure
     lands in report.error, with the lock unwritten so a re-run finishes the job."""
     report = SetupReport()
@@ -153,7 +174,9 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
         hunt = targets.hunt
         if hunt is None:
             hunt = await service.create_hunt(
-                guild, name=hunt_name, url=hunt_url, start_timestamp=0,
+                guild, name=hunt_name, url=hunt_url, start_timestamp=start_timestamp,
+                username=username, password=password,
+                create_solved_sheet=create_solved_sheet,
                 role_name=team, guild_id=settings.id, creator=invoker,
                 confirm_existing_role=True)
             report.hunt_created = True
@@ -184,3 +207,68 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
         logger.exception("setup_server stopped on guild %s", guild.id)
         report.error = str(exc) or type(exc).__name__
     return report
+
+
+@dataclass
+class SetupOutcome:
+    lines: list = field(default_factory=list)   # exactly what !setup_server sends
+    ok: bool = False
+    hunt: Optional[HuntData] = None
+    error: str = ""
+
+
+def _refused(text):
+    return SetupOutcome(lines=[f":x: {text}"], ok=False, error=text)
+
+
+async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
+                        *, start_timestamp=0, username="", password="", create_solved_sheet=False,
+                        on_start=None):
+    """The whole !setup_server flow after argument parsing, shared with the
+    dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is
+    awaited with the team role name once the checks pass and before anything is
+    made (the command uses it for its "Setting up…" line)."""
+    from bot.core import mod_invite       # mod_invite imports this module
+    from bot.core.notifier import DiscordNotifier
+
+    settings = GuildSettingsDb.get(guild.id)
+    if settings is None:
+        return _refused("This server has no settings row yet — remove the bot and re-invite it.")
+    if settings.setup_complete_time is not None:
+        return _refused(already_set_up_text(settings))
+    if invoker.id != guild.owner_id and not role_gate.member_holds_tier(
+            {r.id for r in invoker.roles}, guild, ADMIN_ROLES):
+        return _refused("Only this server's owner (or an admin here) can run !setup_server.")
+    try:
+        hub, hub_row = await hunt_archive.resolve_hub(bot, hub_id, guild, invoker)
+        targets = preflight(guild, settings, hub, roster_role_id, hunt_name)
+    except (hunt_archive.HubUnavailable, SetupRefused) as e:
+        return _refused(str(e))
+    if on_start is not None:
+        await on_start(targets.roster_role.name)
+    report = await run_setup(
+        service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
+        start_timestamp=start_timestamp, username=username, password=password,
+        create_solved_sheet=create_solved_sheet)
+    if report.hunt_created and report.hunt is not None:
+        try:
+            await DiscordNotifier(bot).welcome(
+                guild, report.hunt, channel=bot.get_channel(report.hunt.channel_id))
+        except discord.HTTPException:
+            logger.exception("setup_server: could not post the hunt welcome")
+    lines = [f"• {s}" for s in report.steps]
+    if report.error:
+        lines.append(f":x: Setup stopped: {report.error}")
+        lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
+    else:
+        lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
+        if report.hunt is not None:
+            invite_reply, posted_in = await mod_invite.post(bot, guild, report.hunt)
+            if posted_in is not None:
+                lines.append(f"A mod invite for hub admins is in the hub's #{posted_in}.")
+            else:
+                lines.append(invite_reply)
+        lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
+                     f"the server, then run `!send_invites {hunt_name}` to DM everyone with "
+                     "the hub role. Transfer server ownership to a team member if wanted.")
+    return SetupOutcome(lines=lines, ok=not report.error, hunt=report.hunt, error=report.error)
