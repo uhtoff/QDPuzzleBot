@@ -12,7 +12,7 @@ import logging
 
 import discord
 
-from bot.core import hunt_archive, role_gate
+from bot.core import access_notes, hunt_archive, role_gate
 from bot.core.constants import ADMIN_ROLES
 from bot.store import GuildSettingsDb, HuntJsonDb
 
@@ -83,6 +83,8 @@ async def join(bot, guild, member, hunt_id):
     to_add = [r for r in wanted if r.id not in held]
     if not to_add:
         return f"You already have **{team_role.name}**."
+    for r in to_add:
+        access_notes.expect(guild.id, member.id, r.id, "button")
     try:
         await member.add_roles(*to_add, reason=f"role panel: join {hunt.name}")
     except discord.Forbidden:
@@ -101,6 +103,8 @@ async def leave(guild, member, hunt_id):
     to_remove = [r for r in candidates if r is not None and r.id in held]
     if not to_remove:
         return "You don't have this hunt's role, so there's nothing to leave."
+    for r in to_remove:
+        access_notes.expect(guild.id, member.id, r.id, "button")
     try:
         await member.remove_roles(*to_remove, reason=f"role panel: leave {hunt.name}")
     except discord.Forbidden:

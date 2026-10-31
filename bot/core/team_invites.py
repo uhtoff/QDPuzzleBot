@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 
 import discord
 
-from bot.core import hunt_archive, role_gate, role_panel, server_setup
+from bot.core import (access_notes, hub_channel, hunt_archive, role_gate, role_panel,
+                      server_setup)
 from bot.core.constants import ADMIN_ROLES
 from bot.store import HuntInviteDb, HuntJsonDb
 
@@ -221,11 +222,15 @@ async def on_join(bot, member):
         return
     HuntInviteDb.mark_joined(hunt.id, member.id)
     if team_role.id not in {r.id for r in member.roles}:
+        access_notes.expect(member.guild.id, member.id, team_role.id, "arrival")
         await member.add_roles(team_role, reason=f"joined with {roster.name} on the hub: {hunt.name}")
 
 
-async def _tell_mods(guild, text):
-    """A line for the team server's #bot-commands (owner + mod only)."""
+async def _tell_mods(guild, text, hub=None):
+    """A line for the team server's #bot-commands (owner + mod only); also posted to
+    the hub admin channel when *hub* is given."""
+    if hub is not None:
+        await hub_channel.post(hub, text)
     channel = discord.utils.get(guild.text_channels, name=server_setup.BOT_CHANNEL)
     if channel is None:
         logger.warning("guild %s has no #%s for: %s", guild.id, server_setup.BOT_CHANNEL, text)
@@ -260,14 +265,14 @@ async def on_hub_roles_added(bot, member, added_role_ids):
                 await _tell_mods(team_guild, (
                     f":warning: **{member.display_name}** was just given **{team}** on the "
                     f"hub, but I couldn't create an invite: {exc}. Fix that, then run "
-                    f"`!invite_player {member.id}` here."))
+                    f"`!invite_player {member.id}` here."), hub=member.guild)
                 continue
             if delivered is None:
                 continue
             if not delivered:
                 await _tell_mods(team_guild, (
                     f":warning: **{member.display_name}** was just given **{team}** on the "
-                    f"hub, but I couldn't DM them an invite. Run `!invite_player {member.id}` here."))
+                    f"hub, but I couldn't DM them an invite. Run `!invite_player {member.id}` here."), hub=member.guild)
 
 
 async def on_hub_roles_removed(bot, member, removed_role_ids):
@@ -306,12 +311,15 @@ async def _drop_mod(team_guild, member, roster, hunt):
     mods = [r for r in role_panel.admin_roles(team_guild) if r.id in held]
     if not mods:
         return
+    for r in mods:
+        access_notes.expect(team_guild.id, member.id, r.id, "hub_admin_lost")
     try:
         await on_team.remove_roles(*mods, reason=f"no longer a hub admin: {hunt.name}")
     except discord.HTTPException as exc:
         await _tell_mods(team_guild, (
             f":warning: **{member.display_name}** is no longer a hub admin, but I couldn't "
-            f"take {", ".join(f"**{r.name}**" for r in mods)} off them: {exc.text or exc}."))
+            f"take {", ".join(f"**{r.name}**" for r in mods)} off them: {exc.text or exc}."),
+            hub=member.guild)
         return
     await _tell_mods(team_guild, (
         f":information_source: **{member.display_name}** is no longer a hub admin, so I've "
@@ -329,6 +337,8 @@ async def _remove_from_team(team_guild, member, roster, hunt):
         held = {r.id for r in on_team.roles}
         roles = [r for r in [team_guild.get_role(hunt.role_id)] + role_panel.admin_roles(team_guild)
                  if r is not None and r.id in held]
+        for r in roles:
+            access_notes.expect(team_guild.id, member.id, r.id, "hub_role_lost")
         try:
             if roles:
                 await on_team.remove_roles(*roles, reason=reason)
@@ -338,14 +348,15 @@ async def _remove_from_team(team_guild, member, roster, hunt):
         await _tell_mods(team_guild, (
             f":warning: **{member.display_name}** lost **{roster.name}** on the hub, but owns "
             f"this server, so I can't remove them. I've taken their roles; transfer "
-            f"ownership if they shouldn't be here."))
+            f"ownership if they shouldn't be here."), hub=roster.guild)
         return
+    access_notes.expect(team_guild.id, member.id, "kick", "hub_role_lost")
     try:
         await on_team.kick(reason=reason)
     except discord.HTTPException as exc:
         await _tell_mods(team_guild, (
             f":warning: **{member.display_name}** lost **{roster.name}** on the hub, but I "
-            f"couldn't remove them from this server: {exc.text or exc}. Remove them by hand."))
+            f"couldn't remove them from this server: {exc.text or exc}. Remove them by hand."), hub=roster.guild)
         return
     await _tell_mods(team_guild, (
         f":door: Removed **{member.display_name}** from this server: they lost "
