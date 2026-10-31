@@ -258,3 +258,23 @@ async def test_general_in_a_non_hunt_category_leaves_that_category_alone():
     assert report.failures == []
     assert (hunt.guild_id, hunt.channel_id, hunt.archived) == (9, 3000, True)
     t.guild.leave.assert_awaited_once()
+
+
+async def test_archive_to_hub_deletes_the_mod_invite_before_leaving():
+    svc, hunt, t = _service(), _hunt(), _team()
+    order = []
+    t.guild.leave = AsyncMock(side_effect=lambda: order.append("leave"))
+    with _patched(svc) as m, patch(
+            "bot.core.puzzle_service.mod_invite.delete",
+            new=AsyncMock(side_effect=lambda *a: order.append("delete"))) as delete:
+        await _run(svc, hunt, t, m)
+    delete.assert_awaited_once_with(t.guild, hunt)
+    assert order == ["delete", "leave"]
+
+
+async def test_archive_to_hub_keeps_the_mod_invite_when_the_bot_stays():
+    svc, hunt, t = _service(), _hunt(), _team()
+    with _patched(svc, count=1) as m, patch(
+            "bot.core.puzzle_service.mod_invite.delete", new=AsyncMock()) as delete:
+        await _run(svc, hunt, t, m)
+    delete.assert_not_awaited()

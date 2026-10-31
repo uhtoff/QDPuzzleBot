@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive, media_gc, role_panel, server_setup, team_invites
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -4169,6 +4169,12 @@ class Puzzles(commands.Cog):
             lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
         else:
             lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
+            if report.hunt is not None:
+                invite_reply = await mod_invite.post(self.bot, ctx.guild, report.hunt)
+                if invite_reply.startswith(":white_check_mark:"):
+                    lines.append("A mod invite for hub admins is in the hub's admin channel.")
+                else:
+                    lines.append(invite_reply)
             lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
                          f"the server, then run `!send_invites {hunt_name}` to DM everyone with "
                          "the hub role. Transfer server ownership to a team member if wanted.")
@@ -4210,6 +4216,40 @@ class Puzzles(commands.Cog):
         await lobby.send(server_setup.welcome_text(hunt, team_role.name),
                          view=role_panel.panel_view(hunt.id))
         await ctx.send(f":white_check_mark: Posted the Join/Leave panel in {lobby.mention}.")
+
+    @commands.command()
+    @commands.guild_only()
+    @is_admin()
+    async def mod_invite(self, ctx, *, hunt_name: str):
+        """*Post a reusable mod invite to a team server in the hub's admin channel.*
+
+        Usage: `!mod_invite <hunt name>`
+        Example: `!mod_invite Big Hunt`
+        Run on the hub. Finds the running team hunt of that name whose hub role is
+        on this server, and posts a reusable invite to its #lobby in the hub's
+        admin channel (never here). Re-running reuses the same invite. Run in the
+        bot channel. Admins/mods only."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        wanted = hunt_name.strip().casefold()
+        matches = [(h, snowflake) for h, snowflake in HuntJsonDb.live_team_hunts()
+                   if h.name.casefold() == wanted and ctx.guild.get_role(h.roster_role_id) is not None]
+        if not matches:
+            await ctx.send(f":x: No running team hunt named **{hunt_name}** on this hub.")
+            return
+        if len(matches) > 1:
+            names = ", ".join(
+                f"**{g.name}**" if (g := self.bot.get_guild(sf)) else f"server {sf}"
+                for _, sf in matches)
+            await ctx.send(f":x: More than one team server runs **{hunt_name}** ({names}); "
+                           "I won't guess which one.")
+            return
+        hunt, snowflake = matches[0]
+        guild = self.bot.get_guild(snowflake)
+        if guild is None:
+            await ctx.send(f":x: I'm not on **{hunt.name}**'s team server (id {snowflake}).")
+            return
+        await ctx.send(await mod_invite.post(self.bot, guild, hunt))
 
     @commands.command()
     @commands.guild_only()

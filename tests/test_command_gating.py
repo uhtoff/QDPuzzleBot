@@ -108,6 +108,7 @@ EXPECTED = [
     ("hunt", "admin"),
     ("invite_player", "admin"),
     ("post_role_panel", "admin"),
+    ("mod_invite", "admin"),
     ("send_invites", "admin"),
     ("set_admin_roles", "admin"),
     ("set_hunt_role", "admin"),

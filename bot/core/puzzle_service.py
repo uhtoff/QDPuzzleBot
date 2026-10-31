@@ -19,7 +19,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core import category_layout, hunt_archive, media_gc
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -4061,6 +4061,7 @@ class PuzzleService:
 
         # Leave only an unreferenced server (failures already returned above).
         if HuntJsonDb.count_for_guild(team_guild_row_id) == 0:
+            await mod_invite.delete(guild, hunt)
             try:
                 await guild.leave()
                 report.left_guild = True
