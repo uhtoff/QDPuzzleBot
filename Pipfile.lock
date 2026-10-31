@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "1743b15296a10abe5a755e904f9e9e6affddd20141322944ef8108b1b76bf215"
+            "sha256": "cae455cbf3380613c1d2a4adfafbea5fb5f1c08a2758ffa05e31c6be78c322bf"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1890,6 +1890,15 @@
             "markers": "python_version >= '3.8'",
             "version": "==3.0.2"
         },
+        "basedpyright": {
+            "hashes": [
+                "sha256:32cbea5fc8273e89df3db20daea56cb7286e419ccdfdc479c64759d2dc071901",
+                "sha256:6b0837b9eba972c71895167ab9b127e6afdbc17abc92312e3f8d15ca82a5611c"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.8'",
+            "version": "==1.39.9"
+        },
         "executing": {
             "hashes": [
                 "sha256:15919cb5d667e5cb4e099511971d00d659573fff2dd5c4e6cd8b71636c7858d2",
@@ -1938,6 +1947,21 @@
             ],
             "markers": "python_version >= '3.9'",
             "version": "==0.2.2"
+        },
+        "nodejs-wheel-binaries": {
+            "hashes": [
+                "sha256:1c890adf4b7e6556ccc1ca66c866bb81884b6c9a581dee4e530dc7f78fb9d514",
+                "sha256:28d078b2ced9e2069516e652dc4b1380e7a1a7f2d3934eccd1611586d283ba4c",
+                "sha256:352e048ab4dd35e7de5f338d1cc4fcbf77a0e93da30bf7336a8217ee246b31d7",
+                "sha256:4196a947bcc883f2003ab101762d729f3e99b5e86b75bd09151563403e2eceb8",
+                "sha256:4e029dadfae1295876063c96b236f673487e8c27379fe146c1e2250283520227",
+                "sha256:67e3abeb9c3830cae8c8487ae8a2af7cc27dfa75af06145cee5ca7d1857c81bd",
+                "sha256:d9074c665ea68b04e183d82482c86dc907d3a9bd15eb6cf85542cb785266bb36",
+                "sha256:db217eef8cab8551667863379b08db4d9067403f6cbbe87481eb40edceb8aa9b",
+                "sha256:e12cbfd69089504e42fb14194ce734a9dcf3eb38c820ca63dd511d36fb964e9c"
+            ],
+            "markers": "python_version >= '3.7'",
+            "version": "==24.19.0"
         },
         "packaging": {
             "hashes": [

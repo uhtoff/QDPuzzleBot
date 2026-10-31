@@ -8,6 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what the Pipfile declares and production runs; 3.13 is the
+        # local dev interpreter. Both must pass.
+        python-version: ["3.12", "3.13"]
     services:
       mysql:
         image: mysql:8.0
@@ -43,7 +49,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Pipenv and dependencies
         run: |
@@ -66,24 +72,38 @@ jobs:
           EOF
 
       - name: Apply migrations
-        run: |
-          if [ -d migrations ] && ls migrations/*.sql 1>/dev/null 2>&1; then
-            for f in $(ls migrations/*.sql | sort); do
-              echo "Applying $f"
-              mysql -h 127.0.0.1 -u puzzlebot -ptestpass puzzlebot_test < "$f"
-            done
-          else
-            echo "No migrations found — skipping (M0 not yet merged)"
-          fi
+        # Through the same runner deploy.sh uses, so discovery, statement
+        # splitting and the schema_migrations ledger are exercised too.
+        run: python migrate.py
 
       - name: Run ruff
         run: ruff check .
 
       - name: Run basedpyright
-        # Pinned so new checker releases can't break CI; bump deliberately.
-        run: |
-          pip install basedpyright==1.39.9
-          basedpyright bot/
+        # Installed from the Pipfile's dev-packages, where the version is pinned.
+        run: basedpyright bot/
 
       - name: Run tests
         run: pytest -v
+
+  frontend:
+    # start.sh treats a failed frontend build as non-fatal and keeps serving the
+    # previous dist, so a broken SPA must be caught here rather than at deploy.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - name: Type-check and build
+        run: npm run build
