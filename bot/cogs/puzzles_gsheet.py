@@ -1519,13 +1519,19 @@ class GoogleSheets(commands.Cog):
         requests.append(self._header_border_request(page_id, offset))
         return requests
 
-    async def write_header_links(self, tabs) -> None:
+    async def write_header_links(self, tabs) -> list[str]:
         """Write the Feeds line on existing tabs. `tabs` is a list of
         (SheetLocation, offset, list[Link]); one batch_update per spreadsheet,
         never per tab. A location on neither of the hunt's spreadsheets (in
-        context) is skipped with a warning rather than written to the wrong one."""
+        context) is skipped with a warning rather than written to the wrong one.
+
+        A batchUpdate is all-or-nothing, so one bad tab (stale page id, a solver
+        merge across row 3, a tab mid-promote) would cancel every tab's line on
+        that spreadsheet. If a spreadsheet's batch fails, each of its tabs is
+        retried alone -- extra writes on the failure path only. Best-effort:
+        never raises; returns the page ids whose line was not written."""
         live, solved = self.get_spreadsheet_id(), self.get_solved_sheet_id()
-        by_sheet: dict[str, list] = {}
+        by_sheet: dict[str, list[tuple[str, list]]] = {}
         for loc, offset, links in tabs:
             if loc.page_id is None or loc.page_id == "":
                 continue
@@ -1534,11 +1540,38 @@ class GoogleSheets(commands.Cog):
                 logger.warning("write_header_links: page %s is on spreadsheet %s, "
                                "not this hunt's; skipped", loc.page_id, sid)
                 continue
-            by_sheet.setdefault(sid, []).extend(
-                self._feeds_line_requests(int(loc.page_id), offset, links))
-        for spreadsheet_id, requests in by_sheet.items():
-            await self.batch_update({"requests": requests},
-                                    archive=spreadsheet_id != live)
+            by_sheet.setdefault(sid, []).append(
+                (str(loc.page_id),
+                 self._feeds_line_requests(int(loc.page_id), offset, links)))
+        failed: list[str] = []
+        for spreadsheet_id, per_tab in by_sheet.items():
+            archive = spreadsheet_id != live
+            try:
+                await self.batch_update(
+                    {"requests": [r for _page, reqs in per_tab for r in reqs]},
+                    archive=archive)
+                continue
+            except Exception:  # noqa: BLE001
+                if len(per_tab) > 1:
+                    logger.warning("write_header_links: batch on spreadsheet %s "
+                                   "failed; retrying its %d tabs one at a time",
+                                   spreadsheet_id, len(per_tab), exc_info=True)
+                else:
+                    page_id = per_tab[0][0]
+                    logger.exception("write_header_links: Feeds line for page %s "
+                                     "on spreadsheet %s failed",
+                                     page_id, spreadsheet_id)
+                    failed.append(page_id)
+                    continue
+            for page_id, reqs in per_tab:
+                try:
+                    await self.batch_update({"requests": reqs}, archive=archive)
+                except Exception:  # noqa: BLE001
+                    logger.exception("write_header_links: Feeds line for page %s "
+                                     "on spreadsheet %s failed",
+                                     page_id, spreadsheet_id)
+                    failed.append(page_id)
+        return failed
 
     async def generate_puzzle_tab(self, puzzle, is_target, index=None, header_links=None):
         """Create a puzzle tab entirely in code (no template duplicateSheet).

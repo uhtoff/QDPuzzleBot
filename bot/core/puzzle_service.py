@@ -698,7 +698,9 @@ class PuzzleService:
             for group_id in await self.refresh_targets(hunt, metas):
                 report.add_failure(f"roll-up (group {group_id})",
                                    RuntimeError("roll-up refresh failed"))
-            await self.refresh_header_links(hunt, puzzles)
+            for name in await self.refresh_header_links(hunt, puzzles) or []:
+                report.add_failure(f"header links ({name})",
+                                   RuntimeError("Feeds line write failed"))
 
         self._collect_orphan_channels(
             guild, hunt, puzzles, report, hunt_category_ids)
@@ -3576,27 +3578,34 @@ class PuzzleService:
     async def refresh_header_links(self, hunt, puzzles, *, reload=False):
         """Rewrite the Feeds line on each puzzle's own tab, one write per
         spreadsheet (live + solved at most). `reload` re-reads the puzzles first,
-        for callers holding copies from before an edge change. Never raises."""
+        for callers holding copies from before an edge change. Never raises.
+        Returns the names of puzzles whose Feeds line the cog reported as not
+        written (reconcile lists them); a failure before the write returns []."""
         try:
             gsheet_cog = self._gsheet_cog(hunt)
             if gsheet_cog is None or hunt is None:
-                return
+                return []
             if reload:
                 puzzles = self._reloaded(puzzles)
             tabs = []
+            names: dict[str, str] = {}
             seen = set()
             for p in puzzles:
                 if p is None or not p.google_page_id or p.id in seen:
                     continue
                 seen.add(p.id)
+                names[str(p.google_page_id)] = p.name
                 tabs.append((puzzle_location(hunt, p),
                              gsheet_cog._header_shift(p, p.google_page_id),
                              self._header_links(hunt, p)))
-            if tabs:
-                await gsheet_cog.write_header_links(tabs)
+            if not tabs:
+                return []
+            failed = await gsheet_cog.write_header_links(tabs)
+            return [names.get(str(page), str(page)) for page in failed or []]
         except Exception:  # noqa: BLE001
             logger.exception("refresh_header_links: failed for hunt %s",
                              getattr(hunt, "id", "?"))
+            return []
 
     async def link_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
         """Auto-add an 'informs' edge from the source puzzle to the group whose target

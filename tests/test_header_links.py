@@ -696,3 +696,88 @@ def test_a_nameless_link_is_skipped_not_raised():
     _, cell, _ = _links_cell(req)
     assert cell["userEnteredValue"] == {"stringValue": "Beta"}
     assert cell["textFormatRuns"] == [{"startIndex": 0, "format": {"link": {"uri": "U2"}}}]
+
+
+# --- one bad tab must not cancel the others on its spreadsheet ---------------
+
+
+def _pages_in(body):
+    return {r[k]["range"]["sheetId"] for r in body["requests"] for k in r
+            if isinstance(r[k], dict) and "range" in r[k]}
+
+
+def test_a_failed_batch_retries_each_tab_alone_so_one_bad_tab_spares_the_rest(caplog):
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_solved_sheet_id = lambda: "SOLVED"
+    sent = []
+
+    async def fake(body, archive=False):
+        pages = _pages_in(body)
+        sent.append((pages, archive))
+        if 902 in pages:  # the combined batch and 902's own retry both fail
+            raise RuntimeError("bad tab 902")
+    cog.batch_update = fake
+
+    with caplog.at_level("WARNING"):
+        failed = asyncio.run(cog.write_header_links([
+            (SheetLocation("LIVE", 901), 0, [Link("M", "U")]),
+            (SheetLocation("LIVE", 902), 0, [Link("N", "V")]),
+            (SheetLocation("LIVE", 903), 1, [Link("O", "W")]),
+        ]))
+
+    # One combined batch, then one retry per tab, each carrying only its tab.
+    assert sent == [({901, 902, 903}, False), ({901}, False),
+                    ({902}, False), ({903}, False)]
+    assert failed == ["902"]
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1 and "902" in errors[0].getMessage()
+
+
+def test_a_failed_batch_on_one_spreadsheet_leaves_the_others_single_call():
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_solved_sheet_id = lambda: "SOLVED"
+    sent = []
+
+    async def fake(body, archive=False):
+        sent.append((_pages_in(body), archive))
+        if archive and len(_pages_in(body)) > 1:
+            raise RuntimeError("solved batch fails")
+    cog.batch_update = fake
+
+    failed = asyncio.run(cog.write_header_links([
+        (SheetLocation("LIVE", 901), 0, [Link("M", "U")]),
+        (SheetLocation("SOLVED", 911), 0, [Link("N", "V")]),
+        (SheetLocation("SOLVED", 912), 0, []),
+    ]))
+    assert sent == [({901}, False), ({911, 912}, True), ({911}, True), ({912}, True)]
+    assert failed == []
+
+
+def test_the_happy_path_returns_no_failures():
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_solved_sheet_id = lambda: "SOLVED"
+    cog.batch_update = AsyncMock(return_value={})
+    failed = asyncio.run(cog.write_header_links([
+        (SheetLocation("LIVE", 901), 0, [Link("M", "U")]),
+        (SheetLocation("LIVE", 903), 0, [Link("N", "V")]),
+    ]))
+    assert failed == []
+    cog.batch_update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_header_links_returns_the_names_of_puzzles_whose_line_failed():
+    svc, gsheet = _service_with_cog()
+    hunt = make_hunt()
+    a = make_puzzle(id=1, name="Alpha")
+    b = make_puzzle(id=2, name="Bravo")
+    a.google_page_id, b.google_page_id = "901", "902"
+    gsheet.write_header_links.return_value = ["902"]
+    with patch("bot.core.puzzle_service.puzzle_location",
+               side_effect=lambda h, p: SheetLocation("LIVE", p.google_page_id)), \
+         patch.object(svc, "_header_links", return_value=[]):
+        failed = await svc.refresh_header_links(hunt, [a, b])
+    assert failed == ["Bravo"]

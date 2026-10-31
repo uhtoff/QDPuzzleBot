@@ -723,7 +723,7 @@ def test_orphan_scan_spares_the_hunt_general_channel():
 # Existing hunts pick up sheet links on `reconcile apply`
 # --------------------------------------------------------------------------
 
-def _run_reconcile_with_links(apply, *, fail_groups=()):
+def _run_reconcile_with_links(apply, *, fail_groups=(), link_failures=None):
     """Run reconcile over two puzzles (one meta group among two groups) and
     return (report, call order, refresh_header_links mock, refresh_targets mock)."""
     svc = _service()
@@ -743,6 +743,7 @@ def _run_reconcile_with_links(apply, *, fail_groups=()):
 
     async def links(hunt, puzzles, **k):
         order.append("links")
+        return link_failures
 
     targets_m = AsyncMock(side_effect=targets)
     links_m = AsyncMock(side_effect=links)
@@ -778,3 +779,13 @@ def test_reconcile_apply_reports_a_failed_rollup_but_still_stamps_links():
     report, _o, links_m, *_ = _run_reconcile_with_links(True, fail_groups=[10])
     assert any("10" in t for t, _ in report.failures)
     links_m.assert_awaited_once()
+
+
+def test_reconcile_apply_lists_each_tab_whose_feeds_line_failed():
+    report, *_ = _run_reconcile_with_links(True, link_failures=["A", "B"])
+    assert [t for t, _ in report.failures] == ["header links (A)", "header links (B)"]
+
+
+def test_reconcile_apply_with_no_link_failures_reports_none():
+    report, *_ = _run_reconcile_with_links(True, link_failures=[])
+    assert report.failures == []
