@@ -157,6 +157,11 @@ form (`POST /api/hunts`, `frontend/src/components/CreateControls.tsx`), which is
 richer than `!hunt` because Discord commands can't comfortably stack many options (user
 note, 2026-10-31).
 
+5c also fixes the hunt panel's **Archive hunt** button for team hunts: today it does the
+in-place archive, which strands the history on a server that is about to be thrown away.
+For a hunt on a template-made team server (one with a `roster_role_id`) the dashboard must
+archive **to the hub**, as `!archive_hunt_to_hub` does (user decision, 2026-10-31).
+
 ## Constraints
 
 - Migration → deploy → code; a push deploys (`deploy.sh` runs `migrate.py`). Check 050 is
