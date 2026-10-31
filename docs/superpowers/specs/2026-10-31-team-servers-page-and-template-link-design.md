@@ -1,7 +1,7 @@
 # Slice 5b — Team servers page, and the hub's template link
 
 **Date:** 2026-10-31
-**Status:** Approved 2026-10-31.
+**Status:** Implemented 2026-10-31 — plan docs/superpowers/plans/2026-10-31-team-servers-page.md
 **Builds on:** slice 5 (`docs/superpowers/specs/2026-10-31-access-log-and-hub-admin-channel-design.md`),
 which collects the data this page shows.
 

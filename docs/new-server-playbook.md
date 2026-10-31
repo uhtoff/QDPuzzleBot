@@ -175,10 +175,19 @@ bot, its Administrator, or its top role strictly above `mod`. If the hub can't b
 `@everyone` can see the channel the bot refuses to post anything there (invites, access
 lines, failures, warnings).
 
+**Store the template link once.** On the hub, `!set_template_link <link>` (or the
+**Team-server template link** field on the dashboard's Server settings) records it, so nobody
+has to hunt for it. When making a team server, `!show_template_link` posts the link (and the
+browser fallback) in the hub's admin channel. To check who has access to a team server
+afterwards, use the **Team servers** page (Server settings → **Team servers**,
+`/guilds/<id>/teams`, hub admins only): running and archived team hunts, who is on the
+server now, who was invited but hasn't arrived, and the access history.
+
 **Per team, per hunt:**
 
 1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
-2. Using the shared group account, open the template link to create the server. If the
+2. Using the shared group account, open the template link (`!show_template_link` on the hub)
+   to create the server. If the
    desktop app ignores the `discord.new/<code>` link, open
    `https://discord.com/template/<code>` in a browser instead.
 3. Invite the bot with Administrator:
