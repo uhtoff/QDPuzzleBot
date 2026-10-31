@@ -17,12 +17,15 @@ async def ensure(guild, hunt):
     invite (stored). Raises InviteUnavailable when none can be made."""
     code = HuntJsonDb.mod_invite_code(hunt.id)
     if code:
+        # A stored code we can't check must not be replaced: the old invite would
+        # be orphaned (delete only knows the latest code) and never revoked.
         try:
-            for invite in await guild.invites():
-                if invite.code == code:
-                    return invite
-        except discord.HTTPException:
-            logger.warning("could not list invites on guild %s; making a new mod invite", guild.id)
+            invites = await guild.invites()
+        except discord.HTTPException as exc:
+            raise InviteUnavailable(f"I couldn't check this server's invites ({exc})") from exc
+        for invite in invites:
+            if invite.code == code:
+                return invite
     lobby = discord.utils.get(guild.text_channels, name=server_setup.LOBBY_CHANNEL)
     if lobby is None:
         raise InviteUnavailable(f"this server has no #{server_setup.LOBBY_CHANNEL} channel")

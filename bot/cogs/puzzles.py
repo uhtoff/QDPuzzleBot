@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
+from bot.core import category_layout, hub_channel, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -4172,7 +4172,8 @@ class Puzzles(commands.Cog):
             if report.hunt is not None:
                 invite_reply = await mod_invite.post(self.bot, ctx.guild, report.hunt)
                 if invite_reply.startswith(":white_check_mark:"):
-                    lines.append("A mod invite for hub admins is in the hub's admin channel.")
+                    posted_in, _ = hub_channel.find(hub)
+                    lines.append(f"A mod invite for hub admins is in the hub's #{posted_in.name}.")
                 else:
                     lines.append(invite_reply)
             lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "

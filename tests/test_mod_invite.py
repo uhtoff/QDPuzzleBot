@@ -70,6 +70,22 @@ async def test_a_vanished_invite_is_replaced_and_stored(hdb):
     hdb.set_mod_invite_code.assert_called_once_with(7, "NEW")
 
 
+async def test_unlistable_invites_with_a_stored_code_do_not_mint_a_new_one(hdb):
+    g = _guild()
+    g.invites.side_effect = discord.HTTPException(MagicMock(status=500), "boom")
+    hdb.mod_invite_code.return_value = "OLD"
+    with pytest.raises(InviteUnavailable, match="couldn't check"):
+        await mod_invite.ensure(g, _hunt())
+    g.lobby.create_invite.assert_not_awaited()
+    hdb.set_mod_invite_code.assert_not_called()
+
+
+async def test_no_stored_code_creates_without_listing(hdb):
+    g = _guild()
+    await mod_invite.ensure(g, _hunt())
+    g.invites.assert_not_awaited()
+
+
 async def test_no_lobby_raises_invite_unavailable(hdb):
     with pytest.raises(InviteUnavailable, match="#lobby"):
         await mod_invite.ensure(_guild(lobby=False), _hunt())
