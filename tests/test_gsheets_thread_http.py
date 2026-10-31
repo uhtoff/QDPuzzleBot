@@ -56,3 +56,9 @@ async def test_execute_with_retry_http_is_worker_thread_http():
     req.execute.side_effect = lambda http: seen.append(http) or {}
     await gsheets.execute_with_retry(req)
     assert seen[0] is not gsheets._thread_http()  # not the loop thread's Http
+
+
+def test_thread_http_has_timeout():
+    # A bare httplib2.Http() has timeout=None: a stalled call would block the
+    # worker thread forever instead of reaching the socket.timeout retry path.
+    assert gsheets._thread_http().http.timeout is not None

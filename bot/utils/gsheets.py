@@ -8,11 +8,10 @@ import time
 from http.client import HTTPException
 
 import google_auth_httplib2
-import httplib2
-
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import build_http
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ _thread_local = threading.local()
 def _thread_http():
     http = getattr(_thread_local, "http", None)
     if http is None:
-        http = google_auth_httplib2.AuthorizedHttp(_credentials(), http=httplib2.Http())
+        http = google_auth_httplib2.AuthorizedHttp(_credentials(), http=build_http())
         _thread_local.http = http
     return http
 
