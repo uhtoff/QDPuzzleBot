@@ -327,6 +327,18 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         )
         return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
 
+    def team_hunts(self):
+        """[(hunt, guild snowflake)] for every hunt with a hub roster role, archived
+        or not (running first, newest first): the Team servers page's list. The
+        snowflake is the guild now homing the row (an archived hunt's is the hub)."""
+        rows = self._fetch_all(
+            "SELECT hunts.*, guilds.guild_id AS guild_snowflake FROM `hunts` "
+            "JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE hunts.roster_role_id IS NOT NULL AND hunts.roster_role_id <> 0 "
+            "ORDER BY hunts.archived ASC, hunts.id DESC",
+        )
+        return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
+
     def mark_invites_sent(self, hunt_id):
         """Stamp hunts.invites_sent_time with now (UTC) unless already set: the first
         completed !send_invites wins. Its own UPDATE -- HuntData has no such field,
@@ -378,6 +390,15 @@ class MySQLHuntInviteDb(_MySQLBaseDb):
             (hunt_id, user_id),
         )
         return [r["code"] for r in rows]
+
+    def for_hunt(self, hunt_id):
+        """Invite rows (user_id, created_at, joined_at) for *hunt_id*, oldest first.
+        The code column is deliberately never selected: it must not reach the API."""
+        return self._fetch_all(
+            "SELECT user_id, created_at, joined_at FROM `hunt_invites` "
+            "WHERE hunt_id = %s ORDER BY id ASC",
+            (hunt_id,),
+        )
 
     def forget(self, hunt_id, user_id):
         """Drop *user_id*'s invite rows for *hunt_id*, so being given the hub role

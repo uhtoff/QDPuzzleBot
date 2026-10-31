@@ -34,7 +34,8 @@ from .auth import (
     resolve_member_role_ids,
 )
 from bot.core import role_gate, template_link
-from bot.store import GuildSettingsDb
+from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb
+from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
 from bot.core.errors import SheetRefreshError
@@ -1628,6 +1629,95 @@ async def _guild_settings_ctx(guild_id):
     if settings is None:
         return None, (jsonify({"error": "guild_not_found"}), 404)
     return (row, guild, settings), None
+
+
+def _team_hunt_out(hub, hunt, snowflake, bot, *, count=False):
+    """The list/detail summary of one team hunt, plus the team guild when the bot
+    can see it (running hunts only; an archived hunt's row lives on the hub)."""
+    team_guild = None if hunt.archived else bot.get_guild(int(snowflake))
+    here = None
+    if count and team_guild is not None:
+        here = sum(1 for m in team_guild.members if not m.bot)
+    roster = hub.get_role(int(hunt.roster_role_id))
+    out = {
+        "uid": hunt.uid,
+        "name": hunt.name,
+        "team": roster.name if roster else None,
+        "archived": bool(hunt.archived),
+        "team_server": team_guild.name if team_guild is not None else None,
+        "on_server_count": here,
+        "invited_waiting_count": 0,
+    }
+    return out, team_guild
+
+
+@actions_bp.route("/guilds/<int:guild_id>/team-hunts", methods=["GET"])
+@login_required
+async def list_team_hunts(guild_id):
+    """The hub's team hunts, running first. Admin only (as Server settings)."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, hub, _settings = resolved
+    bot = bot_app().bot
+    hunts = []
+    for hunt, snowflake in team_access.hub_team_hunts(hub, HuntJsonDb.team_hunts()):
+        out, team_guild = _team_hunt_out(hub, hunt, snowflake, bot, count=True)
+        here_ids = ({m.id for m in team_guild.members}
+                    if team_guild is not None else set())
+        out["invited_waiting_count"] = len(
+            team_access.waiting(HuntInviteDb.for_hunt(hunt.id), here_ids))
+        hunts.append(out)
+    return jsonify({"hunts": hunts})
+
+
+@actions_bp.route("/guilds/<int:guild_id>/team-hunts/<uid>", methods=["GET"])
+@login_required
+async def get_team_hunt(guild_id, uid):
+    """One team hunt's access: on the server now, invited-not-arrived, history."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, hub, _settings = resolved
+    bot = bot_app().bot
+    hunt = HuntJsonDb.get_by_attr(uid=uid)
+    if (hunt is None or not hunt.roster_role_id
+            or hub.get_role(int(hunt.roster_role_id)) is None):
+        return jsonify({"error": "hunt_not_found"}), 404
+    snowflake = next((s for h, s in HuntJsonDb.team_hunts() if h.id == hunt.id), None)
+    out, team_guild = _team_hunt_out(
+        hub, hunt, snowflake if snowflake is not None else 0, bot)
+
+    def name_of(user_id):
+        for g in (hub, team_guild):
+            m = g.get_member(user_id) if g is not None else None
+            if m is not None:
+                return m.display_name
+        return None
+
+    on_server = None
+    team_role_missing = False
+    if team_guild is not None:
+        on_server = team_access.members_now(team_guild, hunt)
+        team_role_missing = (not hunt.role_id
+                             or team_guild.get_role(int(hunt.role_id)) is None)
+    here_ids = {int(m["user_id"]) for m in on_server or []}
+    waiting = team_access.waiting(HuntInviteDb.for_hunt(hunt.id), here_ids)
+    for w in waiting:
+        w["name"] = name_of(int(w["user_id"])) or w["user_id"]
+    out["invited_waiting_count"] = len(waiting)
+    if on_server is not None:
+        out["on_server_count"] = len(on_server)
+    return jsonify({
+        "hunt": out,
+        "bot_on_server": team_guild is not None,
+        "team_role_missing": team_role_missing,
+        "on_server": on_server,
+        "invited_waiting": waiting,
+        "history": team_access.history(HuntAccessLogDb.for_hunt(hunt.id), name_of),
+    })
 
 
 @actions_bp.route("/guilds/<int:guild_id>/settings", methods=["GET"])

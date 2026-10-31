@@ -35,6 +35,8 @@ EXPECTED = {
     ("POST", "/hunts/<uid>/solved-sheet"): "admin",
     ("GET", "/guilds/<int:guild_id>/settings"): "admin",
     ("PATCH", "/guilds/<int:guild_id>/settings"): "admin",
+    ("GET", "/guilds/<int:guild_id>/team-hunts"): "admin",
+    ("GET", "/guilds/<int:guild_id>/team-hunts/<uid>"): "admin",
     # --- organiser: group lifecycle -----------------------------------------
     # POST /hunts/<uid>/metas is gated (2026-08-11): creating a tag group is an
     # organiser action like renaming/deleting/retyping one. Creating a PUZZLE is
