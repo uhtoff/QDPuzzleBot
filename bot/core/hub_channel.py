@@ -33,10 +33,13 @@ async def post(hub, text):
     try:
         channel, reason = find(hub)
         if channel is None:
-            logger.warning("hub admin channel unavailable (%s) for: %s", reason, text)
+            logger.warning("hub admin channel unavailable on guild %s: %s", hub.id, reason)
             return False
         await channel.send(text)
         return True
     except discord.HTTPException:
         logger.exception("could not post to the hub admin channel on guild %s", hub.id)
+        return False
+    except Exception:
+        logger.exception("unexpected error posting to the hub admin channel on guild %s", hub.id)
         return False

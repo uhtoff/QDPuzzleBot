@@ -81,3 +81,30 @@ async def test_a_failed_send_returns_false():
 
 async def test_no_hub_returns_false():
     assert await hub_channel.post(None, "hello") is False
+
+
+async def test_a_settings_lookup_error_returns_false():
+    hub = _hub([_channel("bot-set-up", visible=False)])
+    with patch("bot.core.hub_channel.GuildSettingsDb") as db:
+        db.get.side_effect = RuntimeError("db down")
+        assert await hub_channel.post(hub, "hello") is False
+
+
+async def test_a_non_http_send_error_returns_false():
+    ch = _channel("bot-set-up", visible=False)
+    ch.send.side_effect = TimeoutError()
+    hub = _hub([ch])
+    with patch("bot.core.hub_channel.GuildSettingsDb") as db:
+        db.get.return_value = _settings("bot-set-up")
+        assert await hub_channel.post(hub, "hello") is False
+
+
+async def test_the_unavailable_warning_does_not_log_the_text(caplog):
+    hub = _hub([_channel("bot-set-up", visible=True)])
+    with patch("bot.core.hub_channel.GuildSettingsDb") as db:
+        db.get.return_value = _settings("bot-set-up")
+        with caplog.at_level("WARNING"):
+            await hub_channel.post(hub, "https://discord.gg/SECRETINVITE")
+    assert caplog.records
+    assert "SECRETINVITE" not in caplog.text
+    assert "visible to everyone" in caplog.text
