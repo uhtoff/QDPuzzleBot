@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { onAuthLost } from "./queryClient";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, TeamHuntDetail, TeamHuntSummary, User } from "./types";
 import type { SiteInfo } from "./lib/siteInfo";
 
 function csrfToken(): string {
@@ -770,6 +770,24 @@ export function useGuildSettings(guildId: number | null) {
     queryFn: () =>
       apiGet<GuildSettingsResponse>(`/api/guilds/${guildId}/settings`),
     enabled: guildId !== null,
+  });
+}
+
+export function useTeamHunts(guildId: number | null) {
+  return useQuery({
+    queryKey: ["team-hunts", guildId],
+    queryFn: () =>
+      apiGet<{ hunts: TeamHuntSummary[] }>(`/api/guilds/${guildId}/team-hunts`),
+    enabled: guildId !== null,
+  });
+}
+
+export function useTeamHunt(guildId: number | null, uid: string | null) {
+  return useQuery({
+    queryKey: ["team-hunt", guildId, uid],
+    queryFn: () =>
+      apiGet<TeamHuntDetail>(`/api/guilds/${guildId}/team-hunts/${uid}`),
+    enabled: guildId !== null && uid !== null,
   });
 }
 

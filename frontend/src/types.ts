@@ -315,3 +315,45 @@ export interface EvidenceItem {
   media_url: string | null;
   created_at: string | null;
 }
+
+export interface TeamHuntSummary {
+  uid: string;
+  name: string;
+  team: string | null;
+  archived: boolean;
+  team_server: string | null;
+  on_server_count: number | null;
+  invited_waiting_count: number;
+}
+
+export interface TeamHuntMember {
+  user_id: string;
+  name: string;
+  team_role: boolean;
+  mod: boolean;
+}
+
+export interface TeamHuntInvited {
+  user_id: string;
+  name: string;
+  invited_at: string;
+}
+
+export interface TeamHuntHistoryRow {
+  at: string;
+  user_id: string;
+  name: string;
+  action: string;
+  via: string;
+  actor_id: string | null;
+  actor_name: string | null;
+}
+
+export interface TeamHuntDetail {
+  hunt: TeamHuntSummary;
+  bot_on_server: boolean;
+  team_role_missing: boolean;
+  on_server: TeamHuntMember[] | null;
+  invited_waiting: TeamHuntInvited[];
+  history: TeamHuntHistoryRow[];
+}

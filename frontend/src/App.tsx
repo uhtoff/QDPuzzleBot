@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import HuntList from "./pages/HuntList";
 import HuntBoard from "./pages/HuntBoard";
 import GuildSettings from "./pages/GuildSettings";
+import TeamServers from "./pages/TeamServers";
 import { ViewAsProvider } from "./context/ViewAsContext";
 
 export default function App() {
@@ -30,7 +31,8 @@ export default function App() {
           <Route path="/" element={<HuntList />} />
           <Route path="/hunts/:uid" element={<HuntBoard />} />
           <Route path="/guilds/:guildId/settings" element={<GuildSettings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/guilds/:guildId/teams" element={<TeamServers />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShellLayout>
     </ViewAsProvider>

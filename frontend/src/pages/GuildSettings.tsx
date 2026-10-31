@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -210,6 +210,11 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             onChange={(e) => setTemplateLink(e.currentTarget.value)}
             error={templateError}
           />
+          <Group>
+            <Button component={Link} to={`/guilds/${guildId}/teams`} variant="light">
+              Team servers
+            </Button>
+          </Group>
         </Stack>
       </Card>
 
