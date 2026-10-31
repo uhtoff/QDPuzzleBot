@@ -32,10 +32,26 @@ ME_URL = f"{DISCORD_API}/users/@me"
 OAUTH_SCOPE = "identify"
 
 
+def safe_next_path(value):
+    """*value* if it is a same-site relative path, else None. Guards the post-login
+    redirect against open redirects: must start with a single "/", with no
+    backslash, control character, or scheme."""
+    if not isinstance(value, str) or not value.startswith("/") or value.startswith("//"):
+        return None
+    if "\\" in value or any(ord(c) < 0x20 or ord(c) == 0x7f for c in value):
+        return None
+    return value
+
+
 @auth_bp.route("/login")
 async def login():
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
+    nxt = safe_next_path(request.args.get("next"))
+    if nxt:
+        session["login_next"] = nxt
+    else:
+        session.pop("login_next", None)
     params = {
         "response_type": "code",
         "client_id": config.web_oauth_client_id,
@@ -69,7 +85,9 @@ async def callback():
         "global_name": user.get("global_name"),
         "avatar": user.get("avatar"),
     }
-    return redirect(config.web_frontend_url or "/")
+    nxt = safe_next_path(session.pop("login_next", None))
+    base = (config.web_frontend_url or "").rstrip("/")
+    return redirect(f"{base}{nxt}" if nxt else (config.web_frontend_url or "/"))
 
 
 @auth_bp.route("/logout", methods=["POST"])

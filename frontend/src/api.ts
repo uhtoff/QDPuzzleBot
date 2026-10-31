@@ -141,8 +141,12 @@ function authLost(): AuthError {
   return new AuthError();
 }
 
+/** Where the login button goes. Passes the current path so the server can send
+ *  the user back to this page after Discord sign-in (it only honours same-site
+ *  relative paths). */
 export function loginUrl() {
-  return "/api/auth/login";
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  return `/api/auth/login?next=${encodeURIComponent(here)}`;
 }
 
 export async function logout() {
