@@ -198,12 +198,19 @@ server now (running hunts only), who was invited but hasn't arrived, and the acc
    (players can't see it). If its greeting lands in `#lobby` instead, the server didn't
    match the template — check it against the list above, and delete that greeting.
 5. In Server Settings → Roles, drag the bot's role above `mod`.
-6. In `#bot-commands`: `!setup_server <hub id> <hub role id> <hunt url> <hunt name>`.
-   You must be the server's owner and an admin on the hub. If it stops, fix what it says
-   and re-run the same command; once it reports complete it is locked on that server.
+6. Set the server up. When the dashboard URL is configured the greeting leads with a link
+   (`/guilds/<id>/setup`): open it as the server's owner (or an admin there), pick the hub
+   and the team's role, fill in the hunt name, URL and optional start time, login and
+   solved sheet, and press **Set up**. **Send invites** is optional and off by default; it
+   runs only if setup finished without error. The page shows each step and, if it stops,
+   what to fix — press **Set up** again to finish. The command is the alternative: in
+   `#bot-commands`, `!setup_server <hub id> <hub role id> <hunt url> <hunt name>` (server
+   owner and hub admin; if it stops, fix what it says and re-run). Once setup reports
+   complete it is locked on that server.
 7. Click **Join** in `#lobby`. As a hub admin you also get `mod`, which you need for the
    next step (and for `!archive_hunt_to_hub` at hunt end).
-8. Check the server looks right, then in `#bot-commands`: `!send_invites <hunt name>`.
+8. Check the server looks right, then send invites (unless you ticked **Send invites** on
+   the setup page): in `#bot-commands`, `!send_invites <hunt name>`.
    Everyone with the hub role gets a private, single-use invite by DM, and the bot gives
    them the team role as they arrive. The reply names anyone whose DMs are closed — run
    `!invite_player <user id>` for each (if their DMs are still closed, the invite is DM'd
@@ -226,6 +233,10 @@ they're leaving.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
+The dashboard does the same: open the team hunt's panel and press **Archive**, then type the
+hunt's name to confirm. Progress and the summary go to the hub's admin channel (the hub
+archive channel if that is unusable), never only to the team server, whose channels the
+archive deletes.
 
 ## Capacity, when planning a server per hunt
 

@@ -85,9 +85,13 @@ def test_missing_bot_commands_is_not_a_template():
 
 # --- the greeting on join -----------------------------------------------------
 
-async def _join(guild):
+async def _join(guild, row_id=42):
+    def _commit(g):
+        g.id = row_id
+
     with patch("bot.cogs.settings.GuildSettingsDb") as db:
         db.get.return_value = None
+        db.commit.side_effect = _commit
         await Settings(MagicMock()).on_guild_join(guild)
 
 
@@ -130,3 +134,25 @@ async def test_template_greeting_walks_through_the_whole_setup():
         assert step in text, step
     positions = [text.index(s) for s in steps]
     assert positions == sorted(positions), "steps are out of order"
+
+
+async def test_greeting_links_to_dashboard_setup_when_configured():
+    g = _template_guild()
+    with patch("bot.cogs.settings.config") as cfg:
+        cfg.web_frontend_url = "https://puzz.example/"
+        await _join(g, row_id=42)
+    text = _bot_commands(g).sent[0]
+    link = "https://puzz.example/guilds/42/setup"
+    assert link in text
+    assert text.index(link) < text.index("above `mod`")
+    assert "!setup_server <hub server id>" in text      # command stays as the alternative
+
+
+async def test_greeting_has_no_link_without_a_frontend_url():
+    g = _template_guild()
+    with patch("bot.cogs.settings.config") as cfg:
+        cfg.web_frontend_url = ""
+        await _join(g)
+    text = _bot_commands(g).sent[0]
+    assert "/guilds/" not in text
+    assert "dashboard" not in text.lower()

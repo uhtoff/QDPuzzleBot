@@ -1,8 +1,7 @@
 # Slice 5c — dashboard setup for team servers, and archiving them from the dashboard
 
 **Date:** 2026-10-31
-**Status:** Design — written while the user was away, from their brief (below); calls
-marked *my call* are for review before merge.
+**Status:** Implemented 2026-10-31 — plan docs/superpowers/plans/2026-10-31-dashboard-setup.md
 **Builds on:** slices 2–5b (`!setup_server`, invites, access log, Team servers page). The
 idea is recorded in `docs/superpowers/specs/2026-10-31-team-servers-page-and-template-link-design.md`
 ("Next: 5c").

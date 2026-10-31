@@ -405,7 +405,7 @@ The full [command reference](commands.md) lists every command; highlights:
 - **Server settings (dashboard):** the avatar menu → **Server settings**, for admins.
   Pins which Discord roles grant the admin and organiser tiers, and sets the bot command
   channel and Google Drive folders, and holds the team-server template link. Its **Team servers**
-  button opens a page of each team hunt's access (admins only). If a tier still says *matched by name*, anyone who can
+  button opens a page of each team hunt's access (admins only). A new team server's owner sets it up from the dashboard's setup page, linked from the bot's greeting. If a tier still says *matched by name*, anyone who can
   create a role can grant themselves that tier — pin it.
 - **Standing up a new Discord server for a hunt:** follow the
   [new server playbook](new-server-playbook.md) — it covers the two steps nothing in the

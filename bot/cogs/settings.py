@@ -10,6 +10,7 @@ import discord
 from discord.ext import commands
 
 from bot.core import server_setup
+from bot.utils import config
 from bot.store import GuildSettings, GuildSettingsDb
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,7 @@ Both are also available on the dashboard under **Server settings**. \
 # The join greeting for a server cloned from the team-server template, where
 # !setup_server does both of SETUP_MESSAGE's manual steps. Posted in
 # #bot-commands: only the owner and `mod` see it, and players never do.
-TEMPLATE_SETUP_MESSAGE = f"""\
-:wave: **Thanks for adding me!** This looks like a team server made from the template. \
-To finish setting it up:
-
+_TEMPLATE_SETUP_STEPS = f"""\
 **1.** In Server Settings → Roles, drag my role above `{server_setup.TEMPLATE_MOD_ROLE}`.
 **2.** Here in #{server_setup.BOT_CHANNEL}, run:
 ```
@@ -70,15 +68,29 @@ invited automatically.
 **5.** Optionally, transfer server ownership to someone on the team."""
 
 
-async def _post_setup_message(guild):
-    """Best-effort welcome: a template clone gets TEMPLATE_SETUP_MESSAGE in
+def template_setup_message(settings_id=None) -> str:
+    """The template-clone greeting. When the dashboard URL is configured and we
+    know the guilds row id, lead with a link to the dashboard setup page and
+    keep the command form as the alternative."""
+    base = (config.web_frontend_url or "").rstrip("/")
+    intro = (":wave: **Thanks for adding me!** This looks like a team server made from "
+             "the template. To finish setting it up:\n\n")
+    if base and settings_id:
+        return (intro
+                + f"**Set me up on the dashboard:** {base}/guilds/{settings_id}/setup\n\n"
+                + "Or, step by step:\n\n" + _TEMPLATE_SETUP_STEPS)
+    return intro + _TEMPLATE_SETUP_STEPS
+
+
+async def _post_setup_message(guild, settings_id=None):
+    """Best-effort welcome: a template clone gets template_setup_message() in
     #bot-commands; anything else gets SETUP_MESSAGE in the system channel, else
     the first channel we can write to. Never raises: a guild that will not let
     us post must still get its settings row."""
     try:
         text, channel = SETUP_MESSAGE, guild.system_channel
         if server_setup.looks_like_template(guild):
-            text = TEMPLATE_SETUP_MESSAGE
+            text = template_setup_message(settings_id)
             channel = discord.utils.get(guild.text_channels, name=server_setup.BOT_CHANNEL)
         if channel is None or not channel.permissions_for(guild.me).send_messages:
             channel = next(
@@ -118,20 +130,20 @@ class Settings(commands.Cog):
         established server."""
         created = self._ensure_guild_settings(guild)
         if created:
-            await _post_setup_message(guild)
+            await _post_setup_message(guild, created.id)
 
     @staticmethod
     def _ensure_guild_settings(guild):
         """Create a default settings row for `guild` if one doesn't exist yet.
-        Returns True if a row was created, so the caller can tell a genuine join
-        from the on_ready backfill."""
+        Returns the new row if one was created (None otherwise), so the caller can
+        tell a genuine join from the on_ready backfill and read the row id."""
         if GuildSettingsDb.get(guild.id) is not None:
-            return False
+            return None
         g = GuildSettings()
         g.guild_id = guild.id
         g.guild_name = guild.name
         GuildSettingsDb.commit(g)
-        return True
+        return g
 
 
 async def setup(bot):
