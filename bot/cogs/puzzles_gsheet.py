@@ -463,8 +463,10 @@ class GoogleSheets(commands.Cog):
         new_sheet_id = new_sheet['replies'][1]['duplicateSheet']['properties']['sheetId']
         return new_sheet_id
 
-    async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET):
-        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index)
+    async def add_new_puzzle_sheet(self, puzzle: PuzzleData, index = INITIAL_OFFSET,
+                                   header_links=None):
+        await self.generate_puzzle_tab(puzzle, is_target=puzzle.is_target, index=index,
+                                       header_links=header_links)
 
 
     async def create_blank_tab(self, spreadsheet_id: str, name: str, index: Optional[int] = None) -> int:
@@ -696,10 +698,13 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("delete_hunt_spreadsheet: could not delete file %s (may already be gone)", file_id)
 
-    async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None):
+    async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None,
+                                        header_links=None):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
         puzzle_index = index if index is not None else self.INITIAL_OFFSET
-        await self.add_new_puzzle_sheet(puzzle_data, puzzle_index)
+        # Forwarded only when given, so the no-links call keeps its old shape.
+        extra = {"header_links": header_links} if header_links else {}
+        await self.add_new_puzzle_sheet(puzzle_data, puzzle_index, **extra)
         await self.update_puzzle_info(puzzle_data)
 
     async def create_additional_spreadsheet(self, puzzle_data: PuzzleData, name = None, puzzle = False):
@@ -712,17 +717,19 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
         return sheet_id
 
-    async def promote_tab_to_group(self, puzzle_data: PuzzleData):
+    async def promote_tab_to_group(self, puzzle_data: PuzzleData, header_links=None):
         """Promote a puzzle's existing tab into a target (group) tab in place.
 
         Inserts the contribution columns + native Table and regenerates the header
         (including the name hyperlink) via promote_tab_to_target. The tab is NOT
         renamed — the puzzle name is unchanged, and renaming it to its own name
         makes get_unique_tab_name treat the tab as a collision ("Name (2)").
-        Inverse of demote_tab_to_puzzle."""
-        await self.promote_tab_to_target(puzzle_data)
+        Inverse of demote_tab_to_puzzle. `header_links` re-fills the Feeds line
+        the header wipe clears."""
+        extra = {"header_links": header_links} if header_links else {}
+        await self.promote_tab_to_target(puzzle_data, **extra)
 
-    async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData):
+    async def demote_tab_to_puzzle(self, puzzle_data: PuzzleData, header_links=None):
         """Demote a target tab back to an ordinary puzzle tab in place — the exact
         inverse of promote_tab_to_target.
 
@@ -735,7 +742,8 @@ class GoogleSheets(commands.Cog):
 
         The regenerated header includes the name hyperlink, so the tab is NOT
         renamed — renaming it to its own (unchanged) name makes get_unique_tab_name
-        treat the tab as a collision and append "(2)"."""
+        treat the tab as a collision and append "(2)". `header_links` re-fills
+        the Feeds line the header wipe clears."""
         from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
         spreadsheet_id = self.get_spreadsheet_id()
@@ -787,7 +795,7 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredValue"}},
         ]
         requests += self._puzzle_tab_header_requests(
-            puzzle_data, page_id, 0, is_target=False)
+            puzzle_data, page_id, 0, is_target=False, header_links=header_links)
         for label in ("flavour", "progress", "solution"):
             if label in saved:
                 val, row, col = saved[label]
@@ -1404,14 +1412,17 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
-    def _puzzle_tab_header_requests(self, puzzle, page_id, offset, is_target):
+    def _puzzle_tab_header_requests(self, puzzle, page_id, offset, is_target,
+                                    header_links=None):
         """batchUpdate requests for a puzzle/target tab's header, shifted right by
         `offset`: the captured static cells + merges, the dynamic name/url
         hyperlink (always bot-written, not from the artifact), tab styling
         (JetBrains Mono, frozen + grey header rows, wide label column at the
         offset), and bold static labels. Shared by generate_puzzle_tab (fresh
         tab) and promote_tab_to_target (stamped over an inserted column band) so
-        the two paths produce an identical header geometry."""
+        the two paths produce an identical header geometry.
+
+        `header_links` (list[Link]) fills the Feeds line; None leaves it empty."""
         from bot.cogs import sheet_layout
         cells, merges = sheet_layout.puzzle_tab_layout(is_target)
         requests = []
@@ -1437,14 +1448,102 @@ class GoogleSheets(commands.Cog):
         requests += self._label_bold_requests(page_id, cells, offset)
         requests += self._dynamic_bold_requests(page_id, offset)
         requests.append(self._header_border_request(page_id, offset))
+        if header_links is not None:
+            requests.append(self.header_links_request(page_id, offset, header_links))
         return requests
 
-    async def generate_puzzle_tab(self, puzzle, is_target, index=None):
+    @staticmethod
+    def _utf16_len(text: str) -> int:
+        # Sheets counts textFormatRuns indices in UTF-16 code units.
+        return len(text.encode("utf-16-le")) // 2
+
+    def header_links_request(self, page_id, offset, links: List[Link]) -> dict:
+        """The Feeds line's links cell (I3, shifted by `offset`): the names joined
+        by ", ", each name a rich-text link to its sheet and the separators left
+        unlinked. Rich text, never a formula. No links clears the cell (an old
+        line goes); the "Feeds:" label is not touched."""
+        from bot.cogs import sheet_layout
+        row = self.get_row(sheet_layout.FEEDS_LINKS_A1)
+        col = self.get_column(sheet_layout.FEEDS_LINKS_A1) + offset
+        cell: dict[str, Any] = {}
+        if links:
+            runs = []
+            pos = 0
+            for i, link in enumerate(links):
+                if i:
+                    runs.append({"startIndex": pos, "format": {}})
+                    pos += self._utf16_len(", ")
+                fmt = {"link": {"uri": link.uri}} if link.uri else {}
+                runs.append({"startIndex": pos, "format": fmt})
+                pos += self._utf16_len(link.text)
+            cell = {"userEnteredValue": {"stringValue": ", ".join(lk.text for lk in links)},
+                    "textFormatRuns": runs}
+        return {"updateCells": {
+            "rows": [{"values": [cell]}],
+            "fields": "userEnteredValue,textFormatRuns",
+            "range": {"sheetId": page_id,
+                      "startRowIndex": row, "endRowIndex": row + 1,
+                      "startColumnIndex": col, "endColumnIndex": col + 1},
+        }}
+
+    def _feeds_line_requests(self, page_id, offset, links: List[Link]) -> list:
+        """Re-stamp row 3 into the Feeds layout on a tab that may predate it, then
+        write the links. Unmerge the whole row-3 band (an old B3:Q3 merge keeps
+        its progress value in B3), merge B3:G3 + I3:Q3 (both empty after the
+        unmerge apart from B3), stamp the bold label, then the links cell. The
+        same requests are harmless on a tab already in the new layout."""
+        from bot.cogs import sheet_layout
+        row = self.get_row(sheet_layout.FEEDS_LINKS_A1)
+        row_merges = [m for m in sheet_layout.PUZZLE_TAB_MERGES if m[0] == row]
+        label = next(c for c in sheet_layout.PUZZLE_TAB_CELLS
+                     if c["a1"] == sheet_layout.FEEDS_LABEL_A1)
+        requests: list = [{"unmergeCells": {"range": {
+            "sheetId": page_id, "startRowIndex": row, "endRowIndex": row + 1,
+            "startColumnIndex": min(m[2] for m in row_merges) + offset,
+            "endColumnIndex": max(m[3] for m in row_merges) + offset}}}]
+        for start_r, end_r, start_c, end_c in row_merges:
+            requests.append({"mergeCells": {
+                "range": {"sheetId": page_id,
+                          "startRowIndex": start_r, "endRowIndex": end_r,
+                          "startColumnIndex": start_c + offset,
+                          "endColumnIndex": end_c + offset},
+                "mergeType": "MERGE_ALL"}})
+        requests.append(self.update_cell(
+            label["value"], self.get_row(label["a1"]),
+            self.get_column(label["a1"]) + offset, label["type"], page_id))
+        requests += self._label_bold_requests(page_id, [label], offset)
+        requests.append(self.header_links_request(page_id, offset, links))
+        requests.append(self._header_border_request(page_id, offset))
+        return requests
+
+    async def write_header_links(self, tabs) -> None:
+        """Write the Feeds line on existing tabs. `tabs` is a list of
+        (SheetLocation, offset, list[Link]); one batch_update per spreadsheet,
+        never per tab. A location on neither of the hunt's spreadsheets (in
+        context) is skipped with a warning rather than written to the wrong one."""
+        live, solved = self.get_spreadsheet_id(), self.get_solved_sheet_id()
+        by_sheet: dict[str, list] = {}
+        for loc, offset, links in tabs:
+            if loc.page_id is None or loc.page_id == "":
+                continue
+            sid: str = loc.spreadsheet_id
+            if not sid or (sid != live and sid != solved):
+                logger.warning("write_header_links: page %s is on spreadsheet %s, "
+                               "not this hunt's; skipped", loc.page_id, sid)
+                continue
+            by_sheet.setdefault(sid, []).extend(
+                self._feeds_line_requests(int(loc.page_id), offset, links))
+        for spreadsheet_id, requests in by_sheet.items():
+            await self.batch_update({"requests": requests},
+                                    archive=spreadsheet_id != live)
+
+    async def generate_puzzle_tab(self, puzzle, is_target, index=None, header_links=None):
         """Create a puzzle tab entirely in code (no template duplicateSheet).
 
         Adds a blank tab, writes the captured header layout + the dynamic
         name/url hyperlink, and (when is_target) the contribution Table.
-        Sets puzzle.google_page_id. Returns the new page id."""
+        Sets puzzle.google_page_id. Returns the new page id. `header_links`
+        (list[Link]) fills the Feeds line in the same batch."""
         from bot.cogs import sheet_layout
         import inspect as insp
 
@@ -1462,7 +1561,9 @@ class GoogleSheets(commands.Cog):
         # Static header (captured cells + merges), dynamic name hyperlink, tab
         # styling and bold labels — all shifted right by `offset`. Shared with
         # promote_tab_to_target so a generated and a promoted target end identical.
-        requests = self._puzzle_tab_header_requests(puzzle, page_id, offset, is_target)
+        requests = self._puzzle_tab_header_requests(
+            puzzle, page_id, offset, is_target,
+            header_links=header_links or None)
         if requests:
             await self.batch_update({"requests": requests})
 
@@ -1524,7 +1625,7 @@ class GoogleSheets(commands.Cog):
             return self.LAYOUT_TARGET
         return self.LAYOUT_UNKNOWN
 
-    async def promote_tab_to_target(self, puzzle):
+    async def promote_tab_to_target(self, puzzle, header_links=None):
         """Transform an existing puzzle tab into a target tab in place, ending in
         the SAME geometry as a freshly generated target: header at offset 1, the
         contribution Table at A4.
@@ -1598,7 +1699,8 @@ class GoogleSheets(commands.Cog):
                 "startColumnIndex": 0, "endColumnIndex": 26},
                 "fields": "userEnteredValue"}},
         ]
-        requests += self._puzzle_tab_header_requests(puzzle, page_id, offset, is_target=True)
+        requests += self._puzzle_tab_header_requests(
+            puzzle, page_id, offset, is_target=True, header_links=header_links)
         for label in ("flavour", "progress", "solution"):
             if label in saved:
                 val, row, col = saved[label]

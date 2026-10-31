@@ -13,8 +13,9 @@ writes them at runtime from config.puzzle_cell_*):
   * B1  name/url hyperlink   -> config.puzzle_cell_name / _link  (DYNAMIC)
   * I1  solution             -> config.puzzle_cell_solution      (DYNAMIC)
   * B3  progress ("none")    -> config.puzzle_cell_progress      (DYNAMIC)
+  * I3  feeds links          -> GoogleSheets.header_links_request (DYNAMIC)
   * B2  flavour text         -> user-owned (NOT bot-written); preserved on promote
-  * A1/H1/A2/A3 labels       -> STATIC (this artifact)
+  * A1/H1/A2/A3/H3 labels    -> STATIC (this artifact)
 The Meta tab's old rollup region (A4 notice, A5/B5 "Puzzle name"/"Puzzle solution")
 is intentionally NOT reproduced — the generated contribution Table replaces it.
 
@@ -31,15 +32,24 @@ PUZZLE_TAB_CELLS = [
     {"a1": "H1", "value": "Solution:", "type": "stringValue", "bold": True},
     {"a1": "A2", "value": "Puzzle Flavor Text:", "type": "stringValue", "bold": True},
     {"a1": "A3", "value": "Progress Summary:", "type": "stringValue", "bold": True},
+    # Under "Solution:"; the bot writes the linked meta names into I3.
+    {"a1": "H3", "value": "Feeds:", "type": "stringValue", "bold": True},
 ]
 
-# Header merges shared by every puzzle tab (title, solution, flavour, progress).
+# Header merges shared by every puzzle tab (title, solution, flavour, progress,
+# feeds). Row 3 was one B3:Q3 progress merge until the Feeds line (2026-10-31).
 PUZZLE_TAB_MERGES = [
     (0, 1, 1, 7),    # B1:G1  title (bot writes the hyperlink here)
     (0, 1, 8, 17),   # I1:Q1  solution (bot writes here)
     (1, 2, 1, 17),   # B2:Q2  flavour text (user-owned)
-    (2, 3, 1, 17),   # B3:Q3  progress (bot writes "none"/"Solved" here)
+    (2, 3, 1, 7),    # B3:G3  progress (bot writes "none"/"Solved" here)
+    (2, 3, 8, 17),   # I3:Q3  feeds links (bot writes here)
 ]
+
+# The Feeds line: label cell (in PUZZLE_TAB_CELLS) and the cell the linked meta
+# names go in -- the top-left of the I3:Q3 merge. Both shift with the header.
+FEEDS_LABEL_A1 = "H3"
+FEEDS_LINKS_A1 = "I3"
 
 # A target tab adds nothing static beyond the shared header — the contribution
 # Table (added in code, below the frozen header) replaces the old A4/A5 rollup

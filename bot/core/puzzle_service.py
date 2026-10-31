@@ -37,7 +37,7 @@ from bot.core.discord_channels import (
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
-from bot.core.sheet_location import puzzle_location
+from bot.core.sheet_location import Link, puzzle_location
 from bot.core.target_glyph import marked_name
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 from bot.core.target_extract import select_extract_puzzles
@@ -240,6 +240,35 @@ def default_edge_for_group(group) -> str:
     if not group.target_puzzle_id:
         return "none"
     return TYPE_DEFAULTS.get(group.type, {}).get("default_edge", "feeds")
+
+
+def _feeds_targets_from(fed_group_ids, parent_puzzle_id=None, self_id=None) -> list[PuzzleData]:
+    """The target puzzles of `fed_group_ids` (groups fed over a feeds edge), plus
+    the minimeta parent of a mini; ordered by name, de-duplicated, never the
+    puzzle itself (`self_id`) and never a group with no target."""
+    targets: dict[int, PuzzleData] = {}
+    for gid in fed_group_ids:
+        group = TagGroupJsonDb.get_by_attr(id=gid)
+        if group is None or not group.target_puzzle_id or group.target_puzzle_id <= 0:
+            continue
+        if self_id is not None and group.target_puzzle_id == self_id:
+            continue
+        target = PuzzleJsonDb.get_by_attr(id=group.target_puzzle_id)
+        if target is not None:
+            targets[target.id] = target
+    if parent_puzzle_id:
+        parent = PuzzleJsonDb.get_by_attr(id=parent_puzzle_id)
+        if parent is not None and parent.id != self_id:
+            targets[parent.id] = parent
+    return sorted(targets.values(), key=lambda t: ((t.name or "").casefold(), t.id))
+
+
+def feeds_targets(puzzle) -> list[PuzzleData]:
+    """The puzzles `puzzle` feeds -- the metas its header's Feeds line links to:
+    each group it has a feeds edge to with a target (> 0, not itself), plus a
+    mini's parent minimeta. Ordered by target name, de-duplicated."""
+    fed = [gid for gid in puzzle.tags if puzzle.has_edge(gid, "feeds")]
+    return _feeds_targets_from(fed, puzzle.parent_puzzle_id, puzzle.id)
 
 
 class PuzzleService:
@@ -976,6 +1005,7 @@ class PuzzleService:
 
         Mirrors add_to_meta's path but with typed edges.
         """
+        fed_before = self._feeds_target_ids(puzzle)
         PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, group.id, edge)
         # Pooled exclusivity: 'none' and contributing edges can't coexist.
         if edge in ("feeds", "informs"):
@@ -998,8 +1028,15 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
+        await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
         if failed:
             raise SheetRefreshError(failed_group_ids=failed)
+
+    async def _refresh_header_if_fed_changed(self, hunt, puzzle, fed_before):
+        """Rewrite `puzzle`'s Feeds line unless its targets are unchanged -- an
+        informs/none edge change (e.g. evidence auto-linking) costs no write."""
+        if fed_before is None or self._feeds_target_ids(puzzle) != fed_before:
+            await self.refresh_header_links(hunt, [puzzle])
 
     def _drop_local_edge(self, puzzle, group, edge):
         """Remove one edge in DB + memory (pooled-exclusivity helper)."""
@@ -1051,6 +1088,7 @@ class PuzzleService:
             edge is None or puzzle.edges_for(group.id) == {edge}
         ):
             raise ValueError("cannot remove the last tag from a metapuzzle")
+        fed_before = self._feeds_target_ids(puzzle)
         if edge is None:
             PuzzleJsonDb.delete_tag(puzzle.id, group.id)
             puzzle.tag_edges.pop(group.id, None)
@@ -1062,6 +1100,7 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
+        await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
         if failed:
             raise SheetRefreshError(failed_group_ids=failed)
 
@@ -1117,6 +1156,12 @@ class PuzzleService:
         parts = [f"{v} {k}" for k, v in counter.items() if v]
         summary = "flipped " + " + ".join(parts) + f" → {new_edge}"
 
+        # Every member's Feeds line may have gained or lost this target. Not
+        # gated on `refresh` (that is the roll-up render): this never raises, so
+        # convert_to_type's refresh=False flip -- the only one it does -- is
+        # covered here, including a later Group teardown (edges are 'none' by then).
+        await self.refresh_header_links(hunt, members, reload=True)
+
         if refresh:
             await self.refresh_target(hunt, tag_group)
         return summary
@@ -1168,7 +1213,8 @@ class PuzzleService:
             # (and the header's first column with it).
             gsheet_cog = self._gsheet_cog(hunt)
             if gsheet_cog is not None:
-                await gsheet_cog.promote_tab_to_group(puzzle)
+                await gsheet_cog.promote_tab_to_group(
+                    puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
         else:
             # Already grouped — just update type (the tab is already structured).
             tag_group.type = new_type
@@ -1503,6 +1549,8 @@ class PuzzleService:
                     logger.exception("solve: minimeta rollup refresh failed for parent %s",
                                      puzzle.parent_puzzle_id)
 
+        await self._refresh_minis_header_links(hunt, puzzle)
+
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
@@ -1536,6 +1584,8 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+
+        await self._refresh_minis_header_links(hunt, puzzle)
 
         # Refresh metas so the unsolved answer disappears from the meta sheet.
         # Collected and reported at the end, exactly as solve does (M27): these
@@ -1605,6 +1655,8 @@ class PuzzleService:
         Returns the number of feeders orphaned by the round deletion (every puzzle
         that was tagged to the deleted round, excluding the meta itself)."""
         orphaned = len(self.feeders_orphaned_by_convert(puzzle))
+        # Their Feeds lines link here; collected before the group delete.
+        feeders = self._feeders_of(puzzle) if self._gsheet_cog(hunt) is not None else []
         # Captured before the group delete drops its id from puzzle.tags — see
         # _refresh_host_target_glyphs.
         host_group_ids = list(getattr(puzzle, "tags", None) or [])
@@ -1639,6 +1691,8 @@ class PuzzleService:
             [gid for gid in host_group_ids
              if target_group is None or gid != target_group.id])
 
+        await self.refresh_header_links(hunt, feeders, reload=True)
+
         gsheet_cog = self._gsheet_cog(hunt)
         # Same guard as remove_minimeta: demote only a tab the bot actually
         # promoted. convert_to_meta commits is_target BEFORE promote_tab_to_group,
@@ -1646,7 +1700,8 @@ class PuzzleService:
         # demoting that deletes columns A-D of an ordinary solver grid.
         if gsheet_cog is not None and puzzle.google_page_id:
             if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
-                await gsheet_cog.demote_tab_to_puzzle(puzzle)
+                await gsheet_cog.demote_tab_to_puzzle(
+                    puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
         return orphaned
 
     async def absorb_category(self, guild, hunt, category):
@@ -1884,6 +1939,14 @@ class PuzzleService:
         for parent in list(to_delete):
             to_delete.extend(PuzzleJsonDb.get_children(parent.id))
 
+        # Kept puzzles feeding this round's target lose it from their Feeds line.
+        deleted_ids = {p.id for p in to_delete}
+        orphaned_feeders = [
+            p for p in to_keep
+            if tag_group.target_puzzle_id and p.id not in deleted_ids
+            and p.has_edge(tag_group.id, "feeds")
+        ]
+
         failed_channels = []
         other_fed_group_ids = set()
         for puzzle in to_delete:
@@ -2003,6 +2066,7 @@ class PuzzleService:
                                              tag_group.category_id)
 
         TagGroupJsonDb.delete(tag_group.id)
+        await self.refresh_header_links(hunt, orphaned_feeders, reload=True)
         return failed_channels
 
     async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,
@@ -2237,7 +2301,8 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None and puzzle.google_page_id:
             if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
-                await gsheet_cog.demote_tab_to_puzzle(puzzle)
+                await gsheet_cog.demote_tab_to_puzzle(
+                    puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
 
         rollup = RollupsJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
         if rollup is not None:
@@ -2278,7 +2343,8 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            await gsheet_cog.promote_tab_to_group(puzzle)
+            await gsheet_cog.promote_tab_to_group(
+                puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
 
         # Update forum post tags (newly converted to meta).
         await self._update_forum_tags(guild, hunt, puzzle)
@@ -2606,6 +2672,10 @@ class PuzzleService:
                 except Exception:
                     failed.append(tag)
 
+        # Puzzles feeding this one show its name in their Feeds line.
+        if gsheet_cog is not None:
+            await self.refresh_header_links(hunt, self._feeders_of(puzzle))
+
         if failed:
             raise SheetRefreshError(failed_group_ids=failed)
 
@@ -2703,7 +2773,9 @@ class PuzzleService:
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
             insert_idx = await gsheet_cog.compute_insert_index(False, existing)  # minis are regular
-            await gsheet_cog.create_puzzle_spreadsheet(mini, index=insert_idx)
+            await gsheet_cog.create_puzzle_spreadsheet(
+                mini, index=insert_idx,
+                **self._header_links_kw(self._links_to_safe(hunt, [minimeta])))
 
         PuzzleJsonDb.commit(mini)
 
@@ -2733,6 +2805,10 @@ class PuzzleService:
             await self.refresh_minimeta(hunt, minimeta)
         except Exception:
             logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
+        # The first mini's render promotes the minimeta's tab, re-stamping its
+        # header and so clearing its own Feeds line; write it back.
+        if gsheet_cog is not None and len(self.get_minis(minimeta.id)) == 1:
+            await self.refresh_header_links(hunt, [minimeta])
         return mini
 
     @pushes_board()
@@ -2950,7 +3026,15 @@ class PuzzleService:
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
             insert_idx = await gsheet_cog.compute_insert_index(new_puzzle.is_target, existing)
-            await gsheet_cog.create_puzzle_spreadsheet(new_puzzle, index=insert_idx)
+            # The membership edge is written after the tab (below), but it is
+            # already decided, so the Feeds line rides in tab generation.
+            header_links = []
+            if round_data is not None and not is_meta \
+                    and default_edge_for_group(round_data) == "feeds":
+                header_links = self._links_to_safe(
+                    hunt, None, fed_group_ids=[round_data.id])
+            await gsheet_cog.create_puzzle_spreadsheet(
+                new_puzzle, index=insert_idx, **self._header_links_kw(header_links))
 
         PuzzleJsonDb.commit(new_puzzle)
 
@@ -3372,6 +3456,113 @@ class PuzzleService:
                 await self.refresh_target(hunt, group)
             except Exception:
                 logger.exception("refresh_informs_targets: failed for group %s", gid)
+
+    # --- header up-links (the Feeds line in row 3 of a puzzle's own tab) -------
+    # Every helper here is best-effort: the user's action is already committed,
+    # and a stale Feeds line must never fail it. A failure is logged.
+
+    @staticmethod
+    def _links_to(hunt, targets) -> list[Link]:
+        return [Link(t.name, puzzle_location(hunt, t).url) for t in targets]
+
+    def _header_links(self, hunt, puzzle) -> list[Link]:
+        """The Feeds line links for `puzzle`; [] if they can't be worked out."""
+        try:
+            return self._links_to(hunt, feeds_targets(puzzle))
+        except Exception:  # noqa: BLE001
+            logger.exception("header links: could not compute targets for puzzle %s",
+                             getattr(puzzle, "id", "?"))
+            return []
+
+    def _links_to_safe(self, hunt, targets, fed_group_ids=None) -> list[Link]:
+        """Links to `targets`, or to the targets of `fed_group_ids` (for a puzzle
+        whose edges aren't written yet); [] on any failure."""
+        try:
+            if targets is None:
+                targets = _feeds_targets_from(fed_group_ids or [])
+            return self._links_to(hunt, targets)
+        except Exception:  # noqa: BLE001
+            logger.exception("header links: could not compute links")
+            return []
+
+    @staticmethod
+    def _header_links_kw(links) -> dict:
+        """Pass header_links to a tab (re)stamp only when there are some: a
+        freshly stamped header's links cell is already empty."""
+        return {"header_links": links} if links else {}
+
+    @staticmethod
+    def _feeds_target_ids(puzzle):
+        """Target ids of `puzzle`'s Feeds line, or None if unknown (refresh then)."""
+        try:
+            return [t.id for t in feeds_targets(puzzle)]
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _feeders_of(self, target) -> list[PuzzleData]:
+        """Puzzles whose Feeds line links to `target`: its group's feeds members
+        (not itself) and, for a minimeta, its minis. [] on any lookup failure."""
+        try:
+            feeders = []
+            group = TagGroupJsonDb.get_by_attr(target_puzzle_id=target.id)
+            if group is not None:
+                feeders = [p for p in PuzzleJsonDb.get_all_from_tag_group(group.id)
+                           if p.id != target.id and p.has_edge(group.id, "feeds")]
+            feeders += list(PuzzleJsonDb.get_children(target.id))
+            return feeders
+        except Exception:  # noqa: BLE001
+            logger.exception("header links: could not collect feeders of puzzle %s",
+                             getattr(target, "id", "?"))
+            return []
+
+    async def _refresh_minis_header_links(self, hunt, puzzle):
+        """A minimeta is not a target, so solve/unsolve moves its tab to the other
+        spreadsheet under a new page id; its minis' Feeds lines link to it."""
+        if puzzle.is_target or self._gsheet_cog(hunt) is None:
+            return
+        try:
+            minis = list(self.get_minis(puzzle.id))
+        except Exception:  # noqa: BLE001
+            logger.exception("header links: could not list minis of puzzle %s", puzzle.id)
+            return
+        if minis:
+            await self.refresh_header_links(hunt, minis)
+
+    @staticmethod
+    def _reloaded(puzzles) -> list[PuzzleData]:
+        """Fresh copies of `puzzles` (their edges may have changed since load);
+        deleted ones drop out."""
+        fresh = []
+        for p in puzzles:
+            again = PuzzleJsonDb.get_by_attr(id=p.id)
+            if again is not None:
+                fresh.append(again)
+        return fresh
+
+    async def refresh_header_links(self, hunt, puzzles, *, reload=False):
+        """Rewrite the Feeds line on each puzzle's own tab, one write per
+        spreadsheet (live + solved at most). `reload` re-reads the puzzles first,
+        for callers holding copies from before an edge change. Never raises."""
+        try:
+            gsheet_cog = self._gsheet_cog(hunt)
+            if gsheet_cog is None or hunt is None:
+                return
+            if reload:
+                puzzles = self._reloaded(puzzles)
+            tabs = []
+            seen = set()
+            for p in puzzles:
+                if p is None or not p.google_page_id or p.id in seen:
+                    continue
+                seen.add(p.id)
+                tabs.append((puzzle_location(hunt, p),
+                             gsheet_cog._header_shift(p, p.google_page_id),
+                             self._header_links(hunt, p)))
+            if tabs:
+                await gsheet_cog.write_header_links(tabs)
+        except Exception:  # noqa: BLE001
+            logger.exception("refresh_header_links: failed for hunt %s",
+                             getattr(hunt, "id", "?"))
 
     async def link_informs_for_evidence(self, hunt, source_puzzle_id, target_puzzle_id):
         """Auto-add an 'informs' edge from the source puzzle to the group whose target
