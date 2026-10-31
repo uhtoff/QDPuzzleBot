@@ -1442,11 +1442,12 @@ class PuzzleService:
         # solve_time stamp, or the archive below).
         #
         # Order matters because roll-ups link each name to its sheet, and the
-        # archive below moves this puzzle's tab to the solved spreadsheet under a
-        # new id. Its OWN roll-up (the group it is the target of) renders here,
-        # before the move: that table lives on the tab being moved, and the render
-        # path writes to the live spreadsheet. Every OTHER target is deferred until
-        # after the move is committed, so its link to this puzzle follows the tab.
+        # archive below moves a non-target puzzle's tab to the solved spreadsheet
+        # under a new id. Its OWN roll-up (the group it is the target of) renders
+        # here: a target's own tab never moves (move_puzzle_to_solved_sheet skips
+        # is_target) and its table never links to itself, so it keeps its original
+        # pre-move position. Only the metas it feeds (and a mini's parent, below)
+        # need the post-move location, so they are deferred until it is committed.
         failed_group_ids = []
         failed_puzzle_ids = []
         deferred_targets = []

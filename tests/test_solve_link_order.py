@@ -6,8 +6,8 @@ new id in a different spreadsheet and deletes the live one, so a target rendered
 before the move links to a tab that no longer exists.
 
 The exception is the solved puzzle's OWN roll-up (the group whose target it is):
-that table lives on the tab being moved, and the render path writes to the live
-spreadsheet, so it must still render BEFORE the move — exactly as it always has.
+a target's own tab never moves (move_puzzle_to_solved_sheet skips is_target) and
+its table never links to itself, so it keeps its original pre-move position.
 """
 import asyncio
 from types import SimpleNamespace
@@ -119,7 +119,8 @@ def test_a_meta_renders_its_own_table_before_its_tab_moves_and_its_metameta_afte
 
     asyncio.run(svc.solve(None, make_hunt(), meta, "ANSWER"))
 
-    # Own table on the still-live tab (one commit so far); metameta after the move.
+    # Own table keeps its pre-move position (one commit so far; a target's tab
+    # never moves anyway); the metameta, which links to it, after the move.
     assert log == [("target", 5, 1), ("move", 100), ("target", 6, 2)]
     assert own.status == "solved" and own.solve_time is not None
     assert metameta.status == "" and metameta.solve_time is None
