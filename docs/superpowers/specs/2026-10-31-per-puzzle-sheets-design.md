@@ -157,9 +157,11 @@ meta and back out" — user).
 - **Minis link up to their minimeta.** A mini isn't tagged, so "the puzzles it feeds" would
   give it no up-link; the point is getting to the meta quickly, so a mini's header links to
   its parent minimeta too. (My call.)
-- **Where the up-links go in the header** is left to the builder, within the anti-goal:
-  existing header geometry stays as it is, and the links are added, not moved into place
-  over something else. A puzzle that feeds nothing shows no links.
+- **Where the up-links go in the header (user decision, 2026-10-31):** under `Solution:` in
+  row 3 — the little-used progress box shrinks from B3:Q3 to B3:G3, `Feeds:` sits at H3 and
+  the links in I3:Q3 (shifted on target headers as today). This is the one approved
+  exception to "same header geometry" in the anti-goals; existing tabs are re-shaped in place
+  with their progress text kept. A puzzle that feeds nothing shows the label with no links.
 - **Existing tab hunts** get the links as their tabs are next written or reconciled; no
   separate migration of old tabs is needed for this to be safe. (My call.)
 
