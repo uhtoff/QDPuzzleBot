@@ -33,9 +33,12 @@ httplib2 + google-auth-httplib2, pytest.
 
 - **Nothing that works today breaks** (user's one wince). Tab-hunt behaviour is unchanged
   apart from the new links; hunts already running keep working with no manual step.
-- **No header geometry change:** `PUZZLE_TAB_CELLS` / `PUZZLE_TAB_MERGES` / `FROZEN_ROWS`,
-  the Table at row 4 and `_header_shift` stay exactly as they are. New cells go only where
-  nothing is written today.
+- **One header geometry change, user-approved 2026-10-31** ("we barely ever use progress
+  summary, put it under Solution in the third row"): row 3's progress merge shrinks from
+  B3:Q3 to **B3:G3**, a bold label **`Feeds:` at H3** (under `Solution:` at H1) and the links
+  in a new merge **I3:Q3** (under the solution's I1:Q1) — all shifted by `_header_shift` as
+  today. Nothing else moves: `FROZEN_ROWS`, rows 1–2, the Table at row 4, the progress value
+  still written at `puzzle_cell_progress` (B3).
 - **Links are rich text, never formulas:** `userEnteredValue.stringValue` +
   `textFormatRuns[].format.link.uri`, `fields` including `textFormatRuns`. No `=HYPERLINK()`
   for the new links.
@@ -65,6 +68,9 @@ httplib2 + google-auth-httplib2, pytest.
 3. **A pruned/blanked roll-up row** must lose its link, not keep a stale one on an empty cell.
 4. **Promote/demote** (convert a puzzle to/from a meta) wipes header rows 1–3 cols 0..25 and
    re-stamps; the up-link cell must survive by being part of the re-stamp.
+6. **An existing tab with the old B3:Q3 progress merge** (every running hunt): the first
+   header-link write must re-shape row 3 without losing the progress text in B3 or touching
+   anything a solver typed outside the header.
 5. **A target renamed or deleted / converted back to a puzzle:** its feeders' up-links must
    update or disappear.
 
@@ -228,13 +234,23 @@ live tab, which still exists). `unsolve` already restores before refreshing — 
 - `feeds_targets(puzzle)`: for each `gid in puzzle.tags` with `puzzle.has_edge(gid, "feeds")`,
   the group's `target_puzzle_id` puzzle if > 0 and not the puzzle itself; plus, for a mini
   (`parent_puzzle_id`), its parent. Ordered by target name; de-duplicated.
-- The cell: row 0, column `HEADER_LAST_COL + offset` (column R on a feeder/mini, S on a
-  target/minimeta header — `offset` from `_header_shift`), text `"Feeds: " + ", ".join(names)`
-  with one `textFormatRuns` entry per name (`startIndex` at each name, link to
-  `puzzle_location(hunt, target).url`, and a run with no link after each name so commas
-  aren't linked); bold-free; `fields "userEnteredValue,textFormatRuns"`. No targets → the cell
-  is written empty (clears an old line). Placement: **see open question in the hand-off — if the
-  user prefers another spot, only this paragraph changes.**
+- **Layout (new tabs):** in `bot/cogs/sheet_layout.py`, `PUZZLE_TAB_CELLS` gains
+  `{"a1": "H3", "value": "Feeds:", "type": "stringValue", "bold": True}` and
+  `PUZZLE_TAB_MERGES` replaces `(2, 3, 1, 17)` with `(2, 3, 1, 7)` (B3:G3 progress) and
+  `(2, 3, 8, 17)` (I3:Q3 feeds). Generation, promote and demote all build from these, so
+  they get the new row 3 for free (offset applied as today).
+- **The links cell:** row index 2, column index `8 + offset` (I3, or J3 on a shifted header),
+  text `", ".join(names)`, one `textFormatRuns` entry per name starting at that name's index
+  and linking to `puzzle_location(hunt, target).url`, followed by a run with no link so the
+  commas aren't linked; `fields "userEnteredValue,textFormatRuns"`. No targets → the cell is
+  written empty (clears an old line); the `Feeds:` label stays.
+- **Existing tabs (old row 3):** every `write_header_links` batch for a tab also carries, in
+  this order: `unmergeCells` on row 3 cols `1+offset .. 17+offset`; `mergeCells` B3:G3 and
+  I3:Q3 (offset applied); the bold `Feeds:` label at H3; then the links cell. Unmerging keeps
+  the progress text in B3 (Sheets keeps a merge's value in its top-left cell) and the cells
+  being re-merged into I3:Q3 are empty after the unmerge, so nothing is lost. The same
+  requests are harmless on a tab that already has the new row 3, so no "old or new?" check is
+  needed.
 - `refresh_header_links(hunt, puzzles)`: for each puzzle with a page id, compute links and
   write them via `write_header_links`, grouped by spreadsheet (≤2 calls: live + solved).
 - Hook points (call after the existing commit/refresh, best-effort — a failure is logged, never
@@ -249,13 +265,18 @@ live tab, which still exists). `unsolve` already restores before refreshing — 
     promote/demote re-stamp through the same function.
 
 - [ ] **Step 1: failing tests** — `feeds_targets`: feeds vs informs vs none, two metas sorted,
-  self-feed excluded, `target_puzzle_id` 0 skipped, mini → parent. Request shape: column index
-  17 at offset 0 and 18 at offset 1; runs link each name to its URL and not the separator; empty
+  self-feed excluded, `target_puzzle_id` 0 skipped, mini → parent. Layout: a fresh tab's
+  requests merge B3:G3 and I3:Q3 (not B3:Q3) and write `Feeds:` bold at H3, at offset 0 and 1.
+  Existing-tab batch: unmerge row 3 precedes the two merges, which precede the label and links
+  cell. Request shape: links cell at column index 8 at offset 0 and 9 at offset 1; runs link each name to its URL and not the separator; empty
   list writes an empty cell with the same fields mask. Batching: three puzzles, two live and one
   solved → exactly two `batch_update` calls with the right spreadsheet ids. Hooks: untagging a
   feeder rewrites its header with the remaining targets; renaming a target rewrites each
   feeder's header with the new name.
 - [ ] **Steps 2–4:** run (fail), implement, run full suite incl. `test_sheet_call_volume.py`.
+  Header-geometry tests in `tests/test_contribution_table_requests.py` that pin B3:Q3 change
+  to the new merges — reason in the commit: user-approved layout change; every other
+  assertion in those tests stays.
 - [ ] **Step 5: commit** `feat(sheets): puzzle headers link to the puzzles they feed`.
 
 ### Task 8: Existing hunts pick the links up
@@ -278,11 +299,11 @@ organisers to run once.
 
 ## Manual acceptance (after merge + staging push)
 
-1. On a test hunt: a feeder tagged to a meta shows "Feeds: <meta>" right of its header; the
+1. On a test hunt: a new feeder tagged to a meta shows `Feeds:` under `Solution:` with the meta's name in row 3; the
    link opens the meta tab. Tag it to a second meta → both, alphabetical; untag one → one.
 2. The meta's table: each feeder's name links to its tab. Solve a feeder (hunt with a solved
    sheet) → its name now opens the tab on the solved spreadsheet.
 3. Convert the meta back to a puzzle → feeders' "Feeds:" line drops it. Rename a meta →
    feeders show the new name.
 4. A mini shows "Feeds: <minimeta>". Unassigned Feeders names link to their sheets.
-5. On an older hunt, `!reconcile apply` adds the header links.
+5. On an older hunt, `!reconcile apply` re-shapes row 3 (progress text kept) and adds the links.
