@@ -6,7 +6,8 @@ Who may have the team role is decided by the hub role alone, exactly as the
 #lobby Join button decides it (role_panel): an invite is only a way in, and a
 forwarded one gets its holder nothing beyond #lobby. hunt_invites records who was
 DM'd, so nobody is DM'd twice and a mod can see who hasn't arrived. Invite links
-appear only in DMs, never in a channel.
+appear only in DMs, never in a channel. Losing the hub role (and hub admin with
+it) removes someone from the team server; losing only hub admin costs `mod`.
 """
 import asyncio
 import logging
@@ -15,7 +16,8 @@ from dataclasses import dataclass, field
 
 import discord
 
-from bot.core import hunt_archive, role_panel, server_setup
+from bot.core import hunt_archive, role_gate, role_panel, server_setup
+from bot.core.constants import ADMIN_ROLES
 from bot.store import HuntInviteDb, HuntJsonDb
 
 logger = logging.getLogger(__name__)
@@ -266,3 +268,98 @@ async def on_hub_roles_added(bot, member, added_role_ids):
                 await _tell_mods(team_guild, (
                     f":warning: **{member.display_name}** was just given **{team}** on the "
                     f"hub, but I couldn't DM them an invite. Run `!invite_player {member.id}` here."))
+
+
+async def on_hub_roles_removed(bot, member, removed_role_ids):
+    """Someone lost roles on a hub. Whoever is no longer entitled to a live hunt's
+    team server -- neither its hub role nor hub admin -- is removed from it (or,
+    if they never arrived, their unused invite is deleted), and their invite rows
+    are forgotten so being given the hub role again DMs a fresh invite. Whoever
+    lost hub admin but keeps the hub role loses only `mod`. Mods are told."""
+    if member.bot:
+        return
+    hub = member.guild
+    held = {r.id for r in member.roles}
+    lost_admin = bool(set(removed_role_ids) & role_gate.tier_role_ids(hub, ADMIN_ROLES))
+    is_admin = role_gate.member_holds_tier(held, hub, ADMIN_ROLES)
+    for hunt, guild_snowflake in HuntJsonDb.live_team_hunts():
+        roster = hub.get_role(hunt.roster_role_id)
+        if roster is None:
+            continue                                   # another hub's hunt
+        if hunt.roster_role_id not in removed_role_ids and not lost_admin:
+            continue
+        team_guild = bot.get_guild(guild_snowflake)
+        if team_guild is None:
+            continue
+        if roster.id in held or is_admin:
+            if lost_admin and not is_admin:
+                await _drop_mod(team_guild, member, roster, hunt)
+            continue
+        await _remove_from_team(team_guild, member, roster, hunt)
+
+
+async def _drop_mod(team_guild, member, roster, hunt):
+    on_team = team_guild.get_member(member.id)
+    if on_team is None:
+        return
+    held = {r.id for r in on_team.roles}
+    mods = [r for r in role_panel.admin_roles(team_guild) if r.id in held]
+    if not mods:
+        return
+    try:
+        await on_team.remove_roles(*mods, reason=f"no longer a hub admin: {hunt.name}")
+    except discord.HTTPException as exc:
+        await _tell_mods(team_guild, (
+            f":warning: **{member.display_name}** is no longer a hub admin, but I couldn't "
+            f"take {", ".join(f"**{r.name}**" for r in mods)} off them: {exc.text or exc}."))
+        return
+    await _tell_mods(team_guild, (
+        f":information_source: **{member.display_name}** is no longer a hub admin, so I've "
+        f"taken {", ".join(f"**{r.name}**" for r in mods)} off them. They're still on **{roster.name}**."))
+
+
+async def _remove_from_team(team_guild, member, roster, hunt):
+    HuntInviteDb.forget(hunt.id, member.id)
+    on_team = team_guild.get_member(member.id)
+    if on_team is None:
+        await _revoke_pending(team_guild, hunt, member)
+        return
+    reason = f"lost {roster.name} on the hub: {hunt.name}"
+    if team_guild.owner_id == member.id:
+        held = {r.id for r in on_team.roles}
+        roles = [r for r in [team_guild.get_role(hunt.role_id)] + role_panel.admin_roles(team_guild)
+                 if r is not None and r.id in held]
+        try:
+            if roles:
+                await on_team.remove_roles(*roles, reason=reason)
+        except discord.HTTPException:
+            logger.exception("could not strip roles from owner %s on guild %s",
+                             member.id, team_guild.id)
+        await _tell_mods(team_guild, (
+            f":warning: **{member.display_name}** lost **{roster.name}** on the hub, but owns "
+            f"this server, so I can't remove them. I've taken their roles; transfer "
+            f"ownership if they shouldn't be here."))
+        return
+    try:
+        await on_team.kick(reason=reason)
+    except discord.HTTPException as exc:
+        await _tell_mods(team_guild, (
+            f":warning: **{member.display_name}** lost **{roster.name}** on the hub, but I "
+            f"couldn't remove them from this server: {exc.text or exc}. Remove them by hand."))
+        return
+    await _tell_mods(team_guild, (
+        f":door: Removed **{member.display_name}** from this server: they lost "
+        f"**{roster.name}** on the hub. Giving them the role again sends a fresh invite."))
+
+
+async def _revoke_pending(team_guild, hunt, member):
+    """Delete any unused invite *member* was DM'd, so it can't still let them in."""
+    codes = set(HuntInviteDb.pending_codes(hunt.id, member.id))
+    if not codes:
+        return
+    try:
+        for invite in await team_guild.invites():
+            if invite.code in codes:
+                await invite.delete(reason=f"{member.display_name} left the team: {hunt.name}")
+    except discord.HTTPException:
+        logger.exception("could not revoke invites for %s on guild %s", member.id, team_guild.id)

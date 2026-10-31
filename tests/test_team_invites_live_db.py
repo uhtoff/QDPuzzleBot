@@ -60,3 +60,35 @@ def test_invite_storage_against_the_real_schema():
             if hunt_id is not None:
                 _exec("DELETE FROM hunts WHERE id = %s", (hunt_id,))     # cascades hunt_invites
         _exec("DELETE FROM guilds WHERE id = %s", (guild_row,))
+
+
+def test_leaving_storage_against_the_real_schema():
+    """What the hub-role-lost path reads and clears: every live team hunt (sent or
+    not), one person's unused invite codes, and forgetting them for one hunt."""
+    guild_row = _exec("INSERT INTO guilds (guild_id, guild_name) VALUES (%s, %s)",
+                      (GUILD_SNOWFLAKE, "slice-4 leaving test"))
+    live = archived = hub_hunt = None
+    try:
+        live = _exec("INSERT INTO hunts (name, guild_id, roster_role_id, archived) "
+                     "VALUES (%s, %s, %s, 0)", ("s4 live", guild_row, ROSTER))
+        archived = _exec("INSERT INTO hunts (name, guild_id, roster_role_id, archived) "
+                         "VALUES (%s, %s, %s, 1)", ("s4 archived", guild_row, ROSTER))
+        hub_hunt = _exec("INSERT INTO hunts (name, guild_id, archived) VALUES (%s, %s, 0)",
+                         ("s4 hub-hosted", guild_row))
+
+        got = [(h.id, s) for h, s in HuntJsonDb.live_team_hunts() if s == GUILD_SNOWFLAKE]
+        assert got == [(live, GUILD_SNOWFLAKE)]          # not archived, not hub-hosted
+
+        HuntInviteDb.record(live, 111, "used")
+        HuntInviteDb.mark_joined(live, 111)
+        HuntInviteDb.record(live, 111, "spare")
+        HuntInviteDb.record(live, 222, "other")
+        assert HuntInviteDb.pending_codes(live, 111) == ["spare"]
+
+        HuntInviteDb.forget(live, 111)
+        assert HuntInviteDb.invited_user_ids(live) == {222}
+    finally:
+        for hunt_id in (live, archived, hub_hunt):
+            if hunt_id is not None:
+                _exec("DELETE FROM hunts WHERE id = %s", (hunt_id,))
+        _exec("DELETE FROM guilds WHERE id = %s", (guild_row,))

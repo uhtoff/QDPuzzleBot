@@ -315,6 +315,18 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         )
         return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
 
+    def live_team_hunts(self):
+        """[(hunt, team guild snowflake)] for every live hunt with a hub roster role,
+        invites sent or not: the hunts someone losing a hub role may have to leave."""
+        rows = self._fetch_all(
+            "SELECT hunts.*, guilds.guild_id AS guild_snowflake FROM `hunts` "
+            "JOIN `guilds` ON hunts.guild_id = guilds.id "
+            "WHERE hunts.archived = 0 "
+            "AND hunts.roster_role_id IS NOT NULL AND hunts.roster_role_id <> 0 "
+            "ORDER BY hunts.id ASC",
+        )
+        return [(HuntData.import_dict(r), int(r["guild_snowflake"])) for r in rows]
+
     def mark_invites_sent(self, hunt_id):
         """Stamp hunts.invites_sent_time with now (UTC) unless already set: the first
         completed !send_invites wins. Its own UPDATE -- HuntData has no such field,
@@ -345,6 +357,21 @@ class MySQLHuntInviteDb(_MySQLBaseDb):
         rows = self._fetch_all(
             "SELECT DISTINCT user_id FROM `hunt_invites` WHERE hunt_id = %s", (hunt_id,))
         return {int(r["user_id"]) for r in rows}
+
+    def pending_codes(self, hunt_id, user_id):
+        """Codes of *user_id*'s invites for *hunt_id* that nobody has arrived on."""
+        rows = self._fetch_all(
+            "SELECT code FROM `hunt_invites` WHERE hunt_id = %s AND user_id = %s "
+            "AND joined_at IS NULL ORDER BY id ASC",
+            (hunt_id, user_id),
+        )
+        return [r["code"] for r in rows]
+
+    def forget(self, hunt_id, user_id):
+        """Drop *user_id*'s invite rows for *hunt_id*, so being given the hub role
+        again DMs them a fresh invite like anyone else."""
+        self._exec("DELETE FROM `hunt_invites` WHERE hunt_id = %s AND user_id = %s",
+                   (hunt_id, user_id))
 
     def mark_joined(self, hunt_id, user_id):
         """Note that *user_id* arrived on *hunt_id*'s team server (a no-op for

@@ -111,6 +111,8 @@ command fills in the rest:
 - **The spec's `!invite <user>` is `!invite_player <user>`,** because `!invite` already shows the bot's own link. If the player's DMs are closed, it DMs the link to the invoker to pass on.
 - **Failed DMs** delete the invite and record nothing. A failed late-joiner DM is reported by name, never by link, in the team server's `#bot-commands`.
 
+*Changed 2026-10-31 (user decision, after the slice 4 manual test):* **losing the hub role removes the player from the team server.** `team_invites.on_hub_roles_removed` (from the `on_member_update` listener) kicks whoever is no longer entitled to a live hunt's team server — neither its hub role nor hub admin — deletes their unused invite if they never arrived, and forgets their `hunt_invites` rows so being given the role again DMs a fresh invite. Losing hub admin while keeping the hub role costs only `mod`. The server owner can't be kicked, so loses their roles instead. Every outcome is posted in `#bot-commands`. Chosen over leaving them in `#lobby` without roles.
+
 Private by construction: a `max_uses=1` invite per player, delivered by DM. No link
 exists in any channel. The bot can DM them because it shares the permanent hub with them.
 

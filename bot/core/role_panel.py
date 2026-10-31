@@ -32,7 +32,7 @@ def find_roster_role(bot, roster_role_id):
     return None
 
 
-def _admin_roles(guild):
+def admin_roles(guild):
     """This server's Admin-tier roles, as Role objects (on a team server, `mod`)."""
     roles = (guild.get_role(i) for i in role_gate.tier_role_ids(guild, ADMIN_ROLES))
     return [r for r in roles if r is not None]
@@ -78,7 +78,7 @@ async def join(bot, guild, member, hunt_id):
         return (f"Join is for **{roster.name}** on **{hub.name}** — ask an organiser "
                 "there to give you that role.")
 
-    wanted = [team_role] + (_admin_roles(guild) if is_hub_admin else [])
+    wanted = [team_role] + (admin_roles(guild) if is_hub_admin else [])
     held = {r.id for r in member.roles}
     to_add = [r for r in wanted if r.id not in held]
     if not to_add:
@@ -97,7 +97,7 @@ async def leave(guild, member, hunt_id):
     if hunt is None:
         return "This button isn't for a hunt on this server."
     held = {r.id for r in member.roles}
-    candidates = [guild.get_role(hunt.role_id)] + _admin_roles(guild)
+    candidates = [guild.get_role(hunt.role_id)] + admin_roles(guild)
     to_remove = [r for r in candidates if r is not None and r.id in held]
     if not to_remove:
         return "You don't have this hunt's role, so there's nothing to leave."

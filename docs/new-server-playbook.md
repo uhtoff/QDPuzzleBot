@@ -198,6 +198,13 @@ Anyone who arrives holding the hub role gets the team role automatically, howeve
 in. Someone who arrives without it lands in `#lobby` with nothing, and someone already on the
 server who is later given the hub role clicks **Join** to get the team role. **Leave** removes the team role and `mod`;
 someone given `mod` by hand who isn't a hub admin can't get it back through Join.
+
+**Moving someone off a team:** take the team's role off them on the hub. The bot removes
+them from that team server (or deletes their invite if they never arrived) and says so in
+`#bot-commands`; give the role back and they get a fresh invite. A hub admin is not removed
+this way, and someone who stops being a hub admin loses `mod` but keeps their team. The
+server owner can't be removed, so they only lose their roles: transfer ownership first if
+they're leaving.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
