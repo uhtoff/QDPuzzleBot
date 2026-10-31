@@ -1439,30 +1439,28 @@ class PuzzleService:
         # Failure isolation: attempt every meta this puzzle feeds, badge any that
         # fail, and keep going (one stale sheet must not skip the others, the group
         # solve_time stamp, or the archive below).
+        #
+        # Order matters because roll-ups link each name to its sheet, and the
+        # archive below moves this puzzle's tab to the solved spreadsheet under a
+        # new id. Its OWN roll-up (the group it is the target of) renders here,
+        # before the move: that table lives on the tab being moved, and the render
+        # path writes to the live spreadsheet. Every OTHER target is deferred until
+        # after the move is committed, so its link to this puzzle follows the tab.
         failed_group_ids = []
         failed_puzzle_ids = []
+        deferred_targets = []
         for tag in puzzle.tags:
             target_group = TagGroupJsonDb.get_by_attr(id=tag)
+            if not (target_group and target_group.target_puzzle_id == puzzle.id):
+                deferred_targets.append((tag, target_group))
+                continue
             try:
                 await self.refresh_target(hunt, target_group)
             except Exception:
                 failed_group_ids.append(tag)
-            if target_group and target_group.target_puzzle_id == puzzle.id:
-                target_group.solve_time = datetime.datetime.now(tz=pytz.UTC)
-                target_group.status = "solved"   # M6: a group is solved when its meta is
-                TagGroupJsonDb.commit(target_group)
-
-        # M8: a solved mini rolls up onto its parent minimeta's own sheet (puzzle-keyed).
-        # Best-effort: the badge records staleness; a failure here must not block archive
-        # or fail the solve (minis don't gate the round-meta SheetRefreshError toast).
-        if puzzle.parent_puzzle_id is not None:
-            parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
-            if parent is not None:
-                try:
-                    await self.refresh_minimeta(hunt, parent)
-                except Exception:
-                    logger.exception("solve: minimeta rollup refresh failed for parent %s",
-                                     puzzle.parent_puzzle_id)
+            target_group.solve_time = datetime.datetime.now(tz=pytz.UTC)
+            target_group.status = "solved"   # M6: a group is solved when its meta is
+            TagGroupJsonDb.commit(target_group)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -1480,6 +1478,28 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+
+        # The metas this puzzle feeds, now that its tab's post-move location is
+        # committed (a failed move leaves the live tab in place, still linkable).
+        for tag, target_group in deferred_targets:
+            try:
+                await self.refresh_target(hunt, target_group)
+            except Exception:
+                failed_group_ids.append(tag)
+
+        # M8: a solved mini rolls up onto its parent minimeta's own sheet (puzzle-keyed),
+        # after the move for the same link reason.
+        # Best-effort: the badge records staleness; a failure here must not block
+        # or fail the solve (minis don't gate the round-meta SheetRefreshError toast).
+        if puzzle.parent_puzzle_id is not None:
+            parent = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+            if parent is not None:
+                try:
+                    await self.refresh_minimeta(hunt, parent)
+                except Exception:
+                    logger.exception("solve: minimeta rollup refresh failed for parent %s",
+                                     puzzle.parent_puzzle_id)
+
         # Update forum post tags (solved status changed).
         await self._update_forum_tags(guild, hunt, puzzle)
 
