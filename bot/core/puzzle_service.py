@@ -689,6 +689,17 @@ class PuzzleService:
                            getattr(tag_group, "group_code", None) or str(tag_group.id),
                            f"category {tag_group.category_id} missing")
 
+        if apply:
+            # After the tabs are healed: re-render the roll-ups (as !rebuild does;
+            # this can re-format an imported meta's tab), then stamp the Feeds
+            # line last so neither a recreated tab nor a re-format loses it.
+            # Hunts started before the links existed pick them up here.
+            metas = [r for r in rounds if r.target_puzzle_id]
+            for group_id in await self.refresh_targets(hunt, metas):
+                report.add_failure(f"roll-up (group {group_id})",
+                                   RuntimeError("roll-up refresh failed"))
+            await self.refresh_header_links(hunt, puzzles)
+
         self._collect_orphan_channels(
             guild, hunt, puzzles, report, hunt_category_ids)
         await self._collect_orphan_tabs(hunt, puzzles, report)

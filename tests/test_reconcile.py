@@ -717,3 +717,64 @@ def test_orphan_scan_spares_the_hunt_general_channel():
             guild, _hunt(id=1, category_id=900, channel_id=777), apply=False))
     assert (777, "hunt-general") not in report.orphan_channels
     assert (222, "stray") in report.orphan_channels
+
+
+# --------------------------------------------------------------------------
+# Existing hunts pick up sheet links on `reconcile apply`
+# --------------------------------------------------------------------------
+
+def _run_reconcile_with_links(apply, *, fail_groups=()):
+    """Run reconcile over two puzzles (one meta group among two groups) and
+    return (report, call order, refresh_header_links mock, refresh_targets mock)."""
+    svc = _service()
+    p1 = _puzzle(name="A", id=1, google_page_id="11")
+    p2 = _puzzle(name="B", id=2, google_page_id="22")
+    meta = SimpleNamespace(id=10, category_id=None, target_puzzle_id=2)
+    plain = SimpleNamespace(id=11, category_id=None, target_puzzle_id=None)
+    order = []
+
+    async def tabs(*a, **k):
+        order.append("tabs")
+        return []
+
+    async def targets(hunt, groups):
+        order.append("targets")
+        return list(fail_groups)
+
+    async def links(hunt, puzzles, **k):
+        order.append("links")
+
+    targets_m = AsyncMock(side_effect=targets)
+    links_m = AsyncMock(side_effect=links)
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p1, p2]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[meta, plain]), \
+         patch.object(svc, "_fetch_present_tab_ids", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_reconcile_tabs", side_effect=tabs), \
+         patch.object(svc, "refresh_targets", new=targets_m), \
+         patch.object(svc, "refresh_header_links", new=links_m):
+        report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=apply))
+    return report, order, links_m, targets_m, (p1, p2), meta
+
+
+def test_reconcile_apply_stamps_header_links_for_every_puzzle_after_healing():
+    _r, order, links_m, targets_m, puzzles, meta = _run_reconcile_with_links(True)
+    links_m.assert_awaited_once()
+    assert list(links_m.await_args.args[1]) == list(puzzles)
+    # Only the meta group is re-rendered, and links go last so a re-format
+    # or recreated tab cannot lose them.
+    assert list(targets_m.await_args.args[1]) == [meta]
+    assert order == ["tabs", "tabs", "targets", "links"]
+
+
+def test_reconcile_report_only_writes_no_links_or_rollups():
+    _r, order, links_m, targets_m, *_ = _run_reconcile_with_links(False)
+    links_m.assert_not_awaited()
+    targets_m.assert_not_awaited()
+    assert order == ["tabs", "tabs"]
+
+
+def test_reconcile_apply_reports_a_failed_rollup_but_still_stamps_links():
+    report, _o, links_m, *_ = _run_reconcile_with_links(True, fail_groups=[10])
+    assert any("10" in t for t, _ in report.failures)
+    links_m.assert_awaited_once()

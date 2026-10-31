@@ -425,6 +425,10 @@ The full [command reference](commands.md) lists every command; highlights:
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in
   the category into the group; `!rebuild` regenerates meta roll-up sheets;
   `!reconcile apply` heals any drift between Discord, Sheets and the database.
+- **Links between sheets:** under **Solution** in each puzzle's sheet header, a
+  **Feeds:** line links to the metas that puzzle feeds. Puzzle names in meta tables and
+  on Unassigned Feeders link to each puzzle's own sheet. On a hunt started before this
+  update, run `!reconcile apply` once to add them.
 - **After the hunt:** `!archive_hunt` condenses every channel into threads under one
   channel, deletes the categories, and marks the hunt archived (sheets are kept). For a
   hunt played on its own team server, `!archive_hunt_to_hub <hub server id>` does the same
