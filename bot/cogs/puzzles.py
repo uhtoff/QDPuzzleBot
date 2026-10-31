@@ -3379,7 +3379,7 @@ class Puzzles(commands.Cog):
         embed.add_field(name="Hunt URL", value=puzzle_data.url or "?")
         hunt = self.get_hunt(ctx)
         assert hunt is not None  # puzzle channels always resolve their hunt
-        spreadsheet_url = urls.spreadsheet_url(hunt.google_sheet_id, puzzle_data.google_page_id) if hunt.google_sheet_id else "?"
+        spreadsheet_url = puzzle_location(hunt, puzzle_data).url or "?"
         embed.add_field(name="Google Drive", value=spreadsheet_url)
         embed.add_field(name="Status", value=format_status(puzzle_data.status) or "?")
         embed.add_field(name="Type", value=puzzle_data.puzzle_type or "?")

@@ -37,6 +37,7 @@ from bot.core.discord_channels import (
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
+from bot.core.sheet_location import puzzle_location
 from bot.core.target_glyph import marked_name
 from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 from bot.core.target_extract import select_extract_puzzles
@@ -2685,7 +2686,7 @@ class PuzzleService:
         # Best-effort welcome message in the new thread: name the parent minimeta and
         # link to the mini's Google sheet tab. A Discord hiccup must not fail the create.
         try:
-            sheet_url = urls.spreadsheet_url(hunt.google_sheet_id, mini.google_page_id)
+            sheet_url = puzzle_location(hunt, mini).url or "?"
             await thread.send(
                 f"This thread is for mini puzzle **{mini.name}** from mini meta "
                 f"**{minimeta.name}**.\n{sheet_url}"
