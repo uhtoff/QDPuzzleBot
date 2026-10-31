@@ -999,11 +999,13 @@ class PuzzleService:
         return failed
 
     @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["puzzle"].hunt_id))
-    async def tag_with_edge(self, puzzle, group, edge):
+    async def tag_with_edge(self, puzzle, group, edge, *, refresh_headers=True):
         """Upsert an edge for (puzzle, group) in the DB, then keep in-memory
         ``puzzle.tags`` + ``puzzle.tag_edges`` in sync.
 
-        Mirrors add_to_meta's path but with typed edges.
+        Mirrors add_to_meta's path but with typed edges. ``refresh_headers=False``
+        skips the Feeds-line write, for a caller looping over many puzzles that
+        writes them all once afterwards (refresh_header_links).
         """
         fed_before = self._feeds_target_ids(puzzle)
         PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, group.id, edge)
@@ -1028,7 +1030,8 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
-        await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
+        if refresh_headers:
+            await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
         if failed:
             raise SheetRefreshError(failed_group_ids=failed)
 
@@ -1044,21 +1047,37 @@ class PuzzleService:
             PuzzleJsonDb.delete_tag_edge(puzzle.id, group.id, edge)
             puzzle.remove_edge(group.id, edge)
 
-    async def tag_edge_only(self, puzzle, group, edge, guild=None):
+    async def tag_edge_only(self, puzzle, group, edge, guild=None, *, refresh_headers=True):
         """Tag *puzzle* into *group* with *edge*, removing any other edges
         of the **same type** (other groups carrying *edge* are swept).
 
         If ``edge == "feeds"`` and guild is provided, also move the channel
         to the group's category.  Delegates the actual tagging to
-        :meth:`tag_with_edge`.
+        :meth:`tag_with_edge`. The sweep and the tag write the Feeds line once
+        between them, at the end; ``refresh_headers=False`` skips even that (see
+        tag_with_edge).
         """
+        fed_before = self._feeds_target_ids(puzzle)
+        try:
+            await self._tag_edge_only(puzzle, group, edge, guild)
+        finally:
+            if refresh_headers:
+                try:
+                    hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                except Exception:  # noqa: BLE001 -- must not mask the tag's own error
+                    logger.exception("tag_edge_only: no hunt for header refresh")
+                else:
+                    await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
+
+    async def _tag_edge_only(self, puzzle, group, edge, guild):
         # Sweep other groups that carry the same edge type
         other_groups = [] 
         for gid in list(puzzle.tags):
             if gid != group.id and edge in puzzle.edges_for(gid):
                 other_group = TagGroupJsonDb.get_by_attr(id=gid)
                 if other_group is not None:
-                    await self.untag_from(puzzle, other_group, edge=edge)
+                    await self.untag_from(puzzle, other_group, edge=edge,
+                                          refresh_headers=False)
                     other_groups.append(other_group)
 
         # Move channel for feeds edges (backward compat with move_to_meta). Routed
@@ -1072,15 +1091,15 @@ class PuzzleService:
                     guild, group, TagGroupCategoryDb, channel, puzzle.solved,
                 )
 
-        await self.tag_with_edge(puzzle, group, edge)
+        await self.tag_with_edge(puzzle, group, edge, refresh_headers=False)
 
     @pushes_board(hunt=lambda a: HuntJsonDb.get_by_attr(id=a["puzzle"].hunt_id))
-    async def untag_from(self, puzzle, group, edge=None):
+    async def untag_from(self, puzzle, group, edge=None, *, refresh_headers=True):
         """Remove *puzzle* from *group*, optionally guarded by edge type.
 
         When *edge* is provided and the membership edge doesn't match, this is
         a no-op.  Mirrors remove_from_meta's guard against removing the last
-        tag of a metapuzzle.
+        tag of a metapuzzle. ``refresh_headers=False``: see tag_with_edge.
         """
         if edge is not None and not puzzle.has_edge(group.id, edge):
             return
@@ -1100,7 +1119,8 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
         failed = await self.refresh_targets(hunt, [group])
-        await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
+        if refresh_headers:
+            await self._refresh_header_if_fed_changed(hunt, puzzle, fed_before)
         if failed:
             raise SheetRefreshError(failed_group_ids=failed)
 
@@ -2807,8 +2827,11 @@ class PuzzleService:
             logger.exception("create_mini: minimeta rollup refresh failed for %s", minimeta.id)
         # The first mini's render promotes the minimeta's tab, re-stamping its
         # header and so clearing its own Feeds line; write it back.
+        # Reloaded: the copy in hand predates the mini, so its is_minimeta (a
+        # load-time flag) is False and its header shift would be 0, not the 1 the
+        # promote just laid out.
         if gsheet_cog is not None and len(self.get_minis(minimeta.id)) == 1:
-            await self.refresh_header_links(hunt, [minimeta])
+            await self.refresh_header_links(hunt, [minimeta], reload=True)
         return mini
 
     @pushes_board()

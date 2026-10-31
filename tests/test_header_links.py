@@ -283,13 +283,22 @@ def _service_with_cog():
     gsheet = MagicMock()
     gsheet.write_header_links = AsyncMock()
     gsheet.update_puzzle = AsyncMock()
-    gsheet._header_shift = lambda puzzle, page_id: 0
+    # The real shift rule (target / minimeta own tab -> 1), not a stub, so a
+    # write at the wrong offset shows up.
+    gsheet._header_shift = GoogleSheets.__new__(GoogleSheets)._header_shift
     bot = MagicMock()
     bot.get_cog.return_value = gsheet
     svc = PuzzleService(bot)
     svc.refresh_target = AsyncMock()
     svc.refresh_targets = AsyncMock(return_value=[])
     return svc, gsheet
+
+
+def _offsets(gsheet):
+    """{page_id: offset} from every write_header_links call."""
+    return {loc.page_id: offset
+            for c in gsheet.write_header_links.await_args_list
+            for loc, offset, _links in c.args[0]}
 
 
 def _written(gsheet):
@@ -442,6 +451,12 @@ async def test_first_mini_rewrites_the_minimetas_feeds_line(mini_count, rewritte
     parent = make_puzzle(id=40, name="Mini Meta", puzzle_type="Minimeta")
     parent.google_page_id = 400
     parent.add_edge(1, "feeds")
+    # The copy in hand was loaded before its first mini, so is_minimeta (a
+    # load-time flag) is False; a fresh DB read hydrates it True.
+    hydrated = make_puzzle(id=40, name="Mini Meta", puzzle_type="Minimeta")
+    hydrated.google_page_id = 400
+    hydrated.add_edge(1, "feeds")
+    hydrated.is_minimeta = True
     svc, gsheet = _service_with_cog()
     gsheet.create_puzzle_spreadsheet = AsyncMock()
     gsheet.compute_insert_index = AsyncMock(return_value=0)
@@ -452,11 +467,14 @@ async def test_first_mini_rewrites_the_minimetas_feeds_line(mini_count, rewritte
     guild.get_channel.return_value = channel
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mtdb:
-        _wire(mpdb, mtdb, {21: meta, 40: parent}, {1: make_round(id=1, target_puzzle_id=21)})
+        _wire(mpdb, mtdb, {21: meta, 40: hydrated}, {1: make_round(id=1, target_puzzle_id=21)})
         mpdb.get_children.side_effect = lambda pid: [MagicMock()] * mini_count
         await svc.create_mini(guild, hunt, parent, "Mini 1")
     expected = {400: [Link("Round Meta", _url("SHEET1", 501))]} if rewritten else {}
     assert _written(gsheet) == expected
+    if rewritten:
+        # The render just promoted the tab to the shifted (offset 1) header.
+        assert _offsets(gsheet) == {400: 1}
 
 
 def _feeder_world():
@@ -606,3 +624,75 @@ async def test_a_minimetas_move_rewrites_its_minis_links_to_the_new_tab(action):
             await svc.unsolve(None, hunt, minimeta)
             expected = _url("SHEET1", 888)
     assert _written(gsheet) == {410: [Link("Mini Meta", expected)]}
+
+
+def _meta_feeding_metameta():
+    """Meta 21 (own tab 600, a target -> header offset 1) and metameta 30 whose
+    group 3 it can feed; also a second metameta 31 (group 4) it already feeds."""
+    meta = make_puzzle(id=21, name="Round Meta", is_target=True)
+    meta.google_page_id = 600
+    mm = make_puzzle(id=30, name="Big Meta", is_target=True)
+    mm.google_page_id = 300
+    mm2 = make_puzzle(id=31, name="Other Meta", is_target=True)
+    mm2.google_page_id = 310
+    groups = {2: make_round(id=2, target_puzzle_id=21),   # the meta's own group
+              3: make_round(id=3, target_puzzle_id=30), 4: make_round(id=4, target_puzzle_id=31)}
+    meta.add_edge(2, "target")
+    return meta, {21: meta, 30: mm, 31: mm2}, groups
+
+
+@pytest.mark.asyncio
+async def test_a_single_tag_writes_once_at_the_targets_shifted_offset():
+    hunt = make_hunt()
+    meta, puzzles, groups = _meta_feeding_metameta()
+    svc, gsheet = _service_with_cog()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mtdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+        _wire(mpdb, mtdb, puzzles, groups)
+        mhdb.get_by_attr.return_value = hunt
+        await svc.tag_with_edge(meta, groups[3], "feeds")
+    gsheet.write_header_links.assert_awaited_once()
+    assert _written(gsheet) == {600: [Link("Big Meta", _url("SHEET1", 300))]}
+    assert _offsets(gsheet) == {600: 1}
+
+
+@pytest.mark.asyncio
+async def test_tag_edge_only_sweep_and_tag_write_once_between_them():
+    hunt = make_hunt()
+    meta, puzzles, groups = _meta_feeding_metameta()
+    meta.add_edge(4, "feeds")   # swept off group 4, then tagged into group 3
+    svc, gsheet = _service_with_cog()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mtdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+        _wire(mpdb, mtdb, puzzles, groups)
+        mhdb.get_by_attr.return_value = hunt
+        await svc.tag_edge_only(meta, groups[3], "feeds")
+    gsheet.write_header_links.assert_awaited_once()
+    assert _written(gsheet) == {600: [Link("Big Meta", _url("SHEET1", 300))]}
+
+
+@pytest.mark.asyncio
+async def test_refresh_headers_false_skips_the_write():
+    hunt = make_hunt()
+    meta, puzzles, groups = _meta_feeding_metameta()
+    meta.add_edge(4, "feeds")
+    svc, gsheet = _service_with_cog()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as mtdb, \
+         patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
+        _wire(mpdb, mtdb, puzzles, groups)
+        mhdb.get_by_attr.return_value = hunt
+        await svc.tag_edge_only(meta, groups[3], "feeds", refresh_headers=False)
+        await svc.tag_with_edge(meta, groups[4], "feeds", refresh_headers=False)
+        await svc.untag_from(meta, groups[4], refresh_headers=False)
+    gsheet.write_header_links.assert_not_awaited()
+
+
+def test_a_nameless_link_is_skipped_not_raised():
+    cog = _cog()
+    req = cog.header_links_request(900, 0, [Link(None, "U0"), Link("Beta", "U2")])  # type: ignore[arg-type]
+    _, cell, _ = _links_cell(req)
+    assert cell["userEnteredValue"] == {"stringValue": "Beta"}
+    assert cell["textFormatRuns"] == [{"startIndex": 0, "format": {"link": {"uri": "U2"}}}]

@@ -1199,7 +1199,8 @@ async def retag_puzzle(puzzle_id):
                 for gid in list(puzzle.tags):
                     g = TagGroupJsonDb.get_by_attr(id=gid)
                     if g is not None:
-                        await cog.service.untag_from(puzzle, g)
+                        # The Feeds line is written once, after the loop.
+                        await cog.service.untag_from(puzzle, g, refresh_headers=False)
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
         except SheetRefreshError as exc:
@@ -1213,9 +1214,12 @@ async def retag_puzzle(puzzle_id):
             # masked as success.
             logger.exception("retag: sheet refresh failed for puzzle %s", puzzle.id)
             warning = "A sheet refresh failed; the change is saved. Use Rebuild to retry."
+        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+        if mode == "clear":
+            # Every untag above skipped its own write; one now (never raises).
+            await cog.service.refresh_header_links(hunt_obj, [puzzle], reload=True)
         await _audit("retag", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"], detail=group_code)
         # Best-effort: keep the Unassigned Puzzles tab in sync.
-        hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
         if hunt_obj is not None:
             asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
         resp: dict[str, Any] = {"ok": True}

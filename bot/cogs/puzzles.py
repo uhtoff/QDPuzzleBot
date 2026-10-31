@@ -1956,6 +1956,7 @@ class Puzzles(commands.Cog):
 
         updated = 0
         errors = []
+        touched = []
         # ONE sorted acquisition (H5) over every puzzle this writes — the puzzles
         # being tagged in, plus the target this used to hold via with_puzzle_mutex.
         # Without the members' own locks, a command already in flight on one of
@@ -1978,12 +1979,19 @@ class Puzzles(commands.Cog):
                 if puz is None:
                     continue
                 try:
-                    await self.service.tag_edge_only(puz, target_group, default_edge, guild=None)
+                    # Feeds lines are written once for the whole sync, below,
+                    # not once per puzzle.
+                    await self.service.tag_edge_only(puz, target_group, default_edge,
+                                                     guild=None, refresh_headers=False)
                     updated += 1
                 except Exception as exc:
                     errors.append((puz.name, str(exc)))
+                touched.append(puz)
 
         hunt = self.get_hunt(ctx)
+        if touched:
+            # One write per spreadsheet; never raises.
+            await self.service.refresh_header_links(hunt, touched, reload=True)
         if hunt is not None:
             asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 

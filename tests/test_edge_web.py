@@ -301,6 +301,22 @@ async def test_retag_remove_single_edge(web):
     assert kwargs.get("edge") == "informs"
 
 
+@pytest.mark.asyncio
+async def test_retag_clear_writes_the_feeds_line_once_not_per_group(web):
+    """Header writes are capped: clearing a puzzle from two groups skips each
+    untag's own Feeds-line write and makes one refresh afterwards."""
+    feeder = make_puzzle(id=5, channel_id=222, tags=[7, 8])
+    web.PuzzleJsonDb.get_by_attr.return_value = feeder
+    web.svc.refresh_header_links = AsyncMock()
+    resp = await web.client.post("/api/puzzles/5/meta", json={"mode": "clear"})
+    assert resp.status_code == 200
+    assert web.svc.untag_from.await_count == 2
+    assert all(c.kwargs.get("refresh_headers") is False
+               for c in web.svc.untag_from.await_args_list)
+    web.svc.refresh_header_links.assert_awaited_once()
+    assert web.svc.refresh_header_links.await_args.args[1] == [feeder]
+
+
 # ---------------------------------------------------------------------------
 # Convert endpoints — new routes + summary field
 # ---------------------------------------------------------------------------

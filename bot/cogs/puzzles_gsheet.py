@@ -1465,6 +1465,9 @@ class GoogleSheets(commands.Cog):
         from bot.cogs import sheet_layout
         row = self.get_row(sheet_layout.FEEDS_LINKS_A1)
         col = self.get_column(sheet_layout.FEEDS_LINKS_A1) + offset
+        # A nameless link can't be shown, and this rides inside tab generation /
+        # promote / demote, where a TypeError would fail the user's action.
+        links = [lk for lk in links if lk.text]
         cell: dict[str, Any] = {}
         if links:
             runs = []

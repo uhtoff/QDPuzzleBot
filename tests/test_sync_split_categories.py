@@ -28,6 +28,7 @@ def _make_sync_ctx(primary_category, extra_categories=()):
     cog.get_hunt = lambda ctx: None
     cog.service.tag_edge_only = AsyncMock()
     cog.service.refresh_unassigned_safe = AsyncMock()
+    cog.service.refresh_header_links = AsyncMock()
 
     ctx = make_ctx()
     ctx.channel.category = primary_category
@@ -55,7 +56,8 @@ class TestSyncSplitCategories:
 
             await Puzzles.sync.callback(cog, ctx)
 
-        cog.service.tag_edge_only.assert_awaited_once_with(puzzle, target_group, "feeds", guild=None)
+        cog.service.tag_edge_only.assert_awaited_once_with(
+            puzzle, target_group, "feeds", guild=None, refresh_headers=False)
 
     @pytest.mark.asyncio
     async def test_split_round_also_syncs_solved_category(self):
@@ -97,3 +99,32 @@ class TestSyncSplitCategories:
 
         synced_puzzles = {c.args[0] for c in cog.service.tag_edge_only.await_args_list}
         assert synced_puzzles == {primary_puzzle, solved_puzzle}
+
+
+@pytest.mark.asyncio
+async def test_sync_writes_feeds_lines_once_for_the_whole_loop():
+    """Header writes are capped: three synced puzzles skip their own Feeds-line
+    write and the sync makes ONE refresh_header_links call covering all three."""
+    puzzles = {i: MagicMock(id=i, name=f"Feeder {i}", tags=[]) for i in (1, 2, 3)}
+    channels = [_make_channel(100 + i) for i in (1, 2, 3)]
+    primary = _make_category(1, channels)
+    target_group = make_round(id=5, category_id=1)
+    target_group.type = "Metapuzzle"
+    cog, ctx = _make_sync_ctx(primary)
+
+    def _puzzle(channel_id=None, id=None):
+        return puzzles.get(channel_id - 100 if channel_id is not None else id)
+
+    with patch("bot.cogs.puzzles.TagGroupJsonDb") as tgdb, \
+         patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb, \
+         patch("bot.cogs.puzzles.TagGroupCategoryDb") as tgcdb:
+        tgdb.get_by_attr.return_value = target_group
+        pdb.get_by_attr.side_effect = _puzzle
+        tgcdb.get_for_group.return_value = []
+        await Puzzles.sync.callback(cog, ctx)
+
+    assert cog.service.tag_edge_only.await_count == 3
+    assert all(c.kwargs.get("refresh_headers") is False
+               for c in cog.service.tag_edge_only.await_args_list)
+    cog.service.refresh_header_links.assert_awaited_once()
+    assert set(cog.service.refresh_header_links.await_args.args[1]) == set(puzzles.values())
