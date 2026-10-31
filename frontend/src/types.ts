@@ -156,6 +156,7 @@ export interface HuntDetail {
     url: string;
     archived: boolean;
     is_gated: boolean;
+    is_team_hunt: boolean;
     role_name: string | null;
     guild_snowflake: string | null;
     sheet_base_url: string | null;
@@ -356,4 +357,24 @@ export interface TeamHuntDetail {
   on_server: TeamHuntMember[] | null;
   invited_waiting: TeamHuntInvited[];
   history: TeamHuntHistoryRow[];
+}
+
+export interface SetupStatus {
+  template_problems: string[];
+  already_set_up: string | null;
+  existing: {
+    hub_id: string;
+    roster_role_id: string;
+    hunt_name: string;
+    hunt_url: string;
+  } | null;
+  hubs: { id: string; name: string; roles: { id: string; name: string }[] }[];
+}
+
+export interface SetupResult {
+  ok: boolean;
+  lines: string[];
+  error: string | null;
+  hunt_uid: string | null;
+  invites: string | null;
 }

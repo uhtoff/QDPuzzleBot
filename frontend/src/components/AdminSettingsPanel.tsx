@@ -23,6 +23,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
+import { TeamArchiveModal } from "./TeamArchiveModal";
 import { useArchiveHunt, useCreateSolvedSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
@@ -36,6 +37,7 @@ interface AdminSettingsPanelProps {
   url_sep: string;
   puzzle_prefix: string;
   archived: boolean;
+  isTeamHunt: boolean;
   hasSolvedSheet: boolean;
   puzzleCount: number;
 }
@@ -60,6 +62,7 @@ export function AdminSettingsPanel({
   url_sep,
   puzzle_prefix,
   archived,
+  isTeamHunt,
   hasSolvedSheet,
   puzzleCount,
 }: AdminSettingsPanelProps) {
@@ -323,8 +326,16 @@ export function AdminSettingsPanel({
         )}
       </Stack>
 
+      {isTeamHunt && !archived && (
+        <TeamArchiveModal
+          uid={uid}
+          huntName={huntName}
+          opened={archiveConfirmOpen}
+          onClose={() => setArchiveConfirmOpen(false)}
+        />
+      )}
       <TypedConfirmModal
-        opened={archiveConfirmOpen}
+        opened={archiveConfirmOpen && !(isTeamHunt && !archived)}
         onClose={() => setArchiveConfirmOpen(false)}
         onConfirm={handleToggleArchive}
         title={archived ? "Unarchive hunt" : "Archive hunt"}

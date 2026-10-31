@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { onAuthLost } from "./queryClient";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, TeamHuntDetail, TeamHuntSummary, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, SetupResult, SetupStatus, TeamHuntDetail, TeamHuntSummary, User } from "./types";
 import type { SiteInfo } from "./lib/siteInfo";
 
 function csrfToken(): string {
@@ -31,6 +31,7 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
       error?: string;
       retry_after?: number;
       detail?: string;
+      message?: string;
     };
     throw new Error(friendlyError(detail, res.status));
   }
@@ -60,7 +61,7 @@ async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function friendlyError(d: { error?: string; retry_after?: number; detail?: string }, status: number): string {
+function friendlyError(d: { error?: string; retry_after?: number; detail?: string; message?: string }, status: number): string {
   switch (d.error) {
     case "csrf":
       return "Your session expired — please refresh the page.";
@@ -103,6 +104,20 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "This hunt already has a team role.";
     case "role_not_applied":
       return "Couldn't gate the hunt — the role couldn't be made visible (are you addable to it?).";
+    case "hub_unavailable":
+      return d.message || "The hub server isn't available to you.";
+    case "confirm_mismatch":
+      return "That doesn't match the hunt's name.";
+    case "archive_running":
+      return "This hunt is already being archived.";
+    case "use_hub_archive":
+      return "This is a team hunt — archive it to the hub instead.";
+    case "forum_not_supported":
+      return "Forum-layout hunts can't be archived to a hub.";
+    case "hub_role_missing":
+      return "The hub role for this hunt no longer exists.";
+    case "not_a_member":
+      return "You aren't a member of this server.";
     case "missing_role_name":
       return "Enter a team role name.";
     default:
@@ -744,6 +759,39 @@ export function useArchiveHunt(uid: string) {
       qc.invalidateQueries({ queryKey: ["hunt", uid] });
       qc.invalidateQueries({ queryKey: ["hunts"] });
     },
+  });
+}
+
+export interface ArchiveToHubResult {
+  started: boolean;
+  progress_channel: string | null;
+}
+
+export function useArchiveToHub(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmName: string) =>
+      apiSend<ArchiveToHubResult>(`/api/hunts/${uid}/archive-to-hub`, "POST", {
+        confirm_name: confirmName,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useSetupStatus(guildId: number | null) {
+  return useQuery({
+    queryKey: ["guild-setup", guildId],
+    queryFn: () => apiGet<SetupStatus>(`/api/guilds/${guildId}/setup`),
+    enabled: guildId !== null,
+  });
+}
+
+export function useRunSetup(guildId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: unknown) =>
+      apiSend<SetupResult>(`/api/guilds/${guildId}/setup`, "POST", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["guild-setup", guildId] }),
   });
 }
 

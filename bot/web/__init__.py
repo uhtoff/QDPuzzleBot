@@ -70,6 +70,7 @@ _CLIENT_ROUTES = (
     re.compile(r"hunts/[A-Za-z0-9_-]+/?"),
     re.compile(r"guilds/\d+/settings/?"),
     re.compile(r"guilds/\d+/teams/?"),
+    re.compile(r"guilds/\d+/setup/?"),
 )
 
 

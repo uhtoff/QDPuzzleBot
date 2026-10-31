@@ -140,7 +140,7 @@ async def get_all_hunts():
 
 async def get_hunt_by_uid(uid):
     return await fetch_one(
-        "SELECT id, uid, name, url, guild_id, role_id, archived, "
+        "SELECT id, uid, name, url, guild_id, role_id, roster_role_id, archived, "
         "google_sheet_id, solved_sheet_id, start_time, solve_time, "
         "start_timestamp, username, password, url_sep, puzzle_prefix "
         "FROM hunts WHERE uid = %s",

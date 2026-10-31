@@ -144,6 +144,8 @@ async def hunt_detail(uid):
             "url": hunt["url"],
             "archived": bool(hunt["archived"]),
             "is_gated": bool(gating_role_id),
+            # A team hunt (tied to a hub role); the role id itself stays server-side.
+            "is_team_hunt": bool(hunt.get("roster_role_id")),
             "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
