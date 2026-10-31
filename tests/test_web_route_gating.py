@@ -31,6 +31,7 @@ EXPECTED = {
     ("DELETE", "/hunts/<uid>"): "admin",
     ("PATCH", "/hunts/<uid>/settings"): "admin",
     ("POST", "/hunts/<uid>/archive"): "admin",
+    ("POST", "/hunts/<uid>/archive-to-hub"): "admin",
     ("POST", "/hunts/<uid>/role"): "admin",
     ("POST", "/hunts/<uid>/solved-sheet"): "admin",
     ("GET", "/guilds/<int:guild_id>/settings"): "admin",

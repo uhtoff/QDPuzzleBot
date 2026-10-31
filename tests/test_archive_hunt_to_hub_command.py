@@ -70,7 +70,7 @@ async def test_names_the_hub_then_reports_there_even_if_ctx_channel_is_gone():
     with patch.object(cog, "_confirm_destructive", new=confirm), \
          patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
                new=AsyncMock(return_value=(hub, hub_row))) as resolve, \
-         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+         patch("bot.core.hub_archive_run.PuzzleJsonDb") as PuzzleDb:
         PuzzleDb.get_all_from_hunt.return_value = []
         await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
     resolve.assert_awaited_once_with(cog.bot, 1000, ctx.guild, ctx.author)
@@ -110,7 +110,7 @@ async def test_a_failing_hub_send_still_replies_in_ctx():
     with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
          patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
                new=AsyncMock(return_value=(hub, MagicMock()))), \
-         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+         patch("bot.core.hub_archive_run.PuzzleJsonDb") as PuzzleDb:
         PuzzleDb.get_all_from_hunt.return_value = []
         await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
     hub_channel.send.assert_awaited_once()
@@ -129,7 +129,7 @@ async def test_a_partial_run_tells_the_admin_to_rerun_from_general():
     with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
          patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
                new=AsyncMock(return_value=(hub, MagicMock()))), \
-         patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb:
+         patch("bot.core.hub_archive_run.PuzzleJsonDb") as PuzzleDb:
         PuzzleDb.get_all_from_hunt.return_value = []
         await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
     summary = ctx.send.await_args.args[0]
@@ -174,3 +174,17 @@ async def test_no_id_on_a_hunt_without_a_hub_role_asks_for_one():
         await Puzzles.archive_hunt_to_hub.callback(cog, ctx)
     resolve.assert_not_awaited()
     assert "server id" in ctx.send.await_args.args[0]
+
+
+async def test_command_uses_the_shared_runner():
+    hunt = _hunt()
+    cog = make_cog(hunt=hunt); cog.bot = MagicMock()
+    hub, _ = _hub(); hub_row = MagicMock()
+    ctx = _ctx()
+    with patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)), \
+         patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
+               new=AsyncMock(return_value=(hub, hub_row))), \
+         patch("bot.cogs.puzzles.run_archive_to_hub", new=AsyncMock()) as run:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+    run.assert_awaited_once_with(cog.bot, cog.service, ctx.guild, hunt, ctx.author,
+                                 hub, hub_row, status_channel=ctx)

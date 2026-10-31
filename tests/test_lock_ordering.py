@@ -439,8 +439,8 @@ async def test_bang_archive_hunt_to_hub_confirms_before_locking():
 
     hub = MagicMock(); hub.get_channel.return_value.send = AsyncMock()
 
-    with patch("bot.cogs.puzzles.PuzzleJsonDb") as PuzzleDb, \
-         patch("bot.cogs.puzzles.puzzles_lock") as lock_mock, \
+    with patch("bot.core.hub_archive_run.PuzzleJsonDb") as PuzzleDb, \
+         patch("bot.core.hub_archive_run.puzzles_lock") as lock_mock, \
          patch("bot.cogs.puzzles.hunt_archive.resolve_hub",
                new=AsyncMock(return_value=(hub, MagicMock()))):
         PuzzleDb.get_all_from_hunt.return_value = [MagicMock(id=3), MagicMock(id=1)]

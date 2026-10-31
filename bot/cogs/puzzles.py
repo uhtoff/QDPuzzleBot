@@ -34,6 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
+from bot.core.hub_archive_run import archive_summary as _archive_summary, run_archive_to_hub
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
@@ -183,16 +184,6 @@ def with_hunt_sheet_mutex():
                 return await func(self, ctx, *args, **kwargs)
         return wrapper
     return decorator
-
-
-def _archive_summary(report):
-    """The completion line shared by !archive_hunt and !archive_hunt_to_hub."""
-    summary = (f":white_check_mark: Archived hunt into **{report.final_name}** — "
-               f"{report.channels_archived} channel(s), {report.messages_moved} message(s) moved, "
-               f"{report.voice_deleted} voice channel(s) removed.")
-    if report.failures:
-        summary += f"\n:warning: {len(report.failures)} channel(s) failed: {', '.join(report.failures)}"
-    return summary
 
 
 class Puzzles(commands.Cog):
@@ -4117,7 +4108,7 @@ class Puzzles(commands.Cog):
         threads on a new channel on the hub, deletes all its categories/channels,
         moves the hunt to the hub on the dashboard, and removes the bot from this
         server if no other hunt uses it. Asks to confirm. Google sheets are kept.
-        Bang-only: no web-dashboard equivalent, by design."""
+        The dashboard's Teams page has the same action."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
@@ -4151,36 +4142,8 @@ class Puzzles(commands.Cog):
         # Confirm BEFORE locking — same reasoning as archive_hunt.
         if not await self._confirm_destructive(ctx, desc, sheets_deleted=False):
             return
-        member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_hunt(hunt.id)]
-        async with puzzles_lock(member_puzzle_ids):
-            status = await ctx.send("⏳ Archiving…")
-
-            async def on_progress(done, total, name):
-                try:
-                    await status.edit(content=f"⏳ Archived {done}/{total} — {name}")
-                except discord.HTTPException:
-                    pass
-
-            report = await self.service.archive_hunt_to_hub(
-                ctx.guild, hunt, ctx.author, hub, hub_row, on_progress=on_progress)
-            summary = _archive_summary(report)
-            if report.left_guild:
-                summary += "\nThe bot has left this server; its owner can now delete it."
-            if report.failures:
-                summary += ("\nThe hunt hasn't been moved on the dashboard yet and the bot is staying: "
-                            "re-run !archive_hunt_to_hub <hub id> from this hunt's general channel to finish.")
-            hub_dest = hub.get_channel(report.hub_channel_id)
-            if hub_dest is not None:
-                try:
-                    await hub_dest.send(summary)
-                except discord.HTTPException:
-                    logger.exception("archive_hunt_to_hub: could not post summary to hub channel %s", report.hub_channel_id)
-            try:
-                # The channel this ran in is usually archived by now, and the bot
-                # may have left the server, so this reply is best-effort only.
-                await ctx.send(summary)
-            except discord.HTTPException:
-                pass
+        await run_archive_to_hub(self.bot, self.service, ctx.guild, hunt, ctx.author,
+                                 hub, hub_row, status_channel=ctx)
 
     @commands.command()
     @commands.guild_only()

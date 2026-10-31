@@ -982,11 +982,83 @@ async def post_hunt_archive(uid):
     if hunt_obj is None:
         return jsonify({"error": "hunt_not_found"}), 404
 
+    if bool(archived) and not hunt_obj.archived and getattr(hunt_obj, "roster_role_id", 0):
+        # A team hunt's server is meant to be emptied into the hub, not frozen in place.
+        return jsonify({"error": "use_hub_archive"}), 409
+
     hunt_obj.archived = bool(archived)
     HuntJsonDb.commit(hunt_obj)
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("hunt_archive", hunt_uid=uid, detail=f"archived={bool(archived)}")
     return jsonify({"ok": True, "archived": bool(archived)})
+
+
+# Strong references to in-flight archive tasks, so they aren't garbage-collected.
+_ARCHIVE_TASKS: set = set()
+
+
+@actions_bp.route("/hunts/<uid>/archive-to-hub", methods=["POST"])
+@login_required
+async def post_hunt_archive_to_hub(uid):
+    """Archive a team hunt onto its hub, as !archive_hunt_to_hub does. Admin
+    only; the user must also be an admin on the hub. Runs in the background."""
+    ctx, hunt_obj, cog, guild, err = await _route_ctx(_visible_hunt_by_uid(uid))
+    if err:
+        return err
+    assert ctx is not None and hunt_obj is not None and cog is not None
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.core import hub_channel, hunt_archive, role_panel
+    from bot.core.hub_archive_run import RUNNING_HUB_ARCHIVES, run_archive_to_hub
+
+    if getattr(hunt_obj, "layout_mode", "") == "forum":
+        return jsonify({"error": "forum_not_supported"}), 400
+    if not getattr(hunt_obj, "roster_role_id", 0):
+        return jsonify({"error": "not_a_team_hunt"}), 400
+    roster = role_panel.find_roster_role(bot_app().bot, hunt_obj.roster_role_id)
+    if roster is None:
+        return jsonify({"error": "hub_role_missing"}), 409
+
+    body = await request.get_json(silent=True) or {}
+    if body.get("confirm_name") != hunt_obj.name:
+        return jsonify({"error": "confirm_mismatch"}), 400
+    if hunt_obj.id in RUNNING_HUB_ARCHIVES:
+        return jsonify({"error": "archive_running"}), 409
+    if guild is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    user_id = int((current_user() or {}).get("id") or 0)
+    invoker = guild.get_member(user_id)
+    if invoker is None:
+        try:
+            invoker = await guild.fetch_member(user_id)
+        except discord.NotFound:
+            invoker = None
+    if invoker is None:
+        return jsonify({"error": "not_a_member"}), 403
+    try:
+        hub, hub_row = await hunt_archive.resolve_hub(bot_app().bot, roster.guild.id, guild, invoker)
+    except hunt_archive.HubUnavailable as e:
+        return jsonify({"error": "hub_unavailable", "message": str(e)}), 403
+
+    admin_channel, _reason = hub_channel.find(hub)
+    RUNNING_HUB_ARCHIVES.add(hunt_obj.id)
+
+    async def _run():
+        try:
+            await run_archive_to_hub(bot_app().bot, cog.service, guild, hunt_obj, invoker,
+                                     hub, hub_row, status_channel=admin_channel)
+        finally:
+            RUNNING_HUB_ARCHIVES.discard(hunt_obj.id)
+
+    task = asyncio.create_task(_run())
+    _ARCHIVE_TASKS.add(task)
+    task.add_done_callback(_ARCHIVE_TASKS.discard)
+    await _audit("hunt_archive_to_hub", hunt_uid=uid, detail=f"hub={hub.id}")
+    return jsonify({"started": True,
+                    "progress_channel": admin_channel.name if admin_channel is not None else None}), 202
 
 
 @actions_bp.route("/hunts/<uid>/solved-sheet", methods=["POST"])
