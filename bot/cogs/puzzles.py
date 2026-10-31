@@ -31,6 +31,7 @@ from bot.core import hub_channel, role_gate, template_link
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
+from bot.core.sheet_location import additional_sheet_location, hunt_sheet_location, puzzle_location
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -567,10 +568,7 @@ class Puzzles(commands.Cog):
         if hunt is None:
             hunt = self.get_hunt(ctx)
         assert hunt is not None  # puzzle contexts always resolve their hunt
-        if puzzle.on_solved_sheet:
-            return hunt.solved_sheet_id
-        else:
-            return hunt.google_sheet_id
+        return puzzle_location(hunt, puzzle).spreadsheet_id
 
     def get_additional_sheet_spreadsheet(self, ctx=None, sheet: Optional[AdditionalSheetData] = None, hunt: Optional[HuntData] = None):
         """Return the spreadsheet id THIS additional sheet actually lives on.
@@ -586,10 +584,7 @@ class Puzzles(commands.Cog):
         if hunt is None:
             hunt = self.get_hunt(ctx)
         assert hunt is not None  # puzzle contexts always resolve their hunt
-        if sheet.on_solved_sheet:
-            return hunt.solved_sheet_id
-        else:
-            return hunt.google_sheet_id
+        return additional_sheet_location(hunt, sheet).spreadsheet_id
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -1893,8 +1888,9 @@ class Puzzles(commands.Cog):
         """
         sheet_links = ""
         for count, sheet in enumerate(sheets, start=1):
-            spreadsheet_url = urls.spreadsheet_url(hunt.google_sheet_id,
-                                                   sheet.google_page_id)
+            spreadsheet_url = urls.spreadsheet_url(
+                hunt_sheet_location(hunt, sheet.google_page_id).spreadsheet_id,
+                sheet.google_page_id)
             sheet_links += f"{count}: [{sheet.puzzle_name}]({spreadsheet_url})\n"
         return sheet_links
 
