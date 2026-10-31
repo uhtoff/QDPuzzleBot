@@ -233,7 +233,7 @@ they're leaving.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
-The dashboard does the same: open the team hunt's panel and press **Archive**, then type the
+The dashboard does the same: open the team hunt's panel and press **Archive to hub**, then type the
 hunt's name to confirm. Progress and the summary go to the hub's admin channel (the hub
 archive channel if that is unusable), never only to the team server, whose channels the
 archive deletes.

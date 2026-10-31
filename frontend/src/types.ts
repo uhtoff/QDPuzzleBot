@@ -368,6 +368,7 @@ export interface SetupStatus {
     hunt_name: string;
     hunt_url: string;
   } | null;
+  hunt_uid: string | null;
   hubs: { id: string; name: string; roles: { id: string; name: string }[] }[];
 }
 

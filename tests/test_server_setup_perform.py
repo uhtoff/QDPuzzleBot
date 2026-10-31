@@ -122,3 +122,88 @@ async def test_setup_server_command_sends_perform_setup_lines():
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example", hunt_name="Big Hunt")
     sent = [c.args[0] for c in ctx.send.await_args_list]
     assert sent == ["⏳ Setting up **Big Hunt** for **Team Rocket**…", "a\nb"]
+
+
+def _patched_run(run_setup, extra=None):
+    hub_row = MagicMock(); hub = MagicMock(); hub.name = "Hub"
+    stack = [
+        patch("bot.core.server_setup.GuildSettingsDb"),
+        patch("bot.core.server_setup.hunt_archive.resolve_hub", new=AsyncMock(return_value=(hub, hub_row))),
+        patch("bot.core.server_setup.preflight", new=MagicMock(return_value=MagicMock())),
+        patch("bot.core.server_setup.run_setup", new=run_setup),
+        patch("bot.core.notifier.DiscordNotifier"),
+        patch("bot.core.mod_invite.post", new=AsyncMock(return_value=("r", None))),
+    ]
+    return stack
+
+
+async def _run(report, **kw):
+    from contextlib import ExitStack
+    guild = _guild(); guild.owner_id = 42
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in _patched_run(AsyncMock(return_value=report))]
+        mocks[0].get.return_value = _settings()
+        return await server_setup.perform_setup(
+            MagicMock(), MagicMock(), guild, _invoker(), 1000, 70, "Big Hunt", "u", **kw)
+
+
+async def test_next_line_after_dashboard_invites_does_not_ask_for_send_invites():
+    ok = server_setup.SetupReport(steps=["x"], hunt=MagicMock())
+    plain = (await _run(ok)).lines[-1]
+    dash = (await _run(ok, invites_by_dashboard=True)).lines[-1]
+    assert "!send_invites Big Hunt" in plain
+    assert dash == ("Next: click **Join** in #lobby (as a hub admin you get `mod` too) and "
+                    "check the server. Invites have been sent. Transfer server ownership "
+                    "to a team member if wanted.")
+
+
+async def test_stopped_line_wording_depends_on_entry_point():
+    bad = server_setup.SetupReport(steps=["x"], error="boom")
+    cmd = (await _run(bad)).lines[-1]
+    web = (await _run(bad, via_dashboard=True)).lines[-1]
+    assert cmd == "Fix that, then re-run the same !setup_server command; finished steps are skipped."
+    assert web == "Fix that, then press Set up again; finished steps are skipped."
+
+
+async def test_a_second_concurrent_run_on_the_same_guild_is_refused():
+    import asyncio
+    from contextlib import ExitStack
+    gate = asyncio.Event()
+
+    async def slow_run(*a, **k):
+        await gate.wait()
+        return server_setup.SetupReport(steps=["x"])
+
+    guild = _guild(); guild.owner_id = 42
+    other = _guild(); other.owner_id = 42; other.id = guild.id + 1
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in _patched_run(slow_run)]
+        mocks[0].get.return_value = _settings()
+
+        def call(g):
+            return server_setup.perform_setup(
+                MagicMock(), MagicMock(), g, _invoker(), 1000, 70, "Big Hunt", "u")
+        first = asyncio.ensure_future(call(guild))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        second = await call(guild)
+        text = "Setup is already running on this server — wait for it to finish."
+        assert (second.ok, second.error, second.lines) == (False, text, [f":x: {text}"])
+        third = asyncio.ensure_future(call(other))     # a different guild is not blocked
+        await asyncio.sleep(0); await asyncio.sleep(0)
+        assert not third.done() or third.result().ok
+        gate.set()
+        assert (await first).ok and (await third).ok
+        assert (await call(guild)).error == ""         # released after finishing
+
+
+async def test_the_guard_is_released_when_setup_raises():
+    guild = _guild(); guild.owner_id = 42
+    with patch("bot.core.server_setup.GuildSettingsDb") as gdb:
+        gdb.get.side_effect = RuntimeError("db")
+        try:
+            await server_setup.perform_setup(
+                MagicMock(), MagicMock(), guild, _invoker(), 1000, 70, "Big Hunt", "u")
+        except RuntimeError:
+            pass
+    assert guild.id not in server_setup._RUNNING

@@ -18,6 +18,8 @@ import {
 } from "@mantine/core";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 
+import type { UseMutationResult } from "@tanstack/react-query";
+
 import { useRunSetup, useSetupStatus } from "../api";
 import { buildPayload, canSubmit, emptySetupForm, type SetupForm } from "../lib/setupForm";
 import type { SetupResult, SetupStatus } from "../types";
@@ -70,10 +72,15 @@ function SetupResultView({ result }: { result: SetupResult }) {
   );
 }
 
-function SetupFormView({ guildId, status }: { guildId: number; status: SetupStatus }) {
+function SetupFormView({
+  status,
+  mut,
+}: {
+  status: SetupStatus;
+  mut: UseMutationResult<SetupResult, Error, unknown>;
+}) {
   const [form, setForm] = useState<SetupForm>(() => initialForm(status));
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const mut = useRunSetup(guildId);
   const set = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
@@ -194,8 +201,6 @@ function SetupFormView({ guildId, status }: { guildId: number; status: SetupStat
           Set up
         </Button>
       </Group>
-
-      {mut.data && <SetupResultView result={mut.data} />}
     </Stack>
   );
 }
@@ -204,6 +209,7 @@ export default function ServerSetup() {
   const { guildId } = useParams();
   const id = guildId ? Number(guildId) : null;
   const { data, isLoading, error } = useSetupStatus(id);
+  const mut = useRunSetup(id ?? 0);
 
   if (isLoading) {
     return (
@@ -219,10 +225,22 @@ export default function ServerSetup() {
   return (
     <Stack gap="md">
       <Title order={3}>Set up this server</Title>
+      {/* The result outlives the refetch that flips already_set_up, so it is
+          rendered from here, ahead of that branch. */}
+      {mut.data && <SetupResultView result={mut.data} />}
       {data.already_set_up ? (
-        <Text>Already set up on {new Date(data.already_set_up).toLocaleString()}.</Text>
+        !mut.data && (
+          <Stack gap="xs">
+            <Text>Already set up on {new Date(data.already_set_up).toLocaleString()}.</Text>
+            {data.hunt_uid && (
+              <Anchor component={Link} to={`/hunts/${data.hunt_uid}`}>
+                Open the hunt board
+              </Anchor>
+            )}
+          </Stack>
+        )
       ) : (
-        <SetupFormView guildId={id} status={data} />
+        <SetupFormView status={data} mut={mut} />
       )}
     </Stack>
   );

@@ -39,6 +39,8 @@ def web():
         _role(ADMIN_ROLE, "mod", 8),
         _role(11, "Team Low", 1),
         _role(12, "Team High", 5),
+        _role(13, "Organiser", 4),
+        _role(14, "Organizers", 3),
     ])
     hub_b = _guild(HUB_B, "Hub B", roles=[_role(21, "X", 1)])
     team2 = _guild(TEAM2, "Other clone", roles=[_role(31, "Y", 1)])
@@ -67,7 +69,8 @@ def web():
     hdb.get_by_attr.return_value = None
 
     cog = MagicMock()
-    state = SimpleNamespace(
+    audit = AsyncMock()
+    state = SimpleNamespace(audit=audit, 
         bot=bot, team=team, hub_a=hub_a, sdb=sdb, hdb=hdb, cog=cog,
         perform=AsyncMock(), send=AsyncMock(), problems=MagicMock(return_value=[]),
         roles=lambda: None)
@@ -84,7 +87,7 @@ def web():
         patch("bot.web.actions.puzzles_cog", return_value=cog),
         patch("bot.web.actions.GuildSettingsDb", sdb),
         patch("bot.web.actions.HuntJsonDb", hdb),
-        patch("bot.web.actions._audit", AsyncMock()),
+        patch("bot.web.actions._audit", audit),
         patch("bot.core.role_gate.tier_role_ids", tier_ids),
         patch("bot.core.hunt_archive.hub_member", hub_member),
         patch("bot.core.server_setup.template_problems", state.problems),
@@ -141,7 +144,7 @@ async def test_get_lists_only_hubs_where_viewer_is_admin(web):
     assert body["hubs"][0]["name"] == "Hub A"
 
 
-async def test_get_roles_exclude_everyone_managed_and_admin_roles(web):
+async def test_get_roles_exclude_everyone_managed_admin_and_organiser_roles(web):
     body = await (await web.client.get(URL)).get_json()
     assert body["hubs"][0]["roles"] == [
         {"id": "12", "name": "Team High"}, {"id": "11", "name": "Team Low"}]
@@ -186,7 +189,8 @@ async def test_post_runs_perform_setup_with_fields(web):
     assert args[3].id == USER
     assert args[4:] == (HUB_A, 12, "MH", "https://mh.example")
     assert kwargs == {"start_timestamp": 1700000000, "username": "u", "password": "p",
-                      "create_solved_sheet": True}
+                      "create_solved_sheet": True, "invites_by_dashboard": False,
+                      "via_dashboard": True}
 
 
 async def test_retry_finishes_a_partial_setup(web):
@@ -211,6 +215,30 @@ async def test_send_invites_after_success(web):
     web.send.assert_awaited_once()
     assert web.send.await_args.args == (web.bot, web.team, web.perform.return_value.hunt)
     assert out["invites"] == "text:report"
+
+
+async def test_send_invites_tells_perform_setup_invites_went_out(web):
+    await web.client.post(URL, json=dict(BODY, send_invites=True))
+    kwargs = web.perform.await_args.kwargs
+    assert kwargs["invites_by_dashboard"] is True and kwargs["via_dashboard"] is True
+
+
+async def test_send_invites_failure_is_reported_not_raised(web):
+    web.send.side_effect = RuntimeError("discord down")
+    resp = await web.client.post(URL, json=dict(BODY, send_invites=True))
+    assert resp.status_code == 200
+    out = await resp.get_json()
+    assert out["ok"] is True and out["lines"] == ["• did x", ":white_check_mark: done"]
+    assert out["invites"] == ("Setup finished, but sending invites failed — the error has "
+                              "been logged. Run !send_invites MH in #bot-commands.")
+    web.audit.assert_awaited_once()
+
+
+async def test_get_reports_hunt_uid(web):
+    assert (await (await web.client.get(URL)).get_json())["hunt_uid"] is None
+    web.hdb.get_by_attr.return_value = SimpleNamespace(
+        uid="HU9", name="MH", url="u", roster_role_id=None)
+    assert (await (await web.client.get(URL)).get_json())["hunt_uid"] == "HU9"
 
 
 async def test_send_invites_skipped_when_setup_errored(web):

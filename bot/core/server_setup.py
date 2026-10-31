@@ -209,6 +209,9 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
     return report
 
 
+_RUNNING: set = set()   # guild ids with a setup in flight
+
+
 @dataclass
 class SetupOutcome:
     lines: list = field(default_factory=list)   # exactly what !setup_server sends
@@ -223,11 +226,29 @@ def _refused(text):
 
 async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                         *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                        on_start=None):
+                        on_start=None, invites_by_dashboard=False, via_dashboard=False):
     """The whole !setup_server flow after argument parsing, shared with the
     dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is
     awaited with the team role name once the checks pass and before anything is
-    made (the command uses it for its "Setting up…" line)."""
+    made (the command uses it for its "Setting up…" line). *invites_by_dashboard*
+    and *via_dashboard* only reword the closing lines for a dashboard run. A second
+    concurrent run on the same guild is refused."""
+    if guild.id in _RUNNING:
+        return _refused("Setup is already running on this server — wait for it to finish.")
+    _RUNNING.add(guild.id)   # no await between check and add
+    try:
+        return await _perform_setup(
+            bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
+            start_timestamp=start_timestamp, username=username, password=password,
+            create_solved_sheet=create_solved_sheet, on_start=on_start,
+            invites_by_dashboard=invites_by_dashboard, via_dashboard=via_dashboard)
+    finally:
+        _RUNNING.discard(guild.id)
+
+
+async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
+                         *, start_timestamp, username, password, create_solved_sheet,
+                         on_start, invites_by_dashboard, via_dashboard):
     from bot.core import mod_invite       # mod_invite imports this module
     from bot.core.notifier import DiscordNotifier
 
@@ -259,7 +280,10 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
     lines = [f"• {s}" for s in report.steps]
     if report.error:
         lines.append(f":x: Setup stopped: {report.error}")
-        lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
+        if via_dashboard:
+            lines.append("Fix that, then press Set up again; finished steps are skipped.")
+        else:
+            lines.append("Fix that, then re-run the same !setup_server command; finished steps are skipped.")
     else:
         lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
         if report.hunt is not None:
@@ -268,7 +292,12 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
                 lines.append(f"A mod invite for hub admins is in the hub's #{posted_in}.")
             else:
                 lines.append(invite_reply)
-        lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
-                     f"the server, then run `!send_invites {hunt_name}` to DM everyone with "
-                     "the hub role. Transfer server ownership to a team member if wanted.")
+        if invites_by_dashboard:
+            lines.append("Next: click **Join** in #lobby (as a hub admin you get `mod` too) and "
+                         "check the server. Invites have been sent. Transfer server ownership "
+                         "to a team member if wanted.")
+        else:
+            lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
+                         f"the server, then run `!send_invites {hunt_name}` to DM everyone with "
+                         "the hub role. Transfer server ownership to a team member if wanted.")
     return SetupOutcome(lines=lines, ok=not report.error, hunt=report.hunt, error=report.error)

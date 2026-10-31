@@ -4108,7 +4108,7 @@ class Puzzles(commands.Cog):
         threads on a new channel on the hub, deletes all its categories/channels,
         moves the hunt to the hub on the dashboard, and removes the bot from this
         server if no other hunt uses it. Asks to confirm. Google sheets are kept.
-        The dashboard's Teams page has the same action."""
+        The dashboard has the same action on the hunt's admin panel ("Archive to hub")."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")

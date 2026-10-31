@@ -1777,7 +1777,8 @@ async def get_guild_setup(guild_id):
         admin_ids = role_gate.tier_role_ids(hub, ADMIN_ROLES)
         roles = sorted(
             (r for r in hub.roles
-             if not r.is_default() and not r.managed and r.id not in admin_ids),
+             if not r.is_default() and not r.managed and r.id not in admin_ids
+             and r.name not in ORGANISER_ROLE_NAMES),
             key=lambda r: r.position, reverse=True)
         hubs.append({"id": str(hub.id), "name": hub.name,
                      "roles": [{"id": str(r.id), "name": r.name} for r in roles]})
@@ -1798,6 +1799,7 @@ async def get_guild_setup(guild_id):
         "template_problems": server_setup.template_problems(guild, settings),
         "already_set_up": done.isoformat() if done is not None else None,
         "existing": existing,
+        "hunt_uid": hunt.uid if hunt is not None else None,
         "hubs": hubs,
     })
 
@@ -1863,12 +1865,18 @@ async def post_guild_setup(guild_id):
         body["hunt_name"], body["hunt_url"],
         start_timestamp=start_timestamp, username=body.get("username", ""),
         password=body.get("password", ""),
-        create_solved_sheet=body.get("create_solved_sheet", False))
+        create_solved_sheet=body.get("create_solved_sheet", False),
+        invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
 
     invites = None
     if outcome.ok and outcome.hunt is not None and body.get("send_invites"):
-        invites = team_invites.report_text(
-            await team_invites.send_invites(bot, guild, outcome.hunt))
+        try:
+            invites = team_invites.report_text(
+                await team_invites.send_invites(bot, guild, outcome.hunt))
+        except Exception:
+            logger.exception("setup_server: sending invites failed for guild %s", guild_id)
+            invites = ("Setup finished, but sending invites failed — the error has been "
+                       f"logged. Run !send_invites {body['hunt_name']} in #bot-commands.")
 
     hunt_uid = outcome.hunt.uid if outcome.hunt is not None else None
     await _audit("setup_server", hunt_uid=hunt_uid,
