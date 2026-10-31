@@ -338,6 +338,18 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             (now, hunt_id),
         )
 
+    def set_mod_invite_code(self, hunt_id, code):
+        """Store (or clear, with None) hunts.mod_invite_code: the reusable moderator
+        invite to the hunt's team server. Its own UPDATE -- HuntData has no such
+        field, so the generic commit() can never clear it."""
+        self._exec("UPDATE `hunts` SET `mod_invite_code` = %s WHERE `id` = %s",
+                   (code, hunt_id))
+
+    def mod_invite_code(self, hunt_id):
+        row = self._fetch_one(
+            "SELECT `mod_invite_code` FROM `hunts` WHERE `id` = %s", (hunt_id,))
+        return row["mod_invite_code"] if row else None
+
 
 class MySQLHuntInviteDb(_MySQLBaseDb):
     """hunt_invites: one row per single-use team-server invite DM'd to a holder of
@@ -381,6 +393,28 @@ class MySQLHuntInviteDb(_MySQLBaseDb):
             "UPDATE `hunt_invites` SET joined_at = %s "
             "WHERE hunt_id = %s AND user_id = %s AND joined_at IS NULL",
             (now, hunt_id, user_id),
+        )
+
+
+class MySQLHuntAccessLogDb(_MySQLBaseDb):
+    """hunt_access_log: durable record of access changes on a hunt's team server
+    (slice 5). No foreign key to hunts: the record outlives a deleted hunt."""
+    TABLE_NAME = 'hunt_access_log'
+
+    def record(self, hunt_id, user_id, username, action, via, actor_id=None, detail=None):
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec(
+            "INSERT INTO `hunt_access_log` "
+            "(created_at, hunt_id, user_id, username, action, via, actor_id, detail) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (now, hunt_id, user_id, username, action, via, actor_id, detail),
+        )
+
+    def for_hunt(self, hunt_id):
+        """Rows for *hunt_id*, oldest first."""
+        return self._fetch_all(
+            "SELECT * FROM `hunt_access_log` WHERE hunt_id = %s ORDER BY created_at ASC, id ASC",
+            (hunt_id,),
         )
 
 
