@@ -181,7 +181,7 @@ has to hunt for it. When making a team server, `!show_template_link` posts the l
 browser fallback) in the hub's admin channel. To check who has access to a team server
 afterwards, use the **Team servers** page (Server settings → **Team servers**,
 `/guilds/<id>/teams`, hub admins only): running and archived team hunts, who is on the
-server now, who was invited but hasn't arrived, and the access history.
+server now (running hunts only), who was invited but hasn't arrived, and the access history.
 
 **Per team, per hunt:**
 

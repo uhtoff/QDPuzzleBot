@@ -32,7 +32,7 @@ export default function App() {
           <Route path="/hunts/:uid" element={<HuntBoard />} />
           <Route path="/guilds/:guildId/settings" element={<GuildSettings />} />
           <Route path="/guilds/:guildId/teams" element={<TeamServers />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShellLayout>
     </ViewAsProvider>

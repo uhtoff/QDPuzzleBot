@@ -72,6 +72,8 @@ PROTECTED_SETTING_KEYS = {
         "it would orphan them.",
     "guild_name":
         "This is filled in from Discord when the guild's settings row is created.",
+    "template_link":
+        "Use !set_template_link, which validates it.",
 }
 
 

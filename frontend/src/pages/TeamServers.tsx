@@ -15,7 +15,7 @@ import {
 } from "@mantine/core";
 
 import { useAdminGuilds, useTeamHunt, useTeamHunts } from "../api";
-import { actionLabel, viaLabel } from "../lib/accessHistory";
+import { historyLine } from "../lib/accessHistory";
 import type { TeamHuntSummary } from "../types";
 
 const when = (iso: string) => new Date(iso).toLocaleString();
@@ -103,7 +103,7 @@ function HuntDetail({ guildId, hunt }: { guildId: number; hunt: TeamHuntSummary 
                 <Table.Tr key={`${h.at}-${i}`}>
                   <Table.Td>{when(h.at)}</Table.Td>
                   <Table.Td>
-                    {h.name} {actionLabel(h.action)} {viaLabel(h.via, h.actor_name)}
+                    {historyLine(h)}
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -128,6 +128,8 @@ export default function TeamServers() {
     label: g.guild_name,
   }));
 
+  const hubName = (adminGuilds ?? []).find((g) => g.id === id)?.guild_name;
+
   if (isLoading) {
     return (
       <Center h={200}>
@@ -142,7 +144,9 @@ export default function TeamServers() {
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end">
-        <Title order={3}>Team servers</Title>
+        <Title order={3}>
+          Team servers{hubName ? ` — ${hubName}` : ""}
+        </Title>
         {guildOptions.length > 1 && (
           <Select
             label="Server"

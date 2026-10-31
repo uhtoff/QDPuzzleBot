@@ -88,3 +88,13 @@ async def test_unknown_keys_still_report_as_unrecognized(env):
     env.db.commit.assert_not_called()
     said = env.ctx.send.await_args.args[0]
     assert "Unrecognized" in said
+
+
+async def test_update_settings_refuses_template_link(env):
+    """The link is validated by !set_template_link; this path must not bypass it."""
+    before = env.settings.template_link
+    await Puzzles.update_settings.callback(env.cog, env.ctx, "template_link", "x")
+
+    env.db.commit.assert_not_called()
+    assert env.settings.template_link == before
+    assert "!set_template_link" in env.ctx.send.await_args.args[0]

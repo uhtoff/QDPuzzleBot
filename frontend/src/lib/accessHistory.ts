@@ -1,4 +1,5 @@
 // Plain-words labels for the team-server access history. The API sends raw
+import type { TeamHuntHistoryRow } from "../types";
 // codes (`action`, `via`); the page shows these sentences instead.
 
 const VIA: Record<string, string> = {
@@ -25,4 +26,20 @@ export function viaLabel(via: string, actorName: string | null): string {
 
 export function actionLabel(action: string): string {
   return ACTION[action] ?? action;
+}
+
+// One whole history sentence. The action already says what happened, so `self`
+// adds no via text (except on revoke/demote, where it explains why).
+export function historyLine(h: TeamHuntHistoryRow): string {
+  const action = actionLabel(h.action);
+  if (h.via === "self") {
+    const suffix = h.action === "revoke" || h.action === "demote" ? " (when they left)" : "";
+    return `${h.name} ${action}${suffix}.`;
+  }
+  if (h.action === "arrive" && h.via === "arrival") return `${h.name} ${action}.`;
+  if (h.via === "hand") {
+    const how = h.actor_name ? `by hand, by ${h.actor_name}` : "by hand";
+    return `${h.name} ${action} (${how}).`;
+  }
+  return `${h.name} ${action} (${viaLabel(h.via, h.actor_name)}).`;
 }

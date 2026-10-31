@@ -12,7 +12,7 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconCheck, IconEye, IconLogout, IconSettings } from "@tabler/icons-react";
+import { IconCheck, IconEye, IconLogout, IconSettings, IconUsersGroup } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { logout, useAdminGuilds } from "../api";
@@ -99,6 +99,12 @@ export function AppShellLayout({ user, children }: { user: User; children: React
                     onClick={() => navigate(`/guilds/${firstAdminGuild.id}/settings`)}
                   >
                     Server settings
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={<IconUsersGroup size={16} />}
+                    onClick={() => navigate(`/guilds/${firstAdminGuild.id}/teams`)}
+                  >
+                    Team servers
                   </Menu.Item>
                   <Menu.Divider />
                 </>
