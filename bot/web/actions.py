@@ -1036,6 +1036,8 @@ async def post_hunt_archive_to_hub(uid):
             invoker = await guild.fetch_member(user_id)
         except discord.NotFound:
             invoker = None
+        except discord.HTTPException:
+            return jsonify({"error": "discord_unavailable"}), 503
     if invoker is None:
         return jsonify({"error": "not_a_member"}), 403
     try:
@@ -1044,6 +1046,9 @@ async def post_hunt_archive_to_hub(uid):
         return jsonify({"error": "hub_unavailable", "message": str(e)}), 403
 
     admin_channel, _reason = hub_channel.find(hub)
+    # Re-check with no await before the add: the awaits above let a second POST in.
+    if hunt_obj.id in RUNNING_HUB_ARCHIVES:
+        return jsonify({"error": "archive_running"}), 409
     RUNNING_HUB_ARCHIVES.add(hunt_obj.id)
 
     async def _run():

@@ -42,6 +42,7 @@ async def run_archive_to_hub(bot, service, guild, hunt, invoker, hub, hub_row, *
     progress to *status_channel* (anything with an async `send`; None = the hub
     archive channel) and the summary to the hub archive channel and
     *status_channel*. Returns the HuntArchiveReport, or None after a logged error."""
+    status = None
     try:
         if status_channel is None:
             status_channel = await _fallback_status_channel(hub, hunt, guild, invoker)
@@ -81,4 +82,12 @@ async def run_archive_to_hub(bot, service, guild, hunt, invoker, hub, hub_row, *
             return report
     except Exception:
         logger.exception("archive_hunt_to_hub: run failed for hunt %s", getattr(hunt, "id", None))
+        failed = ":x: Archiving to the hub failed — the error has been logged. Re-run to finish."
+        try:
+            if status is not None:
+                await status.edit(content=failed)
+            elif status_channel is not None:
+                await status_channel.send(failed)
+        except Exception:
+            logger.exception("archive_hunt_to_hub: could not report the failure")
         return None

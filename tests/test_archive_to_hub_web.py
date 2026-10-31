@@ -43,7 +43,7 @@ def _web(*, archived=False, roster_role_id=70, layout_mode="channel", roster_fou
     ]
     start_patches(patches)
     return SimpleNamespace(client=app.test_client(), patches=patches, hunt=hunt, run=run,
-                           resolve=resolve, cog=cog, hub=hub, admin_ch=admin_ch)
+                           resolve=resolve, cog=cog, guild=team_guild, hub=hub, admin_ch=admin_ch)
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +125,27 @@ async def test_second_archive_while_running_is_refused():
         await asyncio.sleep(0.01)
         stop_patches(web.patches)
     assert 10 not in RUNNING_HUB_ARCHIVES
+
+
+async def test_interleaved_post_during_resolve_hub_is_refused():
+    web = _web()
+
+    async def resolve(*a, **k):
+        RUNNING_HUB_ARCHIVES.add(web.hunt.id)   # a second POST won the race
+        return MagicMock(), MagicMock()
+
+    web.resolve.side_effect = resolve
+    resp, body = await _post(web, {"confirm_name": "Big Hunt"})
+    assert resp.status_code == 409 and body["error"] == "archive_running"
+    web.run.assert_not_awaited()
+
+
+async def test_fetch_member_http_error_is_503():
+    web = _web(member=False)
+    web.guild.fetch_member = AsyncMock(
+        side_effect=discord.HTTPException(MagicMock(status=500, reason="x"), "x"))
+    resp, body = await _post(web, {"confirm_name": "Big Hunt"})
+    assert resp.status_code == 503 and body["error"] == "discord_unavailable"
 
 
 # --- the in-place archive route -------------------------------------------

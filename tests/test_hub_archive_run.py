@@ -69,8 +69,23 @@ async def test_runner_falls_back_to_the_hub_archive_channel_for_status():
 
 async def test_runner_logs_and_returns_none_on_error():
     svc = MagicMock(); svc.archive_hunt_to_hub = AsyncMock(side_effect=RuntimeError("boom"))
-    with patch.object(hub_archive_run, "PuzzleJsonDb") as Db:
+    ch = _channel()
+    with patch.object(hub_archive_run, "PuzzleJsonDb") as Db, \
+         patch.object(hub_archive_run.logger, "exception") as log:
         Db.get_all_from_hunt.return_value = []
         result = await run_archive_to_hub(MagicMock(), svc, MagicMock(), _hunt(), MagicMock(),
-                                          MagicMock(), MagicMock(), status_channel=_channel())
+                                          MagicMock(), MagicMock(), status_channel=ch)
     assert result is None
+    log.assert_called()
+    ch.send.return_value.edit.assert_awaited_once_with(
+        content=":x: Archiving to the hub failed — the error has been logged. Re-run to finish.")
+
+
+async def test_runner_failure_before_status_posts_to_channel():
+    ch = _channel()
+    with patch.object(hub_archive_run, "PuzzleJsonDb") as Db:
+        Db.get_all_from_hunt.side_effect = RuntimeError("db")
+        result = await run_archive_to_hub(MagicMock(), MagicMock(), MagicMock(), _hunt(), MagicMock(),
+                                          MagicMock(), MagicMock(), status_channel=ch)
+    assert result is None
+    assert "failed" in ch.send.await_args.args[0]
