@@ -99,6 +99,10 @@ raises both together.
 - **Active** hunts are visible only to holders of the hunt's team `role_id`
   (legacy hunts with `role_id = 0` fall back to any guild member).
 - **Archived** hunts appear in the "Old hunts" menu, visible to any guild member.
+- **Team hunts** (on a per-team server made by `!setup_server`) follow the same rules on
+  their team server, so hub admins who aren't on it don't see them in the hunt list. Their
+  view is the hub's **Team servers** page (`/guilds/<id>/teams`, Admin tier on the hub):
+  running and archived team hunts with members, outstanding invites and access history.
 
 See `memory/site-hunt-visibility.md` for the full model.
 

@@ -219,7 +219,9 @@ Run in a puzzle channel — except `!clue`, which also works elsewhere (see its 
 ## Archiving
 
 Admins/mods. **Channel archiving is bang-only** — copying a Discord channel's history into a
-thread and deleting the channel has **no web-dashboard equivalent, by design**. Don't confuse it
+thread and deleting the channel has **no web-dashboard equivalent, by design** — with one
+exception: a team hunt's **Archive hunt** button on the dashboard runs `!archive_hunt_to_hub`
+(see below). Don't confuse it
 with two unrelated features that also say "archive": the **solved puzzles sheet** (see
 `!use_solved_sheet` — a second spreadsheet solved feeders move to) and the **hunt archived flag**
 (the dashboard "Archive hunt" action that makes a hunt read-only). Neither of those touches Discord
@@ -233,7 +235,7 @@ until it finishes.
 | Command | Where | Does |
 |---|---|---|
 | `!archive_hunt` | any hunt channel | Archive the **whole hunt**: condense every channel into threads here, delete all categories/channels (voice included), rename this channel to `{YYYY-MM} {hunt name} - {team}`, mark the hunt archived. Confirms first, then runs unattended. Sheets kept. |
-| `!archive_hunt_to_hub [hub server id]` | any hunt channel | Archive the **whole hunt onto another server** (the hub): condense every channel, this one included, into threads on a new hub channel `{YYYY-MM} {hunt name} - {team}`, delete all categories/channels, move the hunt to the hub on the dashboard, and remove the bot from this server if no other hunt is on it. You must be an admin on the hub as well. Refuses before confirming if the bot isn't in the hub or you aren't a hub admin. If any channel fails, the bot stays in the server; re-run from the hunt's general channel. Sheets kept. On a team server made by `!setup_server` leave the id out — the hub is found from the hunt's hub role; an id that disagrees with it is refused. |
+| `!archive_hunt_to_hub [hub server id]` | any hunt channel | Archive the **whole hunt onto another server** (the hub): condense every channel, this one included, into threads on a new hub channel `{YYYY-MM} {hunt name} - {team}`, delete all categories/channels, move the hunt to the hub on the dashboard, and remove the bot from this server if no other hunt is on it. You must be an admin on the hub as well. Refuses before confirming if the bot isn't in the hub or you aren't a hub admin. If any channel fails, the bot stays in the server; re-run from the hunt's general channel. Sheets kept. On a team server made by `!setup_server` leave the id out — the hub is found from the hunt's hub role; an id that disagrees with it is refused. The dashboard's **Archive hunt** button on such a hunt does the same (type the hunt's name to confirm); progress goes to the hub's admin channel. |
 | `!archive_round` | round channel | Copy the round's channels into threads, then delete the category. |
 | `!archive_category` | category channel | Archive every channel in the category into threads. Usually via `!archive_round`. |
 | `!archive_channel` | channel | Archive one channel's messages into a thread, then delete it (auto-creates the destination webhook if missing). |

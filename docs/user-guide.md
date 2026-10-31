@@ -404,9 +404,16 @@ The full [command reference](commands.md) lists every command; highlights:
 
 - **Server settings (dashboard):** the avatar menu → **Server settings**, for admins.
   Pins which Discord roles grant the admin and organiser tiers, and sets the bot command
-  channel and Google Drive folders, and holds the team-server template link. Its **Team servers**
-  button opens a page of each team hunt's access (admins only). A new team server's owner sets it up from the dashboard's setup page, linked from the bot's greeting. If a tier still says *matched by name*, anyone who can
-  create a role can grant themselves that tier — pin it.
+  channel and Google Drive folders, and holds the team-server template link. If a tier
+  still says *matched by name*, anyone who can create a role can grant themselves that
+  tier — pin it.
+- **Team servers (one per team per hunt):** clone the hub's template, invite the bot, drag
+  its role above `mod`, then follow the link in the bot's greeting to the dashboard's setup
+  page (or run `!setup_server`). The setup page can send the players' invites too. On the
+  hub, Server settings → **Team servers** shows each team hunt's members, outstanding
+  invites and access history (admins only). The
+  [new server playbook](new-server-playbook.md#team-servers-one-per-team-per-hunt) has
+  the full steps.
 - **Standing up a new Discord server for a hunt:** follow the
   [new server playbook](new-server-playbook.md) — it covers the two steps nothing in the
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the
@@ -421,9 +428,11 @@ The full [command reference](commands.md) lists every command; highlights:
 - **After the hunt:** `!archive_hunt` condenses every channel into threads under one
   channel, deletes the categories, and marks the hunt archived (sheets are kept). For a
   hunt played on its own team server, `!archive_hunt_to_hub <hub server id>` does the same
-  but lands the threads on the hub and then removes the bot from the team server.
-  `!archive_round` / `!archive_channel` do the same for smaller scopes. These are
-  Discord-only clean-ups and deliberately have no web equivalent.
+  but lands the threads on the hub and then removes the bot from the team server; on the
+  dashboard, a team hunt's **Archive hunt** button does the same (type the hunt's name to
+  confirm). `!archive_round` / `!archive_channel` do the same for smaller scopes. Apart
+  from archiving a team hunt to its hub, these are Discord-only clean-ups and
+  deliberately have no web equivalent.
 - **Reminders:** `!start_reminders` / `!stop_reminders` toggles the periodic tips loop.
 
 ---

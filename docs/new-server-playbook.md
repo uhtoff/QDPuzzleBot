@@ -198,8 +198,8 @@ server now (running hunts only), who was invited but hasn't arrived, and the acc
    (players can't see it). If its greeting lands in `#lobby` instead, the server didn't
    match the template — check it against the list above, and delete that greeting.
 5. In Server Settings → Roles, drag the bot's role above `mod`.
-6. Set the server up. When the dashboard URL is configured the greeting leads with a link
-   (`/guilds/<id>/setup`): open it as the server's owner (or an admin there), pick the hub
+6. Set the server up. When the dashboard URL is configured, the greeting's step 2 links to
+   the setup page (`/guilds/<id>/setup`): open it as the server's owner (or an admin there), pick the hub
    and the team's role, fill in the hunt name, URL and optional start time, login and
    solved sheet, and press **Set up**. **Send invites** is optional and off by default; it
    runs only if setup finished without error. The page shows each step and, if it stops,
@@ -233,8 +233,8 @@ they're leaving.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
-The dashboard does the same: open the team hunt's panel and press **Archive to hub**, then type the
-hunt's name to confirm. Progress and the summary go to the hub's admin channel (the hub
+The dashboard does the same: on the team hunt's panel press **Archive hunt**, type the hunt's name
+in the dialog and press **Archive to hub**. Progress and the summary go to the hub's admin channel (the hub
 archive channel if that is unusable), never only to the team server, whose channels the
 archive deletes.
 
