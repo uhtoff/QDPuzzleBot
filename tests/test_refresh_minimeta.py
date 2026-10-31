@@ -4,7 +4,7 @@ minimeta's OWN sheet via the rollup engine, tracked on a puzzle-keyed rollups ro
 Mirrors test_refresh_meta.py's mocking style (present-but-mocked GoogleSheets cog).
 """
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -55,7 +55,7 @@ class TestRefreshMinimeta:
         with _patched() as (pdb, _h, _r, _ru):
             pdb.get_children.return_value = minis
             await svc.refresh_minimeta(_hunt(), minimeta)
-        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, minis)
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, minis, link_for=ANY)
 
     @pytest.mark.asyncio
     async def test_creates_puzzle_keyed_rollup_record(self):
@@ -128,3 +128,22 @@ class TestSolveUnsolveTriggerMinimetaRollup:
             await svc.unsolve(None, _hunt(), mini)
         svc.refresh_minimeta.assert_awaited_once()
         assert svc.refresh_minimeta.call_args[0][1] is parent
+
+
+class TestMinimetaLinks:
+    @pytest.mark.asyncio
+    async def test_link_for_points_each_mini_at_its_own_sheet(self):
+        svc, gsheet = _svc_with_sheets()
+        minimeta = make_puzzle(id=3, puzzle_type="Minimeta")
+        live = make_puzzle(id=2, name="Live")
+        live.google_page_id = 11
+        live.on_solved_sheet = False
+        done = make_puzzle(id=3, name="Done")
+        done.google_page_id = 22
+        done.on_solved_sheet = True
+        with _patched() as (pdb, _h, _r, _ru):
+            pdb.get_children.return_value = [live, done]
+            await svc.refresh_minimeta(_hunt(), minimeta)
+        link_for = gsheet.render_minimeta_contribution.await_args.kwargs["link_for"]
+        assert link_for(live) == "https://docs.google.com/spreadsheets/d/SHEET1/edit#gid=11"
+        assert link_for(done) == "https://docs.google.com/spreadsheets/d/ARCH1/edit#gid=22"

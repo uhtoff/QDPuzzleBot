@@ -9,13 +9,14 @@ One table per target group. Each row is [key, source_name, type, content]:
 
 Keys are edge-anchored and stable, so the column-A diff survives re-tagging.
 """
+from bot.core.sheet_location import Link
 
 
 def _feeder_answer(puzzle):
     return puzzle.solution.upper() if (puzzle.solution) else ""
 
 
-def contribution_rows(tag_group_id, members, evidence):
+def contribution_rows(tag_group_id, members, evidence, link_for=None):
     """Build the desired contribution rows for one target group.
 
     members  : PuzzleData list (everything tagged into tag_group_id), each with
@@ -28,6 +29,9 @@ def contribution_rows(tag_group_id, members, evidence):
                any one puzzle (optionally carrying a "source_label") and is
                rendered after the member rows instead of being grouped under
                a member.
+    link_for : optional callable PuzzleData -> url | None. When given, each member
+               name cell becomes a Link(name, url); sourceless evidence labels stay
+               plain. When None, name cells are plain strings.
     Order: members in the given order; informs evidence in the given order;
            sourceless evidence last, in the given order.
     """
@@ -42,25 +46,26 @@ def contribution_rows(tag_group_id, members, evidence):
     # Column order: key (hidden), Source (member name), Type, Content.
     rows = []
     for p in members:
+        name = Link(p.name, link_for(p)) if link_for is not None else p.name
         edges = p.edges_for(tag_group_id)
         if not edges:
             # Transitive subtree member (runaround 'subtree' mode): reached via a
             # 'feeds' chain through sub-metas, so it carries no edge to THIS group.
             # The walk only follows 'feeds', so every such member is a feeder answer
             # — render it as one (blank until it solves).
-            rows.append([f"feeds:{p.id}", p.name, "Feeder", _feeder_answer(p)])
+            rows.append([f"feeds:{p.id}", name, "Feeder", _feeder_answer(p)])
             continue
         if "feeds" in edges:
-            rows.append([f"feeds:{p.id}", p.name, "Feeder", _feeder_answer(p)])
+            rows.append([f"feeds:{p.id}", name, "Feeder", _feeder_answer(p)])
         if "none" in edges:
-            rows.append([f"none:{p.id}", p.name, "Group", ""])
+            rows.append([f"none:{p.id}", name, "Group", ""])
         if "informs" in edges:
             data = ev_by_source.get(p.id, [])
             if not data:
-                rows.append([f"informs:{p.id}", p.name, "Information", ""])
+                rows.append([f"informs:{p.id}", name, "Information", ""])
             else:
                 for e in data:
-                    rows.append([f"informs:{p.id}:{e['id']}", p.name,
+                    rows.append([f"informs:{p.id}:{e['id']}", name,
                                  "Information", e["content"]])
 
     # Evidence with no source puzzle has no member row to hang from — a fact

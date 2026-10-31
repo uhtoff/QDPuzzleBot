@@ -1663,7 +1663,7 @@ class GoogleSheets(commands.Cog):
         await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
         return None
 
-    async def render_minimeta_contribution(self, minimeta, members):
+    async def render_minimeta_contribution(self, minimeta, members, link_for=None):
         """Render the contribution table on a minimeta's own tab.
 
         Synthesizes a 'Feeder' row for each mini-puzzle child, keyed by puzzle id
@@ -1679,7 +1679,7 @@ class GoogleSheets(commands.Cog):
         # tableless-but-already-promoted tab and inserted four more columns.
         snapshot = await self._ensure_contribution_table(minimeta)
         rows = [
-            [f"feeds:{m.id}", m.name, "Feeder", m.solution.upper() if m.solution else ""]
+            [f"feeds:{m.id}", Link(m.name, link_for(m)) if link_for is not None else m.name, "Feeder", m.solution.upper() if m.solution else ""]
             for m in members
             if m.id != minimeta.id
         ]
@@ -1692,7 +1692,8 @@ class GoogleSheets(commands.Cog):
             sheet_snapshot=snapshot,
         )
 
-    async def render_contribution(self, target_puzzle, tag_group_id, members, evidence):
+    async def render_contribution(self, target_puzzle, tag_group_id, members, evidence,
+                                  link_for=None):
         """Render the unified contribution table on the target's tab.
 
         Excludes the target's own row, builds desired rows from edges/evidence,
@@ -1714,7 +1715,7 @@ class GoogleSheets(commands.Cog):
             if p.id != target_puzzle.id
             or p.edges_for(tag_group_id) & {"feeds", "informs"}
         ]
-        rows = contribution_rows(tag_group_id, contributing, evidence)
+        rows = contribution_rows(tag_group_id, contributing, evidence, link_for=link_for)
         await self.reconcile_table(
             page_id=target_puzzle.google_page_id,
             desired_rows=rows,

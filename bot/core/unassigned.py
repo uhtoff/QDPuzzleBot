@@ -1,11 +1,13 @@
 """Pure helpers for the Unassigned Puzzles worktable reconcile."""
+from bot.core.sheet_location import Link
 
 
-def unassigned_row(puzzle):
+def unassigned_row(puzzle, link=None):
     """Shape a puzzle into a sheet row: [id, name, ANSWER_UPPER, length].
 
     Unsolved puzzles get blank Answer and blank Length.
     Length = letter count excluding spaces (punctuation kept).
+    link: optional callable puzzle -> url | None; when given the name cell is a Link.
     """
     if puzzle.solved and puzzle.solution:
         answer = puzzle.solution.upper()
@@ -14,7 +16,8 @@ def unassigned_row(puzzle):
         answer = ""
         length = ""
 
-    return [puzzle.id, puzzle.name, answer, length]
+    name = Link(puzzle.name, link(puzzle)) if link is not None else puzzle.name
+    return [puzzle.id, name, answer, length]
 
 
 def diff_rows(current_ids, desired_rows):

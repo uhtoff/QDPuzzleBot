@@ -5,6 +5,7 @@ No Google, no DB — contribution_rows is a pure function and diff_rows is reuse
 generically. Authored test-first (Opus); implementation lands separately.
 """
 from bot.core.contribution import contribution_rows
+from bot.core.sheet_location import Link
 from bot.core.unassigned import diff_rows
 from bot.store.puzzle_data import PuzzleData
 
@@ -168,3 +169,31 @@ def test_sourceless_evidence_does_not_leak_into_member_grouping():
     )
     assert rows[0] == ["informs:4", "Gamma", "Information", ""]
     assert rows[1][0] == "informs:free:9"
+
+
+def test_link_for_wraps_every_member_name_in_row_order_and_leaves_free_evidence_plain():
+    live = _p(2, "Live", tag_edges={5: {"feeds"}})
+    done = _p(3, "Done", solution="WORD", tag_edges={5: {"feeds"}})
+    inf = _p(4, "Inf", tag_edges={5: {"informs"}})
+    pooled = _p(6, "Pool", tag_edges={5: {"none"}})
+    sub = _p(7, "Sub")
+    evidence = [{"id": 9, "source_puzzle_id": None, "source_label": "Canvas",
+                 "content": "fact"}]
+    rows = contribution_rows(5, [live, done, inf, pooled, sub], evidence,
+                             link_for=lambda p: f"url/{p.id}")
+    assert [(r[0], r[1]) for r in rows] == [
+        ("feeds:2", Link("Live", "url/2")),
+        ("feeds:3", Link("Done", "url/3")),
+        ("informs:4", Link("Inf", "url/4")),
+        ("none:6", Link("Pool", "url/6")),
+        ("feeds:7", Link("Sub", "url/7")),
+        ("informs:free:9", "Canvas"),
+    ]
+
+
+def test_link_for_wraps_each_informs_evidence_row_name():
+    inf = _p(4, "Inf", tag_edges={5: {"informs"}})
+    ev = [{"id": 1, "source_puzzle_id": 4, "content": "a"},
+          {"id": 2, "source_puzzle_id": 4, "content": "b"}]
+    rows = contribution_rows(5, [inf], ev, link_for=lambda p: None)
+    assert [r[1] for r in rows] == [Link("Inf", None), Link("Inf", None)]

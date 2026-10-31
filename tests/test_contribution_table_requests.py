@@ -1685,3 +1685,27 @@ def test_ensure_skips_creation_when_our_named_table_is_present():
 def test_ensure_creates_our_table_when_the_tab_has_none():
     added, _promoted = _ensure_over([])
     assert added == [(900, sheet_layout.FROZEN_ROWS)]
+
+
+def test_render_minimeta_contribution_rows_carry_links():
+    from bot.core.sheet_location import Link
+    cog = _cog()
+    captured = {}
+
+    async def fake_reconcile(**kw):
+        captured["rows"] = kw["desired_rows"]
+
+    async def fake_ensure(minimeta):
+        return True
+
+    cog.reconcile_table = fake_reconcile
+    cog._ensure_contribution_table = fake_ensure
+    mm = PuzzleData()
+    mm.id, mm.name, mm.google_page_id = 1, "MM", 900
+    a, b = PuzzleData(), PuzzleData()
+    a.id, a.name, a.solution = 2, "A", "X"
+    b.id, b.name = 3, "B"
+    asyncio.run(cog.render_minimeta_contribution(
+        mm, [mm, a, b], link_for=lambda p: f"u/{p.id}"))
+    assert [(r[0], r[1]) for r in captured["rows"]] == [
+        ("feeds:2", Link("A", "u/2")), ("feeds:3", Link("B", "u/3"))]

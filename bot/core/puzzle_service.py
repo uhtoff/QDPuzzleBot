@@ -795,7 +795,7 @@ class PuzzleService:
                 return
             rollup = self._find_or_create_rollup(tag_group)
             try:
-                await self._render_rollup(gsheet_cog, tag_group, rollup, metapuzzle)
+                await self._render_rollup(gsheet_cog, tag_group, rollup, metapuzzle, hunt)
                 await self._record_rollup_tab(gsheet_cog, rollup, metapuzzle)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:
@@ -848,7 +848,8 @@ class PuzzleService:
             members = self.get_minis(minimeta.id)
             rollup = self._find_or_create_rollup_for_puzzle(hunt, minimeta)
             try:
-                await gsheet_cog.render_minimeta_contribution(minimeta, members)
+                await gsheet_cog.render_minimeta_contribution(
+                    minimeta, members, link_for=self._sheet_link_for(hunt))
                 await self._record_rollup_tab(gsheet_cog, rollup, minimeta)
                 self._mark_rollup(rollup, ok=True)
             except Exception as exc:
@@ -893,7 +894,14 @@ class PuzzleService:
                 if (p.edges_for(tag_group.id) or {"feeds"}) & set(contributing)
             ]
 
-    async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle):
+    @staticmethod
+    def _sheet_link_for(hunt):
+        """puzzle -> URL of that puzzle's own sheet (None if unknown), for roll-up name links."""
+        if hunt is None:
+            return None
+        return lambda p: puzzle_location(hunt, p).url
+
+    async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle, hunt=None):
         """Render the unified contribution table for tag_group's target.
 
         Selects feeder membership via select_rollup_members and delegates to the
@@ -916,7 +924,9 @@ class PuzzleService:
             }
             for e in raw_evidence
         ]
-        await gsheet_cog.render_contribution(metapuzzle, tag_group.id, members, evidence=evidence)
+        await gsheet_cog.render_contribution(
+            metapuzzle, tag_group.id, members, evidence=evidence,
+            link_for=self._sheet_link_for(hunt))
 
     def _mark_rollup(self, rollup, ok, error=None):
         """Persist the refresh outcome (badge state) on the rollup row."""
@@ -3480,7 +3490,8 @@ class PuzzleService:
             # (read sheet keys, append/update/prune) and grows the Table. Column 3
             # (Length) is number-typed, so it must be written numeric.
             pool = PuzzleJsonDb.get_unassigned(hunt.id)
-            desired = [unassigned_row(p) for p in pool]
+            link_for = self._sheet_link_for(hunt)
+            desired = [unassigned_row(p, link_for) for p in pool]
 
             await gsheet_cog.reconcile_table(
                 page_id=hunt.unassigned_sheet_page_id,

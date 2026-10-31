@@ -1,5 +1,5 @@
 """Tests for M8 minimeta cluster service methods."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from bot.store.puzzle_data import PuzzleData
@@ -518,7 +518,7 @@ class TestRefreshMiniMetaUsesStandardPath:
         svc = PuzzleService(bot)
         await svc.refresh_minimeta(hunt, minimeta)
 
-        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children)
+        gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children, link_for=ANY)
 
     @patch("bot.core.puzzle_service.PuzzleJsonDb")
     @patch("bot.core.puzzle_service.RollupsJsonDb")

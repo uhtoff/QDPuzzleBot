@@ -9,7 +9,7 @@ re-raise on failure, the google_page_id tab pointer, and solve-time failure
 isolation across multiple metas.
 """
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -79,7 +79,7 @@ class TestRefreshMetaFires:
             await svc.refresh_target(_hunt(), meta_round)
         # Task 10: renderers collapsed onto the unified render_contribution.
         gsheet.render_contribution.assert_awaited_once_with(
-            metapuzzle, 5, feeders, evidence=[])
+            metapuzzle, 5, feeders, evidence=[], link_for=ANY)
         gsheet.add_metapuzzle_data.assert_not_awaited()
         gsheet.add_metametapuzzle_data.assert_not_awaited()
 
@@ -104,7 +104,8 @@ class TestRefreshMetaFires:
         gsheet.render_contribution.assert_awaited_once_with(
             metapuzzle, 5, [informer],
             evidence=[{"id": 11, "source_puzzle_id": 2, "source_label": "",
-                      "content": "is blue"}])
+                      "content": "is blue"}],
+            link_for=ANY)
         edb.get_all.assert_called_once_with(10, target_puzzle_id=1)
 
     @pytest.mark.asyncio
@@ -138,7 +139,7 @@ class TestRefreshMetaFires:
         # Task 10: subtree membership still branch-walked, but rendered via the
         # unified contribution table (no separate metameta renderer).
         gsheet.render_contribution.assert_awaited_once_with(
-            metameta, 5, branch_members, evidence=[])
+            metameta, 5, branch_members, evidence=[], link_for=ANY)
         gsheet.add_metametapuzzle_data.assert_not_awaited()
         gsheet.add_metapuzzle_data.assert_not_awaited()
 
@@ -256,7 +257,7 @@ class TestSolveFailureIsolation:
         # render_contribution fails for the first meta, succeeds for the second.
         calls = {"n": 0}
 
-        async def flaky(metapuzzle, tag_group_id, members, evidence=None):
+        async def flaky(metapuzzle, tag_group_id, members, evidence=None, link_for=None):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("first meta sheet down")
@@ -287,3 +288,23 @@ class TestSolveFailureIsolation:
         assert exc.value.failed_group_ids == [5]
         assert exc.value.failed_puzzle_ids == []
         assert puzzle.solved is True
+
+
+class TestRollupLinks:
+    @pytest.mark.asyncio
+    async def test_link_for_yields_solved_sheet_url_for_solved_member(self):
+        svc, gsheet = _svc_with_sheets()
+        meta_round = make_round(id=5, target_puzzle_id=1)
+        live = make_puzzle(id=2, name="Live")
+        live.google_page_id = 11
+        live.on_solved_sheet = False
+        done = make_puzzle(id=3, name="Done")
+        done.google_page_id = 22
+        done.on_solved_sheet = True
+        with _patched() as (pdb, _h, _r, _ru):
+            pdb.get_by_attr.return_value = make_puzzle(id=1, is_target=True)
+            pdb.get_all_from_tag_group.return_value = [live, done]
+            await svc.refresh_target(_hunt(), meta_round)
+        link_for = gsheet.render_contribution.await_args.kwargs["link_for"]
+        assert link_for(live) == "https://docs.google.com/spreadsheets/d/SHEET1/edit#gid=11"
+        assert link_for(done) == "https://docs.google.com/spreadsheets/d/ARCH1/edit#gid=22"

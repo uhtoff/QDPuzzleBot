@@ -1,6 +1,8 @@
 """Tests for meta-matching service layer + HuntData fields."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from bot.core.sheet_location import Link
+
 from tests.conftest import make_hunt, make_puzzle
 
 
@@ -45,10 +47,11 @@ class TestRefreshUnassigned:
     async def test_reconcile_shapes_rows_uppercase_and_blank_unsolved(self, PuzzleDb, HuntDb):
         from bot.core.puzzle_service import PuzzleService
         hunt = make_hunt(unassigned_sheet_page_id=None, unassigned_table_id=None); hunt.unassigned_sheet_page_id = 42; hunt.unassigned_table_id = 7
-        PuzzleDb.get_unassigned.return_value = [
-            make_puzzle(id=1, name="Solved One", solved=True, solution="cat"),
-            make_puzzle(id=2, name="Open Two", solved=False, solution=None),
-        ]
+        hunt.google_sheet_id = "SS"
+        one = make_puzzle(id=1, name="Solved One", solved=True, solution="cat")
+        two = make_puzzle(id=2, name="Open Two", solved=False, solution=None)
+        one.google_page_id, two.google_page_id = 11, 22
+        PuzzleDb.get_unassigned.return_value = [one, two]
         gsheet = MagicMock()
         gsheet.reconcile_table = AsyncMock()
         bot = MagicMock(); bot.get_cog.return_value = gsheet
@@ -59,8 +62,10 @@ class TestRefreshUnassigned:
         # blank for unsolved. Length col is flagged numeric.
         kwargs = gsheet.reconcile_table.call_args.kwargs
         desired = kwargs["desired_rows"]
-        assert [1, "Solved One", "CAT", 3] in desired
-        assert [2, "Open Two", "", ""] in desired
+        # Names are rich-text Links to each puzzle's own sheet.
+        u = "https://docs.google.com/spreadsheets/d/SS/edit#gid="
+        assert [1, Link("Solved One", u + "11"), "CAT", 3] in desired
+        assert [2, Link("Open Two", u + "22"), "", ""] in desired
         assert kwargs["numeric_cols"] == (3,)
 
     @patch("bot.core.puzzle_service.HuntJsonDb")

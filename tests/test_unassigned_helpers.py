@@ -24,6 +24,17 @@ class TestUnassignedRow:
         assert unassigned_row(p)[3] == 4
 
 
+class TestUnassignedRowLink:
+    def test_link_wraps_name_with_callable_result(self):
+        from bot.core.sheet_location import Link
+        from bot.core.unassigned import unassigned_row
+        a = make_puzzle(id=1, name="A")
+        b = make_puzzle(id=2, name="B")
+        urls = {1: "u/1", 2: None}
+        assert unassigned_row(a, lambda p: urls[p.id])[1] == Link("A", "u/1")
+        assert unassigned_row(b, lambda p: urls[p.id])[1] == Link("B", None)
+
+
 class TestDiffRows:
     """diff_rows(current_ids, desired_rows) -> (appends, updates, prunes).
     desired_rows are [id, name, answer, length] lists (id is element 0)."""
