@@ -75,6 +75,8 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
     data.settings.drive_resources_id ?? "",
   );
   const [voice, setVoice] = useState(data.settings.discord_use_voice_channels);
+  const [templateLink, setTemplateLink] = useState(data.settings.template_link ?? "");
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   // Re-seed when the query refetches or the guild changes under us.
   useEffect(() => {
@@ -84,6 +86,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
     setDriveParent(data.settings.drive_parent_id ?? "");
     setDriveResources(data.settings.drive_resources_id ?? "");
     setVoice(data.settings.discord_use_voice_channels);
+    setTemplateLink(data.settings.template_link ?? "");
   }, [data]);
 
   const roleOptions = useMemo(
@@ -105,12 +108,24 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
       drive_parent_id: driveParent,
       drive_resources_id: driveResources,
       discord_use_voice_channels: voice,
+      template_link: templateLink,
     };
+    setTemplateError(null);
     update.mutate(patch, {
       onSuccess: () =>
         notifications.show({ color: "green", message: "Server settings saved." }),
-      onError: (err: Error) =>
-        notifications.show({ color: "red", message: err.message }),
+      onError: (err: Error) => {
+        // The server names the field only in the 400 body; friendlyError
+        // surfaces its code, and the only bad_value a non-empty link can hit
+        // here is the template link (role lists are built from pickers).
+        if (err.message === "bad_value") {
+          setTemplateError(
+            "Not a recognised template link. Use https://discord.new/<code>, discord.new/<code> or https://discord.com/template/<code>.",
+          );
+        } else {
+          notifications.show({ color: "red", message: err.message });
+        }
+      },
     });
   }
 
@@ -181,6 +196,19 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             label="Create a voice channel alongside each puzzle channel"
             checked={voice}
             onChange={(e) => setVoice(e.currentTarget.checked)}
+          />
+        </Stack>
+      </Card>
+
+      <Card withBorder padding="md">
+        <Stack gap="sm">
+          <Title order={5}>Team servers</Title>
+          <TextInput
+            label="Team-server template link"
+            description="The Discord server template new team servers are made from. Accepted: https://discord.new/<code>, discord.new/<code>, https://discord.com/template/<code>. Leave empty to clear."
+            value={templateLink}
+            onChange={(e) => setTemplateLink(e.currentTarget.value)}
+            error={templateError}
           />
         </Stack>
       </Card>

@@ -41,6 +41,7 @@ def web():
         discord_use_voice_channels=False,
         drive_parent_id="DRIVE1", drive_resources_id="",
         admin_role_ids=str(RUNNERS_ID), organiser_role_ids=str(HELPERS_ID),
+        template_link="https://discord.new/old",
     )
     db = MagicMock()
     db.get.return_value = settings
@@ -136,6 +137,33 @@ async def test_patch_stores_the_other_settings(web):
     assert resp.status_code == 200
     assert web.settings.discord_bot_channel == "puzzle-bot"
     assert web.settings.discord_use_voice_channels is True
+
+
+async def test_get_includes_template_link(web):
+    resp = await web.client.get(f"/api/guilds/{GUILD_ROW_ID}/settings")
+    assert (await resp.get_json())["settings"]["template_link"] == "https://discord.new/old"
+
+
+async def test_patch_template_link_stores_canonical(web):
+    resp = await _patch(web, {"template_link": "discord.new/abc"})
+    assert resp.status_code == 200
+    assert web.settings.template_link == "https://discord.new/abc"
+    web.db.commit.assert_called_once_with(web.settings)
+
+
+async def test_patch_template_link_rejects_bad(web):
+    resp = await _patch(web, {"template_link": "https://evil.example/discord.new/abc"})
+    assert resp.status_code == 400
+    assert await resp.get_json() == {"error": "bad_value", "field": "template_link"}
+    assert web.settings.template_link == "https://discord.new/old"
+    web.db.commit.assert_not_called()
+
+
+async def test_patch_template_link_empty_clears(web):
+    resp = await _patch(web, {"template_link": "  "})
+    assert resp.status_code == 200
+    assert web.settings.template_link == ""
+    web.db.commit.assert_called_once_with(web.settings)
 
 
 async def test_partial_patch_does_not_blank_untouched_columns(web):

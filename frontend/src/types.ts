@@ -31,6 +31,7 @@ export interface GuildSettingsValues {
   drive_resources_id: string | null;
   discord_use_voice_channels: boolean;
   website_url: string | null;
+  template_link: string | null;
   admin_role_ids: string[];
   organiser_role_ids: string[];
 }

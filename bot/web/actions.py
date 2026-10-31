@@ -33,7 +33,7 @@ from .auth import (
     resolve_membership,
     resolve_member_role_ids,
 )
-from bot.core import role_gate
+from bot.core import role_gate, template_link
 from bot.store import GuildSettingsDb
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
@@ -1594,7 +1594,7 @@ async def change_group_type(tag_group_id):
 # handler, not by hand.
 _GUILD_SETTINGS_KEYS = {
     "discord_bot_channel", "drive_parent_id", "drive_resources_id",
-    "discord_use_voice_channels", "website_url",
+    "discord_use_voice_channels", "website_url", "template_link",
 }
 _GUILD_ROLE_KEYS = {"admin_role_ids", "organiser_role_ids"}
 
@@ -1704,6 +1704,19 @@ async def patch_guild_settings(guild_id):
                             "field": key,
                             "role_ids": [str(i) for i in foreign]}), 400
         parsed_roles[key] = ids
+
+    # The template link is stored canonically; "" clears it.
+    if "template_link" in body:
+        raw = body["template_link"]
+        if not isinstance(raw, str):
+            return jsonify({"error": "bad_value", "field": "template_link"}), 400
+        if raw.strip():
+            canonical = template_link.normalise(raw)
+            if canonical is None:
+                return jsonify({"error": "bad_value", "field": "template_link"}), 400
+            body["template_link"] = canonical
+        else:
+            body["template_link"] = ""
 
     # Mirrors !set_admin_roles: pinning admin ids the caller does not hold leaves
     # nobody able to undo it. An EMPTY list is the documented revert-to-names
