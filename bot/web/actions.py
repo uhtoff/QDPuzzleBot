@@ -1843,8 +1843,13 @@ async def post_guild_setup(guild_id):
         value = body.get(key, "")
         if not isinstance(value, str) or (key in _SETUP_REQUIRED and not value.strip()):
             return jsonify({"error": "bad_value", "field": key}), 400
-    start_timestamp = body.get("start_timestamp", 0)
-    if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
+    raw_start = body.get("start_timestamp", 0)
+    if isinstance(raw_start, bool) or not isinstance(raw_start, (int, float)):
+        return jsonify({"error": "bad_value", "field": "start_timestamp"}), 400
+    try:
+        datetime.datetime.fromtimestamp(raw_start, tz=pytz.UTC)
+        start_timestamp = int(raw_start)
+    except (OverflowError, OSError, ValueError):
         return jsonify({"error": "bad_value", "field": "start_timestamp"}), 400
     for key in ("create_solved_sheet", "send_invites"):
         if not isinstance(body.get(key, False), bool):

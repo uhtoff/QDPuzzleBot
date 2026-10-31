@@ -266,7 +266,15 @@ async def test_missing_and_bad_types_refused(web):
     assert resp.status_code == 400
     assert (await resp.get_json())["error"] == "missing_keys"
     for patch_ in ({"hub_id": "abc"}, {"roster_role_id": True}, {"hunt_name": 5},
-                   {"start_timestamp": "x"}, {"create_solved_sheet": "yes"}):
+                   {"start_timestamp": "x"}, {"start_timestamp": 1e300},
+                   {"create_solved_sheet": "yes"}):
         resp = await web.client.post(URL, json=dict(BODY, **patch_))
         assert resp.status_code == 400, patch_
     web.perform.assert_not_awaited()
+
+
+async def test_float_start_timestamp_passed_as_int(web):
+    resp = await web.client.post(URL, json=dict(BODY, start_timestamp=1700000000.7))
+    assert resp.status_code == 200
+    passed = web.perform.await_args.kwargs["start_timestamp"]
+    assert passed == 1700000000 and type(passed) is int
