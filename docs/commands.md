@@ -44,7 +44,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | | Restructure | `!convert_to_meta` · `!convert_to_capstone` · `!convert_to_runaround` · `!convert_to_metapuzzle` · `!convert_to_group` · `!convert_to_puzzle` · `!sync` |
 | | Category layout | `!extract_target_to_category` · `!consolidate_to` · `!backfill_glyphs` · `!absorb_category` · `!move_to_top` · `!move_to_bottom` · `!move_to_solved` |
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
-| **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` · `!setup_server` · `!post_role_panel` · `!send_invites` · `!invite_player` |
+| **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!set_hunt_role` · `!setup_server` · `!post_role_panel` · `!send_invites` · `!invite_player` · `!mod_invite` |
 | | Settings | `!set_login` · `!set_start` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
 | | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
 | | Archive | `!archive_hunt` · `!archive_hunt_to_hub` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
@@ -68,6 +68,7 @@ Two things the table can't show:
 | `!post_role_panel` | | `hunt name` | bot channel | admins/mods | Post the `#lobby` Join/Leave panel for a hunt made by `!setup_server` — `!setup_server` already posts one; use this if it was deleted or the server predates the panel. Join is for people holding the hunt's hub role (hub admins also get `mod`); Leave removes both. Old panels keep working. |
 | `!send_invites` | | `hunt name` | bot channel | admins/mods | DM a private, single-use invite to this team server to everyone holding the hunt's hub role; they get the team role on arrival. Skips anyone already here or already invited, so re-running is safe. After the first run, anyone given the hub role is DM'd automatically. Names (never links) anyone whose DMs are closed. |
 | `!invite_player` | | `user id or name` | bot channel | admins/mods | DM one hub-role holder a fresh invite to this team server; if their DMs are closed, it's DM'd to you to pass on privately. (`!invite` is the bot's own invite link.) |
+| `!mod_invite` | | `hunt name` | hub bot channel | admins | Post a reusable, non-expiring invite to that hunt's team server in the hub's admin channel (the hub's `discord_bot_channel`) — for mods who aren't on the team server yet. Refuses if `@everyone` can see that channel. The reply never contains the link; re-running re-posts the same one (or a fresh one if it was deleted). `!setup_server` posts it on a clean finish; `!archive_hunt_to_hub` deletes it. |
 | `!use_solved_sheet` *(slash)* | `!set_to_archive` | — | Hunt channel | admins/mods | Use a separate "solved puzzles sheet": solved feeders move there, metas stay on the main sheet. |
 | `!set_login` | | `username:password` | hunt channel | admins/mods | Store the hunt login shown on hunt info. |
 | `!set_start` | | `timestamp` (UNIX seconds) | hunt channel | admins/mods | Set the hunt start time. |

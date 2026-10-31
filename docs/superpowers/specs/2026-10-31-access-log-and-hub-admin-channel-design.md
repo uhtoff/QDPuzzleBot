@@ -1,7 +1,7 @@
 # Slice 5 — access log, hub admin channel, mod invites
 
 **Date:** 2026-10-31
-**Status:** Design, awaiting approval.
+**Status:** Implemented — plan `docs/superpowers/plans/2026-10-31-access-log.md`.
 **Parent spec:** `docs/superpowers/specs/2026-07-31-fresh-server-per-hunt-team-design.md`
 (the *Access audit trail* section and acceptance criterion 4). Where this document and the
 parent disagree, this one wins; the parent gets a dated *Changed* note pointing here.

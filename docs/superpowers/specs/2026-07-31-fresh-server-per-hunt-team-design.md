@@ -1,7 +1,7 @@
 # Fresh Discord server per hunt-team — design
 
 **Date:** 2026-07-31
-**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14; slice 3 (#lobby role panel) — plan 2026-10-30; slice 4 (invites) — plan 2026-10-30.
+**Status:** Design approved; slice 1 (cross-server archive) implemented — plan 2026-09-24; slice 2 (!setup_server) — plan 2026-10-14; slice 3 (#lobby role panel) — plan 2026-10-30; slice 4 (invites) — plan 2026-10-30; slice 5 (access log, hub admin channel, mod invite) — plan 2026-10-31.
 **Supersedes:** the *reusable pool* decision in
 `docs/future/2026-07-05-multi-server-hunt-architecture-design.md`. That doc's problem
 statement, Discord constraints, and rejected approaches all still stand and are not
@@ -218,6 +218,8 @@ Why the role exists at all, given the server already holds exactly one team:
 
 ## Access audit trail
 
+*Changed 2026-10-31 (slice 5, plan 2026-10-31-access-log.md; design 2026-10-31-access-log-and-hub-admin-channel-design.md):* `hunt_access_log` (migration 049) records grant/revoke, elevate/demote, arrive/depart with a `via`. The hub mirror is superseded: the hub admin channel (`discord_bot_channel`) gets only a quiet list (hand changes, bot removals, non-button mod changes, failures, mod invites, startup warnings), not one line per change.
+
 Role grants and removals do land in Discord's guild audit log (annotatable via the
 `reason=` parameter), but that log lives in the **team server**, retains 45 days, and is
 **destroyed when the server is discarded**. So it cannot be the record. The bot keeps its
@@ -392,8 +394,9 @@ list and in `guilds` rows, cluttering the dashboard's guild picker.
    with the team role already granted, and with dashboard access working.
 3. No invite link for a team server ever appears in a channel.
 4. Every grant and removal of a team role — by button, by command, or by hand in the
-   Discord UI — appears in `hunt_access_log` and in the hub mirror, with mod elevation
-   recorded distinctly.
+   Discord UI — appears in `hunt_access_log`, with mod elevation
+   recorded distinctly; hand changes and other exceptions also reach the hub admin channel
+   (*Changed 2026-10-31, slice 5:* the per-line hub mirror is superseded).
 5. A hub mod who clicks join on a team server can immediately see the hunt channels and run
    `!archive_hunt_to_hub` there, without any human holding Administrator in that server.
 6. Re-running `!setup_server` after a partial failure completes the setup without creating

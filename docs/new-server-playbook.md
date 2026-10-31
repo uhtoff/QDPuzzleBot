@@ -166,6 +166,13 @@ drifts; existing team servers are unaffected.
 by role *name* — anyone on the hub with Manage Roles could mint an `admin` role and
 collect `mod` everywhere.
 
+**Hide the hub's command channel from `@everyone`.** The hub's `discord_bot_channel` is
+the hub admin channel: it receives the mod invite (`!mod_invite <hunt name>` re-posts it;
+`!setup_server` posts it on a clean finish) and the quiet access lines (hand role changes,
+bot removals, non-button mod changes, failures) and a startup warning when a team server
+is missing the bot, its Administrator, or a role at or above `mod`. The bot refuses to post
+an invite there if `@everyone` can see the channel.
+
 **Per team, per hunt:**
 
 1. On the hub, make the team's role by hand (e.g. `Team Rocket`) and copy its id.
