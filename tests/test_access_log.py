@@ -229,6 +229,25 @@ async def test_kick_by_hand_is_posted_with_actor():
     assert f"<@{ACTOR}>" in w.post.await_args.args[1]
 
 
+async def test_ban_by_hand_is_posted_with_actor():
+    w = World()
+    w.audit([], [], [_entry()])   # kick: two tries find nothing; ban: found
+    await w.run(access_log.on_departed, w.member)
+    assert w.rows() == [(HUNT_ID, PERSON, "Fay", "depart", "hand", ACTOR, None)]
+    assert w.guild.audit_logs.call_args_list[-1].kwargs["action"] == discord.AuditLogAction.ban
+    w.post.assert_awaited_once()
+
+
+async def test_kick_entry_with_no_user_is_still_by_hand_with_no_actor():
+    w = World()
+    entry = _entry()
+    entry.user = None
+    w.audit([entry])
+    await w.run(access_log.on_departed, w.member)
+    assert w.rows() == [(HUNT_ID, PERSON, "Fay", "depart", "hand", None, None)]
+    w.post.assert_awaited_once()
+
+
 async def test_arrival_is_logged_quietly():
     w = World()
     await w.run(access_log.on_arrived, w.member)

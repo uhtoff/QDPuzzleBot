@@ -25,3 +25,8 @@ def take(guild_id, user_id, key):
     if _now() - at > TTL_SECONDS:
         return None
     return via
+
+
+def discard(guild_id, user_id, key):
+    """Drop a note whose Discord call failed, so it can't mislabel a later hand change."""
+    _notes.pop((guild_id, user_id, key), None)

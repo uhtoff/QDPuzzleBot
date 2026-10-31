@@ -109,10 +109,11 @@ async def test_post_refuses_a_visible_channel_without_making_an_invite(hdb):
     with patch("bot.core.mod_invite.role_panel.find_roster_role", return_value=SimpleNamespace(guild=hub)), \
          patch("bot.core.mod_invite.hub_channel.find", return_value=(None, "#admin is visible to everyone")), \
          patch("bot.core.mod_invite.hub_channel.post", new=AsyncMock()) as post:
-        reply = await mod_invite.post(bot, g, _hunt())
+        reply, name = await mod_invite.post(bot, g, _hunt())
     g.lobby.create_invite.assert_not_awaited()
     post.assert_not_awaited()
     assert "#admin is visible to everyone" in reply
+    assert name is None
 
 
 async def test_post_puts_the_link_in_the_admin_channel(hdb):
@@ -121,12 +122,13 @@ async def test_post_puts_the_link_in_the_admin_channel(hdb):
     with patch("bot.core.mod_invite.role_panel.find_roster_role", return_value=SimpleNamespace(guild=hub)), \
          patch("bot.core.mod_invite.hub_channel.find", return_value=(chan, "")), \
          patch("bot.core.mod_invite.hub_channel.post", new=AsyncMock(return_value=True)) as post:
-        reply = await mod_invite.post(MagicMock(), g, _hunt())
+        reply, name = await mod_invite.post(MagicMock(), g, _hunt())
     hub_arg, text = post.await_args.args
     assert hub_arg is hub
     assert "https://discord.gg/NEW" in text and "Big Hunt" in text and "Join" in text
     assert "Team Server" in text and "Team Rocket" in text
     assert "discord.gg" not in reply
+    assert name == "admin"
 
 
 async def test_delete_removes_and_clears(hdb):
@@ -164,7 +166,7 @@ def _cog(guilds):
 
 async def _run(cog, ctx, live, name="big hunt"):
     with patch("bot.cogs.puzzles.HuntJsonDb") as hdb, \
-         patch("bot.cogs.puzzles.mod_invite.post", new=AsyncMock(return_value="ok")) as post:
+         patch("bot.cogs.puzzles.mod_invite.post", new=AsyncMock(return_value=("ok", None))) as post:
         hdb.live_team_hunts.return_value = live
         await Puzzles.mod_invite.callback(cog, ctx, hunt_name=name)
     return post
@@ -206,3 +208,14 @@ async def test_mod_invite_command_when_bot_not_on_team_server():
     post = await _run(cog, ctx, [(_hunt(), 2000)])
     post.assert_not_awaited()
     assert "not on" in ctx.send.await_args.args[0]
+
+
+async def test_delete_failure_logs_ids_not_the_invite_code(hdb, caplog):
+    g = _guild(invites=[_invite("SECRETCODE")])
+    g.invites = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "boom"))
+    hdb.mod_invite_code.return_value = "SECRETCODE"
+    with caplog.at_level("WARNING"):
+        await mod_invite.delete(g, _hunt())
+    assert caplog.records
+    assert "SECRETCODE" not in caplog.text
+    assert str(_hunt().id) in caplog.text and str(g.id) in caplog.text

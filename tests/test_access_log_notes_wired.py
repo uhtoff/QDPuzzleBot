@@ -187,3 +187,24 @@ async def test_failed_kick_reaches_the_hub_too():
             patch("bot.core.team_invites.HuntInviteDb"):
         await team_invites._remove_from_team(w.guild, w.member, w.roster, w.hunt)
     assert tell.await_args.kwargs.get("hub") is w.hub
+
+
+async def test_failed_join_leaves_no_note_to_mislabel_a_later_hand_grant():
+    w = World()
+    w.member.add_roles = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "no"))
+    hub_member = MagicMock()
+    hub_member.roles = [_role(1, "x")]
+    with ExitStack() as s:
+        s.enter_context(patch("bot.core.role_panel.HuntJsonDb")).get_by_attr.return_value = w.hunt
+        s.enter_context(patch("bot.core.role_panel.GuildSettingsDb")).get.return_value = MagicMock(id=7)
+        s.enter_context(patch("bot.core.role_panel.role_gate.tier_role_ids", return_value={MOD}))
+        s.enter_context(patch("bot.core.role_panel.role_gate.member_holds_tier", return_value=True))
+        s.enter_context(patch("bot.core.role_panel.hunt_archive.hub_member",
+                              new=AsyncMock(return_value=hub_member)))
+        await role_panel.join(w.bot, w.guild, w.member, HUNT_ID)
+    assert access_notes._notes == {}
+    w.log()
+    with w.stack, patch("bot.core.access_log._hand_actor", new=AsyncMock(return_value=None)):
+        await access_log.on_roles_changed(w.bot, *w.pair([], [w.mod]))
+    assert [r[3:5] for r in w.rows()] == [("elevate", "hand")]
+    w.post.assert_awaited_once()

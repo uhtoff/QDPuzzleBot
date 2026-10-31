@@ -1,6 +1,6 @@
 """Slice 5: turn team-server member events into durable `hunt_access_log` rows, and
-post only the quiet list (hand changes, hub-driven removals, every elevate/demote
-that wasn't a button press) to the hub admin channel.
+post only what mods need to see (hand changes, hub-driven removals, every
+elevate/demote that wasn't a button press) to the hub admin channel.
 
 Whether a change was the bot's own comes from `access_notes`; anything without a
 note is a hand change, and the actor is looked up in the audit log."""
@@ -18,15 +18,16 @@ logger = logging.getLogger(__name__)
 ACTIONS = ("grant", "revoke", "elevate", "demote", "arrive", "depart")
 VIAS = ("button", "arrival", "hub_role_lost", "hub_admin_lost", "hand", "self")
 
-LOUD_VIAS = ("hand", "hub_role_lost", "hub_admin_lost")
+ALWAYS_POSTED_VIAS = ("hand", "hub_role_lost", "hub_admin_lost")
 AUDIT_WINDOW_SECONDS = 30
 AUDIT_RETRY_SECONDS = 2
 
 
-def _is_quiet(action, via):
-    if via in LOUD_VIAS:
-        return False
-    return not (action in ("elevate", "demote") and via != "button")
+def _posted(action, via):
+    """True when this change goes to the hub admin channel."""
+    if via in ALWAYS_POSTED_VIAS:
+        return True
+    return action in ("elevate", "demote") and via != "button"
 
 
 def _recent(entry):
@@ -44,8 +45,8 @@ def _entry_has_role(entry, role_id, added):
     return role_id in [r.id for r in (getattr(side, "roles", None) or [])]
 
 
-async def _find_actor(guild, user_id, action, matches=lambda entry: True):
-    """The id of whoever did `action` to `user_id` recently, or None. One retry, since
+async def _find_entry(guild, user_id, action, matches=lambda entry: True):
+    """The recent audit entry for `action` on `user_id`, or None. One retry, since
     the audit entry can lag the gateway event. Never raises."""
     for attempt in range(2):
         try:
@@ -54,12 +55,18 @@ async def _find_actor(guild, user_id, action, matches=lambda entry: True):
                 if getattr(target, "id", None) != user_id or not _recent(entry):
                     continue
                 if matches(entry):
-                    return entry.user.id if entry.user is not None else None
+                    return entry
         except (discord.Forbidden, discord.HTTPException):
             return None
         if attempt == 0:
             await asyncio.sleep(AUDIT_RETRY_SECONDS)
     return None
+
+
+async def _find_actor(guild, user_id, action, matches=lambda entry: True):
+    """The id of whoever did `action` to `user_id` recently, or None."""
+    entry = await _find_entry(guild, user_id, action, matches)
+    return entry.user.id if entry is not None and entry.user is not None else None
 
 
 async def _hand_actor(guild, member, role_id, added):
@@ -128,7 +135,7 @@ async def on_roles_changed(bot, before, after):
             actor_id = await _hand_actor(guild, member, role.id, added)
         HuntAccessLogDb.record(hunt.id, member.id, member.display_name, action, via,
                                actor_id, role.name)
-        if not _is_quiet(action, via):
+        if _posted(action, via):
             if hub is None:
                 hub = _hub_of(bot, hunt)
             await hub_channel.post(hub, _line(member, guild, role, action, via, actor_id))
@@ -153,8 +160,14 @@ async def on_departed(bot, member):
     via = access_notes.take(guild.id, member.id, "kick")
     actor_id = None
     if via is None:
-        actor_id = await _find_actor(guild, member.id, discord.AuditLogAction.kick)
-        via = "hand" if actor_id is not None else "self"
+        entry = await _find_entry(guild, member.id, discord.AuditLogAction.kick)
+        if entry is None:
+            entry = await _find_entry(guild, member.id, discord.AuditLogAction.ban)
+        if entry is not None:
+            via = "hand"
+            actor_id = entry.user.id if entry.user is not None else None
+        else:
+            via = "self"
     held = {r.id for r in member.roles}
     rows = [("depart", None)]
     for role, is_mod in _watched(guild, hunt):
@@ -163,7 +176,7 @@ async def on_departed(bot, member):
     for action, detail in rows:
         HuntAccessLogDb.record(hunt.id, member.id, member.display_name, action, via,
                                actor_id, detail)
-    if any(not _is_quiet(a, via) for a, _ in rows):
+    if any(_posted(a, via) for a, _ in rows):
         text = f":door: **{member.display_name}** left **{guild.name}**"
         if via == "hand":
             text += f" (removed by <@{actor_id}>)"

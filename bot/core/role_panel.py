@@ -88,6 +88,8 @@ async def join(bot, guild, member, hunt_id):
     try:
         await member.add_roles(*to_add, reason=f"role panel: join {hunt.name}")
     except discord.Forbidden:
+        for r in to_add:
+            access_notes.discard(guild.id, member.id, r.id)
         return _CANT_GRANT
     return f"Done — you now have {_names(to_add)}. The hunt channels should appear now."
 
@@ -108,6 +110,8 @@ async def leave(guild, member, hunt_id):
     try:
         await member.remove_roles(*to_remove, reason=f"role panel: leave {hunt.name}")
     except discord.Forbidden:
+        for r in to_remove:
+            access_notes.discard(guild.id, member.id, r.id)
         return _CANT_GRANT
     return f"Done — removed {_names(to_remove)}. Click **Join** to come back."
 

@@ -45,23 +45,24 @@ def invite_text(guild, team_role_name, hunt, url):
 
 async def post(bot, guild, hunt):
     """Post the mod invite for *hunt* (on team server *guild*) in the hub admin
-    channel. Returns a short reply for the caller; the link is never in it."""
+    channel. Returns (reply, channel_name): a short reply for the caller (the link is
+    never in it) and the hub channel's name when posted, else None."""
     roster_role = role_panel.find_roster_role(bot, hunt.roster_role_id)
     if roster_role is None:
-        return f":x: I can't find **{hunt.name}**'s hub role, so there's no hub to post to."
+        return f":x: I can't find **{hunt.name}**'s hub role, so there's no hub to post to.", None
     hub = roster_role.guild
     channel, reason = hub_channel.find(hub)
     if channel is None:
-        return f":warning: Mod invite not posted: {reason}."
+        return f":warning: Mod invite not posted: {reason}.", None
     try:
         invite = await ensure(guild, hunt)
     except InviteUnavailable as exc:
-        return f":x: No mod invite: {exc}."
+        return f":x: No mod invite: {exc}.", None
     team_role = guild.get_role(hunt.role_id)
     text = invite_text(guild, team_role.name if team_role else hunt.name, hunt, invite.url)
     if not await hub_channel.post(hub, text):
-        return f":warning: Mod invite not posted: couldn't send to #{channel.name} on {hub.name}."
-    return f":white_check_mark: Mod invite posted in #{channel.name} on {hub.name}."
+        return f":warning: Mod invite not posted: couldn't send to #{channel.name} on {hub.name}.", None
+    return f":white_check_mark: Mod invite posted in #{channel.name} on {hub.name}.", channel.name
 
 
 async def delete(guild, hunt):
@@ -76,7 +77,7 @@ async def delete(guild, hunt):
                     await invite.delete(reason=f"mod invite: {hunt.name} archived")
                     break
         except discord.HTTPException:
-            logger.warning("could not delete mod invite %s on guild %s", code, guild.id)
+            logger.warning("could not delete mod invite for hunt %s on guild %s", hunt.id, guild.id)
         HuntJsonDb.set_mod_invite_code(hunt.id, None)
     except Exception:
         logger.exception("mod invite cleanup failed for hunt %s", hunt.id)

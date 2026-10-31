@@ -50,3 +50,12 @@ def test_kick_key():
     access_notes.expect(1, 2, "kick", "hub_role_lost")
     assert access_notes.take(1, 2, 3) is None
     assert access_notes.take(1, 2, "kick") == "hub_role_lost"
+
+
+def test_discard_removes_the_note_and_tolerates_a_missing_one():
+    access_notes.expect(1, 2, 3, "button")
+    access_notes.expect(1, 2, 4, "button")
+    access_notes.discard(1, 2, 3)
+    assert access_notes.take(1, 2, 3) is None
+    assert access_notes.take(1, 2, 4) == "button"
+    access_notes.discard(1, 2, 3)   # nothing there: no error

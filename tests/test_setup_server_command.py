@@ -136,11 +136,12 @@ async def test_setup_server_completion_posts_the_mod_invite():
     run = AsyncMock(return_value=server_setup.SetupReport(steps=["x"], hunt=hunt, hunt_created=True))
     chan = MagicMock(); chan.name = "hub-admin"
     with patch("bot.cogs.puzzles.mod_invite.post",
-               new=AsyncMock(return_value=":white_check_mark: Mod invite posted in #hub-admin on The Hub.")) as post, \
-         patch("bot.cogs.puzzles.hub_channel.find", return_value=(chan, "")) as find:
+               new=AsyncMock(return_value=(":white_check_mark: Mod invite posted in #hub-admin on The Hub.",
+                                           "hub-admin"))) as post, \
+         patch("bot.core.hub_channel.find") as find:
         await _call(cog, ctx, _settings(), run=run)
     post.assert_awaited_once_with(cog.bot, ctx.guild, hunt)
-    find.assert_called_once_with(HUB)
+    find.assert_not_called()
     assert "A mod invite for hub admins is in the hub's #hub-admin." in _sent(ctx)
 
     ctx2 = _ctx()
@@ -155,7 +156,7 @@ async def test_a_refused_mod_invite_adds_a_line_but_setup_still_completes():
     hunt = MagicMock(); hunt.channel_id = 61
     run = AsyncMock(return_value=server_setup.SetupReport(steps=["x"], hunt=hunt))
     with patch("bot.cogs.puzzles.mod_invite.post",
-               new=AsyncMock(return_value=":warning: Mod invite not posted: nope.")):
+               new=AsyncMock(return_value=(":warning: Mod invite not posted: nope.", None))):
         await _call(cog, ctx, _settings(), run=run)
     text = _sent(ctx)
     assert "Setup complete" in text and "Mod invite not posted: nope" in text

@@ -316,6 +316,8 @@ async def _drop_mod(team_guild, member, roster, hunt):
     try:
         await on_team.remove_roles(*mods, reason=f"no longer a hub admin: {hunt.name}")
     except discord.HTTPException as exc:
+        for r in mods:
+            access_notes.discard(team_guild.id, member.id, r.id)
         await _tell_mods(team_guild, (
             f":warning: **{member.display_name}** is no longer a hub admin, but I couldn't "
             f"take {", ".join(f"**{r.name}**" for r in mods)} off them: {exc.text or exc}."),
@@ -343,6 +345,8 @@ async def _remove_from_team(team_guild, member, roster, hunt):
             if roles:
                 await on_team.remove_roles(*roles, reason=reason)
         except discord.HTTPException:
+            for r in roles:
+                access_notes.discard(team_guild.id, member.id, r.id)
             logger.exception("could not strip roles from owner %s on guild %s",
                              member.id, team_guild.id)
         await _tell_mods(team_guild, (
@@ -354,6 +358,7 @@ async def _remove_from_team(team_guild, member, roster, hunt):
     try:
         await on_team.kick(reason=reason)
     except discord.HTTPException as exc:
+        access_notes.discard(team_guild.id, member.id, "kick")
         await _tell_mods(team_guild, (
             f":warning: **{member.display_name}** lost **{roster.name}** on the hub, but I "
             f"couldn't remove them from this server: {exc.text or exc}. Remove them by hand."), hub=roster.guild)

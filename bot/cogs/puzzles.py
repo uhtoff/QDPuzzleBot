@@ -34,7 +34,7 @@ from bot.core.media_tiling import schedule_tiling
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
-from bot.core import category_layout, hub_channel, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -4110,10 +4110,10 @@ class Puzzles(commands.Cog):
             if report.failures:
                 summary += ("\nThe hunt hasn't been moved on the dashboard yet and the bot is staying: "
                             "re-run !archive_hunt_to_hub <hub id> from this hunt's general channel to finish.")
-            hub_channel = hub.get_channel(report.hub_channel_id)
-            if hub_channel is not None:
+            hub_dest = hub.get_channel(report.hub_channel_id)
+            if hub_dest is not None:
                 try:
-                    await hub_channel.send(summary)
+                    await hub_dest.send(summary)
                 except discord.HTTPException:
                     logger.exception("archive_hunt_to_hub: could not post summary to hub channel %s", report.hub_channel_id)
             try:
@@ -4170,10 +4170,9 @@ class Puzzles(commands.Cog):
         else:
             lines.append(":white_check_mark: Setup complete; !setup_server is now locked on this server.")
             if report.hunt is not None:
-                invite_reply = await mod_invite.post(self.bot, ctx.guild, report.hunt)
-                if invite_reply.startswith(":white_check_mark:"):
-                    posted_in, _ = hub_channel.find(hub)
-                    lines.append(f"A mod invite for hub admins is in the hub's #{posted_in.name}.")
+                invite_reply, posted_in = await mod_invite.post(self.bot, ctx.guild, report.hunt)
+                if posted_in is not None:
+                    lines.append(f"A mod invite for hub admins is in the hub's #{posted_in}.")
                 else:
                     lines.append(invite_reply)
             lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
@@ -4250,7 +4249,8 @@ class Puzzles(commands.Cog):
         if guild is None:
             await ctx.send(f":x: I'm not on **{hunt.name}**'s team server (id {snowflake}).")
             return
-        await ctx.send(await mod_invite.post(self.bot, guild, hunt))
+        reply, _ = await mod_invite.post(self.bot, guild, hunt)
+        await ctx.send(reply)
 
     @commands.command()
     @commands.guild_only()
