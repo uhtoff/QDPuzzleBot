@@ -23,6 +23,9 @@ const SHORTCODES: Record<string, string> = {
   mag: "🔍",
   broom: "🧹",
   biohazard: "☣️",
+  incoming_envelope: "📨",
+  door: "🚪",
+  wave: "👋",
   // Common extras likely to appear from the bot or other integrations
   tada: "🎉",
   heavy_check_mark: "✔️",

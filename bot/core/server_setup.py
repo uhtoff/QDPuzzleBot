@@ -294,8 +294,8 @@ async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, h
                 lines.append(invite_reply)
         if invites_by_dashboard:
             lines.append("Next: click **Join** in #lobby (as a hub admin you get `mod` too) and "
-                         "check the server. Invites have been sent. Transfer server ownership "
-                         "to a team member if wanted.")
+                         "check the server; the invites report is below. Transfer server "
+                         "ownership to a team member if wanted.")
         else:
             lines.append(f"Next: click **Join** in #lobby (as a hub admin you get `mod` too), check "
                          f"the server, then run `!send_invites {hunt_name}` to DM everyone with "

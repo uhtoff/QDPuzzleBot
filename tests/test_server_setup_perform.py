@@ -153,8 +153,8 @@ async def test_next_line_after_dashboard_invites_does_not_ask_for_send_invites()
     dash = (await _run(ok, invites_by_dashboard=True)).lines[-1]
     assert "!send_invites Big Hunt" in plain
     assert dash == ("Next: click **Join** in #lobby (as a hub admin you get `mod` too) and "
-                    "check the server. Invites have been sent. Transfer server ownership "
-                    "to a team member if wanted.")
+                    "check the server; the invites report is below. Transfer server "
+                    "ownership to a team member if wanted.")
 
 
 async def test_stopped_line_wording_depends_on_entry_point():

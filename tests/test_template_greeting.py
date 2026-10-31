@@ -144,8 +144,11 @@ async def test_greeting_links_to_dashboard_setup_when_configured():
     text = _bot_commands(g).sent[0]
     link = "https://puzz.example/guilds/42/setup"
     assert link in text
-    assert text.index(link) < text.index("above `mod`")
-    assert "!setup_server <hub server id>" in text      # command stays as the alternative
+    # The bot's role must be dragged before the page can set anything up, so the
+    # link is step 2, never ahead of the drag instruction.
+    assert text.index("above `mod`") < text.index(link) < text.index("**Join**")
+    assert text.index(link) < text.index("!setup_server <hub server id>")  # the alternative
+    assert "ticked **Send invites**" in text
 
 
 async def test_greeting_has_no_link_without_a_frontend_url():
@@ -156,3 +159,13 @@ async def test_greeting_has_no_link_without_a_frontend_url():
     text = _bot_commands(g).sent[0]
     assert "/guilds/" not in text
     assert "dashboard" not in text.lower()
+
+
+async def test_greeting_without_dashboard_has_no_link_or_toggle():
+    g = _template_guild()
+    with patch("bot.cogs.settings.config") as cfg:
+        cfg.web_frontend_url = ""
+        await _join(g, row_id=42)
+    text = _bot_commands(g).sent[0]
+    assert "/setup" not in text and "Send invites" not in text
+    assert text.index("above `mod`") < text.index("!setup_server <hub server id>")

@@ -50,36 +50,48 @@ Both are also available on the dashboard under **Server settings**. \
 # The join greeting for a server cloned from the team-server template, where
 # !setup_server does both of SETUP_MESSAGE's manual steps. Posted in
 # #bot-commands: only the owner and `mod` see it, and players never do.
-_TEMPLATE_SETUP_STEPS = f"""\
-**1.** In Server Settings → Roles, drag my role above `{server_setup.TEMPLATE_MOD_ROLE}`.
-**2.** Here in #{server_setup.BOT_CHANNEL}, run:
+_SETUP_COMMAND = """\
 ```
 !setup_server <hub server id> <hub role id> <hunt url> <hunt name>
 ```
 You must be this server's owner and an admin on the hub. To copy the ids, turn on \
 Developer Mode (User Settings → Advanced), then right-click the hub's server icon, \
 and the team's role in the hub's Server Settings → Roles. If it stops partway, fix \
-what it says and re-run the same command.
-**3.** Click **Join** in #{server_setup.LOBBY_CHANNEL}. As a hub admin you also get \
-`{server_setup.TEMPLATE_MOD_ROLE}`, which the next step needs.
-**4.** Check the server looks right, then run `!send_invites <hunt name>` here: everyone \
-with the hub role gets a private invite by DM, and anyone given the role later is \
-invited automatically.
-**5.** Optionally, transfer server ownership to someone on the team."""
+what it says and re-run the same command."""
+
+
+def _template_setup_steps(setup_url=None) -> str:
+    """The greeting's numbered steps. With *setup_url*, step 2 is the dashboard
+    page and the command is the alternative; the bot's role must be dragged
+    first either way, so the link never comes before step 1."""
+    if setup_url:
+        step2 = (f"**2.** Finish setting me up on the dashboard: {setup_url}\n"
+                 f"Or, here in #{server_setup.BOT_CHANNEL}, run:\n{_SETUP_COMMAND}")
+        step4_tail = (" (skip this if you ticked **Send invites** on the dashboard)")
+    else:
+        step2 = f"**2.** Here in #{server_setup.BOT_CHANNEL}, run:\n{_SETUP_COMMAND}"
+        step4_tail = ""
+    return (
+        f"**1.** In Server Settings → Roles, drag my role above "
+        f"`{server_setup.TEMPLATE_MOD_ROLE}`.\n"
+        f"{step2}\n"
+        f"**3.** Click **Join** in #{server_setup.LOBBY_CHANNEL}. As a hub admin you also get "
+        f"`{server_setup.TEMPLATE_MOD_ROLE}`, which the next step needs.\n"
+        f"**4.** Check the server looks right, then run `!send_invites <hunt name>` here"
+        f"{step4_tail}: everyone with the hub role gets a private invite by DM, and anyone "
+        "given the role later is invited automatically.\n"
+        "**5.** Optionally, transfer server ownership to someone on the team.")
 
 
 def template_setup_message(settings_id=None) -> str:
     """The template-clone greeting. When the dashboard URL is configured and we
-    know the guilds row id, lead with a link to the dashboard setup page and
-    keep the command form as the alternative."""
+    know the guilds row id, step 2 links to the dashboard setup page and keeps
+    the command form as the alternative."""
     base = (config.web_frontend_url or "").rstrip("/")
     intro = (":wave: **Thanks for adding me!** This looks like a team server made from "
              "the template. To finish setting it up:\n\n")
-    if base and settings_id:
-        return (intro
-                + f"**Set me up on the dashboard:** {base}/guilds/{settings_id}/setup\n\n"
-                + "Or, step by step:\n\n" + _TEMPLATE_SETUP_STEPS)
-    return intro + _TEMPLATE_SETUP_STEPS
+    setup_url = f"{base}/guilds/{settings_id}/setup" if base and settings_id else None
+    return intro + _template_setup_steps(setup_url)
 
 
 async def _post_setup_message(guild, settings_id=None):

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   Alert,
+  Code,
   Anchor,
   Button,
   Center,
@@ -21,6 +22,7 @@ import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { useRunSetup, useSetupStatus } from "../api";
+import { discordSpans } from "../lib/discordText";
 import { buildPayload, canSubmit, emptySetupForm, type SetupForm } from "../lib/setupForm";
 import type { SetupResult, SetupStatus } from "../types";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes } from "../util";
@@ -38,29 +40,36 @@ function initialForm(status: SetupStatus): SetupForm {
   return form;
 }
 
+function DiscordLine({ line }: { line: string }) {
+  return (
+    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+      {discordSpans(line).map((span, i) =>
+        span.kind === "bold" ? (
+          <strong key={i}>{span.text}</strong>
+        ) : span.kind === "code" ? (
+          <Code key={i}>{span.text}</Code>
+        ) : (
+          <span key={i}>{span.text}</span>
+        ),
+      )}
+    </Text>
+  );
+}
+
+// The lines already carry the outcome (":white_check_mark: Setup complete…" or
+// ":x: Setup stopped…" plus what to do), so nothing here repeats them.
 function SetupResultView({ result }: { result: SetupResult }) {
+  const lines = result.lines.map((line, i) => <DiscordLine key={i} line={line} />);
   return (
     <Stack gap="xs">
-      {result.lines.map((line, i) => (
-        <Text key={i} size="sm">
-          {line}
-        </Text>
-      ))}
       {result.error ? (
         <Alert color="red" title="Setup stopped">
-          <Text size="sm">{result.error}</Text>
-          <Text size="sm">Fix that and press Set up again.</Text>
+          <Stack gap="xs">{lines}</Stack>
         </Alert>
       ) : (
         <>
-          <Text c="green" fw={500}>
-            Setup complete.
-          </Text>
-          {result.invites && (
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {result.invites}
-            </Text>
-          )}
+          {lines}
+          {result.invites && <DiscordLine line={result.invites} />}
           {result.hunt_uid && (
             <Anchor component={Link} to={`/hunts/${result.hunt_uid}`}>
               Open the hunt board
