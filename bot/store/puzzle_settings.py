@@ -27,6 +27,9 @@ class GuildSettings:
     # GuildSettingsDb.mark_setup_complete -- commit() deliberately never writes
     # it, so no ordinary settings write can clear it.
     setup_complete_time: Optional[datetime.datetime] = None
+    # The hub's Discord server-template link, canonical https://discord.new/<code>
+    # (migration 050). Empty means none set.
+    template_link: str = ""
 
     @classmethod
     def import_dict(cls, settings: dict):
@@ -39,6 +42,8 @@ class GuildSettings:
                 if db_date is not None:
                     utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
                     setattr(r,attr,utc_date)
+            elif attr == "template_link":
+                setattr(r, attr, settings.get(attr) or "")
             else:
                 setattr(r, attr, settings.get(attr, None))
 

@@ -1,0 +1,11 @@
+-- 050_template_link.sql
+-- Slice 5b: the hub's Discord server-template link, set by !set_template_link and
+-- shown to hub admins by !show_template_link and the Team servers page.
+-- Stored canonically as https://discord.new/<code>.
+--
+-- PRE-FLIGHT: none needed. Nullable additive column; NULL (no link) is right for
+-- every existing row.
+--
+-- Re-runnable only in the sense that a second apply fails loudly on the
+-- duplicate column.
+ALTER TABLE guilds ADD COLUMN template_link VARCHAR(255) NULL DEFAULT NULL;

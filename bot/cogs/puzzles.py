@@ -27,7 +27,7 @@ from bot.utils.components import (
 )
 from bot.utils.text import flush_left
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority
-from bot.core import role_gate
+from bot.core import hub_channel, role_gate, template_link
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
@@ -2680,6 +2680,63 @@ class Puzzles(commands.Cog):
                      "While a tier is matched by name, anyone who can create a role "
                      "can grant themselves that tier.")
         await ctx.send("\n".join(lines))
+
+    @commands.hybrid_command(description="Set or clear the hub's team-server template link (admin only)")
+    @commands.guild_only()
+    @is_admin()
+    async def set_template_link(self, ctx, link: str = ""):
+        """*Set (or, with no argument, clear) this hub's team-server template link.*
+
+        Usage: `!set_template_link [link]`
+        Example: `!set_template_link https://discord.new/abc123`
+        Accepts `https://discord.new/<code>`, `discord.new/<code>` or
+        `https://discord.com/template/<code>`; stored as the discord.new form.
+        Run in the bot channel. Admins/mods only."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        canonical = ""
+        if link.strip():
+            canonical = template_link.normalise(link)
+            if canonical is None:
+                await ctx.send(f":x: That isn't a template link. Accepted forms: {template_link.ACCEPTED_FORMS}")
+                return
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        if settings is None:
+            await ctx.send(":x: This server has no guild settings yet.")
+            return
+        settings.template_link = canonical
+        GuildSettingsDb.commit(settings)  # also refreshes cached_settings
+        if canonical:
+            await ctx.send(f":white_check_mark: Template link set: {canonical}")
+        else:
+            await ctx.send(":white_check_mark: Template link cleared.")
+
+    @commands.hybrid_command(description="Post the hub's team-server template link to the admin channel (admin only)")
+    @commands.guild_only()
+    @is_admin()
+    async def show_template_link(self, ctx):
+        """*Post the team-server template link in the hub's admin channel.*
+
+        Usage: `!show_template_link`
+        The link is posted only in the admin channel (never in the channel you
+        ran this in). Admins/mods only."""
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        link = settings.template_link if settings else ""
+        if not link:
+            await ctx.send(":information_source: No template link is set. Set one with `!set_template_link <link>`.")
+            return
+        channel, reason = hub_channel.find(ctx.guild)
+        if channel is None:
+            await ctx.send(f":x: Not posted: {reason}.")
+            return
+        sent = await hub_channel.post(
+            ctx.guild,
+            f":hammer_and_wrench: Team-server template: {link}\n"
+            f"If the Discord app ignores it, open {template_link.browser_url(link)} in a browser.")
+        if sent:
+            await ctx.send(f":white_check_mark: Posted in #{channel.name}.")
+        else:
+            await ctx.send(f":x: Could not post in #{channel.name}.")
 
     @commands.hybrid_command(description="Show channel settings (admin only)",)
     @is_admin()

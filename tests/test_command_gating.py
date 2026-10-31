@@ -115,9 +115,11 @@ EXPECTED = [
     ("set_login", "admin"),
     ("set_organiser_roles", "admin"),
     ("set_start", "admin"),
+    ("set_template_link", "admin"),
     ("show_auth_roles", "admin"),
     ("show_puzzle_settings", "admin"),
     ("show_settings", "admin"),
+    ("show_template_link", "admin"),
     ("update_settings", "admin"),      # D3 dropped Manage Channels, tier unchanged
     ("use_solved_sheet", "admin"),
 
