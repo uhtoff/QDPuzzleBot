@@ -1,7 +1,7 @@
 # Per-puzzle sheets, and links between puzzle sheets
 
 **Date:** 2026-10-31
-**Status:** Draft — builder check done, user answers folded in; awaiting approval
+**Status:** Approved 2026-10-31
 **Roadmap:** item 2 of the agreed order (`docs/PLANS.md`, "Agreed order (2026-10-16)"), plus
 the "link puzzle names in every roll-up table" item from item 3, pulled forward.
 
@@ -60,7 +60,7 @@ meta and back out" — user).
 
 ## Non-goals
 
-- Switching an existing hunt between modes. (My call — see below.)
+- Switching a hunt between modes once it has puzzles or rounds.
 - A list/index of every puzzle in the reference spreadsheet. The dashboard is the index
   (user).
 - Header links to anything other than the puzzles it feeds (user: "in terms of other sheets,
@@ -88,7 +88,13 @@ meta and back out" — user).
 
 ### Choosing the mode
 
-- A hunt-level setting, default `tabs`, set at creation and fixed afterwards.
+- A hunt-level setting, default `tabs`, set at creation. It **can be switched until the hunt
+  has any puzzle or round/group** (user decision, 2026-10-31); after that it is fixed and a
+  switch is refused with the reason. Switching leaves the hunt exactly as if it had been
+  created in the new mode (folder, Solved subfolder and reference spreadsheet made, or the
+  reverse; a solved-sheet setting cleared on the way to files). How the existing hunt
+  spreadsheet is reused or replaced is the builder's call. Offered on the dashboard's hunt
+  settings panel and as a command.
 - Offered everywhere a hunt is created (command-parity principle): the dashboard's
   create-hunt form, the team-server setup page's Advanced section (the 5c spec already
   reserved a place for it there), and `!hunt` / `!setup_server`. Exact command syntax is the
@@ -187,7 +193,7 @@ Each step lands separately on `staging`.
 
 ## My calls (for the user to check)
 
-- A hunt's mode is fixed at creation; no conversion either way.
+- (Superseded by the user: the mode can be switched until the first puzzle or round.)
 - Links in the Evidence tab are left out for now.
 - A mini's header links up to its minimeta.
 - Unsolving a mini un-greens its tab and moves it back in front of the solved minis.
@@ -242,3 +248,6 @@ Each step lands separately on `staging`.
 7. `!reconcile` reports no drift on a healthy hunt of either mode.
 8. The mode can be chosen from the dashboard create form, the team-server setup page and
    the commands; solved-sheet options refuse with a reason on a files hunt.
+9. A hunt with no puzzles or rounds can be switched either way, from the dashboard and by
+   command, and then behaves as if created in that mode; once it has a puzzle or round the
+   switch is refused with the reason.
