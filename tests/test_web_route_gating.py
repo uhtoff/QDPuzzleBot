@@ -89,6 +89,12 @@ UNGATED_BY_DECISION = [
     ("POST", "/puzzles/<int:puzzle_id>/sheets"),    # Create area; only removal is gated
     ("POST", "/puzzles/<int:puzzle_id>/solve"),
     ("POST", "/puzzles/<int:puzzle_id>/unsolve"),
+    # Team-server setup: gated by _team_setup_ctx (server owner OR Admin tier
+    # there), a custom gate this census cannot resolve to a tier. A fresh clone's
+    # owner holds no `mod` yet, so require_admin would lock them out. Pinned by
+    # tests/test_setup_web.py::test_owner_without_mod_can_set_up / test_stranger_refused.
+    ("GET", "/guilds/<int:guild_id>/setup"),
+    ("POST", "/guilds/<int:guild_id>/setup"),
     # Canvas CONTENT, as against the canvas itself. These six were listed as
     # organiser until 2026-08-31 and never were: they reach require_organiser only
     # through _canvas_ctx's `if require_manage:`, which they do not set, and the

@@ -1708,6 +1708,176 @@ async def _guild_settings_ctx(guild_id):
     return (row, guild, settings), None
 
 
+# --- Team-server setup (owner or Admin tier on the team server) -------------
+
+async def _team_setup_ctx(guild_id):
+    """Resolve (guild_row, guild, member) for the setup routes, or an error tuple.
+
+    Not require_admin: a freshly cloned server's owner usually holds no `mod`
+    yet, so the gate is !setup_server's own -- the server's owner, or anyone
+    holding the Admin tier there."""
+    from bot.core import role_gate
+    guilds_map = await web_data.get_guilds_map()
+    row = guilds_map.get(guild_id)
+    if row is None:
+        return None, (jsonify({"error": "guild_not_found"}), 404)
+    snowflake = row["guild_snowflake"]
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
+    if guild is None:
+        return None, (jsonify({"error": "bot_unavailable"}), 503)
+    user_id = int((current_user() or {}).get("id") or 0)
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except discord.NotFound:
+            member = None
+        except discord.HTTPException:
+            return None, (jsonify({"error": "discord_unavailable"}), 503)
+    if member is None:
+        return None, (jsonify({"error": "not_a_member"}), 403)
+    if member.id != guild.owner_id and not role_gate.member_holds_tier(
+            {r.id for r in member.roles}, guild, ADMIN_ROLES):
+        return None, (jsonify({"error": "not_admin"}), 403)
+    return (row, guild, member), None
+
+
+@actions_bp.route("/guilds/<int:guild_id>/setup", methods=["GET"])
+@login_required
+async def get_guild_setup(guild_id):
+    """What the setup page needs: template problems, a prefill from a partly
+    finished setup, and the hubs the viewer may set this server up under."""
+    from bot.core import hunt_archive, role_gate, role_panel, server_setup
+    resolved, err = await _team_setup_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, guild, member = resolved
+    bot = bot_app().bot
+    settings = GuildSettingsDb.get(guild.id)
+    if settings is None:
+        return jsonify({"error": "guild_not_found"}), 404
+
+    hubs = []
+    for hub in bot.guilds:
+        if hub.id == guild.id:
+            continue
+        hub_settings = GuildSettingsDb.get(hub.id)
+        if hub_settings is None or hub_settings.setup_complete_time is not None:
+            continue
+        if HuntJsonDb.live_team_hunt_for_guild(hub.id) is not None:
+            continue
+        try:
+            hub_user = await hunt_archive.hub_member(hub, member.id)
+        except discord.HTTPException:
+            continue
+        if hub_user is None or not role_gate.member_holds_tier(
+                {r.id for r in hub_user.roles}, hub, ADMIN_ROLES):
+            continue
+        admin_ids = role_gate.tier_role_ids(hub, ADMIN_ROLES)
+        roles = sorted(
+            (r for r in hub.roles
+             if not r.is_default() and not r.managed and r.id not in admin_ids),
+            key=lambda r: r.position, reverse=True)
+        hubs.append({"id": str(hub.id), "name": hub.name,
+                     "roles": [{"id": str(r.id), "name": r.name} for r in roles]})
+
+    existing = None
+    hunt = HuntJsonDb.get_by_attr(guild_id=guild_id)
+    if hunt is not None:
+        roster = (role_panel.find_roster_role(bot, hunt.roster_role_id)
+                  if hunt.roster_role_id else None)
+        existing = {
+            "hub_id": str(roster.guild.id) if roster is not None else None,
+            "roster_role_id": str(hunt.roster_role_id) if hunt.roster_role_id else None,
+            "hunt_name": hunt.name,
+            "hunt_url": hunt.url,
+        }
+    done = settings.setup_complete_time
+    return jsonify({
+        "template_problems": server_setup.template_problems(guild, settings),
+        "already_set_up": done.isoformat() if done is not None else None,
+        "existing": existing,
+        "hubs": hubs,
+    })
+
+
+_SETUP_REQUIRED = {"hub_id", "roster_role_id", "hunt_name", "hunt_url"}
+_SETUP_OPTIONAL = {"start_timestamp", "username", "password", "create_solved_sheet",
+                   "send_invites"}
+
+
+def _snowflake_field(value):
+    """An id sent as a string or an int, or None if it is neither."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+@actions_bp.route("/guilds/<int:guild_id>/setup", methods=["POST"])
+@login_required
+async def post_guild_setup(guild_id):
+    """Run !setup_server's flow from the dashboard. A refusal or a stopped setup
+    is a normal 200 outcome (`ok: false`); re-posting finishes a partial one."""
+    from bot.core import server_setup, team_invites
+    body = await request.get_json(silent=True) or {}
+    missing = _SETUP_REQUIRED - set(body.keys())
+    if missing:
+        return jsonify({"error": "missing_keys", "required": sorted(missing)}), 400
+    extra = set(body.keys()) - _SETUP_REQUIRED - _SETUP_OPTIONAL
+    if extra:
+        return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+    hub_id = _snowflake_field(body["hub_id"])
+    roster_role_id = _snowflake_field(body["roster_role_id"])
+    if hub_id is None:
+        return jsonify({"error": "bad_value", "field": "hub_id"}), 400
+    if roster_role_id is None:
+        return jsonify({"error": "bad_value", "field": "roster_role_id"}), 400
+    for key in ("hunt_name", "hunt_url", "username", "password"):
+        value = body.get(key, "")
+        if not isinstance(value, str) or (key in _SETUP_REQUIRED and not value.strip()):
+            return jsonify({"error": "bad_value", "field": key}), 400
+    start_timestamp = body.get("start_timestamp", 0)
+    if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
+        return jsonify({"error": "bad_value", "field": "start_timestamp"}), 400
+    for key in ("create_solved_sheet", "send_invites"):
+        if not isinstance(body.get(key, False), bool):
+            return jsonify({"error": "bad_value", "field": key}), 400
+
+    resolved, err = await _team_setup_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, guild, member = resolved
+    cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+    bot = bot_app().bot
+
+    outcome = await server_setup.perform_setup(
+        bot, cog.service, guild, member, hub_id, roster_role_id,
+        body["hunt_name"], body["hunt_url"],
+        start_timestamp=start_timestamp, username=body.get("username", ""),
+        password=body.get("password", ""),
+        create_solved_sheet=body.get("create_solved_sheet", False))
+
+    invites = None
+    if outcome.ok and outcome.hunt is not None and body.get("send_invites"):
+        invites = team_invites.report_text(
+            await team_invites.send_invites(bot, guild, outcome.hunt))
+
+    hunt_uid = outcome.hunt.uid if outcome.hunt is not None else None
+    await _audit("setup_server", hunt_uid=hunt_uid,
+                 detail=f"guild_id={guild_id} hub={hub_id} ok={outcome.ok}")
+    return jsonify({"ok": outcome.ok, "lines": outcome.lines,
+                    "error": outcome.error or None, "hunt_uid": hunt_uid,
+                    "invites": invites})
+
+
 def _team_hunt_out(hub, hunt, snowflake, bot, *, count=False):
     """The list/detail summary of one team hunt, plus the team guild when the bot
     can see it (running hunts only; an archived hunt's row lives on the hub)."""
