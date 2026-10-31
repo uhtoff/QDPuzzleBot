@@ -1709,3 +1709,30 @@ def test_render_minimeta_contribution_rows_carry_links():
         mm, [mm, a, b], link_for=lambda p: f"u/{p.id}"))
     assert [(r[0], r[1]) for r in captured["rows"]] == [
         ("feeds:2", Link("A", "u/2")), ("feeds:3", Link("B", "u/3"))]
+
+
+def test_render_contribution_forwards_link_for_to_contribution_rows():
+    # render_contribution imports contribution_rows inside the function, so the
+    # module attribute is what it looks up — patch it there.
+    cog = _cog()
+    captured = {}
+
+    async def fake_reconcile(**kw):
+        captured["rows"] = kw["desired_rows"]
+
+    async def fake_ensure(puzzle):
+        return None
+
+    def fake_rows(tag_group_id, members, evidence, link_for=None):
+        captured["link_for"] = link_for
+        return [["feeds:2", "A", "Feeder", ""]]
+
+    cog.reconcile_table = fake_reconcile
+    cog._ensure_contribution_table = fake_ensure
+    meta = PuzzleData()
+    meta.id, meta.name, meta.google_page_id = 1, "Meta", 900
+    link_for = lambda p: f"u/{p.id}"  # noqa: E731
+    with patch("bot.core.contribution.contribution_rows", side_effect=fake_rows):
+        asyncio.run(cog.render_contribution(meta, 5, [], [], link_for=link_for))
+    assert captured["link_for"] is link_for
+    assert captured["rows"] == [["feeds:2", "A", "Feeder", ""]]

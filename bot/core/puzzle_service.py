@@ -901,6 +901,7 @@ class PuzzleService:
             return None
         return lambda p: puzzle_location(hunt, p).url
 
+    # hunt=None renders names without links; the default exists only for older tests that call this with four args.
     async def _render_rollup(self, gsheet_cog, tag_group, rollup, metapuzzle, hunt=None):
         """Render the unified contribution table for tag_group's target.
 
