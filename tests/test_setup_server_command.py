@@ -160,3 +160,20 @@ async def test_a_refused_mod_invite_adds_a_line_but_setup_still_completes():
         await _call(cog, ctx, _settings(), run=run)
     text = _sent(ctx)
     assert "Setup complete" in text and "Mod invite not posted: nope" in text
+
+
+async def test_trailing_files_token_sets_the_mode_and_leaves_the_name():
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
+    seen = {}
+
+    async def fake_perform(bot, service, guild, author, hub_id, role_id, name, url, **kw):
+        seen.update(name=name, **kw)
+        return server_setup.SetupOutcome(lines=["ok"], ok=True)
+
+    with patch("bot.core.server_setup.perform_setup", new=fake_perform):
+        await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
+                                            hunt_name="Big Hunt, files")
+        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "files")
+        await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
+                                            hunt_name="Big Hunt")
+        assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "tabs")

@@ -24,7 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
-import { useArchiveHunt, useCreateSolvedSheet, useDeleteHunt, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { useArchiveHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
@@ -39,6 +39,7 @@ interface AdminSettingsPanelProps {
   archived: boolean;
   isTeamHunt: boolean;
   hasSolvedSheet: boolean;
+  sheetMode: "tabs" | "files";
   puzzleCount: number;
 }
 
@@ -64,6 +65,7 @@ export function AdminSettingsPanel({
   archived,
   isTeamHunt,
   hasSolvedSheet,
+  sheetMode,
   puzzleCount,
 }: AdminSettingsPanelProps) {
   const navigate = useNavigate();
@@ -74,6 +76,7 @@ export function AdminSettingsPanel({
   const settingsMut = useUpdateHuntSettings(uid);
   const archiveMut = useArchiveHunt(uid);
   const sheetMut = useCreateSolvedSheet(uid);
+  const modeMut = useSetSheetMode(uid);
   const deleteMut = useDeleteHunt(uid);
 
   const [values, setValues] = useState<FormValues>(() => {
@@ -184,6 +187,18 @@ export function AdminSettingsPanel({
       },
     });
   }, [sheetMut]);
+
+  const handleToggleSheetMode = useCallback(() => {
+    const next = sheetMode === "files" ? "tabs" : "files";
+    modeMut.mutate(next, {
+      onSuccess: () => {
+        notifications.show({ message: `Sheet mode is now "${next}".`, color: "green" });
+      },
+      onError: (e) => {
+        notifications.show({ message: (e as Error).message, color: "red" });
+      },
+    });
+  }, [sheetMode, modeMut]);
 
   const handleDelete = useCallback(() => {
     deleteMut.mutate(undefined, {
@@ -309,7 +324,23 @@ export function AdminSettingsPanel({
           </Button>
         </Group>
 
-        {!hasSolvedSheet && (
+        <Group>
+          <Badge color={sheetMode === "files" ? "blue" : "gray"} size="sm">
+            Sheets: {sheetMode === "files" ? "one spreadsheet per puzzle" : "tabs in one spreadsheet"}
+          </Badge>
+          {puzzleCount === 0 && (
+            <Button
+              size="xs"
+              variant="light"
+              onClick={handleToggleSheetMode}
+              loading={modeMut.isPending}
+            >
+              {sheetMode === "files" ? "Use tabs instead" : "Use one spreadsheet per puzzle"}
+            </Button>
+          )}
+        </Group>
+
+        {sheetMode === "tabs" && !hasSolvedSheet && (
           <Button
             size="xs"
             variant="light"
@@ -321,7 +352,7 @@ export function AdminSettingsPanel({
           </Button>
         )}
 
-        {hasSolvedSheet && (
+        {sheetMode === "tabs" && hasSolvedSheet && (
           <Text size="sm" c="green">✓ Solved puzzles sheet already created.</Text>
         )}
       </Stack>

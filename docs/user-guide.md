@@ -191,6 +191,23 @@ Need a scratch sheet, a grid copy, a second workspace? From the puzzle's channel
 
 ---
 
+### Files mode: one spreadsheet per puzzle
+
+A hunt can instead give every puzzle its own Google spreadsheet. Pick it when you create the
+hunt (`!hunt name:url, files`, or the **One spreadsheet per puzzle** switch under Advanced on
+the dashboard's create form and server setup page). What goes where:
+
+- The hunt gets a Drive folder named after it, with a **Solved** subfolder, and a
+  `<hunt> Reference` spreadsheet in the folder (the hunt's own sheet, holding the roll-ups).
+- Each puzzle is its own file in the folder, named after the puzzle. Minis are tabs in their
+  minimeta's file, and extra sheets are tabs in their puzzle's file.
+- There is no solved spreadsheet: the solved-sheet options (`!use_solved_sheet`, the create
+  checkbox, the dashboard button) don't apply, and a solved puzzle keeps its file and link.
+- The mode can only be switched (`!sheet_mode files` / `tabs`, or Admin settings) while the
+  hunt has no puzzles or groups.
+
+---
+
 ## 6. The web dashboard
 
 The dashboard shows the whole hunt at a glance and can do nearly everything the chat
@@ -419,7 +436,8 @@ The full [command reference](commands.md) lists every command; highlights:
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the
   team role's overwrite on the hunt's initial category.
 - **Starting a hunt:** `!hunt Hunt Name:https://hunt.example` in the bot channel.
-  Append `, RoleName` to gate the hunt to a team role. Then `!set_start TIMESTAMP` and
+  Append `, RoleName` to gate the hunt to a team role, and `, files` for
+  [one spreadsheet per puzzle](#files-mode-one-spreadsheet-per-puzzle). Then `!set_start TIMESTAMP` and
   `!set_login user:pass` if the hunt has a shared login, and `!use_solved_sheet` if you
   want solved puzzles moved to a second spreadsheet to keep the main one fast.
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in

@@ -10,6 +10,7 @@ export interface SetupForm {
   username: string;
   password: string;
   createSolvedSheet: boolean;
+  filesMode: boolean;
   sendInvites: boolean;
 }
 
@@ -22,6 +23,7 @@ export interface SetupPayload {
   username?: string;
   password?: string;
   create_solved_sheet?: boolean;
+  sheet_mode?: "files";
   send_invites: boolean;
 }
 
@@ -35,6 +37,7 @@ export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
   username: "",
   password: "",
   createSolvedSheet: false,
+  filesMode: false,
   sendInvites: false,
 });
 
@@ -54,7 +57,9 @@ export function buildPayload(form: SetupForm): SetupPayload {
   if (username) payload.username = username;
   const password = form.password.trim();
   if (password) payload.password = password;
-  if (form.createSolvedSheet) payload.create_solved_sheet = true;
+  // A files hunt has no solved spreadsheet, so the two never go out together.
+  if (form.filesMode) payload.sheet_mode = "files";
+  else if (form.createSolvedSheet) payload.create_solved_sheet = true;
   return payload;
 }
 

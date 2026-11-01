@@ -156,6 +156,14 @@ def with_puzzle_mutex(*, wait: bool = True):
     return decorator
 
 
+SHEET_MODE_REFUSALS = {
+    "sheet_mode_locked": "The sheet mode can only be changed while the hunt has no puzzles or groups",
+    "files_mode_no_solved_sheet": "This hunt uses one spreadsheet per puzzle, so it has no solved puzzles sheet",
+    "gsheet_unavailable": "Google Sheets is not available right now",
+    "bad_sheet_mode": "Sheet mode must be `tabs` or `files`",
+}
+
+
 def with_hunt_sheet_mutex():
     """Serialize a sheet command that has NO puzzle in context, on its hunt.
 
@@ -689,22 +697,30 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, forum]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, forum][, files]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
         Add `, Team A` to gate the hunt behind a role. Append `, forum` to use a
-        forum-backed layout (a forum channel per round). Run in the bot channel.
+        forum-backed layout (a forum channel per round), and/or `, files` for one
+        Google spreadsheet per puzzle in a Drive folder (any order). Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
             return
 
-        # Optional trailing ", forum" token selects the forum-backed layout. Strip it
-        # first so the existing name:url[, role] parsing below is unaffected.
+        # Optional trailing ", forum" / ", files" tokens (either order) select the
+        # forum-backed layout / one-spreadsheet-per-puzzle mode. Strip them first so
+        # the existing name:url[, role] parsing below is unaffected.
         layout_mode = "channel"
-        stripped = arg.rstrip()
-        if stripped.lower().endswith(", forum"):
-            arg = stripped[: -len(", forum")]
-            layout_mode = "forum"
+        sheet_mode = "tabs"
+        arg = arg.rstrip()
+        while True:
+            lowered = arg.lower()
+            if lowered.endswith(", forum"):
+                arg, layout_mode = arg[: -len(", forum")], "forum"
+            elif lowered.endswith(", files"):
+                arg, sheet_mode = arg[: -len(", files")], "files"
+            else:
+                break
 
         role = None
         if ", " in arg:
@@ -713,7 +729,8 @@ class Puzzles(commands.Cog):
             hunt_name, hunt_url = arg.split(":", 1)
             if HuntJsonDb.check_duplicates(hunt_name, guild_id=ctx.guild.id):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
-            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode)
+            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode,
+                                              sheet_mode=sheet_mode)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
             return await ctx.send(
@@ -723,7 +740,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          layout_mode: str = "channel"):
+                          layout_mode: str = "channel", sheet_mode: str = "tabs"):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
             return None
@@ -739,6 +756,7 @@ class Puzzles(commands.Cog):
                     start_timestamp=0,
                     role_name=role_name,
                     layout_mode=layout_mode,
+                    sheet_mode=sheet_mode,
                     guild_id=settings.id if settings else 0,
                     creator=ctx.author,
                     confirm_existing_role=confirm_existing,
@@ -838,6 +856,8 @@ class Puzzles(commands.Cog):
         except RuntimeError as exc:
             if str(exc) == "solved_sheet_exists":
                 await ctx.send(":x: This hunt is already using a solved puzzles sheet")
+            elif str(exc) == "files_mode_no_solved_sheet":
+                await ctx.send(f":x: {SHEET_MODE_REFUSALS['files_mode_no_solved_sheet']}")
             else:
                 await ctx.send(":x: Could not create the solved puzzles sheet")
             return
@@ -846,6 +866,39 @@ class Puzzles(commands.Cog):
         await self.info(ctx, update=True)
         return
 
+
+    @commands.command()
+    @is_admin()
+    @with_hunt_sheet_mutex()
+    async def sheet_mode(self, ctx, mode: Optional[str] = None):
+        """*Show or switch how the hunt's Google sheets are laid out (admin only).*
+
+        Usage: `!sheet_mode [tabs|files]`
+        Example: `!sheet_mode files`
+        `tabs` keeps one spreadsheet with a tab per puzzle; `files` gives each puzzle its
+        own spreadsheet in a Drive folder. With no argument, shows the current mode.
+        Switching works only while the hunt has no puzzles or groups.
+        Run in the main Hunt channel. Admins/mods only."""
+        if self.get_channel_type(ctx) != "Hunt":
+            await ctx.send(":x: This command must be done from the main Hunt channel")
+            return
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # Hunt channel checked above
+        if mode is None:
+            await ctx.send(f"This hunt uses sheet mode **{hunt.sheet_mode}**.")
+            return
+        mode = mode.lower()
+        if mode not in ("tabs", "files"):
+            await ctx.send(":x: Sheet mode must be `tabs` or `files`")
+            return
+        settings = GuildSettingsDb.get(ctx.guild.id)
+        parent_id = (getattr(settings, "drive_parent_id", "") or None)
+        try:
+            await self.service.set_sheet_mode(hunt, mode, guild_parent_id=parent_id)
+        except RuntimeError as exc:
+            await ctx.send(f":x: {SHEET_MODE_REFUSALS.get(str(exc), 'Could not change the sheet mode')}")
+            return
+        await ctx.send(f":white_check_mark: This hunt now uses sheet mode **{mode}**")
 
     @commands.command(aliases=["p"])
     @with_puzzle_mutex(wait=True)
@@ -4154,20 +4207,26 @@ class Puzzles(commands.Cog):
     async def setup_server(self, ctx, hub_id: int, roster_role_id: int, hunt_url: str, *, hunt_name: str):
         """*Set up a server freshly made from the team-server template (runs once).*
 
-        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>`
+        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>[, files]`
         Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
+        Add `, files` after the hunt name for one Google spreadsheet per puzzle.
         You must be this server's owner (or an admin here) and an admin on the hub.
         Checks the server matches the template, copies the
         hub's settings, pins `mod` as the admin role, creates the hunt gated to a team
         role named after the hub role, and records that hub role as the hunt's roster.
         If it stops partway, re-run the same command to finish; once complete it is
         locked on this server. Bang-only: the bot must already be here."""
+        sheet_mode = "tabs"
+        if hunt_name.rstrip().lower().endswith(", files"):
+            hunt_name = hunt_name.rstrip()[: -len(", files")]
+            sheet_mode = "files"
+
         async def announce(team_name):
             await ctx.send(f"⏳ Setting up **{hunt_name}** for **{team_name}**…")
 
         outcome = await server_setup.perform_setup(
             self.bot, self.service, ctx.guild, ctx.author, hub_id, roster_role_id,
-            hunt_name, hunt_url, on_start=announce)
+            hunt_name, hunt_url, on_start=announce, sheet_mode=sheet_mode)
         await ctx.send("\n".join(outcome.lines))
 
     @commands.command()

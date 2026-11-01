@@ -42,6 +42,15 @@ describe("buildPayload", () => {
     });
   });
 
+  it("sends files mode and drops the solved-sheet option with it", () => {
+    const files = buildPayload(filled({ filesMode: true, createSolvedSheet: true }));
+    expect(files.sheet_mode).toBe("files");
+    expect(files).not.toHaveProperty("create_solved_sheet");
+    const tabs = buildPayload(filled({ createSolvedSheet: true }));
+    expect(tabs).not.toHaveProperty("sheet_mode");
+    expect(tabs.create_solved_sheet).toBe(true);
+  });
+
   it("converts the start time using the chosen offset", () => {
     const at = (offset: number) =>
       buildPayload(filled({ startLocal: "2026-01-16T12:00", startOffsetMinutes: offset }))

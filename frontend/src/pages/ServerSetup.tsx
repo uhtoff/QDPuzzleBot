@@ -185,10 +185,18 @@ function SetupFormView({
             onChange={(e) => set("password", e.currentTarget.value)}
           />
           <Switch
-            label="Create a solved-puzzle sheet"
-            checked={form.createSolvedSheet}
-            onChange={(e) => set("createSolvedSheet", e.currentTarget.checked)}
+            label="One spreadsheet per puzzle"
+            description="A Drive folder holds a spreadsheet for each puzzle."
+            checked={form.filesMode}
+            onChange={(e) => set("filesMode", e.currentTarget.checked)}
           />
+          {!form.filesMode && (
+            <Switch
+              label="Create a solved-puzzle sheet"
+              checked={form.createSolvedSheet}
+              onChange={(e) => set("createSolvedSheet", e.currentTarget.checked)}
+            />
+          )}
         </Stack>
       </Collapse>
       <Divider />

@@ -116,6 +116,7 @@ EXPECTED = [
     ("set_organiser_roles", "admin"),
     ("set_start", "admin"),
     ("set_template_link", "admin"),
+    ("sheet_mode", "admin"),
     ("show_auth_roles", "admin"),
     ("show_puzzle_settings", "admin"),
     ("show_settings", "admin"),

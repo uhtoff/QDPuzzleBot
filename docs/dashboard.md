@@ -11,10 +11,14 @@ sheets, clues/evidence, minimeta and convert-to-* type changes, rename,
 tag-group delete/rename, reconcile, and rollup rebuild — roughly 36 write
 routes in total. **Admin-gated** (a strictly narrower set of role names) are
 the hunt-lifecycle routes only: hunt create, settings, archive, solved-sheet,
-gate/re-gate behind a team role, and hunt delete. The convert-to-* routes are
+sheet-mode (`PATCH /api/hunts/<uid>/sheet-mode`, switch between a tab per puzzle and
+one spreadsheet per puzzle while the hunt is empty), gate/re-gate behind a team role, and hunt delete. The convert-to-* routes are
 deliberately organiser, matching the group-keyed change-type route — they were
 admin until 2026-08-08, which an organiser could bypass by addressing the group
-instead of the puzzle. Write-actions
+instead of the puzzle. The create-hunt form and the server setup page have an Advanced switch,
+"One spreadsheet per puzzle", which hides the solved-sheet option (a files hunt has no
+solved spreadsheet); the hunt's Admin settings panel shows the mode and offers the
+switch only while the hunt has no puzzles. Write-actions
 run through ctx-free `web_*` methods on the Puzzles cog (mirrored, for
 Discord-visible side effects, by `bot/core/notifier.py`), so the website
 creates real Discord channels + Google sheets and posts/refreshes the same

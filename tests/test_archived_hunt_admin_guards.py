@@ -36,6 +36,7 @@ CASES = [
     ("patch_hunt_settings", "patch", "/api/hunts/U1/settings"),
     ("set_hunt_role", "post", "/api/hunts/U1/role"),
     ("post_hunt_solved_sheet", "post", "/api/hunts/U1/solved-sheet"),
+    ("patch_hunt_sheet_mode", "patch", "/api/hunts/U1/sheet-mode"),
     ("convert_to_feeder_preview", "get", "/api/puzzles/9/convert-to-feeder/preview"),
 ]
 

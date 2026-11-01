@@ -128,6 +128,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [password, setPassword] = useState("");
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
   const [forumLayout, setForumLayout] = useState(false);
+  const [filesMode, setFilesMode] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRole, setConfirmRole] = useState<{ message: string; payload: CreateHuntPayload } | null>(null);
 
@@ -178,7 +179,9 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (roleName.trim()) payload.role_name = roleName.trim();
     if (username.trim()) payload.username = username.trim();
     if (password.trim()) payload.password = password.trim();
-    if (createSolvedSheet) payload.create_solved_sheet = true;
+    // A files hunt has no solved spreadsheet, so the two are never sent together.
+    if (filesMode) payload.sheet_mode = "files";
+    else if (createSolvedSheet) payload.create_solved_sheet = true;
     if (forumLayout) payload.layout_mode = "forum";
 
     submit(payload);
@@ -263,14 +266,22 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
               checked={forumLayout}
               onChange={(e) => setForumLayout(e.currentTarget.checked)}
             />
+            <Switch
+              label="One spreadsheet per puzzle"
+              description="A Drive folder holds a spreadsheet for each puzzle instead of a tab per puzzle."
+              checked={filesMode}
+              onChange={(e) => setFilesMode(e.currentTarget.checked)}
+            />
           </Stack>
         </Collapse>
 
-        <Checkbox
-          label="Move solved feeders to their own sheet"
-          checked={createSolvedSheet}
-          onChange={(e) => setCreateSolvedSheet(e.currentTarget.checked)}
-        />
+        {!filesMode && (
+          <Checkbox
+            label="Move solved feeders to their own sheet"
+            checked={createSolvedSheet}
+            onChange={(e) => setCreateSolvedSheet(e.currentTarget.checked)}
+          />
+        )}
 
         <Button onClick={handleSubmit} loading={createMut.isPending} disabled={!canSubmit}>
           Create hunt

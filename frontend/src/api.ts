@@ -808,6 +808,16 @@ export function useCreateSolvedSheet(uid: string) {
   });
 }
 
+export function useSetSheetMode(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sheet_mode: "tabs" | "files") =>
+      apiSend<{ ok: boolean; sheet_mode: "tabs" | "files" }>(
+        `/api/hunts/${uid}/sheet-mode`, "PATCH", { sheet_mode }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useAdminGuilds() {
   return useQuery({
     queryKey: ["guilds", "admin"],
@@ -864,6 +874,7 @@ export interface CreateHuntPayload {
   password?: string;
   create_solved_sheet?: boolean;
   layout_mode?: "channel" | "forum";
+  sheet_mode?: "tabs" | "files";
   // Set on the second attempt after the backend asks to confirm reusing an
   // existing role (needs_confirm: "existing_role").
   confirm_existing_role?: boolean;

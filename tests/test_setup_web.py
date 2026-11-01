@@ -189,7 +189,8 @@ async def test_post_runs_perform_setup_with_fields(web):
     assert args[3].id == USER
     assert args[4:] == (HUB_A, 12, "MH", "https://mh.example")
     assert kwargs == {"start_timestamp": 1700000000, "username": "u", "password": "p",
-                      "create_solved_sheet": True, "invites_by_dashboard": False,
+                      "create_solved_sheet": True, "sheet_mode": "tabs",
+                      "invites_by_dashboard": False,
                       "via_dashboard": True}
 
 
@@ -278,3 +279,24 @@ async def test_float_start_timestamp_passed_as_int(web):
     assert resp.status_code == 200
     passed = web.perform.await_args.kwargs["start_timestamp"]
     assert passed == 1700000000 and type(passed) is int
+
+
+async def test_sheet_mode_files_is_passed_through(web):
+    resp = await web.client.post(URL, json=dict(BODY, sheet_mode="files"))
+    assert resp.status_code == 200
+    assert web.perform.await_args.kwargs["sheet_mode"] == "files"
+
+
+async def test_bad_sheet_mode_refused(web):
+    resp = await web.client.post(URL, json=dict(BODY, sheet_mode="bogus"))
+    assert resp.status_code == 400
+    assert (await resp.get_json())["error"] == "bad_sheet_mode"
+    web.perform.assert_not_awaited()
+
+
+async def test_files_with_solved_sheet_refused_before_setup(web):
+    resp = await web.client.post(
+        URL, json=dict(BODY, sheet_mode="files", create_solved_sheet=True))
+    assert resp.status_code == 409
+    assert (await resp.get_json())["error"] == "files_mode_no_solved_sheet"
+    web.perform.assert_not_awaited()

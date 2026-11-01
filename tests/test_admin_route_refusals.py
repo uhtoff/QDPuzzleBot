@@ -79,6 +79,7 @@ def web():
     # C7: both edges now go through one service seam instead of hand-rolling
     # check -> create -> commit against the GoogleSheets cog.
     cog.service.create_hunt_solved_sheet = AsyncMock(return_value="NEWSHEET")
+    cog.service.set_sheet_mode = AsyncMock()
 
     gs_cog = MagicMock()
     gs_cog.create_solved_sheet = AsyncMock(return_value="NEWSHEET")
@@ -169,6 +170,9 @@ GATED = [
           # at the seam that now performs it. The create and the commit both moved
           # inside service.create_hunt_solved_sheet (C7).
           lambda w: [w.cog.service.create_hunt_solved_sheet]),
+    _spec("patch_hunt_sheet_mode", "admin", "PATCH", "/api/hunts/U1/sheet-mode",
+          {"sheet_mode": "files"},
+          lambda w: [w.cog.service.set_sheet_mode]),
     _spec("reconcile", "organiser", "POST", "/api/hunts/U1/reconcile?mode=apply",
           {},
           lambda w: [w.cog.service.reconcile]),

@@ -207,3 +207,30 @@ async def test_the_guard_is_released_when_setup_raises():
         except RuntimeError:
             pass
     assert guild.id not in server_setup._RUNNING
+
+
+async def test_perform_setup_threads_sheet_mode_to_create_hunt():
+    guild = _guild(); guild.owner_id = 42
+    hunt = MagicMock(role_id=5, roster_role_id=70, channel_id=61)
+    service = MagicMock(); service.create_hunt = AsyncMock(return_value=hunt)
+    hub = MagicMock(); hub.name = "Hub"
+    hub.get_role.return_value = _role(70, "Team Rocket", 3)
+    with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
+         patch("bot.core.server_setup.HuntJsonDb") as hdb, \
+         patch("bot.core.server_setup.hunt_archive.resolve_hub", new=AsyncMock(return_value=(hub, MagicMock()))), \
+         patch("bot.core.server_setup._has_welcome", new=AsyncMock(return_value=True)), \
+         patch("bot.core.notifier.DiscordNotifier") as notifier, \
+         patch("bot.core.mod_invite.post", new=AsyncMock(return_value=("r", None))):
+        gdb.get.return_value = _settings()
+        hdb.get_by_name_for_guild.return_value = None
+        hdb.count_for_guild.return_value = 0
+        notifier.return_value.welcome = AsyncMock()
+        await server_setup.perform_setup(
+            MagicMock(), service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example",
+            sheet_mode="files")
+        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "files"
+        service.create_hunt.reset_mock()
+        server_setup._RUNNING.clear()
+        await server_setup.perform_setup(
+            MagicMock(), service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example")
+        assert service.create_hunt.await_args.kwargs["sheet_mode"] == "tabs"

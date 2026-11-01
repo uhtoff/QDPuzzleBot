@@ -154,7 +154,8 @@ async def _has_welcome(lobby, bot_id):
 
 
 async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
-                    *, start_timestamp=0, username="", password="", create_solved_sheet=False):
+                    *, start_timestamp=0, username="", password="", create_solved_sheet=False,
+                    sheet_mode="tabs"):
     """Do the setup steps, then stamp the run-once lock. Never raises: a failure
     lands in report.error, with the lock unwritten so a re-run finishes the job."""
     report = SetupReport()
@@ -176,7 +177,7 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
             hunt = await service.create_hunt(
                 guild, name=hunt_name, url=hunt_url, start_timestamp=start_timestamp,
                 username=username, password=password,
-                create_solved_sheet=create_solved_sheet,
+                create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode,
                 role_name=team, guild_id=settings.id, creator=invoker,
                 confirm_existing_role=True)
             report.hunt_created = True
@@ -226,7 +227,7 @@ def _refused(text):
 
 async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                         *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                        on_start=None, invites_by_dashboard=False, via_dashboard=False):
+                        sheet_mode="tabs", on_start=None, invites_by_dashboard=False, via_dashboard=False):
     """The whole !setup_server flow after argument parsing, shared with the
     dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is
     awaited with the team role name once the checks pass and before anything is
@@ -240,7 +241,8 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
         return await _perform_setup(
             bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
             start_timestamp=start_timestamp, username=username, password=password,
-            create_solved_sheet=create_solved_sheet, on_start=on_start,
+            create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode,
+            on_start=on_start,
             invites_by_dashboard=invites_by_dashboard, via_dashboard=via_dashboard)
     finally:
         _RUNNING.discard(guild.id)
@@ -248,7 +250,7 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
 
 async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                          *, start_timestamp, username, password, create_solved_sheet,
-                         on_start, invites_by_dashboard, via_dashboard):
+                         sheet_mode, on_start, invites_by_dashboard, via_dashboard):
     from bot.core import mod_invite       # mod_invite imports this module
     from bot.core.notifier import DiscordNotifier
 
@@ -270,7 +272,7 @@ async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, h
     report = await run_setup(
         service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
         start_timestamp=start_timestamp, username=username, password=password,
-        create_solved_sheet=create_solved_sheet)
+        create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode)
     if report.hunt_created and report.hunt is not None:
         try:
             await DiscordNotifier(bot).welcome(

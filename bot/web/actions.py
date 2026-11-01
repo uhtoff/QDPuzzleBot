@@ -758,7 +758,7 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "layout_mode", "confirm_existing_role"}
+                         "layout_mode", "confirm_existing_role", "sheet_mode"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -775,6 +775,8 @@ async def create_hunt():
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
     if body.get("layout_mode", "channel") not in ("channel", "forum"):
         return jsonify({"error": "bad_layout_mode"}), 400
+    if body.get("sheet_mode", "tabs") not in ("tabs", "files"):
+        return jsonify({"error": "bad_sheet_mode"}), 400
     start_timestamp = body["start_timestamp"]
     if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
         return jsonify({"error": "bad_start_timestamp"}), 400
@@ -825,6 +827,8 @@ async def create_hunt():
     except RuntimeError as exc:
         if "hunt_exists" in str(exc):
             return jsonify({"error": "hunt_exists"}), 409
+        if str(exc) == "files_mode_no_solved_sheet":
+            return jsonify({"error": "files_mode_no_solved_sheet"}), 409
         if "existing_role_confirm" in str(exc):
             role_name = body.get("role_name")
             return jsonify({
@@ -1100,7 +1104,7 @@ async def post_hunt_solved_sheet(uid):
             sheet_id = await cog.service.create_hunt_solved_sheet(hunt_obj)
     except RuntimeError as exc:
         slug = str(exc)
-        if slug == "solved_sheet_exists":
+        if slug in ("solved_sheet_exists", "files_mode_no_solved_sheet"):
             return jsonify({"error": slug}), 409
         if slug == "gsheet_unavailable":
             return jsonify({"error": slug}), 503
@@ -1112,6 +1116,58 @@ async def post_hunt_solved_sheet(uid):
 
     await _audit("hunt_solved_sheet", hunt_uid=uid)
     return jsonify({"ok": True, "solved_sheet_id": sheet_id})
+
+
+@actions_bp.route("/hunts/<uid>/sheet-mode", methods=["PATCH"])
+@login_required
+async def patch_hunt_sheet_mode(uid):
+    """Switch the hunt between "tabs" and "files" sheet mode (only while it has no
+    puzzles or groups). Admin only, like the solved-sheet route."""
+    ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
+        _visible_hunt_by_uid(uid), need_cog=False)
+    if err:
+        return err
+    assert ctx is not None
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    body = await request.get_json(silent=True) or {}
+    mode = body.get("sheet_mode")
+    if mode not in ("tabs", "files"):
+        return jsonify({"error": "bad_sheet_mode"}), 400
+
+    from bot.store import HuntJsonDb
+
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+    cog = puzzles_cog()
+    if cog is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    # Same parent the hunt-creation path uses; "" / unset means the Drive root.
+    settings = GuildSettingsDb.get(int(ctx["guild_snowflake"]))
+    parent_id = (getattr(settings, "drive_parent_id", "") or None)
+    try:
+        async with hunt_sheet_lock(hunt_obj.id):
+            await cog.service.set_sheet_mode(hunt_obj, mode, guild_parent_id=parent_id)
+    except RuntimeError as exc:
+        slug = str(exc)
+        if slug in ("sheet_mode_locked", "files_mode_no_solved_sheet"):
+            return jsonify({"error": slug}), 409
+        if slug == "bad_sheet_mode":
+            return jsonify({"error": slug}), 400
+        if slug == "gsheet_unavailable":
+            return jsonify({"error": slug}), 503
+        logger.exception("web sheet-mode switch failed for hunt %s", hunt_obj.id)
+        return jsonify({"error": "sheet_mode_failed"}), 500
+    except Exception:
+        logger.exception("web sheet-mode switch failed for hunt %s", hunt_obj.id)
+        return jsonify({"error": "sheet_mode_failed"}), 500
+
+    await _audit("hunt_sheet_mode", hunt_uid=uid, detail=f"sheet_mode={mode}")
+    return jsonify({"ok": True, "sheet_mode": mode})
 
 
 # --- Retag puzzles between metas (organiser only) ---------------------------
@@ -1813,7 +1869,7 @@ async def get_guild_setup(guild_id):
 
 _SETUP_REQUIRED = {"hub_id", "roster_role_id", "hunt_name", "hunt_url"}
 _SETUP_OPTIONAL = {"start_timestamp", "username", "password", "create_solved_sheet",
-                   "send_invites"}
+                   "send_invites", "sheet_mode"}
 
 
 def _snowflake_field(value):
@@ -1861,6 +1917,11 @@ async def post_guild_setup(guild_id):
     for key in ("create_solved_sheet", "send_invites"):
         if not isinstance(body.get(key, False), bool):
             return jsonify({"error": "bad_value", "field": key}), 400
+    sheet_mode = body.get("sheet_mode", "tabs")
+    if sheet_mode not in ("tabs", "files"):
+        return jsonify({"error": "bad_sheet_mode"}), 400
+    if sheet_mode == "files" and body.get("create_solved_sheet", False):
+        return jsonify({"error": "files_mode_no_solved_sheet"}), 409
 
     resolved, err = await _team_setup_ctx(guild_id)
     if err:
@@ -1878,6 +1939,7 @@ async def post_guild_setup(guild_id):
         start_timestamp=start_timestamp, username=body.get("username", ""),
         password=body.get("password", ""),
         create_solved_sheet=body.get("create_solved_sheet", False),
+        sheet_mode=sheet_mode,
         invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
 
     invites = None
