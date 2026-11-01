@@ -34,6 +34,9 @@ pytesseract = "==0.3.13"
 # Imported directly by bot/core/ocr.py; declared here rather than relied on as
 # pytesseract's transitive dep so a loosened pytesseract pin can't drop it.
 pillow = "==13.0.0"
+# Transitive (google-auth -> pyasn1-modules -> pyasn1), pinned exactly here for
+# the 2026-11 decoder DoS advisories (fixed in 0.6.5) so a relock cannot fall back.
+pyasn1 = "==0.6.5"
 
 [requires]
 python_version = "3.12"
