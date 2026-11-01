@@ -690,14 +690,25 @@ class PuzzleService:
                            f"category {tag_group.category_id} missing")
 
         if apply:
-            # After the tabs are healed: re-render the roll-ups (as !rebuild does;
-            # this can re-format an imported meta's tab), then stamp the Feeds
+            # After the tabs are healed: re-render the roll-ups (the metas as
+            # !rebuild does, plus minimeta tables, which !rebuild skips; this can
+            # re-format an imported meta's tab), then stamp the Feeds
             # line last so neither a recreated tab nor a re-format loses it.
             # Hunts started before the links existed pick them up here.
             metas = [r for r in rounds if r.target_puzzle_id]
             for group_id in await self.refresh_targets(hunt, metas):
                 report.add_failure(f"roll-up (group {group_id})",
                                    RuntimeError("roll-up refresh failed"))
+            # A minimeta's table is puzzle-keyed, not a tag-group target, so
+            # the meta refresh above never reaches it.
+            minimeta_ids = {p.parent_puzzle_id for p in puzzles if p.parent_puzzle_id}
+            for minimeta in (p for p in puzzles if p.id in minimeta_ids):
+                try:
+                    await self.refresh_minimeta(hunt, minimeta)
+                except Exception as error:  # noqa: BLE001
+                    logger.exception("reconcile: minimeta roll-up failed for %s",
+                                     minimeta.name)
+                    report.add_failure(f"minimeta roll-up ({minimeta.name})", error)
             for name in await self.refresh_header_links(hunt, puzzles) or []:
                 report.add_failure(f"header links ({name})",
                                    RuntimeError("Feeds line write failed"))

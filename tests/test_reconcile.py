@@ -789,3 +789,52 @@ def test_reconcile_apply_lists_each_tab_whose_feeds_line_failed():
 def test_reconcile_apply_with_no_link_failures_reports_none():
     report, *_ = _run_reconcile_with_links(True, link_failures=[])
     assert report.failures == []
+
+
+def test_reconcile_apply_refreshes_each_minimeta_table_before_the_links():
+    # A minimeta's table is puzzle-keyed, not a tag-group target, so the meta
+    # refresh misses it; older hunts' minimeta tables need their links too.
+    svc = _service()
+    mm = _puzzle(name="MM", id=1, google_page_id="11")
+    m1 = _puzzle(name="m1", id=2, google_page_id="22", parent_puzzle_id=1, tags=[])
+    m2 = _puzzle(name="m2", id=3, google_page_id="33", parent_puzzle_id=1, tags=[])
+    other = _puzzle(name="Other", id=4, google_page_id="44")
+    order = []
+
+    async def minimeta(hunt, puzzle):
+        order.append(("minimeta", puzzle.name))
+
+    async def links(hunt, puzzles, **k):
+        order.append("links")
+        return []
+
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[mm, m1, m2, other]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_fetch_present_tab_ids", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_reconcile_tabs", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_targets", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_minimeta", new=AsyncMock(side_effect=minimeta)), \
+         patch.object(svc, "refresh_header_links", new=AsyncMock(side_effect=links)):
+        report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=True))
+    assert order == [("minimeta", "MM"), "links"]
+    assert report.failures == []
+
+
+def test_reconcile_apply_reports_a_failed_minimeta_refresh_and_carries_on():
+    svc = _service()
+    mm = _puzzle(name="MM", id=1, google_page_id="11")
+    m1 = _puzzle(name="m1", id=2, google_page_id="22", parent_puzzle_id=1, tags=[])
+    links_m = AsyncMock(return_value=[])
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[mm, m1]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_fetch_present_tab_ids", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_reconcile_tabs", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_targets", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_minimeta",
+                      new=AsyncMock(side_effect=RuntimeError("boom"))), \
+         patch.object(svc, "refresh_header_links", new=links_m):
+        report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=True))
+    assert [t for t, _ in report.failures] == ["minimeta roll-up (MM)"]
+    links_m.assert_awaited_once()
