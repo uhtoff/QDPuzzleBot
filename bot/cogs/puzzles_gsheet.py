@@ -602,12 +602,56 @@ class GoogleSheets(commands.Cog):
         await self.delete_sheet(page, spreadsheet_from)
         return new_sheet_id
 
-    async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
+    @staticmethod
+    def _files_placement(puzzle_data, hunt) -> tuple[bool, bool]:
+        """Solve/unsolve placement dispatch: (files, own_file). Files hunt
+        only when the caller passes one whose sheet_mode is "files"; own_file is
+        a puzzle with its own spreadsheet (targets and minimetas included) --
+        a mini (parent_puzzle_id) lives in its minimeta's file instead."""
+        files = hunt is not None and getattr(hunt, "sheet_mode", "tabs") == "files"
+        if files and not puzzle_data.google_sheet_id:
+            # No file (its copy failed): there is nothing to address, and the
+            # location rule would otherwise fall back to the reference sheet.
+            raise RuntimeError("puzzle_sheet_missing")
+        return files, files and not puzzle_data.parent_puzzle_id
+
+    async def _move_puzzle_file(self, puzzle_data, to_folder, from_folder) -> None:
+        """Files mode: move a solved/unsolved puzzle's file between the hunt's
+        folders. Best-effort by design: the header writes already made the
+        solve visible, and the file keeps its id and link, so a failed move is
+        logged rather than reported as a failed solve; !reconcile apply's
+        file_move puts it in the right folder."""
+        if not (to_folder and from_folder):
+            logger.warning("puzzle %s: hunt has no Drive folders; file %s not moved",
+                           puzzle_data.id, puzzle_data.google_sheet_id)
+            return
+        try:
+            await self.move_file(puzzle_data.google_sheet_id, to_folder, from_folder)
+        except Exception:
+            logger.exception("puzzle %s: could not move file %s to folder %s "
+                             "(!reconcile apply repairs it)", puzzle_data.id,
+                             puzzle_data.google_sheet_id, to_folder)
+
+    async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None,
+                                               restore_index=None, *, hunt=None):
+        """Unsolve placement (the dispatch point). Tabs: back from the solved
+        spreadsheet to `restore_index` on the live one. Files (`hunt` given in
+        files mode): the header is cleared in the puzzle's own spreadsheet;
+        an own file keeps its tabs where they are and moves back to the hunt
+        folder; a mini's tab moves to `restore_index` in its minimeta's file
+        (no move when None)."""
+        files, own_file = self._files_placement(puzzle_data, hunt)
         if puzzle_data.on_solved_sheet:
             puzzle_data.on_solved_sheet = False
             puzzle_data.google_page_id = await self.move_puzzle_sheet(False, puzzle_data.google_page_id,
                                                                             puzzle_data.name)
-        move_idx = restore_index if restore_index is not None else self.INITIAL_OFFSET
+        if files:
+            move_idx = None if own_file else restore_index
+        else:
+            move_idx = restore_index if restore_index is not None else self.INITIAL_OFFSET
+
+        def move(page):
+            return [] if move_idx is None else [self.move_sheet_to_index(page, move_idx)]
         requests = []
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
@@ -625,7 +669,7 @@ class GoogleSheets(commands.Cog):
                             self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
-                            self.move_sheet_to_index(sheet.google_page_id, move_idx),
+                            *move(sheet.google_page_id),
                             self.revert_tab_colour(sheet.google_page_id)])
 
         main_offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
@@ -634,13 +678,17 @@ class GoogleSheets(commands.Cog):
                     self.update_cell("", self.get_row(config.puzzle_cell_progress),
                                      self.get_column(config.puzzle_cell_progress) + main_offset, self.STRING_INPUT, puzzle_data.google_page_id),
                     self._solution_bg_request(puzzle_data, self.HEADER_GREY),   # un-green the solution cell
-                    self.move_sheet_to_index(puzzle_data.google_page_id, move_idx),
+                    *move(puzzle_data.google_page_id),
                     self.revert_tab_colour(puzzle_data.google_page_id)])
         updates = {
             'requests': requests
         }
-        # Tabs mode: every tab above is back on the live spreadsheet now.
-        await self.batch_update(updates, spreadsheet_id=self.get_spreadsheet_id())
+        # Tabs: every tab above is back on the live spreadsheet now. Files: they
+        # never left the puzzle's (or its minimeta's) file.
+        await self.batch_update(updates, spreadsheet_id=self.spreadsheet_of(puzzle_data)
+                                if files else self.get_spreadsheet_id())
+        if own_file and hunt is not None:
+            await self._move_puzzle_file(puzzle_data, hunt.drive_folder_id, hunt.solved_folder_id)
 
 
     async def update_solution(self, puzzle_data: PuzzleData):
@@ -653,39 +701,56 @@ class GoogleSheets(commands.Cog):
         }
         await self.batch_update(updates, spreadsheet_id=self.spreadsheet_of(puzzle_data))
 
-    async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData):
-        # Tabs mode: an unsolved puzzle and its extras are on the live
-        # spreadsheet; the in-place solve batch runs there, then the tabs move.
-        live = self.get_spreadsheet_id()
+    async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData, *, hunt=None):
+        """Solve placement (the dispatch point). Tabs: the in-place solve batch
+        (solution, "Solved", green cell, tab to the end, green tab) runs on the
+        live spreadsheet, then the tabs move to the solved spreadsheet. Files
+        (`hunt` given in files mode): the same batch runs in the puzzle's own
+        spreadsheet; a puzzle with its own file (targets and minimetas
+        included) keeps its tabs in place and the FILE moves to the hunt's
+        Solved folder -- same id, same link, on_solved_sheet stays False; a
+        mini's tab goes to the end of its minimeta's file, with no Drive call."""
+        files, own_file = self._files_placement(puzzle_data, hunt)
+        live = self.spreadsheet_of(puzzle_data) if files else self.get_spreadsheet_id()
         offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
         # One tab count for every move request in this batch (M21): they are all
         # assembled before the single batch_update below, so nothing moves in
-        # between and each re-fetch returned the same number.
-        end_index = len((await self.sheet_list(live)).get('sheets', []))
-        main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id,
-                                                     end_index=end_index)
+        # between and each re-fetch returned the same number. An own file needs
+        # none: its tabs stay where they are.
+        end_index = None if own_file else len((await self.sheet_list(live)).get('sheets', []))
+
+        async def move_to_end(page):
+            if end_index is None:
+                return []
+            return [await self.move_sheet_to_end(page, end_index=end_index)]
+        main_move_req = await move_to_end(puzzle_data.google_page_id)
         requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress), self.get_column(config.puzzle_cell_progress) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
             self._solution_bg_request(puzzle_data, self.SOLUTION_GREEN),
-            main_move_req,
+            *main_move_req,
             self.change_tab_colour('green', puzzle_data.google_page_id)])
         for sheet in puzzle_data.additional_sheets:
             if len(sheet.google_page_id) > 0:
-                sheet_move_req = await self.move_sheet_to_end(sheet.google_page_id,
-                                                              end_index=end_index)
+                sheet_move_req = await move_to_end(sheet.google_page_id)
                 requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution),
                                              self.get_column(config.puzzle_cell_solution), self.STRING_INPUT,
                                              sheet.google_page_id),
                             self.update_cell("Solved", self.get_row(config.puzzle_cell_progress),
                                              self.get_column(config.puzzle_cell_progress), self.STRING_INPUT,
                                              sheet.google_page_id),
-                            sheet_move_req,
+                            *sheet_move_req,
                             self.change_tab_colour('green', sheet.google_page_id)])
         updates = {
             'requests': requests
         }
         await self.batch_update(updates, spreadsheet_id=live)
+        if files:
+            # Extras ride along inside the file; nothing crosses spreadsheets.
+            if own_file and hunt is not None:
+                await self._move_puzzle_file(puzzle_data, hunt.solved_folder_id,
+                                             hunt.drive_folder_id)
+            return
         for sheet in puzzle_data.additional_sheets:
             # Guarded on a real page id, as the in-place loop above already is --
             # an extra with no tab cannot be copied anywhere (H3).

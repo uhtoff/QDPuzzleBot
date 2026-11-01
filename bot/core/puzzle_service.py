@@ -361,6 +361,15 @@ class PuzzleService:
             cog.set_solved_sheet_id(hunt.solved_sheet_id)
         return cog
 
+    @staticmethod
+    def _files_hunt_kw(hunt) -> dict:
+        """{"hunt": hunt} for a files-mode hunt, else {}: the solve/unsolve
+        placement dispatch passes the hunt (its Drive folders) to the cog only
+        in files mode, so a tab hunt's cog calls keep their exact shape."""
+        if hunt is not None and getattr(hunt, "sheet_mode", "tabs") == "files":
+            return {"hunt": hunt}
+        return {}
+
     # --- forum tag helpers ---
 
     async def _update_forum_tags(self, guild, hunt, puzzle):
@@ -1575,7 +1584,9 @@ class PuzzleService:
             # uncaught raise here would incorrectly present it as failed while
             # leaving the DB out of sync with what did/didn't move to the archive.
             try:
-                await gsheet_cog.move_puzzle_to_solved_sheet(puzzle)
+                # Files hunt: the cog needs the hunt's folders. Passed only
+                # then, so a tab hunt's call keeps its old shape.
+                await gsheet_cog.move_puzzle_to_solved_sheet(puzzle, **self._files_hunt_kw(hunt))
             except Exception:
                 logger.exception("solve: failed to archive spreadsheet for puzzle %s", puzzle.id)
                 failed_puzzle_ids.append(puzzle.id)
@@ -1626,7 +1637,20 @@ class PuzzleService:
         puzzle.solve_time = None
 
         gsheet_cog = self._gsheet_cog(hunt)
-        if gsheet_cog is not None:
+        if gsheet_cog is not None and self._files_hunt_kw(hunt):
+            # Files hunt: an own file keeps its tabs in place (the file moves
+            # back), so no index; a mini goes back before the first solved mini
+            # in its minimeta's file, by the creation rule (this mini excluded:
+            # its tab is still at the solved end).
+            restore_idx = None
+            if puzzle.parent_puzzle_id is not None:
+                minimeta = PuzzleJsonDb.get_by_attr(id=puzzle.parent_puzzle_id)
+                if minimeta is not None:
+                    restore_idx = await gsheet_cog.mini_insert_index(
+                        minimeta, [m for m in self.get_minis(minimeta.id) if m.id != puzzle.id])
+            await gsheet_cog.restore_puzzle_from_solved_sheet(
+                puzzle, restore_index=restore_idx, hunt=hunt)
+        elif gsheet_cog is not None:
             # Exclude this puzzle from the zone computation: its sheet is still at
             # the solved end (not yet moved), so including it would anchor the zone
             # at the wrong position.
@@ -2006,8 +2030,15 @@ class PuzzleService:
 
         failed_channels = []
         other_fed_group_ids = set()
+        deleted_files = set()
         for puzzle in to_delete:
             gsheet_cog = self._gsheet_cog(hunt)
+            if puzzle.parent_puzzle_id and puzzle.google_sheet_id in deleted_files:
+                # Files hunt: this mini's tab was in its minimeta's file, which
+                # was deleted above (parents come first) -- nothing left to delete.
+                gsheet_cog = None
+            elif puzzle.google_sheet_id and not puzzle.parent_puzzle_id:
+                deleted_files.add(puzzle.google_sheet_id)
             if gsheet_cog is not None:
                 try:
                     await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
@@ -2720,6 +2751,17 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             await gsheet_cog.update_puzzle(puzzle, True)
+            if self._files_hunt_kw(hunt) and puzzle.google_sheet_id \
+                    and not puzzle.parent_puzzle_id:
+                # Files hunt: a puzzle's own file is named after it (a mini's
+                # tab is in its minimeta's file -- the tab rename above is all).
+                # Best-effort: the id and link are unchanged, so a stale file
+                # name is cosmetic and must not skip the refreshes below.
+                try:
+                    await gsheet_cog.rename_file(puzzle.google_sheet_id, name)
+                except Exception:
+                    logger.exception("rename_puzzle: could not rename file %s for puzzle %s",
+                                     puzzle.google_sheet_id, puzzle.id)
 
         # Refresh metas this puzzle feeds to (same failure-isolation as solve).
         failed = []

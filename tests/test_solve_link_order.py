@@ -140,3 +140,26 @@ def test_a_solved_mini_rolls_up_onto_its_minimeta_after_the_move(PuzzleDb, TagGr
     asyncio.run(svc.solve(None, make_hunt(), mini, "ANSWER"))
 
     assert log == [("move", 7), ("target", 5, 2), ("minimeta", 3, 2)]
+
+
+@patch("bot.core.puzzle_service.SheetsJsonDb")
+@patch("bot.core.puzzle_service.TagGroupJsonDb")
+@patch("bot.core.puzzle_service.PuzzleJsonDb")
+def test_files_hunt_keeps_the_order_and_hands_the_cog_the_hunt(PuzzleDb, TagGroupDb, SheetsDb):
+    """Files mode: the placement dispatch gets the hunt (its folders), and the
+    T6 order -- targets the feeder feeds render after the move -- is kept, for
+    both of a feeder's targets."""
+    hunt = make_hunt(google_sheet_id="REF", solved_sheet_id="", sheet_mode="files",
+                     drive_folder_id="FOLDER", solved_folder_id="SOLVEDFOLDER")
+    feeder = make_puzzle(id=1, tags=[5, 6])
+    svc, log, cog = _setup(PuzzleDb, TagGroupDb, [_group(5, 100), _group(6, 200)])
+    seen = []
+
+    async def move(puzzle, *, hunt=None):
+        seen.append(hunt)
+        log.append(("move", puzzle.id))
+    cog.move_puzzle_to_solved_sheet = AsyncMock(side_effect=move)
+
+    assert asyncio.run(svc.solve(None, hunt, feeder, "ANSWER")) is True
+    assert seen == [hunt]
+    assert log == [("move", 1), ("target", 5, 2), ("target", 6, 2)]

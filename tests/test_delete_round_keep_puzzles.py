@@ -744,3 +744,41 @@ async def test_full_delete_refreshes_other_fed_targets():
     refreshed_ids = {g.id for g in refresh_mock.await_args.args[1]}
     assert refreshed_ids == {9}          # group 5 (being deleted) is excluded
     assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_files_full_delete_removes_each_file_and_skips_a_mini_whose_file_went():
+    """Files hunt, full delete: the target's file and the exclusive feeder's
+    file are deleted (delete_file, never a tab delete); the feeder's mini lives
+    in the feeder's file, so its tab went with that file and gets no call --
+    a tab delete on a deleted file only 404s. All three DB rows still go."""
+    from bot.cogs.puzzles_gsheet import GoogleSheets
+    svc = _svc()
+    hunt = make_hunt(google_sheet_id="REF", solved_sheet_id="", sheet_mode="files",
+                     drive_folder_id="FOLDER", solved_folder_id="SOLVEDFOLDER",
+                     layout_mode="channel")
+    tag_group = make_round(id=5, category_id=0, target_puzzle_id=1)
+    target = make_puzzle(id=1, is_target=True, channel_id=0, tags=[5])
+    target.google_sheet_id, target.google_page_id = "FILE1", 11
+    feeder = make_puzzle(id=2, channel_id=0, tags=[5])
+    feeder.google_sheet_id, feeder.google_page_id = "FILE2", 21
+    mini = make_puzzle(id=3, channel_id=0, parent_puzzle_id=2)
+    mini.google_sheet_id, mini.google_page_id = "FILE2", 31
+
+    cog = GoogleSheets.__new__(GoogleSheets)
+    cog.get_spreadsheet_id = lambda: "REF"
+    cog.get_solved_sheet_id = lambda: ""
+    cog.delete_file = AsyncMock()
+    cog.delete_sheet = AsyncMock()
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb"), \
+         patch.object(svc, "_gsheet_cog", return_value=cog):
+        pdb.get_all_from_tag_group.return_value = [target, feeder]
+        pdb.get_children.side_effect = lambda pid: [mini] if pid == 2 else []
+        await svc.delete_round(None, hunt, tag_group, keep_puzzles=False)
+
+    assert [c.args for c in cog.delete_file.await_args_list] == [("FILE1",), ("FILE2",)]
+    cog.delete_sheet.assert_not_awaited()
+    assert sorted(c.args[0] for c in pdb.delete.call_args_list) == [1, 2, 3]
