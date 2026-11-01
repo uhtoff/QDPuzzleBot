@@ -671,6 +671,142 @@ class PuzzleService:
                 PuzzleJsonDb.commit(puzzle)
         return actions
 
+    @staticmethod
+    def _expected_folder(hunt, puzzle):
+        """Files mode: the folder a puzzle's own file belongs in -- Solved when
+        the puzzle is solved and the hunt has a Solved folder, else the hunt
+        folder (where a solve leaves it when there is no Solved folder)."""
+        if puzzle.solved and hunt.solved_folder_id:
+            return hunt.solved_folder_id
+        return hunt.drive_folder_id
+
+    async def _files_snapshot(self, hunt, puzzles, report):
+        """Files mode's one pass of reads for reconcile(): each of the hunt's two
+        folders listed once (an empty folder id is never listed -- Drive would
+        read it as the service account's root), then one read of each
+        minimeta's file that holds minis, for the mini tabs (and the minimeta's
+        own tab). No other puzzle's file is read: its file being in the right
+        folder under the right name is the check.
+
+        Returns {"found": {file_id: (name, folder_id)}, "present":
+        {spreadsheet_id: frozenset(str(page_id))}, "missing": {puzzle ids whose
+        file is absent}}, or None (with a failure recorded) when the folders
+        cannot be listed -- a failed listing must not read as every file
+        missing. Also records the stray files: anything in the folders that is
+        neither a puzzle's file, the reference spreadsheet nor the Solved
+        folder."""
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return None
+        if not hunt.drive_folder_id:
+            report.add_failure("Drive folders", RuntimeError(
+                "files hunt has no Drive folder; file checks skipped"))
+            return None
+        found = {}
+        try:
+            for folder in (hunt.drive_folder_id, hunt.solved_folder_id):
+                if not folder:
+                    continue
+                for item in await gsheet_cog.list_folder(folder):
+                    found.setdefault(item["id"], (item.get("name", ""), folder))
+        except Exception as error:  # noqa: BLE001
+            logger.exception("reconcile: could not list the hunt's Drive folders")
+            report.add_failure("Drive folders", error)
+            return None
+
+        known = {p.google_sheet_id for p in puzzles if p.google_sheet_id}
+        known.update({hunt.google_sheet_id, hunt.solved_folder_id})
+        for file_id, (name, _folder) in found.items():
+            if file_id not in known:
+                report.add_stray_file(file_id, name)
+
+        missing = {p.id for p in puzzles if not p.parent_puzzle_id
+                   and p.google_sheet_id not in found}
+        present = {}
+        parents = {p.parent_puzzle_id for p in puzzles if p.parent_puzzle_id}
+        for minimeta in puzzles:
+            if minimeta.id not in parents or minimeta.id in missing:
+                continue
+            try:
+                sheets = (await gsheet_cog.sheet_list(minimeta.google_sheet_id))["sheets"]
+            except Exception as error:  # noqa: BLE001
+                logger.exception("reconcile: could not read %s's file", minimeta.name)
+                report.add_failure(f"mini tabs ({minimeta.name})", error)
+                continue
+            present[minimeta.google_sheet_id] = frozenset(
+                str(s["properties"]["sheetId"]) for s in sheets)
+        return {"found": found, "present": present, "missing": missing}
+
+    async def _reconcile_puzzle_file(self, hunt, puzzle, puzzles, check, *, apply):
+        """Files mode, one puzzle (the dispatch point for reconcile's file
+        checks). A puzzle with its own file: no file id or one in neither
+        folder -> file_create (apply: a new file in the folder for its solved
+        state, then its minis' tabs in it, by the mini index rule, each mini's
+        google_sheet_id updated); wrong folder -> file_move; name differs ->
+        file_rename. A minimeta's own tab and its minis' tabs are checked
+        against the one read of its file; a mini whose minimeta's file is
+        missing is covered by that file_create."""
+        actions = []
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            return actions
+        present = check["present"]
+        if puzzle.parent_puzzle_id:
+            minimeta = next((p for p in puzzles if p.id == puzzle.parent_puzzle_id), None)
+            if minimeta is None or minimeta.id in check["missing"] \
+                    or minimeta.google_sheet_id not in present:
+                return actions
+            if puzzle.google_sheet_id != minimeta.google_sheet_id:
+                # Not in its minimeta's file (a recreate that stopped partway).
+                if not apply:
+                    return [ReconcileAction("tab_create", puzzle.name,
+                                            "not in its minimeta's file")]
+                puzzle.google_sheet_id = minimeta.google_sheet_id
+                puzzle.google_page_id = ""
+            return await self._reconcile_tabs(hunt, puzzle, apply=apply,
+                                              present_ids=present)
+
+        minis = [p for p in puzzles if p.parent_puzzle_id == puzzle.id]
+        want = self._expected_folder(hunt, puzzle)
+        entry = check["found"].get(puzzle.google_sheet_id) if puzzle.google_sheet_id else None
+        if entry is None:
+            detail = "no file" if not puzzle.google_sheet_id else "file not in the hunt's folders"
+            if minis:
+                detail += f"; its {len(minis)} mini tab(s) are recreated with it"
+            actions.append(ReconcileAction("file_create", puzzle.name, detail))
+            if apply:
+                await gsheet_cog.create_puzzle_file(puzzle, want)
+                PuzzleJsonDb.commit(puzzle)
+                done = []
+                for mini in minis:
+                    mini.google_sheet_id = puzzle.google_sheet_id
+                    mini.google_page_id = ""
+                    index = await gsheet_cog.mini_insert_index(puzzle, list(done))
+                    await gsheet_cog.add_new_puzzle_sheet(mini, index)
+                    await gsheet_cog.update_puzzle_info(mini)
+                    PuzzleJsonDb.commit(mini)
+                    done.append(mini)
+            return actions
+
+        name, folder = entry
+        if folder != want:
+            actions.append(ReconcileAction(
+                "file_move", puzzle.name,
+                "solved, but not in the Solved folder" if puzzle.solved
+                else "unsolved, but in the Solved folder"))
+            if apply:
+                await gsheet_cog.move_file(puzzle.google_sheet_id, want, folder)
+        if name != puzzle.name:
+            actions.append(ReconcileAction("file_rename", puzzle.name,
+                                           f'file is named "{name}"'))
+            if apply:
+                await gsheet_cog.rename_file(puzzle.google_sheet_id, puzzle.name)
+        if puzzle.google_sheet_id in present:
+            # A minimeta: its file was read for the minis; check its own tab too.
+            actions.extend(await self._reconcile_tabs(hunt, puzzle, apply=apply,
+                                                      present_ids=present))
+        return actions
+
     async def reconcile(self, guild, hunt, *, apply):
         """Make Discord + Sheets match the DB for an entire hunt. Returns a
         ReconcileReport. Never deletes — orphans are only collected. Each puzzle is
@@ -680,15 +816,21 @@ class PuzzleService:
         rounds = TagGroupJsonDb.get_all(hunt.id)
         hunt_category_ids = self._hunt_category_ids(hunt, rounds)
 
-        try:
-            present_ids = await self._fetch_present_tab_ids(hunt)
-        except Exception:  # noqa: BLE001
-            # A slow reconcile beats one that refuses to run: fall back to the
-            # per-puzzle get_page_name_by_id lookup inside _reconcile_tabs.
-            logger.exception(
-                "reconcile: could not pre-fetch tab snapshot; falling back to "
-                "per-puzzle tab lookups")
-            present_ids = None
+        files = getattr(hunt, "sheet_mode", "tabs") == "files"
+        files_check = None
+        present_ids = None
+        if files:
+            files_check = await self._files_snapshot(hunt, puzzles, report)
+        else:
+            try:
+                present_ids = await self._fetch_present_tab_ids(hunt)
+            except Exception:  # noqa: BLE001
+                # A slow reconcile beats one that refuses to run: fall back to the
+                # per-puzzle get_page_name_by_id lookup inside _reconcile_tabs.
+                logger.exception(
+                    "reconcile: could not pre-fetch tab snapshot; falling back to "
+                    "per-puzzle tab lookups")
+                present_ids = None
 
         for puzzle in puzzles:
             try:
@@ -696,9 +838,14 @@ class PuzzleService:
                         guild, hunt, puzzle, report, apply=apply,
                         hunt_category_ids=hunt_category_ids):
                     report.actions.append(action)
-                for action in await self._reconcile_tabs(
-                        hunt, puzzle, apply=apply, present_ids=present_ids):
-                    report.actions.append(action)
+                if files:
+                    if files_check is not None:
+                        report.actions.extend(await self._reconcile_puzzle_file(
+                            hunt, puzzle, puzzles, files_check, apply=apply))
+                else:
+                    for action in await self._reconcile_tabs(
+                            hunt, puzzle, apply=apply, present_ids=present_ids):
+                        report.actions.append(action)
             except Exception as error:  # noqa: BLE001
                 logger.exception("reconcile: failed for puzzle %s", puzzle.name)
                 report.add_failure(puzzle.name, error)
@@ -789,13 +936,28 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return
+        # The hunt's live spreadsheet -- in a files hunt, the reference one.
         spreadsheet = gsheet_cog.get_spreadsheet_id()
-        valid = {str(p.google_page_id) for p in puzzles if p.google_page_id and not p.on_solved_sheet}
+        # A puzzle with its own file (files mode) has no tab here.
+        valid = {str(p.google_page_id) for p in puzzles
+                 if p.google_page_id and not p.on_solved_sheet and not p.google_sheet_id}
         # Additional per-puzzle sheets are real puzzle tabs, not orphans.
         for puzzle in puzzles:
             for sheet in getattr(puzzle, "additional_sheets", None) or []:
                 if sheet.google_page_id:
                     valid.add(str(sheet.google_page_id))
+        # The hunt's own loose sheets (!add_sheet outside a puzzle) are tabs
+        # here too. Leaving them out reported them as orphans, and
+        # `apply orphans` deleted them. If they cannot be read, scan nothing:
+        # a missing exclusion would offer them for deletion.
+        try:
+            loose = SheetsJsonDb.get_by_hunt(hunt.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("reconcile: could not load the hunt's sheets for orphan scan")
+            return
+        for sheet in loose:
+            if sheet.google_page_id:
+                valid.add(str(sheet.google_page_id))
         # Bot-managed structural tabs tracked on the hunt are never orphans.
         for page_id in (getattr(hunt, "unassigned_sheet_page_id", None),
                         getattr(hunt, "evidence_sheet_page_id", None)):
@@ -821,7 +983,9 @@ class PuzzleService:
 
     async def delete_orphans(self, guild, hunt, report):
         """Delete the orphan channels/tabs recorded in `report`. Tolerant of
-        already-missing items. Returns (deleted_count, failure_count)."""
+        already-missing items. Returns (deleted_count, failure_count).
+        report.stray_files are never touched: a file in a hunt's Drive folder
+        that reconcile did not create is reported, never deleted."""
         deleted = 0
         failures = 0
         for channel_id, name in report.orphan_channels:

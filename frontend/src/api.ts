@@ -622,6 +622,9 @@ export interface ReconcileResult {
   actions: ReconcileAction[];
   orphan_channels: { id: number; name: string }[];
   orphan_tabs: { id: number; title: string }[];
+  // Files hunts: files in the hunt's Drive folders matching no puzzle.
+  // Reported only -- never deleted, and not part of the orphan delete.
+  stray_files: { id: string; name: string; url: string | null }[];
   failures: { target: string; error: string }[];
   deleted: number;
 }

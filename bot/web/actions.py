@@ -34,7 +34,8 @@ from .auth import (
     resolve_member_role_ids,
 )
 from bot.core import role_gate, template_link
-from bot.core.sheet_location import additional_sheet_location, hunt_sheet_location
+from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
+                                     spreadsheet_link)
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb
 from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
@@ -2175,7 +2176,8 @@ async def reconcile(uid):
       apply-orphans — also delete orphan Discord channels/tabs (requires explicit
                       `confirmed_orphans` body field listing all orphan names).
 
-    Returns {ok, actions, orphan_channels, orphan_tabs, deleted, failures}.
+    Returns {ok, actions, orphan_channels, orphan_tabs, stray_files, deleted,
+    failures}. stray_files (files hunts) are reported only, never deleted.
     """
     ctx, hunt_obj, cog, guild, err = await _route_ctx(
         _visible_hunt_by_uid(uid), tier="organiser")
@@ -2216,6 +2218,10 @@ async def reconcile(uid):
                             for cid, name in report.orphan_channels],
         "orphan_tabs": [{"id": sid, "title": title}
                         for sid, title in report.orphan_tabs],
+        # Files hunts: files in the hunt's folders matching no puzzle --
+        # reported, never deleted (not part of apply-orphans).
+        "stray_files": [{"id": fid, "name": name, "url": spreadsheet_link(fid)}
+                        for fid, name in report.stray_files],
         "failures": [{"target": t, "error": e} for t, e in report.failures],
         "deleted": deleted,
     })

@@ -13,7 +13,8 @@ from typing import List, Tuple
 class ReconcileAction:
     kind: str          # e.g. "channel_create", "channel_relink", "channel_move",
                        # "channel_rename", "tab_create", "tab_rename",
-                       # "round_category_broken"
+                       # "round_category_broken"; files mode: "file_create",
+                       # "file_move", "file_rename"
     target: str        # human label (puzzle/round name)
     detail: str = ""   # extra context for the report line
 
@@ -24,6 +25,10 @@ class ReconcileReport:
     orphan_channels: List[Tuple[int, str]] = field(default_factory=list)  # (channel_id, name)
     orphan_tabs: List[Tuple[int, str]] = field(default_factory=list)      # (sheet_id, title)
     failures: List[Tuple[str, str]] = field(default_factory=list)         # (target, error)
+    # Files mode: files in the hunt's Drive folders that match no puzzle (and
+    # are not the reference spreadsheet). Reported only -- never deleted, and
+    # not orphans (has_orphans ignores them), so `apply orphans` leaves them.
+    stray_files: List[Tuple[str, str]] = field(default_factory=list)      # (file_id, name)
 
     def add(self, kind, target, detail=""):
         self.actions.append(ReconcileAction(kind, target, detail))
@@ -33,6 +38,9 @@ class ReconcileReport:
 
     def add_orphan_tab(self, sheet_id, title):
         self.orphan_tabs.append((sheet_id, title))
+
+    def add_stray_file(self, file_id, name):
+        self.stray_files.append((file_id, name))
 
     def add_failure(self, target, error):
         self.failures.append((target, str(error)))

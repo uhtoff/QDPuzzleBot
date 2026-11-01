@@ -843,3 +843,337 @@ def test_reconcile_apply_reports_a_failed_minimeta_refresh_and_carries_on():
         report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=True))
     assert [t for t, _ in report.failures] == ["minimeta roll-up (MM)"]
     links_m.assert_awaited_once()
+
+
+# --------------------------------------------------------------------------
+# Files mode: each puzzle's own file in the hunt's Drive folders
+# --------------------------------------------------------------------------
+
+_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
+_FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+def _files_hunt(**kw):
+    return make_hunt(id=1, name="Hunt", google_sheet_id="REF", solved_sheet_id="",
+                     sheet_mode="files", drive_folder_id="FOLDER",
+                     solved_folder_id="SOLVED", **kw)
+
+
+def _files_gcog(folders, tabs):
+    """folders: {folder_id: [(file_id, name[, mimeType])]};
+    tabs: {spreadsheet_id: [(sheetId, title)]} in tab order."""
+    g = _gcog()
+    g.get_spreadsheet_id.return_value = "REF"
+    g.get_solved_sheet_id.return_value = ""
+
+    async def _list_folder(folder_id):
+        return [{"id": e[0], "name": e[1],
+                 "mimeType": e[2] if len(e) > 2 else _SHEET_MIME}
+                for e in folders.get(folder_id, [])]
+
+    async def _sheet_list(spreadsheet_id=None):
+        if spreadsheet_id not in tabs:
+            raise AssertionError(f"unexpected read of {spreadsheet_id!r}")
+        return {"sheets": [{"properties": {"sheetId": sid, "title": title, "index": i}}
+                           for i, (sid, title) in enumerate(tabs[spreadsheet_id])]}
+    g.list_folder = AsyncMock(side_effect=_list_folder)
+    g.sheet_list = AsyncMock(side_effect=_sheet_list)
+    g.get_page_name_by_id = AsyncMock(side_effect=AssertionError("per-tab lookup"))
+    g.move_file = AsyncMock()
+    g.rename_file = AsyncMock()
+    g.delete_file = AsyncMock()
+    g.delete_sheet_tab = AsyncMock()
+    g.mini_insert_index = AsyncMock(return_value=1)
+    return g
+
+
+def _run_files(gcog, puzzles, *, apply, loose=(), hunt=None):
+    svc = _service_with_gsheet(gcog)
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=puzzles), \
+         patch.object(ps.PuzzleJsonDb, "commit") as commit, \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(ps.SheetsJsonDb, "get_by_hunt", return_value=list(loose)), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_targets", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_minimeta", new=AsyncMock()), \
+         patch.object(svc, "refresh_header_links", new=AsyncMock(return_value=[])):
+        report = asyncio.run(svc.reconcile(_guild_with(), hunt or _files_hunt(),
+                                           apply=apply))
+    return report, commit
+
+
+def _own(name, pid, file_id, page="0", solved=False):
+    return _puzzle(name=name, id=pid, google_sheet_id=file_id, google_page_id=page,
+                   solved=solved, tags=[])
+
+
+def _healthy_files_hunt():
+    a = _own("A", 1, "FA")
+    b = _own("B", 2, "FB", solved=True)
+    mm = _own("MM", 3, "FMM", page="100")
+    m1 = _puzzle(name="m1", id=4, google_sheet_id="FMM", google_page_id="101",
+                 parent_puzzle_id=3, tags=[])
+    m2 = _puzzle(name="m2", id=5, google_sheet_id="FMM", google_page_id="102",
+                 parent_puzzle_id=3, tags=[])
+    folders = {
+        "FOLDER": [("FA", "A"), ("FMM", "MM"), ("REF", "Hunt Reference"),
+                   ("SOLVED", "Solved", _FOLDER_MIME)],
+        "SOLVED": [("FB", "B")],
+    }
+    tabs = {
+        "FMM": [(100, "MM"), (101, "m1"), (102, "m2")],
+        "REF": [(1, "REFERENCE"), (500, "Loose notes")],
+    }
+    return [a, b, mm, m1, m2], folders, tabs
+
+
+def test_a_healthy_files_hunt_reports_nothing():
+    """Spec acceptance 7, and the read budget: each folder listed once, one
+    read of the minimeta's file (two minis, still one), the reference read by
+    the orphan scan -- no read of any other puzzle's file."""
+    puzzles, folders, tabs = _healthy_files_hunt()
+    gcog = _files_gcog(folders, tabs)
+    report, _ = _run_files(gcog, puzzles, apply=False,
+                           loose=[SimpleNamespace(google_page_id="500")])
+    assert report.counts() == {}
+    assert report.stray_files == []
+    assert report.orphan_tabs == []
+    assert report.has_orphans() is False
+    assert report.failures == []
+    assert sorted(c.args[0] for c in gcog.list_folder.await_args_list) == ["FOLDER", "SOLVED"]
+    assert sorted(c.args[0] for c in gcog.sheet_list.await_args_list) == ["FMM", "REF"]
+
+
+def test_apply_on_a_healthy_files_hunt_changes_nothing():
+    puzzles, folders, tabs = _healthy_files_hunt()
+    gcog = _files_gcog(folders, tabs)
+    gcog.create_puzzle_file = AsyncMock()
+    report, _ = _run_files(gcog, puzzles, apply=True,
+                           loose=[SimpleNamespace(google_page_id="500")])
+    assert report.counts() == {}
+    gcog.create_puzzle_file.assert_not_awaited()
+    gcog.move_file.assert_not_awaited()
+    gcog.rename_file.assert_not_awaited()
+    gcog.add_new_puzzle_sheet.assert_not_awaited()
+
+
+def test_a_folder_with_no_id_is_never_listed():
+    """An empty folder id must not reach list_folder (Drive would read it as
+    the service account's root); with no Solved folder a solved puzzle
+    belongs in the hunt folder."""
+    b = _own("B", 2, "FB", solved=True)
+    gcog = _files_gcog({"FOLDER": [("FB", "B")]}, {"REF": []})
+    report, _ = _run_files(gcog, [b], apply=False,
+                           hunt=make_hunt(id=1, google_sheet_id="REF", solved_sheet_id="",
+                                          sheet_mode="files", drive_folder_id="FOLDER",
+                                          solved_folder_id=""))
+    assert [c.args[0] for c in gcog.list_folder.await_args_list] == ["FOLDER"]
+    assert report.counts() == {}
+
+
+def test_a_failed_folder_listing_is_a_failure_not_a_wave_of_file_creates():
+    a = _own("A", 1, "FA")
+    b = _own("B", 2, "FB")
+    gcog = _files_gcog({}, {"REF": []})
+    gcog.list_folder = AsyncMock(side_effect=RuntimeError("drive down"))
+    gcog.create_puzzle_file = AsyncMock()
+    report, _ = _run_files(gcog, [a, b], apply=True)
+    assert report.counts() == {}
+    assert len(report.failures) == 1
+    gcog.create_puzzle_file.assert_not_awaited()
+
+
+def test_a_missing_file_is_reported_file_create_without_touching_drive():
+    no_id = _own("NoId", 1, "")
+    gone = _own("Gone", 2, "GONE")
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+    gcog.create_puzzle_file = AsyncMock()
+    report, commit = _run_files(gcog, [no_id, gone], apply=False)
+    assert [(a.kind, a.target) for a in report.actions] == [
+        ("file_create", "NoId"), ("file_create", "Gone")]
+    gcog.create_puzzle_file.assert_not_awaited()
+    commit.assert_not_called()
+
+
+def test_apply_creates_a_missing_file_in_the_folder_for_its_solved_state():
+    """Two puzzles so the folder choice is a mapping: unsolved -> hunt folder,
+    solved -> Solved (no follow-up move needed)."""
+    open_ = _own("Open", 1, "")
+    done = _own("Done", 2, "GONE", solved=True)
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+
+    async def _create(puzzle, folder_id, header_links=None):
+        puzzle.google_sheet_id = f"NEW-{puzzle.name}"
+        puzzle.google_page_id = "0"
+    gcog.create_puzzle_file = AsyncMock(side_effect=_create)
+    report, commit = _run_files(gcog, [open_, done], apply=True)
+    assert [(c.args[0].name, c.args[1]) for c in gcog.create_puzzle_file.await_args_list] == [
+        ("Open", "FOLDER"), ("Done", "SOLVED")]
+    assert open_.google_sheet_id == "NEW-Open"
+    assert done.google_sheet_id == "NEW-Done"
+    committed = [c.args[0] for c in commit.call_args_list]
+    assert open_ in committed and done in committed
+    assert report.counts() == {"file_create": 2}
+
+
+def test_a_file_in_the_wrong_folder_is_moved_both_ways():
+    """Two instances, so a reversed from/to would fail one of them."""
+    open_in_solved = _own("Open", 1, "FO")
+    solved_in_live = _own("Done", 2, "FD", solved=True)
+    folders = {"FOLDER": [("FD", "Done")], "SOLVED": [("FO", "Open")]}
+    gcog = _files_gcog(folders, {"REF": []})
+    report, _ = _run_files(gcog, [open_in_solved, solved_in_live], apply=False)
+    assert report.counts() == {"file_move": 2}
+    gcog.move_file.assert_not_awaited()
+
+    gcog = _files_gcog(folders, {"REF": []})
+    report, _ = _run_files(gcog, [open_in_solved, solved_in_live], apply=True)
+    assert [c.args for c in gcog.move_file.await_args_list] == [
+        ("FO", "FOLDER", "SOLVED"), ("FD", "SOLVED", "FOLDER")]
+
+
+def test_a_misnamed_file_is_renamed_to_the_puzzle_name():
+    a = _own("Tide", 1, "FA")
+    gcog = _files_gcog({"FOLDER": [("FA", "Old name")]}, {"REF": []})
+    report, _ = _run_files(gcog, [a], apply=False)
+    assert [(x.kind, x.target) for x in report.actions] == [("file_rename", "Tide")]
+    gcog.rename_file.assert_not_awaited()
+
+    gcog = _files_gcog({"FOLDER": [("FA", "Old name")]}, {"REF": []})
+    _run_files(gcog, [a], apply=True)
+    gcog.rename_file.assert_awaited_once_with("FA", "Tide")
+
+
+def test_a_stray_file_is_reported_and_never_deleted():
+    """Neither the reference, the Solved subfolder nor a puzzle's file is a
+    stray; `apply orphans` (delete_orphans) leaves the stray alone."""
+    a = _own("A", 1, "FA")
+    folders = {"FOLDER": [("FA", "A"), ("REF", "Hunt Reference"),
+                          ("SOLVED", "Solved", _FOLDER_MIME), ("STRAY1", "notes")],
+               "SOLVED": [("STRAY2", "old copy")]}
+    gcog = _files_gcog(folders, {"REF": [(999, "old-tab")]})
+    report, _ = _run_files(gcog, [a], apply=True)
+    assert report.stray_files == [("STRAY1", "notes"), ("STRAY2", "old copy")]
+    assert report.orphan_tabs == [(999, "old-tab")]
+    guild = _guild_with()
+    svc = _service_with_gsheet(gcog)
+    deleted, failures = asyncio.run(svc.delete_orphans(guild, _files_hunt(), report))
+    assert deleted == 1       # the orphan tab only
+    gcog.delete_sheet_tab.assert_awaited_once_with(999, "REF")
+    gcog.delete_file.assert_not_awaited()
+    assert report.stray_files == [("STRAY1", "notes"), ("STRAY2", "old copy")]
+
+
+def test_stray_files_alone_are_not_orphans_to_delete():
+    gcog = _files_gcog({"FOLDER": [("STRAY", "notes")]}, {"REF": []})
+    report, _ = _run_files(gcog, [], apply=False)
+    assert report.stray_files == [("STRAY", "notes")]
+    assert report.has_orphans() is False
+
+
+def _minimeta_family(mm_file):
+    mm = _own("MM", 3, mm_file, page="100")
+    m1 = _puzzle(name="m1", id=4, google_sheet_id=mm_file, google_page_id="101",
+                 parent_puzzle_id=3, tags=[])
+    m2 = _puzzle(name="m2", id=5, google_sheet_id=mm_file, google_page_id="102",
+                 parent_puzzle_id=3, tags=[])
+    return mm, m1, m2
+
+
+def test_a_missing_minimeta_file_is_one_file_create_not_a_tab_create_per_mini():
+    mm, m1, m2 = _minimeta_family("GONE")
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+    report, _ = _run_files(gcog, [m1, mm, m2], apply=False)
+    assert [(a.kind, a.target) for a in report.actions] == [("file_create", "MM")]
+
+
+def test_recreating_a_minimeta_file_recreates_its_minis_tabs_with_new_ids():
+    """Two minis: each lands in the new file, by the mini index rule over the
+    minis already recreated, in order, and is committed with the new id."""
+    mm, m1, m2 = _minimeta_family("GONE")
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+
+    async def _create(puzzle, folder_id, header_links=None):
+        puzzle.google_sheet_id = "NEWFILE"
+        puzzle.google_page_id = "900"
+    gcog.create_puzzle_file = AsyncMock(side_effect=_create)
+    seen = []
+
+    async def _index(minimeta, minis):
+        seen.append((minimeta.name, [m.name for m in minis]))
+        return len(minis) + 1
+    gcog.mini_insert_index = AsyncMock(side_effect=_index)
+    pages = iter(["901", "902"])
+
+    async def _add(puzzle, index, **kw):
+        assert puzzle.google_sheet_id == "NEWFILE"   # addressed at the new file
+        puzzle.google_page_id = next(pages)
+    gcog.add_new_puzzle_sheet = AsyncMock(side_effect=_add)
+    report, commit = _run_files(gcog, [m1, mm, m2], apply=True)
+    assert [(c.args[0].name, c.args[1]) for c in gcog.add_new_puzzle_sheet.await_args_list] == [
+        ("m1", 1), ("m2", 2)]
+    assert seen == [("MM", []), ("MM", ["m1"])]
+    assert (m1.google_sheet_id, m1.google_page_id) == ("NEWFILE", "901")
+    assert (m2.google_sheet_id, m2.google_page_id) == ("NEWFILE", "902")
+    committed = [c.args[0] for c in commit.call_args_list]
+    assert mm in committed and m1 in committed and m2 in committed
+    assert report.counts() == {"file_create": 1}
+
+
+def test_a_missing_mini_tab_is_found_by_one_read_and_recreated():
+    mm, m1, m2 = _minimeta_family("FMM")
+    folders = {"FOLDER": [("FMM", "MM")], "SOLVED": []}
+    tabs = {"FMM": [(100, "MM"), (101, "m1")], "REF": []}     # m2's tab gone
+    gcog = _files_gcog(folders, tabs)
+    report, _ = _run_files(gcog, [mm, m1, m2], apply=False)
+    assert [(a.kind, a.target) for a in report.actions] == [("tab_create", "m2")]
+    assert [c.args[0] for c in gcog.sheet_list.await_args_list].count("FMM") == 1
+
+    gcog = _files_gcog(folders, tabs)
+    gcog.mini_insert_index = AsyncMock(return_value=2)
+    _run_files(gcog, [mm, m1, m2], apply=True)
+    gcog.add_new_puzzle_sheet.assert_awaited_once_with(m2, 2)
+
+
+def _loose_sheet_orphan_scan(hunt, spreadsheet_id):
+    gcog = MagicMock()
+    gcog.get_spreadsheet_id.return_value = spreadsheet_id
+    gcog.sheet_list = AsyncMock(return_value={"sheets": [
+        {"properties": {"sheetId": 100, "title": "Tide"}},
+        {"properties": {"sheetId": 500, "title": "Loose notes"}},
+        {"properties": {"sheetId": 501, "title": "Loose answers"}},
+        {"properties": {"sheetId": 999, "title": "old-puzzle"}},
+    ]})
+    svc = _service_with_gsheet(gcog)
+    p = _puzzle(google_page_id="100")
+    p.additional_sheets = []
+    report = ReconcileReport()
+    loose = [SimpleNamespace(google_page_id="500"), SimpleNamespace(google_page_id="501")]
+    with patch.object(ps.SheetsJsonDb, "get_by_hunt", return_value=loose) as by_hunt:
+        asyncio.run(svc._collect_orphan_tabs(hunt, [p], report))
+    by_hunt.assert_called_once_with(hunt.id)
+    gcog.sheet_list.assert_awaited_once_with(spreadsheet_id)
+    return report
+
+
+def test_a_loose_hunt_sheet_is_not_an_orphan_tab_in_a_tab_hunt():
+    """Data-loss fix: `apply orphans` deleted every loose hunt sheet."""
+    report = _loose_sheet_orphan_scan(_hunt(), "SS")
+    assert report.orphan_tabs == [(999, "old-puzzle")]
+
+
+def test_a_loose_hunt_sheet_is_not_an_orphan_tab_in_a_files_hunt():
+    report = _loose_sheet_orphan_scan(_files_hunt(), "REF")
+    assert report.orphan_tabs == [(999, "old-puzzle")]
+
+
+def test_format_report_names_stray_files_as_never_deleted():
+    r = ReconcileReport()
+    r.add("file_move", "Tide")
+    r.add_stray_file("F1", "notes")
+    r.add_stray_file("F2", "old copy")
+    text = Puzzles._format_reconcile_report(r, applied=False)
+    assert "file_move: 1" in text
+    assert "2 stray files" in text
+    assert '"notes"' in text and '"old copy"' in text
+    assert "never deleted" in text

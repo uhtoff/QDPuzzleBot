@@ -1065,6 +1065,17 @@ class Puzzles(commands.Cog):
                          f"{'s' if len(report.orphan_tabs) != 1 else ''} "
                          "(not deleted unless you run `!reconcile apply orphans`)")
         lines += Puzzles._orphan_name_lines(report, limit=limit)
+        strays = report.stray_files
+        if strays:
+            # Not orphans: kept out of _orphan_name_lines so the delete
+            # confirmation never lists them.
+            lines.append(f":file_folder: {len(strays)} stray file"
+                         f"{'s' if len(strays) != 1 else ''} in the hunt's Drive folders "
+                         "(never deleted — tidy them by hand)")
+            shown = strays[:limit]
+            lines.append("**Stray files:** " + ", ".join(f'"{name}"' for _, name in shown))
+            if len(strays) > len(shown):
+                lines.append(f"…and {len(strays) - len(shown)} more")
         if report.failures:
             lines.append(":warning: failures: "
                          + ", ".join(f"{t} ({e})" for t, e in report.failures))
@@ -1090,7 +1101,9 @@ class Puzzles(commands.Cog):
         Usage: `!reconcile [apply [orphans]]`
         Example: `!reconcile` (report only)
         `!reconcile apply` fixes mismatches; `!reconcile apply orphans` also deletes
-        orphaned channels/tabs (with confirmation). Run in a hunt channel. Organisers/admins only."""
+        orphaned channels/tabs (with confirmation). In a files hunt it also checks each
+        puzzle's file (missing, wrong folder, wrong name) and lists stray files, which
+        are never deleted. Run in a hunt channel. Organisers/admins only."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")

@@ -68,7 +68,7 @@ def web():
     cog.service.update_hunt_settings = AsyncMock()
     cog.service.set_hunt_role = AsyncMock(return_value=[])
     cog.service.reconcile = AsyncMock(return_value=SimpleNamespace(
-        actions=[], orphan_channels=[], orphan_tabs=[], failures=[]))
+        actions=[], orphan_channels=[], orphan_tabs=[], stray_files=[], failures=[]))
     cog.service.delete_orphans = AsyncMock(return_value=(0, []))
     cog.service.refresh_target = AsyncMock()
     cog.service.make_minimeta = AsyncMock()
@@ -295,3 +295,21 @@ class TestUngatedRoutesStillRefuseAnArchivedHunt:
 
         assert resp.status_code == 200, await resp.get_data()
         assert _ran(mutator(web)) == 1
+
+
+async def test_reconcile_payload_lists_stray_files_with_their_links(web):
+    """Files hunts: stray files ride in the payload (name + whole-spreadsheet
+    link built by sheet_location), apart from the deletable orphans."""
+    web.roles.return_value = ORGANISER
+    web.cog.service.reconcile.return_value = SimpleNamespace(
+        actions=[], orphan_channels=[], orphan_tabs=[], failures=[],
+        stray_files=[("F1", "notes"), ("F2", "old copy")])
+    resp = await web.client.post("/api/hunts/U1/reconcile?mode=report", json={})
+    assert resp.status_code == 200
+    data = await resp.get_json()
+    assert data["stray_files"] == [
+        {"id": "F1", "name": "notes",
+         "url": "https://docs.google.com/spreadsheets/d/F1"},
+        {"id": "F2", "name": "old copy",
+         "url": "https://docs.google.com/spreadsheets/d/F2"}]
+    assert data["orphan_tabs"] == []

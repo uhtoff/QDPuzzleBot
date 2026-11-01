@@ -8,6 +8,7 @@ import {
   Divider,
   Group,
   Loader,
+  Anchor,
   Stack,
   Text,
   Title,
@@ -101,7 +102,8 @@ export function ReconcilePanel({ uid }: { uid: string }) {
             </Alert>
           )}
 
-          {report.actions.length === 0 && orphanNames.length === 0 && report.failures.length === 0 ? (
+          {report.actions.length === 0 && orphanNames.length === 0 &&
+            report.stray_files.length === 0 && report.failures.length === 0 ? (
             <Group gap={6}>
               <IconCheck size={16} color="green" />
               <Text size="sm" c="green">Everything looks good — no fixes needed.</Text>
@@ -119,6 +121,29 @@ export function ReconcilePanel({ uid }: { uid: string }) {
                         <Badge size="xs" color="blue" variant="light">{a.kind}</Badge>
                         <Text size="xs">{a.target}</Text>
                         {a.detail && <Text size="xs" c="dimmed">— {a.detail}</Text>}
+                      </Group>
+                    ))}
+                  </Stack>
+                </>
+              )}
+
+              {report.stray_files.length > 0 && (
+                <>
+                  <Text size="sm" fw={600} mb={4} c="orange">
+                    Stray files ({report.stray_files.length}) — in the hunt&rsquo;s Drive
+                    folders but matching no puzzle; never deleted, tidy them by hand
+                  </Text>
+                  <Stack gap={2} mb="sm">
+                    {report.stray_files.map((f) => (
+                      <Group key={f.id} gap={6}>
+                        <Badge size="xs" color="gray" variant="light">file</Badge>
+                        {f.url ? (
+                          <Anchor href={f.url} target="_blank" rel="noopener noreferrer" size="xs">
+                            {f.name}
+                          </Anchor>
+                        ) : (
+                          <Code>{f.name}</Code>
+                        )}
                       </Group>
                     ))}
                   </Stack>
