@@ -563,3 +563,87 @@ def test_mini_index_keeps_an_unsolved_minis_extra_beside_it():
     rec = Recorder(sheets_by_id={"PARENTFILE": sheets})
     minis = [_mini(1, 101), _mini(2, 102), _mini(4, 103, solved=True)]
     assert rec.run(cog.mini_insert_index(_minimeta(), minis)) == 4
+
+
+# ------------------------- fix round 1: stale template cache, hunt-sheet guard
+
+def _real_template_cog(monkeypatch, cached, master_now):
+    """A cog whose template_tabs is the real cached reader: the process cache
+    holds `cached`; a re-read of the master returns `master_now`."""
+    from bot.utils import config
+    cog = _cog()
+    del cog.template_tabs                 # use the real method
+    monkeypatch.setattr(gsheet_mod, "_TEMPLATE_TABS", [dict(t) for t in cached])
+    master = [_sheet(t["sheetId"], t["title"], i, t["hidden"])
+              for i, t in enumerate(master_now)]
+    return cog, {config.master_spreadsheet: master}
+
+
+def _header_batches(rec):
+    return [c for c in rec.batches
+            if any("updateSpreadsheetProperties" in r for r in c[2]["requests"])]
+
+
+def test_stale_template_cache_is_reread_and_the_header_batch_retried_once(monkeypatch):
+    """A tab removed from the master mid-run: the cached trim deletes an id the
+    copy lacks, so Google rejects the (atomic) batch. Re-read and retry once."""
+    gone = 2034589729   # "Tool- Pokémon", removed from the master
+    now = [t for t in TEMPLATE_TABS if t["sheetId"] != gone]
+    cog, master = _real_template_cog(monkeypatch, TEMPLATE_TABS, now)
+    rec = Recorder(sheets_by_id=master, fail_on=lambda kind, sid, body: kind == "batch"
+                   and any(r.get("deleteSheet", {}).get("sheetId") == gone
+                           for r in body["requests"]))
+    puzzle = make_puzzle(name="Clueless")
+    rec.run(cog.create_puzzle_spreadsheet(puzzle, hunt=_files_hunt()))
+
+    headers = _header_batches(rec)
+    assert len(headers) == 2                                   # exactly one retry
+    retried = {r["deleteSheet"]["sheetId"] for r in headers[1][2]["requests"]
+               if "deleteSheet" in r}
+    assert retried == {t["sheetId"] for t in now} - {TAB_TEMPLATE_ID}
+    assert [c for c in rec.batches if any("addSheet" in r for r in c[2]["requests"])] \
+        == [rec.batches[0]]                                    # no second tab
+    assert all(c[1] == "NEWFILE" for c in rec.batches)
+    cog.delete_file.assert_not_awaited()                       # file kept
+    assert puzzle.google_sheet_id == "NEWFILE"
+    assert puzzle.google_page_id == NEW_PAGE
+    assert [t["sheetId"] for t in gsheet_mod._TEMPLATE_TABS] == [t["sheetId"] for t in now]
+
+
+def test_a_retry_that_also_fails_deletes_the_copy_and_drops_the_cache(monkeypatch):
+    cog, master = _real_template_cog(monkeypatch, TEMPLATE_TABS, TEMPLATE_TABS)
+    rec = Recorder(sheets_by_id=master, fail_on=lambda kind, sid, body: kind == "batch"
+                   and any("deleteSheet" in r for r in body["requests"]))
+    puzzle = make_puzzle(name="Clueless")
+    with pytest.raises(HttpError):
+        rec.run(cog.create_puzzle_spreadsheet(puzzle, hunt=_files_hunt()))
+
+    assert len(_header_batches(rec)) == 2                      # one retry, no more
+    cog.delete_file.assert_awaited_once_with("NEWFILE")
+    assert puzzle.google_sheet_id == "" and puzzle.google_page_id == ""
+    assert gsheet_mod._TEMPLATE_TABS is None                   # next create re-reads
+
+
+def test_a_failed_addsheet_is_not_retried(monkeypatch):
+    cog, master = _real_template_cog(monkeypatch, TEMPLATE_TABS, TEMPLATE_TABS)
+    rec = Recorder(sheets_by_id=master, fail_on=lambda kind, sid, body: kind == "batch"
+                   and any("addSheet" in r for r in body["requests"]))
+    with pytest.raises(HttpError):
+        rec.run(cog.create_puzzle_spreadsheet(make_puzzle(name="P"), hunt=_files_hunt()))
+    assert len(rec.batches) == 1
+    assert rec.gets == []                                      # no template re-read
+    cog.delete_file.assert_awaited_once_with("NEWFILE")
+
+
+@pytest.mark.parametrize("hunt_sheet", ["LIVE", "SOLVED"])
+def test_delete_never_takes_a_hunt_level_spreadsheet(hunt_sheet):
+    """A row whose own-file id is the hunt's reference (live) or solved
+    spreadsheet is corrupt; deleting it would destroy the hunt's sheet."""
+    cog = _cog()
+    cog.delete_sheet = AsyncMock()
+    p = make_puzzle(name="P")
+    p.google_sheet_id = hunt_sheet
+    p.google_page_id = 5
+    asyncio.run(cog.delete_puzzle_spreadsheet(p))
+    cog.delete_file.assert_not_awaited()
+    cog.delete_sheet.assert_not_awaited()

@@ -2411,6 +2411,11 @@ async def create_meta(uid):
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except HttpError:
+        # The meta's sheet is made before its channel; create_tag_group rolls
+        # the group back, so a failure creates nothing.
+        logger.exception("create_meta: sheet creation failed in hunt %s", uid)
+        return jsonify({"error": "sheet_create_failed"}), 502
     await _audit("create_meta", puzzle_id=getattr(puzzle, "id", None), hunt_uid=uid, detail=new_round.group_code)
     return jsonify({"ok": True, "tag_group_id": new_round.id, "group_code": new_round.group_code})
 

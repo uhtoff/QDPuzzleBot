@@ -397,3 +397,14 @@ async def test_convert_to_capstone_still_works_on_a_meta(web):
     resp = await web.client.post("/api/puzzles/5/convert-to-capstone", json={})
     assert resp.status_code == 200
     assert web.svc.convert_to_type.call_args.args[-1] == "Capstone"
+
+
+@pytest.mark.asyncio
+async def test_create_meta_sheet_failure_is_a_clean_error(web):
+    """A files hunt copies the meta's file inline; a Google failure there is a
+    502 with a slug (create_tag_group has already rolled the group back)."""
+    from googleapiclient.errors import HttpError
+    web.svc.create_tag_group.side_effect = HttpError(MagicMock(status=500), b"copy failed")
+    resp = await web.client.post("/api/hunts/U1/metas", json={"name": "Foo"})
+    assert resp.status_code == 502
+    assert (await resp.get_json())["error"] == "sheet_create_failed"

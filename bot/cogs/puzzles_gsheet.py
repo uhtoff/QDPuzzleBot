@@ -544,6 +544,14 @@ class GoogleSheets(commands.Cog):
         tab, in the spreadsheet the location rule names. Decided from the row,
         so a mini can never take its minimeta's file with it."""
         if puzzle_data.google_sheet_id and not puzzle_data.parent_puzzle_id:
+            if puzzle_data.google_sheet_id in (self.get_spreadsheet_id(),
+                                               self.get_solved_sheet_id()):
+                # Never take a hunt-level spreadsheet (the reference or solved
+                # sheet) with a puzzle: a row pointing there is corrupt.
+                logger.warning("delete_puzzle_spreadsheet: refusing to delete %s for "
+                               "puzzle %s -- it is the hunt's own spreadsheet",
+                               puzzle_data.google_sheet_id, puzzle_data.id)
+                return
             await self.delete_file(puzzle_data.google_sheet_id)
             return
         await self.delete_sheet(puzzle_data.google_page_id, self.spreadsheet_of(puzzle_data))
@@ -894,23 +902,42 @@ class GoogleSheets(commands.Cog):
         duplicate it) and allows IMAGE()/IMPORT* external URL access. No read of
         the new file: a copy keeps the template's sheet ids, which
         template_tabs() supplies (a target's contribution Table is one more
-        best-effort batch, as in a tab hunt). Any failure after the copy
-        deletes the copy and clears the ids before re-raising, so a failed
-        create leaves no stray file."""
+        best-effort batch, as in a tab hunt). A failed header batch is retried
+        once with the template re-read (a stale cache would otherwise fail
+        every create). Any failure after the copy deletes the copy, clears the
+        ids and the template cache, and re-raises, so a failed create leaves
+        no stray file."""
+        global _TEMPLATE_TABS
         tabs = await self.template_tabs()
         new_id = await self.copy_template(puzzle.name, folder_id)
         puzzle.google_sheet_id = new_id
+        puzzle.google_page_id = ""
         try:
-            trim = [{"deleteSheet": {"sheetId": t["sheetId"]}}
-                    for t in tabs if t["title"] != self.PUZZLE_SHEET]
-            trim.append({"updateSpreadsheetProperties": {
-                "properties": {"importFunctionsExternalUrlAccessAllowed": True},
-                "fields": "importFunctionsExternalUrlAccessAllowed"}})
-            await self.generate_puzzle_tab(
-                puzzle, is_target=puzzle.is_target, index=0, header_links=header_links,
-                tab_name=self._unique_name(puzzle.name, [t["title"] for t in tabs]),
-                extra_requests=trim)
+            try:
+                await self.generate_puzzle_tab(
+                    puzzle, is_target=puzzle.is_target, index=0, header_links=header_links,
+                    tab_name=self._unique_name(puzzle.name, [t["title"] for t in tabs]),
+                    extra_requests=self._template_trim_requests(tabs))
+            except HttpError:
+                if not puzzle.google_page_id:
+                    raise          # the addSheet failed: nothing to do with the trim
+                # The header batch failed. The likeliest cause that a retry can
+                # fix is a stale template cache (a tab removed from the master
+                # since it was read): the batch is atomic, so one unknown
+                # sheetId would fail every create until a restart. Re-read the
+                # template and retry the header batch ONCE on the tab we have.
+                logger.warning("create_puzzle_file: header batch failed for %s; "
+                               "re-reading the template tabs and retrying once",
+                               new_id, exc_info=True)
+                _TEMPLATE_TABS = None
+                tabs = await self.template_tabs()
+                await self.generate_puzzle_tab(
+                    puzzle, is_target=puzzle.is_target, header_links=header_links,
+                    page_id=puzzle.google_page_id,
+                    extra_requests=self._template_trim_requests(tabs))
         except Exception:
+            # Next create re-reads the template rather than trusting the cache.
+            _TEMPLATE_TABS = None
             try:
                 await self.delete_file(new_id)
             except Exception:
@@ -919,6 +946,17 @@ class GoogleSheets(commands.Cog):
             puzzle.google_sheet_id = ""
             puzzle.google_page_id = ""
             raise
+
+    def _template_trim_requests(self, tabs) -> list:
+        """A puzzle file's trim: delete every template tab but the hidden
+        "Tab template" (extras duplicate it), and allow IMAGE()/IMPORT*
+        external URL access."""
+        trim: list = [{"deleteSheet": {"sheetId": t["sheetId"]}}
+                      for t in tabs if t["title"] != self.PUZZLE_SHEET]
+        trim.append({"updateSpreadsheetProperties": {
+            "properties": {"importFunctionsExternalUrlAccessAllowed": True},
+            "fields": "importFunctionsExternalUrlAccessAllowed"}})
+        return trim
 
     async def mini_insert_index(self, minimeta, minis) -> int:
         """Where a new mini's tab goes in its minimeta's file (files mode):
@@ -1825,7 +1863,7 @@ class GoogleSheets(commands.Cog):
         return failed
 
     async def generate_puzzle_tab(self, puzzle, is_target, index=None, header_links=None,
-                                  *, tab_name=None, extra_requests=None):
+                                  *, tab_name=None, extra_requests=None, page_id=None):
         """Create a puzzle tab entirely in code (no template duplicateSheet).
 
         Adds a blank tab, writes the captured header layout + the dynamic
@@ -1834,15 +1872,17 @@ class GoogleSheets(commands.Cog):
         (list[Link]) fills the Feeds line in the same batch.
 
         create_puzzle_file passes `tab_name` (already unique, so no read) and
-        `extra_requests` (its template trim), appended to the header batch."""
+        `extra_requests` (its template trim), appended to the header batch;
+        its one retry passes `page_id`, the tab already added, so no new tab."""
         from bot.cogs import sheet_layout
         import inspect as insp
 
         spreadsheet_id = self.spreadsheet_of(puzzle)
         assert spreadsheet_id  # sheet ops run with a hunt spreadsheet in context
-        name = tab_name or await self.get_unique_tab_name(puzzle.name, spreadsheet_id)
-        _result = self.create_blank_tab(spreadsheet_id, name, index)
-        page_id = await _result if insp.iscoroutine(_result) else _result
+        if page_id is None:
+            name = tab_name or await self.get_unique_tab_name(puzzle.name, spreadsheet_id)
+            _result = self.create_blank_tab(spreadsheet_id, name, index)
+            page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
 
         # Target tabs shift the header one column right so column A is free for the
