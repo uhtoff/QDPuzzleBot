@@ -4239,7 +4239,8 @@ class PuzzleService:
         old_name = hunt.name if mode == "files" else f"{hunt.name} Reference"
         try:
             if mode == "files":
-                folder = await gsheet_cog.create_folder(hunt.name, guild_parent_id or None)
+                folder = await self._create_hunt_folder(
+                    gsheet_cog, hunt.name, guild_parent_id or None)
                 undo.append(lambda: delete_created(folder))
                 solved_folder = await gsheet_cog.create_folder("Solved", folder)
                 undo.append(lambda: delete_created(solved_folder))
@@ -4276,6 +4277,24 @@ class PuzzleService:
                     await gsheet_cog.delete_file(file_id)
                 except Exception:
                     logger.exception("set_sheet_mode: could not delete %s", file_id)
+
+    @staticmethod
+    async def _create_hunt_folder(gsheet_cog, name, parent_id):
+        """Create a files-mode hunt folder under the guild's drive_parent_id. That
+        setting predates files mode and nothing used it, so a stale or
+        inaccessible value (403/404) must not make every files create/switch
+        fail: warn and retry once at the service account's root. Any other error
+        propagates."""
+        try:
+            return await gsheet_cog.create_folder(name, parent_id)
+        except HttpError as exc:
+            status = getattr(exc.resp, "status", None)
+            if not parent_id or status not in (403, 404):
+                raise
+            logger.warning("drive_parent_id %s is not usable (HTTP %s); creating "
+                           "hunt folder %r at the Drive root instead",
+                           parent_id, status, name)
+            return await gsheet_cog.create_folder(name, None)
 
     @staticmethod
     async def _run_undo(undo) -> None:
@@ -4366,7 +4385,8 @@ class PuzzleService:
             parent_id = (getattr(settings, "drive_parent_id", "") or None)
             made: list = []   # folders this call created, deleted if a later step fails
             try:
-                drive_folder_id = await gsheet_cog.create_folder(name, parent_id)
+                drive_folder_id = await self._create_hunt_folder(
+                    gsheet_cog, name, parent_id)
                 made.append(lambda f=drive_folder_id: gsheet_cog.delete_file(f))
                 solved_folder_id = await gsheet_cog.create_folder("Solved", drive_folder_id)
                 made.append(lambda f=solved_folder_id: gsheet_cog.delete_file(f))

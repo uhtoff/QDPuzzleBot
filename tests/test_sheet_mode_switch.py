@@ -243,3 +243,34 @@ async def test_tabs_to_files_never_deletes_folder_when_move_back_fails(prev):
     cog.delete_file.assert_not_awaited()   # the spreadsheet may still be in FOLDER
     if not prev:
         assert cog.move_file.await_count == 1   # no addParents="" move-back
+
+
+def _http_error(status):
+    from googleapiclient.errors import HttpError
+    resp = MagicMock()
+    resp.status = status
+    resp.reason = "x"
+    return HttpError(resp, b"{}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 404])
+async def test_switch_falls_back_to_drive_root_when_the_parent_is_unusable(status, caplog):
+    hunt, cog = _hunt("tabs"), _cog()
+    cog.create_folder = AsyncMock(side_effect=[_http_error(status), "FOLDER", "SOLVEDF"])
+    with caplog.at_level("WARNING"):
+        await _switch(hunt, "files", cog)
+    assert cog.create_folder.await_args_list == [
+        call("H", "PARENT"), call("H", None), call("Solved", "FOLDER")]
+    assert hunt.drive_folder_id == "FOLDER"
+    assert "PARENT" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_switch_propagates_a_500_from_the_parent_folder_create():
+    hunt, cog = _hunt("tabs"), _cog()
+    cog.create_folder = AsyncMock(side_effect=_http_error(500))
+    with pytest.raises(Exception):
+        await _switch(hunt, "files", cog)
+    assert cog.create_folder.await_count == 1
+    assert hunt.sheet_mode == "tabs"

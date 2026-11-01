@@ -541,6 +541,52 @@ async def test_create_hunt_files_mode_without_parent_uses_drive_root():
     assert gsheet.create_folder.await_args_list[0].args == ("H", None)
 
 
+def _drive_http_error(status):
+    from googleapiclient.errors import HttpError
+    resp = MagicMock()
+    resp.status = status
+    resp.reason = "x"
+    return HttpError(resp, b"{}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 404])
+async def test_create_hunt_files_mode_falls_back_to_root_when_parent_unusable(status, caplog):
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    gsheet.create_folder = AsyncMock(
+        side_effect=[_drive_http_error(status), "FOLDER", "SOLVEDF"])
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         caplog.at_level("WARNING"):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = MagicMock(drive_parent_id="PARENT")
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              sheet_mode="files")
+    assert [c.args for c in gsheet.create_folder.await_args_list] == [
+        ("H", "PARENT"), ("H", None), ("Solved", "FOLDER")]
+    assert _committed_hunt(hdb.commit).drive_folder_id == "FOLDER"
+    assert "PARENT" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_propagates_a_500_from_the_parent_folder():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    gsheet.create_folder = AsyncMock(side_effect=_drive_http_error(500))
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = MagicMock(drive_parent_id="PARENT")
+        with pytest.raises(Exception):
+            await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                                  sheet_mode="files")
+    assert gsheet.create_folder.await_count == 1
+    hdb.commit.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_create_hunt_tabs_mode_makes_exactly_todays_calls():
     svc, guild = _create_service(), _create_guild()
