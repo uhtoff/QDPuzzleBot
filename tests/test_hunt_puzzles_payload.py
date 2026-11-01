@@ -47,14 +47,17 @@ def _row(**kw):
 
 
 class _Dispatcher:
-    """Answers each of get_hunt_puzzles' four queries by matching its SQL."""
+    """Answers each of get_hunt_puzzles' five queries by matching its SQL."""
 
-    def __init__(self, main=(), sheets=(), minis=(), rollups=()):
+    def __init__(self, main=(), sheets=(), minis=(), rollups=(), slots=()):
         self.main, self.sheets, self.minis, self.rollups = main, sheets, minis, rollups
+        self.slots = slots
         self.queries = []
 
     async def __call__(self, sql, params=()):
         self.queries.append(sql)
+        if "FROM puzzle_activity_slots" in sql:
+            return list(self.slots)
         if "FROM additional_sheets" in sql:
             return list(self.sheets)
         if "FROM rollups" in sql:
@@ -164,13 +167,16 @@ async def test_the_queries_issued_carry_the_filters_the_payload_depends_on():
     _, fake = await _run(main=[_row()])
     joined = "\n".join(fake.queries)
 
-    # Minis are excluded from the main list...
-    assert "parent_puzzle_id IS NULL" in joined
+    # Minis are excluded from the main list (checked on the main query itself:
+    # the activity-slots query carries the same filter)...
+    main_sql = next(q for q in fake.queries if "LEFT JOIN tags" in q)
+    assert "parent_puzzle_id IS NULL" in main_sql
     # ...and fetched separately.
     assert "parent_puzzle_id IS NOT NULL" in joined
     # Puzzle-keyed rollups only: group badges come from get_rollups_by_tag_group.
     assert "target_puzzle_id IS NOT NULL" in joined
-    assert len(fake.queries) == 4, fake.queries
+    # Five: main, additional sheets, minis, rollups, activity slots.
+    assert len(fake.queries) == 5, fake.queries
 
 
 # --- server-built sheet URLs (files mode task 3) ----------------------------
@@ -211,3 +217,52 @@ async def test_an_extra_sheet_uses_its_own_solved_flag_not_its_puzzles():
     assert by_id[1]["sheets"][0]["url"] == _gid("SOLVED", "X1")
     assert by_id[2]["sheets"][0]["url"] == _gid("LIVE", "X2")
     assert by_id[1]["sheets"][0]["page_id"] == "X1"
+
+
+# --- activity sparkline -------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_unsolved_puzzle_carries_activity_bars():
+    import datetime
+    start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) \
+        - datetime.timedelta(minutes=119)  # not exactly 2h: ceil would flip 24 -> 25
+    edited_at = start + datetime.timedelta(minutes=30)
+    out, fake = await _run(
+        main=[_row(id=1, start_time=start)],
+        slots=[{"puzzle_id": 1, "slot_start": start, "chat_count": 1, "sheet_edited": 0},
+               {"puzzle_id": 1, "slot_start": edited_at, "chat_count": 2, "sheet_edited": 1},
+               {"puzzle_id": 99, "slot_start": start, "chat_count": 50, "sheet_edited": 0}],
+    )
+    act = out[0]["activity"]
+    assert len(act["bars"]) == 24
+    assert sum(b["chat"] for b in act["bars"]) == 3  # puzzle 99's slot not mixed in
+    assert [i for i, b in enumerate(act["bars"]) if b["edited"]] == [6]
+    assert act["last_sheet_edit_at"] == data._iso(edited_at)
+    slots_sql = next(q for q in fake.queries if "puzzle_activity_slots" in q)
+    assert "solved = 0" in slots_sql and "parent_puzzle_id IS NULL" in slots_sql
+
+
+@pytest.mark.asyncio
+async def test_solved_puzzle_has_no_activity():
+    import datetime
+    start = datetime.datetime(2026, 11, 1, 12, 0)
+    out, _ = await _run(
+        main=[_row(id=1, solved=1, start_time=start)],
+        slots=[{"puzzle_id": 1, "slot_start": start, "chat_count": 1, "sheet_edited": 0}],
+    )
+    assert out[0]["activity"] is None
+
+
+@pytest.mark.asyncio
+async def test_no_start_no_slots_is_none_but_slots_alone_use_earliest_slot():
+    import datetime
+    first = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) \
+        - datetime.timedelta(minutes=12)
+    out, _ = await _run(
+        main=[_row(id=1), _row(id=2, name="Beta")],
+        slots=[{"puzzle_id": 2, "slot_start": first, "chat_count": 4, "sheet_edited": 0}],
+    )
+    by_id = {p["id"]: p for p in out}
+    assert by_id[1]["activity"] is None
+    assert sum(b["chat"] for b in by_id[2]["activity"]["bars"]) == 4
+    assert len(by_id[2]["activity"]["bars"]) == 3

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from mysql.connector import pooling
 from mysql.connector.errors import PoolError
 
+from bot.core.activity_sparkline import squash
 from bot.core.sheet_location import (
     additional_sheet_location, hunt_sheet_location, puzzle_location)
 
@@ -337,6 +338,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
     )
 
     puzzles = {}
+    start_times = {}  # pid -> naive-UTC start_time, for the activity sparkline
     for row in rows:
         pid = row["id"]
         puz = puzzles.get(pid)
@@ -382,6 +384,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
                 "sheets": [],
             }
             puzzles[pid] = puz
+            start_times[pid] = row.get("start_time")
         if row["tag_group_id"] is not None:
             gid = row["tag_group_id"]
             existing = next((r for r in puz["rounds"] if r["id"] == gid), None)
@@ -445,6 +448,32 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
         if puz is not None:
             puz["rollup_stale"] = not r["last_ok"]
             puz["rollup_error"] = r["last_error"]
+
+    # Activity sparkline: unsolved top-level puzzles only (solved ones have none;
+    # minis are recorded but not drawn).
+    slot_rows = await fetch_all(
+        "SELECT s.puzzle_id, s.slot_start, s.chat_count, s.sheet_edited "
+        "FROM puzzle_activity_slots s JOIN puzzles p ON p.id = s.puzzle_id "
+        "WHERE p.hunt_id = %s AND p.solved = 0 AND p.parent_puzzle_id IS NULL "
+        "ORDER BY s.slot_start",
+        (hunt_id,),
+    )
+    slots_by_puzzle: dict[int, list] = {}
+    for r in slot_rows:
+        slots_by_puzzle.setdefault(r["puzzle_id"], []).append(
+            (r["slot_start"], int(r["chat_count"]), bool(r["sheet_edited"])))
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    for pid, puz in puzzles.items():
+        puz["activity"] = None
+        if puz["solved"]:
+            continue
+        slots = slots_by_puzzle.get(pid, [])
+        start = start_times.get(pid) or (slots[0][0] if slots else None)
+        if start is None:
+            continue
+        act = squash(slots, start, now)
+        act["last_sheet_edit_at"] = _iso(act["last_sheet_edit_at"])
+        puz["activity"] = act
 
     puzzle_list = list(puzzles.values())
     derive_meta_kind(puzzle_list)
