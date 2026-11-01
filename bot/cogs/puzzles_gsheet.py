@@ -16,7 +16,7 @@ from bot.core.sheet_location import Link
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
 )
-from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry
+from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry, _is_retryable
 
 logger = logging.getLogger(__name__)
 
@@ -1530,7 +1530,10 @@ class GoogleSheets(commands.Cog):
         A batchUpdate is all-or-nothing, so one bad tab (stale page id, a solver
         merge across row 3, a tab mid-promote) would cancel every tab's line on
         that spreadsheet. If a spreadsheet's batch fails, each of its tabs is
-        retried alone -- extra writes on the failure path only. Best-effort:
+        retried alone -- extra writes on the failure path only. A retryable
+        failure (429/5xx, already retried by batch_update) is not fanned out:
+        per-tab writes would only add load to a saturated quota or a down
+        service, so every tab on that spreadsheet is marked failed. Best-effort:
         never raises; returns the page ids whose line was not written."""
         live, solved = self.get_spreadsheet_id(), self.get_solved_sheet_id()
         by_sheet: dict[str, list[tuple[str, list]]] = {}
@@ -1553,7 +1556,13 @@ class GoogleSheets(commands.Cog):
                     {"requests": [r for _page, reqs in per_tab for r in reqs]},
                     archive=archive)
                 continue
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                if _is_retryable(exc):
+                    logger.exception("write_header_links: batch on spreadsheet %s "
+                                     "failed (quota or outage); %d tabs not written",
+                                     spreadsheet_id, len(per_tab))
+                    failed.extend(page_id for page_id, _reqs in per_tab)
+                    continue
                 if len(per_tab) > 1:
                     logger.warning("write_header_links: batch on spreadsheet %s "
                                    "failed; retrying its %d tabs one at a time",

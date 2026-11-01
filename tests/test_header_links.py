@@ -755,6 +755,30 @@ def test_a_failed_batch_on_one_spreadsheet_leaves_the_others_single_call():
     assert failed == []
 
 
+@pytest.mark.parametrize("status", [429, 503])
+def test_a_quota_or_outage_failure_marks_every_tab_failed_without_per_tab_writes(status):
+    # batch_update has already retried a retryable error; fanning out one write
+    # per tab would only add load to a saturated quota or a down service.
+    from googleapiclient.errors import HttpError
+    cog = _cog()
+    cog.get_spreadsheet_id = lambda: "LIVE"
+    cog.get_solved_sheet_id = lambda: "SOLVED"
+    sent = []
+
+    async def fake(body, archive=False):
+        sent.append(_pages_in(body))
+        raise HttpError(MagicMock(status=status), b"quota")
+    cog.batch_update = fake
+
+    failed = asyncio.run(cog.write_header_links([
+        (SheetLocation("LIVE", 901), 0, [Link("M", "U")]),
+        (SheetLocation("LIVE", 902), 0, [Link("N", "V")]),
+        (SheetLocation("LIVE", 903), 1, [Link("O", "W")]),
+    ]))
+    assert sent == [{901, 902, 903}]
+    assert failed == ["901", "902", "903"]
+
+
 def test_the_happy_path_returns_no_failures():
     cog = _cog()
     cog.get_spreadsheet_id = lambda: "LIVE"
