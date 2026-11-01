@@ -1837,6 +1837,7 @@ class PuzzleService:
         puzzle.solved = False
         puzzle.solve_time = None
 
+        failed_puzzle_ids = []
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None and self._files_hunt_kw(hunt):
             # Files hunt: an own file keeps its tabs in place (the file moves
@@ -1849,8 +1850,15 @@ class PuzzleService:
                 if minimeta is not None:
                     restore_idx = await gsheet_cog.mini_insert_index(
                         minimeta, [m for m in self.get_minis(minimeta.id) if m.id != puzzle.id])
-            await gsheet_cog.restore_puzzle_from_solved_sheet(
-                puzzle, restore_index=restore_idx, hunt=hunt)
+            try:
+                await gsheet_cog.restore_puzzle_from_solved_sheet(
+                    puzzle, restore_index=restore_idx, hunt=hunt)
+            except Exception:
+                # As solve does: a puzzle with no file (its copy failed) or a
+                # failed sheet write is badged, not fatal -- the unsolve itself
+                # completes, and the DB state below is still committed.
+                logger.exception("unsolve: sheet restore failed for puzzle %s", puzzle.id)
+                failed_puzzle_ids.append(puzzle.id)
         elif gsheet_cog is not None:
             # Exclude this puzzle from the zone computation: its sheet is still at
             # the solved end (not yet moved), so including it would anchor the zone
@@ -1918,8 +1926,9 @@ class PuzzleService:
         # Last, so everything above still runs. The DB mutation is committed and
         # pushes_board fires on this error by design -- only a meta sheet is
         # stale, and !rebuild is the right remedy, which is what the message says.
-        if failed_group_ids:
-            raise SheetRefreshError(failed_group_ids=failed_group_ids)
+        if failed_group_ids or failed_puzzle_ids:
+            raise SheetRefreshError(failed_group_ids=failed_group_ids,
+                                    failed_puzzle_ids=failed_puzzle_ids)
 
     @pushes_board()
     async def convert_to_puzzle(self, guild, hunt, puzzle):

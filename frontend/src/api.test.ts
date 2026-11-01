@@ -1,0 +1,19 @@
+import { describe, expect, it } from "vitest";
+import { friendlyError } from "./api";
+
+describe("friendlyError sheet-mode slugs", () => {
+  it("explains each sheet-mode refusal in plain English", () => {
+    expect(friendlyError({ error: "sheet_mode_locked" }, 409)).toBe(
+      "This hunt already has puzzles or groups, so its sheet mode can't be changed.",
+    );
+    expect(friendlyError({ error: "files_mode_no_solved_sheet" }, 409)).toBe(
+      "Hunts with one spreadsheet per puzzle don't use a solved spreadsheet.",
+    );
+    expect(friendlyError({ error: "bad_sheet_mode" }, 400)).toMatch(/tabs or files/);
+    expect(friendlyError({ error: "sheet_mode_failed" }, 502)).toMatch(/sheet mode/);
+  });
+
+  it("still falls back to the raw slug for an unknown error", () => {
+    expect(friendlyError({ error: "something_new" }, 500)).toBe("something_new");
+  });
+});

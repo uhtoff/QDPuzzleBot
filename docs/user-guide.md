@@ -198,9 +198,15 @@ hunt (`!hunt name:url, files`, or the **One spreadsheet per puzzle** switch unde
 the dashboard's create form and server setup page). What goes where:
 
 - The hunt gets a Drive folder named after it, with a **Solved** subfolder, and a
-  `<hunt> Reference` spreadsheet in the folder (the hunt's own sheet, holding the roll-ups).
+  `<hunt> Reference` spreadsheet in the folder. The Reference spreadsheet holds REFERENCE,
+  Unassigned, Evidence and any loose hunt sheets -- not the roll-ups: a meta's or
+  minimeta's roll-up table lives in that puzzle's own file.
 - Each puzzle is its own file in the folder, named after the puzzle. Minis are tabs in their
   minimeta's file, and extra sheets are tabs in their puzzle's file.
+- Solving a puzzle moves its file into the **Solved** folder; unsolving moves it back. The file
+  keeps its link either way. If a file ends up in the wrong folder, is misnamed, or goes
+  missing, `!reconcile apply` repairs it (it moves or renames a live file and only recreates
+  one that is really gone; stray files in the folders are listed, never deleted).
 - There is no solved spreadsheet: the solved-sheet options (`!use_solved_sheet`, the create
   checkbox, the dashboard button) don't apply, and a solved puzzle keeps its file and link.
 - The mode can only be switched (`!sheet_mode files` / `tabs`, or Admin settings) while the

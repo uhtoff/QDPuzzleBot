@@ -61,7 +61,7 @@ async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function friendlyError(d: { error?: string; retry_after?: number; detail?: string; message?: string }, status: number): string {
+export function friendlyError(d: { error?: string; retry_after?: number; detail?: string; message?: string }, status: number): string {
   switch (d.error) {
     case "csrf":
       return "Your session expired — please refresh the page.";
@@ -94,6 +94,14 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "Couldn't create the Google sheet, so nothing was created — try again shortly.";
     case "parent_sheet_missing":
       return "This minimeta has no spreadsheet of its own — run Reconcile (apply) to recreate it, then try again.";
+    case "sheet_mode_locked":
+      return "This hunt already has puzzles or groups, so its sheet mode can't be changed.";
+    case "files_mode_no_solved_sheet":
+      return "Hunts with one spreadsheet per puzzle don't use a solved spreadsheet.";
+    case "bad_sheet_mode":
+      return "Sheet mode must be tabs or files.";
+    case "sheet_mode_failed":
+      return "Couldn't change the sheet mode, so nothing was changed — try again shortly.";
     case "solved_no_sheets":
       return "You can't add sheets to a solved puzzle.";
     case "sheet_not_found":

@@ -390,6 +390,41 @@ def test_a_puzzle_on_the_solved_sheet_is_checked_against_the_solved_snapshot():
     gcog.get_page_name_by_id.assert_not_awaited()
 
 
+def test_apply_recreates_a_solved_puzzles_missing_tab_on_the_solved_spreadsheet():
+    """Ruling R4 (tab hunt): the real cog's location rule decides where the
+    recreated tab goes. Two puzzles so the mapping is checked both ways: the
+    solved one's blank tab is created on ARC, the live one's on SS."""
+    from bot.cogs.puzzles_gsheet import GoogleSheets
+    cog = GoogleSheets.__new__(GoogleSheets)
+    cog._notify_retry = None
+    cog.get_spreadsheet_id = lambda: "SS"
+    cog.get_solved_sheet_id = lambda: "ARC"
+    created = []
+
+    async def _blank(spreadsheet_id, name, index=None):
+        created.append((spreadsheet_id, name))
+        return 77
+    cog.create_blank_tab = _blank
+    cog.get_unique_tab_name = AsyncMock(side_effect=lambda name, sid: name)
+    cog.batch_update = AsyncMock()
+    cog.compute_insert_index = AsyncMock(return_value=3)
+    cog.update_puzzle_info = AsyncMock()
+    cog.get_page_name_by_id = AsyncMock(return_value=None)   # both tabs are gone
+    solved = _puzzle(name="Done", google_page_id="20", on_solved_sheet=True, tags=[])
+    live = _puzzle(name="Live", google_page_id="10", on_solved_sheet=False, tags=[])
+    svc = _service_with_gsheet(cog)
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[solved, live]), \
+         patch.object(ps.PuzzleJsonDb, "commit"), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_fetch_present_tab_ids", new=AsyncMock(return_value=None)), \
+         patch.object(svc, "refresh_targets", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_header_links", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_collect_orphan_tabs", new=AsyncMock(return_value=None)):
+        asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=True))
+    assert created == [("ARC", "Done"), ("SS", "Live")]
+
+
 def test_a_failed_snapshot_fetch_falls_back_instead_of_aborting():
     gcog = _gcog(page_name=None)  # per-puzzle path reports the tab missing
     gcog.sheet_list = AsyncMock(side_effect=RuntimeError("quota exceeded"))

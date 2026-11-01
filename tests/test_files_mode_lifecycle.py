@@ -295,17 +295,27 @@ def test_target_solve_through_the_service_moves_its_file_and_feeders_links_hold(
     target = _own(id=2, name="Meta", page=21, is_target=True, tags=[5])
     feeders = [_own(id=3, name="F1", page=31, tags=[5]),
                _own(id=4, name="F2", page=41, tags=[5])]
+    for f in feeders:
+        f.tag_edges = {5: {"feeds"}}
     group = SimpleNamespace(id=5, target_puzzle_id=2, solve_time=None, status="")
     TagGroupDb.get_by_attr.side_effect = lambda **kw: group
     PuzzleDb.get_children.return_value = []
     svc = _svc_with(cog)
-    before = [svc._links_to(hunt, [target]) for _ in feeders]
+    from bot.core.puzzle_service import feeds_targets
+    # Each feeder's own Feeds-line links, computed from that feeder.
+    with patch("bot.core.puzzle_service.TagGroupJsonDb") as GroupDb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as PDb:
+        GroupDb.get_by_attr.side_effect = lambda **kw: group
+        PDb.get_by_attr.side_effect = lambda **kw: target
+        before = {f.name: svc._links_to(hunt, feeds_targets(f)) for f in feeders}
 
-    assert rec.run(svc.solve(None, hunt, target, "META")) is True
+        assert rec.run(svc.solve(None, hunt, target, "META")) is True
 
-    after = [svc._links_to(hunt, [target]) for _ in feeders]
-    assert before == after and before[0][0].uri == puzzle_location(hunt, target).url
-    assert "FILE2" in before[0][0].uri
+        after = {f.name: svc._links_to(hunt, feeds_targets(f)) for f in feeders}
+    url = puzzle_location(hunt, target).url
+    assert "FILE2" in url
+    for f in feeders:
+        assert [l.uri for l in before[f.name]] == [url] == [l.uri for l in after[f.name]]
     assert [c for c in rec.calls if c[0] == "move_file"] == [
         ("move_file", "FILE2", ("SOLVEDFOLDER", "FOLDER"))]
     assert {c[1] for c in rec.batches} == {"FILE2"}     # no write to FILE3/FILE4
@@ -368,6 +378,30 @@ def test_service_unsolve_of_an_own_file_reads_no_spreadsheet_and_moves_it_back(
     assert rec.gets == []
     assert [c for c in rec.calls if c[0] == "move_file"] == [
         ("move_file", "FILE1", ("FOLDER", "SOLVEDFOLDER"))]
+
+
+@patch("bot.core.puzzle_service.SheetsJsonDb")
+@patch("bot.core.puzzle_service.TagGroupJsonDb")
+@patch("bot.core.puzzle_service.PuzzleJsonDb")
+def test_service_unsolve_of_a_puzzle_with_no_file_completes_and_badges_it(
+        PuzzleDb, TagGroupDb, SheetsDb):
+    """Like solve in the same state: the sheet step fails (nothing to address),
+    the unsolve itself still completes and is committed, and the puzzle is
+    reported through SheetRefreshError.failed_puzzle_ids."""
+    from bot.core.errors import SheetRefreshError
+    rec = Recorder()
+    cog = _logged_cog(rec)
+    PuzzleDb.get_children.return_value = []
+    puzzle = _own(solved=True)
+    puzzle.google_sheet_id = ""
+    svc = _svc_with(cog)
+    with pytest.raises(SheetRefreshError) as exc:
+        rec.run(svc.unsolve(None, _files_hunt(), puzzle))
+    assert exc.value.failed_puzzle_ids == [puzzle.id] and exc.value.failed_group_ids == []
+    assert puzzle.solved is False and puzzle.solution == ""
+    PuzzleDb.commit.assert_called_with(puzzle)
+    assert rec.calls == []          # nothing was addressed to the wrong spreadsheet
+    svc._update_forum_tags.assert_awaited_once()
 
 
 # ----------------------------------------------------------------- rename
@@ -498,3 +532,36 @@ def test_delete_additional_sheet_deletes_its_tab_in_the_puzzles_file(SheetsDb):
     cog.delete_file.assert_not_awaited()
     SheetsDb.delete.assert_called_once_with(7)
     assert [s.id for s in puzzle.additional_sheets] == [8]
+
+
+@patch("bot.core.puzzle_service.EvidenceJsonDb")
+@patch("bot.core.puzzle_service.RollupsJsonDb")
+@patch("bot.core.puzzle_service.TagGroupJsonDb")
+@patch("bot.core.puzzle_service.PuzzleJsonDb")
+def test_a_solved_targets_own_table_renders_in_its_own_file(
+        PuzzleDb, TagGroupDb, RollupsDb, EvidenceDb):
+    """Review focus 4: after the solve moved the target's file, the target's
+    own roll-up table is written to that same file (same id), not to the
+    reference spreadsheet or a feeder's file."""
+    cog = _cog()
+    hunt = _files_hunt()
+    target = _own(id=2, name="Meta", page=21, is_target=True, tags=[5], solved=True)
+    group = SimpleNamespace(id=5, hunt_id=1, target_puzzle_id=2)
+    PuzzleDb.get_by_attr.return_value = target
+    RollupsDb.get_by_attr.return_value = SimpleNamespace(
+        hunt_id=1, tag_group_id=5, target_puzzle_id=None, metadata_id=7, tab_page_id=21)
+    EvidenceDb.get_all.return_value = []
+    svc = _svc_with(cog)
+    del svc.refresh_target          # the real one, not the stub
+    svc.select_rollup_members = AsyncMock(return_value=[])
+    cog.stamp_rollup_metadata = AsyncMock(return_value=(21, 7))
+    cog._ensure_contribution_table = AsyncMock(return_value={})
+    cog.reconcile_table = AsyncMock()
+
+    asyncio.run(svc.refresh_target(hunt, group))
+
+    cog._ensure_contribution_table.assert_awaited_once()
+    assert cog._ensure_contribution_table.await_args.kwargs["spreadsheet_id"] == "FILE2"
+    cog.reconcile_table.assert_awaited_once()
+    kw = cog.reconcile_table.await_args.kwargs
+    assert (kw["spreadsheet_id"], kw["page_id"]) == ("FILE2", 21)
