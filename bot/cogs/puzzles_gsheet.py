@@ -812,6 +812,20 @@ class GoogleSheets(commands.Cog):
             ]
         return [dict(t) for t in _TEMPLATE_TABS]
 
+    async def create_reference_spreadsheet(self, hunt_name: str, folder_id: str) -> str:
+        """A files-mode hunt's reference spreadsheet: a template copy named
+        "<hunt> Reference" inside `folder_id`, trimmed to REFERENCE plus the hidden
+        tabs (the hidden ones stay -- extras and a later switch back to tabs need
+        them). One batchUpdate, skipped when the template has nothing to drop."""
+        new_id = await self.copy_template(f"{hunt_name} Reference", folder_id)
+        doomed = [t["sheetId"] for t in await self.template_tabs()
+                  if not t["hidden"] and t["title"] != "REFERENCE"]
+        if doomed:
+            await self.batch_update(
+                {"requests": [{"deleteSheet": {"sheetId": sid}} for sid in doomed]},
+                spreadsheet_id=new_id)
+        return new_id
+
     async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None,
                                         header_links=None):
         """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""

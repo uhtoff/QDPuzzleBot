@@ -5,7 +5,7 @@ duplicate guard. Does NOT assert the exact Discord API call sequence (implementa
 Helpers are uniquely named and local to this file.
 """
 import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import discord
 import pytest
@@ -492,3 +492,88 @@ async def test_set_hunt_role_existing_role_needs_confirm():
         await svc.set_hunt_role(
             guild, hunt, role_name="Team A", requester=MagicMock(),
         )
+
+
+def _file_cog():
+    gsheet = MagicMock()
+    gsheet.create_hunt_spreadsheet = AsyncMock(return_value="SHEET_ID")
+    gsheet.create_solved_sheet = AsyncMock(return_value="ARCH_ID")
+    gsheet.create_folder = AsyncMock(side_effect=["FOLDER", "SOLVEDF"])
+    gsheet.create_reference_spreadsheet = AsyncMock(return_value="REF")
+    return gsheet
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_makes_folders_then_reference():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    order = MagicMock()
+    order.attach_mock(gsheet.create_folder, "folder")
+    order.attach_mock(gsheet.create_reference_spreadsheet, "ref")
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = MagicMock(drive_parent_id="PARENT")
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              sheet_mode="files")
+    hunt = _committed_hunt(hdb.commit)
+    assert [c[0] for c in order.mock_calls] == ["folder", "folder", "ref"]
+    assert order.mock_calls[0].args == ("H", "PARENT")
+    assert order.mock_calls[1].args == ("Solved", "FOLDER")
+    assert order.mock_calls[2].args == ("H", "FOLDER")
+    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id,
+            hunt.google_sheet_id, hunt.solved_sheet_id) == ("files", "FOLDER", "SOLVEDF", "REF", "")
+    gsheet.create_hunt_spreadsheet.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_without_parent_uses_drive_root():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = None
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              sheet_mode="files")
+    assert gsheet.create_folder.await_args_list[0].args == ("H", None)
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_tabs_mode_makes_exactly_todays_calls():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              create_solved_sheet=True)
+    assert gsheet.mock_calls == [call.create_hunt_spreadsheet("H"),
+                                 call.create_solved_sheet("H")]
+    hunt = _committed_hunt(hdb.commit)
+    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id) == ("tabs", "", "")
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_refuses_solved_sheet():
+    svc, guild = _create_service(), _create_guild()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        with pytest.raises(RuntimeError, match="files_mode_no_solved_sheet"):
+            await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                                  sheet_mode="files", create_solved_sheet=True)
+    guild.create_category.assert_not_awaited()
+    hdb.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_rejects_bad_sheet_mode():
+    svc, guild = _create_service(), _create_guild()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
+        hdb.check_duplicates.return_value = False
+        with pytest.raises(RuntimeError, match="bad_sheet_mode"):
+            await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                                  sheet_mode="bogus")
+    hdb.commit.assert_not_called()

@@ -2918,6 +2918,8 @@ class PuzzleService:
         no Sheets cog. Truthiness covers both spellings of "not set", and the
         commit happens only after a sheet really exists.
         """
+        if hunt.sheet_mode == "files":
+            raise RuntimeError("files_mode_no_solved_sheet")
         if hunt.solved_sheet_id:
             raise RuntimeError("solved_sheet_exists")
         gsheet_cog = self._gsheet_cog(hunt)
@@ -3906,22 +3908,80 @@ class PuzzleService:
         overwrites = self._gating_overwrites(guild, team_role)
         return await self._apply_gating_overwrites(guild, hunt, overwrites)
 
+    async def set_sheet_mode(self, hunt, mode: str, *, guild_parent_id: str | None) -> None:
+        """Switch a hunt between "tabs" and "files" sheet mode.
+
+        Allowed only while the hunt has no puzzle and no tag group. Raises
+        RuntimeError("bad_sheet_mode"), ("sheet_mode_locked") or
+        ("gsheet_unavailable"). The same mode is a no-op. Lock-free: callers hold
+        hunt_sheet_lock at the edge, like create_hunt_solved_sheet.
+
+        tabs -> files: make the hunt folder (under ``guild_parent_id``) and its
+        Solved subfolder, MOVE the existing hunt spreadsheet in and rename it
+        "<hunt> Reference", drop an (empty) solved spreadsheet. files -> tabs:
+        move the reference spreadsheet back out to ``guild_parent_id`` (the Drive
+        root when None), rename it to the hunt name, delete both folders.
+        Spreadsheets created without a parent sit in the service account's root,
+        addressed by Drive's "root" alias.
+        """
+        if mode not in ("tabs", "files"):
+            raise RuntimeError("bad_sheet_mode")
+        if mode == hunt.sheet_mode:
+            return
+        if PuzzleJsonDb.get_all_from_hunt(hunt.id) or TagGroupJsonDb.get_all(hunt.id):
+            raise RuntimeError("sheet_mode_locked")
+        gsheet_cog = self._gsheet_cog(hunt)
+        if gsheet_cog is None:
+            raise RuntimeError("gsheet_unavailable")
+        if mode == "files":
+            folder = await gsheet_cog.create_folder(hunt.name, guild_parent_id or None)
+            solved_folder = await gsheet_cog.create_folder("Solved", folder)
+            await gsheet_cog.move_file(hunt.google_sheet_id, folder, "root")
+            await gsheet_cog.rename_file(hunt.google_sheet_id, f"{hunt.name} Reference")
+            if hunt.solved_sheet_id:
+                await gsheet_cog.delete_file(hunt.solved_sheet_id)
+                hunt.solved_sheet_id = ""
+            hunt.drive_folder_id = folder
+            hunt.solved_folder_id = solved_folder
+        else:
+            await gsheet_cog.move_file(
+                hunt.google_sheet_id, guild_parent_id or "root", hunt.drive_folder_id)
+            await gsheet_cog.rename_file(hunt.google_sheet_id, hunt.name)
+            for folder_id in (hunt.solved_folder_id, hunt.drive_folder_id):
+                if folder_id:
+                    await gsheet_cog.delete_file(folder_id)
+            hunt.drive_folder_id = ""
+            hunt.solved_folder_id = ""
+        hunt.sheet_mode = mode
+        HuntJsonDb.commit(hunt)
+
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False, layout_mode="channel",
-                          guild_id=0, creator=None, confirm_existing_role=False):
+                          guild_id=0, creator=None, confirm_existing_role=False,
+                          sheet_mode="tabs"):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
         ``layout_mode`` is fixed at creation: "channel" (default) clones a
         category per round; "forum" creates a forum channel per round. It cannot
         be changed once the hunt has rounds, so it is set here only.
 
-        Raises RuntimeError("hunt_exists") if the name is already taken, or
-        RuntimeError("bad_layout_mode") for an unrecognised ``layout_mode``.
-        Returns the committed HuntData.
+        ``sheet_mode`` "tabs" (default) keeps one spreadsheet with a tab per puzzle;
+        "files" makes a Drive folder (+ Solved subfolder) holding a reference
+        spreadsheet, one spreadsheet per puzzle going in the folder.
+
+        Raises RuntimeError("hunt_exists") if the name is already taken,
+        RuntimeError("bad_layout_mode") for an unrecognised ``layout_mode``,
+        RuntimeError("bad_sheet_mode") for an unrecognised ``sheet_mode``, or
+        RuntimeError("files_mode_no_solved_sheet") for a files hunt asked to
+        have a solved spreadsheet. Returns the committed HuntData.
         """
         if layout_mode not in ("channel", "forum"):
             raise RuntimeError("bad_layout_mode")
+        if sheet_mode not in ("tabs", "files"):
+            raise RuntimeError("bad_sheet_mode")
+        if sheet_mode == "files" and create_solved_sheet:
+            raise RuntimeError("files_mode_no_solved_sheet")
         # Scoped to the INVOKING guild (M6). guild.id is the Discord snowflake --
         # deliberately not this method's own guild_id kwarg, which carries the
         # guilds table's row id. Unscoped, this refused a name already used in a
@@ -3967,7 +4027,16 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(None)
         google_sheet_id = ""
         solved_sheet_id = ""
-        if gsheet_cog is not None:
+        drive_folder_id = ""
+        solved_folder_id = ""
+        if gsheet_cog is not None and sheet_mode == "files":
+            settings = GuildSettingsDb.get(guild.id)
+            parent_id = (getattr(settings, "drive_parent_id", "") or None)
+            drive_folder_id = await gsheet_cog.create_folder(name, parent_id)
+            solved_folder_id = await gsheet_cog.create_folder("Solved", drive_folder_id)
+            google_sheet_id = await gsheet_cog.create_reference_spreadsheet(
+                name, drive_folder_id)
+        elif gsheet_cog is not None:
             google_sheet_id = await gsheet_cog.create_hunt_spreadsheet(name)
             if create_solved_sheet:
                 solved_sheet_id = await gsheet_cog.create_solved_sheet(name)
@@ -3981,6 +4050,9 @@ class PuzzleService:
             uid=HuntJsonDb.generate_uid('uid'),
         )
         new_hunt.layout_mode = layout_mode
+        new_hunt.sheet_mode = sheet_mode
+        new_hunt.drive_folder_id = drive_folder_id
+        new_hunt.solved_folder_id = solved_folder_id
         new_hunt.start_timestamp = start_timestamp
         new_hunt.start_time = datetime.datetime.fromtimestamp(start_timestamp, tz=pytz.UTC)
         if username:
@@ -4073,9 +4145,18 @@ class PuzzleService:
         # Delete spreadsheet files (whole Drive file, not just tabs)
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            if hunt.google_sheet_id:
+            if hunt.sheet_mode == "files" and hunt.drive_folder_id:
+                # Deleting an owned folder takes its descendants (reference, puzzle
+                # files, Solved/) with it. Tolerant like delete_hunt_spreadsheet:
+                # a Drive failure is logged and the teardown carries on.
+                try:
+                    await gsheet_cog.delete_file(hunt.drive_folder_id)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete folder %s",
+                                     hunt.drive_folder_id)
+            elif hunt.google_sheet_id:
                 await gsheet_cog.delete_hunt_spreadsheet(hunt.google_sheet_id)
-            if hunt.solved_sheet_id:
+            if hunt.sheet_mode != "files" and hunt.solved_sheet_id:
                 await gsheet_cog.delete_hunt_spreadsheet(hunt.solved_sheet_id)
 
         # Delete hunt channel + category (best-effort; failures logged, not raised)

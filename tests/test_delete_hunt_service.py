@@ -248,3 +248,41 @@ async def test_delete_hunt_does_not_delete_per_puzzle_tabs():
     assert [c.args[0] for c in pdb.delete.call_args_list] == [101, 102, 103]
     # 11/12/13 are the three puzzle channels; 60 is the hunt channel deleted last.
     assert [c.args[1] for c in safe_delete.call_args_list] == [11, 12, 13, 60]
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_files_mode_deletes_the_folder_not_spreadsheets():
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    hunt.sheet_mode = "files"
+    hunt.drive_folder_id = "FOLDER"
+    hunt.solved_sheet_id = ""
+    gsheet = MagicMock()
+    gsheet.delete_file = AsyncMock()
+    gsheet.delete_hunt_spreadsheet = AsyncMock()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = []
+        await svc.delete_hunt(guild, hunt)
+    gsheet.delete_file.assert_awaited_once_with("FOLDER")
+    gsheet.delete_hunt_spreadsheet.assert_not_awaited()
+    hdb.delete.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_delete_hunt_files_mode_drive_failure_does_not_block_teardown():
+    svc, guild, hunt = _delete_service(), _delete_guild(), _delete_hunt_obj()
+    hunt.sheet_mode = "files"
+    hunt.drive_folder_id = "FOLDER"
+    gsheet = MagicMock()
+    gsheet.delete_file = AsyncMock(side_effect=RuntimeError("drive down"))
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as rdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        pdb.get_all_from_hunt.return_value = []
+        rdb.get_all.return_value = []
+        await svc.delete_hunt(guild, hunt)
+    hdb.delete.assert_called_once_with(7)
