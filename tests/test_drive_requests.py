@@ -132,6 +132,27 @@ def test_list_folder_follows_pages_and_excludes_trashed():
     assert "'FOLD' in parents" in q and "trashed=false" in q
 
 
+def test_list_modified_since_filters_and_pages():
+    import datetime
+    cog = _cog()
+    a = {"id": "1", "mimeType": "m", "modifiedTime": "2026-11-01T12:03:00.000Z"}
+    b = {"id": "2", "mimeType": "m", "modifiedTime": "2026-11-01T12:04:00.000Z"}
+    since = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    drive, items = _run(
+        cog.list_modified_since("FOLD", since),
+        [{"files": [a], "nextPageToken": "T2"}, {"files": [b]}],
+    )
+    assert items == [a, b]
+    calls = drive.files().list.call_args_list
+    assert len(calls) == 2
+    assert calls[1].kwargs["pageToken"] == "T2"
+    q = calls[0].kwargs["q"]
+    assert "'FOLD' in parents" in q and "trashed=false" in q
+    assert "modifiedTime > '2026-11-01T12:00:00Z'" in q
+    fields = calls[0].kwargs["fields"]
+    assert "modifiedTime" in fields and "lastModifyingUser(me)" in fields
+
+
 def test_template_tabs_reads_once_and_caches(monkeypatch):
     monkeypatch.setattr(gsheet_mod, "_TEMPLATE_TABS", None)
     cog = _cog()

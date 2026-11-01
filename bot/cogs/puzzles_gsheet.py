@@ -3,6 +3,7 @@
 This is a separate cog so that Google Drive integration
 can be easily disabled; simply omit this file.
 """
+import datetime
 import contextvars
 import logging
 from typing import Any, List, Optional
@@ -909,6 +910,30 @@ class GoogleSheets(commands.Cog):
             kwargs: dict[str, Any] = {
                 "q": f"'{folder_id}' in parents and trashed=false",
                 "fields": "nextPageToken, files(id, name, mimeType)",
+                "pageSize": 1000,
+            }
+            if page_token:
+                kwargs["pageToken"] = page_token
+            resp = await execute_with_retry(
+                get_drive().files().list(**kwargs), on_retry=self._notify_retry)
+            items.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                return items
+
+    async def list_modified_since(self, folder_id: str, since: datetime.datetime) -> list[dict]:
+        """Non-trashed children of a folder modified after ``since`` (aware UTC), as
+        [{id, mimeType, modifiedTime, lastModifyingUser: {me}}], all pages. Feeds the
+        sheet-activity poller (bot/cogs/sheet_activity.py): one call per hunt folder."""
+        stamp = since.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        items: list[dict] = []
+        page_token = None
+        while True:
+            kwargs: dict[str, Any] = {
+                "q": (f"'{folder_id}' in parents and trashed=false "
+                      f"and modifiedTime > '{stamp}'"),
+                "fields": ("nextPageToken, "
+                           "files(id, mimeType, modifiedTime, lastModifyingUser(me))"),
                 "pageSize": 1000,
             }
             if page_token:
