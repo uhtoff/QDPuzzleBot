@@ -25,12 +25,12 @@ Drive v3), MariaDB migrations, React/TypeScript dashboard, pytest.
 them): `/tmp/claude-1000/-home-russ-projects-puzzbot/3b43a6eb-90aa-4b4d-bf76-f8235ef86eed/scratchpad/files-mode-code-map.md`
 (staging @ 38ef37a). Steps 1–3 shipped as `docs/superpowers/plans/2026-10-31-sheet-links.md`.
 
-**Spec correction (needs the user's ruling — see "Open decision" below):** the spec says
-puzzle creation "stays fire-and-forget (the channel and dashboard entry already exist)". The
-code map shows the opposite: `svc.create_puzzle` (svc:3013) awaits the sheet **before** the
-channel exists, inside `hunt_create_lock`, and on a later failure `_cleanup_orphan_puzzle`
-deletes the sheet and row. This plan is written for **inline creation** (today's shape; the
-copy's ~3 s becomes part of the create command). The alternative is in "Open decision".
+**Spec correction (ruled 2026-11-01):** the spec said puzzle creation "stays fire-and-forget
+(the channel and dashboard entry already exist)". The code map shows the opposite:
+`svc.create_puzzle` (svc:3013) awaits the sheet **before** the channel exists, inside
+`hunt_create_lock`, and on a later failure `_cleanup_orphan_puzzle` deletes the sheet and row.
+The user chose **inline creation** (today's shape; the copy's ~3 s becomes part of the create
+command), and the spec has been corrected to match.
 
 ## Global Constraints
 
@@ -97,14 +97,12 @@ copy's ~3 s becomes part of the create command). The alternative is in "Open dec
    spreadsheet and extras/loose sheets still work there (it must have kept the hidden
    `Tab template`).
 
-## Open decision (ask the user before Task 7)
+## Decision: inline creation (ruled by the user, 2026-11-01)
 
-Puzzle file creation **inline** (recommended: today's shape, ~3 s added to each create in a
-files hunt, occasional ~12 s; a failed copy fails the create cleanly as today) or **in the
-background** (spec's original wording: channel first, sheet link filled in later via
-`notifier.refresh_info`; needs a "file pending" guard so solve/rename/mini-create on a
-puzzle whose copy is still running wait or skip, and a channel message on failure). Tasks
-1–6 are the same either way; Task 7 is written for inline.
+Puzzle file creation is **inline**: ~3 s added to each create in a files hunt, occasionally
+~12 s; a failed copy fails the create cleanly as today. Background creation (channel first,
+link filled in later, with a "file pending" guard) was rejected as more code and more ways to
+go wrong.
 
 ---
 

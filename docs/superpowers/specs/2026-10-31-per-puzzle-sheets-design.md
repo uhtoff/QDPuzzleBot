@@ -112,13 +112,14 @@ meta and back out" — user).
 - **Puzzle creation:** copy the master template into the hunt folder, trim it to the puzzle
   tab (one batchUpdate with the header writes, as the 2026-10-16 spike did), set
   `importFunctionsExternalUrlAccessAllowed` so `IMAGE()`-based named functions don't prompt
-  per file, share anyone-with-link as writer (as today's hunt spreadsheet is). The Discord
-  channel and dashboard entry appear at once; the sheet link appears when the copy finishes
-  (spike: ~2.4–3 s, occasional spikes to ~12 s — acceptable, user).
-- **A failed copy:** creation stays fire-and-forget (the channel and dashboard entry already
-  exist). If the copy fails after retries, the bot says so in the puzzle's channel and points
-  at `!reconcile apply`, which is the recovery path (below). No separate "pending sheet" state
-  or re-create command. (My call.)
+  per file, share anyone-with-link as writer (as today's hunt spreadsheet is). The copy runs
+  inline, before the Discord channel is made, as today's tab creation does, so a create in a
+  files hunt takes ~2.4–3 s longer, occasionally ~12 s (spike; acceptable, user).
+- **A failed copy:** the create fails cleanly, as a failed tab creation does today: no
+  channel, no stray file, no database row. (Corrected 2026-11-01: this spec first said
+  creation was fire-and-forget with the channel already made; the code makes the sheet
+  first. The user chose to keep that order and wait for the copy.) `!reconcile apply` still
+  repairs a puzzle with no file (below).
 - **`!reconcile` in a files hunt** lists the hunt folder and repairs: a puzzle with no file
   (creates it), a file in the wrong folder for its solved state (moves it), a file name that
   doesn't match the puzzle (renames it). Stray files in the folder are reported, never
