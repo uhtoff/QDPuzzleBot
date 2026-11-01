@@ -971,30 +971,34 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
 class MySQLPuzzleActivityDb(_MySQLBaseDb):
     """Per-puzzle activity in 5-minute slots (puzzle_activity_slots, migration 052).
 
-    Writers resolve the puzzle inside the INSERT ... SELECT, so a channel or file
-    that belongs to no puzzle simply writes nothing.
+    Each write looks the puzzle up with a plain SELECT, then INSERTs VALUES. Not
+    INSERT ... SELECT: under InnoDB REPEATABLE READ that takes shared locks on
+    every puzzles row it scans (channel_id / google_sheet_id are unindexed), once
+    per human message, holding up concurrent solves and creates. A plain SELECT is
+    a lock-free consistent read. A channel or file that belongs to no puzzle
+    writes nothing.
     """
     TABLE_NAME = 'puzzle_activity_slots'
 
+    def _bump(self, column, value, at, update):
+        slot = slot_start(at)
+        for row in self._fetch_all(f"SELECT id FROM puzzles WHERE {column} = %s", (value,)):
+            self._exec(
+                "INSERT INTO puzzle_activity_slots (puzzle_id, slot_start, chat_count, sheet_edited) "
+                f"VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE {update}",
+                (row["id"], slot, 1 if column == "channel_id" else 0,
+                 1 if column == "google_sheet_id" else 0),
+            )
+
     def add_chat(self, channel_id, at):
         """Count one human message in ``channel_id``'s puzzle, in ``at``'s slot."""
-        self._exec(
-            "INSERT INTO puzzle_activity_slots (puzzle_id, slot_start, chat_count) "
-            "SELECT id, %s, 1 FROM puzzles WHERE channel_id = %s "
-            "ON DUPLICATE KEY UPDATE chat_count = chat_count + 1",
-            (slot_start(at), channel_id),
-        )
+        self._bump("channel_id", channel_id, at, "chat_count = chat_count + 1")
 
     def mark_sheet_edited(self, google_sheet_id, at):
         """Mark ``at``'s slot edited for the puzzle whose own spreadsheet this is."""
         if not google_sheet_id:
             return
-        self._exec(
-            "INSERT INTO puzzle_activity_slots (puzzle_id, slot_start, sheet_edited) "
-            "SELECT id, %s, 1 FROM puzzles WHERE google_sheet_id = %s "
-            "ON DUPLICATE KEY UPDATE sheet_edited = 1",
-            (slot_start(at), google_sheet_id),
-        )
+        self._bump("google_sheet_id", google_sheet_id, at, "sheet_edited = 1")
 
     def files_hunt_folders(self):
         """(hunt_id, drive_folder_id) for every live files-mode hunt."""

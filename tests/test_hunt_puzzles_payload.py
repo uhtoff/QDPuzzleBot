@@ -266,3 +266,22 @@ async def test_no_start_no_slots_is_none_but_slots_alone_use_earliest_slot():
     assert by_id[1]["activity"] is None
     assert sum(b["chat"] for b in by_id[2]["activity"]["bars"]) == 4
     assert len(by_id[2]["activity"]["bars"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_failing_slots_query_costs_only_the_sparklines():
+    """The sparkline is decoration: if its query fails (say migration 052 is not
+    applied yet) the puzzle list must still load, just without activity."""
+    import datetime
+
+    class _SlotsDown(_Dispatcher):
+        async def __call__(self, sql, params=()):
+            if "FROM puzzle_activity_slots" in sql:
+                raise RuntimeError("Table 'puzzle_activity_slots' doesn't exist")
+            return await super().__call__(sql, params)
+
+    fake = _SlotsDown(main=[_row(id=1, start_time=datetime.datetime(2026, 11, 1, 12, 0))])
+    with patch.object(data, "fetch_all", fake):
+        out = await data.get_hunt_puzzles(HUNT, "123")
+    assert [p["id"] for p in out] == [1]
+    assert out[0]["activity"] is None

@@ -450,22 +450,28 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
             puz["rollup_error"] = r["last_error"]
 
     # Activity sparkline: unsolved top-level puzzles only (solved ones have none;
-    # minis are recorded but not drawn).
-    slot_rows = await fetch_all(
-        "SELECT s.puzzle_id, s.slot_start, s.chat_count, s.sheet_edited "
-        "FROM puzzle_activity_slots s JOIN puzzles p ON p.id = s.puzzle_id "
-        "WHERE p.hunt_id = %s AND p.solved = 0 AND p.parent_puzzle_id IS NULL "
-        "ORDER BY s.slot_start",
-        (hunt_id,),
-    )
+    # minis are recorded but not drawn). Decoration only: if this query fails the
+    # list still loads, with no sparklines (not empty ones, which would read as
+    # "nobody has touched it").
+    try:
+        slot_rows = await fetch_all(
+            "SELECT s.puzzle_id, s.slot_start, s.chat_count, s.sheet_edited "
+            "FROM puzzle_activity_slots s JOIN puzzles p ON p.id = s.puzzle_id "
+            "WHERE p.hunt_id = %s AND p.solved = 0 AND p.parent_puzzle_id IS NULL "
+            "ORDER BY s.slot_start",
+            (hunt_id,),
+        )
+    except Exception:
+        logger.exception("Activity slots query failed for hunt %s", hunt_id)
+        slot_rows = None
     slots_by_puzzle: dict[int, list] = {}
-    for r in slot_rows:
+    for r in slot_rows or []:
         slots_by_puzzle.setdefault(r["puzzle_id"], []).append(
             (r["slot_start"], int(r["chat_count"]), bool(r["sheet_edited"])))
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     for pid, puz in puzzles.items():
         puz["activity"] = None
-        if puz["solved"]:
+        if puz["solved"] or slot_rows is None:
             continue
         slots = slots_by_puzzle.get(pid, [])
         start = start_times.get(pid) or (slots[0][0] if slots else None)
