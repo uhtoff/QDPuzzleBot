@@ -15,6 +15,7 @@ def _cog():
     cog.move_file = AsyncMock(return_value=["P1"])
     cog.rename_file = AsyncMock()
     cog.delete_file = AsyncMock()
+    cog.share_anyone_reader = AsyncMock()
     return cog
 
 
@@ -274,3 +275,10 @@ async def test_switch_propagates_a_500_from_the_parent_folder_create():
         await _switch(hunt, "files", cog)
     assert cog.create_folder.await_count == 1
     assert hunt.sheet_mode == "tabs"
+
+
+@pytest.mark.asyncio
+async def test_tabs_to_files_shares_the_new_folder_view_only():
+    hunt, cog = _hunt("tabs"), _cog()
+    await _switch(hunt, "files", cog)
+    cog.share_anyone_reader.assert_awaited_once_with("FOLDER")

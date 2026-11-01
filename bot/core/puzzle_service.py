@@ -4293,9 +4293,13 @@ class PuzzleService:
         setting predates files mode and nothing used it, so a stale or
         inaccessible value (403/404) must not make every files create/switch
         fail: warn and retry once at the service account's root. Any other error
-        propagates."""
+        propagates.
+
+        The folder is then shared view-only with anyone who has the link (the
+        dashboard links to it; Solved inherits). Best-effort: a failed share is
+        logged, never fails the create -- the link just asks for access."""
         try:
-            return await gsheet_cog.create_folder(name, parent_id)
+            folder = await gsheet_cog.create_folder(name, parent_id)
         except HttpError as exc:
             status = getattr(exc.resp, "status", None)
             if not parent_id or status not in (403, 404):
@@ -4303,7 +4307,12 @@ class PuzzleService:
             logger.warning("drive_parent_id %s is not usable (HTTP %s); creating "
                            "hunt folder %r at the Drive root instead",
                            parent_id, status, name)
-            return await gsheet_cog.create_folder(name, None)
+            folder = await gsheet_cog.create_folder(name, None)
+        try:
+            await gsheet_cog.share_anyone_reader(folder)
+        except Exception:
+            logger.warning("Could not share hunt folder %s view-only", folder, exc_info=True)
+        return folder
 
     @staticmethod
     async def _run_undo(undo) -> None:

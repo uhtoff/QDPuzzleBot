@@ -819,6 +819,14 @@ class GoogleSheets(commands.Cog):
         )
         return folder["id"]
 
+    async def share_anyone_reader(self, file_id: str) -> None:
+        """Let anyone with the link view `file_id` (a folder's children inherit it)."""
+        await execute_with_retry(
+            get_drive().permissions().create(
+                fileId=file_id, body={"type": "anyone", "role": "reader"}),
+            on_retry=self._notify_retry,
+        )
+
     async def _share_anyone_writer(self, file_id: str) -> None:
         await execute_with_retry(
             get_drive().permissions().create(

@@ -500,6 +500,7 @@ def _file_cog():
     gsheet.create_solved_sheet = AsyncMock(return_value="ARCH_ID")
     gsheet.create_folder = AsyncMock(side_effect=["FOLDER", "SOLVEDF"])
     gsheet.create_reference_spreadsheet = AsyncMock(return_value="REF")
+    gsheet.share_anyone_reader = AsyncMock()
     return gsheet
 
 
@@ -641,3 +642,37 @@ async def test_create_hunt_files_mode_failure_deletes_created_folders():
                                   sheet_mode="files")
     hdb.commit.assert_not_called()
     assert sorted(c.args[0] for c in gsheet.delete_file.await_args_list) == ["FOLDER", "SOLVEDF"]
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_shares_the_hunt_folder_view_only():
+    """The dashboard links to the folder, so anyone with the link may view it
+    (Solved inherits); puzzle files keep their own anyone-writer sharing."""
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = None
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              sheet_mode="files")
+    gsheet.share_anyone_reader.assert_awaited_once_with("FOLDER")
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_survives_a_failed_folder_share(caplog):
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    gsheet.share_anyone_reader = AsyncMock(side_effect=_drive_http_error(403))
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
+         caplog.at_level("WARNING"):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = None
+        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                              sheet_mode="files")
+    assert _committed_hunt(hdb.commit).drive_folder_id == "FOLDER"
+    gsheet.delete_file.assert_not_called()
+    assert "FOLDER" in caplog.text

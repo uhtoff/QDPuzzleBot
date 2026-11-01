@@ -115,6 +115,13 @@ def test_get_file_404_is_none_and_other_errors_raise():
         _run(cog.get_file("F"), raises=_http_error(500))
 
 
+def test_share_anyone_reader_body():
+    cog = _cog()
+    drive, _ = _run(cog.share_anyone_reader("FOLD"), [{}])
+    kw = drive.permissions().create.call_args.kwargs
+    assert kw == {"fileId": "FOLD", "body": {"type": "anyone", "role": "reader"}}
+
+
 def test_list_folder_follows_pages_and_excludes_trashed():
     cog = _cog()
     a = {"id": "1", "name": "a", "mimeType": "m"}
