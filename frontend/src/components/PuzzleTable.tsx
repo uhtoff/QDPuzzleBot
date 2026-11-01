@@ -13,6 +13,8 @@ import {
 import { IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle, PuzzleTagGroup } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
+import { latestActivity } from "../lib/sparkline";
+import { ActivitySparkline } from "./ActivitySparkline";
 import { useRetagPuzzle, useUpdatePuzzle, type EdgeType } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
 import { MetaBadge } from "./MetaBadge";
@@ -210,8 +212,9 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
 
   function activityFor(p: Puzzle): string {
     const liveHit = p.channel_id ? live[p.channel_id] : undefined;
-    const at = liveHit?.at ?? p.last_activity?.at ?? null;
-    return relativeTime(at);
+    return relativeTime(
+      latestActivity(liveHit?.at, p.last_activity?.at, p.activity?.last_sheet_edit_at),
+    );
   }
 
   return (
@@ -399,9 +402,12 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   )}
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c="dimmed">
-                    {activityFor(p)}
-                  </Text>
+                  <Group gap={6} wrap="nowrap">
+                    <ActivitySparkline activity={p.activity} />
+                    <Text size="sm" c="dimmed">
+                      {activityFor(p)}
+                    </Text>
+                  </Group>
                 </Table.Td>
                 <PuzzleRowActions
                   puzzle={p}

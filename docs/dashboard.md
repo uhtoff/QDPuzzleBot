@@ -43,7 +43,13 @@ messages and pins as the matching `!` commands.
   pin refreshes, solved embeds) shared by bang commands and web actions, so
   both callers produce the same Discord-visible output.
 - `bot/cogs/activity.py` — records the last human message per channel into
-  `channel_activity` and publishes a live event.
+  `channel_activity`, counts it into the puzzle's 5-minute slot in
+  `puzzle_activity_slots`, and publishes a live event.
+- `bot/cogs/sheet_activity.py` — every 5 minutes, lists each live files-mode hunt's
+  Drive folder for spreadsheets edited in the last 10 minutes (one call per hunt)
+  and marks the slot edited, ignoring the bot's own edits. `get_hunt_puzzles`
+  squashes each unsolved puzzle's slots into ≤36 sparkline bars
+  (`bot/core/activity_sparkline.py`) for the All-puzzles Activity column.
 - `frontend/` — Vite + React + TS + Mantine SPA.
 
 ## Message bridge (chat viewer)

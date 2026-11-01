@@ -84,6 +84,19 @@ export interface Activity {
   author: string | null;
 }
 
+export interface ActivityBar {
+  chat: number;
+  edited: boolean;
+}
+
+// Whole-life activity sparkline: chat counts and sheet-edit flags in up to 36
+// bars from unlock to now. Null for solved puzzles.
+export interface PuzzleActivity {
+  bar_minutes: number;
+  bars: ActivityBar[];
+  last_sheet_edit_at: string | null;
+}
+
 export interface AdditionalSheet {
   id: number;
   name: string;
@@ -130,6 +143,7 @@ export interface Puzzle {
   start_time: string | null;
   solve_time: string | null;
   last_activity: Activity | null;
+  activity: PuzzleActivity | null;
   rounds: PuzzleTagGroup[];
   sheets: AdditionalSheet[];
   mini_puzzles: MiniPuzzle[];

@@ -254,6 +254,15 @@ One flat table of every puzzle with search, and filters by status, priority and 
 (plus a "hide solved" toggle). This is the quickest way to find "that puzzle with FUR
 COAT in the answer" or everything currently *Stuck* or *Needs Extraction*.
 
+The **Activity** column shows each unsolved puzzle's whole life since it was added as a
+small bar chart, beside the time since anyone last chatted or edited its sheet. Bar
+height is how busy the puzzle's Discord channel was; an **orange** bar means someone
+(not the bot) edited the puzzle's spreadsheet then. So you can tell a puzzle nobody
+has started (flat) from one people gave up on (busy, then flat) or are stuck on (a
+steady trickle) without anyone having to mark it. Sheet edits only show for hunts
+whose puzzles each have their own spreadsheet (files mode); history starts from when
+this feature was installed.
+
 ![All puzzles](img/userguide/04-all-puzzles.png)
 
 ### The puzzle drawer
