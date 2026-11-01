@@ -18,7 +18,7 @@ from .auth import (
     user_can_manage,
 )
 from bot.core import role_gate
-from bot.core.sheet_location import spreadsheet_link
+from bot.core.sheet_location import drive_folder_link, spreadsheet_link
 from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
 
@@ -154,6 +154,7 @@ async def hunt_detail(uid):
             "sheet_url": spreadsheet_link(hunt["google_sheet_id"]),
             "solved_sheet_url": spreadsheet_link(hunt["solved_sheet_id"]),
             "sheet_mode": hunt.get("sheet_mode") or "tabs",
+            "drive_folder_url": drive_folder_link(hunt.get("drive_folder_id")),
             "can_manage": can_manage,
             "can_administer": can_administer,
             "organiser_gate_active": gate_active,

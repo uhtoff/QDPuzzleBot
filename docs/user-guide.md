@@ -239,7 +239,11 @@ button here — no more copy-pasting the `!hunt` incantation.
 
 The default view groups puzzles under their meta, mirroring the Discord categories. For
 each group you can see the code, feeders solved, and each puzzle's status, answer and
-recent activity. Solved rows go green and sink; solved groups collapse.
+recent activity (with the activity bar chart described under
+["All puzzles"](#all-puzzles--search-and-filter), on wider screens). Solved rows go
+green and sink; solved groups collapse. For a hunt where each puzzle has its own
+spreadsheet, the hunt info panel links to the hunt's **Drive folder**, which holds
+them all.
 
 The icons on each row open the puzzle's **sheet**, its **chat** (a Discord-style
 window — see [Reading a puzzle's chat](#reading-a-puzzles-chat)), and the **puzzle page**

@@ -180,6 +180,8 @@ export interface HuntDetail {
     sheet_url: string | null;
     solved_sheet_url: string | null;
     sheet_mode: "tabs" | "files";
+    /** The hunt's Drive folder (files mode); null for a tab hunt. */
+    drive_folder_url: string | null;
     can_manage: boolean;
     can_administer: boolean;
     organiser_gate_active: boolean;

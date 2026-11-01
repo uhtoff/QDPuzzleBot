@@ -26,6 +26,11 @@ def spreadsheet_link(spreadsheet_id) -> str | None:
     return spreadsheet_url(spreadsheet_id) if spreadsheet_id else None
 
 
+def drive_folder_link(folder_id) -> str | None:
+    """Link to a Drive folder (a files-mode hunt's), or None when there is no id."""
+    return f"https://drive.google.com/drive/folders/{folder_id}" if folder_id else None
+
+
 def spreadsheet_for(obj, live_id: str, solved_id: str) -> str:
     """The location rule: the spreadsheet an object's sheet lives in.
 

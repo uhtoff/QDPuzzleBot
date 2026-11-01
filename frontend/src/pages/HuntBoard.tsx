@@ -118,6 +118,7 @@ export default function HuntBoard() {
         start_timestamp={data.hunt.start_timestamp}
         sheet_url={data.hunt.sheet_url}
         solved_sheet_url={data.hunt.solved_sheet_url}
+        drive_folder_url={data.hunt.drive_folder_url}
         hunt_sheets={data.hunt_sheets}
         username={data.hunt.username}
         password={data.hunt.password}

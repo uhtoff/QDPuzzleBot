@@ -209,3 +209,10 @@ def test_puzzle_location_with_own_id_ignores_hunt_spreadsheets():
 def test_additional_sheet_location_with_own_id_ignores_hunt_spreadsheets():
     loc = additional_sheet_location(_hunt(), _extra(on_solved=True, page="5", own="XFILE"))
     assert loc == SheetLocation("XFILE", "5")
+
+
+def test_drive_folder_link():
+    from bot.core.sheet_location import drive_folder_link
+    assert drive_folder_link("FOLD") == "https://drive.google.com/drive/folders/FOLD"
+    assert drive_folder_link("") is None
+    assert drive_folder_link(None) is None

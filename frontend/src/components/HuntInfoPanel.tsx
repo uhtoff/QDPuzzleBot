@@ -17,6 +17,8 @@ interface HuntInfoPanelProps {
   start_timestamp: number | null;
   sheet_url: string | null;
   solved_sheet_url: string | null;
+  /** Files-mode hunts: the folder holding every puzzle's spreadsheet. */
+  drive_folder_url: string | null;
   hunt_sheets: HuntSheet[];
   /** False for an archived hunt — read-only, exactly as the puzzle drawer is. */
   editable: boolean;
@@ -30,6 +32,7 @@ export function HuntInfoPanel({
   start_timestamp,
   sheet_url,
   solved_sheet_url,
+  drive_folder_url,
   hunt_sheets,
   editable,
   username,
@@ -91,6 +94,18 @@ export function HuntInfoPanel({
             Solved puzzles sheet:{" "}
             <Anchor href={solved_sheet_url} target="_blank" inherit>
               Open sheet
+            </Anchor>
+          </Text>
+        </Group>
+      )}
+
+      {drive_folder_url && (
+        <Group gap={6}>
+          <IconExternalLink size={14} />
+          <Text size="sm">
+            Drive folder (every puzzle's sheet):{" "}
+            <Anchor href={drive_folder_url} target="_blank" inherit>
+              Open folder
             </Anchor>
           </Text>
         </Group>

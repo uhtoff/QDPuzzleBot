@@ -36,6 +36,8 @@ import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 import { groupTarget } from "../lib/groupTarget";
+import { latestActivity } from "../lib/sparkline";
+import { ActivitySparkline } from "./ActivitySparkline";
 
 interface Props {
   group: BoardGroupType;
@@ -123,8 +125,10 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
   }
 
   function activityFor(p: Puzzle): string {
-    const at = (p.channel_id && live[p.channel_id]?.at) || p.last_activity?.at || null;
-    return relativeTime(at);
+    const liveAt = p.channel_id ? live[p.channel_id]?.at : undefined;
+    return relativeTime(
+      latestActivity(liveAt, p.last_activity?.at, p.activity?.last_sheet_edit_at),
+    );
   }
 
   return (
@@ -296,10 +300,13 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                           )
                         )}
                       </Table.Td>
-                      <Table.Td w={90}>
-                        <Text size="xs" c="dimmed">
-                          {activityFor(p)}
-                        </Text>
+                      <Table.Td w={isNarrow ? 90 : 160}>
+                        <Group gap={6} wrap="nowrap">
+                          {!isNarrow && <ActivitySparkline activity={p.activity} />}
+                          <Text size="xs" c="dimmed">
+                            {activityFor(p)}
+                          </Text>
+                        </Group>
                       </Table.Td>
                       <PuzzleRowActions
                         puzzle={p}

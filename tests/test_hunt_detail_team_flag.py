@@ -70,3 +70,18 @@ async def test_hunt_detail_without_a_solved_sheet_sends_none():
     row.update(google_sheet_id="LIVE", solved_sheet_id="")
     _, body = await _detail(row)
     assert body["hunt"]["solved_sheet_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_hunt_detail_sends_the_drive_folder_link_for_a_files_hunt():
+    row = _row(0)
+    row.update(sheet_mode="files", drive_folder_id="FOLD")
+    _, body = await _detail(row)
+    assert body["hunt"]["drive_folder_url"] == "https://drive.google.com/drive/folders/FOLD"
+
+
+@pytest.mark.asyncio
+async def test_hunt_detail_without_a_drive_folder_sends_none():
+    for row in (_row(0), {**_row(0), "drive_folder_id": ""}):
+        _, body = await _detail(row)
+        assert body["hunt"]["drive_folder_url"] is None
