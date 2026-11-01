@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from . import MySQLReconnector
 
 from bot.core.discord_channels import clean_channel_name
+from bot.core.activity_slots import slot_start
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
@@ -966,6 +967,41 @@ class MySQLChannelActivityDb(_MySQLBaseDb):
             "last_author_name=VALUES(last_author_name)",
             (channel_id, guild_id, at, author_id, author_name),
         )
+
+class MySQLPuzzleActivityDb(_MySQLBaseDb):
+    """Per-puzzle activity in 5-minute slots (puzzle_activity_slots, migration 052).
+
+    Writers resolve the puzzle inside the INSERT ... SELECT, so a channel or file
+    that belongs to no puzzle simply writes nothing.
+    """
+    TABLE_NAME = 'puzzle_activity_slots'
+
+    def add_chat(self, channel_id, at):
+        """Count one human message in ``channel_id``'s puzzle, in ``at``'s slot."""
+        self._exec(
+            "INSERT INTO puzzle_activity_slots (puzzle_id, slot_start, chat_count) "
+            "SELECT id, %s, 1 FROM puzzles WHERE channel_id = %s "
+            "ON DUPLICATE KEY UPDATE chat_count = chat_count + 1",
+            (slot_start(at), channel_id),
+        )
+
+    def mark_sheet_edited(self, google_sheet_id, at):
+        """Mark ``at``'s slot edited for the puzzle whose own spreadsheet this is."""
+        if not google_sheet_id:
+            return
+        self._exec(
+            "INSERT INTO puzzle_activity_slots (puzzle_id, slot_start, sheet_edited) "
+            "SELECT id, %s, 1 FROM puzzles WHERE google_sheet_id = %s "
+            "ON DUPLICATE KEY UPDATE sheet_edited = 1",
+            (slot_start(at), google_sheet_id),
+        )
+
+    def files_hunt_folders(self):
+        """(hunt_id, drive_folder_id) for every live files-mode hunt."""
+        rows = self._fetch_all(
+            "SELECT id, drive_folder_id FROM hunts "
+            "WHERE sheet_mode = 'files' AND archived = 0 AND drive_folder_id <> ''")
+        return [(r["id"], r["drive_folder_id"]) for r in rows]
 
 _UNSET: Any = object()  # sentinel: "argument not provided" (distinct from None)
 

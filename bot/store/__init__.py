@@ -32,7 +32,7 @@ from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData
 from .markup_data import MediaMarkupData
 from .puzzle_image_data import PuzzleImageData
-from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb, MySQLHuntInviteDb, MySQLHuntAccessLogDb
+from .mysqldb import MySQLPuzzleJsonDb, MySQLGuildSettingsDb, MySQLTagGroupJsonDb, MySQLHuntJsonDb, MySQLAdditionalSheetsDb, MySQLChannelActivityDb, MySQLRollupJsonDb, MySQLEvidenceDb, MySQLTagGroupCategoryDb, MySQLHuntCategoryDb, MySQLMessageDb, MySQLMediaDb, MySQLHuntCanvasDb, MySQLCanvasRegionDb, MySQLMediaMarkupDb, MySQLPuzzleImageDb, MySQLHuntInviteDb, MySQLHuntAccessLogDb, MySQLPuzzleActivityDb
 
 from bot.utils import config
 
@@ -161,6 +161,20 @@ if config.storage == 'mysql':
         charset="utf8mb4",
     )
     ChannelActivityDb = MySQLChannelActivityDb(mydb=activity_db)
+    # Chat slot counts are written by the same ChannelActivity drain worker, so
+    # they share its dedicated connection.
+    PuzzleActivityDb = MySQLPuzzleActivityDb(mydb=activity_db)
+    # The sheet-activity poller (bot/cogs/sheet_activity.py) writes from its own
+    # asyncio.to_thread calls, concurrently with the drain worker; connections
+    # are not thread-safe to share, so it gets its own.
+    sheet_activity_conn = MySQLReconnector(
+        host="localhost",
+        user=config.mysql_username,
+        password=config.mysql_password,
+        database=config.database,
+        charset="utf8mb4",
+    )
+    SheetActivityDb = MySQLPuzzleActivityDb(mydb=sheet_activity_conn)
     # The bridge worker writes on a background thread (asyncio.to_thread), and a
     # mysql.connector connection is not thread-safe to share; give it its own.
     message_db_conn = MySQLReconnector(
