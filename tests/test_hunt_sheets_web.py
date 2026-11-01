@@ -13,7 +13,8 @@ from tests.conftest import make_hunt, make_hunt_ctx, make_web_app, start_patches
 
 
 def _sheet(id, name, page_id="P1"):
-    return SimpleNamespace(id=id, puzzle_name=name, google_page_id=page_id)
+    return SimpleNamespace(id=id, puzzle_name=name, google_page_id=page_id,
+                           google_sheet_id="", on_solved_sheet=False)
 
 
 @pytest.fixture
@@ -56,7 +57,9 @@ class TestAddHuntSheetRoute:
         # The response carries what the service actually created, not the name
         # the client sent -- add_hunt_sheet uniquifies a clashing tab name, and
         # echoing the request would show the wrong one in the UI.
-        assert body["sheet"] == {"id": 4, "name": "alt text", "page_id": "P7"}
+        assert body["sheet"] == {
+            "id": 4, "name": "alt text", "page_id": "P7",
+            "url": "https://docs.google.com/spreadsheets/d/SHEET1/edit#gid=P7"}
         web.cog.service.add_hunt_sheet.assert_awaited_once()
         assert web.cog.service.add_hunt_sheet.await_args.args[1] == "alt text"
 

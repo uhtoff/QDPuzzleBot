@@ -15,8 +15,8 @@ interface HuntInfoPanelProps {
   uid: string;
   url: string;
   start_timestamp: number | null;
-  sheet_base_url: string | null;
-  solved_sheet_base_url: string | null;
+  sheet_url: string | null;
+  solved_sheet_url: string | null;
   hunt_sheets: HuntSheet[];
   /** False for an archived hunt — read-only, exactly as the puzzle drawer is. */
   editable: boolean;
@@ -28,8 +28,8 @@ export function HuntInfoPanel({
   uid,
   url,
   start_timestamp,
-  sheet_base_url,
-  solved_sheet_base_url,
+  sheet_url,
+  solved_sheet_url,
   hunt_sheets,
   editable,
   username,
@@ -72,24 +72,24 @@ export function HuntInfoPanel({
         <Text size="sm">Start time: {startTimeStr}</Text>
       )}
 
-      {sheet_base_url && (
+      {sheet_url && (
         <Group gap={6}>
           <IconExternalLink size={14} />
           <Text size="sm">
             Google Sheet:{" "}
-            <Anchor href={sheet_base_url} target="_blank" inherit>
+            <Anchor href={sheet_url} target="_blank" inherit>
               Open sheet
             </Anchor>
           </Text>
         </Group>
       )}
 
-      {solved_sheet_base_url && (
+      {solved_sheet_url && (
         <Group gap={6}>
           <IconExternalLink size={14} />
           <Text size="sm">
             Solved puzzles sheet:{" "}
-            <Anchor href={solved_sheet_base_url} target="_blank" inherit>
+            <Anchor href={solved_sheet_url} target="_blank" inherit>
               Open sheet
             </Anchor>
           </Text>
@@ -108,7 +108,7 @@ export function HuntInfoPanel({
             <Text size="sm" c="dimmed">None yet.</Text>
           )}
           {hunt_sheets.map((s) => {
-            const sheetUrl = sheet_base_url ? `${sheet_base_url}${s.page_id ?? ""}` : null;
+            const sheetUrl = s.url;
             return (
               <Group key={s.id} gap={6} wrap="nowrap">
                 <IconExternalLink size={14} style={{ flexShrink: 0 }} />
@@ -195,7 +195,7 @@ export function HuntInfoPanel({
         </Group>
       )}
 
-      {!url && !startTimeStr && !sheet_base_url && !solved_sheet_base_url && !username && !password
+      {!url && !startTimeStr && !sheet_url && !solved_sheet_url && !username && !password
         && hunt_sheets.length === 0
         && <Text size="sm" c="dimmed">No hunt settings configured yet.</Text>
       }

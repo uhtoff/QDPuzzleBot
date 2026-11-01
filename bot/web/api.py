@@ -18,6 +18,7 @@ from .auth import (
     user_can_manage,
 )
 from bot.core import role_gate
+from bot.core.sheet_location import spreadsheet_link
 from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
 
@@ -115,10 +116,10 @@ async def hunt_detail(uid):
     assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
 
     guild_snowflake = guild_or_status.get("guild_snowflake")
-    puzzles = await data.get_hunt_puzzles(hunt["id"], guild_snowflake)
+    puzzles = await data.get_hunt_puzzles(hunt, guild_snowflake)
     rollups = await data.get_rollups_by_tag_group(hunt["id"])
     all_groups = await data.get_all_tag_groups(hunt["id"])
-    hunt_sheets = await data.get_hunt_sheets(hunt["id"])
+    hunt_sheets = await data.get_hunt_sheets(hunt)
     board = data.build_board(puzzles, rollups, all_groups)
     solved = sum(1 for p in puzzles if p["solved"])
     # Archived hunts are read-only even for organisers.
@@ -150,6 +151,9 @@ async def hunt_detail(uid):
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
             "solved_sheet_base_url": _sheet_base(hunt["solved_sheet_id"]),
+            "sheet_url": spreadsheet_link(hunt["google_sheet_id"]),
+            "solved_sheet_url": spreadsheet_link(hunt["solved_sheet_id"]),
+            "sheet_mode": hunt.get("sheet_mode") or "tabs",
             "can_manage": can_manage,
             "can_administer": can_administer,
             "organiser_gate_active": gate_active,
@@ -482,7 +486,7 @@ async def hunt_puzzles(uid):
         assert isinstance(guild_or_status, int)  # the (None, status) branch
         return jsonify({"error": "not_found_or_forbidden"}), guild_or_status
     assert isinstance(guild_or_status, dict)  # the (hunt, guild_info) branch
-    puzzles = await data.get_hunt_puzzles(hunt["id"], guild_or_status.get("guild_snowflake"))
+    puzzles = await data.get_hunt_puzzles(hunt, guild_or_status.get("guild_snowflake"))
     return jsonify({"puzzles": puzzles})
 
 

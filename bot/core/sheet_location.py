@@ -21,6 +21,11 @@ class SheetLocation:
         return spreadsheet_url(self.spreadsheet_id, self.page_id)
 
 
+def spreadsheet_link(spreadsheet_id) -> str | None:
+    """Link to a whole spreadsheet (no page), or None when there is no id."""
+    return spreadsheet_url(spreadsheet_id) if spreadsheet_id else None
+
+
 def spreadsheet_for(obj, live_id: str, solved_id: str) -> str:
     """The location rule: the spreadsheet an object's sheet lives in.
 

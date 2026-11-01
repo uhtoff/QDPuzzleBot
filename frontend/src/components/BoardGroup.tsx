@@ -237,8 +237,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                       <Table.Td w={92}>
                         <PuzzleLinks
                           puzzle={p}
-                          sheetBase={detail.hunt.sheet_base_url}
-                          solvedSheetBase={detail.hunt.solved_sheet_base_url}
                           huntArchived={detail.hunt.archived}
                         />
                       </Table.Td>
@@ -266,8 +264,6 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                       <Table.Td w={110}>
                         <PuzzleLinks
                           puzzle={p}
-                          sheetBase={detail.hunt.sheet_base_url}
-                          solvedSheetBase={detail.hunt.solved_sheet_base_url}
                           huntArchived={detail.hunt.archived}
                         />
                       </Table.Td>

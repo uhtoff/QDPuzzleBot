@@ -6,14 +6,11 @@ import { ChatViewer } from "./ChatViewer";
 
 interface Props {
   puzzle: Puzzle;
-  sheetBase: string | null;
-  solvedSheetBase: string | null;
   huntArchived: boolean;
 }
 
-export function PuzzleLinks({ puzzle, sheetBase, solvedSheetBase, huntArchived }: Props) {
-  const base = puzzle.on_solved_sheet && solvedSheetBase ? solvedSheetBase : sheetBase;
-  const sheetUrl = base && puzzle.sheet_page ? `${base}${puzzle.sheet_page}` : null;
+export function PuzzleLinks({ puzzle, huntArchived }: Props) {
+  const sheetUrl = puzzle.sheet_url;
   const [chatOpen, setChatOpen] = useState(false);
 
   return (

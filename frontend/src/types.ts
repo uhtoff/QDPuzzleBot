@@ -88,6 +88,8 @@ export interface AdditionalSheet {
   id: number;
   name: string;
   page_id: string | null;
+  /** Full link, built by the server from the sheet's own location. */
+  url: string | null;
 }
 
 /** A working sheet belonging to the hunt rather than to any one puzzle. */
@@ -95,6 +97,7 @@ export interface HuntSheet {
   id: number;
   name: string;
   page_id: string | null;
+  url: string | null;
 }
 
 export interface MiniPuzzle {
@@ -112,7 +115,8 @@ export interface Puzzle {
   channel_id: string | null;
   discord_url: string | null;
   discord_deep_url: string | null;
-  sheet_page: string | null;
+  /** Full link to this puzzle's sheet, built by the server (null if none). */
+  sheet_url: string | null;
   is_meta: boolean;
   meta_kind: "runaround" | "metameta" | "meta" | "capstone" | null;
   is_minimeta: boolean;
@@ -159,8 +163,9 @@ export interface HuntDetail {
     is_team_hunt: boolean;
     role_name: string | null;
     guild_snowflake: string | null;
-    sheet_base_url: string | null;
-    solved_sheet_base_url: string | null;
+    sheet_url: string | null;
+    solved_sheet_url: string | null;
+    sheet_mode: "tabs" | "files";
     can_manage: boolean;
     can_administer: boolean;
     organiser_gate_active: boolean;

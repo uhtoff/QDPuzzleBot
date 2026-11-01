@@ -34,7 +34,8 @@ async def _detail(hunt_row):
 def _row(roster_role_id):
     return {"id": 10, "uid": "U1", "name": "H", "url": "u", "archived": False,
             "guild_id": 1, "role_id": 0, "roster_role_id": roster_role_id,
-            "google_sheet_id": None, "solved_sheet_id": None}
+            "google_sheet_id": None, "solved_sheet_id": None,
+            "sheet_mode": "tabs"}
 
 
 @pytest.mark.asyncio
@@ -51,3 +52,21 @@ async def test_plain_hunt_not_flagged():
         status, body = await _detail(_row(empty))
         assert status == 200
         assert body["hunt"]["is_team_hunt"] is False
+
+
+@pytest.mark.asyncio
+async def test_hunt_detail_sends_sheet_urls_and_mode():
+    row = _row(0)
+    row.update(google_sheet_id="LIVE", solved_sheet_id="SOLVED", sheet_mode="files")
+    _, body = await _detail(row)
+    assert body["hunt"]["sheet_url"] == "https://docs.google.com/spreadsheets/d/LIVE"
+    assert body["hunt"]["solved_sheet_url"] == "https://docs.google.com/spreadsheets/d/SOLVED"
+    assert body["hunt"]["sheet_mode"] == "files"
+
+
+@pytest.mark.asyncio
+async def test_hunt_detail_without_a_solved_sheet_sends_none():
+    row = _row(0)
+    row.update(google_sheet_id="LIVE", solved_sheet_id="")
+    _, body = await _detail(row)
+    assert body["hunt"]["solved_sheet_url"] is None

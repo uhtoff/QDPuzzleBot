@@ -34,7 +34,7 @@ def _row(**kw):
     """A main-query row with every column the fold reads, overridable."""
     base = {
         "id": 1, "name": "Alpha", "url": None, "channel_id": 900,
-        "google_page_id": "P1", "is_target": 0, "status": "Unstarted",
+        "google_page_id": "P1", "google_sheet_id": "", "is_target": 0, "status": "Unstarted",
         "solved": 0, "on_solved_sheet": 0, "solution": None, "priority": None,
         "puzzle_type": None, "notes": None, "start_time": None, "solve_time": None,
         "tag_group_id": None, "tag_group_name": None,
@@ -66,10 +66,13 @@ class _Dispatcher:
         raise AssertionError(f"unrecognised query, fake needs updating:\n{sql}")
 
 
-async def _run(**kw):
+HUNT = {"id": 10, "google_sheet_id": "LIVE", "solved_sheet_id": "SOLVED"}
+
+
+async def _run(hunt=HUNT, **kw):
     fake = _Dispatcher(**kw)
     with patch.object(data, "fetch_all", fake):
-        return await data.get_hunt_puzzles(10, "123"), fake
+        return await data.get_hunt_puzzles(hunt, "123"), fake
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +112,8 @@ async def test_additional_sheets_attach_to_their_own_puzzle():
     or to all of them, disagrees."""
     out, _ = await _run(
         main=[_row(id=1, name="Alpha"), _row(id=2, name="Beta")],
-        sheets=[{"id": 7, "puzzle_id": 2, "puzzle_name": "grid", "google_page_id": "P9"}],
+        sheets=[{"id": 7, "puzzle_id": 2, "puzzle_name": "grid", "google_page_id": "P9",
+                "google_sheet_id": "", "on_solved_sheet": 0}],
     )
 
     by_id = {p["id"]: p for p in out}
@@ -141,7 +145,8 @@ async def test_a_row_referencing_an_absent_puzzle_is_ignored():
         main=[_row(id=1)],
         minis=[{"id": 2, "name": "Orphan", "solved": 0, "solution": None,
                 "channel_id": None, "parent_puzzle_id": 999}],
-        sheets=[{"id": 7, "puzzle_id": 999, "puzzle_name": "x", "google_page_id": "P"}],
+        sheets=[{"id": 7, "puzzle_id": 999, "puzzle_name": "x", "google_page_id": "P",
+                "google_sheet_id": "", "on_solved_sheet": 0}],
         rollups=[{"target_puzzle_id": 999, "last_ok": 0, "last_error": "e"}],
     )
 
@@ -166,3 +171,43 @@ async def test_the_queries_issued_carry_the_filters_the_payload_depends_on():
     # Puzzle-keyed rollups only: group badges come from get_rollups_by_tag_group.
     assert "target_puzzle_id IS NOT NULL" in joined
     assert len(fake.queries) == 4, fake.queries
+
+
+# --- server-built sheet URLs (files mode task 3) ----------------------------
+
+def _gid(sheet_id, page):
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={page}"
+
+
+@pytest.mark.asyncio
+async def test_each_puzzle_carries_the_url_its_location_rule_gives():
+    """Three puzzles, three different spreadsheets: live, solved, own file. A
+    builder that ignores on_solved_sheet or google_sheet_id disagrees on one."""
+    out, _ = await _run(main=[
+        _row(id=1, google_page_id="P1"),
+        _row(id=2, google_page_id="P2", on_solved_sheet=1),
+        _row(id=3, google_page_id="P3", google_sheet_id="OWN"),
+    ])
+    by_id = {p["id"]: p for p in out}
+    assert by_id[1]["sheet_url"] == _gid("LIVE", "P1")
+    assert by_id[2]["sheet_url"] == _gid("SOLVED", "P2")
+    assert by_id[3]["sheet_url"] == _gid("OWN", "P3")
+
+
+@pytest.mark.asyncio
+async def test_an_extra_sheet_uses_its_own_solved_flag_not_its_puzzles():
+    """Fixes the drawer mismatch: the puzzle is live, the extra is on the solved
+    sheet (and a second extra is live on a solved puzzle)."""
+    out, _ = await _run(
+        main=[_row(id=1), _row(id=2, on_solved_sheet=1)],
+        sheets=[
+            {"id": 7, "puzzle_id": 1, "puzzle_name": "a", "google_page_id": "X1",
+             "google_sheet_id": "", "on_solved_sheet": 1},
+            {"id": 8, "puzzle_id": 2, "puzzle_name": "b", "google_page_id": "X2",
+             "google_sheet_id": "", "on_solved_sheet": 0},
+        ],
+    )
+    by_id = {p["id"]: p for p in out}
+    assert by_id[1]["sheets"][0]["url"] == _gid("SOLVED", "X1")
+    assert by_id[2]["sheets"][0]["url"] == _gid("LIVE", "X2")
+    assert by_id[1]["sheets"][0]["page_id"] == "X1"

@@ -34,6 +34,7 @@ from .auth import (
     resolve_member_role_ids,
 )
 from bot.core import role_gate, template_link
+from bot.core.sheet_location import additional_sheet_location, hunt_sheet_location
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb
 from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
@@ -357,7 +358,8 @@ async def add_sheet(puzzle_id):
             return _discord_error_response(exc)
         return jsonify({
             "ok": True,
-            "sheet": {"id": sheet.id, "name": sheet.puzzle_name, "page_id": sheet.google_page_id},
+            "sheet": {"id": sheet.id, "name": sheet.puzzle_name, "page_id": sheet.google_page_id,
+                      "url": additional_sheet_location(hunt_obj, sheet).url},
         })
 
 
@@ -420,7 +422,8 @@ async def add_hunt_sheet(uid):
         return jsonify({
             "ok": True,
             "sheet": {"id": sheet.id, "name": sheet.puzzle_name,
-                      "page_id": sheet.google_page_id},
+                      "page_id": sheet.google_page_id,
+                      "url": hunt_sheet_location(hunt_obj, sheet.google_page_id).url},
         })
 
 

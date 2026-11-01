@@ -10,9 +10,13 @@ import datetime
 import json
 import logging
 import time
+from types import SimpleNamespace
 
 from mysql.connector import pooling
 from mysql.connector.errors import PoolError
+
+from bot.core.sheet_location import (
+    additional_sheet_location, hunt_sheet_location, puzzle_location)
 
 from bot.utils import config
 
@@ -141,7 +145,7 @@ async def get_all_hunts():
 async def get_hunt_by_uid(uid):
     return await fetch_one(
         "SELECT id, uid, name, url, guild_id, role_id, roster_role_id, archived, "
-        "google_sheet_id, solved_sheet_id, start_time, solve_time, "
+        "google_sheet_id, solved_sheet_id, sheet_mode, start_time, solve_time, "
         "start_timestamp, username, password, url_sep, puzzle_prefix "
         "FROM hunts WHERE uid = %s",
         (uid,),
@@ -298,14 +302,23 @@ def hunt_to_json(hunt, guilds_map):
 
 # --- Puzzles ----------------------------------------------------------------
 
-async def get_hunt_puzzles(hunt_id, guild_snowflake):
+def _hunt_sheets_view(hunt):
+    """The hunt row as the location rule reads it (attribute access)."""
+    return SimpleNamespace(
+        google_sheet_id=hunt["google_sheet_id"], solved_sheet_id=hunt["solved_sheet_id"])
+
+
+async def get_hunt_puzzles(hunt, guild_snowflake):
     """Flat list of every puzzle in the hunt, each with its rounds and last activity.
 
-    A puzzle tagged into multiple rounds appears once with a ``rounds`` array.
+    ``hunt`` is the hunt row (dict). A puzzle tagged into multiple rounds appears
+    once with a ``rounds`` array. Every sheet carries its server-built ``url``.
     """
+    hunt_id = hunt["id"]
+    hunt_view = _hunt_sheets_view(hunt)
     rows = await fetch_all(
         "SELECT puzzles.id, puzzles.name, puzzles.url, puzzles.channel_id, "
-        "puzzles.google_page_id, "
+        "puzzles.google_page_id, puzzles.google_sheet_id, "
         "EXISTS(SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = puzzles.id) AS is_target, "
         "puzzles.status, puzzles.solved, puzzles.on_solved_sheet, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
@@ -342,6 +355,10 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                     if guild_snowflake and row["channel_id"] else None
                 ),
                 "sheet_page": row["google_page_id"],
+                "sheet_url": puzzle_location(hunt_view, SimpleNamespace(
+                    google_sheet_id=row["google_sheet_id"],
+                    on_solved_sheet=bool(row["on_solved_sheet"]),
+                    google_page_id=row["google_page_id"])).url,
                 "is_meta": bool(row["is_target"]),
                 "status": row["status"],
                 "solved": bool(row["solved"]),
@@ -382,7 +399,8 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
                 existing["edges"].append(row["tag_edge_type"])
 
     sheet_rows = await fetch_all(
-        "SELECT s.id, s.puzzle_id, s.puzzle_name, s.google_page_id "
+        "SELECT s.id, s.puzzle_id, s.puzzle_name, s.google_page_id, "
+        "s.google_sheet_id, s.on_solved_sheet "
         "FROM additional_sheets s JOIN puzzles ON puzzles.id = s.puzzle_id "
         "WHERE puzzles.hunt_id = %s",
         (hunt_id,),
@@ -390,9 +408,13 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
     for s in sheet_rows:
         puz = puzzles.get(s["puzzle_id"])
         if puz is not None:
-            puz["sheets"].append(
-                {"id": s["id"], "name": s["puzzle_name"], "page_id": s["google_page_id"]}
-            )
+            puz["sheets"].append({
+                "id": s["id"], "name": s["puzzle_name"], "page_id": s["google_page_id"],
+                "url": additional_sheet_location(hunt_view, SimpleNamespace(
+                    google_sheet_id=s["google_sheet_id"],
+                    on_solved_sheet=bool(s["on_solved_sheet"]),
+                    google_page_id=s["google_page_id"])).url,
+            })
 
     mini_rows = await fetch_all(
         "SELECT id, name, solved, solution, channel_id, parent_puzzle_id "
@@ -430,7 +452,7 @@ async def get_hunt_puzzles(hunt_id, guild_snowflake):
     return puzzle_list
 
 
-async def get_hunt_sheets(hunt_id):
+async def get_hunt_sheets(hunt):
     """The hunt's OWN working sheets -- those belonging to no puzzle.
 
     A separate query rather than a widening of the puzzle-sheet join in
@@ -443,10 +465,12 @@ async def get_hunt_sheets(hunt_id):
     rows = await fetch_all(
         "SELECT id, puzzle_name, google_page_id FROM additional_sheets "
         "WHERE hunt_id = %s AND puzzle_id IS NULL ORDER BY id ASC",
-        (hunt_id,),
+        (hunt["id"],),
     )
+    hunt_view = _hunt_sheets_view(hunt)
     return [
-        {"id": r["id"], "name": r["puzzle_name"], "page_id": r["google_page_id"]}
+        {"id": r["id"], "name": r["puzzle_name"], "page_id": r["google_page_id"],
+         "url": hunt_sheet_location(hunt_view, r["google_page_id"]).url}
         for r in rows
     ]
 

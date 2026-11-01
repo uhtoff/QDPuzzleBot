@@ -294,8 +294,6 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                 <Table.Td>
                   <PuzzleLinks
                     puzzle={p}
-                    sheetBase={detail.hunt.sheet_base_url}
-                    solvedSheetBase={detail.hunt.solved_sheet_base_url}
                     huntArchived={detail.hunt.archived}
                   />
                 </Table.Td>

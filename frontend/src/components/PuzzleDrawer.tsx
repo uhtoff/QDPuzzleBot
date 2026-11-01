@@ -125,10 +125,6 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
     });
   }
 
-  const sheetBase = puzzle?.on_solved_sheet && detail.hunt.solved_sheet_base_url
-    ? detail.hunt.solved_sheet_base_url
-    : detail.hunt.sheet_base_url;
-
   return (
     <Drawer
       opened={puzzle !== null}
@@ -293,7 +289,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
               </Text>
             )}
             {puzzle.sheets.map((s) => {
-              const url = sheetBase && s.page_id ? `${sheetBase}${s.page_id}` : null;
+              const url = s.url;
               return (
                 <Group key={s.id} justify="space-between" wrap="nowrap">
                   {url ? (

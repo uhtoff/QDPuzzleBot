@@ -277,13 +277,16 @@ class TestWebHuntSheets:
             {"id": 7, "puzzle_name": "alt text", "google_page_id": "P7"},
             {"id": 2, "puzzle_name": "site source", "google_page_id": "P2"},
         ]
+        hunt = {"id": 10, "google_sheet_id": "LIVE", "solved_sheet_id": "SOLVED"}
         with patch("bot.web.data.fetch_all", AsyncMock(return_value=rows)) as fa:
-            out = await data.get_hunt_sheets(10)
+            out = await data.get_hunt_sheets(hunt)
         # Two rows, in query order: the frontend numbers them and !remove_sheet
         # indexes the same list, so a reordering here is a real bug.
         assert out == [
-            {"id": 7, "name": "alt text", "page_id": "P7"},
-            {"id": 2, "name": "site source", "page_id": "P2"},
+            {"id": 7, "name": "alt text", "page_id": "P7",
+             "url": "https://docs.google.com/spreadsheets/d/LIVE/edit#gid=P7"},
+            {"id": 2, "name": "site source", "page_id": "P2",
+             "url": "https://docs.google.com/spreadsheets/d/LIVE/edit#gid=P2"},
         ]
         sql, params = fa.await_args[0]
         assert "puzzle_id IS NULL" in sql
@@ -292,4 +295,5 @@ class TestWebHuntSheets:
     async def test_empty_when_the_hunt_has_none(self):
         from bot.web import data
         with patch("bot.web.data.fetch_all", AsyncMock(return_value=[])):
-            assert await data.get_hunt_sheets(10) == []
+            assert await data.get_hunt_sheets({"id": 10, "google_sheet_id": "L",
+                                               "solved_sheet_id": ""}) == []
