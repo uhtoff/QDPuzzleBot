@@ -12,7 +12,7 @@ from tests.conftest import make_hunt
 def _cog():
     cog = MagicMock()
     cog.create_folder = AsyncMock(side_effect=["FOLDER", "SOLVEDF"])
-    cog.move_file = AsyncMock()
+    cog.move_file = AsyncMock(return_value=["P1"])
     cog.rename_file = AsyncMock()
     cog.delete_file = AsyncMock()
     return cog
@@ -51,7 +51,7 @@ async def test_tabs_to_files_moves_and_renames_existing_spreadsheet():
     hunt, cog = _hunt("tabs"), _cog()
     hdb = await _switch(hunt, "files", cog)
     assert cog.create_folder.await_args_list == [call("H", "PARENT"), call("Solved", "FOLDER")]
-    cog.move_file.assert_awaited_once_with("SS", "FOLDER", "root")
+    cog.move_file.assert_awaited_once_with("SS", "FOLDER")
     cog.rename_file.assert_awaited_once_with("SS", "H Reference")
     cog.delete_file.assert_not_awaited()
     assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id, hunt.google_sheet_id) \
@@ -147,3 +147,77 @@ async def test_reference_spreadsheet_sends_no_empty_batch():
     cog.batch_update = AsyncMock()
     await cog.create_reference_spreadsheet("H", "F")
     cog.batch_update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tabs_to_files_failure_before_commit_undoes_everything():
+    hunt, cog = _hunt("tabs"), _cog()
+    hunt.solved_sheet_id = "ARCH"
+    cog.rename_file = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as gdb:
+        pdb.get_all_from_hunt.return_value = []
+        gdb.get_all.return_value = []
+        with pytest.raises(RuntimeError, match="boom"):
+            await _svc(cog).set_sheet_mode(hunt, "files", guild_parent_id="PARENT")
+    hdb.commit.assert_not_called()
+    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_sheet_id) == ("tabs", "", "ARCH")
+    # moved back to its looked-up parent, and both created folders deleted
+    cog.move_file.assert_any_await("SS", "P1", "FOLDER")
+    deleted = [c.args[0] for c in cog.delete_file.await_args_list]
+    assert sorted(deleted) == ["FOLDER", "SOLVEDF"]
+    assert "ARCH" not in deleted
+
+
+@pytest.mark.asyncio
+async def test_tabs_to_files_commit_failure_renames_back():
+    hunt, cog = _hunt("tabs"), _cog()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as gdb:
+        pdb.get_all_from_hunt.return_value = []
+        gdb.get_all.return_value = []
+        hdb.commit.side_effect = RuntimeError("db")
+        with pytest.raises(RuntimeError, match="db"):
+            await _svc(cog).set_sheet_mode(hunt, "files", guild_parent_id=None)
+    cog.rename_file.assert_any_await("SS", "H")
+    assert hunt.sheet_mode == "tabs" and hunt.drive_folder_id == ""
+
+
+@pytest.mark.asyncio
+async def test_tabs_to_files_solved_delete_failure_after_commit_keeps_files():
+    hunt, cog = _hunt("tabs"), _cog()
+    hunt.solved_sheet_id = "ARCH"
+    cog.delete_file = AsyncMock(side_effect=RuntimeError("drive"))
+    hdb = await _switch(hunt, "files", cog)
+    hdb.commit.assert_called_once_with(hunt)
+    assert hunt.sheet_mode == "files" and hunt.solved_sheet_id == ""
+
+
+@pytest.mark.asyncio
+async def test_files_to_tabs_failure_before_commit_moves_back():
+    hunt, cog = _hunt("files"), _cog()
+    cog.rename_file = AsyncMock(side_effect=[RuntimeError("boom"), None])
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as gdb:
+        pdb.get_all_from_hunt.return_value = []
+        gdb.get_all.return_value = []
+        with pytest.raises(RuntimeError, match="boom"):
+            await _svc(cog).set_sheet_mode(hunt, "tabs", guild_parent_id="PARENT")
+    hdb.commit.assert_not_called()
+    assert (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id) \
+        == ("files", "FOLDER", "SOLVEDF")
+    cog.move_file.assert_any_await("SS", "FOLDER", "PARENT")
+    cog.delete_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_files_to_tabs_folder_delete_failure_still_committed_as_tabs():
+    hunt, cog = _hunt("files"), _cog()
+    cog.delete_file = AsyncMock(side_effect=RuntimeError("drive"))
+    hdb = await _switch(hunt, "tabs", cog)
+    hdb.commit.assert_called_once_with(hunt)
+    assert hunt.sheet_mode == "tabs" and hunt.drive_folder_id == ""
+    assert cog.delete_file.await_count == 2   # both attempted despite the first failing

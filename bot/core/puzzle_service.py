@@ -3933,27 +3933,62 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             raise RuntimeError("gsheet_unavailable")
-        if mode == "files":
-            folder = await gsheet_cog.create_folder(hunt.name, guild_parent_id or None)
-            solved_folder = await gsheet_cog.create_folder("Solved", folder)
-            await gsheet_cog.move_file(hunt.google_sheet_id, folder, "root")
-            await gsheet_cog.rename_file(hunt.google_sheet_id, f"{hunt.name} Reference")
-            if hunt.solved_sheet_id:
-                await gsheet_cog.delete_file(hunt.solved_sheet_id)
+        sid = hunt.google_sheet_id
+        undo: list = []   # async callables, run in reverse if a step before the commit fails
+        old_solved = ""
+        snapshot = (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id,
+                    hunt.solved_sheet_id)
+        old_folder = hunt.drive_folder_id
+        old_name = hunt.name if mode == "files" else f"{hunt.name} Reference"
+        try:
+            if mode == "files":
+                folder = await gsheet_cog.create_folder(hunt.name, guild_parent_id or None)
+                undo.append(lambda: gsheet_cog.delete_file(folder))
+                solved_folder = await gsheet_cog.create_folder("Solved", folder)
+                undo.append(lambda: gsheet_cog.delete_file(solved_folder))
+                prev = await gsheet_cog.move_file(sid, folder)
+                undo.append(lambda: gsheet_cog.move_file(sid, ",".join(prev), folder))
+                await gsheet_cog.rename_file(sid, f"{hunt.name} Reference")
+                undo.append(lambda: gsheet_cog.rename_file(sid, old_name))
+                old_solved = hunt.solved_sheet_id
                 hunt.solved_sheet_id = ""
-            hunt.drive_folder_id = folder
-            hunt.solved_folder_id = solved_folder
-        else:
-            await gsheet_cog.move_file(
-                hunt.google_sheet_id, guild_parent_id or "root", hunt.drive_folder_id)
-            await gsheet_cog.rename_file(hunt.google_sheet_id, hunt.name)
-            for folder_id in (hunt.solved_folder_id, hunt.drive_folder_id):
-                if folder_id:
-                    await gsheet_cog.delete_file(folder_id)
-            hunt.drive_folder_id = ""
-            hunt.solved_folder_id = ""
-        hunt.sheet_mode = mode
-        HuntJsonDb.commit(hunt)
+                hunt.drive_folder_id = folder
+                hunt.solved_folder_id = solved_folder
+            else:
+                old_folders = [hunt.solved_folder_id, hunt.drive_folder_id]
+                target = guild_parent_id or "root"
+                await gsheet_cog.move_file(sid, target, hunt.drive_folder_id)
+                back_from = target
+                undo.append(lambda: gsheet_cog.move_file(sid, old_folder, back_from))
+                await gsheet_cog.rename_file(sid, hunt.name)
+                undo.append(lambda: gsheet_cog.rename_file(sid, old_name))
+                hunt.drive_folder_id = ""
+                hunt.solved_folder_id = ""
+            hunt.sheet_mode = mode
+            HuntJsonDb.commit(hunt)
+        except BaseException:
+            (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id,
+             hunt.solved_sheet_id) = snapshot
+            await self._run_undo(undo)
+            raise
+        # Committed: what remains is best-effort cleanup, logged, never raised.
+        leftovers = [old_solved] if mode == "files" else old_folders
+        for file_id in leftovers:
+            if file_id:
+                try:
+                    await gsheet_cog.delete_file(file_id)
+                except Exception:
+                    logger.exception("set_sheet_mode: could not delete %s", file_id)
+
+    @staticmethod
+    async def _run_undo(undo) -> None:
+        """Best-effort compensation, newest step first; failures are logged and
+        never mask the exception being handled."""
+        for step in reversed(undo):
+            try:
+                await step()
+            except Exception:
+                logger.exception("set_sheet_mode/create_hunt: compensation step failed")
 
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
@@ -4032,10 +4067,17 @@ class PuzzleService:
         if gsheet_cog is not None and sheet_mode == "files":
             settings = GuildSettingsDb.get(guild.id)
             parent_id = (getattr(settings, "drive_parent_id", "") or None)
-            drive_folder_id = await gsheet_cog.create_folder(name, parent_id)
-            solved_folder_id = await gsheet_cog.create_folder("Solved", drive_folder_id)
-            google_sheet_id = await gsheet_cog.create_reference_spreadsheet(
-                name, drive_folder_id)
+            made: list = []   # folders this call created, deleted if a later step fails
+            try:
+                drive_folder_id = await gsheet_cog.create_folder(name, parent_id)
+                made.append(lambda f=drive_folder_id: gsheet_cog.delete_file(f))
+                solved_folder_id = await gsheet_cog.create_folder("Solved", drive_folder_id)
+                made.append(lambda f=solved_folder_id: gsheet_cog.delete_file(f))
+                google_sheet_id = await gsheet_cog.create_reference_spreadsheet(
+                    name, drive_folder_id)
+            except BaseException:
+                await self._run_undo(made)
+                raise
         elif gsheet_cog is not None:
             google_sheet_id = await gsheet_cog.create_hunt_spreadsheet(name)
             if create_solved_sheet:

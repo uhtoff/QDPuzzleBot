@@ -139,3 +139,18 @@ def test_template_tabs_reads_once_and_caches(monkeypatch):
         {"sheetId": 7, "title": "REFERENCE", "hidden": True},
         {"sheetId": 0, "title": "Overview", "hidden": False},
     ]
+
+
+def test_move_file_without_from_folder_looks_up_all_parents():
+    cog = _cog()
+    drive, _ = _run(cog.move_file("FILE", "TO"), responses=[{"parents": ["P1", "P2"]}, {}])
+    assert drive.files().get.call_args.kwargs == {"fileId": "FILE", "fields": "parents"}
+    kw = drive.files().update.call_args.kwargs
+    assert kw["addParents"] == "TO"
+    assert kw["removeParents"] == "P1,P2"
+
+
+def test_move_file_with_from_folder_makes_no_lookup():
+    cog = _cog()
+    drive, _ = _run(cog.move_file("FILE", "TO", "FROM"))
+    drive.files().get.assert_not_called()

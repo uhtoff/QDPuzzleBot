@@ -577,3 +577,21 @@ async def test_create_hunt_rejects_bad_sheet_mode():
             await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
                                   sheet_mode="bogus")
     hdb.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_files_mode_failure_deletes_created_folders():
+    svc, guild = _create_service(), _create_guild()
+    gsheet = _file_cog()
+    gsheet.create_reference_spreadsheet = AsyncMock(side_effect=RuntimeError("copy failed"))
+    gsheet.delete_file = AsyncMock()
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.GuildSettingsDb") as gdb, \
+         patch.object(svc, "_gsheet_cog", return_value=gsheet):
+        hdb.check_duplicates.return_value = False
+        gdb.get.return_value = None
+        with pytest.raises(RuntimeError, match="copy failed"):
+            await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                                  sheet_mode="files")
+    hdb.commit.assert_not_called()
+    assert sorted(c.args[0] for c in gsheet.delete_file.await_args_list) == ["FOLDER", "SOLVEDF"]

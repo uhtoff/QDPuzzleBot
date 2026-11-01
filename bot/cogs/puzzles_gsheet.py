@@ -752,13 +752,27 @@ class GoogleSheets(commands.Cog):
         await self._share_anyone_writer(new_id)
         return new_id
 
-    async def move_file(self, file_id: str, to_folder: str, from_folder: str) -> None:
+    async def move_file(self, file_id: str, to_folder: str,
+                        from_folder: str | None = None) -> list[str]:
+        """Move a file to `to_folder` (a comma-joined list is allowed). With no
+        `from_folder` its actual current parents are looked up and all removed --
+        Drive's "root" alias is unreliable for a file made by files().copy.
+        Returns the parents removed, so a caller can move the file back."""
+        if from_folder is None:
+            meta = await execute_with_retry(
+                get_drive().files().get(fileId=file_id, fields="parents"),
+                on_retry=self._notify_retry,
+            )
+            removed = list(meta.get("parents", []))
+        else:
+            removed = [from_folder]
         await execute_with_retry(
             get_drive().files().update(
-                fileId=file_id, addParents=to_folder, removeParents=from_folder,
+                fileId=file_id, addParents=to_folder, removeParents=",".join(removed),
                 fields="id"),
             on_retry=self._notify_retry,
         )
+        return removed
 
     async def rename_file(self, file_id: str, name: str) -> None:
         await execute_with_retry(
