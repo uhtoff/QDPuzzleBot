@@ -31,7 +31,8 @@ from bot.core import hub_channel, role_gate, template_link
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
-from bot.core.sheet_location import additional_sheet_location, hunt_sheet_location, puzzle_location
+from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
+                                      puzzle_location, spreadsheet_link)
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -953,6 +954,12 @@ class Puzzles(commands.Cog):
                 )
             except RuntimeError:
                 return await ctx.send(":x: Failed to create puzzle (server full?).")
+            except HttpError:
+                # The sheet is made before the channel, so nothing was created.
+                logger.exception("!puzzle: sheet creation failed for %s", puzzle_name)
+                return await ctx.send(
+                    ":x: Couldn't create the puzzle's Google sheet, so the puzzle was "
+                    "not created. Please try again shortly.")
         asyncio.create_task(self.service.refresh_unassigned_safe(hunt))
 
     # --- legacy create twins removed (Phase 5 strangle) ---
@@ -1662,7 +1669,16 @@ class Puzzles(commands.Cog):
                 ctx.guild, self.get_hunt(ctx), puzzle, name
             )
         except RuntimeError as exc:
+            if str(exc) == "parent_sheet_missing":
+                return await ctx.send(
+                    ":x: This minimeta has no spreadsheet of its own, so a mini's tab has "
+                    "nowhere to go. Run `!reconcile apply` to recreate it, then try again.")
             return await ctx.send(f":x: Could not create mini-puzzle: {exc}")
+        except HttpError:
+            logger.exception("!add_mini: sheet creation failed for %s", name)
+            return await ctx.send(
+                ":x: Couldn't create the mini-puzzle's Google sheet tab, so the mini was "
+                "not created. Please try again shortly.")
         await self.info(ctx, update=True)  # refresh the minimeta's pinned mini list
         await ctx.send(f":white_check_mark: Created mini-puzzle **{mini.name}**. Thread: <#{mini.channel_id}>")
 
@@ -3087,12 +3103,14 @@ class Puzzles(commands.Cog):
             " has info about the hunt itself and it is where you will create new round channels",
             inline=False,
         )
+        files_mode = hunt.sheet_mode == "files"
+        sheet_label = "Reference sheet" if files_mode else "Google Sheet"
         puzzle_links = (f"""The following are some useful links and information:
                         • [Hunt Website]({urls.normalize_external_url(hunt.url)})
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
-                        • [Google Sheet](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
+                        • [{sheet_label}](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
-        if hunt.solved_sheet_id:
+        if hunt.solved_sheet_id and not files_mode:
             puzzle_links += f"""• [Solved Puzzles Sheet](https://docs.google.com/spreadsheets/d/{hunt.solved_sheet_id})
             """
         if hunt.username:
@@ -3130,6 +3148,10 @@ class Puzzles(commands.Cog):
         puzzle_links = (f"""    • [Puzzle link]({puzzle_url})
                                 • [Google Sheet]({spreadsheet_url})
                                 """)
+        if hunt.sheet_mode == "files":
+            # The puzzle's link above is its own file; the hunt-wide one is here.
+            puzzle_links += f"""• [Reference sheet]({spreadsheet_link(hunt.google_sheet_id)})
+                                """
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""
         embed.add_field(
             name="Puzzle Links",

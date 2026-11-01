@@ -90,6 +90,10 @@ function friendlyError(d: { error?: string; retry_after?: number; detail?: strin
       return "You don't have permission for that.";
     case "hunt_archived":
       return "This hunt is archived (read-only).";
+    case "sheet_create_failed":
+      return "Couldn't create the Google sheet, so nothing was created — try again shortly.";
+    case "parent_sheet_missing":
+      return "This minimeta has no spreadsheet of its own — run Reconcile (apply) to recreate it, then try again.";
     case "solved_no_sheets":
       return "You can't add sheets to a solved puzzle.";
     case "sheet_not_found":

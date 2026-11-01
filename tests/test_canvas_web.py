@@ -618,6 +618,19 @@ class TestCreatePuzzleFromRegion:
         assert resp.status_code == 400
         create.upd.assert_not_called()
 
+    async def test_a_sheet_failure_is_a_clean_error_and_does_not_link(self, web, create):
+        """A files hunt copies the puzzle's file inline; a Google failure there
+        creates nothing, so the route reports it rather than 500ing."""
+        from googleapiclient.errors import HttpError
+        web.cog.service.create_puzzle = AsyncMock(
+            side_effect=HttpError(MagicMock(status=500), b"copy failed"))
+        resp = await web.client.post(
+            "/api/canvases/3/regions/5/create-puzzle",
+            json={"name": "Hex maze", "round_id": 2, "role": "locates"})
+        assert resp.status_code == 502
+        assert (await resp.get_json())["error"] == "sheet_create_failed"
+        create.upd.assert_not_called()
+
     async def test_rejects_a_round_from_another_hunt(self, web, create):
         create.gdb.get_by_attr.return_value = SimpleNamespace(id=2, hunt_id=99)
         resp = await web.client.post(

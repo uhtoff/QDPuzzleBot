@@ -137,3 +137,39 @@ async def test_web_create_tag_group_cleans_up_meta_puzzle_on_late_failure():
 # the cog-level create_puzzle / create_puzzle_channel / _create_puzzle_with_cleanup twins),
 # so the orphan-cleanup-on-channel-failure contract now lives at the service and is covered
 # by tests/test_create_service.py::test_create_puzzle_orphan_cleanup_on_channel_failure.
+
+
+@pytest.mark.asyncio
+async def test_files_mode_channel_failure_deletes_the_puzzles_file():
+    """Files mode: the orphan cleanup goes through the real
+    delete_puzzle_spreadsheet, which deletes the puzzle's own FILE (not a tab)."""
+    from bot.cogs.puzzles_gsheet import GoogleSheets
+    gsheet = GoogleSheets.__new__(GoogleSheets)
+    gsheet.delete_file = AsyncMock()
+    gsheet.delete_sheet = AsyncMock()
+
+    async def fake_create(puzzle, **kwargs):
+        puzzle.google_sheet_id = "PFILE"
+        puzzle.google_page_id = 5
+    gsheet.create_puzzle_spreadsheet = fake_create
+    bot = MagicMock()
+    bot.get_cog.return_value = gsheet
+    cog = Puzzles(bot)
+    hunt = _hunt()
+    hunt.sheet_mode = "files"
+    hunt.drive_folder_id = "FOLDER"
+    guild = MagicMock()
+    guild.channels = []
+    guild.categories = [MagicMock(id=999)]
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(side_effect=discord.HTTPException(MagicMock(), "boom"))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        with pytest.raises(discord.HTTPException):
+            await cog.service.create_puzzle(guild, hunt, make_round(id=5, category_id=999),
+                                            "Newpuz")
+
+    gsheet.delete_file.assert_awaited_once_with("PFILE")
+    gsheet.delete_sheet.assert_not_awaited()
+    pdb.delete.assert_called_once_with(1)

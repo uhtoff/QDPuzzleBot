@@ -375,3 +375,77 @@ async def test_delete_puzzle_triggers_consolidation():
          patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)):
         await svc.delete_puzzle(guild, _svc_hunt(), puzzle)
     trigger.assert_called_once_with(guild, source_cat)
+
+
+# --- files mode (Task 7): the hunt reaches the cog's dispatch point ---------
+
+def _files_hunt():
+    h = _svc_hunt()
+    h.google_sheet_id = "REF"
+    h.solved_sheet_id = ""
+    h.sheet_mode = "files"
+    h.drive_folder_id = "FOLDER"
+    return h
+
+
+async def _create(svc, hunt, goc=None):
+    guild = MagicMock()
+    guild.channels = []
+    guild.categories = [MagicMock(id=999)]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    goc = goc or AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="np"), True))
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
+         patch("bot.core.puzzle_service.get_or_create_channel", goc):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(guild, hunt, None, "Newpuz", notifier=notifier)
+    return pdb, goc
+
+
+@pytest.mark.asyncio
+async def test_files_create_passes_the_hunt_and_reads_no_tab_index():
+    """A puzzle file has no tab order to fit into, so the live-spreadsheet
+    index read is skipped; the hunt goes to the dispatch point."""
+    svc, gsheet = _service_with_sheets()
+    hunt = _files_hunt()
+    await _create(svc, hunt)
+    gsheet.compute_insert_index.assert_not_awaited()
+    kwargs = gsheet.create_puzzle_spreadsheet.await_args.kwargs
+    assert kwargs["hunt"] is hunt
+    assert kwargs["index"] is None
+
+
+@pytest.mark.asyncio
+async def test_tabs_create_still_computes_the_index_and_passes_the_hunt():
+    svc, gsheet = _service_with_sheets()
+    gsheet.compute_insert_index = AsyncMock(return_value=11)
+    hunt = _svc_hunt()
+    await _create(svc, hunt)
+    gsheet.compute_insert_index.assert_awaited_once()
+    assert gsheet.compute_insert_index.await_args.kwargs["spreadsheet_id"] \
+        is gsheet.spreadsheet_of.return_value
+    kwargs = gsheet.create_puzzle_spreadsheet.await_args.kwargs
+    assert kwargs["index"] == 11
+    assert kwargs["hunt"] is hunt
+
+
+@pytest.mark.asyncio
+async def test_files_create_failed_copy_leaves_no_row_and_no_channel():
+    from googleapiclient.errors import HttpError
+    svc, gsheet = _service_with_sheets()
+    gsheet.create_puzzle_spreadsheet = AsyncMock(
+        side_effect=HttpError(MagicMock(status=500), b"copy failed"))
+    svc._maybe_relieve_overflow = AsyncMock()
+    guild = MagicMock()
+    guild.channels = []
+    goc = AsyncMock()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
+         patch("bot.core.puzzle_service.get_or_create_channel", goc):
+        with pytest.raises(HttpError):
+            await svc.create_puzzle(guild, _files_hunt(), None, "Newpuz")
+    pdb.commit.assert_not_called()
+    goc.assert_not_awaited()

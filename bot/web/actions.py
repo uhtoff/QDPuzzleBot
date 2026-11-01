@@ -2353,6 +2353,10 @@ async def create_puzzle(uid):
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except HttpError:
+        # The sheet is made before the channel: a failure creates nothing.
+        logger.exception("create_puzzle: sheet creation failed in hunt %s", uid)
+        return jsonify({"error": "sheet_create_failed"}), 502
     await _audit("create_puzzle", puzzle_id=puzzle.id, hunt_uid=uid, detail=name)
     # Best-effort: keep the Unassigned Puzzles tab in sync (a no-meta create adds one).
     asyncio.create_task(cog.service.refresh_unassigned_safe(hunt_obj))
@@ -2441,6 +2445,9 @@ async def create_mini(puzzle_id):
             return jsonify({"error": _error_slug(exc)}), 400
         except (discord.RateLimited, discord.HTTPException) as exc:
             return _discord_error_response(exc)
+        except HttpError:
+            logger.exception("create_mini: sheet creation failed under puzzle %s", puzzle_id)
+            return jsonify({"error": "sheet_create_failed"}), 502
         await _audit("create_mini", puzzle_id=puzzle_id, hunt_uid=ctx["hunt"]["uid"], detail=name)
         # The new mini shows in the PARENT minimeta's pinned mini-list; refresh that
         # pin from the web edge too (the bang !add_mini path calls info(update=True)).
@@ -3308,6 +3315,11 @@ async def create_puzzle_from_region(canvas_id, region_id):
         return jsonify({"error": _error_slug(exc)}), 400
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
+    except HttpError:
+        # The sheet is made before the channel: a failure creates nothing.
+        logger.exception("create_puzzle_from_region: sheet creation failed in hunt %s",
+                         hunt_obj.id)
+        return jsonify({"error": "sheet_create_failed"}), 502
 
     # Link only after the puzzle really exists: a failed create must leave the
     # region exactly as it was, not pointing at a puzzle that was never made.

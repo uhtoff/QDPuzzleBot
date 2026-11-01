@@ -95,9 +95,13 @@ def test_update_puzzle_info_writes_and_reads_names_on_the_puzzles_own_spreadshee
 
 
 def test_delete_puzzle_spreadsheet_deletes_from_the_puzzles_own_spreadsheet():
+    # A mini carries its minimeta's file id: its TAB is deleted, routed to
+    # that file. (A puzzle with its own file and no parent loses the whole
+    # file instead -- tests/test_files_mode_create.py, ruling R1.)
     cog = _cog()
     sent = _record_batches(cog)
-    asyncio.run(cog.delete_puzzle_spreadsheet(_puzzle(google_sheet_id="F")))
+    asyncio.run(cog.delete_puzzle_spreadsheet(
+        _puzzle(google_sheet_id="F", parent_puzzle_id=3)))
     assert sent == ["F"]
 
 

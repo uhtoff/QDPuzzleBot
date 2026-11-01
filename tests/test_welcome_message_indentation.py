@@ -138,3 +138,68 @@ def test_inline_field_values_with_indented_bullets_are_flush_left_wrapped():
         "inline field values with indented bullets not wrapped in flush_left, "
         f"at lines: {offenders}"
     )
+
+
+# ------------------------------------------- sheet mode wording (Task 7)
+
+
+def _hunt_welcome_info(hunt):
+    import asyncio
+    from bot.cogs.puzzles import Puzzles
+
+    cog = object.__new__(Puzzles)
+    cog._overview_url = MagicMock(return_value="https://example.com/overview")
+    channel = MagicMock()
+    sent = {}
+
+    async def send(embed=None, **kw):
+        sent["embed"] = embed
+    channel.send = send
+    asyncio.run(cog.send_initial_hunt_channel_messages(None, channel, hunt=hunt))
+    field = next(f for f in sent["embed"].fields if f.name == "Hunt Information")
+    return field.value or ""
+
+
+def _welcome_hunt(**kw):
+    from tests.conftest import make_hunt
+    h = make_hunt(google_sheet_id="REF", **kw)
+    h.name = "H"
+    h.url = "https://hunt.example"
+    h.start_timestamp = 0
+    return h
+
+
+def test_files_hunt_welcome_links_the_reference_sheet_and_no_solved_sheet():
+    value = _hunt_welcome_info(_welcome_hunt(solved_sheet_id="", sheet_mode="files"))
+    assert "• [Reference sheet](https://docs.google.com/spreadsheets/d/REF)" in value
+    assert "Google Sheet" not in value
+    assert "Solved Puzzles Sheet" not in value
+
+
+def test_tabs_hunt_welcome_is_unchanged():
+    value = _hunt_welcome_info(_welcome_hunt(solved_sheet_id="ARCH"))
+    assert "• [Google Sheet](https://docs.google.com/spreadsheets/d/REF)" in value
+    assert "• [Solved Puzzles Sheet](https://docs.google.com/spreadsheets/d/ARCH)" in value
+    assert "Reference sheet" not in value
+
+
+def test_files_puzzle_links_keep_the_puzzles_file_and_add_the_reference_sheet():
+    from bot.cogs.puzzles import Puzzles
+    from tests.conftest import make_hunt, make_puzzle
+
+    cog = object.__new__(Puzzles)
+    cog._overview_url = MagicMock(return_value="https://example.com/overview")
+    hunt = make_hunt(google_sheet_id="REF", solved_sheet_id="", sheet_mode="files")
+    puzzle = make_puzzle(name="P")
+    puzzle.url = "https://example.com/p"
+    puzzle.google_sheet_id = "PFILE"
+    puzzle.google_page_id = 5
+    embed = discord.Embed()
+    cog._add_puzzle_links_field(None, embed, puzzle, hunt, None)
+
+    value = embed.fields[0].value or ""
+    assert "• [Google Sheet](https://docs.google.com/spreadsheets/d/PFILE/edit#gid=5)" in value
+    assert "• [Reference sheet](https://docs.google.com/spreadsheets/d/REF)" in value
+    assert value.count("•") == 4
+    for ln in (ln for ln in value.splitlines() if ln):
+        assert ln == ln.lstrip()

@@ -187,6 +187,39 @@ class TestAddHuntSheet:
         sdb.commit.assert_called_once()
 
 
+class TestAddPuzzleExtraLocation:
+    """An extra lives where its puzzle's tab lives: in a files puzzle that is
+    the puzzle's own file, so the row records that file id (Task 7)."""
+
+    def _svc(self, gsheet):
+        from bot.core.puzzle_service import PuzzleService
+        svc = PuzzleService.__new__(PuzzleService)
+        svc.notifier = MagicMock(board_changed=AsyncMock())
+        svc._gsheet_cog = MagicMock(return_value=gsheet)
+        return svc
+
+    async def test_extra_in_a_files_puzzle_records_the_puzzles_file(self):
+        from tests.conftest import make_hunt, make_puzzle
+        gsheet = MagicMock()
+        gsheet.create_additional_spreadsheet = AsyncMock(return_value=777)
+        puzzle = make_puzzle(id=4)
+        puzzle.google_sheet_id = "PFILE"
+        with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
+            sheet = await self._svc(gsheet).add_sheet(
+                make_hunt(sheet_mode="files"), puzzle, "Grid")
+        assert sheet.google_sheet_id == "PFILE"
+        assert sheet.google_page_id == 777
+        sdb.commit.assert_called_once_with(sheet)
+
+    async def test_extra_in_a_tab_puzzle_records_no_file(self):
+        from tests.conftest import make_hunt, make_puzzle
+        gsheet = MagicMock()
+        gsheet.create_additional_spreadsheet = AsyncMock(return_value=777)
+        with patch("bot.core.puzzle_service.SheetsJsonDb"):
+            sheet = await self._svc(gsheet).add_sheet(make_hunt(), make_puzzle(id=4), "Grid")
+        assert sheet.google_sheet_id == ""
+
+
 class TestRemoveHuntSheet:
     def _svc(self, gsheet):
         from bot.core.puzzle_service import PuzzleService

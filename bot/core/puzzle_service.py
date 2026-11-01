@@ -644,8 +644,19 @@ class PuzzleService:
             actions.append(ReconcileAction("tab_create", puzzle.name, "main tab missing"))
             if apply:
                 existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-                insert_idx = await gsheet_cog.compute_insert_index(
-                    getattr(puzzle, 'is_target', False), existing, spreadsheet_id=spreadsheet)
+                minimeta = next((p for p in existing if puzzle.parent_puzzle_id
+                                 and p.id == puzzle.parent_puzzle_id), None)
+                if hunt.sheet_mode == "files" and minimeta is not None:
+                    # A mini's tab in its minimeta's file: the creation rule.
+                    insert_idx = await gsheet_cog.mini_insert_index(
+                        minimeta, [p for p in existing if p.id != puzzle.id
+                                   and p.parent_puzzle_id == minimeta.id])
+                elif hunt.sheet_mode == "files" and puzzle.google_sheet_id:
+                    insert_idx = 0   # its own file: the puzzle's tab comes first
+                else:
+                    insert_idx = await gsheet_cog.compute_insert_index(
+                        getattr(puzzle, 'is_target', False), existing,
+                        spreadsheet_id=spreadsheet)
                 await gsheet_cog.add_new_puzzle_sheet(puzzle, insert_idx)
                 await gsheet_cog.update_puzzle_info(puzzle)
                 PuzzleJsonDb.commit(puzzle)
@@ -2804,7 +2815,14 @@ class PuzzleService:
         it is deliberately left untagged: it rolls up onto the minimeta's own sheet via
         the puzzle-keyed refresh_minimeta path (solve/unsolve/create), never onto the
         minimeta's round meta. Auto-sets puzzle_type='Minimeta' on the parent.
+
+        Files hunt: the mini's tab goes in the minimeta's file (the mini carries
+        that file id). A minimeta with no file (its copy failed) is refused with
+        RuntimeError("parent_sheet_missing") before anything changes.
         """
+        files_mode = hunt.sheet_mode == "files"
+        if files_mode and not minimeta.google_sheet_id:
+            raise RuntimeError("parent_sheet_missing")
         await self.make_minimeta(minimeta)
 
         mini = PuzzleData(
@@ -2817,13 +2835,20 @@ class PuzzleService:
             parent_puzzle_id=minimeta.id,
         )
 
+        if files_mode:
+            mini.google_sheet_id = minimeta.google_sheet_id
+
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = await gsheet_cog.compute_insert_index(  # minis are regular
-                False, existing, spreadsheet_id=gsheet_cog.spreadsheet_of(mini))
+            if files_mode:
+                insert_idx = await gsheet_cog.mini_insert_index(
+                    minimeta, self.get_minis(minimeta.id))
+            else:
+                existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+                insert_idx = await gsheet_cog.compute_insert_index(  # minis are regular
+                    False, existing, spreadsheet_id=gsheet_cog.spreadsheet_of(mini))
             await gsheet_cog.create_puzzle_spreadsheet(
-                mini, index=insert_idx,
+                mini, index=insert_idx, hunt=hunt,
                 **self._header_links_kw(self._links_to_safe(hunt, [minimeta])))
 
         PuzzleJsonDb.commit(mini)
@@ -2873,6 +2898,9 @@ class PuzzleService:
         sheet = AdditionalSheetData(
             puzzle_id=puzzle.id,
             puzzle_name=name or f"Extra sheet for {puzzle.name}",
+            # Beside its puzzle's tab: in a files hunt that is the puzzle's own
+            # file (or a mini's minimeta file); "" for a tab puzzle.
+            google_sheet_id=puzzle.google_sheet_id or "",
         )
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -3078,10 +3106,14 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
-            existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = await gsheet_cog.compute_insert_index(
-                new_puzzle.is_target, existing,
-                spreadsheet_id=gsheet_cog.spreadsheet_of(new_puzzle))
+            # A files hunt's puzzle gets its own file (created inline, before the
+            # channel, so a failure fails the create): no tab order to fit into.
+            insert_idx = None
+            if hunt.sheet_mode != "files":
+                existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
+                insert_idx = await gsheet_cog.compute_insert_index(
+                    new_puzzle.is_target, existing,
+                    spreadsheet_id=gsheet_cog.spreadsheet_of(new_puzzle))
             # The membership edge is written after the tab (below), but it is
             # already decided, so the Feeds line rides in tab generation.
             header_links = []
@@ -3090,7 +3122,8 @@ class PuzzleService:
                 header_links = self._links_to_safe(
                     hunt, None, fed_group_ids=[round_data.id])
             await gsheet_cog.create_puzzle_spreadsheet(
-                new_puzzle, index=insert_idx, **self._header_links_kw(header_links))
+                new_puzzle, index=insert_idx, hunt=hunt,
+                **self._header_links_kw(header_links))
 
         PuzzleJsonDb.commit(new_puzzle)
 

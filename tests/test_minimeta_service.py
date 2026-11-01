@@ -772,3 +772,79 @@ class TestDeleteMiniByNumber:
             await svc.delete_mini_by_number(None, make_hunt(), 3, 5)
 
         svc.delete_mini.assert_not_awaited()
+
+
+# --- files mode (Task 7): a mini is a tab in its minimeta's file -------------
+
+def _files_mini_setup(minimeta_file="MMFILE"):
+    import discord
+    from bot.core.puzzle_service import PuzzleService
+    minimeta = make_puzzle(id=3, hunt_id=10, channel_id=555, puzzle_type="Minimeta")
+    minimeta.google_sheet_id = minimeta_file
+    minimeta.google_page_id = 300
+    hunt = make_hunt(id=10, google_sheet_id="REF", solved_sheet_id="",
+                     sheet_mode="files", drive_folder_id="FOLDER")
+    guild = MagicMock()
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 9001
+    thread.name = "mini"
+    channel = MagicMock()
+    channel.create_thread = AsyncMock(return_value=thread)
+    guild.get_channel.return_value = channel
+    gsheet = MagicMock()
+    gsheet.create_puzzle_spreadsheet = AsyncMock()
+    gsheet.compute_insert_index = AsyncMock(return_value=0)
+    gsheet.mini_insert_index = AsyncMock(return_value=4)
+    bot = MagicMock()
+    bot.get_cog.return_value = gsheet
+    svc = PuzzleService(bot)
+    svc.refresh_minimeta = AsyncMock()
+    svc.refresh_header_links = AsyncMock()
+    return svc, gsheet, guild, hunt, minimeta
+
+
+@pytest.mark.asyncio
+async def test_files_mini_goes_into_the_minimetas_file_at_the_mini_index():
+    svc, gsheet, guild, hunt, minimeta = _files_mini_setup()
+    siblings = [make_puzzle(id=7, parent_puzzle_id=3)]
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"):
+        pdb.get_children.return_value = siblings
+        mini = await svc.create_mini(guild, hunt, minimeta, "Tiny")
+
+    assert mini.google_sheet_id == "MMFILE"
+    gsheet.compute_insert_index.assert_not_awaited()
+    gsheet.mini_insert_index.assert_awaited_once_with(minimeta, siblings)
+    args, kwargs = gsheet.create_puzzle_spreadsheet.await_args
+    assert args[0] is mini
+    assert kwargs["index"] == 4
+    assert kwargs["hunt"] is hunt
+
+
+@pytest.mark.asyncio
+async def test_files_mini_with_no_minimeta_file_is_refused_before_any_side_effect():
+    svc, gsheet, guild, hunt, minimeta = _files_mini_setup(minimeta_file="")
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"):
+        with pytest.raises(RuntimeError, match="parent_sheet_missing"):
+            await svc.create_mini(guild, hunt, minimeta, "Tiny")
+    pdb.commit.assert_not_called()           # not even make_minimeta's commit
+    gsheet.create_puzzle_spreadsheet.assert_not_awaited()
+    gsheet.mini_insert_index.assert_not_awaited()
+    guild.get_channel.assert_not_called()
+    assert minimeta.puzzle_type == "Minimeta"
+
+
+@pytest.mark.asyncio
+async def test_tabs_mini_keeps_todays_index_and_no_file_id():
+    svc, gsheet, guild, _hunt, minimeta = _files_mini_setup()
+    hunt = make_hunt(id=10)
+    minimeta.google_sheet_id = ""
+    gsheet.compute_insert_index = AsyncMock(return_value=8)
+    with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"):
+        mini = await svc.create_mini(guild, hunt, minimeta, "Tiny")
+    assert mini.google_sheet_id == ""
+    gsheet.compute_insert_index.assert_awaited_once()
+    gsheet.mini_insert_index.assert_not_awaited()
+    assert gsheet.create_puzzle_spreadsheet.await_args.kwargs["index"] == 8

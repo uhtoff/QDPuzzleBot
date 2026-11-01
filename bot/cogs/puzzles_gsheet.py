@@ -142,11 +142,16 @@ class GoogleSheets(commands.Cog):
         # One read path for every spreadsheet (None -> live): the same single
         # Sheets get as before, now with sheet_list's fields mask (M21) on the
         # explicit-id path too -- callers read only the titles.
-        existing = {
-            s["properties"]["title"].casefold()
+        return self._unique_name(desired_name, [
+            s["properties"]["title"]
             for s in (await self.sheet_list(spreadsheet_id))["sheets"]
-        }
+        ])
 
+    @staticmethod
+    def _unique_name(desired_name: str, titles) -> str:
+        """`desired_name`, or the first free "<name> (n)", against `titles`
+        (casefolded)."""
+        existing = {t.casefold() for t in titles}
         if desired_name.casefold() not in existing:
             return desired_name
 
@@ -533,6 +538,14 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data, update_name)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
+        """Delete a puzzle's sheet. A puzzle with its own file (files mode: a
+        file id and no parent) loses the whole file; anything else -- a tab
+        puzzle, or a mini, whose file id is its minimeta's -- loses only its
+        tab, in the spreadsheet the location rule names. Decided from the row,
+        so a mini can never take its minimeta's file with it."""
+        if puzzle_data.google_sheet_id and not puzzle_data.parent_puzzle_id:
+            await self.delete_file(puzzle_data.google_sheet_id)
+            return
         await self.delete_sheet(puzzle_data.google_page_id, self.spreadsheet_of(puzzle_data))
 
     async def move_puzzle_sheet(self, to_solved, page, tab_name):
@@ -749,7 +762,15 @@ class GoogleSheets(commands.Cog):
             on_retry=self._notify_retry,
         )
         new_id = new_file["id"]
-        await self._share_anyone_writer(new_id)
+        try:
+            await self._share_anyone_writer(new_id)
+        except Exception:
+            # The caller never learns the id, so nobody else could clean it up.
+            try:
+                await self.delete_file(new_id)
+            except Exception:
+                logger.exception("copy_template: could not delete unshared copy %s", new_id)
+            raise
         return new_id
 
     async def move_file(self, file_id: str, to_folder: str,
@@ -841,13 +862,88 @@ class GoogleSheets(commands.Cog):
         return new_id
 
     async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None,
-                                        header_links=None):
-        """Creates new puzzle spreadsheet and adds puzzle data to the overview spreadsheet."""
+                                        header_links=None, *, hunt=None):
+        """Create a new puzzle's sheet: the dispatch point for sheet mode.
+
+        Tabs (no hunt, or sheet_mode "tabs"): a tab in the spreadsheet the
+        location rule names, exactly as always. Files: a puzzle gets its own
+        file (create_puzzle_file); a mini (parent_puzzle_id) gets a tab in its
+        minimeta's file, which the caller has set as its google_sheet_id --
+        without one it is refused before any call (parent_sheet_missing)."""
+        if hunt is not None and getattr(hunt, "sheet_mode", "tabs") == "files":
+            if not puzzle_data.parent_puzzle_id:
+                await self.create_puzzle_file(puzzle_data, hunt.drive_folder_id,
+                                              header_links=header_links)
+                return
+            if not puzzle_data.google_sheet_id:
+                raise RuntimeError("parent_sheet_missing")
         puzzle_index = index if index is not None else self.INITIAL_OFFSET
         # Forwarded only when given, so the no-links call keeps its old shape.
         extra = {"header_links": header_links} if header_links else {}
         await self.add_new_puzzle_sheet(puzzle_data, puzzle_index, **extra)
         await self.update_puzzle_info(puzzle_data)
+
+    async def create_puzzle_file(self, puzzle, folder_id: str, header_links=None) -> None:
+        """Files mode: the puzzle's own spreadsheet, a template copy named after
+        the puzzle in `folder_id`. Sets puzzle.google_sheet_id and
+        google_page_id.
+
+        Budget: 1 Drive copy + 1 permission (copy_template) and 2 Sheets
+        batchUpdates -- the tab's addSheet, then ONE header batch that also
+        deletes every template tab but the hidden "Tab template" (extras
+        duplicate it) and allows IMAGE()/IMPORT* external URL access. No read of
+        the new file: a copy keeps the template's sheet ids, which
+        template_tabs() supplies (a target's contribution Table is one more
+        best-effort batch, as in a tab hunt). Any failure after the copy
+        deletes the copy and clears the ids before re-raising, so a failed
+        create leaves no stray file."""
+        tabs = await self.template_tabs()
+        new_id = await self.copy_template(puzzle.name, folder_id)
+        puzzle.google_sheet_id = new_id
+        try:
+            trim = [{"deleteSheet": {"sheetId": t["sheetId"]}}
+                    for t in tabs if t["title"] != self.PUZZLE_SHEET]
+            trim.append({"updateSpreadsheetProperties": {
+                "properties": {"importFunctionsExternalUrlAccessAllowed": True},
+                "fields": "importFunctionsExternalUrlAccessAllowed"}})
+            await self.generate_puzzle_tab(
+                puzzle, is_target=puzzle.is_target, index=0, header_links=header_links,
+                tab_name=self._unique_name(puzzle.name, [t["title"] for t in tabs]),
+                extra_requests=trim)
+        except Exception:
+            try:
+                await self.delete_file(new_id)
+            except Exception:
+                logger.exception("create_puzzle_file: could not delete %s after a "
+                                 "failed create", new_id)
+            puzzle.google_sheet_id = ""
+            puzzle.google_page_id = ""
+            raise
+
+    async def mini_insert_index(self, minimeta, minis) -> int:
+        """Where a new mini's tab goes in its minimeta's file (files mode):
+        after the minimeta's main tab and the unsolved minis, before the first
+        solved mini -- e.g. main, m1, m2, solved m3 -> 3. Solved is the DB flag,
+        not the tab colour. One read of the minimeta's file."""
+        solved = {str(m.google_page_id) for m in minis if m.solved and m.google_page_id}
+        open_ = {str(m.google_page_id) for m in minis
+                 if not m.solved and m.google_page_id}
+        if minimeta.google_page_id:
+            open_.add(str(minimeta.google_page_id))
+        sheets = (await self.sheet_list(self.spreadsheet_of(minimeta)))["sheets"]
+        first_solved = last_open = None
+        for sheet in sheets:
+            props = sheet["properties"]
+            sid, idx = str(props["sheetId"]), props["index"]
+            if sid in solved and (first_solved is None or idx < first_solved):
+                first_solved = idx
+            elif sid in open_ and (last_open is None or idx > last_open):
+                last_open = idx
+        if first_solved is not None:
+            return first_solved
+        if last_open is not None:
+            return last_open + 1
+        return len(sheets)
 
     async def create_additional_spreadsheet(self, puzzle_data: PuzzleData, name = None, puzzle = False):
         # The extra is made beside its puzzle's tab, in the puzzle's spreadsheet.
@@ -1728,19 +1824,23 @@ class GoogleSheets(commands.Cog):
                     failed.append(page_id)
         return failed
 
-    async def generate_puzzle_tab(self, puzzle, is_target, index=None, header_links=None):
+    async def generate_puzzle_tab(self, puzzle, is_target, index=None, header_links=None,
+                                  *, tab_name=None, extra_requests=None):
         """Create a puzzle tab entirely in code (no template duplicateSheet).
 
         Adds a blank tab, writes the captured header layout + the dynamic
         name/url hyperlink, and (when is_target) the contribution Table.
         Sets puzzle.google_page_id. Returns the new page id. `header_links`
-        (list[Link]) fills the Feeds line in the same batch."""
+        (list[Link]) fills the Feeds line in the same batch.
+
+        create_puzzle_file passes `tab_name` (already unique, so no read) and
+        `extra_requests` (its template trim), appended to the header batch."""
         from bot.cogs import sheet_layout
         import inspect as insp
 
         spreadsheet_id = self.spreadsheet_of(puzzle)
         assert spreadsheet_id  # sheet ops run with a hunt spreadsheet in context
-        name = await self.get_unique_tab_name(puzzle.name, spreadsheet_id)
+        name = tab_name or await self.get_unique_tab_name(puzzle.name, spreadsheet_id)
         _result = self.create_blank_tab(spreadsheet_id, name, index)
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
@@ -1755,6 +1855,7 @@ class GoogleSheets(commands.Cog):
         requests = self._puzzle_tab_header_requests(
             puzzle, page_id, offset, is_target,
             header_links=header_links or None)
+        requests += extra_requests or []
         if requests:
             await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
