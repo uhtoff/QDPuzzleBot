@@ -3940,15 +3940,36 @@ class PuzzleService:
                     hunt.solved_sheet_id)
         old_folder = hunt.drive_folder_id
         old_folders = [hunt.solved_folder_id, hunt.drive_folder_id]
+        # True from the moment the spreadsheet may sit in a folder this call made
+        # until a move-back succeeds. Deleting a Drive folder deletes its contents,
+        # so created folders are only deleted while this is False.
+        in_created = {"v": False}
+
+        async def delete_created(file_id):
+            if in_created["v"]:
+                logger.error("set_sheet_mode: not deleting folder %s -- the "
+                             "spreadsheet may still be inside it", file_id)
+                return
+            await gsheet_cog.delete_file(file_id)
+
+        async def move_back(prev, folder):
+            if not prev:
+                logger.error("set_sheet_mode: spreadsheet had no original parent; "
+                             "cannot move it back out of %s", folder)
+                return
+            await gsheet_cog.move_file(sid, ",".join(prev), folder)
+            in_created["v"] = False
+
         old_name = hunt.name if mode == "files" else f"{hunt.name} Reference"
         try:
             if mode == "files":
                 folder = await gsheet_cog.create_folder(hunt.name, guild_parent_id or None)
-                undo.append(lambda: gsheet_cog.delete_file(folder))
+                undo.append(lambda: delete_created(folder))
                 solved_folder = await gsheet_cog.create_folder("Solved", folder)
-                undo.append(lambda: gsheet_cog.delete_file(solved_folder))
+                undo.append(lambda: delete_created(solved_folder))
+                in_created["v"] = True   # set before the call: a failed move is ambiguous
                 prev = await gsheet_cog.move_file(sid, folder)
-                undo.append(lambda: gsheet_cog.move_file(sid, ",".join(prev), folder))
+                undo.append(lambda: move_back(prev, folder))
                 await gsheet_cog.rename_file(sid, f"{hunt.name} Reference")
                 undo.append(lambda: gsheet_cog.rename_file(sid, old_name))
                 old_solved = hunt.solved_sheet_id

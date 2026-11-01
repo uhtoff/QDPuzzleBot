@@ -221,3 +221,25 @@ async def test_files_to_tabs_folder_delete_failure_still_committed_as_tabs():
     hdb.commit.assert_called_once_with(hunt)
     assert hunt.sheet_mode == "tabs" and hunt.drive_folder_id == ""
     assert cog.delete_file.await_count == 2   # both attempted despite the first failing
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prev", [["P1"], []])
+async def test_tabs_to_files_never_deletes_folder_when_move_back_fails(prev):
+    hunt, cog = _hunt("tabs"), _cog()
+    cog.rename_file = AsyncMock(side_effect=RuntimeError("boom"))
+    if prev:
+        cog.move_file = AsyncMock(side_effect=[prev, RuntimeError("move back failed")])
+    else:
+        cog.move_file = AsyncMock(return_value=[])
+    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
+         patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as gdb:
+        pdb.get_all_from_hunt.return_value = []
+        gdb.get_all.return_value = []
+        with pytest.raises(RuntimeError, match="boom"):
+            await _svc(cog).set_sheet_mode(hunt, "files", guild_parent_id="PARENT")
+    hdb.commit.assert_not_called()
+    cog.delete_file.assert_not_awaited()   # the spreadsheet may still be in FOLDER
+    if not prev:
+        assert cog.move_file.await_count == 1   # no addParents="" move-back
