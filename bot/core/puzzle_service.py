@@ -3939,6 +3939,7 @@ class PuzzleService:
         snapshot = (hunt.sheet_mode, hunt.drive_folder_id, hunt.solved_folder_id,
                     hunt.solved_sheet_id)
         old_folder = hunt.drive_folder_id
+        old_folders = [hunt.solved_folder_id, hunt.drive_folder_id]
         old_name = hunt.name if mode == "files" else f"{hunt.name} Reference"
         try:
             if mode == "files":
@@ -3955,7 +3956,6 @@ class PuzzleService:
                 hunt.drive_folder_id = folder
                 hunt.solved_folder_id = solved_folder
             else:
-                old_folders = [hunt.solved_folder_id, hunt.drive_folder_id]
                 target = guild_parent_id or "root"
                 await gsheet_cog.move_file(sid, target, hunt.drive_folder_id)
                 back_from = target
