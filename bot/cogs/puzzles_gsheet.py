@@ -868,6 +868,20 @@ class GoogleSheets(commands.Cog):
         )
         return removed
 
+    async def get_file(self, file_id: str) -> dict | None:
+        """One Drive file's {id, name, parents, trashed}, or None when it is gone
+        (404). Any other error raises: a caller must not read an outage as
+        "the file does not exist"."""
+        try:
+            return await execute_with_retry(
+                get_drive().files().get(fileId=file_id, fields="id,name,parents,trashed"),
+                on_retry=self._notify_retry,
+            )
+        except HttpError as e:
+            if getattr(e.resp, "status", None) == 404:
+                return None
+            raise
+
     async def rename_file(self, file_id: str, name: str) -> None:
         await execute_with_retry(
             get_drive().files().update(fileId=file_id, body={"name": name}, fields="id"),

@@ -879,6 +879,7 @@ def _files_gcog(folders, tabs):
     g.list_folder = AsyncMock(side_effect=_list_folder)
     g.sheet_list = AsyncMock(side_effect=_sheet_list)
     g.get_page_name_by_id = AsyncMock(side_effect=AssertionError("per-tab lookup"))
+    g.get_file = AsyncMock(return_value=None)   # default: the file is gone (404)
     g.move_file = AsyncMock()
     g.rename_file = AsyncMock()
     g.delete_file = AsyncMock()
@@ -1014,6 +1015,89 @@ def test_apply_creates_a_missing_file_in_the_folder_for_its_solved_state():
     committed = [c.args[0] for c in commit.call_args_list]
     assert open_ in committed and done in committed
     assert report.counts() == {"file_create": 2}
+
+
+def _http_error(status):
+    from googleapiclient.errors import HttpError
+    resp = MagicMock()
+    resp.status = status
+    resp.reason = "x"
+    return HttpError(resp, b"{}")
+
+
+def _live_elsewhere(name="Elsewhere", parents=("SUB",), trashed=False):
+    return {"id": "x", "name": name, "parents": list(parents), "trashed": trashed}
+
+
+def test_a_live_file_outside_both_folders_is_moved_not_recreated():
+    """F1: in neither listing is not gone. Report and apply: move home with
+    from_folder=None (all actual parents removed), no copy, id unchanged."""
+    a = _own("A", 1, "FA")
+    done = _own("Done", 2, "FD", solved=True)
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+    gcog.get_file = AsyncMock(side_effect=lambda fid: _live_elsewhere(
+        name="A" if fid == "FA" else "Done"))
+    gcog.create_puzzle_file = AsyncMock()
+    report, _ = _run_files(gcog, [a, done], apply=False)
+    assert [(x.kind, x.target) for x in report.actions] == [
+        ("file_move", "A"), ("file_move", "Done")]
+    gcog.move_file.assert_not_awaited()
+    gcog.create_puzzle_file.assert_not_awaited()
+    report, commit = _run_files(gcog, [a, done], apply=True)
+    assert [(c.args, c.kwargs) for c in gcog.move_file.await_args_list] == [
+        (("FA", "FOLDER", None), {}), (("FD", "SOLVED", None), {})]
+    gcog.create_puzzle_file.assert_not_awaited()
+    assert (a.google_sheet_id, done.google_sheet_id) == ("FA", "FD")
+    commit.assert_not_called()
+
+
+def test_a_live_file_elsewhere_with_a_wrong_name_is_also_renamed():
+    a = _own("A", 1, "FA")
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+    gcog.get_file = AsyncMock(return_value=_live_elsewhere(name="Old name"))
+    report, _ = _run_files(gcog, [a], apply=True)
+    assert [x.kind for x in report.actions] == ["file_move", "file_rename"]
+    gcog.rename_file.assert_awaited_once_with("FA", "A")
+
+
+def test_a_trashed_file_is_recreated():
+    a = _own("A", 1, "FA")
+    gcog = _files_gcog({"FOLDER": [], "SOLVED": []}, {"REF": []})
+    gcog.get_file = AsyncMock(return_value=_live_elsewhere(trashed=True))
+    report, _ = _run_files(gcog, [a], apply=False)
+    assert [(x.kind, x.target) for x in report.actions] == [("file_create", "A")]
+
+
+def test_a_failed_file_lookup_is_a_failure_with_no_create_and_no_move():
+    """Never create (or move) on uncertainty; the other puzzle is unaffected."""
+    a = _own("A", 1, "FA")
+    b = _own("B", 2, "FB")
+    gcog = _files_gcog({"FOLDER": [("FB", "B")], "SOLVED": []}, {"REF": []})
+    gcog.get_file = AsyncMock(side_effect=_http_error(500))
+    gcog.create_puzzle_file = AsyncMock()
+    report, _ = _run_files(gcog, [a, b], apply=True)
+    assert report.counts() == {}
+    assert len(report.failures) == 1 and "A" in report.failures[0][0]
+    gcog.create_puzzle_file.assert_not_awaited()
+    gcog.move_file.assert_not_awaited()
+    gcog.get_file.assert_awaited_once_with("FA")
+
+
+def test_each_puzzle_gets_its_own_file_decision():
+    """One live-elsewhere, one 404 (and a healthy one that is never looked up)."""
+    live = _own("Live", 1, "FL")
+    gone = _own("Gone", 2, "FG")
+    ok = _own("Ok", 3, "FO")
+    gcog = _files_gcog({"FOLDER": [("FO", "Ok")], "SOLVED": []}, {"REF": []})
+
+    async def _get(fid):
+        return _live_elsewhere(name="Live") if fid == "FL" else None
+    gcog.get_file = AsyncMock(side_effect=_get)
+    gcog.create_puzzle_file = AsyncMock()
+    report, _ = _run_files(gcog, [live, gone, ok], apply=False)
+    assert [(x.kind, x.target) for x in report.actions] == [
+        ("file_move", "Live"), ("file_create", "Gone")]
+    assert sorted(c.args[0] for c in gcog.get_file.await_args_list) == ["FG", "FL"]
 
 
 def test_a_file_in_the_wrong_folder_is_moved_both_ways():

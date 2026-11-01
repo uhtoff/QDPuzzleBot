@@ -99,6 +99,22 @@ def test_delete_file_raises_other_errors():
         _run(cog.delete_file("FILE"), raises=_http_error(403))
 
 
+def test_get_file_requests_state_fields_and_returns_the_metadata():
+    cog = _cog()
+    meta = {"id": "F", "name": "n", "parents": ["P"], "trashed": False}
+    drive, got = _run(cog.get_file("F"), [meta])
+    assert got == meta
+    drive.files().get.assert_called_once_with(fileId="F", fields="id,name,parents,trashed")
+
+
+def test_get_file_404_is_none_and_other_errors_raise():
+    cog = _cog()
+    _, got = _run(cog.get_file("F"), raises=_http_error(404))
+    assert got is None
+    with pytest.raises(HttpError):
+        _run(cog.get_file("F"), raises=_http_error(500))
+
+
 def test_list_folder_follows_pages_and_excludes_trashed():
     cog = _cog()
     a = {"id": "1", "name": "a", "mimeType": "m"}

@@ -720,12 +720,35 @@ class PuzzleService:
             if file_id not in known:
                 report.add_stray_file(file_id, name)
 
-        missing = {p.id for p in puzzles if not p.parent_puzzle_id
-                   and p.google_sheet_id not in found}
+        missing = set()
+        elsewhere = {}   # {puzzle id: Drive metadata} -- alive, in neither folder
+        unknown = set()  # lookup failed: no action on these, never a create
+        for p in puzzles:
+            if p.parent_puzzle_id or p.google_sheet_id in found:
+                continue
+            if not p.google_sheet_id:
+                missing.add(p.id)
+                continue
+            # In neither listing is not the same as gone: it may sit in a hand-made
+            # subfolder, or have moved between the two listings (reconcile takes no
+            # lock). Only a 404 or a trashed file is gone; a blank copy of a live
+            # file would orphan its content.
+            try:
+                meta = await gsheet_cog.get_file(p.google_sheet_id)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("reconcile: could not look up %s's file", p.name)
+                report.add_failure(f"file lookup ({p.name})", error)
+                unknown.add(p.id)
+                continue
+            if meta is None or meta.get("trashed"):
+                missing.add(p.id)
+            else:
+                elsewhere[p.id] = meta
         present = {}
         parents = {p.parent_puzzle_id for p in puzzles if p.parent_puzzle_id}
         for minimeta in puzzles:
-            if minimeta.id not in parents or minimeta.id in missing:
+            if minimeta.id not in parents or minimeta.id in missing \
+                    or minimeta.id in unknown:
                 continue
             try:
                 sheets = (await gsheet_cog.sheet_list(minimeta.google_sheet_id))["sheets"]
@@ -735,7 +758,8 @@ class PuzzleService:
                 continue
             present[minimeta.google_sheet_id] = frozenset(
                 str(s["properties"]["sheetId"]) for s in sheets)
-        return {"found": found, "present": present, "missing": missing}
+        return {"found": found, "present": present, "missing": missing,
+                "elsewhere": elsewhere, "unknown": unknown}
 
     async def _reconcile_puzzle_file(self, hunt, puzzle, puzzles, check, *, apply):
         """Files mode, one puzzle (the dispatch point for reconcile's file
@@ -754,6 +778,7 @@ class PuzzleService:
         if puzzle.parent_puzzle_id:
             minimeta = next((p for p in puzzles if p.id == puzzle.parent_puzzle_id), None)
             if minimeta is None or minimeta.id in check["missing"] \
+                    or minimeta.id in check["unknown"] \
                     or minimeta.google_sheet_id not in present:
                 return actions
             if puzzle.google_sheet_id != minimeta.google_sheet_id:
@@ -767,10 +792,22 @@ class PuzzleService:
                                               present_ids=present)
 
         minis = [p for p in puzzles if p.parent_puzzle_id == puzzle.id]
+        if puzzle.id in check["unknown"]:
+            return actions   # lookup failed and was recorded; never act on uncertainty
         want = self._expected_folder(hunt, puzzle)
-        entry = check["found"].get(puzzle.google_sheet_id) if puzzle.google_sheet_id else None
+        away = check["elsewhere"].get(puzzle.id)
+        if away is not None:
+            # Alive but outside both folders: move it home (all its actual parents
+            # are removed), keep its id and content.
+            actions.append(ReconcileAction("file_move", puzzle.name,
+                                           "file is outside the hunt's folders"))
+            if apply:
+                await gsheet_cog.move_file(puzzle.google_sheet_id, want, None)
+            entry = (away.get("name", ""), want)
+        else:
+            entry = check["found"].get(puzzle.google_sheet_id) if puzzle.google_sheet_id else None
         if entry is None:
-            detail = "no file" if not puzzle.google_sheet_id else "file not in the hunt's folders"
+            detail = "no file" if not puzzle.google_sheet_id else "file is gone from Drive"
             if minis:
                 detail += f"; its {len(minis)} mini tab(s) are recreated with it"
             actions.append(ReconcileAction("file_create", puzzle.name, detail))
