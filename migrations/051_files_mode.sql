@@ -14,12 +14,13 @@
 -- no code reads them before this migration (the dataclasses gain them in the
 -- same commit). Safe to apply before the code ships.
 --
--- Re-runnable: ADD COLUMN IF NOT EXISTS (MariaDB), so a second apply is a no-op.
+-- Plain ADD COLUMN (not MariaDB's IF NOT EXISTS, which CI's MySQL 8 rejects):
+-- migrate.py records each migration in schema_migrations and applies it once.
 ALTER TABLE `hunts`
-  ADD COLUMN IF NOT EXISTS `sheet_mode` VARCHAR(10) NOT NULL DEFAULT 'tabs',
-  ADD COLUMN IF NOT EXISTS `drive_folder_id` VARCHAR(100) NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS `solved_folder_id` VARCHAR(100) NOT NULL DEFAULT '';
+  ADD COLUMN `sheet_mode` VARCHAR(10) NOT NULL DEFAULT 'tabs',
+  ADD COLUMN `drive_folder_id` VARCHAR(100) NOT NULL DEFAULT '',
+  ADD COLUMN `solved_folder_id` VARCHAR(100) NOT NULL DEFAULT '';
 ALTER TABLE `puzzles`
-  ADD COLUMN IF NOT EXISTS `google_sheet_id` VARCHAR(100) NOT NULL DEFAULT '';
+  ADD COLUMN `google_sheet_id` VARCHAR(100) NOT NULL DEFAULT '';
 ALTER TABLE `additional_sheets`
-  ADD COLUMN IF NOT EXISTS `google_sheet_id` VARCHAR(100) NOT NULL DEFAULT '';
+  ADD COLUMN `google_sheet_id` VARCHAR(100) NOT NULL DEFAULT '';
