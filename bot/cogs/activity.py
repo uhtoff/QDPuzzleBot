@@ -5,19 +5,22 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot.store import ChannelActivityDb
+from bot.store import ChannelActivityDb, PuzzleActivityDb
 from bot.web import events
 
 logger = logging.getLogger(__name__)
 
 # Cap the backlog so a wedged/slow DB can't grow the queue without bound. At ~one
 # row per human message this is generous; if we ever hit it we drop the oldest
-# pending writes (the table only stores the *latest* message per channel anyway).
+# pending writes. channel_activity only keeps the *latest* message per channel, so
+# that loses nothing there; the activity slots lose one chat count per dropped
+# record, which is acceptable at this cap.
 _QUEUE_MAXSIZE = 10000
 
 
 class ChannelActivity(commands.Cog):
-    """Records the most recent non-bot message per channel for the dashboard.
+    """Records the most recent non-bot message per channel for the dashboard, and
+    counts each one into its puzzle's 5-minute activity slot (the sparkline).
 
     The dashboard's "recent activity" view reads the channel_activity table so it
     never has to fetch channel history (slow + rate-limited) at request time.
@@ -75,8 +78,7 @@ class ChannelActivity(commands.Cog):
         try:
             self._queue.put_nowait(record)
         except asyncio.QueueFull:
-            # Make room by discarding the oldest pending write; we only ever keep
-            # the latest message per channel, so a dropped intermediate is fine.
+            # Make room by discarding the oldest pending write (see _QUEUE_MAXSIZE).
             try:
                 self._queue.get_nowait()
                 self._queue.task_done()
@@ -92,10 +94,17 @@ class ChannelActivity(commands.Cog):
         while True:
             record = await self._queue.get()
             try:
-                await asyncio.to_thread(ChannelActivityDb.record, **record)
-            except Exception:
+                # Two independent writes: one failing must not lose the other.
                 # Activity tracking must never break the bot.
-                logger.exception("Failed to record channel activity")
+                try:
+                    await asyncio.to_thread(ChannelActivityDb.record, **record)
+                except Exception:
+                    logger.exception("Failed to record channel activity")
+                try:
+                    await asyncio.to_thread(
+                        PuzzleActivityDb.add_chat, record["channel_id"], record["at"])
+                except Exception:
+                    logger.exception("Failed to count chat into the activity slot")
             finally:
                 self._queue.task_done()
 
