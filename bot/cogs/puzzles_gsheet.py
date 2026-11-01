@@ -8,6 +8,7 @@ import logging
 from typing import Any, List, Optional
 
 import discord
+from googleapiclient.errors import HttpError
 from discord.ext import commands
 
 from bot.utils import config
@@ -17,6 +18,9 @@ from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
 )
 from bot.utils.gsheets import get_sheet, get_drive, execute_with_retry, _is_retryable
+
+FOLDER_MIME = "application/vnd.google-apps.folder"
+_TEMPLATE_TABS: list[dict] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -714,6 +718,99 @@ class GoogleSheets(commands.Cog):
             )
         except Exception:
             logger.exception("delete_hunt_spreadsheet: could not delete file %s (may already be gone)", file_id)
+
+    # --- Drive primitives for files-mode hunts (one spreadsheet per puzzle) ---
+
+    async def create_folder(self, name: str, parent_id: str | None = None) -> str:
+        """Create a Drive folder under `parent_id` (else the service account's root)."""
+        body: dict[str, Any] = {"name": name, "mimeType": FOLDER_MIME}
+        if parent_id:
+            body["parents"] = [parent_id]
+        folder = await execute_with_retry(
+            get_drive().files().create(body=body, fields="id"),
+            on_retry=self._notify_retry,
+        )
+        return folder["id"]
+
+    async def _share_anyone_writer(self, file_id: str) -> None:
+        await execute_with_retry(
+            get_drive().permissions().create(
+                fileId=file_id, body={"type": "anyone", "role": "writer"}),
+            on_retry=self._notify_retry,
+        )
+
+    async def copy_template(self, name: str, folder_id: str) -> str:
+        """Copy the master spreadsheet into `folder_id`, shared anyone-with-link writer."""
+        new_file = await execute_with_retry(
+            get_drive().files().copy(
+                fileId=config.master_spreadsheet,
+                body={"name": name, "parents": [folder_id]},
+                fields="id"),
+            on_retry=self._notify_retry,
+        )
+        new_id = new_file["id"]
+        await self._share_anyone_writer(new_id)
+        return new_id
+
+    async def move_file(self, file_id: str, to_folder: str, from_folder: str) -> None:
+        await execute_with_retry(
+            get_drive().files().update(
+                fileId=file_id, addParents=to_folder, removeParents=from_folder,
+                fields="id"),
+            on_retry=self._notify_retry,
+        )
+
+    async def rename_file(self, file_id: str, name: str) -> None:
+        await execute_with_retry(
+            get_drive().files().update(fileId=file_id, body={"name": name}, fields="id"),
+            on_retry=self._notify_retry,
+        )
+
+    async def delete_file(self, file_id: str) -> None:
+        """Delete a Drive file; an already-gone file (404) is fine, anything else raises."""
+        try:
+            await execute_with_retry(
+                get_drive().files().delete(fileId=file_id),
+                on_retry=self._notify_retry,
+            )
+        except HttpError as e:
+            if getattr(e.resp, "status", None) == 404:
+                logger.info("delete_file: %s already gone", file_id)
+                return
+            raise
+
+    async def list_folder(self, folder_id: str) -> list[dict]:
+        """Non-trashed children of a folder as [{id, name, mimeType}], all pages."""
+        items: list[dict] = []
+        page_token = None
+        while True:
+            kwargs: dict[str, Any] = {
+                "q": f"'{folder_id}' in parents and trashed=false",
+                "fields": "nextPageToken, files(id, name, mimeType)",
+                "pageSize": 1000,
+            }
+            if page_token:
+                kwargs["pageToken"] = page_token
+            resp = await execute_with_retry(
+                get_drive().files().list(**kwargs), on_retry=self._notify_retry)
+            items.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                return items
+
+    async def template_tabs(self) -> list[dict]:
+        """The master spreadsheet's tabs as [{sheetId, title, hidden}], read once per
+        process (a Drive copy keeps sheet ids, so they identify tabs in a fresh copy)."""
+        global _TEMPLATE_TABS
+        if _TEMPLATE_TABS is None:
+            sheets = (await self.sheet_list(config.master_spreadsheet))["sheets"]
+            _TEMPLATE_TABS = [
+                {"sheetId": s["properties"]["sheetId"],
+                 "title": s["properties"]["title"],
+                 "hidden": bool(s["properties"].get("hidden", False))}
+                for s in sheets
+            ]
+        return [dict(t) for t in _TEMPLATE_TABS]
 
     async def create_puzzle_spreadsheet(self, puzzle_data: PuzzleData, index=None,
                                         header_links=None):
