@@ -10,6 +10,7 @@ import bot.core.puzzle_service as ps
 from bot.core.puzzle_service import PuzzleService
 from bot.core.reconcile import ReconcileReport
 from bot.cogs.puzzles import Puzzles
+from bot.core.sheet_location import spreadsheet_for
 from bot.store.puzzle_data import PuzzleData
 from tests.conftest import make_hunt
 
@@ -62,6 +63,10 @@ def _gcog(page_name=None):
     g.set_solved_sheet_id = MagicMock()
     g.get_spreadsheet_id.return_value = "SS"
     g.get_solved_sheet_id.return_value = "ARC"
+    # The real location rule over the stubbed hunt ids (a MagicMock's own
+    # spreadsheet_of would answer a Mock, which names no spreadsheet).
+    g.spreadsheet_of = lambda obj: spreadsheet_for(
+        obj, g.get_spreadsheet_id(), g.get_solved_sheet_id())
     g.INITIAL_OFFSET = 999
     g.get_page_name_by_id = AsyncMock(return_value=page_name)
     g.add_new_puzzle_sheet = AsyncMock()

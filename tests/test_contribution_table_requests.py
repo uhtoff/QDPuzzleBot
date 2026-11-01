@@ -26,7 +26,7 @@ def _cog():
 def _capture_batch(cog):
     calls = []
 
-    async def fake(body, archive=False):
+    async def fake(body, spreadsheet_id=None):
         calls.append(body)
         return {"replies": [{"addTable": {"table": {"tableId": "TID"}}}]}
 
@@ -48,7 +48,7 @@ def _capture_lowlevel(cog, current_col_a):
 
     sent = []
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         sent.append(body)
 
     cog._values_get = fake_values_get
@@ -194,7 +194,7 @@ def test_reconcile_table_numeric_length_and_resizes_table():
 
     sent = []
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         sent.append(body)
 
     cog._values_get = fake_values_get
@@ -222,7 +222,7 @@ def test_generate_puzzle_tab_writes_header_and_no_table_for_feeder():
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 901
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
 
@@ -244,7 +244,7 @@ def test_generate_puzzle_tab_adds_contribution_table_for_target():
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 902
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
 
@@ -282,7 +282,7 @@ def test_generate_puzzle_tab_formats_tab():
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 903
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
 
@@ -613,7 +613,7 @@ def test_render_contribution_builds_rows_and_reconciles():
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
                              numeric_cols=(), grey_below=False, table_name=None,
-                             sheet_snapshot=None):
+                             sheet_snapshot=None, spreadsheet_id=None):
         captured["page_id"] = page_id
         captured["rows"] = desired_rows
         captured["cols"] = data_col_count
@@ -621,7 +621,7 @@ def test_render_contribution_builds_rows_and_reconciles():
 
     cog.reconcile_table = fake_reconcile
 
-    async def fake_ensure(page_id):
+    async def fake_ensure(page_id, spreadsheet_id=None):
         return True
 
     cog._ensure_contribution_table = fake_ensure
@@ -654,12 +654,12 @@ def test_render_contribution_includes_self_feeding_target():
 
     async def fake_reconcile(page_id, desired_rows, data_col_count,
                              numeric_cols=(), grey_below=False, table_name=None,
-                             sheet_snapshot=None):
+                             sheet_snapshot=None, spreadsheet_id=None):
         captured["rows"] = desired_rows
 
     cog.reconcile_table = fake_reconcile
 
-    async def fake_ensure(page_id):
+    async def fake_ensure(page_id, spreadsheet_id=None):
         return True
 
     cog._ensure_contribution_table = fake_ensure
@@ -696,7 +696,7 @@ def _reconcile_with_table(grey_below):
     cog._values_get = fake_values_get
     sent = []
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         sent.append(body)
 
     cog.batch_update = fake_batch
@@ -793,7 +793,7 @@ def test_a_supplied_snapshot_is_used_instead_of_refetching():
         return {"values": [["key"]]}
     cog._values_get = fake_values_get
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         pass
     cog.batch_update = fake_batch
 
@@ -814,7 +814,7 @@ def test_no_snapshot_still_fetches():
         return {"values": [["key"]]}
     cog._values_get = fake_values_get
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         pass
     cog.batch_update = fake_batch
 
@@ -894,7 +894,7 @@ def test_generate_puzzle_tab_emits_bold_values_and_border():
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
 
@@ -963,7 +963,7 @@ def test_generate_puzzle_tab_passes_index_to_create_blank_tab():
     _capture_batch(cog)
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
     seen = {}
@@ -1115,11 +1115,11 @@ def test_generate_puzzle_tab_survives_contribution_table_failure():
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 904
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _fake_get_unique_tab_name(n):
+    async def _fake_get_unique_tab_name(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _fake_get_unique_tab_name
 
-    async def boom(page_id, header_row=0):
+    async def boom(page_id, header_row=0, spreadsheet_id=None):
         raise RuntimeError("Internal error encountered.")
 
     cog._add_contribution_table = boom
@@ -1150,13 +1150,13 @@ def test_render_contribution_creates_missing_table_then_reconciles():
 
     created = []
 
-    async def fake_add(page_id, header_row=0):
+    async def fake_add(page_id, header_row=0, spreadsheet_id=None):
         created.append((page_id, header_row))
 
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None, sheet_snapshot=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None, spreadsheet_id=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = fake_add
@@ -1194,13 +1194,13 @@ def test_render_contribution_promotes_never_promoted_legacy_tab():
     async def fake_promote(puzzle):
         promoted.append(puzzle.id)
 
-    def fail_direct_add(page_id, header_row=0):
+    def fail_direct_add(page_id, header_row=0, spreadsheet_id=None):
         raise AssertionError("must not addTable directly over a never-promoted tab")
 
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None, sheet_snapshot=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None, spreadsheet_id=None):
         reconciled.append(page_id)
 
     cog.promote_tab_to_target = fake_promote
@@ -1231,13 +1231,13 @@ def test_render_contribution_skips_write_when_table_uncreatable():
     cog.get_page_name_by_id = AsyncMock(return_value="Meta")
     cog._values_get = AsyncMock(return_value={"values": [[""]]})
 
-    async def boom(page_id, header_row=0):
+    async def boom(page_id, header_row=0, spreadsheet_id=None):
         raise RuntimeError("Internal error encountered.")
 
     reconciled = []
 
     async def fake_reconcile(page_id, desired_rows, data_col_count, numeric_cols=(),
-                             grey_below=False, table_name=None, sheet_snapshot=None):
+                             grey_below=False, table_name=None, sheet_snapshot=None, spreadsheet_id=None):
         reconciled.append(page_id)
 
     cog._add_contribution_table = boom
@@ -1550,7 +1550,7 @@ def _reconcile_over(tables, table_name):
     cog._values_get = fake_values_get
     sent = []
 
-    async def fake_batch(body, archive=False):
+    async def fake_batch(body, spreadsheet_id=None):
         sent.append(body)
 
     cog.batch_update = fake_batch
@@ -1669,7 +1669,7 @@ def _ensure_over(tables, a1_value="", page_id=900):
     cog._values_get = _fake_values_get
     added, promoted = [], []
 
-    async def _fake_add(pid, header_row=0):
+    async def _fake_add(pid, header_row=0, spreadsheet_id=None):
         added.append((pid, header_row))
 
     cog._add_contribution_table = _fake_add
@@ -1713,7 +1713,7 @@ def test_render_minimeta_contribution_rows_carry_links():
     async def fake_reconcile(**kw):
         captured["rows"] = kw["desired_rows"]
 
-    async def fake_ensure(minimeta):
+    async def fake_ensure(minimeta, spreadsheet_id=None):
         return True
 
     cog.reconcile_table = fake_reconcile
@@ -1738,7 +1738,7 @@ def test_render_contribution_forwards_link_for_to_contribution_rows():
     async def fake_reconcile(**kw):
         captured["rows"] = kw["desired_rows"]
 
-    async def fake_ensure(puzzle):
+    async def fake_ensure(puzzle, spreadsheet_id=None):
         return None
 
     def fake_rows(tag_group_id, members, evidence, link_for=None):

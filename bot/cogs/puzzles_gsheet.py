@@ -12,7 +12,7 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData, TagGroupJsonDb
-from bot.core.sheet_location import Link
+from bot.core.sheet_location import Link, spreadsheet_for
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
 )
@@ -71,6 +71,14 @@ class GoogleSheets(commands.Cog):
     def get_solved_sheet_id(self):
         return _current_solved_sheet_id.get()
 
+    def spreadsheet_of(self, obj) -> str:
+        """The spreadsheet a puzzle's or extra's tab lives in: the location rule
+        (sheet_location.spreadsheet_for) applied to the hunt ids in context.
+        Hunt-level tabs (Unassigned, Evidence, hunt sheets) do not come through
+        here -- they are on the hunt's live spreadsheet (spreadsheet_id=None)."""
+        return spreadsheet_for(obj, self.get_spreadsheet_id() or "",
+                               self.get_solved_sheet_id() or "")
+
     def set_notify_channel(self, channel):
         """Register the channel to warn if Sheets calls for this command stall."""
         _current_notify_channel.set(channel)
@@ -92,8 +100,10 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("Failed to send Sheets retry notice")
 
-    async def batch_update(self, body, archive = False):
-        spreadsheet_id = self.get_solved_sheet_id() if archive else self.get_spreadsheet_id()
+    async def batch_update(self, body, spreadsheet_id: str | None = None):
+        """One batchUpdate on `spreadsheet_id`; None (or "") means the hunt's
+        live spreadsheet."""
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
@@ -125,19 +135,13 @@ class GoogleSheets(commands.Cog):
         return response
 
     async def get_unique_tab_name(self, desired_name: str, spreadsheet_id = None) -> str:
-        if spreadsheet_id is None:
-            existing = {
-                s["properties"]["title"].casefold()
-                for s in (await self.sheet_list())["sheets"]
-            }
-        else:
-            meta = await execute_with_retry(
-                get_sheet().get(spreadsheetId=spreadsheet_id), on_retry=self._notify_retry
-            )
-            existing = {
-                s["properties"]["title"].casefold()
-                for s in meta["sheets"]
-            }
+        # One read path for every spreadsheet (None -> live): the same single
+        # Sheets get as before, now with sheet_list's fields mask (M21) on the
+        # explicit-id path too -- callers read only the titles.
+        existing = {
+            s["properties"]["title"].casefold()
+            for s in (await self.sheet_list(spreadsheet_id))["sheets"]
+        }
 
         if desired_name.casefold() not in existing:
             return desired_name
@@ -149,8 +153,8 @@ class GoogleSheets(commands.Cog):
                 return candidate
             i += 1
 
-    async def get_page_id_by_name(self, name):
-        for sheet in (await self.sheet_list())["sheets"]:
+    async def get_page_id_by_name(self, name, spreadsheet_id: str | None = None):
+        for sheet in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if (sheet['properties']['title']) == name:
                 return sheet['properties']['sheetId']
 
@@ -159,9 +163,9 @@ class GoogleSheets(commands.Cog):
             if (sheet['properties']['sheetId']) == int(id):
                 return sheet['properties']['title']
 
-    async def get_puzzle_sheet_index(self, puzzle:PuzzleData):
+    async def get_puzzle_sheet_index(self, puzzle:PuzzleData, spreadsheet_id: str | None = None):
         name = puzzle.name
-        for sheet in (await self.sheet_list())["sheets"]:
+        for sheet in (await self.sheet_list(spreadsheet_id))["sheets"]:
             if (sheet['properties']['title']) == name:
                 return sheet['properties']['index']
         return self.INITIAL_OFFSET
@@ -298,9 +302,14 @@ class GoogleSheets(commands.Cog):
             "cell": {"userEnteredFormat": {"backgroundColor": colour}},
             "fields": "userEnteredFormat.backgroundColor"}}
 
-    async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None):
-
+    async def update_puzzle_info(self, puzzle: PuzzleData, update_tab_name = False, name = None, page_id = None,
+                                 spreadsheet_id: str | None = None):
+        """Write the name hyperlink on the puzzle's main tab, or on `page_id`
+        (an extra tab, created by create_additional_spreadsheet, which passes
+        the spreadsheet it made the tab in). Otherwise the puzzle's own
+        spreadsheet by the location rule."""
         puzzle_name = name or puzzle.name
+        target_spreadsheet_id = spreadsheet_id or self.spreadsheet_of(puzzle)
 
         new_sheet_id = page_id or puzzle.google_page_id
         offset = self._header_shift(puzzle, new_sheet_id)
@@ -311,13 +320,12 @@ class GoogleSheets(commands.Cog):
                 self.get_column(config.puzzle_cell_name) + offset, self.FORMULA_INPUT, new_sheet_id),
         ]
         if update_tab_name:
-            target_spreadsheet_id = self.get_solved_sheet_id() if puzzle.on_solved_sheet else self.get_spreadsheet_id()
             unique_name = await self.get_unique_tab_name(puzzle_name, target_spreadsheet_id)
             requests.append(self.set_sheet_name(unique_name, puzzle.google_page_id))
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, puzzle.on_solved_sheet)
+        await self.batch_update(updates, spreadsheet_id=target_spreadsheet_id)
 
     def update_cell(self, value, start_row, start_column, type=STRING_INPUT, sheet_id=None):
         if sheet_id is None:
@@ -366,7 +374,8 @@ class GoogleSheets(commands.Cog):
     def move_sheet_to_start(self, sheet_id = None):
         return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
-    async def move_sheet_to_end(self, sheet_id = None, end_index = None):
+    async def move_sheet_to_end(self, sheet_id = None, end_index = None,
+                                spreadsheet_id: str | None = None):
         # The Sheets API evaluates updateSheetProperties index moves against
         # pre-move positions, so len(sheets) (not len(sheets) - 1) is the index
         # that lands the tab truly last.
@@ -377,11 +386,14 @@ class GoogleSheets(commands.Cog):
         # answer -- move_puzzle_to_solved_sheet paid for one per additional
         # sheet. Omit it and the count is fetched, as every other caller does.
         if end_index is None:
-            end_index = len((await self.sheet_list()).get('sheets', []))
+            end_index = len((await self.sheet_list(spreadsheet_id)).get('sheets', []))
         return self._sheet_props_request(sheet_id, 'index', end_index)
 
-    async def compute_insert_index(self, is_target: bool, puzzles) -> int:
-        """Return the correct tab insertion index for a new puzzle.
+    async def compute_insert_index(self, is_target: bool, puzzles,
+                                   spreadsheet_id: str | None = None) -> int:
+        """Return the correct tab insertion index for a new puzzle, among the
+        tabs of `spreadsheet_id` (None -> live: where a tab hunt's new puzzle
+        and unsolved puzzles are).
 
         Target puzzles land after the last unsolved-target tab.
         Regular puzzles land after the last unsolved-regular tab (or the last
@@ -398,7 +410,7 @@ class GoogleSheets(commands.Cog):
         }
         last_target_idx = None
         last_regular_idx = None
-        for sheet in (await self.sheet_list())["sheets"]:
+        for sheet in (await self.sheet_list(spreadsheet_id))["sheets"]:
             props = sheet["properties"]
             if props.get("hidden"):
                 continue
@@ -424,9 +436,10 @@ class GoogleSheets(commands.Cog):
     def change_tab_colour(self, colour, sheet_id):
         return self._sheet_props_request(sheet_id, 'tabColor', {colour: 1})
 
-    async def add_new_sheet(self, name, index=INITIAL_OFFSET, sheet_type=PUZZLE_SHEET):
-        sheet_id = await self.get_page_id_by_name(sheet_type)
-        name = await self.get_unique_tab_name(name)
+    async def add_new_sheet(self, name, index=INITIAL_OFFSET, sheet_type=PUZZLE_SHEET,
+                            spreadsheet_id: str | None = None):
+        sheet_id = await self.get_page_id_by_name(sheet_type, spreadsheet_id)
+        name = await self.get_unique_tab_name(name, spreadsheet_id)
         body = {
             'requests': [
                 {
@@ -459,7 +472,7 @@ class GoogleSheets(commands.Cog):
 
             ]
         }
-        new_sheet = await self.batch_update(body)
+        new_sheet = await self.batch_update(body, spreadsheet_id=spreadsheet_id)
         new_sheet_id = new_sheet['replies'][1]['duplicateSheet']['properties']['sheetId']
         return new_sheet_id
 
@@ -493,7 +506,7 @@ class GoogleSheets(commands.Cog):
         return self._sheet_props_request(sheet_id, 'title', name)
 
 
-    async def delete_sheet(self, page_id = None, archive = False):
+    async def delete_sheet(self, page_id = None, spreadsheet_id: str | None = None):
         body = {
             'requests': [
                 {
@@ -503,7 +516,7 @@ class GoogleSheets(commands.Cog):
                 }
             ]
         }
-        await self.batch_update(body, archive)
+        await self.batch_update(body, spreadsheet_id=spreadsheet_id)
 
     async def delete_sheet_tab(self, sheet_id, spreadsheet_id=None):
         """Delete a tab by sheetId via batchUpdate. Tolerates an already-gone tab."""
@@ -516,7 +529,7 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data, update_name)
 
     async def delete_puzzle_spreadsheet(self, puzzle_data: PuzzleData):
-        await self.delete_sheet(puzzle_data.google_page_id, puzzle_data.on_solved_sheet)
+        await self.delete_sheet(puzzle_data.google_page_id, self.spreadsheet_of(puzzle_data))
 
     async def move_puzzle_sheet(self, to_solved, page, tab_name):
         """Move a tab between the live and solved spreadsheets. Returns the new page id.
@@ -561,7 +574,7 @@ class GoogleSheets(commands.Cog):
             },
         )
         await execute_with_retry(bu_req, on_retry=self._notify_retry)
-        await self.delete_sheet(page, not to_solved)
+        await self.delete_sheet(page, spreadsheet_from)
         return new_sheet_id
 
     async def restore_puzzle_from_solved_sheet(self, puzzle_data: PuzzleData, archive_spreadsheet = None, restore_index=None):
@@ -601,7 +614,8 @@ class GoogleSheets(commands.Cog):
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates)
+        # Tabs mode: every tab above is back on the live spreadsheet now.
+        await self.batch_update(updates, spreadsheet_id=self.get_spreadsheet_id())
 
 
     async def update_solution(self, puzzle_data: PuzzleData):
@@ -612,15 +626,18 @@ class GoogleSheets(commands.Cog):
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates, puzzle_data.on_solved_sheet)
+        await self.batch_update(updates, spreadsheet_id=self.spreadsheet_of(puzzle_data))
 
     async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData):
+        # Tabs mode: an unsolved puzzle and its extras are on the live
+        # spreadsheet; the in-place solve batch runs there, then the tabs move.
+        live = self.get_spreadsheet_id()
         offset = self._header_shift(puzzle_data, puzzle_data.google_page_id)
         requests = []
         # One tab count for every move request in this batch (M21): they are all
         # assembled before the single batch_update below, so nothing moves in
         # between and each re-fetch returned the same number.
-        end_index = len((await self.sheet_list()).get('sheets', []))
+        end_index = len((await self.sheet_list(live)).get('sheets', []))
         main_move_req = await self.move_sheet_to_end(puzzle_data.google_page_id,
                                                      end_index=end_index)
         requests.extend([self.update_cell(puzzle_data.solution, self.get_row(config.puzzle_cell_solution), self.get_column(config.puzzle_cell_solution) + offset, self.STRING_INPUT, puzzle_data.google_page_id),
@@ -643,12 +660,12 @@ class GoogleSheets(commands.Cog):
         updates = {
             'requests': requests
         }
-        await self.batch_update(updates)
+        await self.batch_update(updates, spreadsheet_id=live)
         for sheet in puzzle_data.additional_sheets:
             # Guarded on a real page id, as the in-place loop above already is --
             # an extra with no tab cannot be copied anywhere (H3).
             if self.get_solved_sheet_id() and len(sheet.google_page_id) > 0:
-                current_name = await self.get_page_name_by_id(sheet.google_page_id)
+                current_name = await self.get_page_name_by_id(sheet.google_page_id, live)
                 sheet.google_page_id = await self.move_puzzle_sheet(True, sheet.google_page_id, current_name)
                 # Record it PER SHEET. A target's own tab stays live, so
                 # puzzle_data.on_solved_sheet cannot speak for its extras.
@@ -708,13 +725,16 @@ class GoogleSheets(commands.Cog):
         await self.update_puzzle_info(puzzle_data)
 
     async def create_additional_spreadsheet(self, puzzle_data: PuzzleData, name = None, puzzle = False):
-        index = await self.get_puzzle_sheet_index(puzzle_data)
+        # The extra is made beside its puzzle's tab, in the puzzle's spreadsheet.
+        spreadsheet_id = self.spreadsheet_of(puzzle_data)
+        index = await self.get_puzzle_sheet_index(puzzle_data, spreadsheet_id)
         if name:
             sheet_name = f"{name} ({puzzle_data.name})"
         else:
             sheet_name = f"Extra Sheet for {puzzle_data.name}"
-        sheet_id = await self.add_new_sheet(sheet_name, index+1)
-        await self.update_puzzle_info( puzzle_data, False,name,sheet_id)
+        sheet_id = await self.add_new_sheet(sheet_name, index+1, spreadsheet_id=spreadsheet_id)
+        await self.update_puzzle_info(puzzle_data, False, name, sheet_id,
+                                      spreadsheet_id=spreadsheet_id)
         return sheet_id
 
     async def promote_tab_to_group(self, puzzle_data: PuzzleData, header_links=None):
@@ -746,8 +766,8 @@ class GoogleSheets(commands.Cog):
         the Feeds line the header wipe clears."""
         from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
-        spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = await self.get_page_name_by_id(page_id)
+        spreadsheet_id = self.spreadsheet_of(puzzle_data)
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         safe_name = tab_name.replace("'", "''") if tab_name else None
 
         # 0. Only a TARGET tab has contribution columns to remove. A retry after
@@ -755,7 +775,7 @@ class GoogleSheets(commands.Cog):
         #    deleting again takes four columns of real solver work -- silently,
         #    since Sheets does not error on it (C5). Step 1 is gated with it: it
         #    reads at offset+1, which is the wrong cells on a plain tab.
-        layout = await self._tab_layout(page_id, tab_name)
+        layout = await self._tab_layout(page_id, tab_name, spreadsheet_id=spreadsheet_id)
         in_target_layout = layout == self.LAYOUT_TARGET
 
         # 1. Save flavour/progress/solution from the current target header (offset 1).
@@ -781,7 +801,7 @@ class GoogleSheets(commands.Cog):
                     "range": {"sheetId": page_id, "dimension": "COLUMNS",
                               "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
                 }
-            }]})
+            }]}, spreadsheet_id=spreadsheet_id)
 
         # 3. Wipe + regenerate the plain puzzle header at offset 0, restore values.
         requests = [
@@ -801,7 +821,7 @@ class GoogleSheets(commands.Cog):
                 val, row, col = saved[label]
                 requests.append(self.update_cell(
                     str(val), row, col, self.STRING_INPUT, page_id))
-        await self.batch_update({"requests": requests})
+        await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
     # --- Generic roll-up engine (M2) -------------------------------------
     # One ctx-free bulk writer replacing the two hand-rolled per-cell renderers.
@@ -832,10 +852,6 @@ class GoogleSheets(commands.Cog):
         shown as-is so the row stays aligned instead of being silently dropped —
         the bug the old per-cell renderers had via a continue-before-row-increment."""
         return puzzle.solution if puzzle.solution else "Unsolved"
-
-    def _target_spreadsheet_id(self, puzzle: PuzzleData):
-        """Live spreadsheet, or the solved puzzles sheet once the puzzle has moved there."""
-        return self.get_solved_sheet_id() if puzzle.on_solved_sheet else self.get_spreadsheet_id()
 
     # --- Developer metadata: stable tab pointers (M5 substrate, M7 load-bearing) ---
     # A tab's numeric sheetId is reassigned when a sheet is moved to the solved
@@ -890,7 +906,7 @@ class GoogleSheets(commands.Cog):
         page_id = puzzle.google_page_id
         if page_id in (None, ""):
             return None, None
-        spreadsheet_id = self._target_spreadsheet_id(puzzle)
+        spreadsheet_id = self.spreadsheet_of(puzzle)
         metadata_id = await self.ensure_tab_metadata(spreadsheet_id, int(page_id), key)
         return int(page_id), metadata_id
 
@@ -955,7 +971,7 @@ class GoogleSheets(commands.Cog):
             if round_puzzle.id != puzzle.id   # skip the meta's own row
         ]
         await self.aggregate_to_tab(
-            self._target_spreadsheet_id(puzzle),
+            self.spreadsheet_of(puzzle),
             puzzle.google_page_id,
             ["Puzzle titles", "Puzzle solutions"],
             rows,
@@ -977,7 +993,7 @@ class GoogleSheets(commands.Cog):
                 round_name = "No Round"
             rows.append([round_name, round_puzzle.name, self._solution_text(round_puzzle)])
         await self.aggregate_to_tab(
-            self._target_spreadsheet_id(puzzle),
+            self.spreadsheet_of(puzzle),
             puzzle.google_page_id,
             ["Puzzle Round", "Puzzle Title", "Puzzle Solution"],
             rows,
@@ -991,17 +1007,18 @@ class GoogleSheets(commands.Cog):
     # reconcile diffs on (the evidence item id; Source Puzzle names are not unique).
     EVIDENCE_HEADER = ["id", "Source Puzzle", "Note", "Target Puzzle", "Logged At"]
 
-    async def ensure_unassigned_table(self, page_id, show_round=False):
+    async def ensure_unassigned_table(self, page_id, show_round=False,
+                                      spreadsheet_id: str | None = None):
         """Prepare the Unassigned Puzzles tab: write the header row and, best
         effort, wrap it in a native Table (hidden id column) for nicer styling.
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog). Returns a table
-        id to persist on the hunt (the native Table's id when one is created,
+        A hunt-level tab: `spreadsheet_id` None -> the hunt's live spreadsheet
+        (the context-var id set by _gsheet_cog). Returns a table id to persist on the hunt (the native Table's id when one is created,
         otherwise the page id as a harmless sentinel). The service guards this
         behind a null table id, so it runs once per hunt; the data writes do not
         depend on the native Table succeeding.
         """
-        spreadsheet_id = self.get_spreadsheet_id()
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             raise RuntimeError(f"ensure_unassigned_table: no tab with page id {page_id}")
@@ -1062,17 +1079,17 @@ class GoogleSheets(commands.Cog):
             logger.exception("ensure_unassigned_table: native Table styling skipped")
         return table_id
 
-    async def ensure_evidence_table(self, page_id):
+    async def ensure_evidence_table(self, page_id, spreadsheet_id: str | None = None):
         """Prepare the Evidence tab: pin it just after Unassigned Feeders, clear any
         old flat aggregate_to_tab render, write the header, and wrap it in a native
         Table (hidden id key column). Mirrors ensure_unassigned_table.
 
-        Uses the context-var spreadsheet id (set by _gsheet_cog). Returns the native
-        Table's id (or the page id as a harmless sentinel if the Table API is
+        A hunt-level tab: `spreadsheet_id` None -> the hunt's live spreadsheet
+        (the context-var id set by _gsheet_cog). Returns the native Table's id (or the page id as a harmless sentinel if the Table API is
         unavailable). The service guards this behind a null table id, so it runs once
         per hunt; the data writes do not depend on the native Table succeeding.
         """
-        spreadsheet_id = self.get_spreadsheet_id()
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             raise RuntimeError(f"ensure_evidence_table: no tab with page id {page_id}")
@@ -1145,7 +1162,8 @@ class GoogleSheets(commands.Cog):
 
     # --- Task 6: contribution Table create --------------------------------
 
-    async def _add_contribution_table(self, page_id, header_row=0):
+    async def _add_contribution_table(self, page_id, header_row=0,
+                                      spreadsheet_id: str | None = None):
         """Create the unified contribution native Table on a target's tab.
 
         Columns: A key (hidden), B Source, C Type, D Content. The table range
@@ -1189,7 +1207,7 @@ class GoogleSheets(commands.Cog):
             }},
             {"addTable": {"table": {"name": table_name, "range": header_range}}},
         ]}
-        result = await self.batch_update(body)
+        result = await self.batch_update(body, spreadsheet_id=spreadsheet_id)
         try:
             add_reply = next(r for r in result.get("replies", []) if "addTable" in r)
             table_id = add_reply["addTable"]["table"]["tableId"]
@@ -1203,13 +1221,14 @@ class GoogleSheets(commands.Cog):
                 "properties": {"hiddenByUser": True},
                 "fields": "hiddenByUser",
             }
-        }]})
+        }]}, spreadsheet_id=spreadsheet_id)
         return table_id
 
     # --- Task 7: generalized key-anchored reconciler ----------------------
 
     async def reconcile_table(self, page_id, desired_rows, data_col_count, numeric_cols=(),
-                              grey_below=False, table_name=None, sheet_snapshot=None):
+                              grey_below=False, table_name=None, sheet_snapshot=None,
+                              spreadsheet_id: str | None = None):
         """Incrementally reconcile the native Table on `page_id` against the FULL
         `desired_rows` (the single source of truth — callers pass the whole desired
         set, not a pre-diff).
@@ -1243,7 +1262,9 @@ class GoogleSheets(commands.Cog):
         means the table only grows over a reconcile's lifetime; a user can manually
         sort the table's range in Sheets to reclaim blank rows."""
         from bot.core.unassigned import diff_rows
-        spreadsheet_id = self.get_spreadsheet_id()
+        # The spreadsheet holding `page_id`: None -> live (the hunt-level
+        # Unassigned/Evidence tabs); a puzzle's render passes spreadsheet_of.
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
 
         sheet = None
         sheets = (sheet_snapshot if sheet_snapshot is not None
@@ -1410,7 +1431,7 @@ class GoogleSheets(commands.Cog):
                         "fields": "userEnteredFormat.backgroundColor"}})
 
         if requests:
-            await self.batch_update({"requests": requests})
+            await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 
@@ -1524,8 +1545,8 @@ class GoogleSheets(commands.Cog):
     async def write_header_links(self, tabs) -> list[str]:
         """Write the Feeds line on existing tabs. `tabs` is a list of
         (SheetLocation, offset, list[Link]); one batch_update per spreadsheet,
-        never per tab. A location on neither of the hunt's spreadsheets (in
-        context) is skipped with a warning rather than written to the wrong one.
+        never per tab, written to the spreadsheet each location names. A
+        location with no spreadsheet id or no page id is skipped.
 
         A batchUpdate is all-or-nothing, so one bad tab (stale page id, a solver
         merge across row 3, a tab mid-promote) would cancel every tab's line on
@@ -1535,26 +1556,24 @@ class GoogleSheets(commands.Cog):
         per-tab writes would only add load to a saturated quota or a down
         service, so every tab on that spreadsheet is marked failed. Best-effort:
         never raises; returns the page ids whose line was not written."""
-        live, solved = self.get_spreadsheet_id(), self.get_solved_sheet_id()
         by_sheet: dict[str, list[tuple[str, list]]] = {}
         for loc, offset, links in tabs:
             if loc.page_id is None or loc.page_id == "":
                 continue
             sid: str = loc.spreadsheet_id
-            if not sid or (sid != live and sid != solved):
-                logger.warning("write_header_links: page %s is on spreadsheet %s, "
-                               "not this hunt's; skipped", loc.page_id, sid)
+            if not sid:
+                logger.warning("write_header_links: page %s has no spreadsheet id; "
+                               "skipped", loc.page_id)
                 continue
             by_sheet.setdefault(sid, []).append(
                 (str(loc.page_id),
                  self._feeds_line_requests(int(loc.page_id), offset, links)))
         failed: list[str] = []
         for spreadsheet_id, per_tab in by_sheet.items():
-            archive = spreadsheet_id != live
             try:
                 await self.batch_update(
                     {"requests": [r for _page, reqs in per_tab for r in reqs]},
-                    archive=archive)
+                    spreadsheet_id=spreadsheet_id)
                 continue
             except Exception as exc:  # noqa: BLE001
                 if _is_retryable(exc):
@@ -1576,7 +1595,7 @@ class GoogleSheets(commands.Cog):
                     continue
             for page_id, reqs in per_tab:
                 try:
-                    await self.batch_update({"requests": reqs}, archive=archive)
+                    await self.batch_update({"requests": reqs}, spreadsheet_id=spreadsheet_id)
                 except Exception:  # noqa: BLE001
                     logger.exception("write_header_links: Feeds line for page %s "
                                      "on spreadsheet %s failed",
@@ -1594,9 +1613,9 @@ class GoogleSheets(commands.Cog):
         from bot.cogs import sheet_layout
         import inspect as insp
 
-        spreadsheet_id = self.get_spreadsheet_id()
-        assert spreadsheet_id is not None  # sheet ops run with a hunt spreadsheet in context
-        name = await self.get_unique_tab_name(puzzle.name)
+        spreadsheet_id = self.spreadsheet_of(puzzle)
+        assert spreadsheet_id  # sheet ops run with a hunt spreadsheet in context
+        name = await self.get_unique_tab_name(puzzle.name, spreadsheet_id)
         _result = self.create_blank_tab(spreadsheet_id, name, index)
         page_id = await _result if insp.iscoroutine(_result) else _result
         puzzle.google_page_id = page_id
@@ -1612,7 +1631,7 @@ class GoogleSheets(commands.Cog):
             puzzle, page_id, offset, is_target,
             header_links=header_links or None)
         if requests:
-            await self.batch_update({"requests": requests})
+            await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
         # Contribution Table below the frozen header (row 4), so it never overlaps
         # the header merges in rows 1-3. Best effort: Google's Sheets write path
@@ -1622,7 +1641,8 @@ class GoogleSheets(commands.Cog):
         # created lazily on the first contribution render (see _ensure_contribution_table).
         if is_target:
             try:
-                await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+                await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
+                                                   spreadsheet_id=spreadsheet_id)
             except Exception:
                 logger.exception(
                     "generate_puzzle_tab: contribution Table deferred for page %s "
@@ -1644,7 +1664,7 @@ class GoogleSheets(commands.Cog):
     LAYOUT_TARGET = "target"    # offset 1: A1 blank, "Puzzle Title:" at B1
     LAYOUT_UNKNOWN = "unknown"  # neither: half-promoted, or not a puzzle tab
 
-    async def _tab_layout(self, page_id, tab_name=None):
+    async def _tab_layout(self, page_id, tab_name=None, spreadsheet_id: str | None = None):
         """Which header layout this tab is currently in. One A1:B1 read.
 
         The guard for every geometry-shifting mutation on a contribution tab.
@@ -1654,9 +1674,9 @@ class GoogleSheets(commands.Cog):
         same range succeeds silently, eating real solver columns.
         """
         from bot.cogs import sheet_layout
-        spreadsheet_id = self.get_spreadsheet_id()
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         if tab_name is None:
-            tab_name = await self.get_page_name_by_id(page_id)
+            tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             return self.LAYOUT_UNKNOWN
         safe_name = tab_name.replace("'", "''")
@@ -1686,8 +1706,8 @@ class GoogleSheets(commands.Cog):
         across the insert."""
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
-        spreadsheet_id = self.get_spreadsheet_id()
-        tab_name = await self.get_page_name_by_id(page_id)
+        spreadsheet_id = self.spreadsheet_of(puzzle)
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             return
         safe_name = tab_name.replace("'", "''")
@@ -1698,7 +1718,7 @@ class GoogleSheets(commands.Cog):
         #    four columns right every time. Steps 1-3 are skipped too, not just
         #    the insert: step 1 reads the at-risk values at offset-0 positions,
         #    which on an already-shifted tab are the wrong cells.
-        layout = await self._tab_layout(page_id, tab_name)
+        layout = await self._tab_layout(page_id, tab_name, spreadsheet_id=spreadsheet_id)
         if layout != self.LAYOUT_PLAIN:
             if layout == self.LAYOUT_UNKNOWN:
                 # Columns in, header never stamped (a step-3 failure) -- or not
@@ -1707,7 +1727,8 @@ class GoogleSheets(commands.Cog):
                     "promote_tab_to_target: tab %s (page %s) is in neither plain nor "
                     "target layout; adding the Table without shifting it. Its header "
                     "may need stamping by hand.", tab_name, page_id)
-            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
+                                               spreadsheet_id=spreadsheet_id)
             return
 
         # 1. Save at-risk values BEFORE the insert: flavour is user-owned; progress
@@ -1731,7 +1752,7 @@ class GoogleSheets(commands.Cog):
                           "startIndex": 0, "endIndex": self.CONTRIBUTION_WIDTH},
                 "inheritFromBefore": False,
             }
-        }]})
+        }]}, spreadsheet_id=spreadsheet_id)
 
         # 3. Wipe the frozen header rows (unmerge + clear) so the canonical header
         #    can be stamped without colliding with the one the insert pushed right,
@@ -1753,14 +1774,15 @@ class GoogleSheets(commands.Cog):
                 val, row, col = saved[label]
                 requests.append(self.update_cell(
                     str(val), row, col + offset, self.STRING_INPUT, page_id))
-        await self.batch_update({"requests": requests})
+        await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
         # 4. Add the contribution Table at A4 (below the frozen header).
-        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
+                                           spreadsheet_id=spreadsheet_id)
 
     # --- Task 10: render contribution table from service -------------------
 
-    async def _ensure_contribution_table(self, puzzle):
+    async def _ensure_contribution_table(self, puzzle, spreadsheet_id: str | None = None):
         """Ensure the target's contribution Table exists, creating it (below the
         frozen header) if missing. Meta creation adds it, but a transient Sheets
         500 there can leave the tab tableless — retrying the direct add self-heals
@@ -1783,10 +1805,13 @@ class GoogleSheets(commands.Cog):
         promoted — that snapshot is still accurate and a caller may hand it to
         `reconcile_table` as `sheet_snapshot` to skip its own fetch. Returns None
         on every path that creates or promotes a tab: a snapshot taken before such
-        a mutation must not be reused to conclude the tab still lacks the Table."""
+        a mutation must not be reused to conclude the tab still lacks the Table.
+
+        `spreadsheet_id` is the spreadsheet holding the tab (the render passes
+        spreadsheet_of(puzzle)); None -> live."""
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
-        spreadsheet_id = self.get_spreadsheet_id()
+        spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
         for s in sheets:
             if s["properties"]["sheetId"] == int(page_id):
@@ -1800,16 +1825,19 @@ class GoogleSheets(commands.Cog):
                 if select_table(s.get("tables"), contribution_table_name(page_id)):
                     return sheets
                 break
-        tab_name = await self.get_page_name_by_id(page_id)
+        tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
-            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+            await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
+                                               spreadsheet_id=spreadsheet_id)
             return None
         # One shared geometry probe rather than this function's own A1 read --
         # see _tab_layout for why A1 alone is not sufficient (D7).
-        if await self._tab_layout(page_id, tab_name) == self.LAYOUT_PLAIN:
+        if await self._tab_layout(page_id, tab_name,
+                                  spreadsheet_id=spreadsheet_id) == self.LAYOUT_PLAIN:
             await self.promote_tab_to_target(puzzle)
             return None
-        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS)
+        await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
+                                           spreadsheet_id=spreadsheet_id)
         return None
 
     async def render_minimeta_contribution(self, minimeta, members, link_for=None):
@@ -1826,7 +1854,10 @@ class GoogleSheets(commands.Cog):
         # test that used to live here (M18): it probes the tab's actual geometry
         # before promoting, where "no Table -> promote" re-shifted a
         # tableless-but-already-promoted tab and inserted four more columns.
-        snapshot = await self._ensure_contribution_table(minimeta)
+        # Its own spreadsheet by the location rule: a solved tab-hunt minimeta's
+        # tab is on the solved spreadsheet (code map complication 9).
+        spreadsheet_id = self.spreadsheet_of(minimeta)
+        snapshot = await self._ensure_contribution_table(minimeta, spreadsheet_id=spreadsheet_id)
         rows = [
             [f"feeds:{m.id}", Link(m.name, link_for(m)) if link_for is not None else m.name, "Feeder", m.solution.upper() if m.solution else ""]
             for m in members
@@ -1839,6 +1870,7 @@ class GoogleSheets(commands.Cog):
             grey_below=True,
             table_name=contribution_table_name(page_id),
             sheet_snapshot=snapshot,
+            spreadsheet_id=spreadsheet_id,
         )
 
     async def render_contribution(self, target_puzzle, tag_group_id, members, evidence,
@@ -1851,7 +1883,9 @@ class GoogleSheets(commands.Cog):
         # Self-heal: creates/promotes the Table if it's missing (see
         # _ensure_contribution_table); raises if it still can't be made, which
         # refresh_target/!rebuild badge and report rather than silently no-op.
-        snapshot = await self._ensure_contribution_table(target_puzzle)
+        spreadsheet_id = self.spreadsheet_of(target_puzzle)
+        snapshot = await self._ensure_contribution_table(target_puzzle,
+                                                         spreadsheet_id=spreadsheet_id)
         # The target's own row is excluded — a meta is not a contribution of itself.
         # Its self-edge is 'target', so select_rollup_members already drops it from
         # every mode (round wants feeds/informs, explicit wants 'none', subtree skips
@@ -1872,6 +1906,7 @@ class GoogleSheets(commands.Cog):
             grey_below=True,
             table_name=contribution_table_name(target_puzzle.google_page_id),
             sheet_snapshot=snapshot,
+            spreadsheet_id=spreadsheet_id,
         )
 
 

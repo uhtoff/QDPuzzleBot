@@ -217,8 +217,8 @@ class TestRemoveHuntSheet:
         with patch("bot.core.puzzle_service.SheetsJsonDb") as sdb:
             sdb.get_by_hunt.return_value = [self._sheet(4, "alt text", "P9")]
             await svc.remove_hunt_sheet(make_hunt(id=10), 4)
-        # archive=False: a hunt sheet is never on the solved spreadsheet.
-        gsheet.delete_sheet.assert_awaited_once_with("P9", False)
+        # spreadsheet_id=None (live): a hunt sheet is never on the solved spreadsheet.
+        gsheet.delete_sheet.assert_awaited_once_with("P9", spreadsheet_id=None)
         sdb.delete.assert_called_once_with(4)
 
     async def test_remove_by_index_picks_the_right_sheet(self):
@@ -234,7 +234,7 @@ class TestRemoveHuntSheet:
             sdb.get_by_hunt.return_value = [self._sheet(7, "first", "P7"),
                                             self._sheet(2, "second", "P2")]
             await svc.remove_hunt_sheet_by_index(make_hunt(id=10), 2)
-        gsheet.delete_sheet.assert_awaited_once_with("P2", False)
+        gsheet.delete_sheet.assert_awaited_once_with("P2", spreadsheet_id=None)
         sdb.delete.assert_called_once_with(2)
 
     async def test_remove_by_index_rejects_out_of_range(self):

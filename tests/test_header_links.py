@@ -146,13 +146,13 @@ def test_generated_tab_carries_links_in_its_single_batch():
     cog = _cog()
     calls = []
 
-    async def fake(body, archive=False):
+    async def fake(body, spreadsheet_id=None):
         calls.append(body)
     cog.batch_update = fake
     cog.create_blank_tab = lambda spreadsheet_id, name, index=None: 901
     cog.get_spreadsheet_id = lambda: "LIVE"
 
-    async def _uniq(n):
+    async def _uniq(n, spreadsheet_id=None):
         return n
     cog.get_unique_tab_name = _uniq
     p = PuzzleData()
@@ -218,8 +218,8 @@ def test_existing_tab_batch_unmerges_then_merges_then_label_then_links(offset):
     cog.get_spreadsheet_id = lambda: "LIVE"
     cog.get_solved_sheet_id = lambda: "SOLVED"
 
-    async def fake(body, archive=False):
-        sent.append((body, archive))
+    async def fake(body, spreadsheet_id=None):
+        sent.append((body, spreadsheet_id))
     cog.batch_update = fake
 
     asyncio.run(cog.write_header_links(
@@ -712,9 +712,9 @@ def test_a_failed_batch_retries_each_tab_alone_so_one_bad_tab_spares_the_rest(ca
     cog.get_solved_sheet_id = lambda: "SOLVED"
     sent = []
 
-    async def fake(body, archive=False):
+    async def fake(body, spreadsheet_id=None):
         pages = _pages_in(body)
-        sent.append((pages, archive))
+        sent.append((pages, spreadsheet_id))
         if 902 in pages:  # the combined batch and 902's own retry both fail
             raise RuntimeError("bad tab 902")
     cog.batch_update = fake
@@ -727,8 +727,8 @@ def test_a_failed_batch_retries_each_tab_alone_so_one_bad_tab_spares_the_rest(ca
         ]))
 
     # One combined batch, then one retry per tab, each carrying only its tab.
-    assert sent == [({901, 902, 903}, False), ({901}, False),
-                    ({902}, False), ({903}, False)]
+    assert sent == [({901, 902, 903}, "LIVE"), ({901}, "LIVE"),
+                    ({902}, "LIVE"), ({903}, "LIVE")]
     assert failed == ["902"]
     errors = [r for r in caplog.records if r.levelname == "ERROR"]
     assert len(errors) == 1 and "902" in errors[0].getMessage()
@@ -740,9 +740,9 @@ def test_a_failed_batch_on_one_spreadsheet_leaves_the_others_single_call():
     cog.get_solved_sheet_id = lambda: "SOLVED"
     sent = []
 
-    async def fake(body, archive=False):
-        sent.append((_pages_in(body), archive))
-        if archive and len(_pages_in(body)) > 1:
+    async def fake(body, spreadsheet_id=None):
+        sent.append((_pages_in(body), spreadsheet_id))
+        if spreadsheet_id == "SOLVED" and len(_pages_in(body)) > 1:
             raise RuntimeError("solved batch fails")
     cog.batch_update = fake
 
@@ -751,7 +751,8 @@ def test_a_failed_batch_on_one_spreadsheet_leaves_the_others_single_call():
         (SheetLocation("SOLVED", 911), 0, [Link("N", "V")]),
         (SheetLocation("SOLVED", 912), 0, []),
     ]))
-    assert sent == [({901}, False), ({911, 912}, True), ({911}, True), ({912}, True)]
+    assert sent == [({901}, "LIVE"), ({911, 912}, "SOLVED"), ({911}, "SOLVED"),
+                    ({912}, "SOLVED")]
     assert failed == []
 
 
@@ -765,7 +766,7 @@ def test_a_quota_or_outage_failure_marks_every_tab_failed_without_per_tab_writes
     cog.get_solved_sheet_id = lambda: "SOLVED"
     sent = []
 
-    async def fake(body, archive=False):
+    async def fake(body, spreadsheet_id=None):
         sent.append(_pages_in(body))
         raise HttpError(MagicMock(status=status), b"quota")
     cog.batch_update = fake

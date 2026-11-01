@@ -332,8 +332,9 @@ class PuzzleService:
         logger.warning("Gave up deferred rename of channel %s after repeated rate limits", channel.id)
         self._pending_renames.pop(channel.id, None)
 
-    async def _has_contribution_table(self, gsheet_cog, page_id):
-        """True when the bot's OWN contribution Table is on `page_id`'s tab.
+    async def _has_contribution_table(self, gsheet_cog, puzzle):
+        """True when the bot's OWN contribution Table is on `puzzle`'s main tab,
+        read from the spreadsheet that tab lives in (the location rule).
 
         The licence for demote_tab_to_puzzle, which deletes the tab's four
         leftmost columns. "Any native Table is present" is NOT that licence: a
@@ -343,7 +344,8 @@ class PuzzleService:
         then destroys columns A-D of their grid with no undo. Matching is by the
         name the bot gives its own Table — see bot/core/sheet_tables.py.
         """
-        sheets = (await gsheet_cog.sheet_list(gsheet_cog.get_spreadsheet_id()))["sheets"]
+        page_id = puzzle.google_page_id
+        sheets = (await gsheet_cog.sheet_list(gsheet_cog.spreadsheet_of(puzzle)))["sheets"]
         return any(
             select_table(s.get("tables"), contribution_table_name(page_id)) is not None
             for s in sheets
@@ -629,8 +631,7 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is None:
             return actions
-        spreadsheet = (gsheet_cog.get_solved_sheet_id() if puzzle.on_solved_sheet
-                       else gsheet_cog.get_spreadsheet_id())
+        spreadsheet = gsheet_cog.spreadsheet_of(puzzle)
 
         async def _tab_present(page_id):
             if not page_id:
@@ -644,7 +645,7 @@ class PuzzleService:
             if apply:
                 existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
                 insert_idx = await gsheet_cog.compute_insert_index(
-                    getattr(puzzle, 'is_target', False), existing)
+                    getattr(puzzle, 'is_target', False), existing, spreadsheet_id=spreadsheet)
                 await gsheet_cog.add_new_puzzle_sheet(puzzle, insert_idx)
                 await gsheet_cog.update_puzzle_info(puzzle)
                 PuzzleJsonDb.commit(puzzle)
@@ -1619,6 +1620,7 @@ class PuzzleService:
             # the solved end (not yet moved), so including it would anchor the zone
             # at the wrong position.
             existing = [p for p in PuzzleJsonDb.get_all_from_hunt(hunt.id) if p.id != puzzle.id]
+            # Where the tab lands, not where it is: the live spreadsheet (None).
             restore_idx = await gsheet_cog.compute_insert_index(puzzle.is_target, existing)
             await gsheet_cog.restore_puzzle_from_solved_sheet(puzzle, restore_index=restore_idx)
 
@@ -1743,7 +1745,7 @@ class PuzzleService:
         # so a Sheets failure there leaves a targeted puzzle on an untouched tab —
         # demoting that deletes columns A-D of an ordinary solver grid.
         if gsheet_cog is not None and puzzle.google_page_id:
-            if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
+            if await self._has_contribution_table(gsheet_cog, puzzle):
                 await gsheet_cog.demote_tab_to_puzzle(
                     puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
         return orphaned
@@ -2283,7 +2285,9 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             try:
-                await gsheet_cog.delete_sheet(sheet.google_page_id, puzzle.solved)
+                # The extra's OWN location, not its puzzle's solved state.
+                await gsheet_cog.delete_sheet(sheet.google_page_id,
+                                              gsheet_cog.spreadsheet_of(sheet))
             except HttpError as exc:
                 # Idempotent: "No sheet with id" means the tab is already gone
                 # (e.g. moved to the archive spreadsheet on solve) — not an error.
@@ -2344,7 +2348,7 @@ class PuzzleService:
         # table on the tab was enough to trigger the delete).
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None and puzzle.google_page_id:
-            if await self._has_contribution_table(gsheet_cog, puzzle.google_page_id):
+            if await self._has_contribution_table(gsheet_cog, puzzle):
                 await gsheet_cog.demote_tab_to_puzzle(
                     puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
 
@@ -2816,7 +2820,8 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = await gsheet_cog.compute_insert_index(False, existing)  # minis are regular
+            insert_idx = await gsheet_cog.compute_insert_index(  # minis are regular
+                False, existing, spreadsheet_id=gsheet_cog.spreadsheet_of(mini))
             await gsheet_cog.create_puzzle_spreadsheet(
                 mini, index=insert_idx,
                 **self._header_links_kw(self._links_to_safe(hunt, [minimeta])))
@@ -2973,8 +2978,8 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             try:
-                # archive=False: a hunt sheet is never on the solved spreadsheet.
-                await gsheet_cog.delete_sheet(sheet.google_page_id, False)
+                # None -> live: a hunt sheet is never on the solved spreadsheet.
+                await gsheet_cog.delete_sheet(sheet.google_page_id, spreadsheet_id=None)
             except Exception:
                 # Idempotent, as _delete_additional_sheet is: a tab someone
                 # already removed by hand must not leave an undeletable row.
@@ -3072,7 +3077,9 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             existing = PuzzleJsonDb.get_all_from_hunt(hunt.id)
-            insert_idx = await gsheet_cog.compute_insert_index(new_puzzle.is_target, existing)
+            insert_idx = await gsheet_cog.compute_insert_index(
+                new_puzzle.is_target, existing,
+                spreadsheet_id=gsheet_cog.spreadsheet_of(new_puzzle))
             # The membership edge is written after the tab (below), but it is
             # already decided, so the Feeds line rides in tab generation.
             header_links = []

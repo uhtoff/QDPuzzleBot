@@ -224,7 +224,7 @@ async def test_restore_puzzle_from_solved_sheet_uses_restore_index():
 
     captured_requests = []
 
-    async def fake_batch_update(body, archive=False):
+    async def fake_batch_update(body, spreadsheet_id=None):
         captured_requests.extend(body.get("requests", []))
 
     with (
@@ -261,7 +261,7 @@ async def test_restore_puzzle_from_solved_sheet_defaults_to_initial_offset():
 
     captured_requests = []
 
-    async def fake_batch_update(body, archive=False):
+    async def fake_batch_update(body, spreadsheet_id=None):
         captured_requests.extend(body.get("requests", []))
 
     with (
@@ -300,7 +300,7 @@ async def test_restore_puzzle_from_solved_sheet_moves_additional_sheets_back_whe
     puzzle.additional_sheets = [
         AdditionalSheetData(google_page_id="archive-extra", on_solved_sheet=True)]
 
-    async def fake_batch_update(body, archive=False):
+    async def fake_batch_update(body, spreadsheet_id=None):
         pass
 
     with (
