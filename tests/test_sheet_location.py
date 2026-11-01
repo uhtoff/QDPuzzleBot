@@ -5,6 +5,7 @@ from bot.core.sheet_location import (
     additional_sheet_location,
     hunt_sheet_location,
     puzzle_location,
+    spreadsheet_for,
 )
 
 
@@ -12,12 +13,12 @@ def _hunt(live="LIVE", solved="ARCHIVE"):
     return SimpleNamespace(google_sheet_id=live, solved_sheet_id=solved)
 
 
-def _puzzle(on_solved=False, page="11"):
-    return SimpleNamespace(on_solved_sheet=on_solved, google_page_id=page)
+def _puzzle(on_solved=False, page="11", own=""):
+    return SimpleNamespace(on_solved_sheet=on_solved, google_page_id=page, google_sheet_id=own)
 
 
-def _extra(on_solved=False, page="22"):
-    return SimpleNamespace(on_solved_sheet=on_solved, google_page_id=page)
+def _extra(on_solved=False, page="22", own=""):
+    return SimpleNamespace(on_solved_sheet=on_solved, google_page_id=page, google_sheet_id=own)
 
 
 def test_live_puzzle_is_on_the_live_sheet():
@@ -173,3 +174,38 @@ def test_mini_welcome_link_follows_solved_flag():
     assert "ARCH1" in solved and "gid=PAGE7" in solved and "LIVE1" not in solved
     live = _mini_welcome(False)
     assert "LIVE1" in live and "gid=PAGE7" in live and "ARCH1" not in live
+
+
+def _obj(own="", on_solved=False):
+    return SimpleNamespace(google_sheet_id=own, on_solved_sheet=on_solved)
+
+
+def test_rule_own_id_wins_over_a_set_solved_flag():
+    assert spreadsheet_for(_obj(own="OWN", on_solved=True), "LIVE", "ARCHIVE") == "OWN"
+
+
+def test_rule_own_id_wins_with_no_flag():
+    assert spreadsheet_for(_obj(own="OWN"), "LIVE", "ARCHIVE") == "OWN"
+
+
+def test_rule_solved_flag_and_solved_id_means_solved():
+    assert spreadsheet_for(_obj(on_solved=True), "LIVE", "ARCHIVE") == "ARCHIVE"
+
+
+def test_rule_solved_flag_without_solved_id_means_live():
+    assert spreadsheet_for(_obj(on_solved=True), "LIVE", "") == "LIVE"
+
+
+def test_rule_plain_object_is_live_even_when_a_solved_id_exists():
+    assert spreadsheet_for(_obj(), "LIVE", "ARCHIVE") == "LIVE"
+
+
+def test_puzzle_location_with_own_id_ignores_hunt_spreadsheets():
+    loc = puzzle_location(_hunt(), _puzzle(on_solved=True, page="0", own="FILE"))
+    assert loc == SheetLocation("FILE", "0")
+    assert loc.url == "https://docs.google.com/spreadsheets/d/FILE/edit#gid=0"
+
+
+def test_additional_sheet_location_with_own_id_ignores_hunt_spreadsheets():
+    loc = additional_sheet_location(_hunt(), _extra(on_solved=True, page="5", own="XFILE"))
+    assert loc == SheetLocation("XFILE", "5")

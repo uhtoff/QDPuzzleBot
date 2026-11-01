@@ -196,7 +196,7 @@ class TestListSheetsCommand:
             # on_solved_sheet is read per sheet since migration 045; this test
             # is about link numbering, so the value just has to be present.
             SimpleNamespace(id=1, puzzle_name="grid 2", google_page_id="P1",
-                            on_solved_sheet=False)]
+                            on_solved_sheet=False, google_sheet_id="")]
         cog = make_cog(puzzle=puzzle, hunt=make_hunt(id=10))
         cog.environment = {}
         cog.service.get_hunt_sheets = MagicMock()

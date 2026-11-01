@@ -22,6 +22,10 @@ class HuntData:
     guild_id: int = 0
     google_sheet_id: str = ""
     solved_sheet_id: str = ""
+    # "tabs" (default) or "files" (migration 051): one spreadsheet per puzzle.
+    sheet_mode: str = "tabs"
+    drive_folder_id: str = ""
+    solved_folder_id: str = ""
     url: str = ""
     url_sep: str = "-"
     puzzle_prefix: str = "puzzle"
@@ -55,6 +59,6 @@ class HuntData:
                     utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
                     setattr(r,attr,utc_date)
             else:
-                setattr(r, attr, hunt_data.get(attr, None))
+                setattr(r, attr, hunt_data.get(attr, value))
 
         return r

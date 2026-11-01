@@ -29,6 +29,8 @@ class AdditionalSheetData:
     # puzzles.on_solved_sheet. A TARGET is never archived itself, but its extras
     # are, so the puzzle's flag cannot answer this question for them (H3).
     on_solved_sheet: bool = False
+    # Own spreadsheet (files mode, migration 051); "" = a tab on the hunt's.
+    google_sheet_id: str = ""
 
 @dataclass_json
 @dataclass
@@ -42,6 +44,8 @@ class PuzzleData:
     voice_channel_id: int = 0
     url: str = ""
     google_page_id: str = ""
+    # Own spreadsheet (files mode, migration 051); "" = a tab on the hunt's.
+    google_sheet_id: str = ""
     additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False

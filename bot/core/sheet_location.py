@@ -21,21 +21,30 @@ class SheetLocation:
         return spreadsheet_url(self.spreadsheet_id, self.page_id)
 
 
-def _spreadsheet_for(hunt, on_solved_sheet: bool) -> str:
-    # A hunt with no solved sheet has solved_sheet_id == "" -- fall back to the
-    # live spreadsheet rather than build a '/d//' dead link (M15).
-    if on_solved_sheet and hunt.solved_sheet_id:
-        return hunt.solved_sheet_id
-    return hunt.google_sheet_id
+def spreadsheet_for(obj, live_id: str, solved_id: str) -> str:
+    """The location rule: the spreadsheet an object's sheet lives in.
+
+    Its own ``google_sheet_id`` wins (files mode); else the solved spreadsheet
+    iff ``on_solved_sheet`` is set and the solved id is non-empty; else live.
+    A hunt with no solved sheet has solved_id == "" -- fall back to the live
+    spreadsheet rather than build a '/d//' dead link (M15).
+    """
+    if obj.google_sheet_id:
+        return obj.google_sheet_id
+    if obj.on_solved_sheet and solved_id:
+        return solved_id
+    return live_id
 
 
 def puzzle_location(hunt, puzzle) -> SheetLocation:
-    return SheetLocation(_spreadsheet_for(hunt, puzzle.on_solved_sheet), puzzle.google_page_id)
+    return SheetLocation(
+        spreadsheet_for(puzzle, hunt.google_sheet_id, hunt.solved_sheet_id), puzzle.google_page_id)
 
 
 def additional_sheet_location(hunt, sheet) -> SheetLocation:
     """An extra sheet uses its OWN on_solved_sheet, not its puzzle's."""
-    return SheetLocation(_spreadsheet_for(hunt, sheet.on_solved_sheet), sheet.google_page_id)
+    return SheetLocation(
+        spreadsheet_for(sheet, hunt.google_sheet_id, hunt.solved_sheet_id), sheet.google_page_id)
 
 
 def hunt_sheet_location(hunt, page_id) -> SheetLocation:
