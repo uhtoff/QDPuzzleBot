@@ -571,6 +571,9 @@ def _real_template_cog(monkeypatch, cached, master_now):
     """A cog whose template_tabs is the real cached reader: the process cache
     holds `cached`; a re-read of the master returns `master_now`."""
     from bot.utils import config
+    # Pin the id: CI's config.json has no master_spreadsheet, and sheet_list(None)
+    # reads the hunt's own spreadsheet instead of the fake master below.
+    monkeypatch.setattr(config, "master_spreadsheet", "MASTER")
     cog = _cog()
     del cog.template_tabs                 # use the real method
     monkeypatch.setattr(gsheet_mod, "_TEMPLATE_TABS", [dict(t) for t in cached])
