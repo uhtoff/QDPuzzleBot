@@ -255,7 +255,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
               onChange={(e) => setUsername(e.currentTarget.value)}
             />
             <TextInput
-              type="password"
+              autoComplete="off"
               label="Shared password"
               value={password}
               onChange={(e) => setPassword(e.currentTarget.value)}

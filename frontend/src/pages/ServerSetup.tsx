@@ -179,7 +179,7 @@ function SetupFormView({
             onChange={(e) => set("username", e.currentTarget.value)}
           />
           <TextInput
-            type="password"
+            autoComplete="off"
             label="Shared password"
             value={form.password}
             onChange={(e) => set("password", e.currentTarget.value)}

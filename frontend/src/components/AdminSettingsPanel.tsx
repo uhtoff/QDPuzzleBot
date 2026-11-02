@@ -263,7 +263,7 @@ export function AdminSettingsPanel({
         />
 
         <TextInput
-          type="password"
+          autoComplete="off"
           label="Shared password"
           value={values.password}
           onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
