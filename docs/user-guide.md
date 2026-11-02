@@ -66,6 +66,12 @@ the channel to the solved section (and, if the hunt uses a separate solved-puzzl
 spreadsheet, moves the tab there). Solved feeder answers appear automatically on their
 meta's roll-up.
 
+The bot also posts one line in the channel of every meta the puzzle **feeds** (a mini's
+minimeta included), e.g. `✅ #feeder solved: APPLE`, so meta solvers see answers arrive
+without watching the sheet. Added answers, corrected answers and unsolves are posted the same
+way, from Discord or the dashboard alike. Partials and informs-only tags stay quiet, and
+nobody is pinged.
+
 ---
 
 ## 2. Keeping the team informed

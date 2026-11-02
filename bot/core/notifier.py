@@ -55,6 +55,12 @@ class Notifier(abc.ABC):
     async def board_changed(self, hunt) -> None:
         """Notify that the board state has changed for this hunt (Phase B)."""
 
+    @abc.abstractmethod
+    async def feeder_answer_changed(self, guild, puzzle, targets, kind, old, new) -> None:
+        """Announce `puzzle`'s answer change in each of `targets` (the puzzles it
+        feeds). `kind` is "solved", "added", "changed" or "unsolved"; `old` and
+        `new` are the full solution strings before and after."""
+
 
 # ------------------------------------------------------------------ null
 class NullNotifier(Notifier):
@@ -72,6 +78,10 @@ class NullNotifier(Notifier):
     async def board_changed(self, hunt=None) -> None:
         return None
 
+    async def feeder_answer_changed(self, guild=None, puzzle=None, targets=None,
+                                    kind=None, old=None, new=None) -> None:
+        return None
+
 
 # ------------------------------------------------------------------ discord
 class DiscordNotifier(Notifier):
@@ -85,6 +95,23 @@ class DiscordNotifier(Notifier):
 
     async def board_changed(self, hunt=None) -> None:
         return None
+
+    async def feeder_answer_changed(self, guild, puzzle, targets, kind, old, new) -> None:
+        """Post one plain line, with no pings, in each target's channel. Each send
+        is best-effort: one missing channel or failed send skips only that target."""
+        if guild is None:
+            return
+        import discord
+        text = build_feeder_announcement(puzzle, kind, old, new)
+        for target in targets:
+            channel = guild.get_channel_or_thread(target.channel_id) if target.channel_id else None
+            if channel is None:
+                continue
+            try:
+                await channel.send(text, allowed_mentions=discord.AllowedMentions.none())
+            except Exception:
+                logger.exception("feeder_answer_changed: failed to post in target %s's channel",
+                                 target.id)
 
     async def welcome(
         self,
@@ -270,8 +297,29 @@ class CompositeNotifier(Notifier):
         for n in self._notifiers:
             await n.board_changed(hunt)
 
+    async def feeder_answer_changed(self, guild, puzzle, targets, kind, old, new) -> None:
+        for n in self._notifiers:
+            await n.feeder_answer_changed(guild, puzzle, targets, kind, old, new)
+
 
 # ------------------------------------------------------------------ helpers
+def build_feeder_announcement(puzzle, kind, old, new) -> str:
+    """The one-line feeder announcement posted in each meta it feeds. The feeder
+    is a channel link (a mini's thread links too), or its bold name if it has no
+    channel."""
+    who = f"<#{puzzle.channel_id}>" if puzzle.channel_id else f"**{puzzle.name}**"
+    if kind == "solved":
+        return f"✅ {who} solved: `{new}`"
+    if kind == "added":
+        added = new[len(old) + 1:] if old and new.startswith(old + "/") else new
+        return f"➕ {who} has another answer: `{added}` (now `{new}`)"
+    if kind == "changed":
+        return f"✏️ {who} answer changed: `{old}` → `{new}`"
+    if kind == "unsolved":
+        return f"↩️ {who} unsolved (was `{old}`)" if old else f"↩️ {who} unsolved"
+    raise ValueError(f"unknown announcement kind {kind!r}")
+
+
 _SOLUTION_UPDATE_WORDING = {
     "partial": (
         "Partially SOLVED!",

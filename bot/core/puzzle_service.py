@@ -1715,6 +1715,17 @@ class PuzzleService:
                     stack.append(child)        # this feeder is a meta — descend into its feeders
         return puzzles
 
+    async def _announce_to_fed(self, guild, puzzle, kind, old, new):
+        """Announce an answer change in the channel of every puzzle `puzzle` feeds
+        (a mini's minimeta included; informs-only links stay quiet). Best-effort:
+        the answer change is already committed, so a failure here is only logged."""
+        try:
+            targets = feeds_targets(puzzle)
+            if targets:
+                await self.notifier.feeder_answer_changed(guild, puzzle, targets, kind, old, new)
+        except Exception:
+            logger.exception("Failed to announce %s answer change for puzzle %s", kind, puzzle.id)
+
     @pushes_board()
     async def solve(self, guild, hunt, puzzle, solution):
         """Mark a puzzle solved: set status/solution/solve_time, refresh metas,
@@ -1731,6 +1742,7 @@ class PuzzleService:
         if solution == "" and puzzle.solution in [None, ""]:
             return False
 
+        was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = "solved"
         if puzzle.solution and solution:
             puzzle.solution += "/" + solution
@@ -1739,6 +1751,10 @@ class PuzzleService:
         puzzle.solved = True
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
+        if not was_solved:
+            await self._announce_to_fed(guild, puzzle, "solved", old_solution, puzzle.solution)
+        elif puzzle.solution != old_solution:
+            await self._announce_to_fed(guild, puzzle, "added", old_solution, puzzle.solution)
 
         # M8: archive the mini-puzzle thread on solve.
         if puzzle.parent_puzzle_id is not None and guild is not None:
@@ -1832,6 +1848,7 @@ class PuzzleService:
 
         For mini-puzzles (parent_puzzle_id set), also unarchives the thread.
         """
+        was_solved, old_solution = puzzle.solved, puzzle.solution or ""
         puzzle.status = UNSOLVED_STATUS
         puzzle.solution = ""
         puzzle.solved = False
@@ -1874,6 +1891,8 @@ class PuzzleService:
         PuzzleJsonDb.commit(puzzle)
         for sheet in puzzle.additional_sheets:
             SheetsJsonDb.commit(sheet)
+        if was_solved:   # clearing a partial stays quiet, as partials do
+            await self._announce_to_fed(guild, puzzle, "unsolved", old_solution, "")
 
         await self._refresh_minis_header_links(hunt, puzzle)
 
@@ -2427,9 +2446,12 @@ class PuzzleService:
         """Replace the solution on an already-solved puzzle: set new solution,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
+        old_solution = puzzle.solution or ""
         puzzle.solution = solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
+        if solution != old_solution:
+            await self._announce_to_fed(guild, puzzle, "changed", old_solution, solution)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed_group_ids = await self.refresh_targets(hunt, tag_groups)
@@ -2454,9 +2476,11 @@ class PuzzleService:
         """Append a solution to an already-solved puzzle: append with slash,
         stamp solve_time, commit, refresh metas and push to Google Sheets."""
         solution = solution.strip().upper()
+        old_solution = puzzle.solution or ""
         puzzle.solution += "/" + solution
         puzzle.solve_time = datetime.datetime.now(tz=pytz.UTC)
         PuzzleJsonDb.commit(puzzle)
+        await self._announce_to_fed(guild, puzzle, "added", old_solution, puzzle.solution)
 
         tag_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         failed_group_ids = await self.refresh_targets(hunt, tag_groups)

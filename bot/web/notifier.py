@@ -40,3 +40,7 @@ class WebNotifier(Notifier):
 
     async def refresh_group_info(self, guild=None, hunt=None, tag_group=None) -> None:
         return None
+
+    async def feeder_answer_changed(self, guild=None, puzzle=None, targets=None,
+                                    kind=None, old=None, new=None) -> None:
+        return None
