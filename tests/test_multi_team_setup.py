@@ -37,20 +37,23 @@ class MT:
         self.ensure = AsyncMock(side_effect=fail, return_value=(self.ns, self.fin))
         self.find = AsyncMock(return_value=(3, created))
 
-    async def run(self, multi_team=True, hunt=None, **kw):
+    async def run(self, multi_team=True, hunt=None, hub_category=None):
         hunt = hunt or _hunt(roster_role_id=70)
         service = MagicMock(); service.create_hunt = AsyncMock(return_value=hunt)
         targets = _targets()
         targets.lobby.history = _history()
         hub = MagicMock()
+        hub_row = _hub_row()
+        if hub_category is not None:
+            hub_row.multi_team_category = hub_category
         with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
              patch("bot.core.server_setup.HuntJsonDb"), \
              patch("bot.core.server_setup.MultiTeamDb", self.db), \
              patch("bot.core.server_setup.multi_team_core.find_or_create", self.find), \
              patch("bot.core.server_setup.multi_team_core.ensure_channels", self.ensure):
             report = await server_setup.run_setup(
-                service, _guild(), MagicMock(), targets, _settings(), _hub_row(),
-                "gph 2026", "https://h.example", hub=hub, multi_team=multi_team, **kw)
+                service, _guild(), MagicMock(), targets, _settings(), hub_row,
+                "gph 2026", "https://h.example", hub=hub, multi_team=multi_team)
         self.hub, self.gdb = hub, gdb
         return report
 
@@ -66,7 +69,7 @@ async def test_multi_team_with_none_running_creates_one():
     mt = MT(created=True)
     report = await mt.run()
     assert report.error == ""
-    # the hub channels default to the hub's "general" category
+    # the hub's multi_team_category setting, "general" by default
     mt.find.assert_awaited_once_with(mt.hub, "Big Hunt", "general")
     mt.db.link.assert_called_once_with(42, 3)
     mt.ensure.assert_awaited_once_with(mt.hub, 3)
@@ -117,7 +120,7 @@ async def test_an_existing_link_wins_over_the_multi_team_answer():
     mt.ensure.assert_awaited_once_with(mt.hub, 8)
 
 
-async def test_the_chosen_hub_category_reaches_find_or_create():
+async def test_the_hubs_category_setting_reaches_find_or_create():
     mt = MT(created=True)
     await mt.run(hub_category="Hunts")
     mt.find.assert_awaited_once_with(mt.hub, "Big Hunt", "Hunts")

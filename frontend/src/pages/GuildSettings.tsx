@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
+  Autocomplete,
   Button,
   Card,
   Center,
@@ -20,6 +21,17 @@ import { IconAlertTriangle, IconShieldCheck, IconShieldOff } from "@tabler/icons
 
 import { useAdminGuilds, useGuildSettings, useUpdateGuildSettings } from "../api";
 import type { GuildSettingsPatch, GuildSettingsResponse } from "../types";
+
+/** What happens to a multi-team hunt's no-spoiler and finishers channels with
+ *  this category setting (the server trims it; blank = top level). */
+function categoryHint(value: string, categories: string[]): string {
+  const wanted = value.trim();
+  if (!wanted) return "A new multi-team hunt's no-spoiler and finishers channels go at the top level.";
+  if (categories.some((c) => c.toLowerCase() === wanted.toLowerCase())) {
+    return "A new multi-team hunt's no-spoiler and finishers channels go at the bottom of this category.";
+  }
+  return `This server has no "${wanted}" category; it will be made for the next new multi-team hunt.`;
+}
 
 /** The authorisation tier a role list gates. Kept as the API's own key names so
  *  the patch body is built without a lookup table. */
@@ -77,6 +89,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
   const [voice, setVoice] = useState(data.settings.discord_use_voice_channels);
   const [templateLink, setTemplateLink] = useState(data.settings.template_link ?? "");
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [mtCategory, setMtCategory] = useState(data.settings.multi_team_category);
 
   // Re-seed when the query refetches or the guild changes under us.
   useEffect(() => {
@@ -87,6 +100,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
     setDriveResources(data.settings.drive_resources_id ?? "");
     setVoice(data.settings.discord_use_voice_channels);
     setTemplateLink(data.settings.template_link ?? "");
+    setMtCategory(data.settings.multi_team_category);
   }, [data]);
 
   const roleOptions = useMemo(
@@ -109,6 +123,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
       drive_resources_id: driveResources,
       discord_use_voice_channels: voice,
       template_link: templateLink,
+      multi_team_category: mtCategory,
     };
     setTemplateError(null);
     update.mutate(patch, {
@@ -209,6 +224,15 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             value={templateLink}
             onChange={(e) => setTemplateLink(e.currentTarget.value)}
             error={templateError}
+          />
+          <Autocomplete
+            label="Multi-team hunt channels category"
+            description={categoryHint(mtCategory, data.categories)}
+            placeholder="None (top level)"
+            data={data.categories}
+            value={mtCategory}
+            onChange={setMtCategory}
+            maxLength={100}
           />
           <Group>
             <Button component={Link} to={`/guilds/${guildId}/teams`} variant="light">

@@ -32,7 +32,8 @@ def _roles():
 
 @pytest.fixture
 def web():
-    guild = SimpleNamespace(id=SNOWFLAKE, name="Team A", roles=_roles())
+    guild = SimpleNamespace(id=SNOWFLAKE, name="Team A", roles=_roles(), categories=[
+        SimpleNamespace(name="Voice", position=4), SimpleNamespace(name="General", position=0)])
     app = make_web_app("actions", cog=MagicMock(), get_guild=guild)
 
     settings = SimpleNamespace(
@@ -41,7 +42,7 @@ def web():
         discord_use_voice_channels=False,
         drive_parent_id="DRIVE1", drive_resources_id="",
         admin_role_ids=str(RUNNERS_ID), organiser_role_ids=str(HELPERS_ID),
-        template_link="https://discord.new/old",
+        template_link="https://discord.new/old", multi_team_category="general",
     )
     db = MagicMock()
     db.get.return_value = settings
@@ -275,3 +276,26 @@ async def test_guild_list_does_not_flag_the_organiser_tier(guilds_list_web):
     body = await resp.get_json()
     assert body["guilds"][0]["admin_tier_pinned"] is True
     assert "organiser_tier_pinned" not in body["guilds"][0]
+
+
+# ------------------------------------------------- multi_team_category (hub)
+
+async def test_get_includes_the_multi_team_category_and_the_category_names(web):
+    body = await (await web.client.get(f"/api/guilds/{GUILD_ROW_ID}/settings")).get_json()
+    assert body["settings"]["multi_team_category"] == "general"
+    assert body["categories"] == ["General", "Voice"]   # channel-list order
+
+
+async def test_patch_multi_team_category_is_trimmed_and_blank_means_top_level(web):
+    assert (await _patch(web, {"multi_team_category": "  Hunts "})).status_code == 200
+    assert web.settings.multi_team_category == "Hunts"
+    assert (await _patch(web, {"multi_team_category": " "})).status_code == 200
+    assert web.settings.multi_team_category == ""
+
+
+@pytest.mark.parametrize("bad", [None, 3, True, "x" * 101])
+async def test_patch_multi_team_category_rejects_bad(web, bad):
+    resp = await _patch(web, {"multi_team_category": bad})
+    assert resp.status_code == 400
+    assert await resp.get_json() == {"error": "bad_value", "field": "multi_team_category"}
+    assert web.settings.multi_team_category == "general"

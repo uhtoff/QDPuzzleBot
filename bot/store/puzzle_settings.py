@@ -30,6 +30,9 @@ class GuildSettings:
     # The hub's Discord server-template link, canonical https://discord.new/<code>
     # (migration 050). Empty means none set.
     template_link: str = ""
+    # Hub only: the category multi-team hunts' hub channels are made in, created
+    # if missing (migration 055). Empty means top level.
+    multi_team_category: str = "general"
 
     @classmethod
     def import_dict(cls, settings: dict):
@@ -44,6 +47,9 @@ class GuildSettings:
                     setattr(r,attr,utc_date)
             elif attr == "template_link":
                 setattr(r, attr, settings.get(attr) or "")
+            elif attr == "multi_team_category":
+                value = settings.get(attr)
+                setattr(r, attr, "general" if value is None else value)
             else:
                 setattr(r, attr, settings.get(attr, None))
 

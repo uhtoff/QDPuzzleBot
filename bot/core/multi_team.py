@@ -1,7 +1,7 @@
 """Multi-team hunts: several teams' hunts on one hub guild sharing hub channels.
 
 Each multi-team hunt owns two hub channels, found again by a topic marker and
-made at the bottom of the hub category chosen at setup (or uncategorised): a no-spoiler channel every team (and hub admin) can chat in, and a
+made at the bottom of the hub's multi_team_category (or at top level): a no-spoiler channel every team (and hub admin) can chat in, and a
 finishers channel only teams that have completed can see. Their overwrites are
 always rebuilt from the database and applied as a whole dict, so a stale role is
 removed rather than left behind.
@@ -27,8 +27,6 @@ _LOCK = asyncio.Lock()
 _ENSURE_LOCKS: dict[int, asyncio.Lock] = {}
 
 
-# The hub category setup offers by default; the dashboard lets an admin pick another.
-DEFAULT_HUB_CATEGORY = "general"
 # Discord's per-category channel cap; a full category falls back to uncategorised.
 MAX_CATEGORY_CHANNELS = 50
 

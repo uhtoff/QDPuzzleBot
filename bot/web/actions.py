@@ -1770,6 +1770,7 @@ async def change_group_type(tag_group_id):
 _GUILD_SETTINGS_KEYS = {
     "discord_bot_channel", "drive_parent_id", "drive_resources_id",
     "discord_use_voice_channels", "website_url", "template_link",
+    "multi_team_category",
 }
 _GUILD_ROLE_KEYS = {"admin_role_ids", "organiser_role_ids"}
 
@@ -1879,9 +1880,6 @@ async def get_guild_setup(guild_id):
             key=lambda r: r.position, reverse=True)
         hubs.append({"id": str(hub.id), "name": hub.name,
                      "roles": [{"id": str(r.id), "name": r.name} for r in roles],
-                     # for the multi-team hub channels' category picker
-                     "categories": [c.name for c in sorted(hub.categories,
-                                                           key=lambda c: c.position)],
                      "multi_team_hunts": [
                          {"id": m["id"], "name": m["name"], "team_count": int(m["team_count"]),
                           "url": m.get("url") or "", "start_timestamp": m.get("start_timestamp")}
@@ -1913,7 +1911,7 @@ async def get_guild_setup(guild_id):
 
 _SETUP_REQUIRED = {"hub_id", "roster_role_id", "hunt_name", "hunt_url"}
 _SETUP_OPTIONAL = {"start_timestamp", "username", "password", "create_solved_sheet",
-                   "send_invites", "sheet_mode", "multi_team", "hub_category"}
+                   "send_invites", "sheet_mode", "multi_team"}
 
 
 def _snowflake_field(value):
@@ -1961,11 +1959,6 @@ async def post_guild_setup(guild_id):
     for key in ("create_solved_sheet", "send_invites", "multi_team"):
         if not isinstance(body.get(key, False), bool):
             return jsonify({"error": "bad_value", "field": key}), 400
-    # Where a new multi-team hunt's hub channels go; blank = uncategorised.
-    hub_category = body.get("hub_category", multi_team.DEFAULT_HUB_CATEGORY)
-    if not isinstance(hub_category, str) or len(hub_category.strip()) > 100:
-        return jsonify({"error": "bad_value", "field": "hub_category"}), 400
-    hub_category = hub_category.strip()
     sheet_mode = body.get("sheet_mode", "tabs")
     if sheet_mode not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
@@ -1989,7 +1982,6 @@ async def post_guild_setup(guild_id):
         password=body.get("password", ""),
         create_solved_sheet=body.get("create_solved_sheet", False),
         sheet_mode=sheet_mode, multi_team=body.get("multi_team", False),
-        hub_category=hub_category,
         invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
 
     invites = None
@@ -2215,6 +2207,8 @@ async def get_guild_settings(guild_id):
         },
         "tiers": tiers,
         "roles": [{"id": str(r.id), "name": r.name} for r in guild.roles],
+        # Suggestions for multi_team_category, in channel-list order.
+        "categories": [c.name for c in sorted(guild.categories, key=lambda c: c.position)],
         "your_role_ids": sorted(str(i) for i in (your_role_ids or ())),
     })
 
@@ -2267,6 +2261,13 @@ async def patch_guild_settings(guild_id):
             body["template_link"] = canonical
         else:
             body["template_link"] = ""
+
+    # Hub only: where multi-team hunts' channels go (made if missing); "" = top level.
+    if "multi_team_category" in body:
+        raw = body["multi_team_category"]
+        if not isinstance(raw, str) or len(raw.strip()) > 100:
+            return jsonify({"error": "bad_value", "field": "multi_team_category"}), 400
+        body["multi_team_category"] = raw.strip()
 
     # Mirrors !set_admin_roles: pinning admin ids the caller does not hold leaves
     # nobody able to undo it. An EMPTY list is the documented revert-to-names

@@ -32,6 +32,8 @@ export interface GuildSettingsValues {
   discord_use_voice_channels: boolean;
   website_url: string | null;
   template_link: string | null;
+  /** Hub: category for multi-team hunts' channels ("" = top level). */
+  multi_team_category: string;
   admin_role_ids: string[];
   organiser_role_ids: string[];
 }
@@ -41,6 +43,8 @@ export interface GuildSettingsResponse {
   settings: GuildSettingsValues;
   tiers: { admin: GuildTier; organiser: GuildTier };
   roles: GuildRole[];
+  /** This server's category names, in channel-list order. */
+  categories: string[];
   your_role_ids: string[];
 }
 
@@ -404,8 +408,6 @@ export interface SetupStatus {
       url: string;
       start_timestamp: number | null;
     }[];
-    /** The hub's category names, in channel-list order. */
-    categories: string[];
   }[];
 }
 
