@@ -63,10 +63,9 @@ admin hand-makes a "finishers" channel and hand-adds people to it. Two problems:
 
 ## Calls I made (the user can overrule)
 
-- **Who can mark complete:** hub admins only (same tier that can archive to hub).
-- **Where:** a per-team **Mark complete / Mark not complete** control on the hub's Team servers
-  page (running team hunts that belong to a multi-team hunt), plus a matching bang command run
-  in the team server's main hunt channel, per the project's dashboard/command parity rule.
+- **Who can mark complete (user, 2026-11-03):** anyone with the team server's Admin tier
+  (`mod`, pinned by setup) — via a bang command in the team server's main hunt channel and the
+  hunt's own dashboard admin controls — and hub admins from the hub's Team servers page.
   Command names are the builder's call (e.g. `!hunt_complete` / `!hunt_not_complete`).
 - **Undo** removes the team's finishers access and posts nothing.
 - **Archiving counts as finishing:** a team archived to the hub without being marked complete
