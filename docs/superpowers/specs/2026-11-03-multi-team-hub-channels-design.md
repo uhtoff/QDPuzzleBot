@@ -75,8 +75,12 @@ admin hand-makes a "finishers" channel and hand-adds people to it. Two problems:
 - **Mods** = the hub's Admin-tier roles as resolved at channel creation (pinned
   `admin_role_ids`, else name match — the same rule Join uses to grant `mod`). Not re-synced
   if the tier changes later.
-- **Default name** of a new multi-team hunt = the hunt name typed on the setup form; editable
-  there.
+- **Name (user, 2026-11-03):** a multi-team hunt has no name of its own — it is the hunt's
+  name (e.g. every team's server runs "GPH 2026"; the teams differ by hub role). Answering Yes
+  joins the running multi-team hunt on that hub with the same hunt name (case-insensitive), or
+  starts one if there is none. On the dashboard, Yes offers the running ones as a picker that
+  fills in the hunt name (so a typo can't split one hunt into two), or "a new one" using the
+  hunt name typed on the form.
 - **Last team** = no linked team hunt remains un-archived. A linked hunt that is deleted rather
   than archived simply drops out of the count (if that leaves none, the auto-archive runs).
 - **🏁 line:** posted on every change from not-complete to complete (so a re-mark after an
@@ -98,9 +102,9 @@ admin hand-makes a "finishers" channel and hand-adds people to it. Two problems:
 - **Roster role:** a team hunt can only join a multi-team hunt through setup, which always
   records its hub role, so every linked hunt has one; mark complete refuses a hunt without one
   rather than recording a completion that grants nothing.
-- **`!setup_server`:** gains an optional way to say "multi-team, join <name> / new <name>".
-  The exact syntax is the builder's call; it must express both join-existing and create-new,
-  and reject a name that matches nothing when "join" is meant.
+- **`!setup_server`:** a trailing `, multi-team` clause (alongside the existing `, files`)
+  means Yes. The reply says whether it joined an existing multi-team hunt ("joined **GPH 2026**,
+  now 3 teams") or started a new one, so a typo that starts a second one is visible at once.
 
 ## Shape (the parts that are decided)
 
