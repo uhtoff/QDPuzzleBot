@@ -460,13 +460,15 @@ The full [command reference](commands.md) lists every command; highlights:
   fielding more than one team?" on the setup page (or end the `!setup_server` hunt name with
   `, multi-team`). Teams that use the same hunt name join one multi-team hunt, and the hub
   gets two private channels: a **no-spoiler** channel that every team's hub role and the
-  hub Admin roles can see, and a **finishers** channel that only teams marked complete (and
-  hub Admins) can see. Mark a team complete with `!hunt_complete` in its hunt channel, the
+  hub Admin roles can see, and a **finishers** channel that only teams marked complete can see
+  (roles with Discord's Administrator permission see every channel regardless). Mark a team complete with `!hunt_complete` in its hunt channel, the
   **Finished the hunt** switch in the hunt's Admin settings, or the button on Server
   settings → **Team servers**; `!hunt_not_complete` undoes it. Marking complete archives
   nothing. When the last team archives, both channels are condensed into threads on
   `{YYYY-MM} {name} - all teams` and deleted; `!archive_multi_team <hunt name>` or
-  **Archive now** on the Team servers page does it sooner.
+  **Archive now** on the Team servers page does it sooner, but only once every team has
+  archived to the hub. If the last team's hunt was deleted rather than archived, the
+  dashboard group disappears, so use `!archive_multi_team` for that case.
 - **Standing up a new Discord server for a hunt:** follow the
   [new server playbook](new-server-playbook.md) — it covers the two steps nothing in the
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the

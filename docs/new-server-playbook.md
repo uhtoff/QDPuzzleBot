@@ -243,7 +243,9 @@ they're leaving.
 For a multi-team hunt, `!hunt_complete` (hunt channel), the **Finished the hunt** switch or
 the Team servers page marks a team finished and opens the hub's finishers channel to it;
 nothing is archived. When the last team archives, the hub's two channels are condensed into
-`{YYYY-MM} {name} - all teams` (or run `!archive_multi_team <hunt name>` on the hub).
+`{YYYY-MM} {name} - all teams` (or run `!archive_multi_team <hunt name>` on the hub, or **Archive now** on the Team servers
+page; both refuse while a team is still playing. If the last team's hunt was deleted rather
+than archived, only the command works: the dashboard group is gone).
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
 The dashboard does the same: on the team hunt's panel press **Archive hunt**, type the hunt's name

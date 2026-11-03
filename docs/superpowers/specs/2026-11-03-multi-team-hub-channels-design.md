@@ -72,9 +72,9 @@ admin hand-makes a "finishers" channel and hand-adds people to it. Two problems:
   is marked complete as part of the archive (gets finishers access, gets the 🏁 line).
 - **New team joining later:** each later setup that picks the multi-team hunt adds that team's
   hub role to the no-spoiler channel.
-- **Mods** = the hub's Admin-tier roles as resolved at channel creation (pinned
-  `admin_role_ids`, else name match — the same rule Join uses to grant `mod`). Not re-synced
-  if the tier changes later.
+- **Mods** = the hub's Admin-tier roles (pinned `admin_role_ids`, else name match — the same
+  rule Join uses to grant `mod`). Re-resolved every time the channels are ensured, so a tier
+  change is picked up on the next ensure.
 - **Name (user, 2026-11-03):** a multi-team hunt has no name of its own — it is the hunt's
   name (e.g. every team's server runs "GPH 2026"; the teams differ by hub role). Answering Yes
   joins the running multi-team hunt on that hub with the same hunt name (case-insensitive), or
@@ -91,7 +91,12 @@ admin hand-makes a "finishers" channel and hand-adds people to it. Two problems:
 - **Deleted teams and failures:** deleting a team hunt does NOT trigger the auto-archive (no new
   hook in the delete paths). Instead the multi-team hunt gets an admin **Archive now** action
   (Team servers page, plus a command), which also serves as the retry after a failed
-  auto-archive and covers the case where the last team was deleted rather than archived.
+  auto-archive and covers the case where the last team was deleted rather than archived
+  (reached with the command: the dashboard group disappears once no team hunts remain).
+- **Archive now refuses while teams play (controller ruling):** both entrypoints refuse
+  while any member hunt is not archived ("N team(s) are still playing ... archive their
+  servers to the hub first"); the dashboard disables the button. The automatic path only
+  runs once every team has archived.
 - **Hand-deleted or half-made channels:** the live channels are found by a topic marker, like
   `ensure_hub_archive_channel`. A missing channel is recreated (with the right overwrites) the
   next time something needs it (a setup joining, mark complete); the archive step skips a
