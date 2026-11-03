@@ -23,7 +23,14 @@ import type { UseMutationResult } from "@tanstack/react-query";
 
 import { useRunSetup, useSetupStatus } from "../api";
 import { DiscordLine } from "../components/DiscordLine";
-import { buildPayload, canSubmit, emptySetupForm, multiTeamMatch, type SetupForm } from "../lib/setupForm";
+import {
+  buildPayload,
+  canSubmit,
+  emptySetupForm,
+  multiTeamMatch,
+  pickRunningHunt,
+  type SetupForm,
+} from "../lib/setupForm";
 import type { SetupResult, SetupStatus } from "../types";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes } from "../util";
 
@@ -147,7 +154,7 @@ function SetupFormView({
                 key={m.id}
                 size="xs"
                 variant={match?.id === m.id ? "filled" : "light"}
-                onClick={() => set("huntName", m.name)}
+                onClick={() => setForm((f) => pickRunningHunt(f, m))}
               >
                 {m.name} ({teams(m.team_count)})
               </Button>

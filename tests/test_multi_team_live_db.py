@@ -30,10 +30,12 @@ def test_multi_team_storage_against_the_real_schema():
     hunts = []
     mts = []
     try:
-        h1 = _exec("INSERT INTO hunts (name, guild_id, archived, roster_role_id) VALUES (%s, %s, 0, %s)",
-                   ("mt hunt one", guild_row, 5001))
-        h2 = _exec("INSERT INTO hunts (name, guild_id, archived, roster_role_id) VALUES (%s, %s, 0, %s)",
-                   ("mt hunt two", guild_row, 5002))
+        h1 = _exec("INSERT INTO hunts (name, guild_id, archived, roster_role_id, url, "
+                   "start_timestamp) VALUES (%s, %s, 0, %s, %s, %s)",
+                   ("mt hunt one", guild_row, 5001, "https://one.example", 1700000000))
+        h2 = _exec("INSERT INTO hunts (name, guild_id, archived, roster_role_id, url, "
+                   "start_timestamp) VALUES (%s, %s, 0, %s, %s, %s)",
+                   ("mt hunt two", guild_row, 5002, "https://two.example", 1800000000))
         hunts = [h1, h2]
 
         # create / get; two on one hub, created out of name order
@@ -58,6 +60,9 @@ def test_multi_team_storage_against_the_real_schema():
         # running_for_hub: ordered by name, team_count excludes archived hunts
         running = MultiTeamDb.running_for_hub(HUB)
         assert [(r["name"], r["team_count"]) for r in running] == [("Alpha Hunt", 2), ("Zeta Hunt", 0)]
+        # the first team's website and start (for setup to fill in); none without a team
+        assert [(r["url"], r["start_timestamp"]) for r in running] == [
+            ("https://one.example", 1700000000), (None, None)]
         _exec("UPDATE hunts SET archived = 1 WHERE id = %s", (h2,))
         running = MultiTeamDb.running_for_hub(HUB)
         assert [(r["name"], r["team_count"]) for r in running] == [("Alpha Hunt", 1), ("Zeta Hunt", 0)]

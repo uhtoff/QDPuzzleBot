@@ -309,12 +309,16 @@ async def test_files_with_solved_sheet_refused_before_setup(web):
 
 async def test_get_lists_running_multi_team_hunts_per_hub(web):
     web.mdb.running_for_hub.side_effect = lambda hub_id: (
-        [{"id": 3, "name": "GPH 2026", "team_count": 2},
-         {"id": 4, "name": "Other", "team_count": 1}] if hub_id == HUB_A else [])
+        [{"id": 3, "name": "GPH 2026", "team_count": 2,
+          "url": "https://gph.example", "start_timestamp": 1700000000},
+         {"id": 4, "name": "Other", "team_count": 1,
+          "url": None, "start_timestamp": None}] if hub_id == HUB_A else [])
     data = await (await web.client.get(URL)).get_json()
     hub = next(h for h in data["hubs"] if h["id"] == str(HUB_A))
-    assert hub["multi_team_hunts"] == [{"id": 3, "name": "GPH 2026", "team_count": 2},
-                                       {"id": 4, "name": "Other", "team_count": 1}]
+    assert hub["multi_team_hunts"] == [
+        {"id": 3, "name": "GPH 2026", "team_count": 2,
+         "url": "https://gph.example", "start_timestamp": 1700000000},
+        {"id": 4, "name": "Other", "team_count": 1, "url": "", "start_timestamp": None}]
 
 
 async def test_get_existing_reports_the_linked_multi_team_hunt(web):

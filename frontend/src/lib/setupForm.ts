@@ -1,4 +1,4 @@
-import { localToTs } from "../util";
+import { localToTs, tsToLocal } from "../util";
 
 export interface SetupForm {
   hubId: string | null;
@@ -77,6 +77,22 @@ export interface RunningMultiTeam {
   id: number;
   name: string;
   team_count: number;
+  /** The first team's hunt website ("" if none) and start, to fill in for a joiner. */
+  url: string;
+  start_timestamp: number | null;
+}
+
+/** Picking a running multi-team hunt fills in its name, website and start time
+ *  (shown in the form's selected offset); the login stays as typed. A blank
+ *  website or start on the running hunt leaves the form's value alone. */
+export function pickRunningHunt(form: SetupForm, m: RunningMultiTeam): SetupForm {
+  const startLocal = tsToLocal(m.start_timestamp, form.startOffsetMinutes);
+  return {
+    ...form,
+    huntName: m.name,
+    huntUrl: m.url || form.huntUrl,
+    startLocal: startLocal || form.startLocal,
+  };
 }
 
 /** The running multi-team hunt this hunt name would join (the server matches

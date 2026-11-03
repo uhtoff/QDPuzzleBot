@@ -1880,7 +1880,8 @@ async def get_guild_setup(guild_id):
         hubs.append({"id": str(hub.id), "name": hub.name,
                      "roles": [{"id": str(r.id), "name": r.name} for r in roles],
                      "multi_team_hunts": [
-                         {"id": m["id"], "name": m["name"], "team_count": int(m["team_count"])}
+                         {"id": m["id"], "name": m["name"], "team_count": int(m["team_count"]),
+                          "url": m.get("url") or "", "start_timestamp": m.get("start_timestamp")}
                          for m in MultiTeamDb.running_for_hub(hub.id)]})
 
     existing = None

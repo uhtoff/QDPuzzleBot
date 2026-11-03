@@ -487,12 +487,17 @@ class MySQLMultiTeamDb(_MySQLBaseDb):
         return self._fetch_one("SELECT * FROM `multi_team_hunts` WHERE id = %s", (mt_id,))
 
     def running_for_hub(self, hub_guild_id):
-        """Un-archived multi-team hunts on the hub by name, each with team_count:
-        the members whose hunt is not archived."""
+        """Un-archived multi-team hunts on the hub by name, each with team_count
+        (the members whose hunt is not archived) and the first team's hunt url and
+        start_timestamp (None with no team), which setup fills in for a joiner."""
+        first = ("(SELECT h.{col} FROM `multi_team_members` x "
+                 "JOIN `hunts` h ON h.id = x.hunt_id "
+                 "WHERE x.multi_team_id = m.id ORDER BY h.id ASC LIMIT 1) AS {col}")
         return self._fetch_all(
             "SELECT m.*, (SELECT COUNT(*) FROM `multi_team_members` x "
             "JOIN `hunts` h ON h.id = x.hunt_id "
-            "WHERE x.multi_team_id = m.id AND h.archived = 0) AS team_count "
+            "WHERE x.multi_team_id = m.id AND h.archived = 0) AS team_count, "
+            + first.format(col="url") + ", " + first.format(col="start_timestamp") + " "
             "FROM `multi_team_hunts` m "
             "WHERE m.hub_guild_id = %s AND m.archived_time IS NULL "
             "ORDER BY m.name ASC, m.id ASC",

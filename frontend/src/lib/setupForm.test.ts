@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildPayload, canSubmit, emptySetupForm, multiTeamMatch, type SetupForm } from "./setupForm";
+import {
+  buildPayload,
+  canSubmit,
+  emptySetupForm,
+  multiTeamMatch,
+  pickRunningHunt,
+  type SetupForm,
+} from "./setupForm";
 
 const filled = (over: Partial<SetupForm> = {}): SetupForm => ({
   ...emptySetupForm(0),
@@ -88,8 +95,8 @@ describe("buildPayload multi_team", () => {
 
 describe("multiTeamMatch", () => {
   const running = [
-    { id: 1, name: "Puzzle Boat", team_count: 2 },
-    { id: 2, name: "Mystery Hunt 2027", team_count: 3 },
+    { id: 1, name: "Puzzle Boat", team_count: 2, url: "", start_timestamp: null },
+    { id: 2, name: "Mystery Hunt 2027", team_count: 3, url: "", start_timestamp: null },
   ];
 
   it("matches exactly", () => {
@@ -107,5 +114,30 @@ describe("multiTeamMatch", () => {
   });
   it("returns null for an empty list", () => {
     expect(multiTeamMatch("Puzzle Boat", [])).toBeNull();
+  });
+});
+
+describe("pickRunningHunt", () => {
+  const gph = { id: 3, name: "GPH 2026", team_count: 2, url: "https://gph.test",
+                start_timestamp: Date.UTC(2026, 3, 10, 17, 0) / 1000 };
+
+  it("fills the name, website and start (in the form's offset), not the login", () => {
+    const form = filled({ huntName: "", huntUrl: "", startOffsetMinutes: 60,
+                          username: "me", password: "pw" });
+    const next = pickRunningHunt(form, gph);
+    expect(next.huntName).toBe("GPH 2026");
+    expect(next.huntUrl).toBe("https://gph.test");
+    expect(next.startLocal).toBe("2026-04-10T18:00");     // 17:00 UTC in UTC+1
+    expect(next.startOffsetMinutes).toBe(60);
+    expect([next.username, next.password]).toEqual(["me", "pw"]);
+    expect(buildPayload(next).start_timestamp).toBe(gph.start_timestamp);
+  });
+
+  it("keeps what was typed when the running hunt has no website or start", () => {
+    const form = filled({ huntUrl: "https://typed.test", startLocal: "2026-01-01T09:00" });
+    const next = pickRunningHunt(form, { ...gph, url: "", start_timestamp: null });
+    expect(next.huntName).toBe("GPH 2026");
+    expect(next.huntUrl).toBe("https://typed.test");
+    expect(next.startLocal).toBe("2026-01-01T09:00");
   });
 });
