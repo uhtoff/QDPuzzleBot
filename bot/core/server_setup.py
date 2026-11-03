@@ -218,7 +218,8 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
         existing_mt = MultiTeamDb.for_hunt(hunt.id)
         if existing_mt is not None:
             report.steps.append(f"Already part of multi-team hunt **{existing_mt['name']}**.")
-            await multi_team_core.ensure_channels(hub, existing_mt["multi_team_id"])
+            if existing_mt.get("archived_time") is None:
+                await multi_team_core.ensure_channels(hub, existing_mt["multi_team_id"])
         elif multi_team:
             mt_id, created = await multi_team_core.find_or_create(hub, hunt.name)
             MultiTeamDb.link(hunt.id, mt_id)

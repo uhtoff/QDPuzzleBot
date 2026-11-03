@@ -2131,6 +2131,37 @@ async def post_team_hunt_complete(guild_id, uid):
     return resp
 
 
+@actions_bp.route("/guilds/<int:guild_id>/multi-team/<int:mt_id>/archive", methods=["POST"])
+@login_required
+async def post_multi_team_archive(guild_id, mt_id):
+    """Archive a multi-team hunt's hub channels now, as !archive_multi_team does.
+    Admin only (as Server settings). Runs in the background and posts its summary
+    to the hub admin channel."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, hub, _settings = resolved
+    mt = MultiTeamDb.get(mt_id)
+    if mt is None or int(mt["hub_guild_id"]) != hub.id or mt["archived_time"] is not None:
+        return jsonify({"error": "multi_team_not_found"}), 404
+    body = await request.get_json(silent=True) or {}
+    if body.get("confirm_name") != mt["name"]:
+        return jsonify({"error": "confirm_mismatch"}), 400
+
+    from bot.core import hub_channel
+
+    async def _run():
+        summary = await multi_team.archive_multi_team(bot_app().bot, hub, mt_id)
+        await hub_channel.post(hub, summary)
+
+    task = asyncio.create_task(_run())
+    _ARCHIVE_TASKS.add(task)
+    task.add_done_callback(_ARCHIVE_TASKS.discard)
+    await _audit("multi_team_archive", detail=f"hub={hub.id} multi_team={mt_id}")
+    return jsonify({"ok": True, "started": True}), 202
+
+
 @actions_bp.route("/guilds/<int:guild_id>/settings", methods=["GET"])
 @login_required
 async def get_guild_settings(guild_id):

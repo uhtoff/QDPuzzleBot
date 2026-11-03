@@ -5,7 +5,7 @@ import logging
 
 import discord
 
-from bot.core import hunt_archive
+from bot.core import hunt_archive, multi_team
 from bot.core.locks import puzzles_lock
 from bot.store import PuzzleJsonDb
 
@@ -79,6 +79,12 @@ async def run_archive_to_hub(bot, service, guild, hunt, invoker, hub, hub_row, *
                     await status_channel.send(summary)
                 except discord.HTTPException:
                     pass
+            if not report.failures:
+                try:
+                    await multi_team.on_team_archived(bot, hunt)
+                except Exception:
+                    logger.exception("archive_hunt_to_hub: multi-team follow-up failed for hunt %s",
+                                     hunt.id)
             return report
     except Exception:
         logger.exception("archive_hunt_to_hub: run failed for hunt %s", getattr(hunt, "id", None))

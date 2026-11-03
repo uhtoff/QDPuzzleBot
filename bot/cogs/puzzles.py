@@ -14,7 +14,7 @@ from bot.utils import urls
 from bot.utils import config
 from bot.store import PuzzleData, PuzzleJsonDb, GuildSettings, GuildSettingsDb, \
     TagGroupJsonDb, HuntData, HuntJsonDb, TagGroupCategoryDb, HuntCategoryDb, \
-    resolve_group, MediaJsonDb, CanvasJsonDb
+    resolve_group, MediaJsonDb, CanvasJsonDb, MultiTeamDb
 from bot.store.puzzle_data import AdditionalSheetData
 from bot.utils.chunking import (
     FIELD_NAME_LIMIT,
@@ -4277,6 +4277,28 @@ class Puzzles(commands.Cog):
             return
         await run_archive_to_hub(self.bot, self.service, ctx.guild, hunt, ctx.author,
                                  hub, hub_row, status_channel=ctx)
+
+    @commands.command()
+    @commands.guild_only()
+    @is_admin()
+    async def archive_multi_team(self, ctx, *, name: str):
+        """*Condense a multi-team hunt's hub channels into one archive channel now.*
+
+        Usage: `!archive_multi_team <hunt name>`
+        Example: `!archive_multi_team Mystery Hunt 2027`
+        Run on the hub, in the bot channel. Moves the no-spoiler and finishers
+        channels into threads on one "all teams" archive channel and deletes them.
+        This happens by itself when the last team archives; use this to do it
+        sooner, or to retry after a failure. Admins/mods only. The dashboard has
+        the same action in Server settings."""
+        if not (await self.check_is_bot_channel(ctx)):
+            return
+        row = MultiTeamDb.running_by_name(ctx.guild.id, name)
+        if row is None:
+            await ctx.send(f":x: No running multi-team hunt called **{name}** on this server.")
+            return
+        await ctx.send("⏳ Archiving…")
+        await ctx.send(await multi_team.archive_multi_team(self.bot, ctx.guild, row["id"]))
 
     @commands.command()
     @commands.guild_only()
