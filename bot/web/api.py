@@ -150,7 +150,8 @@ async def hunt_detail(uid):
             # A team hunt (tied to a hub role); the role id itself stays server-side.
             "is_team_hunt": bool(hunt.get("roster_role_id")),
             # Set when the hunt is one team of a multi-team hunt on a hub.
-            "multi_team": ({"name": mt["name"], "completed": mt["completed_time"] is not None}
+            "multi_team": ({"name": mt["name"], "completed": mt["completed_time"] is not None,
+                            "archived": mt["archived_time"] is not None}
                            if mt is not None else None),
             "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,

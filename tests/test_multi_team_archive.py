@@ -126,7 +126,8 @@ async def test_archive_with_both_channels_gone_still_marks_archived(env):
     assert env.calls == []
     env.ensure.assert_not_awaited()
     assert env.db.marked == [MT_ID]
-    assert summary.startswith(":white_check_mark:")
+    assert summary == ("Nothing left to archive for the multi-team hunt **Big Hunt**; "
+                       "marked it archived.")
 
 
 async def test_archive_of_an_already_archived_row_does_nothing(env):
@@ -251,6 +252,21 @@ async def test_hub_resolved_from_the_bot_when_the_role_is_gone(team):
     team.archive.assert_awaited_once_with(team.bot, other_hub, MT_ID)
 
 
+async def test_a_raising_complete_does_not_stop_the_archive(env):
+    env.complete.side_effect = RuntimeError("hub down")
+    await multi_team.on_team_archived(env.bot, _hunt())
+    assert env.db.marked == [MT_ID]
+    assert "Archived the multi-team hunt" in env.post.await_args.args[1]
+
+
+async def test_a_failed_archive_summary_is_posted_to_the_hub(env):
+    env.ensure.side_effect = RuntimeError("discord down")
+    await multi_team.on_team_archived(env.bot, _hunt())
+    assert env.db.marked == []
+    assert env.post.await_args.args[0] is env.hub
+    assert env.post.await_args.args[1].startswith(":x: Archiving the multi-team hunt")
+
+
 async def test_nothing_propagates(team):
     team.archive.side_effect = RuntimeError("boom")
     await multi_team.on_team_archived(team.bot, _hunt())  # must not raise
@@ -303,6 +319,31 @@ async def test_a_raising_hook_leaves_the_runner_result_and_posts_unchanged():
     assert all("failed" not in c.args[0] for c in ch.send.await_args_list)
 
 
+# ------------------------------------------------- Archive now: teams still playing
+async def test_guard_refuses_while_a_member_is_live(env):
+    env.db.members_list[1]["archived"] = 0
+    with pytest.raises(MultiTeamRefused) as exc:
+        multi_team.ensure_no_teams_playing(MT_ID)
+    assert str(exc.value) == ("1 team(s) are still playing **Big Hunt** — "
+                              "archive their servers to the hub first.")
+
+
+async def test_guard_counts_every_live_member(env):
+    env.db.members_list[0]["archived"] = 0
+    env.db.members_list[1]["archived"] = 0
+    with pytest.raises(MultiTeamRefused, match="2 team"):
+        multi_team.ensure_no_teams_playing(MT_ID)
+
+
+async def test_guard_allows_when_all_members_archived(env):
+    multi_team.ensure_no_teams_playing(MT_ID)
+
+
+async def test_guard_allows_when_only_archived_members_remain(env):
+    del env.db.members_list[1]  # a deleted team drops out via cascade
+    multi_team.ensure_no_teams_playing(MT_ID)
+
+
 # ------------------------------------------------------------- Archive now: command
 def _no_mentions(call):
     am = call.kwargs.get("allowed_mentions")
@@ -319,6 +360,7 @@ async def test_command_archives_and_replies():
     cog.check_is_bot_channel = AsyncMock(return_value=True)
     ctx.guild.id = HUB_ID
     with patch("bot.cogs.puzzles.MultiTeamDb") as db, \
+         patch("bot.cogs.puzzles.multi_team.ensure_no_teams_playing"), \
          patch("bot.cogs.puzzles.multi_team.archive_multi_team",
                AsyncMock(return_value="DONE")) as arch:
         db.running_by_name.return_value = ROW
@@ -326,6 +368,23 @@ async def test_command_archives_and_replies():
     db.running_by_name.assert_called_once_with(HUB_ID, "big hunt")
     arch.assert_awaited_once_with(cog.bot, ctx.guild, MT_ID)
     assert [c.args[0] for c in ctx.send.await_args_list] == ["⏳ Archiving…", "DONE"]
+    assert all(_no_mentions(c) for c in ctx.send.await_args_list)
+
+
+async def test_command_refuses_while_a_team_is_still_playing():
+    from bot.cogs.puzzles import Puzzles
+    cog, ctx = make_cog(), make_ctx()
+    cog.bot = MagicMock()
+    cog.check_is_bot_channel = AsyncMock(return_value=True)
+    text = "1 team(s) are still playing **Big Hunt** — archive their servers to the hub first."
+    with patch("bot.cogs.puzzles.MultiTeamDb") as db, \
+         patch("bot.cogs.puzzles.multi_team.ensure_no_teams_playing",
+               side_effect=MultiTeamRefused(text)), \
+         patch("bot.cogs.puzzles.multi_team.archive_multi_team", AsyncMock()) as arch:
+        db.running_by_name.return_value = ROW
+        await Puzzles.archive_multi_team.callback(cog, ctx, name="Big Hunt")
+    arch.assert_not_awaited()
+    assert [c.args[0] for c in ctx.send.await_args_list] == [":x: " + text]
     assert all(_no_mentions(c) for c in ctx.send.await_args_list)
 
 
@@ -366,7 +425,7 @@ def web():
     db.get.return_value = dict(ROW)
     state = SimpleNamespace(require_admin=AsyncMock(return_value=None), hub=hub, db=db,
                             audit=AsyncMock(), post=AsyncMock(),
-                            archive=AsyncMock(return_value="DONE"), bot=bot)
+                            archive=AsyncMock(return_value="DONE"), guard=MagicMock(), bot=bot)
     app = make_web_app("actions", cog=MagicMock())
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
@@ -378,6 +437,7 @@ def web():
         patch("bot.web.actions.MultiTeamDb", db),
         patch("bot.web.actions._audit", state.audit),
         patch("bot.web.actions.multi_team.archive_multi_team", state.archive),
+        patch("bot.web.actions.multi_team.ensure_no_teams_playing", state.guard),
         patch("bot.core.hub_channel.post", state.post),
     ]
     start_patches(patches)
@@ -429,3 +489,13 @@ async def test_route_starts_the_archive_in_the_background_and_posts_the_summary(
     am = web.post.await_args.kwargs["allowed_mentions"]
     assert (am.everyone, am.users, am.roles) == (False, False, False)
     assert web.audit.await_args.args[0] == "multi_team_archive"
+
+
+async def test_route_refuses_while_a_team_is_still_playing(web):
+    text = "1 team(s) are still playing **Big Hunt** — archive their servers to the hub first."
+    web.guard.side_effect = MultiTeamRefused(text)
+    resp = await web.client.post(URL, json={"confirm_name": "Big Hunt"})
+    assert resp.status_code == 409
+    assert await resp.get_json() == {"error": "teams_still_playing", "message": text}
+    web.archive.assert_not_awaited()
+    web.guard.assert_called_once_with(MT_ID)

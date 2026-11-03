@@ -2148,6 +2148,10 @@ async def post_multi_team_archive(guild_id, mt_id):
     body = await request.get_json(silent=True) or {}
     if body.get("confirm_name") != mt["name"]:
         return jsonify({"error": "confirm_mismatch"}), 400
+    try:
+        multi_team.ensure_no_teams_playing(mt_id)
+    except multi_team.MultiTeamRefused as exc:
+        return jsonify({"error": "teams_still_playing", "message": str(exc)}), 409
 
     from bot.core import hub_channel
 

@@ -144,6 +144,9 @@ async def set_complete(bot, hunt, complete: bool) -> CompleteOutcome:
 
     team = role.name
     if not MultiTeamDb.set_completed(hunt.id, complete):
+        # No change, but still rebuild the channels: a retry after an earlier hub
+        # failure must repair the overwrites. Nothing is announced.
+        await ensure_channels(role.guild, link["multi_team_id"])
         return CompleteOutcome(
             False, f"**{team}** is already complete." if complete
             else f"**{team}** isn't marked complete.")
@@ -167,6 +170,20 @@ def _find_live(hub, stored_id, marker):
     return channel
 
 
+def ensure_no_teams_playing(mt_id) -> None:
+    """Raise MultiTeamRefused if any member's hunt is not yet archived. Archive now
+    (command and route) calls this first; the automatic path only runs once every
+    team has archived, so archive_multi_team itself does not."""
+    mt = MultiTeamDb.get(mt_id)
+    if mt is None:
+        raise LookupError(f"no multi-team hunt {mt_id}")
+    live = sum(1 for m in MultiTeamDb.members(mt_id) if not m["archived"])
+    if live:
+        raise MultiTeamRefused(
+            f"{live} team(s) are still playing **{mt['name']}** \u2014 "
+            "archive their servers to the hub first.")
+
+
 async def archive_multi_team(bot, hub, mt_id) -> str:
     """Condense the hunt's two hub channels into threads on one archive channel and
     delete them, then mark the multi-team hunt archived. Returns the summary line;
@@ -187,22 +204,23 @@ async def archive_multi_team(bot, hub, mt_id) -> str:
                  "Finishers"),
             ]
             sources = [(ch, thread) for ch, thread in sources if ch is not None]
+            if not sources:
+                MultiTeamDb.mark_archived(mt_id)
+                return (f"Nothing left to archive for the multi-team hunt **{name}**; "
+                        "marked it archived.")
             dest_name = f"{mt['created_at']:%Y-%m} {name} - all teams"
-            dest = None
             channels = messages = 0
-            if sources:
-                dest = await hunt_archive.ensure_tagged_channel(
-                    hub, archive_marker(mt_id), dest_name)
-                webhook = await hunt_archive.ensure_webhook(dest)
-                for source, thread in sources:
-                    result = await hunt_archive.archive_and_delete_channel(
-                        bot, dest, webhook, source, thread_name=thread)
-                    channels += 1
-                    messages += result.messages_moved
+            dest = await hunt_archive.ensure_tagged_channel(
+                hub, archive_marker(mt_id), dest_name)
+            webhook = await hunt_archive.ensure_webhook(dest)
+            for source, thread in sources:
+                result = await hunt_archive.archive_and_delete_channel(
+                    bot, dest, webhook, source, thread_name=thread)
+                channels += 1
+                messages += result.messages_moved
             MultiTeamDb.mark_archived(mt_id)
-            shown = dest.name if dest is not None else dest_name
             return (f":white_check_mark: Archived the multi-team hunt **{name}** into "
-                    f"**{shown}** \u2014 {channels} channel(s), {messages} message(s) moved.")
+                    f"**{dest.name}** \u2014 {channels} channel(s), {messages} message(s) moved.")
     except Exception:
         logger.exception("archive_multi_team(%s) failed", mt_id)
         return (f":x: Archiving the multi-team hunt **{name}** failed \u2014 the error has "
@@ -221,6 +239,8 @@ async def on_team_archived(bot, hunt) -> None:
             await set_complete(bot, hunt, True)
         except MultiTeamRefused as exc:
             logger.info("on_team_archived: hunt %s not marked complete: %s", hunt.id, exc)
+        except Exception:
+            logger.exception("on_team_archived: marking hunt %s complete failed", hunt.id)
         mt_id = link["multi_team_id"]
         if not all(m["archived"] for m in MultiTeamDb.members(mt_id)):
             return

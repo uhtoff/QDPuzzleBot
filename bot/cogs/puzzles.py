@@ -903,20 +903,22 @@ class Puzzles(commands.Cog):
 
     async def _set_hunt_complete(self, ctx, complete: bool):
         if self.get_channel_type(ctx) != "Hunt":
-            await ctx.send(":x: This command must be done from the main Hunt channel")
+            await ctx.send(":x: This command must be done from the main Hunt channel",
+                           allowed_mentions=discord.AllowedMentions.none())
             return
         hunt = self.get_hunt(ctx)
         assert hunt is not None  # Hunt channel checked above
         try:
             outcome = await multi_team.set_complete(self.bot, hunt, complete)
         except multi_team.MultiTeamRefused as exc:
-            await ctx.send(f":x: {exc}")
+            await ctx.send(f":x: {exc}", allowed_mentions=discord.AllowedMentions.none())
             return
         except Exception:
             logger.exception("set_complete(%s) failed for hunt %s", complete, hunt.id)
-            await ctx.send(":x: Couldn't update the hub channels \u2014 the error has been logged.")
+            await ctx.send(":x: Couldn't update the hub channels \u2014 the error has been logged.",
+                           allowed_mentions=discord.AllowedMentions.none())
             return
-        await ctx.send(outcome.message)
+        await ctx.send(outcome.message, allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command()
     @is_admin()
@@ -4290,13 +4292,18 @@ class Puzzles(commands.Cog):
         channels into threads on one "all teams" archive channel and deletes them.
         This happens by itself when the last team archives; use this to do it
         sooner, or to retry after a failure. Admins/mods only. The dashboard has
-        the same action in Server settings."""
+        the same action on the Team servers page."""
         if not (await self.check_is_bot_channel(ctx)):
             return
         row = MultiTeamDb.running_by_name(ctx.guild.id, name)
         if row is None:
             await ctx.send(f":x: No running multi-team hunt called **{name}** on this server.",
                            allowed_mentions=discord.AllowedMentions.none())
+            return
+        try:
+            multi_team.ensure_no_teams_playing(row["id"])
+        except multi_team.MultiTeamRefused as exc:
+            await ctx.send(f":x: {exc}", allowed_mentions=discord.AllowedMentions.none())
             return
         await ctx.send("⏳ Archiving…", allowed_mentions=discord.AllowedMentions.none())
         await ctx.send(await multi_team.archive_multi_team(self.bot, ctx.guild, row["id"]),

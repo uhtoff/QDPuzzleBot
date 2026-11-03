@@ -92,7 +92,35 @@ async def test_repeat_complete_is_noop(env):
     assert out.changed is False
     assert out.message == "**Team A** is already complete."
     fin.send.assert_not_awaited()
-    fin.edit.assert_not_awaited()
+    # a retry still repairs the overwrites (an earlier hub failure may have lost them)
+    assert _actual(fin.edit.await_args.kwargs["overwrites"]) == _expect(env.hub, [10])
+
+
+async def test_repeat_complete_repairs_a_missing_finishers_overwrite(env):
+    _wire_send(env)
+    await multi_team.set_complete(env.bot, _hunt(), True)
+    fin = env.hub.created[1][0]
+    fin.send.reset_mock()
+    fin.edit.reset_mock()
+    out = await multi_team.set_complete(env.bot, _hunt(), True)
+    assert out.changed is False
+    fin.send.assert_not_awaited()
+    fin.edit.assert_awaited_once()
+    assert _actual(fin.edit.await_args.kwargs["overwrites"]) == _expect(env.hub, [10])
+
+
+async def test_repeat_undo_removes_a_stale_overwrite(env):
+    _wire_send(env)
+    await multi_team.set_complete(env.bot, _hunt(), True)
+    await multi_team.set_complete(env.bot, _hunt(), False)
+    fin = env.hub.created[1][0]
+    fin.send.reset_mock()
+    fin.edit.reset_mock()
+    out = await multi_team.set_complete(env.bot, _hunt(), False)
+    assert out.changed is False
+    assert out.message == "**Team A** isn't marked complete."
+    fin.send.assert_not_awaited()
+    assert _actual(fin.edit.await_args.kwargs["overwrites"]) == _expect(env.hub, [])
 
 
 async def test_undo_removes_overwrite_without_post(env):
@@ -112,7 +140,8 @@ async def test_undo_when_not_complete_is_noop(env):
     out = await multi_team.set_complete(env.bot, _hunt(), False)
     assert out.changed is False
     assert out.message == "**Team A** isn't marked complete."
-    env.hub.create_text_channel.assert_not_awaited()
+    fin = env.hub.created[1][0]
+    fin.send.assert_not_awaited()
 
 
 async def test_recomplete_posts_again(env):

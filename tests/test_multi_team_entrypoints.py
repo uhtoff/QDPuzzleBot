@@ -24,6 +24,11 @@ def _mt_cog(hunt, channel_type="Hunt"):
     return cog
 
 
+def _mt_no_mentions(call):
+    am = call.kwargs.get("allowed_mentions")
+    return am is not None and (am.everyone, am.users, am.roles) == (False, False, False)
+
+
 def _mt_said(ctx):
     return "\n".join(c.args[0] for c in ctx.send.await_args_list)
 
@@ -39,6 +44,7 @@ async def test_command_relays_outcome_and_passes_the_right_flag(name, flag):
         await getattr(Puzzles, name).callback(cog, ctx)
     sc.assert_awaited_once_with(cog.bot, hunt, flag)
     assert _mt_said(ctx) == OUTCOME.message
+    assert all(_mt_no_mentions(c) for c in ctx.send.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -50,6 +56,7 @@ async def test_command_outside_hunt_channel_is_refused(name):
         await getattr(Puzzles, name).callback(cog, ctx)
     sc.assert_not_awaited()
     assert _mt_said(ctx) == ":x: This command must be done from the main Hunt channel"
+    assert all(_mt_no_mentions(c) for c in ctx.send.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -60,6 +67,7 @@ async def test_command_relays_a_refusal():
                AsyncMock(side_effect=multi_team.MultiTeamRefused("Not a multi-team hunt."))):
         await Puzzles.hunt_complete.callback(cog, ctx)
     assert _mt_said(ctx) == ":x: Not a multi-team hunt."
+    assert all(_mt_no_mentions(c) for c in ctx.send.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -72,6 +80,7 @@ async def test_command_logs_and_reports_an_unexpected_error():
     said = _mt_said(ctx)
     assert said == ":x: Couldn't update the hub channels — the error has been logged."
     assert "boom" not in said
+    assert all(_mt_no_mentions(c) for c in ctx.send.await_args_list)
 
 
 # ------------------------------------------------------------- team-hunt route
@@ -288,10 +297,11 @@ async def _detail_payload(link):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("completed", [True, False])
-async def test_hunt_payload_carries_multi_team(completed):
-    hunt = await _detail_payload(_mt_link(completed))
-    assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": completed}
+@pytest.mark.parametrize("completed,archived", [(True, False), (False, False), (True, True)])
+async def test_hunt_payload_carries_multi_team(completed, archived):
+    hunt = await _detail_payload(_mt_link(completed, archived=archived))
+    assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": completed,
+                                  "archived": archived}
 
 
 @pytest.mark.asyncio
