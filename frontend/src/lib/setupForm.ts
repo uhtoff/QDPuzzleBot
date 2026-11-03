@@ -13,6 +13,8 @@ export interface SetupForm {
   filesMode: boolean;
   sendInvites: boolean;
   multiTeam: boolean;
+  /** Hub category for a new multi-team hunt's channels; blank = none. */
+  hubCategory: string;
 }
 
 export interface SetupPayload {
@@ -27,6 +29,7 @@ export interface SetupPayload {
   sheet_mode?: "files";
   send_invites: boolean;
   multi_team?: true;
+  hub_category?: string;
 }
 
 export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
@@ -42,6 +45,7 @@ export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
   filesMode: false,
   sendInvites: false,
   multiTeam: false,
+  hubCategory: "general",
 });
 
 /** The POST body: strings trimmed, empty optionals left out, the start time
@@ -63,7 +67,10 @@ export function buildPayload(form: SetupForm): SetupPayload {
   // A files hunt has no solved spreadsheet, so the two never go out together.
   if (form.filesMode) payload.sheet_mode = "files";
   else if (form.createSolvedSheet) payload.create_solved_sheet = true;
-  if (form.multiTeam) payload.multi_team = true;
+  if (form.multiTeam) {
+    payload.multi_team = true;
+    payload.hub_category = form.hubCategory.trim();
+  }
   return payload;
 }
 

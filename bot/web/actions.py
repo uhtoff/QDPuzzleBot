@@ -1879,6 +1879,9 @@ async def get_guild_setup(guild_id):
             key=lambda r: r.position, reverse=True)
         hubs.append({"id": str(hub.id), "name": hub.name,
                      "roles": [{"id": str(r.id), "name": r.name} for r in roles],
+                     # for the multi-team hub channels' category picker
+                     "categories": [c.name for c in sorted(hub.categories,
+                                                           key=lambda c: c.position)],
                      "multi_team_hunts": [
                          {"id": m["id"], "name": m["name"], "team_count": int(m["team_count"]),
                           "url": m.get("url") or "", "start_timestamp": m.get("start_timestamp")}
@@ -1910,7 +1913,7 @@ async def get_guild_setup(guild_id):
 
 _SETUP_REQUIRED = {"hub_id", "roster_role_id", "hunt_name", "hunt_url"}
 _SETUP_OPTIONAL = {"start_timestamp", "username", "password", "create_solved_sheet",
-                   "send_invites", "sheet_mode", "multi_team"}
+                   "send_invites", "sheet_mode", "multi_team", "hub_category"}
 
 
 def _snowflake_field(value):
@@ -1958,6 +1961,11 @@ async def post_guild_setup(guild_id):
     for key in ("create_solved_sheet", "send_invites", "multi_team"):
         if not isinstance(body.get(key, False), bool):
             return jsonify({"error": "bad_value", "field": key}), 400
+    # Where a new multi-team hunt's hub channels go; blank = uncategorised.
+    hub_category = body.get("hub_category", multi_team.DEFAULT_HUB_CATEGORY)
+    if not isinstance(hub_category, str) or len(hub_category.strip()) > 100:
+        return jsonify({"error": "bad_value", "field": "hub_category"}), 400
+    hub_category = hub_category.strip()
     sheet_mode = body.get("sheet_mode", "tabs")
     if sheet_mode not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
@@ -1981,6 +1989,7 @@ async def post_guild_setup(guild_id):
         password=body.get("password", ""),
         create_solved_sheet=body.get("create_solved_sheet", False),
         sheet_mode=sheet_mode, multi_team=body.get("multi_team", False),
+        hub_category=hub_category,
         invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
 
     invites = None

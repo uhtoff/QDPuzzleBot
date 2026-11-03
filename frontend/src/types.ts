@@ -397,7 +397,15 @@ export interface SetupStatus {
     id: string;
     name: string;
     roles: { id: string; name: string }[];
-    multi_team_hunts: { id: number; name: string; team_count: number; url: string; start_timestamp: number | null }[];
+    multi_team_hunts: {
+      id: number;
+      name: string;
+      team_count: number;
+      url: string;
+      start_timestamp: number | null;
+    }[];
+    /** The hub's category names, in channel-list order. */
+    categories: string[];
   }[];
 }
 

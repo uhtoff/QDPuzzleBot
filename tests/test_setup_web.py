@@ -22,6 +22,7 @@ def _role(i, name, position, managed=False, default=False):
 def _guild(i, name, owner_id=99, roles=()):
     g = MagicMock()
     g.id, g.name, g.owner_id, g.roles = i, name, owner_id, list(roles)
+    g.categories = []
     return g
 
 
@@ -195,8 +196,8 @@ async def test_post_runs_perform_setup_with_fields(web):
     assert args[4:] == (HUB_A, 12, "MH", "https://mh.example")
     assert kwargs == {"start_timestamp": 1700000000, "username": "u", "password": "p",
                       "create_solved_sheet": True, "sheet_mode": "tabs",
-                      "multi_team": False, "invites_by_dashboard": False,
-                      "via_dashboard": True}
+                      "multi_team": False, "hub_category": "general",
+                      "invites_by_dashboard": False, "via_dashboard": True}
 
 
 async def test_retry_finishes_a_partial_setup(web):
@@ -344,4 +345,27 @@ async def test_post_rejects_a_non_bool_multi_team(web, bad):
     resp = await web.client.post(URL, json={**BODY, "multi_team": bad})
     assert resp.status_code == 400
     assert await resp.get_json() == {"error": "bad_value", "field": "multi_team"}
+    web.perform.assert_not_awaited()
+
+
+async def test_get_lists_each_hubs_categories_in_channel_order(web):
+    web.hub_a.categories = [SimpleNamespace(id=2, name="Voice", position=3),
+                            SimpleNamespace(id=1, name="General", position=0)]
+    data = await (await web.client.get(URL)).get_json()
+    hub = next(h for h in data["hubs"] if h["id"] == str(HUB_A))
+    assert hub["categories"] == ["General", "Voice"]
+
+
+async def test_post_passes_the_hub_category_through(web):
+    await web.client.post(URL, json={**BODY, "multi_team": True, "hub_category": " Hunts "})
+    assert web.perform.await_args.kwargs["hub_category"] == "Hunts"
+    await web.client.post(URL, json={**BODY, "multi_team": True, "hub_category": ""})
+    assert web.perform.await_args.kwargs["hub_category"] == ""
+
+
+@pytest.mark.parametrize("bad", [None, 3, True, "x" * 101])
+async def test_post_rejects_a_bad_hub_category(web, bad):
+    resp = await web.client.post(URL, json={**BODY, "hub_category": bad})
+    assert resp.status_code == 400
+    assert await resp.get_json() == {"error": "bad_value", "field": "hub_category"}
     web.perform.assert_not_awaited()

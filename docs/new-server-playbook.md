@@ -211,7 +211,9 @@ server now (running hunts only), who was invited but hasn't arrived, and the acc
    If several teams are fielding this hunt, answer **Yes** to "Are we fielding more than
    one team?" on the setup page, or end the hunt name with `, multi-team` in the command
    (`... Big Hunt, multi-team`). Use the same hunt name on every team's server: the first
-   starts the multi-team hunt on the hub, the rest join it. The hub bot needs Manage
+   starts the multi-team hunt on the hub, the rest join it. The first also picks the hub
+   category its two channels go in ("general" by default, made if missing; the command
+   always uses "general"). The hub bot needs Manage
    Channels and Manage Roles (permission overwrites) on the hub to create the no-spoiler
    and finishers channels; setup reports a step that fails for want of them, and re-running
    retries it.

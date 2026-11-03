@@ -1,7 +1,7 @@
 """Multi-team hunts: several teams' hunts on one hub guild sharing hub channels.
 
-Each multi-team hunt owns two uncategorised hub channels, found again by a topic
-marker: a no-spoiler channel every team (and hub admin) can chat in, and a
+Each multi-team hunt owns two hub channels, found again by a topic marker and
+made at the bottom of the hub category chosen at setup (or uncategorised): a no-spoiler channel every team (and hub admin) can chat in, and a
 finishers channel only teams that have completed can see. Their overwrites are
 always rebuilt from the database and applied as a whole dict, so a stale role is
 removed rather than left behind.
@@ -25,6 +25,12 @@ _LOCK = asyncio.Lock()
 # One lock per multi-team hunt: ensure_channels awaits Discord between scanning
 # and creating, so concurrent calls would each create a pair and race on edits.
 _ENSURE_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+# The hub category setup offers by default; the dashboard lets an admin pick another.
+DEFAULT_HUB_CATEGORY = "general"
+# Discord's per-category channel cap; a full category falls back to uncategorised.
+MAX_CATEGORY_CHANNELS = 50
 
 
 class MultiTeamRefused(Exception):
@@ -70,16 +76,39 @@ def _overwrites(hub, role_ids, mt_id):
     return out
 
 
-async def _ensure_one(hub, stored_id, marker, name, overwrites):
+async def resolve_category(hub, name):
+    """The hub category called *name* (trimmed, case-insensitive), created if the
+    hub has none; None for a blank name (uncategorised)."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    found = next((c for c in hub.categories if c.name.lower() == name.lower()), None)
+    return found if found is not None else await hub.create_category(name[:100])
+
+
+def _category_with_room(hub, category_id):
+    """The stored hub category, or None if unset, deleted or full."""
+    category = hub.get_channel(category_id) if category_id else None
+    if category is None or len(category.channels) >= MAX_CATEGORY_CHANNELS:
+        return None
+    return category
+
+
+async def _ensure_one(hub, stored_id, marker, name, overwrites, category=None):
     """The channel tagged *marker* (stored id first, then a topic scan), its
-    overwrites replaced by *overwrites*; created uncategorised if absent."""
+    overwrites replaced by *overwrites*; created if absent, at the bottom of
+    *category* when given. An existing channel is never moved, so an admin's
+    placement sticks. The overwrites are the channel's own, never synced from
+    the category, so a category can't widen who sees finishers."""
     channel = hub.get_channel(stored_id) if stored_id else None
     if channel is not None and channel.topic != marker:
         channel = None
     if channel is None:
         channel = next((c for c in hub.text_channels if c.topic == marker), None)
     if channel is None:
-        return await hub.create_text_channel(name[:100], topic=marker, overwrites=overwrites)
+        where = {"category": category} if category is not None else {}
+        return await hub.create_text_channel(name[:100], topic=marker, overwrites=overwrites,
+                                             **where)
     await channel.edit(overwrites=overwrites)
     return channel
 
@@ -99,23 +128,29 @@ async def ensure_channels(hub, mt_id):
         done_ids = [m["roster_role_id"] for m in members if m["completed_time"] is not None]
 
         slug = clean_channel_name(mt["name"])
+        category = _category_with_room(hub, mt.get("hub_category_id"))
         ns = await _ensure_one(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id),
                                f"{slug}-no-spoilers",
-                               _overwrites(hub, team_ids + admin_ids, mt_id))
+                               _overwrites(hub, team_ids + admin_ids, mt_id), category)
+        category = _category_with_room(hub, mt.get("hub_category_id"))
         fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
-                                f"{slug}-finishers", _overwrites(hub, done_ids, mt_id))
+                                f"{slug}-finishers", _overwrites(hub, done_ids, mt_id), category)
         MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
         return ns, fin
 
 
-async def find_or_create(hub, hunt_name):
+async def find_or_create(hub, hunt_name, category_name=""):
     """(multi-team id, created) for the running multi-team hunt named *hunt_name*
-    on *hub* (case-insensitive), creating it if there is none."""
+    on *hub* (case-insensitive), creating it if there is none. A new one's hub
+    channels go in the category *category_name* (see resolve_category); joining a
+    running one keeps where its channels already are."""
     async with _LOCK:
         row = MultiTeamDb.running_by_name(hub.id, hunt_name)
         if row is not None:
             return row["id"], False
-        return MultiTeamDb.create(hub.id, hunt_name), True
+        category = await resolve_category(hub, category_name)
+        return MultiTeamDb.create(hub.id, hunt_name,
+                                  category.id if category is not None else None), True
 
 
 @dataclass

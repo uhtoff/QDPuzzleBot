@@ -472,13 +472,13 @@ class MySQLMultiTeamDb(_MySQLBaseDb):
     guild that share hub channels and a combined archive. Datetimes are naive UTC."""
     TABLE_NAME = 'multi_team_hunts'
 
-    def create(self, hub_guild_id, name):
+    def create(self, hub_guild_id, name, hub_category_id=None):
         now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
-                "INSERT INTO `multi_team_hunts` (hub_guild_id, name, created_at) "
-                "VALUES (%s, %s, %s)", (hub_guild_id, name, now))
+                "INSERT INTO `multi_team_hunts` (hub_guild_id, name, hub_category_id, created_at) "
+                "VALUES (%s, %s, %s, %s)", (hub_guild_id, name, hub_category_id, now))
             return cursor.lastrowid
         finally:
             cursor.close()

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   Alert,
   Anchor,
+  Autocomplete,
   Button,
   Center,
   Collapse,
@@ -90,6 +91,14 @@ function SetupFormView({
   const running = hub?.multi_team_hunts ?? [];
   const match = multiTeamMatch(form.huntName, running);
   const teams = (n: number) => `${n} ${n === 1 ? "team" : "teams"}`;
+  // Where a new multi-team hunt's no-spoiler and finishers channels go on the hub.
+  const categories = hub?.categories ?? [];
+  const wantedCategory = form.hubCategory.trim();
+  const categoryHint = !wantedCategory
+    ? "The no-spoiler and finishers channels go at the top level of the hub."
+    : categories.some((c) => c.toLowerCase() === wantedCategory.toLowerCase())
+      ? "The no-spoiler and finishers channels go at the bottom of this category."
+      : `The hub has no "${wantedCategory}" category; it will be made.`;
 
   return (
     <Stack gap="md" maw={560}>
@@ -177,6 +186,16 @@ function SetupFormView({
         <Text size="sm">
           This starts a new multi-team hunt called <strong>{form.huntName.trim()}</strong>.
         </Text>
+      )}
+      {form.multiTeam && !match && (
+        <Autocomplete
+          label="Hub category"
+          description={categoryHint}
+          placeholder="No category"
+          data={categories}
+          value={form.hubCategory}
+          onChange={(v) => set("hubCategory", v)}
+        />
       )}
       <TextInput
         label="Hunt website"

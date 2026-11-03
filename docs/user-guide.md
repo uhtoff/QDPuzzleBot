@@ -461,7 +461,9 @@ The full [command reference](commands.md) lists every command; highlights:
   `, multi-team`). Teams that use the same hunt name join one multi-team hunt, and the hub
   gets two private channels: a **no-spoiler** channel that every team's hub role and the
   hub Admin roles can see, and a **finishers** channel that only teams marked complete can see
-  (roles with Discord's Administrator permission see every channel regardless). Mark a team complete with `!hunt_complete` in its hunt channel, the
+  (roles with Discord's Administrator permission see every channel regardless). The two
+  channels go at the bottom of the hub's **general** category (made if the hub has none);
+  the setup page lets you pick another category, or none, when starting a new one. Mark a team complete with `!hunt_complete` in its hunt channel, the
   **Finished the hunt** switch in the hunt's Admin settings, or the button on Server
   settings → **Team servers**; `!hunt_not_complete` undoes it. Marking complete archives
   nothing. When the last team archives, both channels are condensed into threads on

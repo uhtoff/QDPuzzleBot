@@ -86,6 +86,14 @@ describe("canSubmit", () => {
 });
 
 describe("buildPayload multi_team", () => {
+  it("sends the hub category (trimmed, blank allowed) only with multi_team", () => {
+    expect(buildPayload(filled({ multiTeam: true })).hub_category).toBe("general");
+    expect(buildPayload(filled({ multiTeam: true, hubCategory: "  Hunts " })).hub_category)
+      .toBe("Hunts");
+    expect(buildPayload(filled({ multiTeam: true, hubCategory: " " })).hub_category).toBe("");
+    expect("hub_category" in buildPayload(filled({ hubCategory: "Hunts" }))).toBe(false);
+  });
+
   it("sends multi_team: true only when set", () => {
     expect(buildPayload(filled({ multiTeam: true }))).toMatchObject({ multi_team: true });
     expect("multi_team" in buildPayload(filled({ multiTeam: false }))).toBe(false);

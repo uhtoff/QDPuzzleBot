@@ -1,5 +1,5 @@
 """Multi-team hunt storage against the real schema (LIVE puzzlebot_test; needs
-migration 053). Raw inserts, torn down in finally, as tests/test_access_log_live_db.py."""
+migrations 053-054). Raw inserts, torn down in finally, as tests/test_access_log_live_db.py."""
 import pytest
 
 from bot.store import MultiTeamDb, mydb
@@ -47,6 +47,12 @@ def test_multi_team_storage_against_the_real_schema():
         assert row["name"] == "Alpha Hunt" and row["hub_guild_id"] == HUB
         assert row["no_spoiler_channel_id"] is None and row["finishers_channel_id"] is None
         assert row["archived_time"] is None and row["created_at"] is not None
+        assert row["hub_category_id"] is None
+        placed = MultiTeamDb.create(HUB, "Placed Hunt", 880000000000000001)
+        mts.append(placed)
+        assert MultiTeamDb.get(placed)["hub_category_id"] == 880000000000000001
+        _exec("DELETE FROM multi_team_hunts WHERE id = %s", (placed,))
+        mts.remove(placed)
         assert MultiTeamDb.get(alpha + 1000000) is None
 
         # link: h1, h2 -> alpha; none -> zeta

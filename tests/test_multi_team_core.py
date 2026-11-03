@@ -27,10 +27,12 @@ class FakeMtDb:
         self.create_calls = 0
         self.channels = None
         self.next_id = 1
+        self.category_id = None
 
     def get(self, mt_id):
         return {"id": mt_id, "name": self.name, "hub_guild_id": HUB_ID,
-                "no_spoiler_channel_id": None, "finishers_channel_id": None}
+                "no_spoiler_channel_id": None, "finishers_channel_id": None,
+                "hub_category_id": self.category_id}
 
     def members(self, mt_id):
         return self.members_list
@@ -44,11 +46,11 @@ class FakeMtDb:
                 return row
         return None
 
-    def create(self, hub_guild_id, name):
+    def create(self, hub_guild_id, name, hub_category_id=None):
         self.create_calls += 1
         mt_id = self.next_id
         self.next_id += 1
-        self.rows[mt_id] = {"id": mt_id, "name": name}
+        self.rows[mt_id] = {"id": mt_id, "name": name, "hub_category_id": hub_category_id}
         return mt_id
 
 
@@ -241,3 +243,78 @@ async def test_find_or_create_is_case_insensitive():
     assert created1 is True and created2 is False
     assert again == first
     assert d.create_calls == 1
+
+
+# ------------------------------------------------------------ hub category
+
+def _category(cid, name, n_channels=0):
+    c = MagicMock()
+    c.id = cid
+    c.name = name
+    c.channels = [MagicMock() for _ in range(n_channels)]
+    return c
+
+
+async def test_channels_are_created_in_the_stored_hub_category(db, roles):
+    general = _category(300, "general", n_channels=3)
+    db.category_id = 300
+    hub = _hub(roles)
+    hub.get_channel.side_effect = lambda cid: general if cid == 300 else None
+    await multi_team.ensure_channels(hub, MT_ID)
+    (_, kw1), (_, kw2) = hub.created
+    assert kw1["category"] is general and kw2["category"] is general
+    # explicit overwrites still set on the channel itself (no category sync)
+    assert _actual(kw2["overwrites"]) == _expect(hub, [])
+
+
+@pytest.mark.parametrize("stored,present", [(300, False), (300, "full")])
+async def test_a_gone_or_full_category_falls_back_to_uncategorised(db, roles, stored, present):
+    full = _category(300, "general", n_channels=multi_team.MAX_CATEGORY_CHANNELS)
+    db.category_id = stored
+    hub = _hub(roles)
+    hub.get_channel.side_effect = lambda cid: full if (present and cid == 300) else None
+    await multi_team.ensure_channels(hub, MT_ID)
+    assert all("category" not in kw for _, kw in hub.created)
+
+
+def _cat_hub(categories):
+    hub = MagicMock()
+    hub.id = HUB_ID
+    hub.categories = list(categories)
+
+    async def create_category(name, **kw):
+        c = _category(400, name)
+        hub.categories.append(c)
+        return c
+    hub.create_category = AsyncMock(side_effect=create_category)
+    return hub
+
+
+async def test_find_or_create_uses_an_existing_category_case_insensitively():
+    d = FakeMtDb()
+    hub = _cat_hub([_category(300, "General"), _category(301, "Voice")])
+    with patch("bot.core.multi_team.MultiTeamDb", d):
+        mt_id, created = await multi_team.find_or_create(hub, "Big Hunt", "general")
+    assert created is True
+    assert d.rows[mt_id]["hub_category_id"] == 300
+    hub.create_category.assert_not_awaited()
+
+
+async def test_find_or_create_makes_a_missing_category():
+    d = FakeMtDb()
+    hub = _cat_hub([_category(300, "general")])
+    with patch("bot.core.multi_team.MultiTeamDb", d):
+        mt_id, _ = await multi_team.find_or_create(hub, "Big Hunt", "  Hunts  ")
+    hub.create_category.assert_awaited_once_with("Hunts")
+    assert d.rows[mt_id]["hub_category_id"] == 400
+
+
+async def test_find_or_create_blank_category_is_uncategorised_and_joining_ignores_it():
+    d = FakeMtDb()
+    hub = _cat_hub([])
+    with patch("bot.core.multi_team.MultiTeamDb", d):
+        mt_id, _ = await multi_team.find_or_create(hub, "Big Hunt", " ")
+        again, created = await multi_team.find_or_create(hub, "big hunt", "Elsewhere")
+    assert d.rows[mt_id]["hub_category_id"] is None
+    assert (again, created) == (mt_id, False)
+    hub.create_category.assert_not_awaited()
