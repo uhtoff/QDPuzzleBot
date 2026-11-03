@@ -1,4 +1,5 @@
 import { notifications } from "@mantine/notifications";
+import { DiscordLine } from "./DiscordLine";
 import {
   Alert,
   Badge,
@@ -170,7 +171,7 @@ export function AdminSettingsPanel({
     completeMut.mutate(complete, {
       onSuccess: (r) => {
         setCompleteConfirmOpen(false);
-        notifications.show({ message: r.message, color: "green" });
+        notifications.show({ message: <DiscordLine line={r.message} />, color: "green" });
       },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });

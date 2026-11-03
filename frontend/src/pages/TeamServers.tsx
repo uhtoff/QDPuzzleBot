@@ -16,6 +16,7 @@ import {
   Title,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
+import { DiscordLine } from "../components/DiscordLine";
 
 import {
   useAdminGuilds,
@@ -150,7 +151,7 @@ function HuntItem({
       {
         onSuccess: (r) => {
           setConfirmOpen(false);
-          notifications.show({ message: r.message, color: "green" });
+          notifications.show({ message: <DiscordLine line={r.message} />, color: "green" });
         },
         onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
       },

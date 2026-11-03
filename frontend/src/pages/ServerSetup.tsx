@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   Alert,
-  Code,
   Anchor,
   Button,
   Center,
@@ -23,7 +22,7 @@ import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { useRunSetup, useSetupStatus } from "../api";
-import { discordSpans } from "../lib/discordText";
+import { DiscordLine } from "../components/DiscordLine";
 import { buildPayload, canSubmit, emptySetupForm, multiTeamMatch, type SetupForm } from "../lib/setupForm";
 import type { SetupResult, SetupStatus } from "../types";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes } from "../util";
@@ -40,22 +39,6 @@ function initialForm(status: SetupStatus): SetupForm {
     form.multiTeam = ex.multi_team !== null;
   }
   return form;
-}
-
-function DiscordLine({ line }: { line: string }) {
-  return (
-    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-      {discordSpans(line).map((span, i) =>
-        span.kind === "bold" ? (
-          <strong key={i}>{span.text}</strong>
-        ) : span.kind === "code" ? (
-          <Code key={i}>{span.text}</Code>
-        ) : (
-          <span key={i}>{span.text}</span>
-        ),
-      )}
-    </Text>
-  );
 }
 
 // The lines already carry the outcome (":white_check_mark: Setup complete…" or
