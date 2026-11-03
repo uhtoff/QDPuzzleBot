@@ -15,7 +15,7 @@ import discord
 from bot.store import MultiTeamDb
 from bot.core import hub_channel, hunt_archive, role_gate, role_panel
 from bot.core.constants import ADMIN_ROLES
-from bot.core.discord_channels import clean_channel_name
+from bot.core.discord_channels import clean_channel_name, resolve_category, with_room
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,6 @@ _LOCK = asyncio.Lock()
 # and creating, so concurrent calls would each create a pair and race on edits.
 _ENSURE_LOCKS: dict[int, asyncio.Lock] = {}
 
-
-# Discord's per-category channel cap; a full category falls back to uncategorised.
-MAX_CATEGORY_CHANNELS = 50
 
 
 class MultiTeamRefused(Exception):
@@ -74,22 +71,9 @@ def _overwrites(hub, role_ids, mt_id):
     return out
 
 
-async def resolve_category(hub, name):
-    """The hub category called *name* (trimmed, case-insensitive), created if the
-    hub has none; None for a blank name (uncategorised)."""
-    name = (name or "").strip()
-    if not name:
-        return None
-    found = next((c for c in hub.categories if c.name.lower() == name.lower()), None)
-    return found if found is not None else await hub.create_category(name[:100])
-
-
 def _category_with_room(hub, category_id):
     """The stored hub category, or None if unset, deleted or full."""
-    category = hub.get_channel(category_id) if category_id else None
-    if category is None or len(category.channels) >= MAX_CATEGORY_CHANNELS:
-        return None
-    return category
+    return with_room(hub.get_channel(category_id) if category_id else None)
 
 
 async def _ensure_one(hub, stored_id, marker, name, overwrites, category=None):

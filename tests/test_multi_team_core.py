@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.core import multi_team
+from bot.core.discord_channels import MAX_CATEGORY_CHANNELS
 
 HUB_ID = 1000
 MT_ID = 7
@@ -269,7 +270,7 @@ async def test_channels_are_created_in_the_stored_hub_category(db, roles):
 
 @pytest.mark.parametrize("stored,present", [(300, False), (300, "full")])
 async def test_a_gone_or_full_category_falls_back_to_uncategorised(db, roles, stored, present):
-    full = _category(300, "general", n_channels=multi_team.MAX_CATEGORY_CHANNELS)
+    full = _category(300, "general", n_channels=MAX_CATEGORY_CHANNELS)
     db.category_id = stored
     hub = _hub(roles)
     hub.get_channel.side_effect = lambda cid: full if (present and cid == 300) else None

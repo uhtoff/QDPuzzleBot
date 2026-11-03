@@ -118,3 +118,24 @@ async def get_or_create_channel(
 
     return (channel, created)
 
+
+
+# Discord's per-category channel cap; a full category falls back to top level.
+MAX_CATEGORY_CHANNELS = 50
+
+
+async def resolve_category(guild, name):
+    """The category called *name* (trimmed, case-insensitive), created if the
+    guild has none; None for a blank name (top level)."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    found = next((c for c in guild.categories if c.name.lower() == name.lower()), None)
+    return found if found is not None else await guild.create_category(name[:100])
+
+
+def with_room(category):
+    """*category* if it can take another channel, else None (also for None)."""
+    if category is None or len(category.channels) >= MAX_CATEGORY_CHANNELS:
+        return None
+    return category
