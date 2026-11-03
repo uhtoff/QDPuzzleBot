@@ -23,6 +23,7 @@ import {
   IconFileSpreadsheet,
   IconTrash,
 } from "@tabler/icons-react";
+import { MarkCompleteModal } from "./MarkCompleteModal";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
 import { useArchiveHunt, useCompleteHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
@@ -39,7 +40,7 @@ interface AdminSettingsPanelProps {
   puzzle_prefix: string;
   archived: boolean;
   isTeamHunt: boolean;
-  multiTeam: { name: string; completed: boolean } | null;
+  multiTeam: { name: string; completed: boolean; archived: boolean } | null;
   hasSolvedSheet: boolean;
   sheetMode: "tabs" | "files";
   puzzleCount: number;
@@ -74,6 +75,7 @@ export function AdminSettingsPanel({
   const navigate = useNavigate();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const settingsMut = useUpdateHuntSettings(uid);
@@ -166,7 +168,10 @@ export function AdminSettingsPanel({
 
   const handleToggleComplete = (complete: boolean) => {
     completeMut.mutate(complete, {
-      onSuccess: (r) => notifications.show({ message: r.message, color: "green" }),
+      onSuccess: (r) => {
+        setCompleteConfirmOpen(false);
+        notifications.show({ message: r.message, color: "green" });
+      },
       onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
     });
   };
@@ -340,8 +345,22 @@ export function AdminSettingsPanel({
             label="Finished the hunt"
             description={`Part of the multi-team hunt ${multiTeam.name}.`}
             checked={multiTeam.completed}
-            disabled={archived || completeMut.isPending}
-            onChange={(e) => handleToggleComplete(e.currentTarget.checked)}
+            disabled={archived || multiTeam.archived || completeMut.isPending}
+            onChange={(e) => {
+              // Marking complete opens spoilers to the team, so it needs a confirm;
+              // undoing it does not.
+              if (e.currentTarget.checked) setCompleteConfirmOpen(true);
+              else handleToggleComplete(false);
+            }}
+          />
+        )}
+        {multiTeam && (
+          <MarkCompleteModal
+            opened={completeConfirmOpen}
+            team={huntName}
+            loading={completeMut.isPending}
+            onClose={() => setCompleteConfirmOpen(false)}
+            onConfirm={() => handleToggleComplete(true)}
           />
         )}
 

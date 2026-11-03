@@ -17,3 +17,11 @@ describe("friendlyError sheet-mode slugs", () => {
     expect(friendlyError({ error: "something_new" }, 500)).toBe("something_new");
   });
 });
+
+describe("friendlyError teams_still_playing", () => {
+  it("shows the server's message, with a fallback", () => {
+    const msg = "2 team(s) are still playing **Big Hunt** — archive their servers to the hub first.";
+    expect(friendlyError({ error: "teams_still_playing", message: msg }, 409)).toBe(msg);
+    expect(friendlyError({ error: "teams_still_playing" }, 409)).toMatch(/archive their servers/);
+  });
+});

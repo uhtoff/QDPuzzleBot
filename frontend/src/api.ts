@@ -120,6 +120,8 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return d.message || "The hub server isn't available to you.";
     case "confirm_mismatch":
       return "That doesn't match the hunt's name.";
+    case "teams_still_playing":
+      return d.message || "Teams are still playing — archive their servers to the hub first.";
     case "refused":
       return d.message || "That isn't possible right now.";
     case "hub_update_failed":

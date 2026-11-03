@@ -24,6 +24,7 @@ import {
   useTeamHunt,
   useTeamHunts,
 } from "../api";
+import { MarkCompleteModal } from "../components/MarkCompleteModal";
 import { TypedConfirmModal } from "../components/TypedConfirmModal";
 import { historyLine } from "../lib/accessHistory";
 import type { TeamHuntSummary } from "../types";
@@ -137,6 +138,7 @@ function HuntItem({
   open: string | null;
 }) {
   const completeMut = useCompleteTeamHunt(guildId);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const mt = hunt.multi_team;
   // Controls only on a running team of a multi-team hunt that is still live.
   const showComplete = mt !== null && !mt.archived && !hunt.archived;
@@ -146,7 +148,10 @@ function HuntItem({
     completeMut.mutate(
       { uid: hunt.uid, complete: !mt.completed },
       {
-        onSuccess: (r) => notifications.show({ message: r.message, color: "green" }),
+        onSuccess: (r) => {
+          setConfirmOpen(false);
+          notifications.show({ message: r.message, color: "green" });
+        },
         onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
       },
     );
@@ -174,7 +179,9 @@ function HuntItem({
             size="xs"
             variant="light"
             mx="sm"
-            onClick={toggle}
+            // Marking complete opens spoilers to the team, so it needs a confirm;
+            // undoing it does not.
+            onClick={() => (mt.completed ? toggle() : setConfirmOpen(true))}
             loading={completeMut.isPending}
           >
             {mt.completed ? "Mark not complete" : "Mark complete"}
@@ -184,6 +191,13 @@ function HuntItem({
       <Accordion.Panel>
         {open === hunt.uid && <HuntDetail guildId={guildId} hunt={hunt} />}
       </Accordion.Panel>
+      <MarkCompleteModal
+        opened={confirmOpen}
+        team={hunt.team ?? hunt.name}
+        loading={completeMut.isPending}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={toggle}
+      />
     </Accordion.Item>
   );
 }
@@ -203,6 +217,8 @@ function MultiTeamGroup({
   const archiveMut = useArchiveMultiTeam(guildId);
   // Teams already archived don't count towards the heading's "N teams".
   const running = group.hunts.filter((h) => !h.archived).length;
+  // The server refuses Archive now while any team is live; mirror that here.
+  const teamsPlaying = running > 0;
   const heading = group.archived
     ? group.name
     : `${group.name} (${teamsLabel(running)})`;
@@ -212,15 +228,23 @@ function MultiTeamGroup({
       <Group justify="space-between">
         <Title order={4}>{heading}</Title>
         {!group.archived && (
-          <Button
-            size="xs"
-            color="red"
-            variant="light"
-            onClick={() => setConfirmOpen(true)}
-            loading={archiveMut.isPending}
-          >
-            Archive now
-          </Button>
+          <Group gap="xs">
+            {teamsPlaying && (
+              <Text size="xs" c="dimmed">
+                Available once every team has archived to the hub
+              </Text>
+            )}
+            <Button
+              size="xs"
+              color="red"
+              variant="light"
+              onClick={() => setConfirmOpen(true)}
+              loading={archiveMut.isPending}
+              disabled={teamsPlaying}
+            >
+              Archive now
+            </Button>
+          </Group>
         )}
       </Group>
       {archiveMut.isSuccess && (
@@ -258,8 +282,8 @@ function MultiTeamGroup({
         loading={archiveMut.isPending}
       >
         <Text size="sm" c="red">
-          This archives every team&apos;s server for {group.name} and the hub&apos;s
-          channels for it. It cannot be undone.
+          This moves the no-spoiler and finishers channels for {group.name} into one
+          archive channel on the hub and deletes them. Team servers are not touched.
         </Text>
       </TypedConfirmModal>
     </Stack>
