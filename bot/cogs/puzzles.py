@@ -4201,11 +4201,16 @@ class Puzzles(commands.Cog):
         Usage: `!archive_hunt`
         Example: `!archive_hunt`
         Run in any channel of the hunt. Admins/mods only. Asks to confirm, then runs
-        unattended. Google sheets are kept.
+        unattended. Google sheets are kept. On a team server made by !setup_server
+        this is !archive_hunt_to_hub: the hunt is archived onto its hub.
         Bang-only: no web-dashboard equivalent, by design."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
+            return
+        if getattr(hunt, "roster_role_id", None):
+            # Only !setup_server records a hub role, so this is a team server.
+            await self._archive_to_hub(ctx, None)
             return
         if getattr(hunt, "layout_mode", "") == "forum":
             await ctx.send(":x: !archive_hunt is not available for forum hunts yet")
@@ -4250,6 +4255,10 @@ class Puzzles(commands.Cog):
         moves the hunt to the hub on the dashboard, and removes the bot from this
         server if no other hunt uses it. Asks to confirm. Google sheets are kept.
         The dashboard has the same action on the hunt's admin panel ("Archive to hub")."""
+        await self._archive_to_hub(ctx, hub_id)
+
+    async def _archive_to_hub(self, ctx, hub_id: Optional[int]):
+        """!archive_hunt_to_hub's body; !archive_hunt runs it on a team server."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")

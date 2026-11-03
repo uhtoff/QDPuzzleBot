@@ -487,8 +487,8 @@ The full [command reference](commands.md) lists every command; highlights:
   update, run `!reconcile apply` once to add them.
 - **After the hunt:** `!archive_hunt` condenses every channel into threads under one
   channel, deletes the categories, and marks the hunt archived (sheets are kept). For a
-  hunt played on its own team server, `!archive_hunt_to_hub <hub server id>` does the same
-  but lands the threads on the hub and then removes the bot from the team server; on the
+  hunt played on its own team server, `!archive_hunt` (or `!archive_hunt_to_hub`) does the
+  same but lands the threads on the hub and then removes the bot from the team server; on the
   dashboard, a team hunt's **Archive hunt** button does the same (type the hunt's name to
   confirm). `!archive_round` / `!archive_channel` do the same for smaller scopes. Apart
   from archiving a team hunt to its hub, these are Discord-only clean-ups and

@@ -14,6 +14,7 @@ def _hunt():
     h.start_time = None
     h.channel_id = 60
     h.layout_mode = "channel"
+    h.roster_role_id = None   # not a team-server hunt (a bare Mock attr would be truthy)
     return h
 
 
@@ -67,3 +68,26 @@ async def test_archive_hunt_locks_member_puzzles():
         lock_mock.return_value.__aexit__ = AsyncMock(return_value=None)
         await Puzzles.archive_hunt.callback(cog, ctx)
     lock_mock.assert_called_once_with([3, 1])
+
+
+async def test_archive_hunt_on_a_team_server_archives_to_the_hub():
+    """A hunt made by !setup_server (it has a hub role) archives onto its hub:
+    !archive_hunt is !archive_hunt_to_hub there, never an in-place archive."""
+    hunt = _hunt()
+    hunt.roster_role_id = 777
+    cog = make_cog(hunt=hunt)
+    cog.service.archive_hunt = AsyncMock()
+    ctx = make_ctx()
+    with patch.object(cog, "_archive_to_hub", new=AsyncMock()) as to_hub, \
+         patch.object(cog, "_confirm_destructive", new=AsyncMock(return_value=True)):
+        await Puzzles.archive_hunt.callback(cog, ctx)
+    to_hub.assert_awaited_once_with(ctx, None)
+    cog.service.archive_hunt.assert_not_awaited()
+
+
+async def test_archive_hunt_to_hub_command_delegates_with_its_hub_id():
+    cog = make_cog(hunt=_hunt())
+    ctx = make_ctx()
+    with patch.object(cog, "_archive_to_hub", new=AsyncMock()) as to_hub:
+        await Puzzles.archive_hunt_to_hub.callback(cog, ctx, 1000)
+    to_hub.assert_awaited_once_with(ctx, 1000)
