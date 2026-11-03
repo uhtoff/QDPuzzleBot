@@ -161,4 +161,3 @@ The 31 backend warnings are the existing `datetime.datetime.utcnow()` deprecatio
 2. Add the frontend CI job.
 3. Align the declared and tested Python runtime.
 4. Make CI exercise `migrate.py` and declare basedpyright in the development manifest.
-

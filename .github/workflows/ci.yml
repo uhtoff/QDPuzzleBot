@@ -5,6 +5,11 @@ on:
     branches: ["**"]
   pull_request:
 
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

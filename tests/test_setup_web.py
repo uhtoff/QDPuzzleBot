@@ -73,7 +73,7 @@ def web():
 
     cog = MagicMock()
     audit = AsyncMock()
-    state = SimpleNamespace(audit=audit, mdb=mdb, 
+    state = SimpleNamespace(audit=audit, mdb=mdb,
         bot=bot, team=team, hub_a=hub_a, sdb=sdb, hdb=hdb, cog=cog,
         perform=AsyncMock(), send=AsyncMock(), problems=MagicMock(return_value=[]),
         roles=lambda: None)
@@ -345,4 +345,3 @@ async def test_post_rejects_a_non_bool_multi_team(web, bad):
     assert resp.status_code == 400
     assert await resp.get_json() == {"error": "bad_value", "field": "multi_team"}
     web.perform.assert_not_awaited()
-
