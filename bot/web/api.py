@@ -17,7 +17,7 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
-from bot.core import role_gate
+from bot.core import role_gate, role_panel
 from bot.store import MultiTeamDb
 from bot.core.sheet_location import drive_folder_link, spreadsheet_link
 from bot.utils import config
@@ -140,6 +140,10 @@ async def hunt_detail(uid):
             gating_role_name = _role.name
     from bot.core.puzzle_service import CREATE_META_TYPES
     mt = MultiTeamDb.for_hunt(hunt["id"])
+    # The team's name is its hub role's (every team in a multi-team hunt shares
+    # the hunt name); None if the bot can no longer see that role.
+    roster = (role_panel.find_roster_role(bot_app().bot, hunt["roster_role_id"])
+              if mt is not None and hunt.get("roster_role_id") else None)
     return jsonify({
         "hunt": {
             "uid": hunt["uid"],
@@ -151,7 +155,8 @@ async def hunt_detail(uid):
             "is_team_hunt": bool(hunt.get("roster_role_id")),
             # Set when the hunt is one team of a multi-team hunt on a hub.
             "multi_team": ({"name": mt["name"], "completed": mt["completed_time"] is not None,
-                            "archived": mt["archived_time"] is not None}
+                            "archived": mt["archived_time"] is not None,
+                            "team": roster.name if roster is not None else None}
                            if mt is not None else None),
             "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,

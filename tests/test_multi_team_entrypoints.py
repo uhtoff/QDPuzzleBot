@@ -268,7 +268,7 @@ def _mt_link(completed, archived=None):
             "archived_time": datetime.datetime(2026, 10, 2) if archived else None}
 
 
-async def _detail_payload(link):
+async def _detail_payload(link, roster_role=SimpleNamespace(name="Team Rocket")):
     app = make_web_app("api", cog=MagicMock())
     bot_app = MagicMock()
     bot_app.return_value.bot.get_guild.return_value = None
@@ -287,6 +287,7 @@ async def _detail_payload(link):
         patch("bot.web.api.user_can_manage", AsyncMock(return_value=False)),
         patch("bot.web.api.bot_app", bot_app),
         patch("bot.web.api.MultiTeamDb", MagicMock(for_hunt=MagicMock(return_value=link))),
+        patch("bot.web.api.role_panel.find_roster_role", MagicMock(return_value=roster_role)),
     ]
     start_patches(patches)
     try:
@@ -301,7 +302,14 @@ async def _detail_payload(link):
 async def test_hunt_payload_carries_multi_team(completed, archived):
     hunt = await _detail_payload(_mt_link(completed, archived=archived))
     assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": completed,
-                                  "archived": archived}
+                                  "archived": archived, "team": "Team Rocket"}
+
+
+@pytest.mark.asyncio
+async def test_hunt_payload_team_is_null_when_the_hub_role_is_gone():
+    hunt = await _detail_payload(_mt_link(False), roster_role=None)
+    assert hunt["multi_team"] == {"name": "Mystery 2027", "completed": False,
+                                  "archived": False, "team": None}
 
 
 @pytest.mark.asyncio

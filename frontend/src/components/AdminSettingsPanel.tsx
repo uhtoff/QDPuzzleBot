@@ -40,7 +40,7 @@ interface AdminSettingsPanelProps {
   puzzle_prefix: string;
   archived: boolean;
   isTeamHunt: boolean;
-  multiTeam: { name: string; completed: boolean; archived: boolean } | null;
+  multiTeam: { name: string; completed: boolean; archived: boolean; team: string | null } | null;
   hasSolvedSheet: boolean;
   sheetMode: "tabs" | "files";
   puzzleCount: number;
@@ -357,7 +357,7 @@ export function AdminSettingsPanel({
         {multiTeam && (
           <MarkCompleteModal
             opened={completeConfirmOpen}
-            team={huntName}
+            team={multiTeam.team ?? huntName}
             loading={completeMut.isPending}
             onClose={() => setCompleteConfirmOpen(false)}
             onConfirm={() => handleToggleComplete(true)}

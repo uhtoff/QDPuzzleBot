@@ -175,7 +175,7 @@ export interface HuntDetail {
     archived: boolean;
     is_gated: boolean;
     is_team_hunt: boolean;
-    multi_team: { name: string; completed: boolean; archived: boolean } | null;
+    multi_team: { name: string; completed: boolean; archived: boolean; team: string | null } | null;
     role_name: string | null;
     guild_snowflake: string | null;
     sheet_url: string | null;
