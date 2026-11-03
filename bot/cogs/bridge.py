@@ -338,11 +338,11 @@ def _embeds_json(raw_embeds) -> str | None:
 
 def _parse_iso(value):
     if not value:
-        return datetime.datetime.utcnow().replace(microsecond=0)
+        return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).replace(microsecond=0)
     try:
         return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
     except Exception:
-        return datetime.datetime.utcnow().replace(microsecond=0)
+        return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).replace(microsecond=0)
 
 
 async def setup(bot):

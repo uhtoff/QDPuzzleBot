@@ -127,7 +127,7 @@ def test_old_unreferenced_media_is_orphaned():
 def test_media_within_the_grace_period_is_never_orphaned():
     """media_ingest inserts the row BEFORE the caller attaches it, so a young
     unreferenced row is indistinguishable from an upload still in flight."""
-    fresh = _insert_media(created_at=datetime.datetime.utcnow())
+    fresh = _insert_media(created_at=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None))
     old = _insert_media()
     try:
         ids = _orphan_ids()
@@ -377,7 +377,7 @@ def test_sweep_uses_the_grace_period_cutoff(swept):
 
     hunt_id, cutoff = db.get_orphaned.call_args.args
     assert hunt_id == 10
-    age = datetime.datetime.utcnow() - cutoff
+    age = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - cutoff
     assert media_gc.GRACE_PERIOD <= age < media_gc.GRACE_PERIOD + datetime.timedelta(minutes=1)
 
 

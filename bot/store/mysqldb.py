@@ -1206,7 +1206,7 @@ class MySQLEvidenceDb(_MySQLBaseDb):
         source_sheet_id names a hunt-level working sheet as the provenance;
         source_region_id names a region drawn on a canvas.
         """
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
@@ -1331,7 +1331,7 @@ class MySQLMediaDb(_MySQLBaseDb):
         cheap header read, and the frontend needs them to lay out a viewport
         before any bytes arrive.
         """
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
@@ -1432,7 +1432,7 @@ class MySQLHuntCanvasDb(_MySQLBaseDb):
 
     def create(self, hunt_id: int, media_id: int, name: str,
                note=None) -> 'HuntCanvasData':
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
@@ -1488,7 +1488,7 @@ class MySQLCanvasRegionDb(_MySQLBaseDb):
 
     def create(self, canvas_id: int, shape: str, label: str = "", note=None,
                puzzle_id=None, role=None, crop_media_id=None) -> 'CanvasRegionData':
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
@@ -1564,7 +1564,7 @@ class MySQLPuzzleImageDb(_MySQLBaseDb):
 
     def create(self, puzzle_id: int, media_id: int, source_region_id=None,
                position: int = 0) -> 'PuzzleImageData':
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(
@@ -1635,7 +1635,7 @@ class MySQLMediaMarkupDb(_MySQLBaseDb):
 
     def create(self, media_id: int, kind: str, shape: str, style: str,
                text=None) -> 'MediaMarkupData':
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         cursor = self.mydb.dict_cursor()
         try:
             cursor.execute(

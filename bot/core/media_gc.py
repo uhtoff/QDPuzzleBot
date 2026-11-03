@@ -68,7 +68,7 @@ def tiles_relpath_root(hunt_id: int) -> str:
 
 def orphaned_media(hunt_id: int) -> list:
     """The hunt's sweepable media: unreferenced and past the grace period."""
-    cutoff = datetime.datetime.utcnow() - GRACE_PERIOD
+    cutoff = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - GRACE_PERIOD
     return MediaJsonDb.get_orphaned(hunt_id, cutoff)
 
 
