@@ -90,6 +90,9 @@ function SetupFormView({
   const running = hub?.multi_team_hunts ?? [];
   const match = multiTeamMatch(form.huntName, running);
   const teams = (n: number) => `${n} ${n === 1 ? "team" : "teams"}`;
+  // A retry reuses the hunt as created, so its own fields would be ignored if edited.
+  const reusing = status.existing !== null;
+  const inMultiTeam = status.existing?.multi_team != null;
 
   return (
     <Stack gap="md" maw={560}>
@@ -141,9 +144,17 @@ function SetupFormView({
           ]}
           value={form.multiTeam ? "yes" : "no"}
           onChange={(v) => set("multiTeam", v === "yes")}
+          disabled={inMultiTeam}
         />
       </Stack>
-      {form.multiTeam && running.length > 0 && (
+      {reusing && (
+        <Text size="sm" c="dimmed">
+          This server's hunt <strong>{status.existing?.hunt_name}</strong> already exists, so
+          setup carries on with it as created. Change its website, start time or login from
+          the hunt board.
+        </Text>
+      )}
+      {!reusing && form.multiTeam && running.length > 0 && (
         <Stack gap={4}>
           <Text size="sm" c="dimmed">
             Running on this hub:
@@ -166,9 +177,10 @@ function SetupFormView({
         label="Hunt name"
         value={form.huntName}
         onChange={(e) => set("huntName", e.currentTarget.value)}
+        disabled={reusing}
         required
       />
-      {form.multiTeam && match && (
+      {!inMultiTeam && form.multiTeam && match && (
         <Text size="sm">
           This team joins <strong>{match.name}</strong> ({teams(match.team_count)}).
         </Text>
@@ -182,6 +194,7 @@ function SetupFormView({
         label="Hunt website"
         value={form.huntUrl}
         onChange={(e) => set("huntUrl", e.currentTarget.value)}
+        disabled={reusing}
         required
       />
 
@@ -200,6 +213,7 @@ function SetupFormView({
               label="Start time"
               value={form.startLocal}
               onChange={(e) => set("startLocal", e.currentTarget.value)}
+              disabled={reusing}
               style={{ flex: 1 }}
             />
             <Select
@@ -207,6 +221,7 @@ function SetupFormView({
               data={UTC_OFFSET_OPTIONS}
               value={String(form.startOffsetMinutes)}
               onChange={(v) => v != null && set("startOffsetMinutes", Number(v))}
+              disabled={reusing}
               allowDeselect={false}
               w={140}
             />
@@ -215,24 +230,28 @@ function SetupFormView({
             label="Shared username"
             value={form.username}
             onChange={(e) => set("username", e.currentTarget.value)}
+            disabled={reusing}
           />
           <TextInput
             autoComplete="off"
             label="Shared password"
             value={form.password}
             onChange={(e) => set("password", e.currentTarget.value)}
+            disabled={reusing}
           />
           <Switch
             label="One spreadsheet per puzzle"
             description="A Drive folder holds a spreadsheet for each puzzle."
             checked={form.filesMode}
             onChange={(e) => set("filesMode", e.currentTarget.checked)}
+            disabled={reusing}
           />
           {!form.filesMode && (
             <Switch
               label="Create a solved-puzzle sheet"
               checked={form.createSolvedSheet}
               onChange={(e) => set("createSolvedSheet", e.currentTarget.checked)}
+              disabled={reusing}
             />
           )}
         </Stack>
