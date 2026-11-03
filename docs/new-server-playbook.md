@@ -207,6 +207,14 @@ server now (running hunts only), who was invited but hasn't arrived, and the acc
    `#bot-commands`, `!setup_server <hub id> <hub role id> <hunt url> <hunt name>` (server
    owner and hub admin; if it stops, fix what it says and re-run). Once setup reports
    complete it is locked on that server.
+
+   If several teams are fielding this hunt, answer **Yes** to "Are we fielding more than
+   one team?" on the setup page, or end the hunt name with `, multi-team` in the command
+   (`... Big Hunt, multi-team`). Use the same hunt name on every team's server: the first
+   starts the multi-team hunt on the hub, the rest join it. The hub bot needs Manage
+   Channels and Manage Roles (permission overwrites) on the hub to create the no-spoiler
+   and finishers channels; setup reports a step that fails for want of them, and re-running
+   retries it.
 7. Click **Join** in `#lobby`. As a hub admin you also get `mod`, which you need for the
    next step (and for `!archive_hunt_to_hub` at hunt end).
 8. Check the server looks right, then send invites (unless you ticked **Send invites** on
@@ -231,6 +239,11 @@ this way, and someone who stops being a hub admin loses `mod` but keeps their te
 server owner can't be removed, so they only lose their roles: transfer ownership first if
 they're leaving.
 `!post_role_panel <hunt name>` re-posts the panel if it goes missing.
+
+For a multi-team hunt, `!hunt_complete` (hunt channel), the **Finished the hunt** switch or
+the Team servers page marks a team finished and opens the hub's finishers channel to it;
+nothing is archived. When the last team archives, the hub's two channels are condensed into
+`{YYYY-MM} {name} - all teams` (or run `!archive_multi_team <hunt name>` on the hub).
 
 At hunt end, `!archive_hunt_to_hub` (in any hunt channel, no id needed) moves the history to the hub.
 The dashboard does the same: on the team hunt's panel press **Archive hunt**, type the hunt's name
