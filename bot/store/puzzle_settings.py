@@ -33,6 +33,9 @@ class GuildSettings:
     # Hub only: the category multi-team hunts' hub channels are made in, created
     # if missing (migration 055). Empty means top level.
     multi_team_category: str = "general"
+    # The category archive channels go at the top of, created if missing
+    # (migration 056). Empty means top level.
+    archive_category: str = ""
 
     @classmethod
     def import_dict(cls, settings: dict):
@@ -46,6 +49,8 @@ class GuildSettings:
                     utc_date = db_date.replace(tzinfo=datetime.timezone.utc)
                     setattr(r,attr,utc_date)
             elif attr == "template_link":
+                setattr(r, attr, settings.get(attr) or "")
+            elif attr == "archive_category":
                 setattr(r, attr, settings.get(attr) or "")
             elif attr == "multi_team_category":
                 value = settings.get(attr)

@@ -21,7 +21,7 @@ import discord
 from bot.store import GuildSettingsDb, PuzzleJsonDb
 from bot.core import role_gate
 from bot.core.constants import ADMIN_ROLES
-from bot.core.discord_channels import DELETE_REASON
+from bot.core.discord_channels import DELETE_REASON, resolve_category, with_room
 
 logger = logging.getLogger(__name__)
 
@@ -148,12 +148,35 @@ async def ensure_hub_archive_channel(hub, hunt, name):
 
 
 async def ensure_tagged_channel(hub, marker, name):
-    """The hub text channel whose topic is *marker*, else a new uncategorised one
-    named *name*."""
+    """The hub text channel whose topic is *marker*, else a new one named *name*,
+    placed at the top of the hub's archive category (place_in_archive_category).
+    A found channel is left where it is."""
     for ch in hub.text_channels:
         if ch.topic == marker:
             return ch
-    return await hub.create_text_channel(name[:100], topic=marker)  # Discord's cap
+    channel = await hub.create_text_channel(name[:100], topic=marker)  # Discord's cap
+    await place_in_archive_category(hub, channel)
+    return channel
+
+
+async def place_in_archive_category(guild, channel):
+    """Move an archive *channel* to the top of *guild*'s archive_category setting,
+    making the category if the guild has none by that name. Nothing for an empty
+    setting or a full category. Permissions are left as the archive set them (no
+    category sync). Best-effort: a failure is logged, never raised, so it can't
+    fail an archive that has already run."""
+    try:
+        settings = GuildSettingsDb.get(guild.id)
+        name = getattr(settings, "archive_category", "") or ""
+        if not name.strip():
+            return
+        category = with_room(await resolve_category(guild, name))
+        if category is None:
+            return
+        await channel.move(beginning=True, category=category, sync_permissions=False)
+    except Exception:
+        logger.exception("could not move archive channel %s to the archive category",
+                         getattr(channel, "id", None))
 
 
 def thread_name_for_channel(channel) -> str:

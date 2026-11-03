@@ -493,7 +493,10 @@ The full [command reference](commands.md) lists every command; highlights:
   hunt played on its own team server, `!archive_hunt` (or `!archive_hunt_to_hub`) does the
   same but lands the threads on the hub and then removes the bot from the team server; on the
   dashboard, a team hunt's **Archive hunt** button does the same (type the hunt's name to
-  confirm). `!archive_round` / `!archive_channel` do the same for smaller scopes. Apart
+  confirm). If the server (the hub, for a hub archive) has an **Archive category** set
+  under Server settings (or `!update_settings archive_category "<name>"`), the archive
+  channel goes at the top of it, made if missing; empty leaves it at the top level.
+  `!archive_round` / `!archive_channel` do the same for smaller scopes. Apart
   from archiving a team hunt to its hub, these are Discord-only clean-ups and
   deliberately have no web equivalent.
 - **Reminders:** `!start_reminders` / `!stop_reminders` toggles the periodic tips loop.

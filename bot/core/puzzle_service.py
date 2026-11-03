@@ -4737,6 +4737,7 @@ class PuzzleService:
         team = hunt_archive.resolve_team_name(guild, hunt, invoker)
         report.final_name = hunt_archive.archived_channel_name(hunt, team)
         await self.safe_rename(dest, report.final_name)
+        await hunt_archive.place_in_archive_category(guild, dest)
 
         self._drop_split_layout_rows(hunt)
 

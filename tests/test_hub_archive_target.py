@@ -10,6 +10,14 @@ from bot.store.hunt_data import HuntData
 HUB, TEAM, USER = 1000, 2000, 42
 
 
+
+@pytest.fixture(autouse=True)
+def _no_archive_category_lookup():
+    """Archive-category placement reads the server's settings row; it has its
+    own tests (test_archive_category.py), so keep these off the database."""
+    with patch("bot.core.hunt_archive.place_in_archive_category", new=AsyncMock()):
+        yield
+
 def _team():
     g = MagicMock(); g.id = TEAM
     return g

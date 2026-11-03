@@ -34,6 +34,8 @@ export interface GuildSettingsValues {
   template_link: string | null;
   /** Hub: category for multi-team hunts' channels ("" = top level). */
   multi_team_category: string;
+  /** Category archive channels go at the top of ("" = top level). */
+  archive_category: string;
   admin_role_ids: string[];
   organiser_role_ids: string[];
 }

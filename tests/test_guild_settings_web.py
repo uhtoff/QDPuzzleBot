@@ -43,6 +43,7 @@ def web():
         drive_parent_id="DRIVE1", drive_resources_id="",
         admin_role_ids=str(RUNNERS_ID), organiser_role_ids=str(HELPERS_ID),
         template_link="https://discord.new/old", multi_team_category="general",
+        archive_category="",
     )
     db = MagicMock()
     db.get.return_value = settings
@@ -299,3 +300,14 @@ async def test_patch_multi_team_category_rejects_bad(web, bad):
     assert resp.status_code == 400
     assert await resp.get_json() == {"error": "bad_value", "field": "multi_team_category"}
     assert web.settings.multi_team_category == "general"
+
+
+async def test_archive_category_round_trips_and_is_validated(web):
+    body = await (await web.client.get(f"/api/guilds/{GUILD_ROW_ID}/settings")).get_json()
+    assert body["settings"]["archive_category"] == ""
+    assert (await _patch(web, {"archive_category": " Old hunts "})).status_code == 200
+    assert web.settings.archive_category == "Old hunts"
+    resp = await _patch(web, {"archive_category": 5})
+    assert resp.status_code == 400
+    assert await resp.get_json() == {"error": "bad_value", "field": "archive_category"}
+    assert web.settings.archive_category == "Old hunts"

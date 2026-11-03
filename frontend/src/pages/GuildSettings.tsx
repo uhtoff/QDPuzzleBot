@@ -22,15 +22,15 @@ import { IconAlertTriangle, IconShieldCheck, IconShieldOff } from "@tabler/icons
 import { useAdminGuilds, useGuildSettings, useUpdateGuildSettings } from "../api";
 import type { GuildSettingsPatch, GuildSettingsResponse } from "../types";
 
-/** What happens to a multi-team hunt's no-spoiler and finishers channels with
- *  this category setting (the server trims it; blank = top level). */
-function categoryHint(value: string, categories: string[]): string {
+/** Where *what* goes with this category setting (the server trims it; blank =
+ *  top level, a new name is made on first use). */
+function categoryHint(value: string, categories: string[], what: string, where: string): string {
   const wanted = value.trim();
-  if (!wanted) return "A new multi-team hunt's no-spoiler and finishers channels go at the top level.";
+  if (!wanted) return `${what} go at the top level.`;
   if (categories.some((c) => c.toLowerCase() === wanted.toLowerCase())) {
-    return "A new multi-team hunt's no-spoiler and finishers channels go at the bottom of this category.";
+    return `${what} go at the ${where} of this category.`;
   }
-  return `This server has no "${wanted}" category; it will be made for the next new multi-team hunt.`;
+  return `This server has no "${wanted}" category; it will be made when first needed.`;
 }
 
 /** The authorisation tier a role list gates. Kept as the API's own key names so
@@ -90,6 +90,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
   const [templateLink, setTemplateLink] = useState(data.settings.template_link ?? "");
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [mtCategory, setMtCategory] = useState(data.settings.multi_team_category);
+  const [archiveCategory, setArchiveCategory] = useState(data.settings.archive_category);
 
   // Re-seed when the query refetches or the guild changes under us.
   useEffect(() => {
@@ -101,6 +102,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
     setVoice(data.settings.discord_use_voice_channels);
     setTemplateLink(data.settings.template_link ?? "");
     setMtCategory(data.settings.multi_team_category);
+    setArchiveCategory(data.settings.archive_category);
   }, [data]);
 
   const roleOptions = useMemo(
@@ -124,6 +126,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
       discord_use_voice_channels: voice,
       template_link: templateLink,
       multi_team_category: mtCategory,
+      archive_category: archiveCategory,
     };
     setTemplateError(null);
     update.mutate(patch, {
@@ -212,6 +215,20 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             checked={voice}
             onChange={(e) => setVoice(e.currentTarget.checked)}
           />
+          <Autocomplete
+            label="Archive category"
+            description={categoryHint(
+              archiveCategory,
+              data.categories,
+              "Archived hunts (and, on a hub, team and multi-team archives)",
+              "top",
+            )}
+            placeholder="None (top level)"
+            data={data.categories}
+            value={archiveCategory}
+            onChange={setArchiveCategory}
+            maxLength={100}
+          />
         </Stack>
       </Card>
 
@@ -227,7 +244,12 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
           />
           <Autocomplete
             label="Multi-team hunt channels category"
-            description={categoryHint(mtCategory, data.categories)}
+            description={categoryHint(
+              mtCategory,
+              data.categories,
+              "A new multi-team hunt's no-spoiler and finishers channels",
+              "bottom",
+            )}
             placeholder="None (top level)"
             data={data.categories}
             value={mtCategory}

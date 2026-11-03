@@ -1770,7 +1770,7 @@ async def change_group_type(tag_group_id):
 _GUILD_SETTINGS_KEYS = {
     "discord_bot_channel", "drive_parent_id", "drive_resources_id",
     "discord_use_voice_channels", "website_url", "template_link",
-    "multi_team_category",
+    "multi_team_category", "archive_category",
 }
 _GUILD_ROLE_KEYS = {"admin_role_ids", "organiser_role_ids"}
 
@@ -2262,12 +2262,14 @@ async def patch_guild_settings(guild_id):
         else:
             body["template_link"] = ""
 
-    # Hub only: where multi-team hunts' channels go (made if missing); "" = top level.
-    if "multi_team_category" in body:
-        raw = body["multi_team_category"]
-        if not isinstance(raw, str) or len(raw.strip()) > 100:
-            return jsonify({"error": "bad_value", "field": "multi_team_category"}), 400
-        body["multi_team_category"] = raw.strip()
+    # Category names (made if missing; "" = top level): where a hub puts its
+    # multi-team hunts' channels, and where any server puts archive channels.
+    for key in ("multi_team_category", "archive_category"):
+        if key in body:
+            raw = body[key]
+            if not isinstance(raw, str) or len(raw.strip()) > 100:
+                return jsonify({"error": "bad_value", "field": key}), 400
+            body[key] = raw.strip()
 
     # Mirrors !set_admin_roles: pinning admin ids the caller does not hold leaves
     # nobody able to undo it. An EMPTY list is the documented revert-to-names

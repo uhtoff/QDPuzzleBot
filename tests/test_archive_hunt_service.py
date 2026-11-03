@@ -6,12 +6,22 @@ archived flag.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 import discord
 
 from bot.core import hunt_archive
 from bot.core.puzzle_service import PuzzleService
 from bot.store.hunt_data import HuntData
 
+
+
+@pytest.fixture(autouse=True)
+def _no_archive_category_lookup():
+    """Archive-category placement reads the server's settings row; it has its
+    own tests (test_archive_category.py), so keep these off the database."""
+    with patch("bot.core.hunt_archive.place_in_archive_category", new=AsyncMock()):
+        yield
 
 def _service():
     bot = MagicMock()
@@ -70,7 +80,8 @@ async def test_archive_hunt_sweeps_renames_and_marks_archived():
          patch("bot.core.hunt_archive.archive_and_delete_channel",
                new=AsyncMock(return_value=hunt_archive.ChannelArchiveResult(messages_moved=3))) as archive_call, \
          patch.object(svc, "_safe_delete_channel", new=AsyncMock(return_value=True)) as safe_del, \
-         patch.object(svc, "safe_rename", new=AsyncMock()) as rename:
+         patch.object(svc, "safe_rename", new=AsyncMock()) as rename, \
+         patch("bot.core.hunt_archive.place_in_archive_category", new=AsyncMock()) as place:
         tgdb.get_all.return_value = [tg]
         tgcdb.get_for_group.return_value = []       # single-category (legacy) round
         pdb.get_by_attr.return_value = None         # thread named after channel
@@ -88,6 +99,8 @@ async def test_archive_hunt_sweeps_renames_and_marks_archived():
     # Renamed and flagged.
     rename.assert_awaited_once_with(dest, "H - me")
     hdb.commit.assert_called_once_with(hunt)
+    # ...and moved to the top of this server's archive category (if it has one).
+    place.assert_awaited_once_with(guild, dest)
     assert hunt.archived is True
     assert report.final_name == "H - me"
     assert report.channels_archived == 1

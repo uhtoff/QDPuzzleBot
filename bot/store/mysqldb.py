@@ -1732,13 +1732,14 @@ class MySQLGuildSettingsDb():
                 settings.discord_bot_channel, settings.discord_bot_emoji, settings.discord_use_voice_channels,
                 settings.drive_parent_id, settings.drive_resources_id,
                 settings.admin_role_ids or None, settings.organiser_role_ids or None,
-                settings.template_link or None, settings.multi_team_category or "")
+                settings.template_link or None, settings.multi_team_category or "",
+                settings.archive_category or "")
         if settings.id > 0:
             update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s, `website_url`=%s,"
                            "`discord_bot_channel`=%s,`discord_bot_emoji`=%s,`discord_use_voice_channels`=%s,"
                            "`drive_parent_id`=%s,`drive_resources_id`=%s,"
                            "`admin_role_ids`=%s,`organiser_role_ids`=%s,`template_link`=%s,"
-                           "`multi_team_category`=%s "
+                           "`multi_team_category`=%s,`archive_category`=%s "
                            "WHERE id=%s")
             data = data + (settings.id,)
             cursor.execute(update_stmt, data)
@@ -1747,8 +1748,8 @@ class MySQLGuildSettingsDb():
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
                            "`drive_parent_id`, `drive_resources_id`, "
                            "`admin_role_ids`, `organiser_role_ids`, `template_link`, "
-                           "`multi_team_category`) "
-                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+                           "`multi_team_category`, `archive_category`) "
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid or 0
         cursor.close()
