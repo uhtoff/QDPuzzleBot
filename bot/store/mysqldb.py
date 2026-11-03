@@ -467,6 +467,111 @@ class MySQLHuntAccessLogDb(_MySQLBaseDb):
         )
 
 
+class MySQLMultiTeamDb(_MySQLBaseDb):
+    """multi_team_hunts / multi_team_members: hunts of several teams on one hub
+    guild that share hub channels and a combined archive. Datetimes are naive UTC."""
+    TABLE_NAME = 'multi_team_hunts'
+
+    def create(self, hub_guild_id, name):
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        cursor = self.mydb.dict_cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO `multi_team_hunts` (hub_guild_id, name, created_at) "
+                "VALUES (%s, %s, %s)", (hub_guild_id, name, now))
+            return cursor.lastrowid
+        finally:
+            cursor.close()
+
+    def get(self, mt_id):
+        return self._fetch_one("SELECT * FROM `multi_team_hunts` WHERE id = %s", (mt_id,))
+
+    def running_for_hub(self, hub_guild_id):
+        """Un-archived multi-team hunts on the hub by name, each with team_count:
+        the members whose hunt is not archived."""
+        return self._fetch_all(
+            "SELECT m.*, (SELECT COUNT(*) FROM `multi_team_members` x "
+            "JOIN `hunts` h ON h.id = x.hunt_id "
+            "WHERE x.multi_team_id = m.id AND h.archived = 0) AS team_count "
+            "FROM `multi_team_hunts` m "
+            "WHERE m.hub_guild_id = %s AND m.archived_time IS NULL "
+            "ORDER BY m.name ASC, m.id ASC",
+            (hub_guild_id,),
+        )
+
+    def running_by_name(self, hub_guild_id, name):
+        """The un-archived multi-team hunt on the hub called *name*
+        (case-insensitive), or None."""
+        return self._fetch_one(
+            "SELECT * FROM `multi_team_hunts` "
+            "WHERE hub_guild_id = %s AND archived_time IS NULL AND LOWER(name) = LOWER(%s) "
+            "ORDER BY id ASC LIMIT 1",
+            (hub_guild_id, name),
+        )
+
+    def set_channels(self, mt_id, no_spoiler_channel_id, finishers_channel_id):
+        self._exec(
+            "UPDATE `multi_team_hunts` SET no_spoiler_channel_id = %s, "
+            "finishers_channel_id = %s WHERE id = %s",
+            (no_spoiler_channel_id, finishers_channel_id, mt_id),
+        )
+
+    def mark_archived(self, mt_id):
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self._exec("UPDATE `multi_team_hunts` SET archived_time = %s WHERE id = %s",
+                   (now, mt_id))
+
+    def link(self, hunt_id, mt_id):
+        """Put *hunt_id* in multi-team hunt *mt_id*. Same id again is a no-op;
+        a different one raises ValueError (a hunt is in at most one)."""
+        existing = self._fetch_one(
+            "SELECT multi_team_id FROM `multi_team_members` WHERE hunt_id = %s", (hunt_id,))
+        if existing:
+            if int(existing["multi_team_id"]) != int(mt_id):
+                raise ValueError(
+                    f"hunt {hunt_id} is already in multi-team hunt {existing['multi_team_id']}")
+            return
+        self._exec("INSERT INTO `multi_team_members` (hunt_id, multi_team_id) VALUES (%s, %s)",
+                   (hunt_id, mt_id))
+
+    def for_hunt(self, hunt_id):
+        """*hunt_id*'s member row joined with its multi-team hunt, or None."""
+        return self._fetch_one(
+            "SELECT x.multi_team_id, x.completed_time, m.name, m.hub_guild_id, "
+            "m.no_spoiler_channel_id, m.finishers_channel_id, m.archived_time "
+            "FROM `multi_team_members` x "
+            "JOIN `multi_team_hunts` m ON m.id = x.multi_team_id "
+            "WHERE x.hunt_id = %s",
+            (hunt_id,),
+        )
+
+    def members(self, mt_id):
+        """The member hunts of *mt_id*: hunt_id, completed_time, roster_role_id
+        and archived (from hunts)."""
+        return self._fetch_all(
+            "SELECT x.hunt_id, x.completed_time, h.roster_role_id, h.archived "
+            "FROM `multi_team_members` x JOIN `hunts` h ON h.id = x.hunt_id "
+            "WHERE x.multi_team_id = %s ORDER BY x.hunt_id ASC",
+            (mt_id,),
+        )
+
+    def set_completed(self, hunt_id, completed):
+        """Mark *hunt_id*'s team finished (or not). True only when the state
+        changed. Matched on completed_time's NULL-ness so rowcount is reliable."""
+        if completed:
+            sql = ("UPDATE `multi_team_members` SET completed_time = UTC_TIMESTAMP() "
+                   "WHERE hunt_id = %s AND completed_time IS NULL")
+        else:
+            sql = ("UPDATE `multi_team_members` SET completed_time = NULL "
+                   "WHERE hunt_id = %s AND completed_time IS NOT NULL")
+        cursor = self.mydb.cursor()
+        try:
+            cursor.execute(sql, (hunt_id,))
+            return cursor.rowcount > 0
+        finally:
+            cursor.close()
+
+
 class MySQLTagGroupJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'tag_group'
     GENERATED_UNIQUE_FIELDS = ('group_code',)
