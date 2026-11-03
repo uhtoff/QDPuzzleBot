@@ -81,6 +81,7 @@ async def test_perform_setup_passes_hunt_fields_to_create_hunt():
     roster = _role(70, "Team Rocket", 3); hub.get_role.return_value = roster
     with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
          patch("bot.core.server_setup.HuntJsonDb") as hdb, \
+         patch("bot.core.server_setup.MultiTeamDb") as mdb, \
          patch("bot.core.server_setup.hunt_archive.resolve_hub", new=AsyncMock(return_value=(hub, hub_row))), \
          patch("bot.core.server_setup._has_welcome", new=AsyncMock(return_value=True)), \
          patch("bot.core.notifier.DiscordNotifier") as notifier, \
@@ -88,6 +89,7 @@ async def test_perform_setup_passes_hunt_fields_to_create_hunt():
         gdb.get.return_value = _settings()
         hdb.get_by_name_for_guild.return_value = None
         hdb.count_for_guild.return_value = 0
+        mdb.for_hunt.return_value = None
         notifier.return_value.welcome = AsyncMock()
         out = await server_setup.perform_setup(
             bot, service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example",
@@ -234,3 +236,18 @@ async def test_perform_setup_threads_sheet_mode_to_create_hunt():
         await server_setup.perform_setup(
             MagicMock(), service, guild, _invoker(), 1000, 70, "Big Hunt", "https://h.example")
         assert service.create_hunt.await_args.kwargs["sheet_mode"] == "tabs"
+
+
+async def test_perform_setup_threads_hub_and_multi_team_to_run_setup():
+    from contextlib import ExitStack
+    guild = _guild(); guild.owner_id = 42
+    run = AsyncMock(return_value=server_setup.SetupReport(steps=["x"]))
+    hub = MagicMock()
+    with ExitStack() as st:
+        mocks = [st.enter_context(p) for p in _patched_run(run)]
+        mocks[0].get.return_value = _settings()
+        mocks[1].return_value = (hub, MagicMock())
+        await server_setup.perform_setup(
+            MagicMock(), MagicMock(), guild, _invoker(), 1000, 70, "Big Hunt", "u", multi_team=True)
+    assert run.await_args.kwargs["multi_team"] is True
+    assert run.await_args.kwargs["hub"] is hub

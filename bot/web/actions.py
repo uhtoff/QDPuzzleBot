@@ -36,7 +36,7 @@ from .auth import (
 from bot.core import role_gate, template_link
 from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
                                      spreadsheet_link)
-from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb
+from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb, MultiTeamDb
 from bot.web import team_access
 from bot.core.locks import (puzzle_lock, puzzles_lock, convert_lock_ids,
                             hunt_create_lock, hunt_sheet_lock)
@@ -1845,11 +1845,15 @@ async def get_guild_setup(guild_id):
              and r.name not in ORGANISER_ROLE_NAMES),
             key=lambda r: r.position, reverse=True)
         hubs.append({"id": str(hub.id), "name": hub.name,
-                     "roles": [{"id": str(r.id), "name": r.name} for r in roles]})
+                     "roles": [{"id": str(r.id), "name": r.name} for r in roles],
+                     "multi_team_hunts": [
+                         {"id": m["id"], "name": m["name"], "team_count": int(m["team_count"])}
+                         for m in MultiTeamDb.running_for_hub(hub.id)]})
 
     existing = None
     hunt = HuntJsonDb.get_by_attr(guild_id=guild_id)
     if hunt is not None:
+        mt = MultiTeamDb.for_hunt(hunt.id)
         roster = (role_panel.find_roster_role(bot, hunt.roster_role_id)
                   if hunt.roster_role_id else None)
         existing = {
@@ -1857,6 +1861,8 @@ async def get_guild_setup(guild_id):
             "roster_role_id": str(hunt.roster_role_id) if hunt.roster_role_id else None,
             "hunt_name": hunt.name,
             "hunt_url": hunt.url,
+            "multi_team": ({"id": mt["multi_team_id"], "name": mt["name"]}
+                           if mt is not None else None),
         }
     done = settings.setup_complete_time
     return jsonify({
@@ -1870,7 +1876,7 @@ async def get_guild_setup(guild_id):
 
 _SETUP_REQUIRED = {"hub_id", "roster_role_id", "hunt_name", "hunt_url"}
 _SETUP_OPTIONAL = {"start_timestamp", "username", "password", "create_solved_sheet",
-                   "send_invites", "sheet_mode"}
+                   "send_invites", "sheet_mode", "multi_team"}
 
 
 def _snowflake_field(value):
@@ -1915,7 +1921,7 @@ async def post_guild_setup(guild_id):
         start_timestamp = int(raw_start)
     except (OverflowError, OSError, ValueError):
         return jsonify({"error": "bad_value", "field": "start_timestamp"}), 400
-    for key in ("create_solved_sheet", "send_invites"):
+    for key in ("create_solved_sheet", "send_invites", "multi_team"):
         if not isinstance(body.get(key, False), bool):
             return jsonify({"error": "bad_value", "field": key}), 400
     sheet_mode = body.get("sheet_mode", "tabs")
@@ -1940,7 +1946,7 @@ async def post_guild_setup(guild_id):
         start_timestamp=start_timestamp, username=body.get("username", ""),
         password=body.get("password", ""),
         create_solved_sheet=body.get("create_solved_sheet", False),
-        sheet_mode=sheet_mode,
+        sheet_mode=sheet_mode, multi_team=body.get("multi_team", False),
         invites_by_dashboard=bool(body.get("send_invites")), via_dashboard=True)
 
     invites = None

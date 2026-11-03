@@ -4242,26 +4242,26 @@ class Puzzles(commands.Cog):
     async def setup_server(self, ctx, hub_id: int, roster_role_id: int, hunt_url: str, *, hunt_name: str):
         """*Set up a server freshly made from the team-server template (runs once).*
 
-        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>[, files]`
+        Usage: `!setup_server <hub server id> <hub role id> <hunt url> <hunt name>[, files][, multi-team]`
         Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
         Add `, files` after the hunt name for one Google spreadsheet per puzzle.
+        Add `, multi-team` if several teams are fielding this hunt: it joins (or starts)
+        the multi-team hunt of that name on the hub, with shared no-spoiler and finishers channels.
         You must be this server's owner (or an admin here) and an admin on the hub.
         Checks the server matches the template, copies the
         hub's settings, pins `mod` as the admin role, creates the hunt gated to a team
         role named after the hub role, and records that hub role as the hunt's roster.
         If it stops partway, re-run the same command to finish; once complete it is
         locked on this server. Bang-only: the bot must already be here."""
-        sheet_mode = "tabs"
-        if hunt_name.rstrip().lower().endswith(", files"):
-            hunt_name = hunt_name.rstrip()[: -len(", files")]
-            sheet_mode = "files"
+        hunt_name, sheet_mode, multi_team = server_setup.parse_setup_tail(hunt_name)
 
         async def announce(team_name):
             await ctx.send(f"⏳ Setting up **{hunt_name}** for **{team_name}**…")
 
         outcome = await server_setup.perform_setup(
             self.bot, self.service, ctx.guild, ctx.author, hub_id, roster_role_id,
-            hunt_name, hunt_url, on_start=announce, sheet_mode=sheet_mode)
+            hunt_name, hunt_url, on_start=announce, sheet_mode=sheet_mode,
+            multi_team=multi_team)
         await ctx.send("\n".join(outcome.lines))
 
     @commands.command()

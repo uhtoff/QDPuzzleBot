@@ -55,7 +55,9 @@ def _hunt(role_id=71, roster_role_id=0):
 async def _run(targets, service=None, settings=None):
     service = service or MagicMock()
     with patch("bot.core.server_setup.GuildSettingsDb") as gdb, \
-         patch("bot.core.server_setup.HuntJsonDb") as hdb:
+         patch("bot.core.server_setup.HuntJsonDb") as hdb, \
+         patch("bot.core.server_setup.MultiTeamDb") as mdb:
+        mdb.for_hunt.return_value = None
         report = await run_setup(service, _guild(), MagicMock(), targets, settings or _settings(),
                                  _hub_row(), "Big Hunt", "https://hunt.example")
     return report, gdb, hdb

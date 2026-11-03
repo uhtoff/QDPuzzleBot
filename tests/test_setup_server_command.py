@@ -177,3 +177,20 @@ async def test_trailing_files_token_sets_the_mode_and_leaves_the_name():
         await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
                                             hunt_name="Big Hunt")
         assert (seen["name"], seen["sheet_mode"]) == ("Big Hunt", "tabs")
+
+
+async def test_trailing_multi_team_clause_is_passed_and_stripped():
+    cog = make_cog(); cog.bot = MagicMock(); ctx = _ctx()
+    seen = {}
+
+    async def fake_perform(bot, service, guild, author, hub_id, role_id, name, url, **kw):
+        seen.update(name=name, **kw)
+        return server_setup.SetupOutcome(lines=["ok"], ok=True)
+
+    with patch("bot.core.server_setup.perform_setup", new=fake_perform):
+        await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
+                                            hunt_name="Big Hunt, multi-team, files")
+        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "files", True)
+        await Puzzles.setup_server.callback(cog, ctx, 1000, 70, "https://h.example",
+                                            hunt_name="Big Hunt")
+        assert (seen["name"], seen["sheet_mode"], seen["multi_team"]) == ("Big Hunt", "tabs", False)

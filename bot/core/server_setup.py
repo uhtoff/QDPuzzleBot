@@ -17,8 +17,8 @@ import discord
 
 from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLE_NAMES
 from bot.core.discord_channels import clean_category_name
-from bot.core import hunt_archive, role_gate, role_panel
-from bot.store import GuildSettingsDb, HuntJsonDb
+from bot.core import hunt_archive, multi_team as multi_team_core, role_gate, role_panel
+from bot.store import GuildSettingsDb, HuntJsonDb, MultiTeamDb
 from bot.store.hunt_data import HuntData
 
 logger = logging.getLogger(__name__)
@@ -153,9 +153,28 @@ async def _has_welcome(lobby, bot_id):
     return False
 
 
+def parse_setup_tail(text):
+    """Split `<hunt name>[, files][, multi-team]` (clauses in either order) into
+    (hunt_name, sheet_mode, multi_team). Clauses are peeled off the end while they
+    are exactly `files` or `multi-team`; a name with an inner comma stays whole."""
+    sheet_mode, multi_team = "tabs", False
+    name = text.rstrip()
+    while "," in name:
+        head, _, tail = name.rpartition(",")
+        clause = tail.strip().lower()
+        if clause == "files":
+            sheet_mode = "files"
+        elif clause == "multi-team":
+            multi_team = True
+        else:
+            break
+        name = head.rstrip()
+    return name, sheet_mode, multi_team
+
+
 async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
                     *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                    sheet_mode="tabs"):
+                    sheet_mode="tabs", hub=None, multi_team=False):
     """Do the setup steps, then stamp the run-once lock. Never raises: a failure
     lands in report.error, with the lock unwritten so a re-run finishes the job."""
     report = SetupReport()
@@ -196,6 +215,23 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
             HuntJsonDb.commit(hunt)
         report.steps.append(f"Hub role **{team}** recorded as the hunt's roster.")
 
+        existing_mt = MultiTeamDb.for_hunt(hunt.id)
+        if existing_mt is not None:
+            report.steps.append(f"Already part of multi-team hunt **{existing_mt['name']}**.")
+            await multi_team_core.ensure_channels(hub, existing_mt["multi_team_id"])
+        elif multi_team:
+            mt_id, created = await multi_team_core.find_or_create(hub, hunt.name)
+            MultiTeamDb.link(hunt.id, mt_id)
+            ns, fin = await multi_team_core.ensure_channels(hub, mt_id)
+            mt_row = MultiTeamDb.get(mt_id)
+            mt_name = mt_row["name"] if mt_row else hunt.name
+            if created:
+                report.steps.append(f"Started multi-team hunt **{mt_name}** on the hub "
+                                    f"(#{ns.name} and #{fin.name}).")
+            else:
+                report.steps.append(f"Joined multi-team hunt **{mt_name}** — now "
+                                    f"{len(MultiTeamDb.members(mt_id))} teams.")
+
         if await _has_welcome(targets.lobby, guild.me.id):
             report.steps.append(f"#{targets.lobby.name} welcome already posted.")
         else:
@@ -227,7 +263,8 @@ def _refused(text):
 
 async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                         *, start_timestamp=0, username="", password="", create_solved_sheet=False,
-                        sheet_mode="tabs", on_start=None, invites_by_dashboard=False, via_dashboard=False):
+                        sheet_mode="tabs", on_start=None, invites_by_dashboard=False, via_dashboard=False,
+                        multi_team=False):
     """The whole !setup_server flow after argument parsing, shared with the
     dashboard. *invoker* is a Member of *guild*. *on_start*, if given, is
     awaited with the team role name once the checks pass and before anything is
@@ -243,14 +280,15 @@ async def perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hu
             start_timestamp=start_timestamp, username=username, password=password,
             create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode,
             on_start=on_start,
-            invites_by_dashboard=invites_by_dashboard, via_dashboard=via_dashboard)
+            invites_by_dashboard=invites_by_dashboard, via_dashboard=via_dashboard,
+            multi_team=multi_team)
     finally:
         _RUNNING.discard(guild.id)
 
 
 async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, hunt_name, hunt_url,
                          *, start_timestamp, username, password, create_solved_sheet,
-                         sheet_mode, on_start, invites_by_dashboard, via_dashboard):
+                         sheet_mode, on_start, invites_by_dashboard, via_dashboard, multi_team):
     from bot.core import mod_invite       # mod_invite imports this module
     from bot.core.notifier import DiscordNotifier
 
@@ -272,7 +310,8 @@ async def _perform_setup(bot, service, guild, invoker, hub_id, roster_role_id, h
     report = await run_setup(
         service, guild, invoker, targets, settings, hub_row, hunt_name, hunt_url,
         start_timestamp=start_timestamp, username=username, password=password,
-        create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode)
+        create_solved_sheet=create_solved_sheet, sheet_mode=sheet_mode,
+        hub=hub, multi_team=multi_team)
     if report.hunt_created and report.hunt is not None:
         try:
             await DiscordNotifier(bot).welcome(

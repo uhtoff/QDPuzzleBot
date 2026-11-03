@@ -67,10 +67,13 @@ def web():
     hdb.live_team_hunt_for_guild.side_effect = (
         lambda s: SimpleNamespace(id=1) if s == TEAM2 else None)
     hdb.get_by_attr.return_value = None
+    mdb = MagicMock()
+    mdb.running_for_hub.return_value = []
+    mdb.for_hunt.return_value = None
 
     cog = MagicMock()
     audit = AsyncMock()
-    state = SimpleNamespace(audit=audit, 
+    state = SimpleNamespace(audit=audit, mdb=mdb, 
         bot=bot, team=team, hub_a=hub_a, sdb=sdb, hdb=hdb, cog=cog,
         perform=AsyncMock(), send=AsyncMock(), problems=MagicMock(return_value=[]),
         roles=lambda: None)
@@ -87,6 +90,7 @@ def web():
         patch("bot.web.actions.puzzles_cog", return_value=cog),
         patch("bot.web.actions.GuildSettingsDb", sdb),
         patch("bot.web.actions.HuntJsonDb", hdb),
+        patch("bot.web.actions.MultiTeamDb", mdb),
         patch("bot.web.actions._audit", audit),
         patch("bot.core.role_gate.tier_role_ids", tier_ids),
         patch("bot.core.hunt_archive.hub_member", hub_member),
@@ -158,14 +162,15 @@ async def test_get_reports_template_problems(web):
 
 
 async def test_get_prefills_existing(web):
-    hunt = SimpleNamespace(uid="HU1", name="MH", url="https://mh.example",
+    hunt = SimpleNamespace(id=9, uid="HU1", name="MH", url="https://mh.example",
                            roster_role_id=12)
     web.hdb.get_by_attr.return_value = hunt
     with patch("bot.core.role_panel.find_roster_role",
                return_value=SimpleNamespace(guild=SimpleNamespace(id=HUB_A))):
         body = await (await web.client.get(URL)).get_json()
     assert body["existing"] == {"hub_id": str(HUB_A), "roster_role_id": "12",
-                                "hunt_name": "MH", "hunt_url": "https://mh.example"}
+                                "hunt_name": "MH", "hunt_url": "https://mh.example",
+                                "multi_team": None}
     web.hdb.get_by_attr.assert_called_with(guild_id=ROW_ID)
 
 
@@ -190,7 +195,7 @@ async def test_post_runs_perform_setup_with_fields(web):
     assert args[4:] == (HUB_A, 12, "MH", "https://mh.example")
     assert kwargs == {"start_timestamp": 1700000000, "username": "u", "password": "p",
                       "create_solved_sheet": True, "sheet_mode": "tabs",
-                      "invites_by_dashboard": False,
+                      "multi_team": False, "invites_by_dashboard": False,
                       "via_dashboard": True}
 
 
@@ -238,7 +243,7 @@ async def test_send_invites_failure_is_reported_not_raised(web):
 async def test_get_reports_hunt_uid(web):
     assert (await (await web.client.get(URL)).get_json())["hunt_uid"] is None
     web.hdb.get_by_attr.return_value = SimpleNamespace(
-        uid="HU9", name="MH", url="u", roster_role_id=None)
+        id=9, uid="HU9", name="MH", url="u", roster_role_id=None)
     assert (await (await web.client.get(URL)).get_json())["hunt_uid"] == "HU9"
 
 
@@ -299,4 +304,40 @@ async def test_files_with_solved_sheet_refused_before_setup(web):
         URL, json=dict(BODY, sheet_mode="files", create_solved_sheet=True))
     assert resp.status_code == 409
     assert (await resp.get_json())["error"] == "files_mode_no_solved_sheet"
+    web.perform.assert_not_awaited()
+
+
+async def test_get_lists_running_multi_team_hunts_per_hub(web):
+    web.mdb.running_for_hub.side_effect = lambda hub_id: (
+        [{"id": 3, "name": "GPH 2026", "team_count": 2},
+         {"id": 4, "name": "Other", "team_count": 1}] if hub_id == HUB_A else [])
+    data = await (await web.client.get(URL)).get_json()
+    hub = next(h for h in data["hubs"] if h["id"] == str(HUB_A))
+    assert hub["multi_team_hunts"] == [{"id": 3, "name": "GPH 2026", "team_count": 2},
+                                       {"id": 4, "name": "Other", "team_count": 1}]
+
+
+async def test_get_existing_reports_the_linked_multi_team_hunt(web):
+    web.hdb.get_by_attr.return_value = SimpleNamespace(
+        id=9, name="MH", url="u", roster_role_id=0, uid="HU9")
+    web.mdb.for_hunt.return_value = {"multi_team_id": 3, "name": "GPH 2026"}
+    data = await (await web.client.get(URL)).get_json()
+    assert data["existing"]["multi_team"] == {"id": 3, "name": "GPH 2026"}
+    web.mdb.for_hunt.return_value = None
+    data = await (await web.client.get(URL)).get_json()
+    assert data["existing"]["multi_team"] is None
+
+
+async def test_post_passes_multi_team_through(web):
+    assert (await web.client.post(URL, json={**BODY, "multi_team": True})).status_code == 200
+    assert web.perform.await_args.kwargs["multi_team"] is True
+    await web.client.post(URL, json=BODY)
+    assert web.perform.await_args.kwargs["multi_team"] is False
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None, "true"])
+async def test_post_rejects_a_non_bool_multi_team(web, bad):
+    resp = await web.client.post(URL, json={**BODY, "multi_team": bad})
+    assert resp.status_code == 400
+    assert await resp.get_json() == {"error": "bad_value", "field": "multi_team"}
     web.perform.assert_not_awaited()
