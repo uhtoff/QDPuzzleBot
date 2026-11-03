@@ -8,11 +8,12 @@ removed rather than left behind.
 """
 import asyncio
 import logging
+from dataclasses import dataclass
 
 import discord
 
 from bot.store import MultiTeamDb
-from bot.core import role_gate
+from bot.core import role_gate, role_panel
 from bot.core.constants import ADMIN_ROLES
 from bot.core.discord_channels import clean_channel_name
 
@@ -113,3 +114,42 @@ async def find_or_create(hub, hunt_name):
         if row is not None:
             return row["id"], False
         return MultiTeamDb.create(hub.id, hunt_name), True
+
+
+@dataclass
+class CompleteOutcome:
+    changed: bool
+    message: str
+
+
+async def set_complete(bot, hunt, complete: bool) -> CompleteOutcome:
+    """Mark *hunt*'s team finished (or not) in its multi-team hunt, then rebuild
+    the hub channels so the finishers overwrite follows, and announce a finish."""
+    link = MultiTeamDb.for_hunt(hunt.id)
+    if link is None:
+        raise MultiTeamRefused(f"**{hunt.name}** isn't part of a multi-team hunt.")
+    if not hunt.roster_role_id:
+        raise MultiTeamRefused(
+            f"**{hunt.name}** has no hub role, so it can't be marked complete.")
+    role = role_panel.find_roster_role(bot, hunt.roster_role_id)
+    if role is None:
+        raise MultiTeamRefused(
+            f"I can't find **{hunt.name}**'s hub role — is the bot still on the hub?")
+    if link["archived_time"] is not None:
+        raise MultiTeamRefused(f"The multi-team hunt **{link['name']}** is already archived.")
+    if not complete and hunt.archived:
+        raise MultiTeamRefused(f"**{hunt.name}** is archived, so it stays complete.")
+
+    team = role.name
+    if not MultiTeamDb.set_completed(hunt.id, complete):
+        return CompleteOutcome(
+            False, f"**{team}** is already complete." if complete
+            else f"**{team}** isn't marked complete.")
+    _, finishers = await ensure_channels(role.guild, link["multi_team_id"])
+    if not complete:
+        return CompleteOutcome(True, f":white_check_mark: **{team}** marked not complete.")
+    await finishers.send(f"🏁 **{team}** has finished!",
+                         allowed_mentions=discord.AllowedMentions.none())
+    return CompleteOutcome(
+        True, f":white_check_mark: **{team}** marked complete — "
+              f"they can now see #{finishers.name}.")
