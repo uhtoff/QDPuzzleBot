@@ -31,8 +31,8 @@ from bot.core import hub_channel, role_gate, template_link
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
 from bot.core.media_tiling import schedule_tiling
-from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
-                                      puzzle_location, spreadsheet_link)
+from bot.core.sheet_location import (additional_sheet_location, drive_folder_link,
+                                      hunt_sheet_location, puzzle_location, spreadsheet_link)
 
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
@@ -900,6 +900,8 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: {SHEET_MODE_REFUSALS.get(str(exc), 'Could not change the sheet mode')}")
             return
         await ctx.send(f":white_check_mark: This hunt now uses sheet mode **{mode}**")
+        # Re-pin the welcome: files mode adds the Drive folder link, tabs drops it.
+        await self.service.notifier.refresh_info(ctx.guild, hunt)
 
     async def _set_hunt_complete(self, ctx, complete: bool):
         if self.get_channel_type(ctx) != "Hunt":
@@ -3166,6 +3168,10 @@ class Puzzles(commands.Cog):
                         • Hunt Start Time: <t:{hunt.start_timestamp}:f>
                         • [{sheet_label}](https://docs.google.com/spreadsheets/d/{hunt.google_sheet_id})
                         """)
+        folder = drive_folder_link(hunt.drive_folder_id) if files_mode else None
+        if folder:
+            puzzle_links += f"""• [Drive folder]({folder})
+            """
         if hunt.solved_sheet_id and not files_mode:
             puzzle_links += f"""• [Solved Puzzles Sheet](https://docs.google.com/spreadsheets/d/{hunt.solved_sheet_id})
             """

@@ -84,6 +84,7 @@ def _mode_cog(hunt):
     cog = make_cog(hunt=hunt)
     cog.get_channel_type = lambda ctx: "Hunt"
     cog.service.set_sheet_mode = AsyncMock()
+    cog.service.notifier.refresh_info = AsyncMock()
     return cog
 
 
@@ -114,6 +115,8 @@ async def test_sheet_mode_switches_with_the_guild_drive_parent():
     await _run_sheet_mode(cog, ctx, "files")
     cog.service.set_sheet_mode.assert_awaited_once_with(hunt, "files", guild_parent_id="PARENT")
     assert ":white_check_mark:" in _said(ctx)
+    # The pinned welcome is re-sent so it gains (or loses) the Drive folder link.
+    cog.service.notifier.refresh_info.assert_awaited_once_with(ctx.guild, hunt)
 
 
 @pytest.mark.asyncio
@@ -173,6 +176,7 @@ def web():
     cog = MagicMock()
     cog.service.create_hunt = AsyncMock(return_value=MagicMock(uid="U9", channel_id=0))
     cog.service.set_sheet_mode = AsyncMock()
+    cog.service.notifier.refresh_info = AsyncMock()
     cog.service.create_hunt_solved_sheet = AsyncMock(return_value="S")
     cog.send_initial_hunt_channel_messages = AsyncMock()
     app = make_web_app("actions", cog=cog)
@@ -238,6 +242,17 @@ async def test_patch_sheet_mode_switches_under_the_lock(web):
     web.cog.service.set_sheet_mode.assert_awaited_once_with(
         web.hunt, "files", guild_parent_id="PARENT")
     web.audit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_patch_sheet_mode_re_pins_the_welcome(web):
+    guild = MagicMock()
+    web.cog.service.notifier.refresh_info = AsyncMock()
+    with patch("bot.web.actions.bot_app") as app:
+        app.return_value.bot.get_guild.return_value = guild
+        resp = await web.client.patch("/api/hunts/U1/sheet-mode", json={"sheet_mode": "files"})
+    assert resp.status_code == 200
+    web.cog.service.notifier.refresh_info.assert_awaited_once_with(guild, web.hunt)
 
 
 @pytest.mark.asyncio

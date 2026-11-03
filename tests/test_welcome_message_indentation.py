@@ -176,6 +176,16 @@ def test_files_hunt_welcome_links_the_reference_sheet_and_no_solved_sheet():
     assert "Solved Puzzles Sheet" not in value
 
 
+def test_files_hunt_welcome_links_the_drive_folder():
+    value = _hunt_welcome_info(_welcome_hunt(sheet_mode="files", drive_folder_id="FOLDER"))
+    assert "• [Drive folder](https://drive.google.com/drive/folders/FOLDER)" in value
+
+
+def test_welcome_has_no_drive_folder_line_without_a_folder():
+    assert "Drive folder" not in _hunt_welcome_info(_welcome_hunt(sheet_mode="files"))
+    assert "Drive folder" not in _hunt_welcome_info(_welcome_hunt(drive_folder_id="X"))
+
+
 def test_tabs_hunt_welcome_is_unchanged():
     value = _hunt_welcome_info(_welcome_hunt(solved_sheet_id="ARCH"))
     assert "• [Google Sheet](https://docs.google.com/spreadsheets/d/REF)" in value

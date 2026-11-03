@@ -1196,6 +1196,10 @@ async def patch_hunt_sheet_mode(uid):
         logger.exception("web sheet-mode switch failed for hunt %s", hunt_obj.id)
         return jsonify({"error": "sheet_mode_failed"}), 500
 
+    # Same re-pin as !sheet_mode: the welcome gains/loses the Drive folder link.
+    guild = bot_app().bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
+    if guild is not None:
+        await cog.service.notifier.refresh_info(guild, hunt_obj)
     await _audit("hunt_sheet_mode", hunt_uid=uid, detail=f"sheet_mode={mode}")
     return jsonify({"ok": True, "sheet_mode": mode})
 
