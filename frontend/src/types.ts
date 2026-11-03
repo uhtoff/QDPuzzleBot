@@ -175,6 +175,7 @@ export interface HuntDetail {
     archived: boolean;
     is_gated: boolean;
     is_team_hunt: boolean;
+    multi_team: { name: string; completed: boolean } | null;
     role_name: string | null;
     guild_snowflake: string | null;
     sheet_url: string | null;
@@ -341,6 +342,7 @@ export interface EvidenceItem {
 export interface TeamHuntSummary {
   uid: string;
   name: string;
+  multi_team: { id: number; name: string; completed: boolean; archived: boolean } | null;
   team: string | null;
   archived: boolean;
   team_server: string | null;
@@ -388,9 +390,21 @@ export interface SetupStatus {
     roster_role_id: string;
     hunt_name: string;
     hunt_url: string;
+    multi_team: { id: number; name: string } | null;
   } | null;
   hunt_uid: string | null;
-  hubs: { id: string; name: string; roles: { id: string; name: string }[] }[];
+  hubs: {
+    id: string;
+    name: string;
+    roles: { id: string; name: string }[];
+    multi_team_hunts: { id: number; name: string; team_count: number }[];
+  }[];
+}
+
+export interface CompleteResult {
+  ok: boolean;
+  changed: boolean;
+  message: string;
 }
 
 export interface SetupResult {

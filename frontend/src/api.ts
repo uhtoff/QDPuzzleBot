@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { onAuthLost } from "./queryClient";
-import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, SetupResult, SetupStatus, TeamHuntDetail, TeamHuntSummary, User } from "./types";
+import type { CanvasRegion, ChatMessage, EvidenceItem, Guild, GuildSettingsPatch, GuildSettingsResponse, HuntCanvas, HuntDetail, HuntList, MarkKind, MarkStyle, MediaMark, PuzzleImage, RegionRole, RegionShape, RollupAnswers, CompleteResult, SetupResult, SetupStatus, TeamHuntDetail, TeamHuntSummary, User } from "./types";
 import type { SiteInfo } from "./lib/siteInfo";
 
 function csrfToken(): string {
@@ -120,6 +120,12 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return d.message || "The hub server isn't available to you.";
     case "confirm_mismatch":
       return "That doesn't match the hunt's name.";
+    case "refused":
+      return d.message || "That isn't possible right now.";
+    case "hub_update_failed":
+      return "Couldn't update the hub's channels — try again shortly.";
+    case "multi_team_not_found":
+      return "That multi-team hunt no longer exists — refresh and try again.";
     case "archive_running":
       return "This hunt is already being archived.";
     case "use_hub_archive":
@@ -794,6 +800,42 @@ export function useArchiveToHub(uid: string) {
         confirm_name: confirmName,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+/** Mark this hunt finished (or not) from the team server's side. */
+export function useCompleteHunt(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (complete: boolean) =>
+      apiSend<CompleteResult>(`/api/hunts/${uid}/complete`, "POST", { complete }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+/** The hub-side equivalent, for a team hunt listed on the hub's Team servers page. */
+export function useCompleteTeamHunt(guildId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uid, complete }: { uid: string; complete: boolean }) =>
+      apiSend<CompleteResult>(`/api/guilds/${guildId}/team-hunts/${uid}/complete`, "POST", {
+        complete,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["team-hunts", guildId] }),
+  });
+}
+
+/** Archive every team of a multi-team hunt; runs in the background. */
+export function useArchiveMultiTeam(guildId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirmName }: { id: number; confirmName: string }) =>
+      apiSend<{ ok: boolean; started: boolean }>(
+        `/api/guilds/${guildId}/multi-team/${id}/archive`,
+        "POST",
+        { confirm_name: confirmName },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["team-hunts", guildId] }),
   });
 }
 

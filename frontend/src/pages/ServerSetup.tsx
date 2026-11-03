@@ -10,6 +10,7 @@ import {
   Divider,
   Group,
   Loader,
+  SegmentedControl,
   Select,
   Stack,
   Switch,
@@ -23,7 +24,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 
 import { useRunSetup, useSetupStatus } from "../api";
 import { discordSpans } from "../lib/discordText";
-import { buildPayload, canSubmit, emptySetupForm, type SetupForm } from "../lib/setupForm";
+import { buildPayload, canSubmit, emptySetupForm, multiTeamMatch, type SetupForm } from "../lib/setupForm";
 import type { SetupResult, SetupStatus } from "../types";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes } from "../util";
 
@@ -36,6 +37,7 @@ function initialForm(status: SetupStatus): SetupForm {
     form.roleId = ex.roster_role_id;
     form.huntName = ex.hunt_name;
     form.huntUrl = ex.hunt_url;
+    form.multiTeam = ex.multi_team !== null;
   }
   return form;
 }
@@ -95,6 +97,9 @@ function SetupFormView({
 
   const hub = status.hubs.find((h) => h.id === form.hubId);
   const problems = status.template_problems;
+  const running = hub?.multi_team_hunts ?? [];
+  const match = multiTeamMatch(form.huntName, running);
+  const teams = (n: number) => `${n} ${n === 1 ? "team" : "teams"}`;
 
   return (
     <Stack gap="md" maw={560}>
@@ -134,12 +139,55 @@ function SetupFormView({
         searchable
         required
       />
+      <Stack gap={4}>
+        <Text size="sm" fw={500}>
+          Are we fielding more than one team?
+        </Text>
+        <SegmentedControl
+          w={160}
+          data={[
+            { value: "no", label: "No" },
+            { value: "yes", label: "Yes" },
+          ]}
+          value={form.multiTeam ? "yes" : "no"}
+          onChange={(v) => set("multiTeam", v === "yes")}
+        />
+      </Stack>
+      {form.multiTeam && running.length > 0 && (
+        <Stack gap={4}>
+          <Text size="sm" c="dimmed">
+            Running on this hub:
+          </Text>
+          <Group gap="xs">
+            {running.map((m) => (
+              <Button
+                key={m.id}
+                size="xs"
+                variant={match?.id === m.id ? "filled" : "light"}
+                onClick={() => set("huntName", m.name)}
+              >
+                {m.name} ({teams(m.team_count)})
+              </Button>
+            ))}
+          </Group>
+        </Stack>
+      )}
       <TextInput
         label="Hunt name"
         value={form.huntName}
         onChange={(e) => set("huntName", e.currentTarget.value)}
         required
       />
+      {form.multiTeam && match && (
+        <Text size="sm">
+          This team joins <strong>{match.name}</strong> ({teams(match.team_count)}).
+        </Text>
+      )}
+      {form.multiTeam && !match && form.huntName.trim() && (
+        <Text size="sm">
+          This starts a new multi-team hunt called <strong>{form.huntName.trim()}</strong>.
+        </Text>
+      )}
       <TextInput
         label="Hunt website"
         value={form.huntUrl}

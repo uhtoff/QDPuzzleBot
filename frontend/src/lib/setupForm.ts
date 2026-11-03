@@ -12,6 +12,7 @@ export interface SetupForm {
   createSolvedSheet: boolean;
   filesMode: boolean;
   sendInvites: boolean;
+  multiTeam: boolean;
 }
 
 export interface SetupPayload {
@@ -25,6 +26,7 @@ export interface SetupPayload {
   create_solved_sheet?: boolean;
   sheet_mode?: "files";
   send_invites: boolean;
+  multi_team?: true;
 }
 
 export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
@@ -39,6 +41,7 @@ export const emptySetupForm = (offsetMinutes: number): SetupForm => ({
   createSolvedSheet: false,
   filesMode: false,
   sendInvites: false,
+  multiTeam: false,
 });
 
 /** The POST body: strings trimmed, empty optionals left out, the start time
@@ -60,6 +63,7 @@ export function buildPayload(form: SetupForm): SetupPayload {
   // A files hunt has no solved spreadsheet, so the two never go out together.
   if (form.filesMode) payload.sheet_mode = "files";
   else if (form.createSolvedSheet) payload.create_solved_sheet = true;
+  if (form.multiTeam) payload.multi_team = true;
   return payload;
 }
 
@@ -67,4 +71,21 @@ export function buildPayload(form: SetupForm): SetupPayload {
 export function canSubmit(form: SetupForm, templateProblems: string[]): boolean {
   if (templateProblems.length > 0) return false;
   return !!(form.hubId && form.roleId && form.huntName.trim() && form.huntUrl.trim());
+}
+
+export interface RunningMultiTeam {
+  id: number;
+  name: string;
+  team_count: number;
+}
+
+/** The running multi-team hunt this hunt name would join (the server matches
+ *  on trimmed, case-insensitive name), or null if it would start a new one. */
+export function multiTeamMatch(
+  huntName: string,
+  running: RunningMultiTeam[],
+): RunningMultiTeam | null {
+  const wanted = huntName.trim().toLowerCase();
+  if (!wanted) return null;
+  return running.find((m) => m.name.trim().toLowerCase() === wanted) ?? null;
 }

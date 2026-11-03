@@ -199,6 +199,7 @@ export default function HuntBoard() {
               puzzle_prefix={data.hunt.puzzle_prefix}
               archived={data.hunt.archived}
               isTeamHunt={data.hunt.is_team_hunt}
+              multiTeam={data.hunt.multi_team}
               hasSolvedSheet={!!data.hunt.solved_sheet_url}
               sheetMode={data.hunt.sheet_mode}
               puzzleCount={data.summary.total}

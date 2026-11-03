@@ -8,6 +8,7 @@ import {
   Group,
   Select,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -24,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
-import { useArchiveHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { useArchiveHunt, useCompleteHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
@@ -38,6 +39,7 @@ interface AdminSettingsPanelProps {
   puzzle_prefix: string;
   archived: boolean;
   isTeamHunt: boolean;
+  multiTeam: { name: string; completed: boolean } | null;
   hasSolvedSheet: boolean;
   sheetMode: "tabs" | "files";
   puzzleCount: number;
@@ -64,6 +66,7 @@ export function AdminSettingsPanel({
   puzzle_prefix,
   archived,
   isTeamHunt,
+  multiTeam,
   hasSolvedSheet,
   sheetMode,
   puzzleCount,
@@ -78,6 +81,7 @@ export function AdminSettingsPanel({
   const sheetMut = useCreateSolvedSheet(uid);
   const modeMut = useSetSheetMode(uid);
   const deleteMut = useDeleteHunt(uid);
+  const completeMut = useCompleteHunt(uid);
 
   const [values, setValues] = useState<FormValues>(() => {
     const offset = browserOffsetMinutes();
@@ -159,6 +163,13 @@ export function AdminSettingsPanel({
       },
     });
   }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, settingsMut]);
+
+  const handleToggleComplete = (complete: boolean) => {
+    completeMut.mutate(complete, {
+      onSuccess: (r) => notifications.show({ message: r.message, color: "green" }),
+      onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+    });
+  };
 
   const handleToggleArchive = useCallback(() => {
     archiveMut.mutate(!archived, {
@@ -323,6 +334,16 @@ export function AdminSettingsPanel({
             {archived ? "Unarchive" : "Archive"} hunt
           </Button>
         </Group>
+
+        {multiTeam && (
+          <Switch
+            label="Finished the hunt"
+            description={`Part of the multi-team hunt ${multiTeam.name}.`}
+            checked={multiTeam.completed}
+            disabled={archived || completeMut.isPending}
+            onChange={(e) => handleToggleComplete(e.currentTarget.checked)}
+          />
+        )}
 
         <Group>
           <Badge color={sheetMode === "files" ? "blue" : "gray"} size="sm">

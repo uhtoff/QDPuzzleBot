@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Accordion,
+  Alert,
   Anchor,
   Badge,
+  Button,
   Center,
   Group,
   Loader,
@@ -13,8 +15,16 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 
-import { useAdminGuilds, useTeamHunt, useTeamHunts } from "../api";
+import {
+  useAdminGuilds,
+  useArchiveMultiTeam,
+  useCompleteTeamHunt,
+  useTeamHunt,
+  useTeamHunts,
+} from "../api";
+import { TypedConfirmModal } from "../components/TypedConfirmModal";
 import { historyLine } from "../lib/accessHistory";
 import type { TeamHuntSummary } from "../types";
 
@@ -115,6 +125,147 @@ function HuntDetail({ guildId, hunt }: { guildId: number; hunt: TeamHuntSummary 
   );
 }
 
+const teamsLabel = (n: number) => `${n} ${n === 1 ? "team" : "teams"}`;
+
+function HuntItem({
+  guildId,
+  hunt,
+  open,
+}: {
+  guildId: number;
+  hunt: TeamHuntSummary;
+  open: string | null;
+}) {
+  const completeMut = useCompleteTeamHunt(guildId);
+  const mt = hunt.multi_team;
+  // Controls only on a running team of a multi-team hunt that is still live.
+  const showComplete = mt !== null && !mt.archived && !hunt.archived;
+
+  const toggle = () => {
+    if (!mt) return;
+    completeMut.mutate(
+      { uid: hunt.uid, complete: !mt.completed },
+      {
+        onSuccess: (r) => notifications.show({ message: r.message, color: "green" }),
+        onError: (e) => notifications.show({ message: (e as Error).message, color: "red" }),
+      },
+    );
+  };
+
+  return (
+    <Accordion.Item value={hunt.uid}>
+      <Center>
+        <Accordion.Control>
+          <Group gap="sm">
+            <Text fw={500}>{hunt.name}</Text>
+            {hunt.team && <Text c="dimmed">{hunt.team}</Text>}
+            <Badge color={hunt.archived ? "gray" : "green"}>
+              {hunt.archived ? "Archived" : "Running"}
+            </Badge>
+            {mt?.completed && <Badge color="blue">Finished</Badge>}
+            {!hunt.archived && hunt.on_server_count !== null && (
+              <Text size="sm">{hunt.on_server_count} on the server</Text>
+            )}
+            <Text size="sm">{hunt.invited_waiting_count} invited, waiting</Text>
+          </Group>
+        </Accordion.Control>
+        {showComplete && (
+          <Button
+            size="xs"
+            variant="light"
+            mx="sm"
+            onClick={toggle}
+            loading={completeMut.isPending}
+          >
+            {mt.completed ? "Mark not complete" : "Mark complete"}
+          </Button>
+        )}
+      </Center>
+      <Accordion.Panel>
+        {open === hunt.uid && <HuntDetail guildId={guildId} hunt={hunt} />}
+      </Accordion.Panel>
+    </Accordion.Item>
+  );
+}
+
+function MultiTeamGroup({
+  guildId,
+  group,
+  open,
+  setOpen,
+}: {
+  guildId: number;
+  group: { id: number; name: string; archived: boolean; hunts: TeamHuntSummary[] };
+  open: string | null;
+  setOpen: (v: string | null) => void;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const archiveMut = useArchiveMultiTeam(guildId);
+  // Teams already archived don't count towards the heading's "N teams".
+  const running = group.hunts.filter((h) => !h.archived).length;
+  const heading = group.archived
+    ? group.name
+    : `${group.name} (${teamsLabel(running)})`;
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between">
+        <Title order={4}>{heading}</Title>
+        {!group.archived && (
+          <Button
+            size="xs"
+            color="red"
+            variant="light"
+            onClick={() => setConfirmOpen(true)}
+            loading={archiveMut.isPending}
+          >
+            Archive now
+          </Button>
+        )}
+      </Group>
+      {archiveMut.isSuccess && (
+        <Alert color="blue">
+          Archiving… the result will be posted in the hub&apos;s admin channel.
+        </Alert>
+      )}
+      <Accordion variant="separated" value={open} onChange={setOpen}>
+        {group.hunts.map((h) => (
+          <HuntItem key={h.uid} guildId={guildId} hunt={h} open={open} />
+        ))}
+      </Accordion>
+      <TypedConfirmModal
+        opened={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() =>
+          archiveMut.mutate(
+            { id: group.id, confirmName: group.name },
+            {
+              onSuccess: () => {
+                setConfirmOpen(false);
+                notifications.show({
+                  message: "Archiving… the result will be posted in the hub's admin channel.",
+                  color: "blue",
+                });
+              },
+              onError: (e) =>
+                notifications.show({ message: (e as Error).message, color: "red" }),
+            },
+          )
+        }
+        title="Archive multi-team hunt"
+        confirmPhrase={group.name}
+        confirmLabel="Archive now"
+        loading={archiveMut.isPending}
+      >
+        <Text size="sm" c="red">
+          This archives every team&apos;s server for {group.name} and the hub&apos;s
+          channels for it. It cannot be undone.
+        </Text>
+      </TypedConfirmModal>
+    </Stack>
+  );
+}
+
 export default function TeamServers() {
   const { guildId } = useParams();
   const navigate = useNavigate();
@@ -141,6 +292,24 @@ export default function TeamServers() {
     return <Text c="red">Failed to load team servers.</Text>;
   }
 
+  // Team hunts of one multi-team hunt sit together under its name.
+  const byMulti = new Map<
+    number,
+    { id: number; name: string; archived: boolean; hunts: TeamHuntSummary[] }
+  >();
+  const ungrouped: TeamHuntSummary[] = [];
+  for (const h of data.hunts) {
+    const mt = h.multi_team;
+    if (!mt) {
+      ungrouped.push(h);
+      continue;
+    }
+    const g = byMulti.get(mt.id) ?? { id: mt.id, name: mt.name, archived: mt.archived, hunts: [] };
+    g.hunts.push(h);
+    byMulti.set(mt.id, g);
+  }
+  const groups = [...byMulti.values()];
+
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end">
@@ -165,28 +334,18 @@ export default function TeamServers() {
       {data.hunts.length === 0 ? (
         <Text c="dimmed">No team servers use this hub yet.</Text>
       ) : (
-        <Accordion variant="separated" value={open} onChange={setOpen}>
-          {data.hunts.map((h) => (
-            <Accordion.Item key={h.uid} value={h.uid}>
-              <Accordion.Control>
-                <Group gap="sm">
-                  <Text fw={500}>{h.name}</Text>
-                  {h.team && <Text c="dimmed">{h.team}</Text>}
-                  <Badge color={h.archived ? "gray" : "green"}>
-                    {h.archived ? "Archived" : "Running"}
-                  </Badge>
-                  {!h.archived && h.on_server_count !== null && (
-                    <Text size="sm">{h.on_server_count} on the server</Text>
-                  )}
-                  <Text size="sm">{h.invited_waiting_count} invited, waiting</Text>
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                {open === h.uid && <HuntDetail guildId={id} hunt={h} />}
-              </Accordion.Panel>
-            </Accordion.Item>
+        <>
+          {groups.map((g) => (
+            <MultiTeamGroup key={g.id} guildId={id} group={g} open={open} setOpen={setOpen} />
           ))}
-        </Accordion>
+          {ungrouped.length > 0 && (
+            <Accordion variant="separated" value={open} onChange={setOpen}>
+              {ungrouped.map((h) => (
+                <HuntItem key={h.uid} guildId={id} hunt={h} open={open} />
+              ))}
+            </Accordion>
+          )}
+        </>
       )}
     </Stack>
   );

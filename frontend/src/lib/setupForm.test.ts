@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPayload, canSubmit, emptySetupForm, type SetupForm } from "./setupForm";
+import { buildPayload, canSubmit, emptySetupForm, multiTeamMatch, type SetupForm } from "./setupForm";
 
 const filled = (over: Partial<SetupForm> = {}): SetupForm => ({
   ...emptySetupForm(0),
@@ -75,5 +75,37 @@ describe("canSubmit", () => {
     ["url", { huntUrl: "" }],
   ] as const)("is false when the %s is missing", (_n, over) => {
     expect(canSubmit(filled(over), [])).toBe(false);
+  });
+});
+
+describe("buildPayload multi_team", () => {
+  it("sends multi_team: true only when set", () => {
+    expect(buildPayload(filled({ multiTeam: true }))).toMatchObject({ multi_team: true });
+    expect("multi_team" in buildPayload(filled({ multiTeam: false }))).toBe(false);
+    expect("multi_team" in buildPayload(filled())).toBe(false);
+  });
+});
+
+describe("multiTeamMatch", () => {
+  const running = [
+    { id: 1, name: "Puzzle Boat", team_count: 2 },
+    { id: 2, name: "Mystery Hunt 2027", team_count: 3 },
+  ];
+
+  it("matches exactly", () => {
+    expect(multiTeamMatch("Mystery Hunt 2027", running)).toEqual(running[1]);
+  });
+  it("ignores case", () => {
+    expect(multiTeamMatch("mystery HUNT 2027", running)).toEqual(running[1]);
+  });
+  it("ignores surrounding spaces", () => {
+    expect(multiTeamMatch("  Puzzle Boat  ", running)).toEqual(running[0]);
+  });
+  it("returns null when nothing matches (partial is not a match)", () => {
+    expect(multiTeamMatch("Mystery Hunt", running)).toBeNull();
+    expect(multiTeamMatch("", running)).toBeNull();
+  });
+  it("returns null for an empty list", () => {
+    expect(multiTeamMatch("Puzzle Boat", [])).toBeNull();
   });
 });
