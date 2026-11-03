@@ -153,7 +153,7 @@ async def _has_welcome(lobby, bot_id):
     return False
 
 
-def parse_setup_tail(text):
+def parse_setup_tail(text: str) -> tuple[str, str, bool]:
     """Split `<hunt name>[, files][, multi-team]` (clauses in either order) into
     (hunt_name, sheet_mode, multi_team). Clauses are peeled off the end while they
     are exactly `files` or `multi-team`; a name with an inner comma stays whole."""
@@ -230,7 +230,7 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
                                     f"(#{ns.name} and #{fin.name}).")
             else:
                 report.steps.append(f"Joined multi-team hunt **{mt_name}** — now "
-                                    f"{len(MultiTeamDb.members(mt_id))} teams.")
+                                    f"{sum(1 for m in MultiTeamDb.members(mt_id) if not m["archived"])} teams.")
 
         if await _has_welcome(targets.lobby, guild.me.id):
             report.steps.append(f"#{targets.lobby.name} welcome already posted.")

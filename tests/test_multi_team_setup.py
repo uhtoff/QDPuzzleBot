@@ -26,15 +26,16 @@ def test_parse_setup_tail(text, expected):
 
 class MT:
     """Patches the multi-team seam run_setup looks up."""
-    def __init__(self, linked=None, running=None, members=2, fail=None):
+    def __init__(self, linked=None, created=True, members=2, archived=0, fail=None):
         self.db = MagicMock()
         self.db.for_hunt.return_value = linked
         self.db.get.return_value = {"id": 3, "name": "GPH 2026"}
-        self.db.members.return_value = [object()] * members
+        self.db.members.return_value = (
+            [{"archived": 0}] * members + [{"archived": 1}] * archived)
         self.ns = MagicMock(); self.ns.name = "no-spoilers"
         self.fin = MagicMock(); self.fin.name = "finishers"
         self.ensure = AsyncMock(side_effect=fail, return_value=(self.ns, self.fin))
-        self.find = AsyncMock(return_value=(3, running is None))
+        self.find = AsyncMock(return_value=(3, created))
 
     async def run(self, multi_team=True, hunt=None):
         hunt = hunt or _hunt(roster_role_id=70)
@@ -62,7 +63,7 @@ async def test_no_multi_team_makes_no_multi_team_calls():
 
 
 async def test_multi_team_with_none_running_creates_one():
-    mt = MT(running=None)
+    mt = MT(created=True)
     report = await mt.run()
     assert report.error == ""
     mt.find.assert_awaited_once_with(mt.hub, "Big Hunt")
@@ -74,7 +75,7 @@ async def test_multi_team_with_none_running_creates_one():
 
 
 async def test_multi_team_joins_a_running_one_and_reports_the_count_with_stored_casing():
-    mt = MT(running=object(), members=3)
+    mt = MT(created=False, members=3, archived=1)
     report = await mt.run()
     assert "Joined multi-team hunt **GPH 2026** — now 3 teams." in report.steps
     assert not any("Started" in s for s in report.steps)

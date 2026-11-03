@@ -4246,7 +4246,7 @@ class Puzzles(commands.Cog):
         Example: `!setup_server 123456789012345678 234567890123456789 https://hunt.example Big Hunt`
         Add `, files` after the hunt name for one Google spreadsheet per puzzle.
         Add `, multi-team` if several teams are fielding this hunt: it joins (or starts)
-        the multi-team hunt of that name on the hub, with shared no-spoiler and finishers channels.
+        the multi-team hunt of that name on the hub, with its no-spoiler and finishers channels.
         You must be this server's owner (or an admin here) and an admin on the hub.
         Checks the server matches the template, copies the
         hub's settings, pins `mod` as the admin role, creates the hunt gated to a team
