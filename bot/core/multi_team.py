@@ -1,0 +1,100 @@
+"""Multi-team hunts: several teams' hunts on one hub guild sharing hub channels.
+
+Each multi-team hunt owns two uncategorised hub channels, found again by a topic
+marker: a no-spoiler channel every team (and hub admin) can chat in, and a
+finishers channel only teams that have completed can see. Their overwrites are
+always rebuilt from the database and applied as a whole dict, so a stale role is
+removed rather than left behind.
+"""
+import asyncio
+import logging
+
+import discord
+
+from bot.store import MultiTeamDb
+from bot.core import role_gate
+from bot.core.constants import ADMIN_ROLES
+from bot.core.discord_channels import clean_channel_name
+
+logger = logging.getLogger(__name__)
+
+# Serialises find_or_create so two simultaneous setups for the same hunt name
+# cannot each create a multi-team row.
+_LOCK = asyncio.Lock()
+
+
+class MultiTeamRefused(Exception):
+    """A multi-team action the bot won't do; the message is shown to the user as-is."""
+
+
+def no_spoiler_marker(mt_id) -> str:
+    return f"puzzbot-multi-team:{mt_id}:no-spoilers"
+
+
+def finishers_marker(mt_id) -> str:
+    return f"puzzbot-multi-team:{mt_id}:finishers"
+
+
+def archive_marker(mt_id) -> str:
+    return f"puzzbot-multi-team-archive:{mt_id}"
+
+
+def _allow():
+    return discord.PermissionOverwrite(view_channel=True, send_messages=True,
+                                       read_message_history=True)
+
+
+def _overwrites(hub, role_ids):
+    """@everyone denied; each of *role_ids* that resolves on the hub allowed."""
+    out = {hub.default_role: discord.PermissionOverwrite(view_channel=False)}
+    for rid in role_ids:
+        role = hub.get_role(rid)
+        if role is None:
+            logger.warning("multi-team: role %s not found on hub %s; skipped", rid, hub.id)
+            continue
+        out[role] = _allow()
+    return out
+
+
+async def _ensure_one(hub, stored_id, marker, name, overwrites):
+    """The channel tagged *marker* (stored id first, then a topic scan), its
+    overwrites replaced by *overwrites*; created uncategorised if absent."""
+    channel = hub.get_channel(stored_id) if stored_id else None
+    if channel is not None and channel.topic != marker:
+        channel = None
+    if channel is None:
+        channel = next((c for c in hub.text_channels if c.topic == marker), None)
+    if channel is None:
+        return await hub.create_text_channel(name[:100], topic=marker, overwrites=overwrites)
+    await channel.edit(overwrites=overwrites)
+    return channel
+
+
+async def ensure_channels(hub, mt_id):
+    """(no-spoiler channel, finishers channel) for multi-team hunt *mt_id*, created
+    if missing and with overwrites set from the current members. Idempotent."""
+    mt = MultiTeamDb.get(mt_id)
+    if mt is None:
+        raise LookupError(f"no multi-team hunt {mt_id}")
+    members = MultiTeamDb.members(mt_id)
+    admin_ids = sorted(role_gate.tier_role_ids(hub, ADMIN_ROLES))
+    team_ids = [m["roster_role_id"] for m in members]
+    done_ids = [m["roster_role_id"] for m in members if m["completed_time"] is not None]
+
+    slug = clean_channel_name(mt["name"])
+    ns = await _ensure_one(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id),
+                           f"{slug}-no-spoilers", _overwrites(hub, team_ids + admin_ids))
+    fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
+                            f"{slug}-finishers", _overwrites(hub, done_ids))
+    MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
+    return ns, fin
+
+
+async def find_or_create(hub, hunt_name):
+    """(multi-team id, created) for the running multi-team hunt named *hunt_name*
+    on *hub* (case-insensitive), creating it if there is none."""
+    async with _LOCK:
+        row = MultiTeamDb.running_by_name(hub.id, hunt_name)
+        if row is not None:
+            return row["id"], False
+        return MultiTeamDb.create(hub.id, hunt_name), True

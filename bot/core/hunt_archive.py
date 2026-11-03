@@ -144,7 +144,12 @@ async def ensure_hub_archive_channel(hub, hunt, name):
     """The hub channel this hunt archives into: the one already tagged for it
     (a prior partial run), else a new uncategorised one named *name*, the same
     place archive_hunt leaves its surviving channel today."""
-    marker = archive_topic(hunt)
+    return await ensure_tagged_channel(hub, archive_topic(hunt), name)
+
+
+async def ensure_tagged_channel(hub, marker, name):
+    """The hub text channel whose topic is *marker*, else a new uncategorised one
+    named *name*."""
     for ch in hub.text_channels:
         if ch.topic == marker:
             return ch
