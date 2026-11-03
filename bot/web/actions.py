@@ -33,7 +33,7 @@ from .auth import (
     resolve_membership,
     resolve_member_role_ids,
 )
-from bot.core import role_gate, template_link
+from bot.core import multi_team, role_gate, template_link
 from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
                                      spreadsheet_link)
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb, MultiTeamDb
@@ -999,6 +999,35 @@ async def post_hunt_archive(uid):
     _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
     await _audit("hunt_archive", hunt_uid=uid, detail=f"archived={bool(archived)}")
     return jsonify({"ok": True, "archived": bool(archived)})
+
+
+@actions_bp.route("/hunts/<uid>/complete", methods=["POST"])
+@login_required
+async def post_hunt_complete(uid):
+    """Mark this team's hunt finished (or not), as !hunt_complete does. Admin only."""
+    ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
+        _visible_hunt_by_uid(uid), allow_archived=True, need_cog=False)
+    if err:
+        return err
+    assert ctx is not None
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+
+    from bot.store import HuntJsonDb
+
+    body = await request.get_json(silent=True)
+    if not isinstance((body or {}).get("complete"), bool):
+        return jsonify({"error": "bad_value", "field": "complete"}), 400
+    hunt_obj = HuntJsonDb.get_by_attr(id=ctx["hunt"]["id"])
+    if hunt_obj is None:
+        return jsonify({"error": "hunt_not_found"}), 404
+    resp, done = await _complete_response(hunt_obj, body)
+    if done is not None:
+        _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+        await _audit("hunt_complete", hunt_uid=uid,
+                     detail=f"complete={done[0]} changed={done[1]}")
+    return resp
 
 
 # Strong references to in-flight archive tasks, so they aren't garbage-collected.
@@ -1984,8 +2013,31 @@ def _team_hunt_out(hub, hunt, snowflake, bot, *, count=False):
         "team_server": team_guild.name if team_guild is not None else None,
         "on_server_count": here,
         "invited_waiting_count": 0,
+        "multi_team": None,
     }
+    mt = MultiTeamDb.for_hunt(hunt.id)
+    if mt is not None:
+        out["multi_team"] = {"id": mt["multi_team_id"], "name": mt["name"],
+                             "completed": mt["completed_time"] is not None,
+                             "archived": mt["archived_time"] is not None}
     return out, team_guild
+
+
+async def _complete_response(hunt_obj, body):
+    """Validate {"complete": bool}, run multi_team.set_complete and shape the reply
+    (shared by the team-server and hub routes). Returns (response, complete)."""
+    complete = (body or {}).get("complete")
+    if not isinstance(complete, bool):
+        return (jsonify({"error": "bad_value", "field": "complete"}), 400), None
+    try:
+        outcome = await multi_team.set_complete(bot_app().bot, hunt_obj, complete)
+    except multi_team.MultiTeamRefused as exc:
+        return (jsonify({"error": "refused", "message": str(exc)}), 409), None
+    except Exception:
+        logger.exception("set_complete(%s) failed for hunt %s", complete, hunt_obj.id)
+        return (jsonify({"error": "hub_update_failed"}), 502), None
+    return (jsonify({"ok": True, "changed": outcome.changed,
+                     "message": outcome.message}), 200), (complete, outcome.changed)
 
 
 @actions_bp.route("/guilds/<int:guild_id>/team-hunts", methods=["GET"])
@@ -2056,6 +2108,27 @@ async def get_team_hunt(guild_id, uid):
         "invited_waiting": waiting,
         "history": team_access.history(HuntAccessLogDb.for_hunt(hunt.id), name_of),
     })
+
+
+@actions_bp.route("/guilds/<int:guild_id>/team-hunts/<uid>/complete", methods=["POST"])
+@login_required
+async def post_team_hunt_complete(guild_id, uid):
+    """Mark a team hunt finished (or not) from the hub. Admin only (as Server settings)."""
+    resolved, err = await _guild_settings_ctx(guild_id)
+    if err:
+        return err
+    assert resolved is not None
+    _row, hub, _settings = resolved
+    hunt = HuntJsonDb.get_by_attr(uid=uid)
+    if (hunt is None or not hunt.roster_role_id
+            or hub.get_role(int(hunt.roster_role_id)) is None):
+        return jsonify({"error": "hunt_not_found"}), 404
+    body = await request.get_json(silent=True)
+    resp, done = await _complete_response(hunt, body)
+    if done is not None:
+        await _audit("hunt_complete", hunt_uid=hunt.uid,
+                     detail=f"complete={done[0]} changed={done[1]}")
+    return resp
 
 
 @actions_bp.route("/guilds/<int:guild_id>/settings", methods=["GET"])

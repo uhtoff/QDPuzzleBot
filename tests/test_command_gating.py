@@ -106,6 +106,8 @@ EXPECTED = [
     ("debug_puzzle_channel", "admin"),
     ("delete_hunt", "admin"),
     ("hunt", "admin"),
+    ("hunt_complete", "admin"),
+    ("hunt_not_complete", "admin"),
     ("invite_player", "admin"),
     ("post_role_panel", "admin"),
     ("mod_invite", "admin"),

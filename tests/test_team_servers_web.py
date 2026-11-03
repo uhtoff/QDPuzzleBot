@@ -87,6 +87,7 @@ def web():
         patch("bot.web.actions.HuntJsonDb", hdb),
         patch("bot.web.actions.HuntInviteDb", idb),
         patch("bot.web.actions.HuntAccessLogDb", ldb),
+        patch("bot.web.actions.MultiTeamDb", MagicMock(for_hunt=MagicMock(return_value=None))),
         patch("bot.core.role_gate.tier_role_ids", return_value={MOD}),
     ]
     start_patches(patches)
@@ -107,7 +108,8 @@ async def test_list_running_and_archived(web):
     assert [h["uid"] for h in hunts] == ["RUN", "OLD"]
     assert hunts[0] == {"uid": "RUN", "name": "Running Hunt", "team": "Team Rocket",
                         "archived": False, "team_server": "Rocket HQ",
-                        "on_server_count": 3, "invited_waiting_count": 1}
+                        "on_server_count": 3, "invited_waiting_count": 1,
+                        "multi_team": None}
     assert hunts[1]["archived"] is True
     web.idb.for_hunts.assert_called_once_with([10, 11])
     web.idb.for_hunt.assert_not_called()

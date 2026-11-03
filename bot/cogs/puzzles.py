@@ -37,7 +37,7 @@ from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_locat
 # Alias for the ctx-free channel adapter (M3.5).
 import bot.core.discord_channels as _channels
 from bot.core.hub_archive_run import archive_summary as _archive_summary, run_archive_to_hub
-from bot.core import category_layout, hunt_archive, media_gc, mod_invite, role_panel, server_setup, team_invites
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite, multi_team, role_panel, server_setup, team_invites
 
 logger = logging.getLogger(__name__)
 
@@ -900,6 +900,47 @@ class Puzzles(commands.Cog):
             await ctx.send(f":x: {SHEET_MODE_REFUSALS.get(str(exc), 'Could not change the sheet mode')}")
             return
         await ctx.send(f":white_check_mark: This hunt now uses sheet mode **{mode}**")
+
+    async def _set_hunt_complete(self, ctx, complete: bool):
+        if self.get_channel_type(ctx) != "Hunt":
+            await ctx.send(":x: This command must be done from the main Hunt channel")
+            return
+        hunt = self.get_hunt(ctx)
+        assert hunt is not None  # Hunt channel checked above
+        try:
+            outcome = await multi_team.set_complete(self.bot, hunt, complete)
+        except multi_team.MultiTeamRefused as exc:
+            await ctx.send(f":x: {exc}")
+            return
+        except Exception:
+            logger.exception("set_complete(%s) failed for hunt %s", complete, hunt.id)
+            await ctx.send(":x: Couldn't update the hub channels \u2014 the error has been logged.")
+            return
+        await ctx.send(outcome.message)
+
+    @commands.command()
+    @is_admin()
+    async def hunt_complete(self, ctx):
+        """*Mark this team as finished in its multi-team hunt (admin only).*
+
+        Usage: `!hunt_complete`
+        Example: `!hunt_complete`
+        Gives this team's hub role access to the finishers channel on the hub and
+        announces the finish there. Does nothing if the team is already marked.
+        Run in the main Hunt channel of a team server. Admins/mods only."""
+        await self._set_hunt_complete(ctx, True)
+
+    @commands.command()
+    @is_admin()
+    async def hunt_not_complete(self, ctx):
+        """*Undo marking this team as finished in its multi-team hunt (admin only).*
+
+        Usage: `!hunt_not_complete`
+        Example: `!hunt_not_complete`
+        Removes this team's hub role from the finishers channel on the hub.
+        Does nothing if the team isn't marked finished.
+        Run in the main Hunt channel of a team server. Admins/mods only."""
+        await self._set_hunt_complete(ctx, False)
 
     @commands.command(aliases=["p"])
     @with_puzzle_mutex(wait=True)

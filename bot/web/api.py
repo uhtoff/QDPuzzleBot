@@ -18,6 +18,7 @@ from .auth import (
     user_can_manage,
 )
 from bot.core import role_gate
+from bot.store import MultiTeamDb
 from bot.core.sheet_location import drive_folder_link, spreadsheet_link
 from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
@@ -138,6 +139,7 @@ async def hunt_detail(uid):
         if _role is not None:
             gating_role_name = _role.name
     from bot.core.puzzle_service import CREATE_META_TYPES
+    mt = MultiTeamDb.for_hunt(hunt["id"])
     return jsonify({
         "hunt": {
             "uid": hunt["uid"],
@@ -147,6 +149,9 @@ async def hunt_detail(uid):
             "is_gated": bool(gating_role_id),
             # A team hunt (tied to a hub role); the role id itself stays server-side.
             "is_team_hunt": bool(hunt.get("roster_role_id")),
+            # Set when the hunt is one team of a multi-team hunt on a hub.
+            "multi_team": ({"name": mt["name"], "completed": mt["completed_time"] is not None}
+                           if mt is not None else None),
             "role_name": gating_role_name,
             "guild_snowflake": str(guild_snowflake) if guild_snowflake else None,
             "sheet_base_url": _sheet_base(hunt["google_sheet_id"]),
