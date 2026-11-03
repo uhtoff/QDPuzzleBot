@@ -2153,7 +2153,7 @@ async def post_multi_team_archive(guild_id, mt_id):
 
     async def _run():
         summary = await multi_team.archive_multi_team(bot_app().bot, hub, mt_id)
-        await hub_channel.post(hub, summary)
+        await hub_channel.post(hub, summary, allowed_mentions=discord.AllowedMentions.none())
 
     task = asyncio.create_task(_run())
     _ARCHIVE_TASKS.add(task)

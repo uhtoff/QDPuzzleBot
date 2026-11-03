@@ -5,6 +5,7 @@ import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from bot.core import hub_archive_run, hunt_archive, multi_team
@@ -128,6 +129,15 @@ async def test_archive_with_both_channels_gone_still_marks_archived(env):
     assert summary.startswith(":white_check_mark:")
 
 
+async def test_archive_of_an_already_archived_row_does_nothing(env):
+    env.db.archived_time = datetime.datetime(2027, 2, 1)
+    summary = await multi_team.archive_multi_team(env.bot, env.hub, MT_ID)
+    assert summary == "The multi-team hunt **Big Hunt** is already archived."
+    assert env.calls == []
+    env.ensure.assert_not_awaited()
+    assert env.db.marked == []
+
+
 async def test_archive_failure_is_logged_returned_and_not_marked(env):
     with patch("bot.core.multi_team.hunt_archive.archive_and_delete_channel",
                AsyncMock(side_effect=RuntimeError("boom secret"))):
@@ -192,7 +202,9 @@ async def test_last_team_archived_marks_complete_archives_and_posts(team):
     team.complete.assert_awaited_once()
     assert team.complete.await_args.args[2] is True
     team.archive.assert_awaited_once_with(team.bot, team.hub, MT_ID)
-    team.post.assert_awaited_once_with(team.hub, "SUMMARY")
+    team.post.assert_awaited_once()
+    assert team.post.await_args.args == (team.hub, "SUMMARY")
+    assert team.post.await_args.kwargs["allowed_mentions"].everyone is False
 
 
 async def test_last_team_archived_condenses_channels_end_to_end(env):
@@ -292,6 +304,11 @@ async def test_a_raising_hook_leaves_the_runner_result_and_posts_unchanged():
 
 
 # ------------------------------------------------------------- Archive now: command
+def _no_mentions(call):
+    am = call.kwargs.get("allowed_mentions")
+    return isinstance(am, discord.AllowedMentions) and (am.everyone, am.users, am.roles) == (False, False, False)
+
+
 ROW = {"id": MT_ID, "name": "Big Hunt", "hub_guild_id": HUB_ID, "archived_time": None}
 
 
@@ -309,6 +326,7 @@ async def test_command_archives_and_replies():
     db.running_by_name.assert_called_once_with(HUB_ID, "big hunt")
     arch.assert_awaited_once_with(cog.bot, ctx.guild, MT_ID)
     assert [c.args[0] for c in ctx.send.await_args_list] == ["⏳ Archiving…", "DONE"]
+    assert all(_no_mentions(c) for c in ctx.send.await_args_list)
 
 
 async def test_command_refuses_an_unknown_or_archived_hunt():
@@ -321,6 +339,7 @@ async def test_command_refuses_an_unknown_or_archived_hunt():
         await Puzzles.archive_multi_team.callback(cog, ctx, name="Nope")
     arch.assert_not_awaited()
     assert "No running multi-team hunt called **Nope**" in ctx.send.await_args.args[0]
+    assert _no_mentions(ctx.send.await_args)
 
 
 async def test_command_outside_the_bot_channel_does_nothing():
@@ -405,5 +424,8 @@ async def test_route_starts_the_archive_in_the_background_and_posts_the_summary(
     assert await resp.get_json() == {"ok": True, "started": True}
     await _drain()
     web.archive.assert_awaited_once_with(web.bot, web.hub, MT_ID)
-    web.post.assert_awaited_once_with(web.hub, "DONE")
+    web.post.assert_awaited_once()
+    assert web.post.await_args.args == (web.hub, "DONE")
+    am = web.post.await_args.kwargs["allowed_mentions"]
+    assert (am.everyone, am.users, am.roles) == (False, False, False)
     assert web.audit.await_args.args[0] == "multi_team_archive"

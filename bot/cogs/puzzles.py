@@ -4295,10 +4295,12 @@ class Puzzles(commands.Cog):
             return
         row = MultiTeamDb.running_by_name(ctx.guild.id, name)
         if row is None:
-            await ctx.send(f":x: No running multi-team hunt called **{name}** on this server.")
+            await ctx.send(f":x: No running multi-team hunt called **{name}** on this server.",
+                           allowed_mentions=discord.AllowedMentions.none())
             return
-        await ctx.send("⏳ Archiving…")
-        await ctx.send(await multi_team.archive_multi_team(self.bot, ctx.guild, row["id"]))
+        await ctx.send("⏳ Archiving…", allowed_mentions=discord.AllowedMentions.none())
+        await ctx.send(await multi_team.archive_multi_team(self.bot, ctx.guild, row["id"]),
+                       allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command()
     @commands.guild_only()

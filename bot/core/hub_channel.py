@@ -26,7 +26,7 @@ def find(hub):
     return channel, ""
 
 
-async def post(hub, text):
+async def post(hub, text, allowed_mentions=None):
     """Send `text` to the hub's admin channel. Returns whether it was sent; never raises."""
     if hub is None:
         return False
@@ -35,7 +35,10 @@ async def post(hub, text):
         if channel is None:
             logger.warning("hub admin channel unavailable on guild %s: %s", hub.id, reason)
             return False
-        await channel.send(text)
+        if allowed_mentions is None:
+            await channel.send(text)
+        else:
+            await channel.send(text, allowed_mentions=allowed_mentions)
         return True
     except discord.HTTPException:
         logger.exception("could not post to the hub admin channel on guild %s", hub.id)

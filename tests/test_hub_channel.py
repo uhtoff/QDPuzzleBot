@@ -108,3 +108,16 @@ async def test_the_unavailable_warning_does_not_log_the_text(caplog):
     assert caplog.records
     assert "SECRETINVITE" not in caplog.text
     assert "visible to everyone" in caplog.text
+
+
+async def test_post_passes_allowed_mentions_only_when_given():
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import discord
+    ch = MagicMock(); ch.send = AsyncMock()
+    with patch.object(hub_channel, "find", return_value=(ch, "")):
+        assert await hub_channel.post(MagicMock(), "a") is True
+        ch.send.assert_awaited_once_with("a")
+        ch.send.reset_mock()
+        am = discord.AllowedMentions.none()
+        await hub_channel.post(MagicMock(), "b", allowed_mentions=am)
+        ch.send.assert_awaited_once_with("b", allowed_mentions=am)

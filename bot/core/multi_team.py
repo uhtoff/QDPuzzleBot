@@ -178,6 +178,8 @@ async def archive_multi_team(bot, hub, mt_id) -> str:
             if mt is None:
                 raise LookupError(f"no multi-team hunt {mt_id}")
             name = mt["name"]
+            if mt.get("archived_time") is not None:
+                return f"The multi-team hunt **{name}** is already archived."
             sources = [
                 (_find_live(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id)),
                  "No spoilers"),
@@ -229,6 +231,7 @@ async def on_team_archived(bot, hunt) -> None:
             logger.warning("on_team_archived: hub %s unavailable; multi-team hunt %s "
                            "left for Archive now", link["hub_guild_id"], mt_id)
             return
-        await hub_channel.post(hub, await archive_multi_team(bot, hub, mt_id))
+        await hub_channel.post(hub, await archive_multi_team(bot, hub, mt_id),
+                               allowed_mentions=discord.AllowedMentions.none())
     except Exception:
         logger.exception("on_team_archived failed for hunt %s", getattr(hunt, "id", None))
