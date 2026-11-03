@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # Serialises find_or_create so two simultaneous setups for the same hunt name
 # cannot each create a multi-team row.
 _LOCK = asyncio.Lock()
+# One lock per multi-team hunt: ensure_channels awaits Discord between scanning
+# and creating, so concurrent calls would each create a pair and race on edits.
+_ENSURE_LOCKS: dict[int, asyncio.Lock] = {}
 
 
 class MultiTeamRefused(Exception):
@@ -44,13 +47,23 @@ def _allow():
                                        read_message_history=True)
 
 
-def _overwrites(hub, role_ids):
-    """@everyone denied; each of *role_ids* that resolves on the hub allowed."""
-    out = {hub.default_role: discord.PermissionOverwrite(view_channel=False)}
+def _overwrites(hub, role_ids, mt_id):
+    """@everyone denied; the bot itself allowed (it may not be Administrator, and
+    the deny would otherwise hide the channel from it); each of *role_ids* that
+    resolves on the hub allowed."""
+    out = {
+        hub.default_role: discord.PermissionOverwrite(view_channel=False),
+        hub.me: discord.PermissionOverwrite(
+            view_channel=True, send_messages=True, read_message_history=True,
+            manage_channels=True, manage_permissions=True),
+    }
     for rid in role_ids:
+        if not rid:
+            continue
         role = hub.get_role(rid)
         if role is None:
-            logger.warning("multi-team: role %s not found on hub %s; skipped", rid, hub.id)
+            logger.warning("multi-team %s: role %s not found on hub %s; skipped",
+                           mt_id, rid, hub.id)
             continue
         out[role] = _allow()
     return out
@@ -73,21 +86,23 @@ async def _ensure_one(hub, stored_id, marker, name, overwrites):
 async def ensure_channels(hub, mt_id):
     """(no-spoiler channel, finishers channel) for multi-team hunt *mt_id*, created
     if missing and with overwrites set from the current members. Idempotent."""
-    mt = MultiTeamDb.get(mt_id)
-    if mt is None:
-        raise LookupError(f"no multi-team hunt {mt_id}")
-    members = MultiTeamDb.members(mt_id)
-    admin_ids = sorted(role_gate.tier_role_ids(hub, ADMIN_ROLES))
-    team_ids = [m["roster_role_id"] for m in members]
-    done_ids = [m["roster_role_id"] for m in members if m["completed_time"] is not None]
+    async with _ENSURE_LOCKS.setdefault(mt_id, asyncio.Lock()):
+        mt = MultiTeamDb.get(mt_id)
+        if mt is None:
+            raise LookupError(f"no multi-team hunt {mt_id}")
+        members = MultiTeamDb.members(mt_id)
+        admin_ids = sorted(role_gate.tier_role_ids(hub, ADMIN_ROLES))
+        team_ids = [m["roster_role_id"] for m in members]
+        done_ids = [m["roster_role_id"] for m in members if m["completed_time"] is not None]
 
-    slug = clean_channel_name(mt["name"])
-    ns = await _ensure_one(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id),
-                           f"{slug}-no-spoilers", _overwrites(hub, team_ids + admin_ids))
-    fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
-                            f"{slug}-finishers", _overwrites(hub, done_ids))
-    MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
-    return ns, fin
+        slug = clean_channel_name(mt["name"])
+        ns = await _ensure_one(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id),
+                               f"{slug}-no-spoilers",
+                               _overwrites(hub, team_ids + admin_ids, mt_id))
+        fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
+                                f"{slug}-finishers", _overwrites(hub, done_ids, mt_id))
+        MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
+        return ns, fin
 
 
 async def find_or_create(hub, hunt_name):

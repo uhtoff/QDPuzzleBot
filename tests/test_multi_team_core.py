@@ -61,12 +61,14 @@ def _hub(roles, existing=()):
     hub = MagicMock()
     hub.id = HUB_ID
     hub.default_role = _role(1, "@everyone")
+    hub.me = _role(2, "bot")
     hub.get_role.side_effect = lambda rid: roles.get(rid)
     hub.text_channels = list(existing)
     hub.get_channel.side_effect = lambda cid: None
     created = []
 
     async def create(name, **kw):
+        await asyncio.sleep(0)  # a real Discord call yields here
         ch = MagicMock()
         ch.id = 500 + len(created)
         ch.name = name
@@ -85,12 +87,16 @@ ALLOW = dict(read_messages=True, send_messages=True, read_message_history=True)
 
 
 # PermissionOverwrite stores view_channel under its legacy key read_messages.
+BOT = dict(read_messages=True, send_messages=True, read_message_history=True,
+           manage_channels=True, manage_roles=True)
+
+
 def _perm_values(ow):
     return {k: v for k, v in ow._values.items()}
 
 
 def _expect(hub, role_ids):
-    out = {hub.default_role: {"read_messages": False}}
+    out = {hub.default_role: {"read_messages": False}, hub.me: BOT}
     for rid in role_ids:
         out[hub.get_role(rid)] = ALLOW
     return out
@@ -195,14 +201,26 @@ async def test_stored_id_is_used_when_topic_matches(db, roles):
     hub.create_text_channel.assert_not_awaited()
 
 
-async def test_concurrent_find_or_create_creates_once():
+async def test_concurrent_ensure_channels_creates_one_pair(db, roles):
+    hub = _hub(roles)
+    (a_ns, a_fin), (b_ns, b_fin) = await asyncio.gather(
+        multi_team.ensure_channels(hub, MT_ID), multi_team.ensure_channels(hub, MT_ID))
+    assert hub.create_text_channel.await_count == 2
+    assert sorted(kw["topic"] for _, kw in hub.created) == [
+        "puzzbot-multi-team:7:finishers", "puzzbot-multi-team:7:no-spoilers"]
+    assert (a_ns, a_fin) == (b_ns, b_fin)
+
+
+async def test_role_without_id_is_skipped_silently(db, roles, caplog):
+    db.members_list = [_member(1, 10), _member(2, None), _member(3, 0)]
+    hub = _hub(roles)
+    await multi_team.ensure_channels(hub, MT_ID)
+    assert _actual(hub.created[0][1]["overwrites"]) == _expect(hub, [10, 90])
+    assert "not found" not in caplog.text
+
+
+async def test_find_or_create_twice_concurrently_is_idempotent():
     d = FakeMtDb()
-    real_create = d.create
-
-    def slow_create(*a):
-        return real_create(*a)
-
-    d.create = slow_create
     hub = MagicMock()
     hub.id = HUB_ID
     with patch("bot.core.multi_team.MultiTeamDb", d):
