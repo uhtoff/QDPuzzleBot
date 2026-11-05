@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 # Transient transport failures (intermittent connectivity / Sheets outages).
 _RETRYABLE_EXCEPTIONS = (socket.timeout, ConnectionError, TimeoutError, ssl.SSLError, HTTPException)
-_MAX_RETRIES = 5
+# Sheets' write quota is per minute, so the backoff must outlast a whole window:
+# 7 retries wait 1+2+...+64 = 127s before jitter (5 gave 31s and lost a !puzzle
+# at a 4-team hunt start). Waits are async, so a slow call never stalls the bot.
+_MAX_RETRIES = 7
 _BASE_DELAY = 1.0   # seconds; grows exponentially with jitter
 _MAX_DELAY = 60.0
 
