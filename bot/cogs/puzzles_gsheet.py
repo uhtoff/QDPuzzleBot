@@ -1000,8 +1000,23 @@ class GoogleSheets(commands.Cog):
         puzzle_index = index if index is not None else self.INITIAL_OFFSET
         # Forwarded only when given, so the no-links call keeps its old shape.
         extra = {"header_links": header_links} if header_links else {}
-        await self.add_new_puzzle_sheet(puzzle_data, puzzle_index, **extra)
-        await self.update_puzzle_info(puzzle_data)
+        page_before = puzzle_data.google_page_id
+        try:
+            await self.add_new_puzzle_sheet(puzzle_data, puzzle_index, **extra)
+            await self.update_puzzle_info(puzzle_data)
+        except Exception:
+            # The tab is added first and filled in after; a failure there would
+            # strand it, and a retry would get "<name> (2)". Delete it, as
+            # create_puzzle_file deletes its copy.
+            page_id = puzzle_data.google_page_id
+            if page_id and page_id != page_before:
+                try:
+                    await self.delete_sheet_tab(page_id, self.spreadsheet_of(puzzle_data))
+                except Exception:
+                    logger.exception("create_puzzle_spreadsheet: could not delete tab %s "
+                                     "after a failed create", page_id)
+                puzzle_data.google_page_id = page_before
+            raise
 
     async def create_puzzle_file(self, puzzle, folder_id: str, header_links=None) -> None:
         """Files mode: the puzzle's own spreadsheet, a template copy named after
