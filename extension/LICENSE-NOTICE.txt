@@ -1,0 +1,1 @@
+Puzzle Chat is part of Puzzbot, licensed under the GNU General Public License v3.0. Source: https://github.com/uhtoff/QDPuzzleBot

@@ -94,3 +94,40 @@ async def test_app_issues_a_csrf_cookie_and_hardens_the_session_cookie():
     assert app.config["SESSION_COOKIE_HTTPONLY"] is True
     assert app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
     assert app.config["SESSION_COOKIE_SECURE"] is True   # https redirect uri
+
+
+# --------------------------------------------------------------------------
+# GET /api/extension/csrf: hands the extension the session's CSRF token.
+# --------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_extension_csrf_requires_login():
+    resp = await _real_app().test_client().get("/api/extension/csrf")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_extension_csrf_returns_the_session_token_and_it_passes_the_guard():
+    client = _real_app().test_client()
+    async with client.session_transaction() as sess:
+        sess["user"] = {"id": "7"}
+        sess["csrf_token"] = "session-token-123"
+    resp = await client.get("/api/extension/csrf")
+    assert resp.status_code == 200
+    assert (await resp.get_json()) == {"csrf": "session-token-123"}
+    assert "access-control-allow-origin" not in {k.lower() for k in resp.headers.keys()}
+    # Echoed back, the token gets past the guard (the route then answers on its own terms).
+    ok = await client.post("/api/hunts", json={}, headers={"X-CSRF-Token": "session-token-123"})
+    assert not (ok.status_code == 403 and (await ok.get_json() or {}).get("error") == "csrf")
+    bad = await client.post("/api/hunts", json={}, headers={"X-CSRF-Token": "other"})
+    assert bad.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_extension_csrf_creates_a_token_for_a_fresh_session():
+    client = _real_app().test_client()
+    async with client.session_transaction() as sess:
+        sess["user"] = {"id": "7"}
+    token = (await (await client.get("/api/extension/csrf")).get_json())["csrf"]
+    assert token
+    again = (await (await client.get("/api/extension/csrf")).get_json())["csrf"]
+    assert again == token
