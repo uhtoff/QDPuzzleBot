@@ -29,6 +29,7 @@
     "attachment_max_bytes": 26214400,
     "site_name": "Puzzbot",
     "test_instance": false,
-    "contact": ""
+    "contact": "",
+    "extension_origins": []
   }
 }

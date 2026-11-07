@@ -718,7 +718,10 @@ def _ws_origin_allowed(origin):
     expected = _dashboard_origin()
     if expected is None:
         return True
-    return origin == expected
+    if origin == expected:
+        return True
+    extra = getattr(config, "web_extension_origins", None)
+    return isinstance(extra, list) and origin in extra
 
 
 @api_bp.websocket("/ws/activity")
