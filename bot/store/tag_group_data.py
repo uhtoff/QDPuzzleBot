@@ -15,9 +15,6 @@ EDGE_NONE = "none"
 # distinguishable from genuine 'none'-edge members without an id comparison.
 EDGE_TARGET = "target"
 
-class MissingTagGroupError(RuntimeError):
-    pass
-
 @dataclass_json
 @dataclass
 class TagGroupData:
@@ -72,10 +69,6 @@ class TagGroupData:
         # The double asterisk passes the dict as a series of keyword arguments
         return cls(**values)
 
-    @classmethod
-    def sort_by_tag_group_start(cls, tag_groups: list) -> list:
-        """Return list of TagGroupData objects sorted by start time."""
-        return sorted(tag_groups, key=lambda p: p.start_time)
 
 @dataclass
 class GroupMatch:

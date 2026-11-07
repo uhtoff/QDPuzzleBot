@@ -24,9 +24,9 @@ class DictCursor(Protocol):
 
 from .puzzle_settings import GuildSettings
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
-from .tag_group_data import TagGroupData, MissingTagGroupError, resolve_group, GroupMatch
+from .tag_group_data import TagGroupData, resolve_group, GroupMatch
 from .rollup_data import RollupData
-from .hunt_data import HuntData, MissingHuntError
+from .hunt_data import HuntData
 from .evidence_data import EvidenceData
 from .media_data import MediaData
 from .canvas_data import CanvasRegionData, HuntCanvasData

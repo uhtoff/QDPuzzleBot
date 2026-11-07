@@ -8,9 +8,6 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-class MissingHuntError(RuntimeError):
-    pass
-
 @dataclass_json
 @dataclass
 class HuntData:

@@ -874,9 +874,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def _placeholders(count: int) -> str:
         return ", ".join(["%s"] * count)
 
-    def get_tags(self, puzzle):
-        self._hydrate_tags([puzzle])
-
     def _hydrate_tags(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
@@ -890,9 +887,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             if gid not in puzzle.tags:
                 puzzle.tags.append(gid)
             puzzle.tag_edges.setdefault(gid, set()).add(row['edge_type'] or "feeds")
-
-    def get_additional_sheets(self, puzzle):
-        self._hydrate_additional_sheets([puzzle])
 
     def _hydrate_additional_sheets(self, puzzles):
         by_id = {p.id: p for p in puzzles}
@@ -908,14 +902,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 setattr(sheet, attr, row.get(attr, None))
             by_id[row['puzzle_id']].additional_sheets.append(sheet)
 
-    def get_is_target(self, puzzle):
+    def _hydrate_is_target(self, puzzles):
         """Derive is-target: True iff some tag_group targets this puzzle.
 
         Eager-loaded here (the single read seam) so is-meta reads stay free
         attribute accesses. Lookup on tag_group.target_puzzle_id."""
-        self._hydrate_is_target([puzzle])
-
-    def _hydrate_is_target(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
             "SELECT DISTINCT target_puzzle_id FROM tag_group"
@@ -926,7 +917,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         for pid, puzzle in by_id.items():
             puzzle.is_target = pid in targeted
 
-    def get_is_minimeta(self, puzzle):
+    def _hydrate_is_minimeta(self, puzzles):
         """Derive is-minimeta: True iff this puzzle has mini-children.
 
         A minimeta is keyed by parent_puzzle_id (the puzzle-keyed roll-up path),
@@ -934,9 +925,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         though its tab is promoted to the same shifted target geometry. Eager-load
         it here, the single read seam, so is-minimeta reads stay free attribute
         accesses (e.g. _header_shift needs it to offset solution/progress writes)."""
-        self._hydrate_is_minimeta([puzzle])
-
-    def _hydrate_is_minimeta(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
             "SELECT DISTINCT parent_puzzle_id FROM puzzles"
