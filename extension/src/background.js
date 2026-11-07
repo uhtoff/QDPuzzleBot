@@ -360,6 +360,12 @@ async function handleDashboardAction(msg, sender) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
+  // "Work on this puzzle" also tries to open the side panel. This must run
+  // synchronously, before any await, to stay inside the click's user gesture;
+  // Chrome may still reject it, which is fine.
+  if (msg && msg.action === "work" && sender.id === chrome.runtime.id && sender.tab) {
+    chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {});
+  }
   handleDashboardAction(msg, sender).catch(() => {});
 });
 
