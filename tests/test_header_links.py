@@ -531,7 +531,7 @@ async def test_bulk_re_edge_rewrites_every_members_header_from_fresh_edges():
 
 
 @pytest.mark.asyncio
-async def test_convert_to_meta_keeps_the_puzzles_own_feeds_line_through_promote():
+async def test_convert_to_metapuzzle_keeps_the_puzzles_own_feeds_line_through_promote():
     hunt = make_hunt()
     meta, f1, _pooled, group = _feeder_world()
     svc, gsheet = _service_with_cog()
@@ -543,7 +543,13 @@ async def test_convert_to_meta_keeps_the_puzzles_own_feeds_line_through_promote(
         _wire(mpdb, mtdb, {21: meta, 7: f1}, {1: group})
         mtdb.generate_uid.return_value = "G1"
         mtdb.commit.side_effect = lambda g: setattr(g, "id", g.id or 99)
-        await svc.convert_to_meta(None, hunt, f1)
+        svc.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
+        svc.set_source_mode = AsyncMock()
+        svc.notifier = MagicMock()
+        svc.notifier.refresh_info = AsyncMock()
+        svc.notifier.board_changed = AsyncMock()
+        svc._refresh_host_target_glyphs = AsyncMock()
+        await svc.convert_to_type(None, hunt, f1, "Metapuzzle")
     gsheet.promote_tab_to_group.assert_awaited_once_with(
         f1, header_links=[Link("Round Meta", _url("SHEET1", 501))])
 

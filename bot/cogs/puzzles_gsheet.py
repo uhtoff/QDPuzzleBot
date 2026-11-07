@@ -13,7 +13,7 @@ from googleapiclient.errors import HttpError
 from discord.ext import commands
 
 from bot.utils import config
-from bot.store import PuzzleData, TagGroupJsonDb
+from bot.store import PuzzleData
 from bot.core.sheet_location import Link, spreadsheet_for
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
@@ -381,8 +381,6 @@ class GoogleSheets(commands.Cog):
         """Build a request to move a sheet to an arbitrary index."""
         return self._sheet_props_request(sheet_id, 'index', index)
 
-    def move_sheet_to_start(self, sheet_id = None):
-        return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
     async def move_sheet_to_end(self, sheet_id = None, end_index = None,
                                 spreadsheet_id: str | None = None):
@@ -1231,13 +1229,6 @@ class GoogleSheets(commands.Cog):
         """0-based (row, column) -> A1 cell reference (0,0 -> A1)."""
         return f"{cls._col_letter(column)}{row + 1}"
 
-    @staticmethod
-    def _solution_text(puzzle: PuzzleData) -> str:
-        """Answer-cell text for a roll-up row. A puzzle marked complete with no
-        recorded answer carries the "✅" sentinel (see mark_as_complete); it is
-        shown as-is so the row stays aligned instead of being silently dropped —
-        the bug the old per-cell renderers had via a continue-before-row-increment."""
-        return puzzle.solution if puzzle.solution else "Unsolved"
 
     # --- Developer metadata: stable tab pointers (M5 substrate, M7 load-bearing) ---
     # A tab's numeric sheetId is reassigned when a sheet is moved to the solved
@@ -1276,14 +1267,6 @@ class GoogleSheets(commands.Cog):
             return matched[0]["developerMetadata"]["metadataId"]
         return None
 
-    async def find_tab_by_metadata(self, spreadsheet_id, metadata_id):
-        """Resolve the tab page id carrying developer metadata `metadata_id`, or None
-        if absent (e.g. it didn't survive a copyTo/duplicate). Callers MUST fall back
-        to a known page id — never trust this as the sole pointer."""
-        req = get_sheet().developerMetadata().get(
-            spreadsheetId=spreadsheet_id, metadataId=int(metadata_id))
-        resp = await execute_with_retry(req, on_retry=self._notify_retry)
-        return (resp or {}).get("location", {}).get("sheetId")
 
     async def stamp_rollup_metadata(self, puzzle: PuzzleData, key):
         """Best-effort: ensure developer metadata `key` is on this puzzle's tab,
@@ -1320,70 +1303,6 @@ class GoogleSheets(commands.Cog):
         )
         return await execute_with_retry(req, on_retry=self._notify_retry)
 
-    async def aggregate_to_tab(self, spreadsheet_id, tab_page_id, columns, rows,
-                               start_row=4, start_column=0):
-        """Write a `columns` header + `rows` data block to a tab as a snapshot.
-
-        spreadsheet_id  target spreadsheet (caller picks live vs archive)
-        tab_page_id     destination sheet's numeric page id
-        columns         header strings, one per column
-        rows            list of row-lists (cell strings), each len == len(columns)
-        start_row/col   0-based top-left of the header (default A5, matching the
-                        header row the old renderers used)
-
-        Clears the old block first (replacing the fixed 50-blank-row padding) so a
-        roll-up shorter than last time's leaves no stale trailing rows, then writes
-        the header + rows in a single values().update.
-        """
-        tab_name = await self.get_page_name_by_id(tab_page_id, spreadsheet_id)
-        if tab_name is None:
-            raise RuntimeError(
-                f"aggregate_to_tab: no tab with page id {tab_page_id} "
-                f"in spreadsheet {spreadsheet_id}"
-            )
-        safe_name = tab_name.replace("'", "''")   # escape for the quoted A1 range
-        start_cell = self._a1_cell(start_row, start_column)
-        last_col = self._col_letter(start_column + len(columns) - 1)
-        # Open-ended range: clear everything from the header row down across the
-        # columns this roll-up owns (leaves the puzzle's own B1/B3/I1 + grid alone).
-        await self._values_clear(spreadsheet_id, f"'{safe_name}'!{start_cell}:{last_col}")
-        values = [list(columns)] + [list(r) for r in rows]
-        await self._values_update(spreadsheet_id, f"'{safe_name}'!{start_cell}", values)
-
-    async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        rows = [
-            [round_puzzle.name, self._solution_text(round_puzzle)]
-            for round_puzzle in round_puzzles
-            if round_puzzle.id != puzzle.id   # skip the meta's own row
-        ]
-        await self.aggregate_to_tab(
-            self.spreadsheet_of(puzzle),
-            puzzle.google_page_id,
-            ["Puzzle titles", "Puzzle solutions"],
-            rows,
-        )
-
-    async def add_metametapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        rows = []
-        for round_puzzle in round_puzzles:
-            if round_puzzle.id == puzzle.id:      # skip self
-                continue
-            if round_puzzle.is_target:      # metas roll up via their feeders, not here
-                continue
-            if len(round_puzzle.tags) > 1:        # ambiguous multi-round membership
-                continue
-            if round_puzzle.tags:
-                round = TagGroupJsonDb.get_by_attr(id=round_puzzle.tags[0])
-                round_name = round.name if round is not None else "*(deleted round)*"
-            else:
-                round_name = "No Round"
-            rows.append([round_name, round_puzzle.name, self._solution_text(round_puzzle)])
-        await self.aggregate_to_tab(
-            self.spreadsheet_of(puzzle),
-            puzzle.google_page_id,
-            ["Puzzle Round", "Puzzle Title", "Puzzle Solution"],
-            rows,
-        )
 
     # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
     # (Notes) belongs to solvers and is NEVER written by the reconcile.

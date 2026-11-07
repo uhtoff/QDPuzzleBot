@@ -339,7 +339,7 @@ class PuzzleService:
         The licence for demote_tab_to_puzzle, which deletes the tab's four
         leftmost columns. "Any native Table is present" is NOT that licence: a
         solver may add a table of their own to a tab the bot never promoted (a
-        minimeta made but never rendered; a convert_to_meta whose
+        minimeta made but never rendered; a promote-in-place convert whose
         promote_tab_to_group failed after is_target was committed), and demoting
         then destroys columns A-D of their grid with no undo. Matching is by the
         name the bot gives its own Table — see bot/core/sheet_tables.py.
@@ -2005,7 +2005,7 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         # Same guard as remove_minimeta: demote only a tab the bot actually
-        # promoted. convert_to_meta commits is_target BEFORE promote_tab_to_group,
+        # promoted. convert_to_type commits is_target BEFORE promote_tab_to_group,
         # so a Sheets failure there leaves a targeted puzzle on an untouched tab —
         # demoting that deletes columns A-D of an ordinary solver grid.
         if gsheet_cog is not None and puzzle.google_page_id:
@@ -2635,47 +2635,6 @@ class PuzzleService:
         puzzle.puzzle_type = None
         PuzzleJsonDb.commit(puzzle)
 
-    @pushes_board()
-    async def convert_to_meta(self, guild, hunt, puzzle):
-        """Convert an existing feeder puzzle into a meta.
-
-        Creates a new round wrapping the puzzle, tags the puzzle to that
-        round, sets is_target=True and commits. Returns (round, puzzle).
-        Raises RuntimeError("already_meta") if the puzzle is already a meta.
-        """
-        if puzzle.is_target:
-            raise RuntimeError("already_meta")
-
-        new_round = TagGroupData(
-            name=puzzle.name,
-            hunt_id=hunt.id,
-            category_id=puzzle.channel_id,
-            type="Metapuzzle",
-            # Minted before the first commit — see the note at the sibling site.
-            group_code=TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name),
-        )
-        TagGroupJsonDb.commit(new_round)
-        new_round.target_puzzle_id = puzzle.id
-        TagGroupJsonDb.commit(new_round)
-
-        puzzle.add_tag(new_round.id)
-        puzzle.is_target = True
-        PuzzleJsonDb.commit(puzzle)
-        # The target's self-edge is 'target' — it is the thing fed, not a feeder.
-        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "target")
-        puzzle.add_edge(new_round.id, "target")
-
-        gsheet_cog = self._gsheet_cog(hunt)
-        if gsheet_cog is not None:
-            await gsheet_cog.promote_tab_to_group(
-                puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
-
-        # Update forum post tags (newly converted to meta).
-        await self._update_forum_tags(guild, hunt, puzzle)
-        await self._refresh_channel_glyph(guild, hunt, puzzle)
-
-        return new_round, puzzle
-
     def _highest_value_nested_meta(self, guild, hunt, cat):
         """The nested channel-home meta inside *cat* whose extraction frees the most
         channels, as (meta, value), or None. value = 1 (target channel) + exclusive
@@ -3073,15 +3032,6 @@ class PuzzleService:
         await self.refresh_minimeta(hunt, minimeta)
         return minimeta
 
-    async def delete_mini_by_number(self, guild, hunt, minimeta_id, number):
-        """Delete the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id.
-        Returns the deleted mini's PuzzleData (its row is already gone)."""
-        minis = self.get_minis(minimeta_id)
-        if number < 1 or number > len(minis):
-            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
-        mini = minis[number - 1]
-        await self.delete_mini(guild, hunt, mini)
-        return mini
 
     @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):

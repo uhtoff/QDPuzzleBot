@@ -410,35 +410,6 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
 
 
 # ----------------------------------------------------------------- cleanup
-async def cleanup_empty_overflow(guild, tag_group, dao, category):
-    """Delete *category* and its join row if it is an OVERFLOW category (seq>=1)
-    that now holds zero puzzle channels. Never touches a primary (seq=0) category
-    and never reverts split→single. Best-effort: logs and swallows Discord errors.
-    """
-    if category is None:
-        return
-    row = dao.get_by_category(category.id)
-    if row is None or row.seq < 1:
-        return
-    if puzzle_count(category) > 0:
-        return
-    try:
-        async with layout_lock:
-            # Re-check everything under the lock: between the fast-path checks
-            # above and acquiring the lock, a concurrent move can legally land
-            # a channel here (_pick_or_allocate returns any row with room) —
-            # deleting then would drop that channel to the guild root, outside
-            # the hunt's role-gated permission overwrites. The row can likewise
-            # have been deleted by a concurrent cleanup of the same category.
-            row = dao.get_by_category(category.id)
-            if row is None or row.seq < 1:
-                return
-            if puzzle_count(category) > 0:
-                return
-            await category.delete(reason=DELETE_REASON)
-            dao.delete(row.id)
-    except Exception:
-        logger.exception("cleanup_empty_overflow: failed to remove category %s", category.id)
 
 
 # ----------------------------------------------------------------- consolidation
@@ -472,8 +443,7 @@ async def _consolidate_role(guild, owner_id, dao, role, _count, added):
         rows = sorted((r for r in dao.get_for_group(owner_id) if r.role == role),
                       key=lambda r: r.seq)
         # Pass 1: reap dangling rows and reclaim EMPTY overflow categories —
-        # unconditionally, no margin gate (cleanup_empty_overflow's shipped
-        # semantics). seq=0 rows are never touched.
+        # unconditionally, no margin gate. seq=0 rows are never touched.
         acted = False
         for row in rows:
             if row.seq < 1:

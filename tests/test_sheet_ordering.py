@@ -202,12 +202,6 @@ def test_move_sheet_to_index_request():
     assert req["updateSheetProperties"]["properties"]["index"] == 5
 
 
-def test_move_sheet_to_start_delegates_to_initial_offset():
-    cog = make_sheets_cog()
-    req = cog.move_sheet_to_start(sheet_id=42)
-    assert req["updateSheetProperties"]["properties"]["index"] == cog.INITIAL_OFFSET
-
-
 # ---------------------------------------------------------------------------
 # restore_puzzle_from_solved_sheet: uses restore_index for main + additional tabs
 # ---------------------------------------------------------------------------

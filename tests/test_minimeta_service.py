@@ -520,36 +520,6 @@ class TestRefreshMiniMetaUsesStandardPath:
 
         gsheet.render_minimeta_contribution.assert_awaited_once_with(minimeta, children, link_for=ANY)
 
-    @patch("bot.core.puzzle_service.PuzzleJsonDb")
-    @patch("bot.core.puzzle_service.RollupsJsonDb")
-    @patch("bot.core.puzzle_service.rollup_lock")
-    async def test_does_not_call_add_metapuzzle_data(self, lock_cm, RollupsDb, PuzzleDb):
-        """refresh_minimeta must NOT call the old add_metapuzzle_data path."""
-        from unittest.mock import AsyncMock, MagicMock
-        from bot.core.puzzle_service import PuzzleService
-
-        minimeta = make_puzzle(id=1, hunt_id=10)
-        hunt = make_hunt(id=10)
-        PuzzleDb.get_children.return_value = []
-        RollupsDb.get_by_attr.return_value = None
-
-        gsheet = MagicMock()
-        gsheet.render_minimeta_contribution = AsyncMock()
-        gsheet._record_rollup_tab = AsyncMock()
-        bot = MagicMock()
-        bot.get_cog.return_value = gsheet
-
-        from contextlib import asynccontextmanager
-        @asynccontextmanager
-        async def _noop(*a):
-            yield
-        lock_cm.side_effect = _noop
-
-        svc = PuzzleService(bot)
-        await svc.refresh_minimeta(hunt, minimeta)
-
-        gsheet.add_metapuzzle_data.assert_not_called()
-
 
 class TestRemoveMinimeta:
     @patch("bot.core.puzzle_service.RollupsJsonDb")
@@ -742,36 +712,6 @@ class TestDeleteMini:
             await svc.delete_mini(None, make_hunt(), make_puzzle(id=2, parent_puzzle_id=None))
 
         svc.delete_puzzle.assert_not_awaited()
-
-
-class TestDeleteMiniByNumber:
-    async def test_resolves_the_right_mini_by_number(self):
-        from bot.core.puzzle_service import PuzzleService
-
-        m1 = make_puzzle(id=10, parent_puzzle_id=3)
-        m2 = make_puzzle(id=11, parent_puzzle_id=3)
-        m3 = make_puzzle(id=12, parent_puzzle_id=3)
-        svc = PuzzleService(MagicMock())
-        svc.get_minis = MagicMock(return_value=[m1, m2, m3])
-        svc.delete_mini = AsyncMock()
-
-        deleted = await svc.delete_mini_by_number(None, make_hunt(), 3, 2)
-
-        # 1-indexed: number 2 → the middle mini, not the first or last.
-        assert svc.delete_mini.await_args[0][2] is m2
-        assert deleted is m2
-
-    async def test_raises_on_bad_number(self):
-        from bot.core.puzzle_service import PuzzleService
-
-        svc = PuzzleService(MagicMock())
-        svc.get_minis = MagicMock(return_value=[make_puzzle(id=10, parent_puzzle_id=3)])
-        svc.delete_mini = AsyncMock()
-
-        with pytest.raises(ValueError, match="No mini #5"):
-            await svc.delete_mini_by_number(None, make_hunt(), 3, 5)
-
-        svc.delete_mini.assert_not_awaited()
 
 
 # --- files mode (Task 7): a mini is a tab in its minimeta's file -------------

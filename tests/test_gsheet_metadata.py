@@ -1,6 +1,6 @@
 """Tests for the developer-metadata helpers (M5) — stable tab pointers.
 
-Like test_aggregate_to_tab, these stub the Google seam (get_sheet /
+These stub the Google seam (get_sheet /
 execute_with_retry) and use asyncio.run() rather than async test functions
 (pytest-asyncio is configured, but these match the sibling gsheet suites' style).
 """
@@ -42,19 +42,3 @@ def test_ensure_returns_existing_without_duplicating():
     assert ewr.await_count == 1  # search hit; no create issued
 
 
-def test_find_tab_by_metadata_returns_sheet_id():
-    cog = _cog()
-    with patch.object(gs, "get_sheet"), \
-         patch.object(gs, "execute_with_retry", new=AsyncMock()) as ewr:
-        ewr.return_value = {"location": {"sheetId": 77}}
-        result = asyncio.run(cog.find_tab_by_metadata("SS", 555))
-    assert result == 77
-
-
-def test_find_tab_by_metadata_none_when_no_location():
-    cog = _cog()
-    with patch.object(gs, "get_sheet"), \
-         patch.object(gs, "execute_with_retry", new=AsyncMock()) as ewr:
-        ewr.return_value = {}
-        result = asyncio.run(cog.find_tab_by_metadata("SS", 555))
-    assert result is None

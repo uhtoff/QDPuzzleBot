@@ -2,8 +2,8 @@
 
 The bang-vs-web equivalence suite (test_solve_equivalence.py) runs with no
 GoogleSheets cog (bot.get_cog -> None), so it verifies DB-state transitions but
-NOT that PuzzleService.refresh_meta reaches add_metapuzzle_data /
-add_metametapuzzle_data. These tests close that gap with a present (mocked) cog,
+NOT that PuzzleService.refresh_meta reaches the contribution renderer. These
+tests close that gap with a present (mocked) cog,
 and additionally assert M5's rollup bookkeeping: last_ok/last_error persistence,
 re-raise on failure, the google_page_id tab pointer, and solve-time failure
 isolation across multiple metas.
@@ -30,8 +30,6 @@ def _hunt():
 
 def _svc_with_sheets():
     gsheet = MagicMock()
-    gsheet.add_metapuzzle_data = AsyncMock()
-    gsheet.add_metametapuzzle_data = AsyncMock()
     gsheet.render_contribution = AsyncMock()
     gsheet.move_puzzle_to_solved_sheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))
@@ -68,7 +66,7 @@ class TestRefreshMetaFires:
         gsheet.set_solved_sheet_id.assert_called_with("ARCH1")
 
     @pytest.mark.asyncio
-    async def test_calls_add_metapuzzle_data_for_regular_meta(self):
+    async def test_renders_contribution_for_regular_meta(self):
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metapuzzle = make_puzzle(id=1, is_target=True)
@@ -80,8 +78,6 @@ class TestRefreshMetaFires:
         # Task 10: renderers collapsed onto the unified render_contribution.
         gsheet.render_contribution.assert_awaited_once_with(
             metapuzzle, 5, feeders, evidence=[], link_for=ANY)
-        gsheet.add_metapuzzle_data.assert_not_awaited()
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_routed_evidence_passed_as_informs_content(self):
@@ -109,10 +105,10 @@ class TestRefreshMetaFires:
         edb.get_all.assert_called_once_with(10, target_puzzle_id=1)
 
     @pytest.mark.asyncio
-    async def test_calls_add_metametapuzzle_data_for_metameta(self):
+    async def test_renders_subtree_contribution_for_metameta(self):
         # After M7 the metameta flag is replaced by source_mode='subtree'.
         # The backfill (004) set source_mode='subtree' on rollups for
-        # metameta puzzles, so this path still calls add_metametapuzzle_data.
+        # metameta puzzles, so this path walks the subtree.
         svc, gsheet = _svc_with_sheets()
         meta_round = make_round(id=5, target_puzzle_id=1)
         metameta = make_puzzle(id=1, is_target=True)
@@ -140,8 +136,6 @@ class TestRefreshMetaFires:
         # unified contribution table (no separate metameta renderer).
         gsheet.render_contribution.assert_awaited_once_with(
             metameta, 5, branch_members, evidence=[], link_for=ANY)
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
-        gsheet.add_metapuzzle_data.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_tag_with_edge_triggers_rebuild(self):

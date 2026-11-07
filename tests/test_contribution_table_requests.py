@@ -2,7 +2,7 @@
 
 Tasks 6-11 of docs/superpowers/plans/2026-06-25-milestone-d-sheet-generation.md.
 No live Google: patch the cog's batch/low-level seams and assert the batchUpdate
-request bodies. Mirrors tests/test_aggregate_to_tab.py (asyncio.run +
+request bodies. Mirrors tests/test_gsheet_metadata.py (asyncio.run +
 GoogleSheets.__new__). Helpers are file-local. Authored test-first (Opus);
 implementation lands separately.
 """
