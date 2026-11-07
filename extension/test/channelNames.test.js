@@ -66,6 +66,24 @@ describe("createNameCache", () => {
   });
 });
 
+describe("single-flight", () => {
+  it("concurrent cold calls share one fetch; after TTL, one more", async () => {
+    const s = setup();
+    const r = await Promise.all([1, 2, 3, 4, 5].map(() => s.cache.ensure("h", "1")));
+    expect(s.calls.length).toBe(1);
+    expect(r.every((m) => m === r[0])).toBe(true);
+    s.clock.t += 61000;
+    await Promise.all([1, 2, 3].map(() => s.cache.ensure("h", "1")));
+    expect(s.calls.length).toBe(2);
+  });
+  it("cached() is sync and empty before the first fetch", async () => {
+    const s = setup();
+    expect(s.cache.cached("h")).toEqual({});
+    await s.cache.ensure("h");
+    expect(s.cache.cached("h")).toEqual({ 1: "Alpha" });
+  });
+});
+
 describe("resolveName", () => {
   const reg = (id) => ({ 2: "FromTab", 1: "TabAlpha" })[id];
   it("map, then registry, then null", () => {

@@ -2,14 +2,8 @@
 // {channelId: name} object or throws. Injected clock for tests.
 export function createNameCache({ fetcher, now = Date.now, ttl = 60000, refetchGap = 30000 }) {
   const hunts = new Map(); // huntUid -> { map, at, tried }
-  async function ensure(huntUid, wantId) {
-    if (!huntUid) return {};
-    const e = hunts.get(huntUid);
-    const t = now();
-    const expired = !e || t - e.at >= ttl;
-    const missing = e && wantId != null && !(wantId in e.map) && t - e.tried >= refetchGap;
-    if (e && !expired && !missing) return e.map;
-    if (e && expired && t - e.tried < refetchGap) return e.map; // expired but just failed
+  const pending = new Map(); // huntUid -> in-flight promise (single-flight)
+  async function load(huntUid, e) {
     try {
       const map = await fetcher(huntUid);
       hunts.set(huntUid, { map, at: now(), tried: now() });
@@ -18,9 +12,24 @@ export function createNameCache({ fetcher, now = Date.now, ttl = 60000, refetchG
       const keep = e?.map ?? {};
       hunts.set(huntUid, { map: keep, at: e?.at ?? -Infinity, tried: now() });
       return keep;
+    } finally {
+      pending.delete(huntUid);
     }
   }
-  return { ensure };
+  async function ensure(huntUid, wantId) {
+    if (!huntUid) return {};
+    if (pending.has(huntUid)) return pending.get(huntUid);
+    const e = hunts.get(huntUid);
+    const t = now();
+    const expired = !e || t - e.at >= ttl;
+    const missing = e && wantId != null && !(wantId in e.map) && t - e.tried >= refetchGap;
+    if (e && !expired && !missing) return e.map;
+    if (e && expired && t - e.tried < refetchGap) return e.map; // expired but just failed
+    const p = load(huntUid, e);
+    pending.set(huntUid, p);
+    return p;
+  }
+  return { ensure, cached: (huntUid) => hunts.get(huntUid)?.map ?? {} };
 }
 
 // Hunt map first, then open tabs (registry), then "#channel" (caller's default).

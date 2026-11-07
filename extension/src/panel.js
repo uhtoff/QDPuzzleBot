@@ -261,6 +261,11 @@ function connectPort() {
   port.onMessage.addListener((msg) => {
     if (msg.type === "puzzle") {
       setState(msg);
+    } else if (msg.type === "names") {
+      if (currentPuzzle?.hunt_uid === msg.huntUid) {
+        channelNames = { ...channelNames, ...msg.channelNames };
+        renderLog();
+      }
     } else if (msg.type === "socket") {
       const was = socketUp;
       socketUp = msg.connected;

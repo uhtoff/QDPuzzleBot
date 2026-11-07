@@ -192,10 +192,25 @@ function wantedChannel(message) {
   return /<#(\d+)>/.exec(text)?.[1];
 }
 
+const namesFor = (huntUid, huntMap) => ({
+  ...Object.fromEntries(registry.entries().filter(([, p]) => p.channel_id).map(([, p]) => [p.channel_id, p.name])),
+  ...huntMap,
+});
+
+// Fetch (single-flight) off the snapshot path; tell panels when new names land.
+function warmNames(huntUid) {
+  const before = names.cached(huntUid);
+  names.ensure(huntUid).then((map) => {
+    if (map === before) return;
+    const msg = { type: "names", huntUid, channelNames: namesFor(huntUid, map) };
+    for (const [p] of ports) safePost(p, msg);
+  });
+}
+
 async function snapshot(tabId) {
   const puzzle = registry.get(tabId) ?? null;
-  const huntMap = puzzle ? await huntNames(puzzle.hunt_uid) : {};
-  const channelNames = { ...Object.fromEntries(registry.entries().filter(([, p]) => p.channel_id).map(([, p]) => [p.channel_id, p.name])), ...huntMap };
+  const channelNames = namesFor(puzzle?.hunt_uid, names.cached(puzzle?.hunt_uid));
+  if (puzzle?.hunt_uid) warmNames(puzzle.hunt_uid);
   return { type: "puzzle", tabId, puzzle, channelNames, state: stateFor(puzzle ?? undefined, failures.get(tabId)) };
 }
 
