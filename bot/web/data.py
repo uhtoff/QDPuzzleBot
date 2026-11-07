@@ -17,7 +17,7 @@ from mysql.connector.errors import PoolError
 
 from bot.core.activity_sparkline import squash
 from bot.core.sheet_location import (
-    additional_sheet_location, hunt_sheet_location, puzzle_location)
+    additional_sheet_location, hunt_sheet_location, puzzle_location, spreadsheet_for)
 
 from bot.utils import config
 
@@ -307,6 +307,59 @@ def _hunt_sheets_view(hunt):
     """The hunt row as the location rule reads it (attribute access)."""
     return SimpleNamespace(
         google_sheet_id=hunt["google_sheet_id"], solved_sheet_id=hunt["solved_sheet_id"])
+
+
+async def find_puzzle_by_sheet(spreadsheet_id, gid):
+    """The puzzle a Google Sheets URL (spreadsheet id + optional tab gid) belongs to.
+
+    Returns ``{"puzzle": <row>, "hunt": <hunt row>}`` or None; visibility is the
+    caller's job. Files mode: a puzzle with its own ``google_sheet_id`` matches
+    on that alone (gid ignored). Tabs mode (gid required): the puzzle's
+    location (``spreadsheet_for``) must be the requested spreadsheet AND its
+    ``google_page_id`` (varchar) must equal the gid. A mini resolves to its
+    parent minimeta either way.
+    """
+    if not spreadsheet_id:
+        return None
+    cols = ("p.id, p.name, p.channel_id, p.solved, p.parent_puzzle_id, p.hunt_id, "
+            "p.google_sheet_id, p.google_page_id, p.on_solved_sheet")
+    match = await fetch_one(
+        f"SELECT {cols} FROM puzzles p WHERE p.google_sheet_id = %s "
+        "ORDER BY p.parent_puzzle_id IS NOT NULL, p.id LIMIT 1",
+        (spreadsheet_id,),
+    )
+    if match is None and gid is not None:
+        candidates = await fetch_all(
+            f"SELECT {cols}, h.google_sheet_id AS h_sheet, h.solved_sheet_id AS h_solved "
+            "FROM puzzles p JOIN hunts h ON h.id = p.hunt_id "
+            "WHERE (p.google_sheet_id IS NULL OR p.google_sheet_id = '') "
+            "AND p.google_page_id = %s AND (h.google_sheet_id = %s OR h.solved_sheet_id = %s) "
+            "ORDER BY p.parent_puzzle_id IS NOT NULL, p.id",
+            (str(gid), spreadsheet_id, spreadsheet_id),
+        )
+        for cand in candidates:
+            where = spreadsheet_for(
+                SimpleNamespace(google_sheet_id=cand["google_sheet_id"],
+                                on_solved_sheet=bool(cand["on_solved_sheet"])),
+                cand["h_sheet"] or "", cand["h_solved"] or "")
+            if where == spreadsheet_id:
+                match = cand
+                break
+    if match is None:
+        return None
+    if match["parent_puzzle_id"] is not None:
+        match = await fetch_one(
+            f"SELECT {cols} FROM puzzles p WHERE p.id = %s", (match["parent_puzzle_id"],))
+        if match is None:
+            return None
+    hunt = await fetch_one(
+        "SELECT id, uid, name, guild_id, role_id, roster_role_id, archived, "
+        "google_sheet_id, solved_sheet_id, sheet_mode FROM hunts WHERE id = %s",
+        (match["hunt_id"],),
+    )
+    if hunt is None:
+        return None
+    return {"puzzle": match, "hunt": hunt}
 
 
 async def get_hunt_puzzles(hunt, guild_snowflake):

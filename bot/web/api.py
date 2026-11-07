@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+from types import SimpleNamespace
 
 from quart import Blueprint, jsonify, make_response, request, send_file, session, websocket
 
@@ -19,7 +20,7 @@ from .auth import (
 )
 from bot.core import role_gate, role_panel
 from bot.store import MultiTeamDb
-from bot.core.sheet_location import drive_folder_link, spreadsheet_link
+from bot.core.sheet_location import drive_folder_link, puzzle_location, spreadsheet_link
 from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
 
@@ -179,6 +180,47 @@ async def hunt_detail(uid):
         "board": board,
         "hunt_sheets": hunt_sheets,
         "meta_types": list(CREATE_META_TYPES),
+    })
+
+
+@api_bp.route("/puzzles/by-sheet")
+@login_required
+async def puzzle_by_sheet():
+    """Which puzzle does this Google Sheets URL belong to? (chat extension)"""
+    user = current_user()
+    assert user is not None
+    not_found = (jsonify({"error": "not_found_or_forbidden"}), 404)
+    spreadsheet = (request.args.get("spreadsheet") or "").strip()
+    if not spreadsheet:
+        return not_found
+    gid = request.args.get("gid", type=int)  # non-integer -> None (absent)
+    found = await data.find_puzzle_by_sheet(spreadsheet, gid)
+    if found is None:
+        return not_found
+    puzzle, hunt = found["puzzle"], found["hunt"]
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return not_found
+    guild_snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+    channel_id = puzzle["channel_id"]
+    return jsonify({
+        "puzzle": {
+            "id": puzzle["id"],
+            "name": puzzle["name"],
+            "solved": bool(puzzle["solved"]),
+            "channel_id": str(channel_id) if channel_id else None,
+            "discord_url": (f"https://discord.com/channels/{guild_snowflake}/{channel_id}"
+                            if guild_snowflake and channel_id else None),
+            "sheet_url": puzzle_location(data._hunt_sheets_view(hunt), SimpleNamespace(
+                google_sheet_id=puzzle["google_sheet_id"],
+                on_solved_sheet=bool(puzzle["on_solved_sheet"]),
+                google_page_id=puzzle["google_page_id"])).url,
+            "hunt_uid": hunt["uid"],
+            "hunt_archived": bool(hunt["archived"]),
+            "sheet_mode": hunt.get("sheet_mode") or "tabs",
+        },
+        "bridge_enabled": bool(config.web_bridge_enabled),
     })
 
 
