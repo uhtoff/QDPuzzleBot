@@ -5,6 +5,7 @@ import { bySheetPath, wsUrl } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
 import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
+import { validateAction, isNewArrival } from "./lib/actions.js";
 import { apiGet, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
@@ -117,6 +118,8 @@ async function registerDashboardScript() {
     .catch(() => {});
 }
 registerDashboardScript();
+chrome.permissions.onAdded.addListener(() => registerDashboardScript());
+chrome.permissions.onRemoved.addListener(() => registerDashboardScript());
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   setupPanel();
@@ -204,8 +207,16 @@ async function maybeReuse(tabId) {
     return;
   }
   await focusTab(existing);
+  // Re-check after the awaits: the target may have been closed meanwhile.
+  if (!registry.get(target) || !(await chrome.tabs.get(target).catch(() => null))) return;
   chrome.tabs.remove(tabId).catch(() => {});
 }
+
+// Serialised so two duplicates resolving together cannot close each other.
+let reuseChain = Promise.resolve();
+const queueReuse = (tabId) => {
+  reuseChain = reuseChain.then(() => maybeReuse(tabId)).catch(() => {});
+};
 
 async function focusTab(tab) {
   await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
@@ -213,7 +224,14 @@ async function focusTab(tab) {
 }
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.url || info.status === "complete") refreshTab(tab).then(() => maybeReuse(tabId));
+  if (!(info.url || info.status === "complete")) return;
+  (async () => {
+    await ready;
+    const before = registry.get(tabId)?.spreadsheetId;
+    await refreshTab(tab);
+    // Only a tab newly arriving at a spreadsheet is a duplicate candidate, not a reload or in-file navigation.
+    if (isNewArrival(before, registry.get(tabId)?.spreadsheetId)) queueReuse(tabId);
+  })();
 });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -245,8 +263,6 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 // ---- dashboard actions (from src/dashboard.js) ----
-const MAX_URLS = 100;
-const isSheetUrl = (u) => typeof u === "string" && u.length <= 2048 && parseSheetUrl(u) !== null;
 
 async function workOn(url, senderTab) {
   const parsed = parseSheetUrl(url);
@@ -267,10 +283,15 @@ async function openRound(name, urls, senderTab) {
   const tabIds = [];
   for (const url of urls) {
     const want = parseSheetUrl(url);
-    const have = open.find((t) => {
-      const p = parseSheetUrl(t.url ?? "");
-      return p && sameSheet(p, want) && !tabIds.includes(t.id);
-    });
+    // Files mode: the spreadsheet identifies the puzzle (Sheets rewrites #gid, so don't compare it).
+    const regId = registry.findFilesTab(want.spreadsheetId);
+    const regTab = regId !== null && !tabIds.includes(regId) ? await chrome.tabs.get(regId).catch(() => null) : null;
+    const have =
+      regTab ??
+      open.find((t) => {
+        const p = parseSheetUrl(t.url ?? "");
+        return p && sameSheet(p, want) && !tabIds.includes(t.id);
+      });
     if (have) {
       if (have.windowId !== windowId) await chrome.tabs.move(have.id, { windowId, index: -1 }).catch(() => {});
       tabIds.push(have.id);
@@ -289,6 +310,7 @@ async function openRound(name, urls, senderTab) {
 async function closeSolved() {
   const solved = [];
   for (const [tabId, entry] of registry.entries()) {
+    if (entry.sheet_mode !== "files") continue; // files mode only
     const res = await apiGet(bySheetPath({ spreadsheetId: entry.spreadsheetId, gid: entry.gid ?? null }));
     if (res.authRequired || res.error || !res.puzzle) continue;
     registry.set(tabId, { ...entry, ...res.puzzle, bridge_enabled: res.bridge_enabled });
@@ -306,35 +328,18 @@ async function closeSolved() {
 
 async function handleDashboardAction(msg, sender) {
   await ready;
-  const origin = await getOrigin();
-  let senderOrigin = null;
-  try {
-    senderOrigin = new URL(sender.url ?? "").origin;
-  } catch {
-    /* no usable sender url */
-  }
-  if (sender.id !== chrome.runtime.id || senderOrigin !== origin || !sender.tab) return;
-  const payload = msg && typeof msg === "object" ? msg.payload : null;
-  switch (msg && msg.action) {
-    case "work":
-      if (payload && isSheetUrl(payload.sheetUrl)) await workOn(payload.sheetUrl, sender.tab);
-      break;
-    case "openRound":
-      if (
-        payload &&
-        typeof payload.name === "string" &&
-        payload.name.length <= 100 &&
-        Array.isArray(payload.sheetUrls) &&
-        payload.sheetUrls.length <= MAX_URLS &&
-        payload.sheetUrls.every(isSheetUrl)
-      ) {
-        if (payload.sheetUrls.length) await openRound(payload.name, payload.sheetUrls, sender.tab);
-      }
-      break;
-    case "closeSolved":
-      await closeSolved();
-      break;
-  }
+  const v = validateAction(msg, {
+    senderId: sender.id,
+    senderUrl: sender.url,
+    senderHasTab: !!sender.tab,
+    runtimeId: chrome.runtime.id,
+    origin: await getOrigin(),
+  });
+  if (!v.ok) return;
+  if (v.action === "work") await workOn(v.payload.sheetUrl, sender.tab);
+  else if (v.action === "openRound") {
+    if (v.payload.sheetUrls.length) await openRound(v.payload.name, v.payload.sheetUrls, sender.tab);
+  } else if (v.action === "closeSolved") await closeSolved();
 }
 
 chrome.runtime.onMessage.addListener((msg, sender) => {

@@ -190,7 +190,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
           </Tooltip>
         )}
         {/* Extension: open every puzzle sheet of this round as a named tab group */}
-        {extensionPresent() && group.puzzles.some((p) => p.sheet_url) && (
+        {extensionPresent() && detail.hunt.sheet_mode === "files" && group.puzzles.some((p) => p.sheet_url) && (
           <Tooltip label="Open round as a tab group">
             <ActionIcon
               variant="subtle"
