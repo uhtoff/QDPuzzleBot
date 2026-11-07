@@ -36,8 +36,8 @@
 
 The extension authenticates with the user's existing dashboard session cookie (`SameSite=Lax`, HttpOnly). Chrome sends such cookies on extension `fetch`es to hosts the extension has host permission for — this must be confirmed in the real browser before Tasks 5–8 rely on it.
 
-- [ ] **Step 1:** In the scratchpad, write a 3-file unpacked extension (manifest with `host_permissions: ["<test dashboard origin>/*"]`, a popup calling `fetch(origin + "/api/hunts", {credentials: "include"})` and printing status + body length).
-- [ ] **Step 2:** Ask the user to load it (chrome://extensions → Developer mode → Load unpacked) while logged into the test dashboard and report the status. 200 → proceed. 401 → ledger a Ruling switching Tasks 5–8 to a token handed over by the dashboard content script (new `GET /api/extension/token` returning a short-lived signed token, accepted by a `login_required`-equivalent) and re-plan those tasks before continuing.
+- [x] **Step 1:** In the scratchpad, write a 3-file unpacked extension (manifest with `host_permissions: ["<test dashboard origin>/*"]`, a popup calling `fetch(origin + "/api/hunts", {credentials: "include"})` and printing status + body length).
+- [x] **Step 2:** Ask the user to load it (chrome://extensions → Developer mode → Load unpacked) while logged into the test dashboard and report the status. 200 → proceed. 401 → ledger a Ruling switching Tasks 5–8 to a token handed over by the dashboard content script (new `GET /api/extension/token` returning a short-lived signed token, accepted by a `login_required`-equivalent) and re-plan those tasks before continuing.
 
 ### Task 1: Server — extension origins for the websocket
 
