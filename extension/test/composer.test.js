@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canCompose, validate } from "../src/lib/composer.js";
+import { canCompose, validate, draftAfterSend } from "../src/lib/composer.js";
 import { errorText } from "../src/lib/format.js";
 
 describe("errorText", () => {
@@ -49,5 +49,12 @@ describe("canCompose", () => {
     expect(canCompose("chat", { ...p, channel_id: null })).toBe(false);
     expect(canCompose("chat", { ...p, hunt_archived: true })).toBe(false);
     expect(canCompose("chat", undefined)).toBe(false);
+  });
+});
+
+describe("draftAfterSend", () => {
+  it("clears only an unchanged draft", () => {
+    expect(draftAfterSend("hello", "hello")).toBe("");
+    expect(draftAfterSend("hello world", "hello")).toBe("hello world");
   });
 });

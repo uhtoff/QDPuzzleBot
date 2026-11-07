@@ -55,3 +55,13 @@ export function shouldDeliver(portWindowId, tab) {
 export function sameTarget(prev, next) {
   return !!prev && !!next && prev.state === next.state && (prev.channelId ?? null) === (next.channelId ?? null);
 }
+
+// Combine a history response (oldest-first) with what happened while it was in
+// flight: replay only the events recorded meanwhile (new messages, edits,
+// deletes) over the response. Current state is deliberately not merged in: a
+// message deleted while the socket was down would be resurrected.
+export function mergeHistory(response, pendingEvents = []) {
+  let out = [...response];
+  for (const ev of pendingEvents) out = applyEvent(out, ev);
+  return out;
+}

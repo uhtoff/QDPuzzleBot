@@ -6,7 +6,7 @@
   "icons": { "128": "icons/icon128.png" },
   "action": { "default_icon": { "128": "icons/icon128.png" } },
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "tabs", "tabGroups", "storage", "cookies", "scripting", "notifications"],
+  "permissions": ["sidePanel", "tabs", "tabGroups", "storage", "cookies", "scripting", "notifications", "alarms"],
   "host_permissions": ["https://docs.google.com/*"],
   "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "src/background.js", "type": "module" },

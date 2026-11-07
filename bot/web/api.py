@@ -32,6 +32,9 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 # How often the live-activity WebSocket re-checks that the connected user still
 # belongs to a guild (so a kick/role-change ends the stream within this window).
 _WS_AUTH_REFRESH_SECONDS = 60
+# Idle wait between server pings. Chrome keeps an extension service worker alive
+# while websocket messages flow (116+), so the socket must never go quiet.
+_WS_PING_SECONDS = 20
 
 
 def _sheet_base(sheet_id):
@@ -851,21 +854,33 @@ async def ws_activity():
     last_refresh = time.monotonic()
     try:
         await websocket.send_json({"type": "ready"})
+        # Pings key off the last frame actually sent to this client, not queue
+        # idleness: events for other guilds keep the queue busy yet are dropped.
+        last_sent = time.monotonic()
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_WS_AUTH_REFRESH_SECONDS)
+                # Wake when the next ping is due, not a full interval from now, so a
+                # dropped event late in the interval cannot double the gap.
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=max(0.0, _WS_PING_SECONDS - (time.monotonic() - last_sent)))
             except asyncio.TimeoutError:
                 event = None
 
             now = time.monotonic()
-            if event is None or (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
+            if (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
                 membership, roles_by_guild = await resolve_membership(user["id"])
                 last_refresh = now
                 if not membership:
                     await websocket.close(1008)  # no longer a member of any guild
                     return
 
-            if event is None or event.get("guild_id") not in membership:
+            if (now - last_sent) >= _WS_PING_SECONDS:
+                await websocket.send_json({"type": "ping"})
+                last_sent = now
+            if event is None:
+                continue
+            if event.get("guild_id") not in membership:
                 continue
 
             # Guild membership only proves the user belongs to the guild; per-hunt
@@ -886,6 +901,7 @@ async def ws_activity():
 
             if visible:
                 await websocket.send_json(event)
+                last_sent = time.monotonic()
     except asyncio.CancelledError:
         raise
     finally:

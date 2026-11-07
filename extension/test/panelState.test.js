@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cacheValid, stateFor, eventChannel, applyEvent } from "../src/lib/panelState.js";
+import { cacheValid, stateFor, eventChannel, applyEvent, mergeHistory } from "../src/lib/panelState.js";
 
 const e = (extra = {}) => ({ id: 1, spreadsheetId: "s", gid: 5, channel_id: "9", bridge_enabled: true, ...extra });
 const m = (id, content = "x") => ({ id, content });
@@ -68,5 +68,26 @@ describe("sameTarget", () => {
     expect(sameTarget({ state: "chat", channelId: "9" }, { state: "error", channelId: null })).toBe(false);
     expect(sameTarget({ state: "auth", channelId: null }, { state: "not_puzzle", channelId: null })).toBe(false);
     expect(sameTarget(null, { state: "chat", channelId: "9" })).toBe(false);
+  });
+});
+
+describe("mergeHistory", () => {
+  const del = (id) => ({ type: "message_delete", message_id: id });
+  const add = (id) => ({ type: "message", message: m(id) });
+  it("drops stale current state: only the response plus in-flight events", () => {
+    expect(mergeHistory([m("10"), m("11")], []).map((x) => x.id)).toEqual(["10", "11"]);
+  });
+  it("keeps a message that arrived during the load, deduped against the response", () => {
+    const out = mergeHistory([m("10"), m("11")], [add("11"), add("12")]);
+    expect(out.map((x) => x.id)).toEqual(["10", "11", "12"]);
+  });
+  it("replays edits and deletes seen in flight", () => {
+    const evs = [{ type: "message_edit", message: { id: "10", content: "new" } }, del("11")];
+    const out = mergeHistory([m("10", "old"), m("11")], evs);
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toBe("new");
+  });
+  it("handles an empty response", () => {
+    expect(mergeHistory([], [add("3")]).map((x) => x.id)).toEqual(["3"]);
   });
 });

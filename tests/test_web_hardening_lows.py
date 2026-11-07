@@ -7,6 +7,8 @@ Covers, at request level where the defect lives:
   * only the API's deliberate error slugs may be echoed to clients
   * the negative-membership cache must be bounded
 """
+import asyncio
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -193,3 +195,87 @@ def test_an_internal_message_is_not_echoed_to_the_client():
         "(1054, \"Unknown column 'foo' in 'field list'\") at /srv/puzzbot/bot/store/mysqldb.py"
     )
     assert _error_slug(leaky) == "internal_error"
+
+
+@pytest.mark.asyncio
+async def test_activity_websocket_pings_when_idle_and_refreshes_on_its_own_cadence():
+    """An idle socket gets {"type":"ping"} every ping interval (keeps the
+    extension service worker alive); membership is re-resolved only once the
+    (separate, longer) refresh interval has elapsed."""
+    from bot.web import api
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "_WS_PING_SECONDS", 0.02), \
+         patch.object(api, "_WS_AUTH_REFRESH_SECONDS", 0.11), \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        resolve.return_value = ({1: object()}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": "https://example.test"}
+        ) as ws:
+            assert (await asyncio.wait_for(ws.receive_json(), 2))["type"] == "ready"
+            assert resolve.call_count == 1
+            for _ in range(3):
+                assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            assert resolve.call_count == 1      # several pings, no refresh yet
+            for _ in range(8):
+                assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            assert resolve.call_count >= 2      # refresh happened after its interval
+
+
+@pytest.mark.asyncio
+async def test_activity_websocket_pings_despite_a_busy_queue_of_dropped_events():
+    """Events for a guild the user is not in reset the queue wait yet send
+    nothing; a ping must still arrive within the ping interval."""
+    from bot.web import api, events
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "_WS_PING_SECONDS", 0.1), \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        resolve.return_value = ({1: object()}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": "https://example.test"}
+        ) as ws:
+            assert (await asyncio.wait_for(ws.receive_json(), 2))["type"] == "ready"
+
+            async def noise():
+                for _ in range(40):          # 40 x 0.03 s, always < ping interval
+                    events.publish({"type": "activity", "guild_id": 999,
+                                    "channel_id": "1", "at": "x"})
+                    await asyncio.sleep(0.03)
+            task = asyncio.create_task(noise())
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), 0.6)
+            finally:
+                task.cancel()
+            assert msg == {"type": "ping"}
+
+
+@pytest.mark.asyncio
+async def test_activity_websocket_dropped_event_late_in_interval_does_not_delay_ping():
+    """A dropped event just before the ping is due must not restart the full wait:
+    the next ping lands ~1 interval after the previous frame, not ~2."""
+    import time
+    from bot.web import api, events
+    interval = 0.2
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "_WS_PING_SECONDS", interval), \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        resolve.return_value = ({1: object()}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": "https://example.test"}
+        ) as ws:
+            assert (await asyncio.wait_for(ws.receive_json(), 2))["type"] == "ready"
+            assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            t0 = time.monotonic()
+            await asyncio.sleep(interval * 0.85)
+            events.publish({"type": "activity", "guild_id": 999,
+                            "channel_id": "1", "at": "x"})
+            assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            assert time.monotonic() - t0 < interval * 1.3
