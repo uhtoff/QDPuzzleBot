@@ -109,20 +109,110 @@ def test_reconcile_table_appends_updates_prunes():
     flat = [r for body in sent for r in body["requests"]]
     kinds = {k for r in flat for k in r}
     assert "updateCells" in kinds
-    # Rows are never deleted — deleteDimension would shift any user-added columns
-    # to the right of the table on every other row too.
+    # Never deleteDimension: that is the whole sheet row, and would shift anything
+    # a solver keeps outside the table on every other row too.
     assert "deleteDimension" not in kinds
     updates = [r["updateCells"] for r in flat if "updateCells" in r]
-    # informs:9 (row 2) is blanked in place, not removed.
-    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
-    assert prune["rows"][0]["values"] == [{}, {}, {}, {}]
+    # informs:9 (row 2) has left: its row is deleted across the table's width
+    # (no Table here, so the bot's 4 columns) with the cells below shifting up.
+    # (Contract change 2026-11-07: rows used to be blanked in place.)
+    deletes = [r["deleteRange"] for r in flat if "deleteRange" in r]
+    assert deletes == [{"range": {"sheetId": 900, "startRowIndex": 2, "endRowIndex": 3,
+                                  "startColumnIndex": 0, "endColumnIndex": 4},
+                        "shiftDimension": "ROWS"}]
     # feeds:2 (row 1) is rewritten in place, keeping its row index.
     update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
     assert update["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "feeds:2"}}
-    # none:3 is appended strictly after the highest row currently in use (row 2),
-    # never reusing the blanked informs:9 row.
-    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
+    # none:3 is appended directly below the compacted table: row 2, where the
+    # deleted informs:9 used to be.
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 2)
     assert append["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "none:3"}}
+    assert len(updates) == 2
+
+
+def _capture_with_table(cog, values, table_range):
+    """Like _capture_lowlevel, but the page carries a named native Table and the
+    values read back are full rows (the Table's width, solver columns included)."""
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta", "index": 0,
+                                           "gridProperties": {"rowCount": 1000}},
+                            "tables": [{"tableId": "T1", "name": "Contributions 900",
+                                        "range": {"sheetId": 900, **table_range}}]}]}
+    cog.sheet_list = _fake_sheet_list
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": values}
+
+    sent = []
+
+    async def fake_batch(body, spreadsheet_id=None):
+        sent.append(body)
+
+    cog._values_get = fake_values_get
+    cog.batch_update = fake_batch
+    return sent
+
+
+def _header_rows(n=4):
+    return [["Puzzle Title:"], ["Flavor"], ["Progress"], [], ["key", "Source", "Type", "Content"]][:n + 1]
+
+
+def test_reconcile_rekeys_capstone_row_in_place():
+    cog = _cog()
+    values = _header_rows() + [["informs:12", "One", "Information", "", "my note"]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 6,
+                                             "startColumnIndex": 0, "endColumnIndex": 5})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:12", "One", "Feeder", "WORD"]],
+                                    table_name="Contributions 900"))
+    flat = [r for body in sent for r in body["requests"]]
+    assert not [r for r in flat if "deleteRange" in r]
+    cells = [r["updateCells"] for r in flat if "updateCells" in r]
+    assert len(cells) == 1                       # rewritten in place, nothing appended
+    assert cells[0]["range"]["startRowIndex"] == 5
+    assert cells[0]["range"]["endColumnIndex"] == 4   # the solver's note column is untouched
+    assert cells[0]["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "feeds:12"}}
+
+
+def test_deletes_bottom_up_and_append_after_compaction():
+    cog = _cog()
+    values = _header_rows() + [[f"feeds:{i}", f"P{i}", "Feeder", "", "", f"note{i}"]
+                               for i in range(1, 5)]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 9,
+                                             "startColumnIndex": 0, "endColumnIndex": 6})
+    desired = [["feeds:2", "P2", "Feeder", ""], ["feeds:4", "P4", "Feeder", ""],
+               ["feeds:9", "P9", "Feeder", ""]]
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4, desired_rows=desired,
+                                    table_name="Contributions 900", grey_below=True))
+    flat = [r for body in sent for r in body["requests"]]
+    kinds = [next(iter(r)) for r in flat]
+    deletes = [r["deleteRange"] for r in flat if "deleteRange" in r]
+    assert [d["range"]["startRowIndex"] for d in deletes] == [7, 5]       # bottom-up
+    # Full Table width — the solver columns (E, F) go with their row.
+    assert all(d["range"]["startColumnIndex"] == 0 and d["range"]["endColumnIndex"] == 6
+               and d["shiftDimension"] == "ROWS" for d in deletes)
+    append_idx = next(i for i, r in enumerate(flat)
+                      if "updateCells" in r and r["updateCells"]["range"]["startRowIndex"] == 7)
+    assert max(i for i, k in enumerate(kinds) if k == "deleteRange") < append_idx
+    assert flat[append_idx]["updateCells"]["rows"][0]["values"][0] == {
+        "userEnteredValue": {"stringValue": "feeds:9"}}
+    table = next(r["updateTable"]["table"] for r in flat if "updateTable" in r)
+    assert table["range"]["endRowIndex"] == 8 and table["range"]["endColumnIndex"] == 6
+    assert "deleteDimension" not in kinds
+
+
+def test_stranded_note_row_survives_reconcile():
+    cog = _cog()
+    values = _header_rows() + [["", "", "", "", "", "kept note"], ["feeds:2", "P2", "Feeder", ""]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 7,
+                                             "startColumnIndex": 0, "endColumnIndex": 6})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:2", "P2", "Feeder", ""]],
+                                    table_name="Contributions 900"))
+    flat = [r for body in sent for r in body["requests"]]
+    assert not [r for r in flat if "deleteRange" in r]
 
 
 LINK_FIELDS = "userEnteredValue,textFormatRuns"
@@ -137,18 +227,18 @@ def test_reconcile_table_link_cells_and_clearable_fields():
     asyncio.run(cog.reconcile_table(page_id=900, desired_rows=desired, data_col_count=3))
     flat = [r for body in sent for r in body["requests"]]
     updates = [r["updateCells"] for r in flat if "updateCells" in r]
-    assert len(updates) == 3
-    # every updateCells (update, prune, append) can clear an old link
+    # The update and the append (the departed informs:9 is a deleteRange now, not
+    # a blanking updateCells — contract change 2026-11-07).
+    assert len(updates) == 2
+    # every updateCells (update, append) can clear an old link
     assert all(u["fields"] == LINK_FIELDS for u in updates)
     update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
-    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
-    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 2)
     assert update["rows"][0]["values"][1] == {
         "userEnteredValue": {"stringValue": "Alpha"},
         "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": "https://x/a"}}}]}
     assert "textFormatRuns" not in update["rows"][0]["values"][0]
     assert "textFormatRuns" not in update["rows"][0]["values"][2]
-    assert prune["rows"][0]["values"] == [{}, {}, {}]
     vals = append["rows"][0]["values"]
     assert vals[1]["textFormatRuns"][0]["format"]["link"]["uri"] == "https://x/b"
     assert vals[1]["userEnteredValue"] == {"stringValue": "Beta"}

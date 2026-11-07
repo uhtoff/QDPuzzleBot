@@ -1559,14 +1559,16 @@ class GoogleSheets(commands.Cog):
         After writing, resizes the Table to cover its header + all data rows, so the
         rows are part of the Table (otherwise the header is purely decorative).
 
-        Pruned rows are blanked in place (their table-owned columns only), never
-        deleted: `deleteDimension {dimension: ROWS}` is full-width and would shift
-        any user-added columns to the right of the table on every other row too.
-        A blanked row is never reused for a later append, so a row's identity (and
-        anything a user has added beside it) stays stable across reconciles. This
-        means the table only grows over a reconcile's lifetime; a user can manually
-        sort the table's range in Sheets to reclaim blank rows."""
-        from bot.core.unassigned import diff_rows
+        Row planning is bot.core.table_reconcile.plan_rows. A row whose member left
+        is removed with `deleteRange` over the Table's FULL width (`key_col`..
+        `end_col`, so solver columns inside the Table go with it) and the cells
+        below shift up — never `deleteDimension`, which is the whole sheet row and
+        would move anything kept outside the Table. A member whose key changed
+        (capstone -> meta turns `informs:12` into `feeds:12`) is re-keyed in its
+        existing row, keeping its solver columns. Keyless rows are deleted when
+        every in-Table cell is empty (blanks left by the old blank-in-place rule)
+        and kept when a solver note survives in one."""
+        from bot.core.table_reconcile import plan_rows
         # The spreadsheet holding `page_id`: None -> live (the hunt-level
         # Unassigned/Evidence tabs); a puzzle's render passes spreadsheet_of.
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
@@ -1608,21 +1610,29 @@ class GoogleSheets(commands.Cog):
             # `data_col_count` columns but the Table may legitimately span more
             # (Unassigned's solver-owned Notes column), which must stay in it.
             end_col = rng.get("endColumnIndex", key_col + data_col_count)
+            table_end = rng.get("endRowIndex")
             table_id = table.get("tableId")
         else:
             header_row, key_col, end_col, table_id = 0, 0, data_col_count, None
+            table_end = None
 
+        # Read the Table's full width (its solver-added columns included): a keyless
+        # row is only deletable when every in-Table cell is empty.
         key_letter = self._col_letter(key_col)
-        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{key_letter}")
+        end_letter = self._col_letter(end_col - 1)
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{end_letter}")
         vals = resp.get("values", []) or []
-        key_to_row = {}
-        for i in range(header_row + 1, len(vals)):
-            if vals[i]:
-                key_to_row[str(vals[i][0])] = i
+        # The rows the plan may touch: the Table's own extent, stretched over any
+        # keyed row below it (never into unkeyed cells under the Table).
+        keyed = [i for i in range(header_row + 1, len(vals)) if vals[i] and str(vals[i][0])]
+        extent_end = table_end if table_end is not None else len(vals)
+        extent_end = max(extent_end, (max(keyed) + 1) if keyed else header_row + 1)
+        rows = [(i, [str(c) for c in (vals[i] if i < len(vals) else [])])
+                for i in range(header_row + 1, extent_end)]
 
-        # Stringify keys for the diff; keep the original cell values for writing.
+        # Stringify keys for the plan; keep the original cell values for writing.
         norm_rows = [[str(r[0])] + list(r[1:]) for r in desired_rows]
-        appends, updates, prunes = diff_rows(list(key_to_row), norm_rows)
+        plan = plan_rows(rows, norm_rows, header_row)
 
         numeric = set(numeric_cols)
 
@@ -1648,12 +1658,10 @@ class GoogleSheets(commands.Cog):
             return [_cell(c, v) for c, v in enumerate(row)]
 
         requests = []
-        # Updates: rewrite the whole row (cols key_col..key_col+data_col_count-1).
-        update_by_key = {row[0]: row for row in updates}
-        for key, grid_row in key_to_row.items():
-            row = update_by_key.get(key)
-            if row is None:
-                continue
+        # Updates first, at their pre-delete grid rows: rewrite the bot's columns
+        # (key_col..key_col+data_col_count-1). A re-keyed member lands here too, so
+        # it keeps its row and the solver columns beside it in the Table.
+        for grid_row, row in plan.updates:
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
                           "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
@@ -1661,22 +1669,20 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": _row_cells(row)}],
             }})
-        # Prunes: blank the table's own columns in place, never delete the row —
-        # deleteDimension ROWS is full-width and would shift any user-added columns
-        # to the right of the table on every other row too.
-        blank_cells = [{} for _ in range(data_col_count)]
-        for grid_row in (key_to_row[k] for k in prunes):
-            requests.append({"updateCells": {
+        # Deletes, bottom-up so each index is still valid when it runs: remove the
+        # row across the Table's FULL width (solver columns go with it) and shift the
+        # cells below up. Never deleteDimension — that is the whole sheet row and
+        # would move anything a solver keeps outside the Table on every other row.
+        for grid_row in plan.deletes:
+            requests.append({"deleteRange": {
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
                           "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
-                          "endColumnIndex": key_col + data_col_count},
-                "fields": "userEnteredValue,textFormatRuns",
-                "rows": [{"values": blank_cells}],
+                          "endColumnIndex": end_col},
+                "shiftDimension": "ROWS",
             }})
-        # Appends: write new rows strictly after the highest row currently in use.
-        # Blanked (pruned) rows are never reused, so a row's identity stays stable.
-        existing_rows = list(key_to_row.values())
-        next_row = (max(existing_rows) + 1) if existing_rows else header_row + 1
+        # Appends: directly below the compacted table.
+        next_row = plan.append_start
+        appends = plan.appends
         if appends:
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": next_row,
@@ -1694,11 +1700,11 @@ class GoogleSheets(commands.Cog):
         # order the three separate calls had before: data writes, then the resize,
         # then the grey-below formatting.
 
-        # Grow the Table so the data rows actually belong to it. Never shrinks:
-        # blanked prune rows stay part of the table's extent until a user sorts
-        # them out manually.
+        # Set the Table to exactly header + data rows. Sheets already shrinks a Table
+        # on deleteRange (live-checked 2026-11-07); this makes the end explicit for
+        # the append case and is consistent either way.
         if table_id is not None:
-            end_row = next_row + len(appends)
+            end_row = plan.end_row
             requests.append({"updateTable": {
                 "table": {
                     "tableId": table_id,
