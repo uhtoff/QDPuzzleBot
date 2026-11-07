@@ -27,8 +27,10 @@ def _channel(hooks, cid=1):
 @pytest.fixture(autouse=True)
 def _clear_cache():
     channel_relay._hooks.clear()
+    channel_relay._locks.clear()
     yield
     channel_relay._hooks.clear()
+    channel_relay._locks.clear()
 
 
 @pytest.mark.asyncio

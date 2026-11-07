@@ -854,6 +854,9 @@ async def ws_activity():
     last_refresh = time.monotonic()
     try:
         await websocket.send_json({"type": "ready"})
+        # Pings key off the last frame actually sent to this client, not queue
+        # idleness: events for other guilds keep the queue busy yet are dropped.
+        last_sent = time.monotonic()
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=_WS_PING_SECONDS)
@@ -868,8 +871,10 @@ async def ws_activity():
                     await websocket.close(1008)  # no longer a member of any guild
                     return
 
-            if event is None:
+            if (now - last_sent) >= _WS_PING_SECONDS:
                 await websocket.send_json({"type": "ping"})
+                last_sent = now
+            if event is None:
                 continue
             if event.get("guild_id") not in membership:
                 continue
@@ -892,6 +897,7 @@ async def ws_activity():
 
             if visible:
                 await websocket.send_json(event)
+                last_sent = time.monotonic()
     except asyncio.CancelledError:
         raise
     finally:

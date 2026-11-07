@@ -222,3 +222,33 @@ async def test_activity_websocket_pings_when_idle_and_refreshes_on_its_own_caden
             for _ in range(8):
                 assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
             assert resolve.call_count >= 2      # refresh happened after its interval
+
+
+@pytest.mark.asyncio
+async def test_activity_websocket_pings_despite_a_busy_queue_of_dropped_events():
+    """Events for a guild the user is not in reset the queue wait yet send
+    nothing; a ping must still arrive within the ping interval."""
+    from bot.web import api, events
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "_WS_PING_SECONDS", 0.1), \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        resolve.return_value = ({1: object()}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": "https://example.test"}
+        ) as ws:
+            assert (await asyncio.wait_for(ws.receive_json(), 2))["type"] == "ready"
+
+            async def noise():
+                for _ in range(40):          # 40 x 0.03 s, always < ping interval
+                    events.publish({"type": "activity", "guild_id": 999,
+                                    "channel_id": "1", "at": "x"})
+                    await asyncio.sleep(0.03)
+            task = asyncio.create_task(noise())
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), 0.6)
+            finally:
+                task.cancel()
+            assert msg == {"type": "ping"}
