@@ -1,11 +1,12 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl } from "./lib/origin.js";
+import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
 import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
+import { groupColour } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
 
@@ -319,7 +320,7 @@ async function openRound(name, urls, senderTab) {
   }
   if (!tabIds.length) return;
   const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: name });
+  await chrome.tabGroups.update(groupId, { title: name, color: groupColour(name) });
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)
@@ -360,6 +361,12 @@ async function handleDashboardAction(msg, sender) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
+  // "Work on this puzzle" also tries to open the side panel. This must run
+  // synchronously, before any await, to stay inside the click's user gesture;
+  // Chrome may still reject it, which is fine.
+  if (msg && msg.action === "work" && sender.id === chrome.runtime.id && sender.tab) {
+    chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {});
+  }
   handleDashboardAction(msg, sender).catch(() => {});
 });
 
@@ -424,10 +431,19 @@ async function doConnect() {
   const granted = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
   if (!granted) return;
   if (!needsSocket(ws?.readyState)) return; // another path already connected
+  // Chrome withholds the session cookie from a service-worker websocket, so
+  // authenticate with a fresh single-use ticket fetched over cookie-carrying HTTP.
+  const t = await apiGet(WS_TICKET_PATH);
+  if (!t || t.authRequired || t.error || !t.ticket) {
+    ensureKeepalive();
+    scheduleReconnect(); // logged out / dashboard unreachable: idle with backoff
+    return;
+  }
+  if (!needsSocket(ws?.readyState)) return; // connected while we awaited the ticket
   detachSocket();
   ensureKeepalive();
   try {
-    ws = new WebSocket(wsUrl(origin));
+    ws = new WebSocket(wsUrl(origin, t.ticket));
   } catch {
     scheduleReconnect();
     return;

@@ -136,6 +136,7 @@ UNGATED_REMAINDER = [
     ("GET", "/attachments/<int:attachment_id>"),
     ("GET", "/channels/<int:channel_id>/messages"),
     ("GET", "/evidence"),
+    ("GET", "/extension/ws-ticket"),
     ("GET", "/guilds"),
     ("GET", "/hunts"),
     ("GET", "/hunts/<uid>"),

@@ -9,7 +9,7 @@ from quart import Blueprint, jsonify, make_response, request, send_file, session
 
 from .typed_app import bot_app, puzzles_cog
 
-from . import data, events
+from . import data, events, ws_ticket
 from .auth import (
     ADMIN_ROLES,
     current_user,
@@ -814,6 +814,13 @@ def _ws_origin_allowed(origin):
     return isinstance(extra, list) and origin in extra
 
 
+@api_bp.route("/extension/ws-ticket")
+@login_required
+async def extension_ws_ticket():
+    """A short-lived single-use ticket for the extension's websocket."""
+    return jsonify({"ticket": ws_ticket.issue(session["user"]["id"])})
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""
@@ -824,8 +831,17 @@ async def ws_activity():
         return
     user = session.get("user")
     if not user:
-        await websocket.close(1008)  # policy violation / unauthenticated
-        return
+        # Chrome withholds the session cookie from an extension service worker's
+        # websocket, so a listed extension origin may authenticate with a
+        # single-use ticket instead (see ws_ticket).
+        uid = None
+        extra = getattr(config, "web_extension_origins", None)
+        if isinstance(extra, list) and websocket.headers.get("Origin") in extra:
+            uid = ws_ticket.redeem(websocket.args.get("ticket", ""))
+        if not uid or not uid.isdigit():
+            await websocket.close(1008)  # policy violation / unauthenticated
+            return
+        user = {"id": int(uid)}
     membership, roles_by_guild = await resolve_membership(user["id"])
     queue = events.subscribe()
     # Membership is resolved once at connect, so without this a user who is kicked

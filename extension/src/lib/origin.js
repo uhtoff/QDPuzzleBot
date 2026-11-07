@@ -14,9 +14,12 @@ export function parseOrigin(input) {
   return u.origin;
 }
 
-export function wsUrl(origin) {
-  return "wss://" + new URL(origin).host + "/api/ws/activity";
+export function wsUrl(origin, ticket) {
+  const base = "wss://" + new URL(origin).host + "/api/ws/activity";
+  return ticket ? base + "?ticket=" + encodeURIComponent(ticket) : base;
 }
+
+export const WS_TICKET_PATH = "/api/extension/ws-ticket";
 
 export function bySheetPath({ spreadsheetId, gid }) {
   let q = "spreadsheet=" + encodeURIComponent(spreadsheetId);
