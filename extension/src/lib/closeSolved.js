@@ -10,3 +10,12 @@ export function shouldApplyLookup(current, spreadsheetId) {
 export function shouldCloseTab(tab, spreadsheetId) {
   return !!tab && parseSheetUrl(tab.url ?? "")?.spreadsheetId === spreadsheetId;
 }
+
+// Which of the freshly re-checked `candidates` to close in `windowId`, and whether
+// a blank tab is needed first (only if every tab in that window is being closed).
+// A candidate dragged to another window meanwhile is not this window's to close.
+export function planWindowClose(windowTabs, candidates, windowId) {
+  const closing = candidates.filter((t) => t.windowId === windowId).map((t) => t.id);
+  const needBlank = closing.length > 0 && windowTabs.every((t) => closing.includes(t.id));
+  return { closing, needBlank };
+}

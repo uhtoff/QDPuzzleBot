@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { backoffDelay } from "../src/lib/backoff.js";
+import { backoffDelay, reconnectVia, resolveAttempt } from "../src/lib/backoff.js";
 
 describe("backoffDelay", () => {
   it("doubles then caps", () => {
@@ -9,12 +9,20 @@ describe("backoffDelay", () => {
   });
 });
 
-import { reconnectVia } from "../src/lib/backoff.js";
 describe("reconnectVia", () => {
   it("uses alarms from 30s up", () => {
     expect(reconnectVia(16000)).toBe("timeout");
     expect(reconnectVia(29999)).toBe("timeout");
     expect(reconnectVia(30000)).toBe("alarm");
     expect(reconnectVia(60000)).toBe("alarm");
+  });
+});
+
+describe("resolveAttempt", () => {
+  it("resumes a persisted counter, defaulting bad values to 0", () => {
+    expect(resolveAttempt(4)).toBe(4);
+    expect(resolveAttempt(undefined)).toBe(0);
+    expect(resolveAttempt(-1)).toBe(0);
+    expect(resolveAttempt("3")).toBe(0);
   });
 });

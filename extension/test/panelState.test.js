@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cacheValid, stateFor, eventChannel, applyEvent } from "../src/lib/panelState.js";
+import { cacheValid, stateFor, eventChannel, applyEvent, mergeHistory } from "../src/lib/panelState.js";
 
 const e = (extra = {}) => ({ id: 1, spreadsheetId: "s", gid: 5, channel_id: "9", bridge_enabled: true, ...extra });
 const m = (id, content = "x") => ({ id, content });
@@ -71,27 +71,23 @@ describe("sameTarget", () => {
   });
 });
 
-import { mergeHistory } from "../src/lib/panelState.js";
 describe("mergeHistory", () => {
   const del = (id) => ({ type: "message_delete", message_id: id });
-  it("keeps live messages newer than the response, deduped", () => {
-    const out = mergeHistory([m("10"), m("11")], [m("11"), m("12"), m("13")]);
-    expect(out.map((x) => x.id)).toEqual(["10", "11", "12", "13"]);
+  const add = (id) => ({ type: "message", message: m(id) });
+  it("drops stale current state: only the response plus in-flight events", () => {
+    expect(mergeHistory([m("10"), m("11")], []).map((x) => x.id)).toEqual(["10", "11"]);
   });
-  it("compares snowflakes numerically, not lexically", () => {
-    const out = mergeHistory([m("9")], [m("10")]);
-    expect(out.map((x) => x.id)).toEqual(["9", "10"]);
-  });
-  it("drops older current messages absent from the response", () => {
-    expect(mergeHistory([m("10")], [m("5")]).map((x) => x.id)).toEqual(["10"]);
+  it("keeps a message that arrived during the load, deduped against the response", () => {
+    const out = mergeHistory([m("10"), m("11")], [add("11"), add("12")]);
+    expect(out.map((x) => x.id)).toEqual(["10", "11", "12"]);
   });
   it("replays edits and deletes seen in flight", () => {
     const evs = [{ type: "message_edit", message: { id: "10", content: "new" } }, del("11")];
-    const out = mergeHistory([m("10", "old"), m("11")], [], evs);
+    const out = mergeHistory([m("10", "old"), m("11")], evs);
     expect(out).toHaveLength(1);
     expect(out[0].content).toBe("new");
   });
   it("handles an empty response", () => {
-    expect(mergeHistory([], [m("3")]).map((x) => x.id)).toEqual(["3"]);
+    expect(mergeHistory([], [add("3")]).map((x) => x.id)).toEqual(["3"]);
   });
 });

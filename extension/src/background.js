@@ -2,9 +2,9 @@ import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
-import { backoffDelay, reconnectVia } from "./lib/backoff.js";
+import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { createLookupGen } from "./lib/lookupGen.js";
-import { shouldApplyLookup, shouldCloseTab } from "./lib/closeSolved.js";
+import { shouldApplyLookup, shouldCloseTab, planWindowClose } from "./lib/closeSolved.js";
 import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
@@ -235,9 +235,11 @@ async function refreshTab(tab, only) {
   } else if (!(await lookup(tabId, tab.url))) {
     return; // superseded: the newer refresh delivers
   }
+  const token = lookupGen.current(tabId);
   const snap = await snapshot(tabId);
   // The captured `tab.active` may be stale after the awaits: ask the browser now.
   const fresh = await chrome.tabs.get(tabId).catch(() => null);
+  if (!lookupGen.isCurrent(tabId, token)) return; // a newer lookup began meanwhile
   for (const [p, windowId] of ports) {
     if ((only && p !== only) || !shouldDeliver(windowId, fresh)) continue;
     safePost(p, snap);
@@ -460,12 +462,13 @@ async function closeSolved() {
     ).filter(Boolean);
   const tabs = await stillSolved(solved);
   for (const windowId of new Set(tabs.map((t) => t.windowId))) {
-    const candidates = solved.filter((s) => tabs.some((t) => t.id === s.tabId && t.windowId === windowId));
+    // Re-check first (navigated away / dragged elsewhere), then size the window against what really closes.
+    const candidates = await stillSolved(solved.filter((s) => tabs.some((t) => t.id === s.tabId && t.windowId === windowId)));
     const all = await chrome.tabs.query({ windowId }).catch(() => []);
-    if (all.length <= candidates.length) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
-    // Re-check right before closing: the user may have navigated away meanwhile.
-    const closing = (await stillSolved(candidates)).map((t) => t.id);
-    if (closing.length) await chrome.tabs.remove(closing).catch(() => {});
+    const { closing, needBlank } = planWindowClose(all, candidates, windowId);
+    if (!closing.length) continue;
+    if (needBlank) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
+    await chrome.tabs.remove(closing).catch(() => {});
   }
 }
 
@@ -498,6 +501,19 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 // ---- websocket ----
 let ws = null;
 let attempt = 0;
+// A woken worker must resume the backoff, not restart it at 1 s: persist the counter.
+let attemptTouched = false;
+const attemptLoaded = chrome.storage.session
+  .get({ reconnectAttempt: 0 })
+  .then((r) => {
+    if (!attemptTouched) attempt = resolveAttempt(r.reconnectAttempt);
+  })
+  .catch(() => {});
+function setAttempt(n) {
+  attemptTouched = true;
+  attempt = n;
+  chrome.storage.session.set({ reconnectAttempt: n }).catch(() => {});
+}
 let timer = null;
 
 function setSocket(up) {
@@ -558,7 +574,7 @@ async function doConnect() {
     return;
   }
   ws.onopen = () => {
-    attempt = 0;
+    setAttempt(0);
     setSocket(true);
   };
   ws.onmessage = (e) => {
@@ -583,28 +599,40 @@ async function doConnect() {
 
 // Long waits go through chrome.alarms so the worker may sleep while logged out/unreachable.
 const RECONNECT_ALARM = "puzzbot-reconnect";
-function scheduleReconnect() {
+async function scheduleReconnect() {
+  await attemptLoaded;
   clearTimeout(timer);
   timer = null;
   chrome.alarms.clear(RECONNECT_ALARM).catch(() => {});
-  const delay = backoffDelay(attempt++);
+  const delay = backoffDelay(attempt);
+  setAttempt(attempt + 1);
   if (reconnectVia(delay) === "alarm") chrome.alarms.create(RECONNECT_ALARM, { when: Date.now() + delay });
   else timer = setTimeout(connect, delay);
 }
 // Registered at top level so an alarm that wakes a fresh worker still reconnects.
-chrome.alarms.onAlarm.addListener((alarm) => {
+// A periodic watchdog covers a dead link (e.g. after laptop sleep) with nothing else to wake the worker.
+const WATCHDOG_ALARM = "puzzbot-watchdog";
+chrome.alarms.get(WATCHDOG_ALARM).then((a) => {
+  if (!a) chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: 1 });
+}).catch(() => {});
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === RECONNECT_ALARM) connect();
+  else if (alarm.name === WATCHDOG_ALARM && needsSocket(ws?.readyState)) {
+    // A backoff retry already pending (timer or alarm) owns the schedule.
+    if (timer !== null || (await chrome.alarms.get(RECONNECT_ALARM).catch(() => null))) return;
+    connect();
+  }
 });
 
 chrome.permissions.onAdded.addListener(() => {
-  attempt = 0;
+  setAttempt(0);
   if (needsSocket(ws?.readyState)) connect();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
     registerDashboardScript();
-    attempt = 0;
+    setAttempt(0);
     detachSocket();
     setSocket(false);
     if (connecting) restartConnect = true; // in-flight attempt may hold the old origin

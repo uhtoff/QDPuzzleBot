@@ -56,24 +56,12 @@ export function sameTarget(prev, next) {
   return !!prev && !!next && prev.state === next.state && (prev.channelId ?? null) === (next.channelId ?? null);
 }
 
-const idAfter = (a, b) => {
-  try {
-    return BigInt(a) > BigInt(b);
-  } catch {
-    return Number(a) > Number(b);
-  }
-};
-
-// Combine a history response (oldest-first) with live state that moved while it
-// was in flight: keep current messages newer than the response's newest, then
-// replay the events seen meanwhile (edits, deletes, new messages). Deduped by id.
-export function mergeHistory(response, current, pendingEvents = []) {
+// Combine a history response (oldest-first) with what happened while it was in
+// flight: replay only the events recorded meanwhile (new messages, edits,
+// deletes) over the response. Current state is deliberately not merged in: a
+// message deleted while the socket was down would be resurrected.
+export function mergeHistory(response, pendingEvents = []) {
   let out = [...response];
-  const newest = out.length ? out[out.length - 1].id : null;
-  for (const m of current) {
-    if (out.some((x) => x.id === m.id)) continue;
-    if (newest === null || idAfter(m.id, newest)) out.push(m);
-  }
   for (const ev of pendingEvents) out = applyEvent(out, ev);
   return out;
 }

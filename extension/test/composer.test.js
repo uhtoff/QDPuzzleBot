@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canCompose, validate } from "../src/lib/composer.js";
+import { canCompose, validate, draftAfterSend } from "../src/lib/composer.js";
 import { errorText } from "../src/lib/format.js";
 
 describe("errorText", () => {
@@ -52,7 +52,6 @@ describe("canCompose", () => {
   });
 });
 
-import { draftAfterSend } from "../src/lib/composer.js";
 describe("draftAfterSend", () => {
   it("clears only an unchanged draft", () => {
     expect(draftAfterSend("hello", "hello")).toBe("");

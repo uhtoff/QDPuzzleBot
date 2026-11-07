@@ -21,6 +21,7 @@ let messages = [];
 let socketUp = false;
 let pollTimer = null;
 let loadSeq = 0;
+let setStateSeq = 0; // newer setState invalidates this one's awaited notices
 let pendingEvents = []; // live events seen while a history load is in flight
 
 function showNotice(text, href) {
@@ -148,7 +149,7 @@ async function loadMessages() {
   if (res.authRequired) return setState({ state: "auth" });
   if (res.error) return showNotice("Could not load messages (" + res.error + ")");
   showNotice("");
-  messages = mergeHistory(res.messages ?? [], messages, pendingEvents);
+  messages = mergeHistory(res.messages ?? [], pendingEvents);
   pendingEvents = [];
   renderLog();
   log.scrollTop = log.scrollHeight;
@@ -220,6 +221,7 @@ async function setState({ state, puzzle, channelNames: names }) {
   }
   channelId = next.channelId;
   loadSeq++; // target changed: discard any pending history load for the old one
+  const stateSeq = ++setStateSeq;
   pendingEvents = [];
   draft.value = "";
   showComposerError(null);
@@ -230,10 +232,14 @@ async function setState({ state, puzzle, channelNames: names }) {
   else if (state === "error") {
     const origin = await getOrigin();
     const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => true);
+    if (stateSeq !== setStateSeq) return;
     showNotice(ok ? "Could not reach the dashboard. Check the extension options." : "Grant access to the dashboard in the extension Options.");
   } else if (state === "unavailable") showNotice("Chat unavailable \u2014 open in Discord.", puzzle?.discord_url);
-  else if (state === "auth") showNotice("Log in to the dashboard", await getOrigin());
-  else showNotice("");
+  else if (state === "auth") {
+    const origin = await getOrigin();
+    if (stateSeq !== setStateSeq) return;
+    showNotice("Log in to the dashboard", origin);
+  } else showNotice("");
   schedulePoll();
   if (state === "chat") loadMessages();
 }

@@ -9,6 +9,7 @@ export function createLookupGen() {
       latest.set(tabId, token);
       return token;
     },
+    current: (tabId) => latest.get(tabId),
     isCurrent: (tabId, token) => latest.get(tabId) === token,
     // Tab closed: any in-flight lookup is now stale.
     drop(tabId) {
