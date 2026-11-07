@@ -16,3 +16,7 @@ body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: flex; flex-dire
 #draft { flex: 1; resize: vertical; min-height: 2.6em; max-height: 40vh; font: inherit; }
 #composer-error { color: #c33; padding-bottom: 4px; }
 .text code { font-family: ui-monospace, monospace; background: rgba(127,127,127,.2); padding: 0 3px; border-radius: 3px; }
+img.emoji { height: 1.2em; width: auto; vertical-align: text-bottom; }
+.embed { border-left: 3px solid rgba(127,127,127,.5); padding-left: 6px; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.embed-title { font-weight: bold; }
+.embed-footer { opacity: .6; font-size: .85em; }
