@@ -3,6 +3,7 @@ import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
+import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { apiGet, getOrigin } from "./api.js";
 
@@ -13,7 +14,6 @@ const ports = new Map(); // port -> windowId
 let socketUp = false;
 const isTracked = (channelId) => registry.tabsForChannel(channelId).length > 0;
 let unread = createUnread({ isTracked });
-const notifTabs = new Map(); // notification id -> tabId
 
 // MV3: the worker is killed when idle; rehydrate the registry before any event.
 const ready = (async () => {
@@ -51,9 +51,14 @@ async function visibleChannels() {
 async function reconcileUnread() {
   await ready;
   const visible = new Set(await visibleChannels());
+  let cleared = false;
   for (const [channelId] of unread.serialise()) {
-    if (visible.has(channelId) || !isTracked(channelId)) unread.clear(channelId);
+    if (visible.has(channelId) || !isTracked(channelId)) {
+      unread.clear(channelId);
+      cleared = true;
+    }
   }
+  if (!cleared) return;
   persist();
   updateBadge();
 }
@@ -68,28 +73,27 @@ async function handleMessage(ev) {
   const channelId = String(ev.channel_id);
   const tabId = registry.tabsForChannel(channelId)[0];
   const text = `${ev.message?.author_name ?? ""}: ${ev.message?.content ?? ""}`;
-  const id = await chrome.notifications
-    .create({
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  chrome.notifications
+    .create(notificationId(tabId, tab.windowId), {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icons/icon128.png"),
       title: registry.get(tabId)?.name ?? "Puzzle chat",
       message: text.length > 120 ? text.slice(0, 119) + "\u2026" : text,
     })
-    .catch(() => null);
-  if (id) notifTabs.set(id, tabId);
+    .catch(() => {});
 }
 
 chrome.notifications.onClicked.addListener(async (id) => {
-  const tabId = notifTabs.get(id);
-  notifTabs.delete(id);
+  const target = parseNotificationId(id);
+  if (!target) return;
   chrome.notifications.clear(id);
-  if (tabId == null) return;
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const tab = await chrome.tabs.get(target.tabId).catch(() => null);
   if (!tab) return;
   chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
-  chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  chrome.tabs.update(tab.id, { active: true }).catch(() => {});
 });
-chrome.notifications.onClosed.addListener((id) => notifTabs.delete(id));
 
 // One global side panel for every tab; non-puzzle tabs show "not a puzzle".
 function setupPanel() {
