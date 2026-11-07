@@ -43,3 +43,15 @@ export function applyEvent(messages, ev) {
   }
   return messages;
 }
+
+// Should a snapshot for `tab` be posted to a panel living in `portWindowId`?
+// Only the active tab of the panel's own window counts.
+export function shouldDeliver(portWindowId, tab) {
+  return !!tab && !!tab.active && tab.windowId === portWindowId;
+}
+
+// Is `next` the same render target as `prev` ({state, channelId})? If so the
+// panel must not clear and refetch the chat.
+export function sameTarget(prev, next) {
+  return !!prev && !!next && prev.state === next.state && (prev.channelId ?? null) === (next.channelId ?? null);
+}

@@ -48,3 +48,25 @@ describe("applyEvent", () => {
     expect(l.map((x) => x.id)).toEqual(["2", "3"]);
   });
 });
+
+import { shouldDeliver, sameTarget } from "../src/lib/panelState.js";
+
+describe("shouldDeliver", () => {
+  it("only the active tab of the port's own window", () => {
+    expect(shouldDeliver(1, { active: true, windowId: 1 })).toBe(true);
+    expect(shouldDeliver(1, { active: false, windowId: 1 })).toBe(false);
+    expect(shouldDeliver(1, { active: true, windowId: 2 })).toBe(false);
+    expect(shouldDeliver(null, { active: true, windowId: 1 })).toBe(false);
+    expect(shouldDeliver(1, undefined)).toBe(false);
+  });
+});
+
+describe("sameTarget", () => {
+  it("same state and channel only", () => {
+    expect(sameTarget({ state: "chat", channelId: "9" }, { state: "chat", channelId: "9" })).toBe(true);
+    expect(sameTarget({ state: "chat", channelId: "9" }, { state: "chat", channelId: "8" })).toBe(false);
+    expect(sameTarget({ state: "chat", channelId: "9" }, { state: "error", channelId: null })).toBe(false);
+    expect(sameTarget({ state: "auth", channelId: null }, { state: "not_puzzle", channelId: null })).toBe(false);
+    expect(sameTarget(null, { state: "chat", channelId: "9" })).toBe(false);
+  });
+});

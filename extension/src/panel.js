@@ -1,5 +1,5 @@
 import { messageView, isBangCommand } from "./lib/format.js";
-import { applyEvent, eventChannel } from "./lib/panelState.js";
+import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { apiGet, getOrigin } from "./api.js";
 
@@ -99,11 +99,32 @@ function schedulePoll() {
   if (channelId && !socketUp) pollTimer = setInterval(loadMessages, POLL_MS);
 }
 
+let current = null; // {state, channelId}
+
 async function setState({ state, puzzle }) {
-  channelId = state === "chat" ? puzzle.channel_id : null;
+  const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
+  const same = sameTarget(current, next);
+  current = next;
+  renderHead(puzzle, state);
+  if (same) return;
+  channelId = next.channelId;
   messages = [];
   log.replaceChildren();
-  head.textContent = puzzle ? puzzle.name : "";
+  if (state === "not_puzzle") showNotice("Not a puzzle sheet.");
+  else if (state === "no_channel") showNotice("This puzzle has no Discord channel.");
+  else if (state === "error") {
+    const origin = await getOrigin();
+    const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => true);
+    showNotice(ok ? "Could not reach the dashboard. Check the extension options." : "Grant access to the dashboard in the extension Options.");
+  } else if (state === "unavailable") showNotice("Chat unavailable \u2014 open in Discord.", puzzle?.discord_url);
+  else if (state === "auth") showNotice("Log in to the dashboard", await getOrigin());
+  else showNotice("");
+  schedulePoll();
+  if (state === "chat") loadMessages();
+}
+
+function renderHead(puzzle, state) {
+  head.textContent = puzzle ? puzzle.name + (puzzle.solved ? " (solved)" : "") : "";
   if (puzzle?.discord_url && state === "chat") {
     const a = document.createElement("a");
     a.href = puzzle.discord_url;
@@ -112,27 +133,49 @@ async function setState({ state, puzzle }) {
     a.textContent = " (Discord)";
     head.append(a);
   }
-  if (state === "not_puzzle") showNotice("Not a puzzle sheet.");
-  else if (state === "no_channel") showNotice("This puzzle has no Discord channel.");
-  else if (state === "error") showNotice("Could not reach the dashboard. Check the extension options.");
-  else if (state === "unavailable") showNotice("Chat unavailable — open in Discord.", puzzle?.discord_url);
-  else if (state === "auth") showNotice("Log in to the dashboard", await getOrigin());
-  else showNotice("");
-  schedulePoll();
-  if (state === "chat") loadMessages();
 }
 
-const port = chrome.runtime.connect({ name: "panel" });
-port.onMessage.addListener((msg) => {
-  if (msg.type === "puzzle") {
-    setState(msg);
-  } else if (msg.type === "socket") {
-    socketUp = msg.connected;
-    schedulePoll();
-  } else if (msg.type === "event" && channelId && eventChannel(msg.event) === channelId) {
-    messages = applyEvent(messages, msg.event);
-    renderLog();
+let port = null;
+let windowId = null;
+
+function askState() {
+  if (!port || windowId === null) return;
+  try {
+    port.postMessage({ type: "get", windowId });
+  } catch {
+    /* disconnected; onDisconnect reconnects */
   }
+}
+
+function connectPort() {
+  port = chrome.runtime.connect({ name: "panel" });
+  port.onMessage.addListener((msg) => {
+    if (msg.type === "puzzle") {
+      setState(msg);
+    } else if (msg.type === "socket") {
+      const was = socketUp;
+      socketUp = msg.connected;
+      schedulePoll();
+      if (!was && socketUp) loadMessages();
+    } else if (msg.type === "event" && channelId && eventChannel(msg.event) === channelId) {
+      messages = applyEvent(messages, msg.event);
+      renderLog();
+    }
+  });
+  port.onDisconnect.addListener(() => {
+    port = null;
+    socketUp = false;
+    schedulePoll();
+    setTimeout(() => {
+      connectPort();
+      askState();
+    }, 1000);
+  });
+}
+
+chrome.windows.getCurrent().then((w) => {
+  windowId = w.id;
+  connectPort();
+  askState();
 });
-port.postMessage({ type: "get" });
-chrome.tabs.onActivated.addListener(() => port.postMessage({ type: "get" }));
+chrome.tabs.onActivated.addListener(askState);
