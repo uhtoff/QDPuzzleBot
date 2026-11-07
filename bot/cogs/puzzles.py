@@ -4516,7 +4516,9 @@ class Puzzles(commands.Cog):
         # Confirm BEFORE locking: holding every member's lock across the human
         # click blocks all solves/retags in the round for the confirm window. The
         # id set is re-read after confirming so it reflects the state we lock.
-        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
+        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets? "
+                f"Feeders shared with another round, and any puzzle that is another round's "
+                f"target, are kept and moved to the hunt's general category."):
             return
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
         async with puzzles_lock(member_puzzle_ids):
@@ -4531,8 +4533,9 @@ class Puzzles(commands.Cog):
                 ctx.guild, hunt, tag_group, keep_puzzles=False)
 
             await hunt_general_channel.send(
-                f":white_check_mark: Round {tag_group.name} successfully deleted.  "
-                f"All puzzle sheets have been deleted.")
+                f":white_check_mark: Round {tag_group.name} successfully deleted, with its "
+                f"puzzles' channels and sheets. Any shared feeders were kept in the general "
+                f"category.")
             await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)

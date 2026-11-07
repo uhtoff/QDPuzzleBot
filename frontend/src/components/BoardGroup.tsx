@@ -206,7 +206,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         )}
         {/* Delete round button — organiser only, non-archived, real rounds only */}
         {group.tag_group_id !== 0 && isOrganiser && editable && (
-          <Tooltip label="Delete this round and all its puzzles">
+          <Tooltip label="Delete this round…">
             <ActionIcon
               variant="subtle"
               color="red"
