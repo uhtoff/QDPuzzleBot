@@ -26,21 +26,23 @@ async def _client(*, hunt=HUNT, visible=True, view=True, send=True, timed_out=Fa
     if not guild_found:
         app.bot.get_guild.return_value = None
     send_as = AsyncMock(return_value=999, side_effect=send_side_effect)
+    hunt_visible = MagicMock(return_value=visible)
+    get_member = AsyncMock(return_value=member if member_found else None)
     patches = [
         patch("bot.web.auth.session", {"user": {"id": 1, "username": "t"}}),
         patch("bot.web.api.data.get_hunt_by_channel_id", AsyncMock(return_value=hunt)),
         patch("bot.web.api.data.get_guilds_map",
               AsyncMock(return_value={7: {"guild_snowflake": 777}})),
         patch("bot.web.api.resolve_membership", AsyncMock(return_value=({777}, {}))),
-        patch("bot.web.api.hunt_visible", lambda *a: visible),
-        patch("bot.web.api.get_or_fetch_member",
-              AsyncMock(return_value=member if member_found else None)),
+        patch("bot.web.api.hunt_visible", hunt_visible),
+        patch("bot.web.api.get_or_fetch_member", get_member),
         patch("bot.web.api.channel_relay.send_as", send_as),
     ]
     start_patches(patches)
     try:
         c = app.test_client()
         c.send_as, c.member, c.channel, c.app_ = send_as, member, channel, app
+        c.hunt_visible, c.get_member, c.guild = hunt_visible, get_member, guild
         yield c
     finally:
         stop_patches(patches)
@@ -59,6 +61,10 @@ async def test_reply_posts_as_member():
         assert resp.status_code == 201
         assert await resp.get_json() == {"id": "999"}
         c.send_as.assert_awaited_once_with(c.channel, c.member, "hello")
+        # identity wiring: guild snowflake (not the row id), session user id, this channel's hunt
+        c.app_.bot.get_guild.assert_called_once_with(777)
+        c.get_member.assert_awaited_once_with(c.guild, 1)
+        assert c.hunt_visible.call_args.args[0] is HUNT
 
 
 @pytest.mark.asyncio

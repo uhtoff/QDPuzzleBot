@@ -104,6 +104,20 @@ unset dir would otherwise resolve to the process's working directory (the checko
 uploads; it also sets Quart's own `MAX_CONTENT_LENGTH` request-body guard, so raising it
 raises both together.
 
+## Chrome extension origins
+
+The Puzzle Chat browser extension (`extension/`) opens the dashboard's activity websocket from
+a `chrome-extension://<id>` origin, which the websocket Origin check rejects by default. List
+each extension ID in the `web` block of `config.json`:
+
+```jsonc
+"web": {
+  "extension_origins": ["chrome-extension://<extension id>"]   // default []; exact match, no wildcard
+}
+```
+
+Restart the bot after editing. See `extension/README.md` for finding the ID and packaging.
+
 ## Hunt visibility
 
 - **Active** hunts are visible only to holders of the hunt's team `role_id`

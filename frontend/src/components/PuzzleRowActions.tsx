@@ -1,6 +1,7 @@
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
-import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconNote } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconNote, IconPlayerPlay } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
+import { extensionPresent, workOn } from "../lib/extension";
 
 interface PuzzleRowActionsProps {
   puzzle: Puzzle;
@@ -8,6 +9,8 @@ interface PuzzleRowActionsProps {
   onSolve: (puzzle: Puzzle) => void;
   onUnsolve: (puzzle: Puzzle) => void;
   onOpenNotes: (puzzle: Puzzle) => void;
+  /** Hunt uid; enables the extension's "Work on this puzzle" button. */
+  huntUid?: string;
   /** Width of the <Table.Td> wrapper. Defaults to undefined (auto). */
   tdWidth?: number;
 }
@@ -25,6 +28,7 @@ export function PuzzleRowActions({
   onSolve,
   onUnsolve,
   onOpenNotes,
+  huntUid,
   tdWidth,
 }: PuzzleRowActionsProps) {
   return (
@@ -41,6 +45,18 @@ export function PuzzleRowActions({
           <Tooltip label="Mark unsolved">
             <ActionIcon variant="subtle" color="red" onClick={() => onUnsolve(p)} aria-label="Unsolve">
               <IconCircleX size={17} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {huntUid && p.sheet_url && extensionPresent() && (
+          <Tooltip label="Work on this puzzle">
+            <ActionIcon
+              variant="subtle"
+              color="blue"
+              onClick={() => workOn({ id: p.id, sheet_url: p.sheet_url, hunt_uid: huntUid })}
+              aria-label="Work on this puzzle"
+            >
+              <IconPlayerPlay size={16} />
             </ActionIcon>
           </Tooltip>
         )}

@@ -27,6 +27,11 @@ dashboard's in-app chat viewer, so an archived hunt keeps a self-contained trans
 Discord channels are gone. It too is off by default — see
 [`docs/dashboard.md`](docs/dashboard.md#message-bridge-chat-viewer) to enable it.
 
+An optional **Chrome extension** (`extension/`) shows a puzzle's Discord chat in a side panel
+beside its Google Sheet and adds dashboard shortcuts for opening puzzles. See
+[`extension/README.md`](extension/README.md) and the `web.extension_origins` key in
+[`docs/dashboard.md`](docs/dashboard.md#chrome-extension-origins).
+
 # What it does
 
 During a hunt the bot keeps three things in sync:
@@ -70,6 +75,7 @@ dashboard; both go through the same code. A minimal session:
 | [`docs/user-guide.md`](docs/user-guide.md) | Players and organisers — how a hunt runs, end to end |
 | [`docs/commands.md`](docs/commands.md) | Every bang command — arguments, where to run it, who may use it |
 | [`docs/dashboard.md`](docs/dashboard.md) | The web dashboard: serving model, visibility, message bridge |
+| [`extension/README.md`](extension/README.md) | The optional Chrome extension: puzzle chat in a side panel, dashboard shortcuts |
 | [`docs/new-server-playbook.md`](docs/new-server-playbook.md) | Standing up a Discord server (hub or team server) for a hunt |
 | [`AGENTS.md`](AGENTS.md) | Contributor/agent guidance: architecture, seams, conventions |
 

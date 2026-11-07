@@ -415,6 +415,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                   onSolve={setSolvePuzzle}
                   onUnsolve={setSolvePuzzle}
                   onOpenNotes={onOpenNotes}
+                  huntUid={detail.hunt.uid}
                 />
               </Table.Tr>
               {p.is_minimeta && expandedMinis.has(p.id) && (

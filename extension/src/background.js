@@ -3,6 +3,10 @@ import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
+import { notificationId, parseNotificationId } from "./lib/notify.js";
+import { createUnread, badgeText } from "./lib/unread.js";
+import { validateAction, isNewArrival } from "./lib/actions.js";
+import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
@@ -10,18 +14,104 @@ let registry = createRegistry();
 const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient)
 const ports = new Map(); // port -> windowId
 let socketUp = false;
+const isTracked = (channelId) => registry.tabsForChannel(channelId).length > 0;
+let unread = createUnread({ isTracked });
 
 // MV3: the worker is killed when idle; rehydrate the registry before any event.
 const ready = (async () => {
   try {
     const { registryEntries } = await chrome.storage.session.get({ registryEntries: [] });
     registry = createRegistry(registryEntries);
+    const { unreadEntries } = await chrome.storage.session.get({ unreadEntries: [] });
+    unread = createUnread({ isTracked, initial: unreadEntries });
   } catch {
     /* start empty */
   }
+  updateBadge();
+  // Not awaited: the scan does network lookups and must not stall every handler waiting on `ready`.
+  scanOpenTabs();
 })();
 
-const persist = () => chrome.storage.session.set({ registryEntries: registry.entries() }).catch(() => {});
+// storage.session is empty after install/reload/browser restart and restored tabs fire no
+// events until visited, so register already-open sheet tabs here. No tab reuse: not new arrivals.
+async function scanOpenTabs() {
+  const tabs = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
+  for (const tab of tabs) {
+    if (registry.get(tab.id)) continue;
+    try {
+      await refreshTab(tab);
+    } catch {
+      /* one bad tab must not stop the scan */
+    }
+  }
+}
+
+const persist = () =>
+  chrome.storage.session.set({ registryEntries: registry.entries(), unreadEntries: unread.serialise() }).catch(() => {});
+
+function updateBadge() {
+  chrome.action.setBadgeText({ text: badgeText(unread.total()) }).catch(() => {});
+}
+
+// Channels of the puzzles shown in open panels (active tab of each panel's window).
+async function visibleChannels() {
+  const windows = new Set([...ports.values()].filter((w) => typeof w === "number"));
+  const out = new Set();
+  for (const windowId of windows) {
+    const [tab] = await chrome.tabs.query({ active: true, windowId }).catch(() => []);
+    const channelId = tab && registry.get(tab.id)?.channel_id;
+    if (channelId) out.add(String(channelId));
+  }
+  return [...out];
+}
+
+// Clear counts for channels now visible or no longer backed by any tab.
+async function reconcileUnread() {
+  await ready;
+  const visible = new Set(await visibleChannels());
+  let cleared = false;
+  for (const [channelId] of unread.serialise()) {
+    if (visible.has(channelId) || !isTracked(channelId)) {
+      unread.clear(channelId);
+      cleared = true;
+    }
+  }
+  if (!cleared) return;
+  persist();
+  updateBadge();
+}
+
+async function handleMessage(ev) {
+  await ready;
+  if (!unread.onEvent(ev, await visibleChannels())) return;
+  persist();
+  updateBadge();
+  const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
+  if (!notify) return;
+  const channelId = String(ev.channel_id);
+  const tabId = registry.tabsForChannel(channelId)[0];
+  const text = `${ev.message?.author_name ?? ""}: ${ev.message?.content ?? ""}`;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  chrome.notifications
+    .create(notificationId(tabId, tab.windowId), {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+      title: registry.get(tabId)?.name ?? "Puzzle chat",
+      message: text.length > 120 ? text.slice(0, 119) + "\u2026" : text,
+    })
+    .catch(() => {});
+}
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  const target = parseNotificationId(id);
+  if (!target) return;
+  chrome.notifications.clear(id);
+  const tab = await chrome.tabs.get(target.tabId).catch(() => null);
+  if (!tab) return;
+  chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+});
 
 // One global side panel for every tab; non-puzzle tabs show "not a puzzle".
 function setupPanel() {
@@ -29,8 +119,29 @@ function setupPanel() {
   chrome.sidePanel.setOptions({ path: PANEL_PATH, enabled: true }).catch(() => {});
 }
 setupPanel();
-chrome.runtime.onInstalled.addListener(async () => {
+
+// Content script that lets the dashboard drive the extension. Registered only
+// for the configured origin, and only once its host permission is granted.
+const DASHBOARD_SCRIPT_ID = "puzzbot-dashboard";
+async function registerDashboardScript() {
+  const origin = await getOrigin();
+  await chrome.scripting.unregisterContentScripts({ ids: [DASHBOARD_SCRIPT_ID] }).catch(() => {}); // may not be registered
+  const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
+  if (!ok) return;
+  await chrome.scripting
+    .registerContentScripts([
+      { id: DASHBOARD_SCRIPT_ID, matches: [origin + "/*"], js: ["src/dashboard.js"], runAt: "document_start" },
+    ])
+    .catch(() => {});
+}
+registerDashboardScript();
+chrome.permissions.onAdded.addListener(() => registerDashboardScript());
+chrome.permissions.onRemoved.addListener(() => registerDashboardScript());
+
+chrome.runtime.onInstalled.addListener(async (details) => {
   setupPanel();
+  registerDashboardScript();
+  if (details.reason !== "install") return;
   const origin = await getOrigin();
   const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
   if (!ok) chrome.runtime.openOptionsPage();
@@ -81,6 +192,7 @@ async function refreshTab(tab, only) {
     if ((only && p !== only) || !shouldDeliver(windowId, tab)) continue;
     safePost(p, snap);
   }
+  reconcileUnread();
 }
 
 function safePost(p, msg) {
@@ -95,8 +207,48 @@ function broadcast(msg) {
   for (const p of ports.keys()) safePost(p, msg);
 }
 
+// A files-mode puzzle's sheet already open in another tab: switch there and
+// drop the duplicate, unless the duplicate is its window's only tab.
+async function maybeReuse(tabId) {
+  const entry = registry.get(tabId);
+  if (!entry || entry.sheet_mode !== "files") return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  const inWindow = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
+  const target = registry.reuseTarget(tabId, entry.spreadsheetId, inWindow.length);
+  if (target === null) return;
+  const existing = await chrome.tabs.get(target).catch(() => null);
+  if (!existing) {
+    registry.delete(target);
+    persist();
+    return;
+  }
+  await focusTab(existing);
+  // Re-check after the awaits: the target may have been closed meanwhile.
+  if (!registry.get(target) || !(await chrome.tabs.get(target).catch(() => null))) return;
+  chrome.tabs.remove(tabId).catch(() => {});
+}
+
+// Serialised so two duplicates resolving together cannot close each other.
+let reuseChain = Promise.resolve();
+const queueReuse = (tabId) => {
+  reuseChain = reuseChain.then(() => maybeReuse(tabId)).catch(() => {});
+};
+
+async function focusTab(tab) {
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+}
+
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.url || info.status === "complete") refreshTab(tab);
+  if (!(info.url || info.status === "complete")) return;
+  (async () => {
+    await ready;
+    const before = registry.get(tabId)?.spreadsheetId;
+    await refreshTab(tab);
+    // Only a tab newly arriving at a spreadsheet is a duplicate candidate, not a reload or in-file navigation.
+    if (isNewArrival(before, registry.get(tabId)?.spreadsheetId)) queueReuse(tabId);
+  })();
 });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -107,19 +259,108 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   registry.delete(tabId);
   failures.delete(tabId);
   persist();
+  reconcileUnread();
 });
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "panel") return;
   ports.set(port, null);
-  port.onDisconnect.addListener(() => ports.delete(port));
+  port.onDisconnect.addListener(() => {
+    ports.delete(port);
+    reconcileUnread();
+  });
   safePost(port, { type: "socket", connected: socketUp });
   port.onMessage.addListener(async (msg) => {
     if (msg.type !== "get" || typeof msg.windowId !== "number") return;
     ports.set(port, msg.windowId);
     const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
     if (tab) await refreshTab(tab, port);
+    else reconcileUnread();
   });
+});
+
+// ---- dashboard actions (from src/dashboard.js) ----
+
+async function workOn(url, senderTab) {
+  const parsed = parseSheetUrl(url);
+  const tabId = registry.findFilesTab(parsed.spreadsheetId);
+  const existing = tabId === null ? null : await chrome.tabs.get(tabId).catch(() => null);
+  if (existing) return focusTab(existing);
+  await chrome.tabs.create({ url, windowId: senderTab.windowId, active: true });
+}
+
+// Tab already showing this exact sheet link (same file, and same gid when given).
+function sameSheet(a, b) {
+  return a.spreadsheetId === b.spreadsheetId && (a.gid ?? null) === (b.gid ?? null);
+}
+
+async function openRound(name, urls, senderTab) {
+  const windowId = senderTab.windowId;
+  const open = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
+  const tabIds = [];
+  for (const url of urls) {
+    const want = parseSheetUrl(url);
+    // Files mode: the spreadsheet identifies the puzzle (Sheets rewrites #gid, so don't compare it).
+    const regId = registry.findFilesTab(want.spreadsheetId);
+    const regTab = regId !== null && !tabIds.includes(regId) ? await chrome.tabs.get(regId).catch(() => null) : null;
+    const have =
+      regTab ??
+      open.find((t) => {
+        const p = parseSheetUrl(t.url ?? "");
+        return p && sameSheet(p, want) && !tabIds.includes(t.id);
+      });
+    if (have) {
+      if (have.windowId !== windowId) await chrome.tabs.move(have.id, { windowId, index: -1 }).catch(() => {});
+      tabIds.push(have.id);
+    } else {
+      const created = await chrome.tabs.create({ url, windowId, active: false }).catch(() => null);
+      if (created) tabIds.push(created.id);
+    }
+  }
+  if (!tabIds.length) return;
+  const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
+  await chrome.tabGroups.update(groupId, { title: name });
+}
+
+// Re-ask the server about every registered tab (cached solved flags go stale)
+// and close those whose puzzle is now solved. A window is never left empty.
+async function closeSolved() {
+  const solved = [];
+  for (const [tabId, entry] of registry.entries()) {
+    if (entry.sheet_mode !== "files") continue; // files mode only
+    const res = await apiGet(bySheetPath({ spreadsheetId: entry.spreadsheetId, gid: entry.gid ?? null }));
+    if (res.authRequired || res.error || !res.puzzle) continue;
+    registry.set(tabId, { ...entry, ...res.puzzle, bridge_enabled: res.bridge_enabled });
+    if (res.puzzle.solved) solved.push(tabId);
+  }
+  persist();
+  const tabs = (await Promise.all(solved.map((id) => chrome.tabs.get(id).catch(() => null)))).filter(Boolean);
+  for (const windowId of new Set(tabs.map((t) => t.windowId))) {
+    const closing = tabs.filter((t) => t.windowId === windowId).map((t) => t.id);
+    const all = await chrome.tabs.query({ windowId }).catch(() => []);
+    if (all.length <= closing.length) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
+    await chrome.tabs.remove(closing).catch(() => {});
+  }
+}
+
+async function handleDashboardAction(msg, sender) {
+  await ready;
+  const v = validateAction(msg, {
+    senderId: sender.id,
+    senderUrl: sender.url,
+    senderHasTab: !!sender.tab,
+    runtimeId: chrome.runtime.id,
+    origin: await getOrigin(),
+  });
+  if (!v.ok) return;
+  if (v.action === "work") await workOn(v.payload.sheetUrl, sender.tab);
+  else if (v.action === "openRound") {
+    if (v.payload.sheetUrls.length) await openRound(v.payload.name, v.payload.sheetUrls, sender.tab);
+  } else if (v.action === "closeSolved") await closeSolved();
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  handleDashboardAction(msg, sender).catch(() => {});
 });
 
 // ---- websocket ----
@@ -149,11 +390,42 @@ function ensureKeepalive() {
   }, 20000);
 }
 
-async function connect() {
+// Single in-flight guard: connect() awaits before assigning `ws`, so concurrent callers
+// (startup, permissions.onAdded, origin change, reconnect timer) must share one attempt.
+let connecting = null;
+let restartConnect = false;
+function connect() {
+  if (connecting) return connecting;
+  connecting = doConnect()
+    .catch(() => {})
+    .finally(() => {
+      connecting = null;
+      if (restartConnect) {
+        restartConnect = false;
+        connect();
+      }
+    });
+  return connecting;
+}
+
+// Drop the current socket without triggering its reconnect handler.
+function detachSocket() {
+  if (!ws) return;
+  ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+  ws.close();
+  ws = null;
+}
+
+async function doConnect() {
   clearTimeout(timer);
   timer = null;
-  ensureKeepalive();
   const origin = await getOrigin();
+  // No host permission yet (fresh install): stay idle; permissions.onAdded reconnects.
+  const granted = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
+  if (!granted) return;
+  if (!needsSocket(ws?.readyState)) return; // another path already connected
+  detachSocket();
+  ensureKeepalive();
   try {
     ws = new WebSocket(wsUrl(origin));
   } catch {
@@ -162,6 +434,7 @@ async function connect() {
   }
   ws.onopen = () => {
     attempt = 0;
+    ensureKeepalive();
     setSocket(true);
   };
   ws.onmessage = (e) => {
@@ -171,7 +444,10 @@ async function connect() {
     } catch {
       return;
     }
-    if (ev && ["message", "message_edit", "message_delete"].includes(ev.type)) broadcast({ type: "event", event: ev });
+    if (ev && ["message", "message_edit", "message_delete"].includes(ev.type)) {
+      broadcast({ type: "event", event: ev });
+      if (ev.type === "message") handleMessage(ev);
+    }
   };
   ws.onclose = () => {
     setSocket(false);
@@ -185,13 +461,19 @@ function scheduleReconnect() {
   timer = setTimeout(connect, backoffDelay(attempt++));
 }
 
+chrome.permissions.onAdded.addListener(() => {
+  attempt = 0;
+  if (needsSocket(ws?.readyState)) connect();
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
+    registerDashboardScript();
     attempt = 0;
-    if (ws) ws.onclose = null;
-    ws?.close();
+    detachSocket();
     setSocket(false);
-    connect();
+    if (connecting) restartConnect = true; // in-flight attempt may hold the old origin
+    else connect();
   }
 });
 

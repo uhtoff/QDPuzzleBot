@@ -5,6 +5,7 @@ export function messageView(msg) {
     avatar: msg.author_avatar ?? null,
     text: msg.content ?? "",
     time: msg.created_at,
+    hasEmbeds: Array.isArray(msg.embeds) && msg.embeds.length > 0,
   };
 }
 

@@ -3,6 +3,7 @@ import {
   Accordion,
   Anchor,
   Badge,
+  Button,
   Center,
   Group,
   Loader,
@@ -13,8 +14,9 @@ import {
   Title,
 } from "@mantine/core";
 import { Link, useParams } from "react-router-dom";
-import { IconArrowLeft } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
+import { closeSolved, extensionPresent } from "../lib/extension";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
@@ -142,7 +144,14 @@ export default function HuntBoard() {
           // clips. "Canvas" adds 90 to the 360 base.
           w={450 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
         />
-        {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
+        <Group gap="sm">
+          {extensionPresent() && data.hunt.sheet_mode === "files" && (
+            <Button variant="light" color="gray" leftSection={<IconBrowserX size={16} />} onClick={() => closeSolved()}>
+              Close solved tabs
+            </Button>
+          )}
+          {!data.hunt.archived && <CreateControls detail={data} uid={uid!} />}
+        </Group>
       </Group>
 
       {view === "board" && (() => {

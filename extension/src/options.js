@@ -24,3 +24,9 @@ document.getElementById("save").addEventListener("click", async () => {
   input.value = origin;
   status.textContent = "Saved.";
 });
+
+const notify = document.getElementById("notify");
+chrome.storage.sync.get({ notify: false }).then((v) => {
+  notify.checked = v.notify;
+});
+notify.addEventListener("change", () => chrome.storage.sync.set({ notify: notify.checked }));

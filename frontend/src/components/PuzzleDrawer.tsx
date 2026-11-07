@@ -15,7 +15,8 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { IconCircleCheck, IconEdit, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
+import { IconCircleCheck, IconEdit, IconPlayerPlay, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
+import { extensionPresent, workOn } from "../lib/extension";
 import type { HuntDetail, Puzzle } from "../types";
 import { notifications } from "@mantine/notifications";
 import {
@@ -175,6 +176,15 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
     >
       {puzzle && (
         <Stack>
+          {extensionPresent() && puzzle.sheet_url && (
+            <Button
+              variant="light"
+              leftSection={<IconPlayerPlay size={16} />}
+              onClick={() => workOn({ id: puzzle.id, sheet_url: puzzle.sheet_url, hunt_uid: uid })}
+            >
+              Work on this puzzle
+            </Button>
+          )}
           {editable ? (
             <Stack gap="xs">
               <MetaRow label="Status">

@@ -1,6 +1,7 @@
 import { messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
+import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
 
@@ -39,6 +40,8 @@ function showNotice(text, href) {
   notice.hidden = false;
 }
 
+let dashOrigin = null; // refreshed in loadMessages; used for attachment links
+
 function renderMessage(m) {
   const v = messageView(m);
   const row = document.createElement("div");
@@ -67,13 +70,26 @@ function renderMessage(m) {
   meta.append(who, " ", when);
   const text = document.createElement("div");
   text.className = "text";
-  text.textContent = v.text;
+  if (!v.text && v.hasEmbeds) {
+    text.textContent = "[embed]";
+    text.classList.add("attach"); // dimmed italic
+  } else text.textContent = v.text;
   body.append(meta, text);
-  if (Array.isArray(m.attachments) && m.attachments.length) {
-    const n = document.createElement("div");
-    n.className = "attach";
-    n.textContent = "[" + m.attachments.length + " attachment" + (m.attachments.length > 1 ? "s" : "") + "]";
-    body.append(n);
+  if (Array.isArray(m.attachments)) {
+    for (const att of m.attachments) {
+      const view = attachmentView(att, dashOrigin);
+      const line = document.createElement("div");
+      line.className = "attach";
+      if (view.href) {
+        const a = document.createElement("a");
+        a.href = view.href;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = view.text;
+        line.append(a);
+      } else line.textContent = view.text;
+      body.append(line);
+    }
   }
   row.append(body);
   return row;
@@ -88,6 +104,7 @@ function renderLog() {
 async function loadMessages() {
   if (!channelId) return;
   const seq = ++loadSeq;
+  dashOrigin = await getOrigin();
   const res = await apiGet(messagesPath(channelId));
   if (seq !== loadSeq) return;
   if (res.authRequired) return setState({ state: "auth" });
@@ -181,8 +198,8 @@ function renderHead(puzzle, state) {
     a.href = puzzle.discord_url;
     a.target = "_blank";
     a.rel = "noopener";
-    a.textContent = " (Discord)";
-    head.append(a);
+    a.textContent = "(Discord)";
+    head.append(" ", a);
   }
 }
 
