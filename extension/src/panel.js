@@ -1,4 +1,5 @@
-import { messageView, isBangCommand, errorText } from "./lib/format.js";
+import { rewriteMentions, tokenise, embedLines, emojiUrl } from "./lib/discordText.js";
+import { isBlank, messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
 import { attachmentView } from "./lib/attachments.js";
@@ -40,7 +41,28 @@ function showNotice(text, href) {
   notice.hidden = false;
 }
 
+let currentPuzzle = null;
+let channelNames = {};
 let dashOrigin = null; // refreshed in loadMessages; used for attachment links
+
+// Mentions, shortcodes, bold, code and custom emoji as DOM nodes; never innerHTML.
+function appendInline(parent, raw) {
+  const cleaned = rewriteMentions(raw, (id) => channelNames[id] || (id === currentPuzzle?.channel_id ? currentPuzzle.name : null), { keepCustomEmoji: true });
+  for (const seg of tokenise(cleaned)) {
+    if (seg.emoji) {
+      const img = document.createElement("img");
+      img.className = "emoji";
+      img.src = emojiUrl(seg.emoji);
+      img.alt = seg.text;
+      img.title = seg.text;
+      parent.append(img);
+    } else if (seg.bold || seg.code) {
+      const span = document.createElement(seg.code ? "code" : "strong");
+      span.textContent = seg.text;
+      parent.append(span);
+    } else parent.append(seg.text);
+  }
+}
 
 function renderMessage(m) {
   const v = messageView(m);
@@ -70,11 +92,25 @@ function renderMessage(m) {
   meta.append(who, " ", when);
   const text = document.createElement("div");
   text.className = "text";
-  if (!v.text && v.hasEmbeds) {
-    text.textContent = "[embed]";
-    text.classList.add("attach"); // dimmed italic
-  } else text.textContent = v.text;
+  appendInline(text, v.text);
   body.append(meta, text);
+  for (const e of Array.isArray(m.embeds) ? m.embeds : []) {
+    const lines = embedLines(e);
+    if (!lines.length) continue;
+    const box = document.createElement("div");
+    box.className = "embed";
+    for (const l of lines) {
+      const d = document.createElement("div");
+      d.className = "embed-" + l.kind;
+      appendInline(d, l.text);
+      box.append(d);
+    }
+    body.append(box);
+  }
+  if (isBlank(m)) {
+    text.textContent = "(no text)";
+    text.classList.add("attach");
+  }
   if (Array.isArray(m.attachments)) {
     for (const att of m.attachments) {
       const view = attachmentView(att, dashOrigin);
@@ -166,13 +202,18 @@ draft.addEventListener("keydown", (e) => {
   }
 });
 
-async function setState({ state, puzzle }) {
+async function setState({ state, puzzle, channelNames: names }) {
+  currentPuzzle = puzzle ?? null;
+  channelNames = names ?? {};
   const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
   const same = sameTarget(current, next);
   current = next;
   renderHead(puzzle, state);
   updateComposer(state, puzzle);
-  if (same) return;
+  if (same) {
+    renderLog(); // names may have arrived
+    return;
+  }
   channelId = next.channelId;
   draft.value = "";
   showComposerError(null);
@@ -220,6 +261,11 @@ function connectPort() {
   port.onMessage.addListener((msg) => {
     if (msg.type === "puzzle") {
       setState(msg);
+    } else if (msg.type === "names") {
+      if (currentPuzzle?.hunt_uid === msg.huntUid) {
+        channelNames = { ...channelNames, ...msg.channelNames };
+        renderLog();
+      }
     } else if (msg.type === "socket") {
       const was = socketUp;
       socketUp = msg.connected;

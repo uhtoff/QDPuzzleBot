@@ -3,7 +3,9 @@ import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
-import { notificationId, parseNotificationId } from "./lib/notify.js";
+import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
+import { createNameCache, resolveName } from "./lib/channelNames.js";
+import { notificationText } from "./lib/discordText.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { groupColour } from "./lib/groupColour.js";
@@ -82,16 +84,29 @@ async function reconcileUnread() {
   updateBadge();
 }
 
+const names = createNameCache({
+  fetcher: async (huntUid) => {
+    const res = await apiGet("/api/hunts/" + encodeURIComponent(huntUid) + "/puzzles");
+    if (!Array.isArray(res?.puzzles)) throw new Error("no puzzles");
+    return Object.fromEntries(res.puzzles.filter((p) => p.channel_id).map((p) => [String(p.channel_id), p.name]));
+  },
+});
+const registryName = (id) => registry.entries().find(([, p]) => p.channel_id === id)?.[1]?.name;
+// Bounded wait so a slow dashboard never stalls a notification or snapshot.
+const withTimeout = (promise, ms, fallback) => Promise.race([promise, new Promise((r) => setTimeout(() => r(fallback), ms))]);
+const huntNames = (huntUid, wantId) => withTimeout(names.ensure(huntUid, wantId), 3000, {});
+
 async function handleMessage(ev) {
   await ready;
   if (!unread.onEvent(ev, await visibleChannels())) return;
   persist();
   updateBadge();
   const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
-  if (!notify) return;
+  if (!notify || !shouldNotify(ev.message)) return;
   const channelId = String(ev.channel_id);
   const tabId = registry.tabsForChannel(channelId)[0];
-  const text = `${ev.message?.author_name ?? ""}: ${ev.message?.content ?? ""}`;
+  const huntMap = await huntNames(registry.get(tabId)?.hunt_uid, wantedChannel(ev.message));
+  const text = notificationText(ev.message, (id) => resolveName(id, huntMap, registryName));
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
   chrome.notifications
@@ -99,7 +114,7 @@ async function handleMessage(ev) {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icons/icon128.png"),
       title: registry.get(tabId)?.name ?? "Puzzle chat",
-      message: text.length > 120 ? text.slice(0, 119) + "\u2026" : text,
+      message: text,
     })
     .catch(() => {});
 }
@@ -171,9 +186,32 @@ async function lookup(tabId, url) {
   persist();
 }
 
+// First channel mention in a message (content or embeds), to trigger a refetch on a miss.
+function wantedChannel(message) {
+  const text = [message?.content, ...(message?.embeds ?? []).flatMap((e) => [e?.title, e?.description])].join(" ");
+  return /<#(\d+)>/.exec(text)?.[1];
+}
+
+const namesFor = (huntUid, huntMap) => ({
+  ...Object.fromEntries(registry.entries().filter(([, p]) => p.channel_id).map(([, p]) => [p.channel_id, p.name])),
+  ...huntMap,
+});
+
+// Fetch (single-flight) off the snapshot path; tell panels when new names land.
+function warmNames(huntUid) {
+  const before = names.cached(huntUid);
+  names.ensure(huntUid).then((map) => {
+    if (map === before) return;
+    const msg = { type: "names", huntUid, channelNames: namesFor(huntUid, map) };
+    for (const [p] of ports) safePost(p, msg);
+  });
+}
+
 async function snapshot(tabId) {
   const puzzle = registry.get(tabId) ?? null;
-  return { type: "puzzle", tabId, puzzle, state: stateFor(puzzle ?? undefined, failures.get(tabId)) };
+  const channelNames = namesFor(puzzle?.hunt_uid, names.cached(puzzle?.hunt_uid));
+  if (puzzle?.hunt_uid) warmNames(puzzle.hunt_uid);
+  return { type: "puzzle", tabId, puzzle, channelNames, state: stateFor(puzzle ?? undefined, failures.get(tabId)) };
 }
 
 // Refresh a tab's state; deliver the snapshot to panels of that tab's window

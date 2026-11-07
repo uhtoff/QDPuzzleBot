@@ -346,7 +346,8 @@ dashboard. After updating the extension, reload any open dashboard tabs.
   downloaded yet show as plain names.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
   showing in an open panel. Desktop notifications are optional and off by default (extension
-  Options).
+  Options); they fire for people's messages and solve announcements, not for a puzzle open
+  in the panel.
 - **Dashboard buttons**, shown only when the extension is installed: **Work on this puzzle**
   (an icon button on the puzzle row, a labelled button in the puzzle drawer; only for puzzles
   that have a sheet), an icon button in each round's header with the tooltip **Open round as

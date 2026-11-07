@@ -1,3 +1,5 @@
+import { embedLines } from "./discordText.js";
+
 // Map the server's message JSON (bot/web/data.py get_channel_messages) to a view.
 export function messageView(msg) {
   return {
@@ -29,3 +31,9 @@ const ERROR_TEXT = {
 export function errorText(code) {
   return Object.hasOwn(ERROR_TEXT, code) ? ERROR_TEXT[code] : "Could not send the message.";
 }
+
+// Would this message render as an empty row (no text, no embed lines, no attachments)?
+export const isBlank = (msg) =>
+  !String(msg?.content ?? "").trim() &&
+  !(msg?.embeds ?? []).some((e) => embedLines(e).length > 0) &&
+  !(msg?.attachments ?? []).length;
