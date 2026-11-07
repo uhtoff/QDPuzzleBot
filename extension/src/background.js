@@ -101,8 +101,26 @@ function setupPanel() {
   chrome.sidePanel.setOptions({ path: PANEL_PATH, enabled: true }).catch(() => {});
 }
 setupPanel();
+
+// Content script that lets the dashboard drive the extension. Registered only
+// for the configured origin, and only once its host permission is granted.
+const DASHBOARD_SCRIPT_ID = "puzzbot-dashboard";
+async function registerDashboardScript() {
+  const origin = await getOrigin();
+  await chrome.scripting.unregisterContentScripts({ ids: [DASHBOARD_SCRIPT_ID] }).catch(() => {}); // may not be registered
+  const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
+  if (!ok) return;
+  await chrome.scripting
+    .registerContentScripts([
+      { id: DASHBOARD_SCRIPT_ID, matches: [origin + "/*"], js: ["src/dashboard.js"], runAt: "document_start" },
+    ])
+    .catch(() => {});
+}
+registerDashboardScript();
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   setupPanel();
+  registerDashboardScript();
   if (details.reason !== "install") return;
   const origin = await getOrigin();
   const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
@@ -169,8 +187,33 @@ function broadcast(msg) {
   for (const p of ports.keys()) safePost(p, msg);
 }
 
+// A files-mode puzzle's sheet already open in another tab: switch there and
+// drop the duplicate, unless the duplicate is its window's only tab.
+async function maybeReuse(tabId) {
+  const entry = registry.get(tabId);
+  if (!entry || entry.sheet_mode !== "files") return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  const inWindow = await chrome.tabs.query({ windowId: tab.windowId }).catch(() => []);
+  const target = registry.reuseTarget(tabId, entry.spreadsheetId, inWindow.length);
+  if (target === null) return;
+  const existing = await chrome.tabs.get(target).catch(() => null);
+  if (!existing) {
+    registry.delete(target);
+    persist();
+    return;
+  }
+  await focusTab(existing);
+  chrome.tabs.remove(tabId).catch(() => {});
+}
+
+async function focusTab(tab) {
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+}
+
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.url || info.status === "complete") refreshTab(tab);
+  if (info.url || info.status === "complete") refreshTab(tab).then(() => maybeReuse(tabId));
 });
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -199,6 +242,103 @@ chrome.runtime.onConnect.addListener((port) => {
     if (tab) await refreshTab(tab, port);
     else reconcileUnread();
   });
+});
+
+// ---- dashboard actions (from src/dashboard.js) ----
+const MAX_URLS = 100;
+const isSheetUrl = (u) => typeof u === "string" && u.length <= 2048 && parseSheetUrl(u) !== null;
+
+async function workOn(url, senderTab) {
+  const parsed = parseSheetUrl(url);
+  const tabId = registry.findFilesTab(parsed.spreadsheetId);
+  const existing = tabId === null ? null : await chrome.tabs.get(tabId).catch(() => null);
+  if (existing) return focusTab(existing);
+  await chrome.tabs.create({ url, windowId: senderTab.windowId, active: true });
+}
+
+// Tab already showing this exact sheet link (same file, and same gid when given).
+function sameSheet(a, b) {
+  return a.spreadsheetId === b.spreadsheetId && (a.gid ?? null) === (b.gid ?? null);
+}
+
+async function openRound(name, urls, senderTab) {
+  const windowId = senderTab.windowId;
+  const open = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
+  const tabIds = [];
+  for (const url of urls) {
+    const want = parseSheetUrl(url);
+    const have = open.find((t) => {
+      const p = parseSheetUrl(t.url ?? "");
+      return p && sameSheet(p, want) && !tabIds.includes(t.id);
+    });
+    if (have) {
+      if (have.windowId !== windowId) await chrome.tabs.move(have.id, { windowId, index: -1 }).catch(() => {});
+      tabIds.push(have.id);
+    } else {
+      const created = await chrome.tabs.create({ url, windowId, active: false }).catch(() => null);
+      if (created) tabIds.push(created.id);
+    }
+  }
+  if (!tabIds.length) return;
+  const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
+  await chrome.tabGroups.update(groupId, { title: name });
+}
+
+// Re-ask the server about every registered tab (cached solved flags go stale)
+// and close those whose puzzle is now solved. A window is never left empty.
+async function closeSolved() {
+  const solved = [];
+  for (const [tabId, entry] of registry.entries()) {
+    const res = await apiGet(bySheetPath({ spreadsheetId: entry.spreadsheetId, gid: entry.gid ?? null }));
+    if (res.authRequired || res.error || !res.puzzle) continue;
+    registry.set(tabId, { ...entry, ...res.puzzle, bridge_enabled: res.bridge_enabled });
+    if (res.puzzle.solved) solved.push(tabId);
+  }
+  persist();
+  const tabs = (await Promise.all(solved.map((id) => chrome.tabs.get(id).catch(() => null)))).filter(Boolean);
+  for (const windowId of new Set(tabs.map((t) => t.windowId))) {
+    const closing = tabs.filter((t) => t.windowId === windowId).map((t) => t.id);
+    const all = await chrome.tabs.query({ windowId }).catch(() => []);
+    if (all.length <= closing.length) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
+    await chrome.tabs.remove(closing).catch(() => {});
+  }
+}
+
+async function handleDashboardAction(msg, sender) {
+  await ready;
+  const origin = await getOrigin();
+  let senderOrigin = null;
+  try {
+    senderOrigin = new URL(sender.url ?? "").origin;
+  } catch {
+    /* no usable sender url */
+  }
+  if (sender.id !== chrome.runtime.id || senderOrigin !== origin || !sender.tab) return;
+  const payload = msg && typeof msg === "object" ? msg.payload : null;
+  switch (msg && msg.action) {
+    case "work":
+      if (payload && isSheetUrl(payload.sheetUrl)) await workOn(payload.sheetUrl, sender.tab);
+      break;
+    case "openRound":
+      if (
+        payload &&
+        typeof payload.name === "string" &&
+        payload.name.length <= 100 &&
+        Array.isArray(payload.sheetUrls) &&
+        payload.sheetUrls.length <= MAX_URLS &&
+        payload.sheetUrls.every(isSheetUrl)
+      ) {
+        if (payload.sheetUrls.length) await openRound(payload.name, payload.sheetUrls, sender.tab);
+      }
+      break;
+    case "closeSolved":
+      await closeSolved();
+      break;
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  handleDashboardAction(msg, sender).catch(() => {});
 });
 
 // ---- websocket ----
@@ -270,6 +410,7 @@ function scheduleReconnect() {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
+    registerDashboardScript();
     attempt = 0;
     if (ws) ws.onclose = null;
     ws?.close();

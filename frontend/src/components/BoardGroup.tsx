@@ -14,6 +14,7 @@ import {
 import {
   IconAlertTriangle,
   IconCircleCheck,
+  IconBrowserPlus,
   IconCopy,
   IconRefresh,
   IconTrash,
@@ -35,6 +36,7 @@ import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
+import { extensionPresent, openRound } from "../lib/extension";
 import { groupTarget } from "../lib/groupTarget";
 import { latestActivity } from "../lib/sparkline";
 import { ActivitySparkline } from "./ActivitySparkline";
@@ -187,6 +189,26 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
             </ActionIcon>
           </Tooltip>
         )}
+        {/* Extension: open every puzzle sheet of this round as a named tab group */}
+        {extensionPresent() && group.puzzles.some((p) => p.sheet_url) && (
+          <Tooltip label="Open round as a tab group">
+            <ActionIcon
+              variant="subtle"
+              color="blue"
+              mr="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                openRound(
+                  group.name,
+                  group.puzzles.flatMap((p) => (p.sheet_url ? [p.sheet_url] : [])),
+                );
+              }}
+              aria-label="Open round as a tab group"
+            >
+              <IconBrowserPlus size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         {/* M7.5 aggregated answers toggle (only for meta rounds) */}
         {isMeta && (
           <Tooltip label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}>
@@ -259,6 +281,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         onSolve={setSolvePuzzle}
                         onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
+                        huntUid={detail.hunt.uid}
                         tdWidth={80}
                       />
                     </>
@@ -314,6 +337,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         onSolve={setSolvePuzzle}
                         onUnsolve={setSolvePuzzle}
                         onOpenNotes={onOpenNotes}
+                        huntUid={detail.hunt.uid}
                         tdWidth={76}
                       />
                     </>

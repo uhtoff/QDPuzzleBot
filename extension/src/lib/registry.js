@@ -12,6 +12,19 @@ export function createRegistry(initial = []) {
       const hit = where((p) => p.spreadsheetId === id);
       return hit.length ? hit[0] : null;
     },
+    // A tab holding this spreadsheet for a files-mode puzzle (one file per
+    // puzzle, so the spreadsheet identifies the puzzle). Tabs-mode puzzles share
+    // one spreadsheet, so they are never matched.
+    findFilesTab(id, excludeTabId) {
+      const hit = where((p) => p.spreadsheetId === id && p.sheet_mode === "files");
+      return hit.find((t) => t !== excludeTabId) ?? null;
+    },
+    // The existing tab to switch to instead of `newTabId`, or null to leave it.
+    reuseTarget(newTabId, spreadsheetId, windowTabCount) {
+      if (windowTabCount <= 1) return null;
+      if (tabs.get(newTabId)?.sheet_mode !== "files") return null;
+      return this.findFilesTab(spreadsheetId, newTabId);
+    },
     tabsForChannel: (channelId) => where((p) => p.channel_id === channelId),
     solvedTabs: () => where((p) => p.solved),
     update(puzzleId, patch) {
