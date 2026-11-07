@@ -61,7 +61,7 @@ class Recorder:
         api.get.side_effect = get
         self.api = api
 
-    async def execute(self, req, on_retry=None):
+    async def execute(self, req, on_retry=None, retry_ambiguous=True):
         kind, sid, body = req
         self.calls.append(req)
         if self.fail_on and self.fail_on(kind, sid, body):

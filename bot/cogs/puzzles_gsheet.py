@@ -105,16 +105,19 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("Failed to send Sheets retry notice")
 
-    async def batch_update(self, body, spreadsheet_id: str | None = None):
+    async def batch_update(self, body, spreadsheet_id: str | None = None,
+                           retry_ambiguous: bool = True):
         """One batchUpdate on `spreadsheet_id`; None (or "") means the hunt's
-        live spreadsheet."""
+        live spreadsheet. Pass retry_ambiguous=False for a batch that is unsafe to
+        replay (see execute_with_retry)."""
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
         )
 
-        return await execute_with_retry(req, on_retry=self._notify_retry)
+        return await execute_with_retry(req, on_retry=self._notify_retry,
+                                        retry_ambiguous=retry_ambiguous)
 
 
     async def sheet_list(self, spreadsheet_id = None):
@@ -1669,19 +1672,36 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": _row_cells(row)}],
             }})
-        # Deletes, bottom-up so each index is still valid when it runs: remove the
-        # row across the Table's FULL width (solver columns go with it) and shift the
-        # cells below up. Never deleteDimension — that is the whole sheet row and
-        # would move anything a solver keeps outside the Table on every other row.
-        for grid_row in plan.deletes:
-            requests.append({"deleteRange": {
-                "range": {"sheetId": page_id, "startRowIndex": grid_row,
-                          "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
-                          "endColumnIndex": end_col},
-                "shiftDimension": "ROWS",
-            }})
-        # Appends: directly below the compacted table.
-        next_row = plan.append_start
+        if table_id is not None:
+            # Deletes, bottom-up so each index is still valid when it runs: remove
+            # the row across the Table's FULL width (solver columns go with it) and
+            # shift the cells below up. Never deleteDimension — that is the whole
+            # sheet row and would move anything kept outside the Table.
+            for grid_row in plan.deletes:
+                requests.append({"deleteRange": {
+                    "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                              "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                              "endColumnIndex": end_col},
+                    "shiftDimension": "ROWS",
+                }})
+            # Appends: directly below the compacted table.
+            next_row = plan.append_start
+        else:
+            # No Table on the page: nothing bounds a safe delete (the header row and
+            # any solver columns are unknown), so keep the old rule — blank a
+            # departed keyed row's bot columns in place and append below the last
+            # keyed row, never reusing a blanked one.
+            blank_cells = [{} for _ in range(data_col_count)]
+            for grid_row in sorted(plan.deletes):
+                if grid_row in keyed:
+                    requests.append({"updateCells": {
+                        "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                                  "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                                  "endColumnIndex": key_col + data_col_count},
+                        "fields": "userEnteredValue,textFormatRuns",
+                        "rows": [{"values": blank_cells}],
+                    }})
+            next_row = (max(keyed) + 1) if keyed else header_row + 1
         appends = plan.appends
         if appends:
             requests.append({"updateCells": {
@@ -1742,7 +1762,15 @@ class GoogleSheets(commands.Cog):
                         "fields": "userEnteredFormat.backgroundColor"}})
 
         if requests:
-            await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
+            deletes = any("deleteRange" in r for r in requests)
+            if deletes:
+                # Deleting by row index is not safe to replay on an ambiguous
+                # failure: the rows would have shifted under the indices.
+                await self.batch_update({"requests": requests},
+                                        spreadsheet_id=spreadsheet_id,
+                                        retry_ambiguous=False)
+            else:
+                await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 

@@ -109,25 +109,22 @@ def test_reconcile_table_appends_updates_prunes():
     flat = [r for body in sent for r in body["requests"]]
     kinds = {k for r in flat for k in r}
     assert "updateCells" in kinds
-    # Never deleteDimension: that is the whole sheet row, and would shift anything
-    # a solver keeps outside the table on every other row too.
+    # Rows are never deleted — deleteDimension would shift any user-added columns
+    # to the right of the table on every other row too.
     assert "deleteDimension" not in kinds
     updates = [r["updateCells"] for r in flat if "updateCells" in r]
-    # informs:9 (row 2) has left: its row is deleted across the table's width
-    # (no Table here, so the bot's 4 columns) with the cells below shifting up.
-    # (Contract change 2026-11-07: rows used to be blanked in place.)
-    deletes = [r["deleteRange"] for r in flat if "deleteRange" in r]
-    assert deletes == [{"range": {"sheetId": 900, "startRowIndex": 2, "endRowIndex": 3,
-                                  "startColumnIndex": 0, "endColumnIndex": 4},
-                        "shiftDimension": "ROWS"}]
+    # informs:9 (row 2) is blanked in place, not removed.
+    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    assert prune["rows"][0]["values"] == [{}, {}, {}, {}]
     # feeds:2 (row 1) is rewritten in place, keeping its row index.
     update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
     assert update["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "feeds:2"}}
-    # none:3 is appended directly below the compacted table: row 2, where the
-    # deleted informs:9 used to be.
-    append = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    # none:3 is appended strictly after the highest row currently in use (row 2),
+    # never reusing the blanked informs:9 row.
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
     assert append["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "none:3"}}
-    assert len(updates) == 2
+    # No Table on the page: nothing is deleted (only a Table bounds a safe delete).
+    assert "deleteRange" not in kinds
 
 
 def _capture_with_table(cog, values, table_range):
@@ -147,7 +144,8 @@ def _capture_with_table(cog, values, table_range):
 
     sent = []
 
-    async def fake_batch(body, spreadsheet_id=None):
+    async def fake_batch(body, spreadsheet_id=None, retry_ambiguous=True):
+        body = dict(body, _retry_ambiguous=retry_ambiguous)
         sent.append(body)
 
     cog._values_get = fake_values_get
@@ -201,6 +199,20 @@ def test_deletes_bottom_up_and_append_after_compaction():
     table = next(r["updateTable"]["table"] for r in flat if "updateTable" in r)
     assert table["range"]["endRowIndex"] == 8 and table["range"]["endColumnIndex"] == 6
     assert "deleteDimension" not in kinds
+    # A batch that deletes by row index must not be replayed on an ambiguous
+    # failure (a lost response after Google applied it).
+    assert sent[-1]["_retry_ambiguous"] is False
+
+
+def test_rekey_only_batch_keeps_normal_retries():
+    cog = _cog()
+    values = _header_rows() + [["informs:12", "One", "Information", ""]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 6,
+                                             "startColumnIndex": 0, "endColumnIndex": 4})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:12", "One", "Feeder", "W"]],
+                                    table_name="Contributions 900"))
+    assert sent[-1]["_retry_ambiguous"] is True
 
 
 def test_stranded_note_row_survives_reconcile():
@@ -227,18 +239,18 @@ def test_reconcile_table_link_cells_and_clearable_fields():
     asyncio.run(cog.reconcile_table(page_id=900, desired_rows=desired, data_col_count=3))
     flat = [r for body in sent for r in body["requests"]]
     updates = [r["updateCells"] for r in flat if "updateCells" in r]
-    # The update and the append (the departed informs:9 is a deleteRange now, not
-    # a blanking updateCells — contract change 2026-11-07).
-    assert len(updates) == 2
-    # every updateCells (update, append) can clear an old link
+    assert len(updates) == 3
+    # every updateCells (update, prune, append) can clear an old link
     assert all(u["fields"] == LINK_FIELDS for u in updates)
     update = next(u for u in updates if u["range"]["startRowIndex"] == 1)
-    append = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    prune = next(u for u in updates if u["range"]["startRowIndex"] == 2)
+    append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
     assert update["rows"][0]["values"][1] == {
         "userEnteredValue": {"stringValue": "Alpha"},
         "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": "https://x/a"}}}]}
     assert "textFormatRuns" not in update["rows"][0]["values"][0]
     assert "textFormatRuns" not in update["rows"][0]["values"][2]
+    assert prune["rows"][0]["values"] == [{}, {}, {}]
     vals = append["rows"][0]["values"]
     assert vals[1]["textFormatRuns"][0]["format"]["link"]["uri"] == "https://x/b"
     assert vals[1]["userEnteredValue"] == {"stringValue": "Beta"}

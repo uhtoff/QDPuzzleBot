@@ -37,3 +37,24 @@ async def test_a_call_that_recovers_inside_the_budget_succeeds():
     with patch("bot.utils.gsheets._execute", side_effect=outcomes), \
          patch("bot.utils.gsheets.asyncio.sleep", AsyncMock()):
         assert await gsheets.execute_with_retry(object()) == "ok"
+
+
+def _server_error():
+    return HttpError(httplib2.Response({"status": 503}), b"{}")
+
+
+async def test_non_idempotent_call_does_not_retry_an_ambiguous_failure():
+    # A 5xx may arrive after Google applied the write; replaying a batch that
+    # deletes rows by index would delete whatever moved into those rows.
+    with patch("bot.utils.gsheets._execute", side_effect=[_server_error(), "ok"]) as ex, \
+         patch("bot.utils.gsheets.asyncio.sleep", AsyncMock()):
+        with pytest.raises(HttpError):
+            await gsheets.execute_with_retry(object(), retry_ambiguous=False)
+    assert ex.call_count == 1
+
+
+async def test_non_idempotent_call_still_retries_a_rate_limit():
+    # A 429 means the request was rejected, not applied: retrying is safe.
+    with patch("bot.utils.gsheets._execute", side_effect=[_rate_limited(), "ok"]), \
+         patch("bot.utils.gsheets.asyncio.sleep", AsyncMock()):
+        assert await gsheets.execute_with_retry(object(), retry_ambiguous=False) == "ok"

@@ -97,6 +97,10 @@ def _is_retryable(error):
     return isinstance(error, _RETRYABLE_EXCEPTIONS)
 
 
+def _is_rate_limited(error):
+    return isinstance(error, HttpError) and getattr(error.resp, "status", None) == 429
+
+
 def _retry_after_seconds(error):
     """Return the Retry-After delay (seconds) advertised by the server, if any."""
     resp = getattr(error, "resp", None)
@@ -149,9 +153,15 @@ def _log_retry(error, attempt, max_retries, delay):
     )
 
 
-async def execute_with_retry(request, max_retries=_MAX_RETRIES, on_retry=None):
+async def execute_with_retry(request, max_retries=_MAX_RETRIES, on_retry=None,
+                             retry_ambiguous=True):
     """Execute a request, running the blocking call in a worker thread and the
     backoff sleeps in the event loop so neither stalls the bot.
+
+    retry_ambiguous=False is for requests that are NOT safe to replay (a batch
+    deleting rows by index): only a 429 — rejected, so certainly not applied — is
+    retried. A 5xx or a connection error may arrive after Google applied the
+    write, so it is raised instead; the caller re-reads and re-plans next time.
 
     If on_retry is given, it is awaited once — before the first backoff sleep —
     so callers can let the user know the call is slow / being retried.
@@ -163,6 +173,8 @@ async def execute_with_retry(request, max_retries=_MAX_RETRIES, on_retry=None):
             return await asyncio.to_thread(_execute, request)
         except Exception as error:
             if not _is_retryable(error) or attempt >= max_retries:
+                raise
+            if not retry_ambiguous and not _is_rate_limited(error):
                 raise
             delay = _backoff_delay(attempt, error)
             attempt += 1
