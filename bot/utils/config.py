@@ -64,6 +64,13 @@ class Config:
         self.web_site_name = web.get("site_name", "Puzzbot")
         self.web_test_instance = bool(web.get("test_instance", False))
         self.web_contact = web.get("contact", "")
+        # Browser-extension origins (chrome-extension://<id>) allowed to open the
+        # activity websocket in addition to the dashboard's own origin.
+        ext_origins = web.get("extension_origins", [])
+        self.web_extension_origins = (
+            [o for o in ext_origins if isinstance(o, str)]
+            if isinstance(ext_origins, list) else []
+        )
         if not self.database:
             self.database = self.config.get("database", default_config.get("database"))
         self.debug = self.config.get("debug", default_config.get("debug"))

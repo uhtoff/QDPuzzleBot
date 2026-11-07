@@ -88,6 +88,48 @@ async def test_activity_websocket_accepts_its_own_origin():
     resolve.assert_called()
 
 
+async def _ws_with_origin(origin, **cfg_attrs):
+    """Open the activity websocket with a given Origin; return whether the
+    handshake got past the Origin check (membership was resolved)."""
+    from bot.web import api
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        for k, v in cfg_attrs.items():
+            setattr(cfg, k, v)
+        resolve.return_value = ({}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": origin}
+        ) as ws:
+            try:
+                await ws.receive_json()
+            except Exception:
+                pass
+    return resolve.called
+
+
+@pytest.mark.asyncio
+async def test_ws_origin_accepts_listed_extension():
+    assert await _ws_with_origin(
+        "chrome-extension://abc",
+        web_extension_origins=["chrome-extension://abc"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_ws_origin_rejects_unlisted_extension():
+    assert not await _ws_with_origin(
+        "chrome-extension://evil",
+        web_extension_origins=["chrome-extension://abc"],
+    )
+    # No list configured at all: nothing extra is admitted.
+    assert not await _ws_with_origin(
+        "chrome-extension://abc", web_extension_origins=[]
+    )
+
+
 # --------------------------------------------------------------------------
 # The negative-membership cache is keyed on (guild_id, user_id) and nothing ever
 # removed an entry: expired ones were read straight past but left in the dict.
