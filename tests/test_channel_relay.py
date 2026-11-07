@@ -87,3 +87,25 @@ async def test_send_as_not_found_twice_propagates():
     with pytest.raises(discord.NotFound):
         await channel_relay.send_as(ch, member, "x")
     assert ch.create_webhook.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_replies_create_one_hook():
+    import asyncio
+    ch = _channel([])
+
+    async def slow_create(**kw):
+        await asyncio.sleep(0.01)
+        return _hook("Puzzbot relay", BOT_ID)
+    ch.create_webhook = AsyncMock(side_effect=slow_create)
+    a, b = await asyncio.gather(channel_relay.relay_webhook(ch),
+                                channel_relay.relay_webhook(ch))
+    ch.create_webhook.assert_awaited_once()
+    assert a is b
+
+
+def test_is_relay_webhook_knows_cached_ids_only():
+    channel_relay._hooks[1] = SimpleNamespace(id=5)
+    assert channel_relay.is_relay_webhook(5)
+    assert not channel_relay.is_relay_webhook(6)
+    assert not channel_relay.is_relay_webhook(None)

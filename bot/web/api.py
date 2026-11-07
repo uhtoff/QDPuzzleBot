@@ -32,6 +32,9 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 # How often the live-activity WebSocket re-checks that the connected user still
 # belongs to a guild (so a kick/role-change ends the stream within this window).
 _WS_AUTH_REFRESH_SECONDS = 60
+# Idle wait between server pings. Chrome keeps an extension service worker alive
+# while websocket messages flow (116+), so the socket must never go quiet.
+_WS_PING_SECONDS = 20
 
 
 def _sheet_base(sheet_id):
@@ -853,19 +856,22 @@ async def ws_activity():
         await websocket.send_json({"type": "ready"})
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_WS_AUTH_REFRESH_SECONDS)
+                event = await asyncio.wait_for(queue.get(), timeout=_WS_PING_SECONDS)
             except asyncio.TimeoutError:
                 event = None
 
             now = time.monotonic()
-            if event is None or (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
+            if (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
                 membership, roles_by_guild = await resolve_membership(user["id"])
                 last_refresh = now
                 if not membership:
                     await websocket.close(1008)  # no longer a member of any guild
                     return
 
-            if event is None or event.get("guild_id") not in membership:
+            if event is None:
+                await websocket.send_json({"type": "ping"})
+                continue
+            if event.get("guild_id") not in membership:
                 continue
 
             # Guild membership only proves the user belongs to the guild; per-hunt
