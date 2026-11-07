@@ -60,6 +60,9 @@ export function AppShellLayout({ user, children }: { user: User; children: React
             <Anchor href="/guide.html" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">
               User guide
             </Anchor>
+            <Anchor href="/privacy" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">
+              Privacy
+            </Anchor>
           </Group>
           <Menu shadow="md" width={180} position="bottom-end">
             <Menu.Target>
