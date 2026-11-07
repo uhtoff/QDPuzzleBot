@@ -5,6 +5,28 @@ export function cacheValid(entry, parsed) {
   return !!entry && !!parsed && entry.spreadsheetId === parsed.spreadsheetId && (entry.gid ?? null) === (parsed.gid ?? null);
 }
 
+// Does this URL need a fresh lookup (vs the cached registry entry)? A sheet URL
+// whose spreadsheet/gid differs from the entry does; a non-sheet URL does not.
+export function needsLookup(entry, url) {
+  const parsed = parseSheetUrl(url ?? "");
+  return !!parsed && !cacheValid(entry, parsed);
+}
+
+// Snapshot telling a panel that the tab's puzzle is being looked up: no puzzle,
+// hence no reply target.
+export function loadingSnapshot(tabId) {
+  return { type: "puzzle", tabId, puzzle: null, channelNames: {}, state: "loading" };
+}
+
+// The channel a panel in `state` may post to / show; null unless state is "chat".
+export function targetChannel(state, puzzle) {
+  return state === "chat" && puzzle ? (puzzle.channel_id ?? null) : null;
+}
+
+// Most messages the panel keeps in memory (newest win).
+export const MAX_MESSAGES = 300;
+const cap = (list) => (list.length > MAX_MESSAGES ? list.slice(-MAX_MESSAGES) : list);
+
 // Panel state name for a tab. `entry` is the stored puzzle (or undefined);
 // `status` is the outcome of a failed lookup: "auth" | "error" | "notfound" | undefined.
 export function stateFor(entry, status) {
@@ -33,7 +55,7 @@ export function eventChannel(ev) {
 export function applyEvent(messages, ev) {
   if (ev.type === "message") {
     if (messages.some((m) => m.id === ev.message.id)) return messages;
-    return [...messages, ev.message];
+    return cap([...messages, ev.message]);
   }
   if (ev.type === "message_edit") {
     return messages.map((m) => (m.id === ev.message.id ? { ...m, ...ev.message, edited_at: m.edited_at ?? new Date().toISOString() } : m));
@@ -63,5 +85,5 @@ export function sameTarget(prev, next) {
 export function mergeHistory(response, pendingEvents = []) {
   let out = [...response];
   for (const ev of pendingEvents) out = applyEvent(out, ev);
-  return out;
+  return cap(out);
 }

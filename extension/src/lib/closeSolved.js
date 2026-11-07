@@ -7,8 +7,12 @@ export function shouldApplyLookup(current, spreadsheetId) {
 }
 
 // Is it still safe to close `tab` as the solved puzzle `spreadsheetId`?
+// A tab still loading, or about to navigate (pendingUrl) anywhere but the same
+// spreadsheet, is not safe to close.
 export function shouldCloseTab(tab, spreadsheetId) {
-  return !!tab && parseSheetUrl(tab.url ?? "")?.spreadsheetId === spreadsheetId;
+  if (!tab || tab.status === "loading") return false;
+  if (tab.pendingUrl && parseSheetUrl(tab.pendingUrl)?.spreadsheetId !== spreadsheetId) return false;
+  return parseSheetUrl(tab.url ?? "")?.spreadsheetId === spreadsheetId;
 }
 
 // Which of the freshly re-checked `candidates` to close in `windowId`, and whether

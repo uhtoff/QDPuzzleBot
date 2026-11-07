@@ -1,5 +1,7 @@
 # Notes for Chrome Web Store reviewers (draft)
 
+> **TODO BEFORE SUBMISSION: every `<ANGLE-BRACKET PLACEHOLDER>` below (test account section) must be filled in by the repository owner. Do not submit with placeholders.**
+
 Puzzle Chat is a companion to a self-hosted web app (the Puzzbot dashboard) used by puzzle-hunt teams. It does nothing useful without an account on that dashboard, so a test account is provided.
 
 ## Test account (USER MUST PROVIDE)
