@@ -18,7 +18,10 @@ describe("PrivacyPolicy", () => {
     expect(html).toContain("ops@example.test");
     expect(html).toContain("Last updated: 7 November 2026");
     expect(html).not.toContain("RETENTION PERIOD");
-    expect(html).toContain("rotated daily and deleted after 30 days");
+    expect(html).toContain("deleted once they are 30 days old");
+    expect(html).toContain("web-server logs follow the same 30-day rule");
+    expect(html).toContain("every puzzle channel you can see on the dashboard");
+    expect(html).toContain("only unread counts are kept in Chrome session storage");
     expect(html).toContain("kept with the hunt");
     expect(html).toContain("Chrome local storage");
     expect(html).toContain("only when you click the dashboard&#x27;s buttons");

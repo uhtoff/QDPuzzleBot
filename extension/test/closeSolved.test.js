@@ -20,6 +20,15 @@ describe("shouldCloseTab", () => {
     expect(shouldCloseTab({ url: "https://example.com/" }, "A")).toBe(false);
     expect(shouldCloseTab(null, "A")).toBe(false);
   });
+  it("keeps a tab that is still loading", () => {
+    expect(shouldCloseTab({ url: url("A"), status: "loading" }, "A")).toBe(false);
+    expect(shouldCloseTab({ url: url("A"), status: "complete" }, "A")).toBe(true);
+  });
+  it("keeps a tab navigating to a different or non-sheet page, closes if same", () => {
+    expect(shouldCloseTab({ url: url("A"), pendingUrl: url("B") }, "A")).toBe(false);
+    expect(shouldCloseTab({ url: url("A"), pendingUrl: "https://example.com/" }, "A")).toBe(false);
+    expect(shouldCloseTab({ url: url("A"), pendingUrl: url("A") }, "A")).toBe(true);
+  });
 });
 
 describe("planWindowClose", () => {

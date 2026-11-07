@@ -66,8 +66,8 @@ panel/dashboard transcript (Discord had not cached the avatar yet); later ones a
 
 ## Packaging for the Chrome Web Store
 
-1. Zip the `extension/` folder **without** `node_modules/`, `test/` and `package*.json`:
-   `cd extension && zip -r ../puzzle-chat.zip . -x 'node_modules/*' 'test/*' 'package*.json'`
+1. Build the package from an explicit include list (manifest, `src/`, icons, `LICENSE-NOTICE.txt` and
+   the repository's full `LICENSE`): `cd extension && bash package.sh` writes `dist/puzzle-chat-<version>.zip`.
 2. Upload in the Chrome Web Store developer dashboard and publish as **unlisted** (installable
    by link only).
 3. Copy the store-assigned extension ID, add `chrome-extension://<that id>` to

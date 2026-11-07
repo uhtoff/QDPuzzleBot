@@ -91,3 +91,47 @@ describe("mergeHistory", () => {
     expect(mergeHistory([], [add("3")]).map((x) => x.id)).toEqual(["3"]);
   });
 });
+
+import { needsLookup, loadingSnapshot, targetChannel, MAX_MESSAGES } from "../src/lib/panelState.js";
+
+describe("needsLookup", () => {
+  const sheet = (id, gid) => "https://docs.google.com/spreadsheets/d/" + id + "/edit#gid=" + gid;
+  it("is true when the URL moved to another spreadsheet or gid", () => {
+    expect(needsLookup(e({ spreadsheetId: "A", gid: 5 }), sheet("B", 5))).toBe(true);
+    expect(needsLookup(e({ spreadsheetId: "A", gid: 5 }), sheet("A", 6))).toBe(true);
+    expect(needsLookup(undefined, sheet("A", 5))).toBe(true);
+  });
+  it("is false for the cached sheet and for non-sheet URLs", () => {
+    expect(needsLookup(e({ spreadsheetId: "A", gid: 5 }), sheet("A", 5))).toBe(false);
+    expect(needsLookup(e({ spreadsheetId: "A", gid: 5 }), "https://example.com/")).toBe(false);
+  });
+});
+
+describe("loading state has no reply target", () => {
+  it("snapshot carries no puzzle and no channel", () => {
+    const s = loadingSnapshot(3);
+    expect(s.state).toBe("loading");
+    expect(s.puzzle).toBeNull();
+    expect(targetChannel(s.state, s.puzzle)).toBeNull();
+  });
+  it("only chat state targets a channel", () => {
+    expect(targetChannel("chat", e())).toBe("9");
+    expect(targetChannel("loading", e())).toBeNull();
+  });
+});
+
+describe("message cap", () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => m(String(i + 1)));
+  it("applyEvent keeps the newest MAX_MESSAGES", () => {
+    const out = applyEvent(many(MAX_MESSAGES), { type: "message", message: m("new") });
+    expect(out).toHaveLength(MAX_MESSAGES);
+    expect(out[0].id).toBe("2");
+    expect(out.at(-1).id).toBe("new");
+  });
+  it("mergeHistory keeps the newest MAX_MESSAGES", () => {
+    const out = mergeHistory(many(MAX_MESSAGES + 20));
+    expect(out).toHaveLength(MAX_MESSAGES);
+    expect(out[0].id).toBe("21");
+    expect(out.at(-1).id).toBe(String(MAX_MESSAGES + 20));
+  });
+});

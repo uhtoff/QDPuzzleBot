@@ -9,7 +9,9 @@ import asyncio
 import json
 import logging
 import logging.handlers
+import os
 import signal
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -163,3 +165,48 @@ def test_ops_config_exposes_the_debug_endpoint_run_py_reads():
     cfg = Config("config.json.dist")  # the template, so the defaults are asserted too
     assert cfg.debug_host == "127.0.0.1"
     assert cfg.debug_port == 29781
+
+
+def _touch_aged(path, days_old, now):
+    path.write_text("x")
+    t = now - days_old * 86400
+    os.utime(path, (t, t))
+
+
+def test_ops_prune_old_logs_deletes_by_age_only(tmp_path):
+    now = time.time()
+    old_timed = tmp_path / "discord.log.2026-01-01"
+    old_legacy = tmp_path / "discord.log.3"
+    new_timed = tmp_path / "discord.log.2026-11-06"
+    new_legacy = tmp_path / "discord.log.1"
+    live = tmp_path / "discord.log"
+    other = tmp_path / "other.log.2020"
+    other2 = tmp_path / "notes.txt"
+    for f, d in [(old_timed, 31), (old_legacy, 45), (new_timed, 29), (new_legacy, 1),
+                 (live, 400), (other, 400), (other2, 400)]:
+        _touch_aged(f, d, now)
+
+    deleted = bot_pkg.prune_old_logs(tmp_path, now=now)
+
+    assert sorted(p.name for p in deleted) == ["discord.log.2026-01-01", "discord.log.3"]
+    assert not old_timed.exists() and not old_legacy.exists()
+    assert new_timed.exists() and new_legacy.exists()
+    assert live.exists(), "the live log is never pruned, however old its mtime"
+    assert other.exists() and other2.exists()
+
+
+def test_ops_handler_prunes_at_setup_and_on_rollover(tmp_path):
+    now = time.time()
+    stale = tmp_path / "discord.log.4"
+    _touch_aged(stale, 40, now)
+    handler = bot_pkg.AgePrunedTimedRotatingFileHandler(
+        str(tmp_path / "discord.log"), when="midnight", backupCount=30, encoding="utf-8"
+    )
+    try:
+        assert not stale.exists(), "setup must prune"
+        stale2 = tmp_path / "discord.log.2026-01-02"
+        _touch_aged(stale2, 40, now)
+        handler.doRollover()
+        assert not stale2.exists(), "rollover must prune"
+    finally:
+        handler.close()

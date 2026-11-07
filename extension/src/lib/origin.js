@@ -38,3 +38,14 @@ export function safeAvatarUrl(url) {
     return null;
   }
 }
+
+// Did a permissions.onRemoved `removed.origins` list take away `origin`'s access?
+export function removesOrigin(removedOrigins, origin) {
+  return (removedOrigins ?? []).some((o) => {
+    try {
+      return new URL(String(o).replace(/^\*:/, "https:")).origin === origin;
+    } catch {
+      return false;
+    }
+  });
+}

@@ -4,6 +4,7 @@ import logging.handlers
 import os
 import re
 import signal
+import time
 from pathlib import Path
 import traceback
 
@@ -142,19 +143,55 @@ async def nuke_all_appcmds(ctx):
         await ctx.send(f"Nuked guild cmds in {g.name}. Guild now has {len(synced_g)} commands.")
 
 # discord.log is the root logger's sink, so it collects web-route tracebacks and
-# the dashboard's per-request access lines as well as gateway chatter. It used
-# to be a plain FileHandler and grew without bound. It now rotates at midnight
-# and the handler deletes anything beyond 30 daily files, which is the
-# retention the public privacy page promises (frontend/src/pages/Privacy.tsx).
+# the dashboard's per-request access lines as well as gateway chatter. It rotates
+# at midnight. backupCount only caps the NUMBER of files (days with no logging
+# produce no file), and legacy size-rotated discord.log.1..5 are never touched by
+# it, so rotated files are also pruned by AGE: the retention the public privacy
+# page promises (frontend/src/pages/Privacy.tsx) is "deleted once 30 days old".
 LOG_BACKUP_DAYS = 30
+LOG_FILE = 'discord.log'
+
+
+def prune_old_logs(directory: str | Path = '.', base=LOG_FILE, max_age_days=LOG_BACKUP_DAYS, now=None):
+    """Delete rotated logs (``<base>.*``) whose mtime is older than ``max_age_days``.
+
+    Matches both the timed suffix (discord.log.YYYY-MM-DD) and legacy size-rotated
+    numbers (discord.log.N). The live ``<base>`` file and unrelated files are never
+    touched. Returns the deleted paths.
+    """
+    cutoff = (time.time() if now is None else now) - max_age_days * 86400
+    deleted = []
+    for path in Path(directory).glob(base + '.*'):
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+                deleted.append(path)
+        except OSError:
+            pass  # best effort: never let log housekeeping break logging
+    return deleted
+
+
+class AgePrunedTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """Midnight rotation that also deletes rotated files older than LOG_BACKUP_DAYS."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._prune()
+
+    def doRollover(self):
+        super().doRollover()
+        self._prune()
+
+    def _prune(self):
+        prune_old_logs(Path(self.baseFilename).parent, Path(self.baseFilename).name)
 
 
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup
     logger = logging.getLogger()  # 'discord')
     logger.setLevel(log_level)
-    handler = logging.handlers.TimedRotatingFileHandler(
-        filename='discord.log',
+    handler = AgePrunedTimedRotatingFileHandler(
+        filename=LOG_FILE,
         when='midnight',
         backupCount=LOG_BACKUP_DAYS,
         encoding='utf-8',
