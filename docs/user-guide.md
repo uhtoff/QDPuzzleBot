@@ -333,6 +333,8 @@ dashboard. After updating the extension, reload any open dashboard tabs.
   members. Mentions are disabled, you must be able to see and post in that channel in
   Discord, and archived hunts refuse replies. The first reply you send may show the
   default Discord avatar in the panel and dashboard transcript; later ones are fine.
+- **Attachments** show as links (the file name) that open in a new tab; ones the bot has not
+  downloaded yet show as plain names.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
   showing in an open panel. Desktop notifications are optional and off by default (extension
   Options).
