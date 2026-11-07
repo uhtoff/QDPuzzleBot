@@ -26,6 +26,7 @@ export function validateAction(msg, { senderId, senderUrl, senderHasTab, runtime
     case "openRound":
       if (
         typeof p.name === "string" &&
+        p.name.trim() !== "" &&
         p.name.length <= MAX_NAME &&
         Array.isArray(p.sheetUrls) &&
         p.sheetUrls.length <= MAX_URLS &&
