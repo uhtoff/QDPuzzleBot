@@ -1052,18 +1052,17 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 class MySQLChannelActivityDb(_MySQLBaseDb):
     TABLE_NAME = 'channel_activity'
 
-    def record(self, channel_id, guild_id, at, author_id, author_name):
+    def record(self, channel_id, guild_id, at, author_name):
         """Upsert the most recent human (non-bot) message seen in a channel."""
         self._exec(
             "INSERT INTO channel_activity "
-            "(channel_id, guild_id, last_human_message_at, last_author_id, last_author_name) "
-            "VALUES (%s, %s, %s, %s, %s) "
+            "(channel_id, guild_id, last_human_message_at, last_author_name) "
+            "VALUES (%s, %s, %s, %s) "
             "ON DUPLICATE KEY UPDATE "
             "guild_id=VALUES(guild_id), "
             "last_human_message_at=VALUES(last_human_message_at), "
-            "last_author_id=VALUES(last_author_id), "
             "last_author_name=VALUES(last_author_name)",
-            (channel_id, guild_id, at, author_id, author_name),
+            (channel_id, guild_id, at, author_name),
         )
 
 class MySQLPuzzleActivityDb(_MySQLBaseDb):
@@ -1718,14 +1717,14 @@ class MySQLGuildSettingsDb():
         cursor = self.mydb.cursor()
         data = (settings.guild_id, settings.guild_name, settings.website_url,
                 settings.discord_bot_channel, settings.discord_bot_emoji, settings.discord_use_voice_channels,
-                settings.drive_parent_id, settings.drive_resources_id,
+                settings.drive_parent_id,
                 settings.admin_role_ids or None, settings.organiser_role_ids or None,
                 settings.template_link or None, settings.multi_team_category or "",
                 settings.archive_category or "")
         if settings.id > 0:
             update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s, `website_url`=%s,"
                            "`discord_bot_channel`=%s,`discord_bot_emoji`=%s,`discord_use_voice_channels`=%s,"
-                           "`drive_parent_id`=%s,`drive_resources_id`=%s,"
+                           "`drive_parent_id`=%s,"
                            "`admin_role_ids`=%s,`organiser_role_ids`=%s,`template_link`=%s,"
                            "`multi_team_category`=%s,`archive_category`=%s "
                            "WHERE id=%s")
@@ -1734,10 +1733,10 @@ class MySQLGuildSettingsDb():
         else:
             insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, `website_url`,"
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
-                           "`drive_parent_id`, `drive_resources_id`, "
+                           "`drive_parent_id`, "
                            "`admin_role_ids`, `organiser_role_ids`, `template_link`, "
                            "`multi_team_category`, `archive_category`) "
-                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid or 0
         cursor.close()

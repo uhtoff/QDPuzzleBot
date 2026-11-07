@@ -47,7 +47,6 @@ On the dashboard under **Server settings**, or from any channel the bot can see:
 ```
 !update_settings discord_bot_channel bot-commands
 !update_settings drive_parent_id <Google Drive folder id>
-!update_settings drive_resources_id <Google Doc id>      # optional
 !update_settings discord_use_voice_channels true         # optional, off by default
 ```
 

@@ -1764,7 +1764,7 @@ async def change_group_type(tag_group_id):
 # guild_id/guild_name/id: those mirror Discord and are maintained by the join
 # handler, not by hand.
 _GUILD_SETTINGS_KEYS = {
-    "discord_bot_channel", "drive_parent_id", "drive_resources_id",
+    "discord_bot_channel", "drive_parent_id",
     "discord_use_voice_channels", "website_url", "template_link",
     "multi_team_category", "archive_category",
 }

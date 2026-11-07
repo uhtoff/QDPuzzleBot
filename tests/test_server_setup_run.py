@@ -29,7 +29,6 @@ def _hub_row():
     row = GuildSettings()
     row.website_url = "https://web.example"
     row.drive_parent_id = "drive-parent"
-    row.drive_resources_id = "drive-resources"
     row.discord_bot_emoji = ":dog:"
     row.discord_use_voice_channels = True
     return row
@@ -72,9 +71,9 @@ async def test_a_fresh_run_does_every_step_then_locks():
 
     assert report.error == ""
     assert report.hunt is hunt and report.hunt_created
-    assert (settings.website_url, settings.drive_parent_id, settings.drive_resources_id,
+    assert (settings.website_url, settings.drive_parent_id,
             settings.discord_bot_emoji, settings.discord_use_voice_channels) == (
-        "https://web.example", "drive-parent", "drive-resources", ":dog:", True)
+        "https://web.example", "drive-parent", ":dog:", True)
     assert settings.discord_bot_channel == "bot-commands"
     assert settings.admin_role_ids == str(MOD)
     assert settings.guild_name == "Rocket HQ"

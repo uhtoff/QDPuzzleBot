@@ -182,7 +182,6 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
         settings.guild_name = guild.name
         settings.website_url = hub_row.website_url
         settings.drive_parent_id = hub_row.drive_parent_id
-        settings.drive_resources_id = hub_row.drive_resources_id
         settings.discord_bot_emoji = hub_row.discord_bot_emoji
         settings.discord_use_voice_channels = hub_row.discord_use_voice_channels
         settings.discord_bot_channel = targets.bot_channel.name

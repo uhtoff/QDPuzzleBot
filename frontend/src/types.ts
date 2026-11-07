@@ -28,7 +28,6 @@ export interface GuildTier {
 export interface GuildSettingsValues {
   discord_bot_channel: string | null;
   drive_parent_id: string | null;
-  drive_resources_id: string | null;
   discord_use_voice_channels: boolean;
   website_url: string | null;
   template_link: string | null;
