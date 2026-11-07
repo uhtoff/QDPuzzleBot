@@ -10,6 +10,7 @@ import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
+import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
@@ -168,7 +169,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 // Returns false when a newer lookup for the same tab (or the tab closing) made this one stale.
-async function lookup(tabId, url) {
+async function lookup(tabId, url, windowId) {
   const token = lookupGen.begin(tabId);
   const parsed = parseSheetUrl(url);
   if (!parsed) {
@@ -177,7 +178,10 @@ async function lookup(tabId, url) {
     persist();
     return true;
   }
-  if (cacheValid(registry.get(tabId), parsed)) return true;
+  if (cacheValid(registry.get(tabId), parsed)) {
+    if (registry.setWindow(tabId, windowId)) persist();
+    return true;
+  }
   const res = await apiGet(bySheetPath(parsed));
   if (!lookupGen.isCurrent(tabId, token)) return false;
   if (res.authRequired) {
@@ -188,7 +192,7 @@ async function lookup(tabId, url) {
     failures.set(tabId, res.status === 404 ? "notfound" : "error");
   } else {
     failures.delete(tabId);
-    registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, spreadsheetId: parsed.spreadsheetId, gid: parsed.gid });
+    registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, spreadsheetId: parsed.spreadsheetId, gid: parsed.gid, windowId });
   }
   persist();
   return true;
@@ -232,7 +236,7 @@ async function refreshTab(tab, only) {
     registry.delete(tabId);
     failures.delete(tabId);
     persist();
-  } else if (!(await lookup(tabId, tab.url))) {
+  } else if (!(await lookup(tabId, tab.url, tab.windowId))) {
     return; // superseded: the newer refresh delivers
   }
   const token = lookupGen.current(tabId);
@@ -320,7 +324,17 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (isNewArrival(before, registry.get(tabId)?.spreadsheetId)) queueReuse(tabId);
   })();
 });
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+chrome.tabs.onAttached.addListener(async (tabId, { newWindowId }) => {
+  await ready;
+  if (registry.setWindow(tabId, newWindowId)) persist();
+});
+chrome.tabs.onCreated.addListener(async (tab) => {
+  await ready;
+  if (registry.setWindow(tab.id, tab.windowId)) persist();
+});
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  await ready;
+  if (registry.setWindow(tabId, windowId)) persist();
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (tab) refreshTab(tab);
 });
@@ -356,13 +370,7 @@ async function workOn(url, senderTab) {
   const parsed = parseSheetUrl(url);
   const tabId = registry.findFilesTab(parsed.spreadsheetId);
   const existing = tabId === null ? null : await chrome.tabs.get(tabId).catch(() => null);
-  if (existing) {
-    // Bring it into the dashboard's window so the side panel opened there shows it.
-    if (existing.windowId !== senderTab.windowId) {
-      await chrome.tabs.move(existing.id, { windowId: senderTab.windowId, index: -1 }).catch(() => {});
-    }
-    return focusTab((await chrome.tabs.get(existing.id).catch(() => null)) ?? existing);
-  }
+  if (existing) return focusTab(existing); // stays where it is; its own window is focused
   await chrome.tabs.create({ url, windowId: senderTab.windowId, active: true });
 }
 
@@ -493,7 +501,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   // synchronously, before any await, to stay inside the click's user gesture;
   // Chrome may still reject it, which is fine.
   if (msg && msg.action === "work" && sender.id === chrome.runtime.id && sender.tab) {
-    chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {});
+    // Open where the puzzle's tab already lives (registry is synchronous; falls back to the sender's window).
+    const parsed = parseSheetUrl(msg.payload?.sheetUrl ?? "");
+    const tabId = parsed ? registry.findFilesTab(parsed.spreadsheetId) : null;
+    const entry = tabId === null ? null : registry.get(tabId);
+    chrome.sidePanel.open({ windowId: panelWindow(entry, sender.tab.windowId) }).catch(() => {});
   }
   handleDashboardAction(msg, sender).catch(() => {});
 });

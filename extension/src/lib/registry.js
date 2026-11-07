@@ -8,6 +8,13 @@ export function createRegistry(initial = []) {
     get: (tabId) => tabs.get(tabId),
     entries: () => [...tabs].map(([t, p]) => [t, p]),
     delete: (tabId) => void tabs.delete(tabId),
+    // Record which window the tab lives in; no-op for an unknown tab. Returns whether it changed.
+    setWindow(tabId, windowId) {
+      const p = tabs.get(tabId);
+      if (!p || typeof windowId !== "number" || p.windowId === windowId) return false;
+      tabs.set(tabId, { ...p, windowId });
+      return true;
+    },
     findBySpreadsheet(id) {
       const hit = where((p) => p.spreadsheetId === id);
       return hit.length ? hit[0] : null;
