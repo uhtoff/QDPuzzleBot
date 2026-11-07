@@ -141,24 +141,23 @@ async def nuke_all_appcmds(ctx):
         synced_g = await bot.tree.sync(guild=guild_obj)
         await ctx.send(f"Nuked guild cmds in {g.name}. Guild now has {len(synced_g)} commands.")
 
-# discord.log is the root logger's sink, so it collects web-route tracebacks as
-# well as gateway chatter. It used to be a plain FileHandler and grew without
-# bound -- nothing on the host rotates it. 10 MB x 5 keeps roughly the same
-# amount of recent history a human ever scrolls back through, capped at 60 MB.
-LOG_MAX_BYTES = 10 * 1024 * 1024
-LOG_BACKUP_COUNT = 5
+# discord.log is the root logger's sink, so it collects web-route tracebacks and
+# the dashboard's per-request access lines as well as gateway chatter. It used
+# to be a plain FileHandler and grew without bound. It now rotates at midnight
+# and the handler deletes anything beyond 30 daily files, which is the
+# retention the public privacy page promises (frontend/src/pages/Privacy.tsx).
+LOG_BACKUP_DAYS = 30
 
 
 def setup_logger(log_level=logging.INFO):
     # Set up basic logging as per https://discordpy.readthedocs.io/en/latest/logging.html#logging-setup
     logger = logging.getLogger()  # 'discord')
     logger.setLevel(log_level)
-    handler = logging.handlers.RotatingFileHandler(
+    handler = logging.handlers.TimedRotatingFileHandler(
         filename='discord.log',
+        when='midnight',
+        backupCount=LOG_BACKUP_DAYS,
         encoding='utf-8',
-        mode='a',
-        maxBytes=LOG_MAX_BYTES,
-        backupCount=LOG_BACKUP_COUNT,
     )
     handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
     logger.addHandler(handler)

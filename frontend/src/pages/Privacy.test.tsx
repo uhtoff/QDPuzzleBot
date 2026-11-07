@@ -17,7 +17,9 @@ describe("PrivacyPolicy", () => {
     expect(html).toContain("QD Puzzbot");
     expect(html).toContain("ops@example.test");
     expect(html).toContain("Last updated: 7 November 2026");
-    expect(html).toContain("RETENTION PERIOD");
+    expect(html).not.toContain("RETENTION PERIOD");
+    expect(html).toContain("rotated daily and deleted after 30 days");
+    expect(html).toContain("kept with the hunt");
     expect(html).toContain("Chrome local storage");
     expect(html).toContain("only when you click the dashboard&#x27;s buttons");
   });
