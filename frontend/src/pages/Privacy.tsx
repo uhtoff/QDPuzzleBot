@@ -65,8 +65,13 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           </List.Item>
           <List.Item>
             It stores its settings (dashboard address, notifications on or off) in Chrome sync
-            storage, and its working state (which tab is which puzzle, unread counts) in Chrome
-            session storage, which is cleared when the browser closes.
+            storage, its working state (which tab is which puzzle, unread counts) in Chrome
+            session storage, which is cleared when the browser closes, and the colour it gave
+            each round&apos;s tab group (by round name) in Chrome local storage.
+          </List.Item>
+          <List.Item>
+            It can open a hunt&apos;s sheets and gather them into named Chrome tab groups, and
+            close the tabs of solved puzzles, only when you click the dashboard&apos;s buttons.
           </List.Item>
           <List.Item>It loads avatars and custom emoji images from Discord&apos;s CDN.</List.Item>
           <List.Item>

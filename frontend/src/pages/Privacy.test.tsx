@@ -18,6 +18,8 @@ describe("PrivacyPolicy", () => {
     expect(html).toContain("ops@example.test");
     expect(html).toContain("Last updated: 7 November 2026");
     expect(html).toContain("RETENTION PERIOD");
+    expect(html).toContain("Chrome local storage");
+    expect(html).toContain("only when you click the dashboard&#x27;s buttons");
   });
 
   it("falls back to a neutral name when the site info is empty", () => {
