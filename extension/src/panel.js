@@ -1,7 +1,7 @@
 import { rewriteMentions, tokenise, embedLines, emojiUrl } from "./lib/discordText.js";
 import { isBlank, messageView, isBangCommand, errorText } from "./lib/format.js";
-import { canCompose, validate } from "./lib/composer.js";
-import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
+import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
+import { applyEvent, eventChannel, sameTarget, mergeHistory } from "./lib/panelState.js";
 import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
@@ -21,6 +21,7 @@ let messages = [];
 let socketUp = false;
 let pollTimer = null;
 let loadSeq = 0;
+let pendingEvents = []; // live events seen while a history load is in flight
 
 function showNotice(text, href) {
   notice.replaceChildren();
@@ -140,13 +141,15 @@ function renderLog() {
 async function loadMessages() {
   if (!channelId) return;
   const seq = ++loadSeq;
+  pendingEvents = [];
   dashOrigin = await getOrigin();
   const res = await apiGet(messagesPath(channelId));
   if (seq !== loadSeq) return;
   if (res.authRequired) return setState({ state: "auth" });
   if (res.error) return showNotice("Could not load messages (" + res.error + ")");
   showNotice("");
-  messages = res.messages ?? [];
+  messages = mergeHistory(res.messages ?? [], messages, pendingEvents);
+  pendingEvents = [];
   renderLog();
   log.scrollTop = log.scrollHeight;
 }
@@ -177,6 +180,7 @@ async function sendDraft() {
   if (!v.ok) return showComposerError(v.code === "empty" ? null : v.code);
   showComposerError(null);
   const target = channelId;
+  const sentDraft = draft.value;
   sending = true;
   sendBtn.disabled = true;
   try {
@@ -184,7 +188,7 @@ async function sendDraft() {
     if (target !== channelId) return;
     if (res.authRequired) return setState({ state: "auth" });
     if (res.error) return showComposerError(res.error);
-    draft.value = "";
+    draft.value = draftAfterSend(draft.value, sentDraft);
   } finally {
     sending = false;
     sendBtn.disabled = false;
@@ -215,6 +219,8 @@ async function setState({ state, puzzle, channelNames: names }) {
     return;
   }
   channelId = next.channelId;
+  loadSeq++; // target changed: discard any pending history load for the old one
+  pendingEvents = [];
   draft.value = "";
   showComposerError(null);
   messages = [];
@@ -273,6 +279,8 @@ function connectPort() {
       if (!was && socketUp) loadMessages();
     } else if (msg.type === "event" && channelId && eventChannel(msg.event) === channelId) {
       messages = applyEvent(messages, msg.event);
+      pendingEvents.push(msg.event);
+      if (pendingEvents.length > 500) pendingEvents.shift();
       renderLog();
     }
   });

@@ -51,3 +51,11 @@ describe("canCompose", () => {
     expect(canCompose("chat", undefined)).toBe(false);
   });
 });
+
+import { draftAfterSend } from "../src/lib/composer.js";
+describe("draftAfterSend", () => {
+  it("clears only an unchanged draft", () => {
+    expect(draftAfterSend("hello", "hello")).toBe("");
+    expect(draftAfterSend("hello world", "hello")).toBe("hello world");
+  });
+});

@@ -16,3 +16,9 @@ export function validate(text) {
   if (isBangCommand(content)) return { ok: false, code: "command" };
   return { ok: true, content };
 }
+
+// Draft text after a successful send: cleared only if the user has not typed
+// something newer than what was sent.
+export function draftAfterSend(currentDraft, sentDraft) {
+  return currentDraft === sentDraft ? "" : currentDraft;
+}

@@ -70,3 +70,28 @@ describe("sameTarget", () => {
     expect(sameTarget(null, { state: "chat", channelId: "9" })).toBe(false);
   });
 });
+
+import { mergeHistory } from "../src/lib/panelState.js";
+describe("mergeHistory", () => {
+  const del = (id) => ({ type: "message_delete", message_id: id });
+  it("keeps live messages newer than the response, deduped", () => {
+    const out = mergeHistory([m("10"), m("11")], [m("11"), m("12"), m("13")]);
+    expect(out.map((x) => x.id)).toEqual(["10", "11", "12", "13"]);
+  });
+  it("compares snowflakes numerically, not lexically", () => {
+    const out = mergeHistory([m("9")], [m("10")]);
+    expect(out.map((x) => x.id)).toEqual(["9", "10"]);
+  });
+  it("drops older current messages absent from the response", () => {
+    expect(mergeHistory([m("10")], [m("5")]).map((x) => x.id)).toEqual(["10"]);
+  });
+  it("replays edits and deletes seen in flight", () => {
+    const evs = [{ type: "message_edit", message: { id: "10", content: "new" } }, del("11")];
+    const out = mergeHistory([m("10", "old"), m("11")], [], evs);
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toBe("new");
+  });
+  it("handles an empty response", () => {
+    expect(mergeHistory([], [m("3")]).map((x) => x.id)).toEqual(["3"]);
+  });
+});
