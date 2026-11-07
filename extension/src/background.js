@@ -6,6 +6,7 @@ import { backoffDelay } from "./lib/backoff.js";
 import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
+import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
@@ -389,13 +390,41 @@ function ensureKeepalive() {
   }, 20000);
 }
 
-async function connect() {
+// Single in-flight guard: connect() awaits before assigning `ws`, so concurrent callers
+// (startup, permissions.onAdded, origin change, reconnect timer) must share one attempt.
+let connecting = null;
+let restartConnect = false;
+function connect() {
+  if (connecting) return connecting;
+  connecting = doConnect()
+    .catch(() => {})
+    .finally(() => {
+      connecting = null;
+      if (restartConnect) {
+        restartConnect = false;
+        connect();
+      }
+    });
+  return connecting;
+}
+
+// Drop the current socket without triggering its reconnect handler.
+function detachSocket() {
+  if (!ws) return;
+  ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+  ws.close();
+  ws = null;
+}
+
+async function doConnect() {
   clearTimeout(timer);
   timer = null;
   const origin = await getOrigin();
   // No host permission yet (fresh install): stay idle; permissions.onAdded reconnects.
   const granted = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
   if (!granted) return;
+  if (!needsSocket(ws?.readyState)) return; // another path already connected
+  detachSocket();
   ensureKeepalive();
   try {
     ws = new WebSocket(wsUrl(origin));
@@ -434,17 +463,17 @@ function scheduleReconnect() {
 
 chrome.permissions.onAdded.addListener(() => {
   attempt = 0;
-  if (!ws || ws.readyState > 1) connect();
+  if (needsSocket(ws?.readyState)) connect();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
     registerDashboardScript();
     attempt = 0;
-    if (ws) ws.onclose = null;
-    ws?.close();
+    detachSocket();
     setSocket(false);
-    connect();
+    if (connecting) restartConnect = true; // in-flight attempt may hold the old origin
+    else connect();
   }
 });
 
