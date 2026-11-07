@@ -322,13 +322,16 @@ Install it from the link your organiser gives you (or see `extension/README.md` 
 unpacked install), then stay logged in to the dashboard in the same Chrome profile. An
 admin must have listed the extension on the server (`web.extension_origins`), or the live
 chat connection is refused.
+To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the
+dashboard. After updating the extension, reload any open dashboard tabs.
 
 - **Open the panel:** click the extension icon (Chrome won't open it for you). Once open and
   pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle".
 - **Replying:** type in the panel and send. The bot posts it into the puzzle's channel under
   your server name and avatar, with Discord's APP tag. Messages starting with `!` are refused
-  (run commands in Discord), messages over 2000 characters and replies from timed-out members are refused, mentions are disabled, you must be able to see and post in that
-  channel in Discord, and archived hunts refuse replies. The first reply you send may show the
+  (run commands in Discord), as are messages over 2000 characters and replies from timed-out
+  members. Mentions are disabled, you must be able to see and post in that channel in
+  Discord, and archived hunts refuse replies. The first reply you send may show the
   default Discord avatar in the panel and dashboard transcript; later ones are fine.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
   showing in an open panel. Desktop notifications are optional and off by default (extension
