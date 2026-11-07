@@ -69,6 +69,13 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           </List.Item>
           <List.Item>It shows that puzzle&apos;s chat.</List.Item>
           <List.Item>
+            While you are signed in, the extension receives live message notifications for every
+            puzzle channel you can see on the dashboard, not just the puzzle open in the panel. It
+            uses them only to show chat, the unread count and optional notifications. Message
+            content is held in memory only; only unread counts are kept in Chrome session storage.
+            Nothing is sent anywhere else.
+          </List.Item>
+          <List.Item>
             Replies you send are posted to Discord by the bot under your server name and avatar.
           </List.Item>
           <List.Item>
@@ -96,7 +103,9 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
         <Text>
           Chat and archive data are kept for the life of the hunt archive. Server logs record the
           addresses requested (for the extension, that includes the sheet id it asks about) and
-          may include IP addresses. They are rotated daily and deleted after 30 days.
+          may include IP addresses. Server logs are deleted once they are 30 days old, and the hosting
+          control panel&apos;s web-server logs follow the same 30-day rule (the operator configures
+          that).
           To request deletion or a copy of your data, contact{" "}
           {site.contact || "the operator of this site"}.
         </Text>

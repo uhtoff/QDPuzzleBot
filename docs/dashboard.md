@@ -135,10 +135,13 @@ See `memory/site-hunt-visibility.md` for the full model.
 
 ## Log retention
 
-`discord.log` (which also receives the dashboard's per-request access lines) rotates daily and
-keeps 30 days; the handler deletes older files. In Plesk, set the subscription's Log Rotation to
-remove logs older than 30 days for the site's web-server logs, so the privacy page's retention
-claim holds there too.
+`discord.log` (which also receives the dashboard's per-request access lines) rotates daily
+(`discord.log.YYYY-MM-DD`). Rotated files are pruned by **age**: `bot.prune_old_logs` deletes any
+`discord.log.*` (timed or legacy size-rotated `.1`-`.5`) whose mtime is over 30 days old, at
+startup and at each midnight rollover; the live `discord.log` is never deleted. `backupCount=30`
+stays as an extra cap on file count. In Plesk, set the subscription's Log Rotation to remove
+web-server logs older than 30 days, so the privacy page's retention claim holds there too (the
+operator configures this; the bot cannot).
 
 ## Deploy steps (run when ready)
 
