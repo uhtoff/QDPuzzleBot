@@ -67,7 +67,10 @@ function renderMessage(m) {
   meta.append(who, " ", when);
   const text = document.createElement("div");
   text.className = "text";
-  text.textContent = v.text;
+  if (!v.text && v.hasEmbeds) {
+    text.textContent = "[embed]";
+    text.classList.add("attach"); // dimmed italic
+  } else text.textContent = v.text;
   body.append(meta, text);
   if (Array.isArray(m.attachments) && m.attachments.length) {
     const n = document.createElement("div");
@@ -181,8 +184,8 @@ function renderHead(puzzle, state) {
     a.href = puzzle.discord_url;
     a.target = "_blank";
     a.rel = "noopener";
-    a.textContent = " (Discord)";
-    head.append(a);
+    a.textContent = "(Discord)";
+    head.append(" ", a);
   }
 }
 

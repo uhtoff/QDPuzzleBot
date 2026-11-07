@@ -8,5 +8,9 @@ window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
   const data = event.data;
   if (!data || data.source !== "puzzbot-dashboard" || !ACTIONS.has(data.action)) return;
-  chrome.runtime.sendMessage({ action: data.action, payload: data.payload }).catch(() => {});
+  try {
+    chrome.runtime.sendMessage({ action: data.action, payload: data.payload }).catch(() => {});
+  } catch {
+    /* "Extension context invalidated" after an extension update: reload the dashboard tab */
+  }
 });
