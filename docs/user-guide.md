@@ -347,6 +347,7 @@ dashboard. After updating the extension, reload any open dashboard tabs.
   solved tabs** in the hunt board header (files-mode hunts only). In files mode, opening a
   puzzle sheet that is already open switches to the existing tab and closes the duplicate
   (unless it is the only tab in its window).
+  Chrome hides saved (closed) tab groups from extensions, so reopen a closed round from Chrome's saved-groups bar rather than the dashboard, or you'll get a second saved group.
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
 - **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
   instance is `https://puzzbot.com`) and the notifications switch.

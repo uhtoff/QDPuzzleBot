@@ -9,7 +9,7 @@ import { notificationText } from "./lib/discordText.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { groupMove } from "./lib/groupMove.js";
-import { groupColour } from "./lib/groupColour.js";
+import { pickColour, findRoundGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
 
@@ -374,8 +374,22 @@ async function openRound(name, urls, senderTab) {
     }
   }
   if (!tabIds.length) return;
+  const key = name.trim().toLowerCase();
+  const stored = (await chrome.storage.local.get("groupColours").catch(() => ({}))).groupColours ?? {};
+  const groups = await chrome.tabGroups.query({ windowId }).catch(() => []);
+  const existingGroup = findRoundGroup(name, groups);
+  if (existingGroup) {
+    // Reuse the open group; leave its colour alone (record it if not yet remembered).
+    await chrome.tabs.group({ groupId: existingGroup.id, tabIds });
+    if (!stored[key]) {
+      await chrome.storage.local.set({ groupColours: { ...stored, [key]: existingGroup.color } }).catch(() => {});
+    }
+    return;
+  }
+  const colour = pickColour(name, groups.map((g) => g.color), stored[key]);
   const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: name, color: groupColour(name) });
+  await chrome.tabGroups.update(groupId, { title: name, color: colour });
+  await chrome.storage.local.set({ groupColours: { ...stored, [key]: colour } }).catch(() => {});
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)

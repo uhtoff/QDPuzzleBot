@@ -27,3 +27,39 @@ describe("groupColour", () => {
     }
   });
 });
+
+import { pickColour, findRoundGroup } from "../src/lib/groupColour.js";
+
+describe("pickColour", () => {
+  const h = groupColour("Office");
+  const i = GROUP_COLOURS.indexOf(h);
+  const at = (n) => GROUP_COLOURS[(i + n) % GROUP_COLOURS.length];
+
+  it("remembered wins", () => {
+    expect(pickColour("Office", [h], "cyan")).toBe("cyan");
+  });
+  it("hash colour when free", () => {
+    expect(pickColour("Office", [at(1)], undefined)).toBe(h);
+  });
+  it("next free from the hash position, wrapping", () => {
+    expect(pickColour("Office", [h, at(1)], undefined)).toBe(at(2));
+    const used = GROUP_COLOURS.filter((c) => c !== at(7));
+    expect(pickColour("Office", used, undefined)).toBe(at(7));
+  });
+  it("all taken: least used, ties earliest from hash", () => {
+    const used = [...GROUP_COLOURS, ...GROUP_COLOURS.filter((c) => c !== at(3))];
+    expect(pickColour("Office", used, undefined)).toBe(at(3));
+    expect(pickColour("Office", [...GROUP_COLOURS], undefined)).toBe(h);
+  });
+  it("is deterministic", () => {
+    expect(pickColour("Office", [h], undefined)).toBe(pickColour("Office", [h], undefined));
+  });
+});
+
+describe("findRoundGroup", () => {
+  it("matches title trimmed and case-insensitively", () => {
+    const gs = [{ id: 1, title: "Other" }, { id: 2, title: " office " }];
+    expect(findRoundGroup("Office", gs).id).toBe(2);
+    expect(findRoundGroup("Nope", gs)).toBeNull();
+  });
+});
