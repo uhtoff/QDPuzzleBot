@@ -1,3 +1,4 @@
+import { rewriteMentions, tokenise } from "./lib/discordText.js";
 import { messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
@@ -40,6 +41,7 @@ function showNotice(text, href) {
   notice.hidden = false;
 }
 
+let currentPuzzle = null;
 let dashOrigin = null; // refreshed in loadMessages; used for attachment links
 
 function renderMessage(m) {
@@ -73,7 +75,18 @@ function renderMessage(m) {
   if (!v.text && v.hasEmbeds) {
     text.textContent = "[embed]";
     text.classList.add("attach"); // dimmed italic
-  } else text.textContent = v.text;
+  } else {
+    const cleaned = rewriteMentions(v.text, (id) => (id === currentPuzzle?.channel_id ? currentPuzzle.name : null));
+    for (const seg of tokenise(cleaned)) {
+      if (!seg.bold && !seg.code) {
+        text.append(seg.text);
+        continue;
+      }
+      const span = document.createElement(seg.code ? "code" : "strong");
+      span.textContent = seg.text;
+      text.append(span);
+    }
+  }
   body.append(meta, text);
   if (Array.isArray(m.attachments)) {
     for (const att of m.attachments) {
@@ -167,6 +180,7 @@ draft.addEventListener("keydown", (e) => {
 });
 
 async function setState({ state, puzzle }) {
+  currentPuzzle = puzzle ?? null;
   const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
   const same = sameTarget(current, next);
   current = next;

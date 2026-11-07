@@ -3,7 +3,8 @@ import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
-import { notificationId, parseNotificationId } from "./lib/notify.js";
+import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
+import { notificationText } from "./lib/discordText.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { groupColour } from "./lib/groupColour.js";
@@ -88,10 +89,10 @@ async function handleMessage(ev) {
   persist();
   updateBadge();
   const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
-  if (!notify) return;
+  if (!notify || !shouldNotify(ev.message)) return;
   const channelId = String(ev.channel_id);
   const tabId = registry.tabsForChannel(channelId)[0];
-  const text = `${ev.message?.author_name ?? ""}: ${ev.message?.content ?? ""}`;
+  const text = notificationText(ev.message, (id) => registry.entries().find(([, p]) => p.channel_id === id)?.[1]?.name);
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
   chrome.notifications
@@ -99,7 +100,7 @@ async function handleMessage(ev) {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icons/icon128.png"),
       title: registry.get(tabId)?.name ?? "Puzzle chat",
-      message: text.length > 120 ? text.slice(0, 119) + "\u2026" : text,
+      message: text,
     })
     .catch(() => {});
 }
