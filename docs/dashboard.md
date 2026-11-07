@@ -104,6 +104,23 @@ unset dir would otherwise resolve to the process's working directory (the checko
 uploads; it also sets Quart's own `MAX_CONTENT_LENGTH` request-body guard, so raising it
 raises both together.
 
+## Chrome extension origins
+
+The Puzzle Chat browser extension (`extension/`) opens the dashboard's activity websocket from
+a `chrome-extension://<id>` origin, which the websocket Origin check rejects by default. List
+each extension ID in the `web` block of `config.json`:
+
+```jsonc
+"web": {
+  "extension_origins": ["chrome-extension://<extension id>"]   // default []; exact match, no wildcard
+}
+```
+
+The extension authenticates its live connection with a short-lived single-use ticket fetched with the
+dashboard login, accepted only from origins listed in `extension_origins`.
+
+Restart the bot after editing. See `extension/README.md` for finding the ID and packaging.
+
 ## Hunt visibility
 
 - **Active** hunts are visible only to holders of the hunt's team `role_id`
@@ -115,6 +132,13 @@ raises both together.
   running and archived team hunts with members, outstanding invites and access history.
 
 See `memory/site-hunt-visibility.md` for the full model.
+
+## Log retention
+
+`discord.log` (which also receives the dashboard's per-request access lines) rotates daily and
+keeps 30 days; the handler deletes older files. In Plesk, set the subscription's Log Rotation to
+remove logs older than 30 days for the site's web-server logs, so the privacy page's retention
+claim holds there too.
 
 ## Deploy steps (run when ready)
 

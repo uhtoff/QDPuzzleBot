@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Puzzle Chat</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header id="head"></header>
+  <div id="notice" hidden></div>
+  <main id="log" aria-live="polite"></main>
+  <form id="composer" hidden>
+    <div id="composer-error" role="alert" hidden></div>
+    <div class="row">
+      <textarea id="draft" rows="2" placeholder="Reply (Enter to send, Shift+Enter for newline)" aria-label="Reply"></textarea>
+      <button id="send" type="submit">Send</button>
+    </div>
+  </form>
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

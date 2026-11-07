@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Alert, Badge, Button, Card, Center, Group, Stack, Text, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Button, Card, Center, Group, Stack, Text, Title } from "@mantine/core";
 import { IconBrandDiscord, IconFlask } from "@tabler/icons-react";
 import { loginUrl, useSiteInfo } from "../api";
 import { DEFAULT_SITE, pageTitle } from "../lib/siteInfo";
@@ -50,6 +50,9 @@ export default function Login() {
             The button takes you to discord.com to sign in. We never see your Discord
             password: Discord only tells us who you are, so we can show the hunts your
             team can see.
+          </Text>
+          <Text c="dimmed" ta="center" size="xs">
+            <Anchor href="/privacy">Privacy</Anchor>
           </Text>
           {site.contact && (
             <Text c="dimmed" ta="center" size="xs">

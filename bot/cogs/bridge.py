@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from bot.store import MessageDb
+from bot.core.channel_relay import is_relay_webhook
 from bot.core.message_media import media_root, attachment_relpath, download_attachment
 from bot.utils import config
 from bot.web import events
@@ -128,6 +129,9 @@ class MessageBridge(commands.Cog):
     def _kind_for(self, message: discord.Message) -> int:
         if message.author.id == self.bot.application_id:
             return KIND_THIS_BOT
+        # Dashboard replies posted through our relay webhook are people, not bots.
+        if is_relay_webhook(message.webhook_id):
+            return KIND_HUMAN
         if message.author.bot:
             return KIND_OTHER_BOT
         if message.content.startswith("!"):

@@ -27,6 +27,11 @@ dashboard's in-app chat viewer, so an archived hunt keeps a self-contained trans
 Discord channels are gone. It too is off by default — see
 [`docs/dashboard.md`](docs/dashboard.md#message-bridge-chat-viewer) to enable it.
 
+An optional **Chrome extension** (`extension/`) shows a puzzle's Discord chat in a side panel
+beside its Google Sheet and adds dashboard shortcuts for opening puzzles. See
+[`extension/README.md`](extension/README.md) and the `web.extension_origins` key in
+[`docs/dashboard.md`](docs/dashboard.md#chrome-extension-origins).
+
 # Usage
 
 ## Creating a hunt

@@ -2,12 +2,14 @@
 import asyncio
 import logging
 import time
+from types import SimpleNamespace
 
+import discord
 from quart import Blueprint, jsonify, make_response, request, send_file, session, websocket
 
 from .typed_app import bot_app, puzzles_cog
 
-from . import data, events
+from . import data, events, ws_ticket
 from .auth import (
     ADMIN_ROLES,
     current_user,
@@ -17,9 +19,9 @@ from .auth import (
     resolve_membership,
     user_can_manage,
 )
-from bot.core import role_gate, role_panel
+from bot.core import channel_relay, role_gate, role_panel
 from bot.store import MultiTeamDb
-from bot.core.sheet_location import drive_folder_link, spreadsheet_link
+from bot.core.sheet_location import drive_folder_link, puzzle_location, spreadsheet_link
 from bot.utils import config
 from bot.core.role_gate import organiser_gate_active
 
@@ -30,6 +32,9 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 # How often the live-activity WebSocket re-checks that the connected user still
 # belongs to a guild (so a kick/role-change ends the stream within this window).
 _WS_AUTH_REFRESH_SECONDS = 60
+# Idle wait between server pings. Chrome keeps an extension service worker alive
+# while websocket messages flow (116+), so the socket must never go quiet.
+_WS_PING_SECONDS = 20
 
 
 def _sheet_base(sheet_id):
@@ -182,6 +187,47 @@ async def hunt_detail(uid):
     })
 
 
+@api_bp.route("/puzzles/by-sheet")
+@login_required
+async def puzzle_by_sheet():
+    """Which puzzle does this Google Sheets URL belong to? (chat extension)"""
+    user = current_user()
+    assert user is not None
+    not_found = (jsonify({"error": "not_found_or_forbidden"}), 404)
+    spreadsheet = (request.args.get("spreadsheet") or "").strip()
+    if not spreadsheet:
+        return not_found
+    gid = request.args.get("gid", type=int)  # non-integer -> None (absent)
+    found = await data.find_puzzle_by_sheet(spreadsheet, gid)
+    if found is None:
+        return not_found
+    puzzle, hunt = found["puzzle"], found["hunt"]
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    guilds_map = await data.get_guilds_map()
+    if not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return not_found
+    guild_snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+    channel_id = puzzle["channel_id"]
+    return jsonify({
+        "puzzle": {
+            "id": puzzle["id"],
+            "name": puzzle["name"],
+            "solved": bool(puzzle["solved"]),
+            "channel_id": str(channel_id) if channel_id else None,
+            "discord_url": (f"https://discord.com/channels/{guild_snowflake}/{channel_id}"
+                            if guild_snowflake and channel_id else None),
+            "sheet_url": puzzle_location(data._hunt_sheets_view(hunt), SimpleNamespace(
+                google_sheet_id=puzzle["google_sheet_id"],
+                on_solved_sheet=bool(puzzle["on_solved_sheet"]),
+                google_page_id=puzzle["google_page_id"])).url,
+            "hunt_uid": hunt["uid"],
+            "hunt_archived": bool(hunt["archived"]),
+            "sheet_mode": hunt.get("sheet_mode") or "tabs",
+        },
+        "bridge_enabled": bool(config.web_bridge_enabled),
+    })
+
+
 @api_bp.route("/channels/<int:channel_id>/messages")
 @login_required
 async def channel_messages(channel_id):
@@ -194,6 +240,53 @@ async def channel_messages(channel_id):
     limit = request.args.get("limit", default=50, type=int)
     messages = await data.get_channel_messages(channel_id, before=before, limit=limit)
     return jsonify({"messages": messages})
+
+
+@api_bp.route("/channels/<int:channel_id>/messages", methods=["POST"])
+@login_required
+async def post_channel_message(channel_id):
+    """Reply into a puzzle channel as the logged-in member, via a relay webhook.
+
+    A webhook ignores Discord permissions, so every gate is enforced here."""
+    body = await request.get_json(silent=True)
+    content = body.get("content") if isinstance(body, dict) else None
+    if not isinstance(content, str):
+        return jsonify({"error": "empty"}), 400
+    content = content.strip()
+    if not content:
+        return jsonify({"error": "empty"}), 400
+    if len(content) > 2000:
+        return jsonify({"error": "too_long"}), 400
+    if content.startswith("!"):
+        return jsonify({"error": "command"}), 400
+
+    user = current_user()
+    assert user is not None
+    membership, roles_by_guild = await resolve_membership(user["id"])
+    hunt = await data.get_hunt_by_channel_id(channel_id)
+    guilds_map = await data.get_guilds_map()
+    if hunt is None or not hunt_visible(hunt, membership, roles_by_guild, guilds_map):
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+    if hunt["archived"]:
+        return jsonify({"error": "archived"}), 403
+
+    snowflake = guilds_map.get(hunt["guild_id"], {}).get("guild_snowflake")
+    guild = bot_app().bot.get_guild(int(snowflake)) if snowflake else None
+    channel = guild.get_channel(channel_id) if guild is not None else None
+    member = await get_or_fetch_member(guild, int(user["id"])) if channel is not None else None
+    if guild is None or channel is None or member is None:
+        return jsonify({"error": "not_found_or_forbidden"}), 404
+
+    perms = channel.permissions_for(member)
+    if member.is_timed_out() or not (perms.view_channel and perms.send_messages):
+        return jsonify({"error": "forbidden"}), 403
+
+    try:
+        message_id = await channel_relay.send_as(channel, member, content)
+    except discord.HTTPException:
+        logger.exception("relay send failed for channel %s", channel_id)
+        return jsonify({"error": "send_failed"}), 502
+    return jsonify({"id": str(message_id)}), 201
 
 
 @api_bp.route("/attachments/<int:attachment_id>")
@@ -718,7 +811,30 @@ def _ws_origin_allowed(origin):
     expected = _dashboard_origin()
     if expected is None:
         return True
-    return origin == expected
+    if origin == expected:
+        return True
+    extra = getattr(config, "web_extension_origins", None)
+    return isinstance(extra, list) and origin in extra
+
+
+@api_bp.route("/extension/ws-ticket")
+@login_required
+async def extension_ws_ticket():
+    """A short-lived single-use ticket for the extension's websocket."""
+    return jsonify({"ticket": ws_ticket.issue(session["user"]["id"])})
+
+
+@api_bp.route("/extension/csrf")
+@login_required
+async def extension_csrf():
+    """The session's CSRF token, for the extension to echo in X-CSRF-Token.
+
+    The extension cannot reliably read the csrf_token cookie; this hands it the
+    same session-bound token the guard in create_app compares against. The
+    before_request guard has already created it. Deliberately no CORS headers:
+    the response is only readable by same-origin / credentialed extension pages.
+    """
+    return jsonify({"csrf": session["csrf_token"]})
 
 
 @api_bp.websocket("/ws/activity")
@@ -731,8 +847,17 @@ async def ws_activity():
         return
     user = session.get("user")
     if not user:
-        await websocket.close(1008)  # policy violation / unauthenticated
-        return
+        # Chrome withholds the session cookie from an extension service worker's
+        # websocket, so a listed extension origin may authenticate with a
+        # single-use ticket instead (see ws_ticket).
+        uid = None
+        extra = getattr(config, "web_extension_origins", None)
+        if isinstance(extra, list) and websocket.headers.get("Origin") in extra:
+            uid = ws_ticket.redeem(websocket.args.get("ticket", ""))
+        if not uid or not uid.isdigit():
+            await websocket.close(1008)  # policy violation / unauthenticated
+            return
+        user = {"id": int(uid)}
     membership, roles_by_guild = await resolve_membership(user["id"])
     queue = events.subscribe()
     # Membership is resolved once at connect, so without this a user who is kicked
@@ -742,21 +867,33 @@ async def ws_activity():
     last_refresh = time.monotonic()
     try:
         await websocket.send_json({"type": "ready"})
+        # Pings key off the last frame actually sent to this client, not queue
+        # idleness: events for other guilds keep the queue busy yet are dropped.
+        last_sent = time.monotonic()
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_WS_AUTH_REFRESH_SECONDS)
+                # Wake when the next ping is due, not a full interval from now, so a
+                # dropped event late in the interval cannot double the gap.
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=max(0.0, _WS_PING_SECONDS - (time.monotonic() - last_sent)))
             except asyncio.TimeoutError:
                 event = None
 
             now = time.monotonic()
-            if event is None or (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
+            if (now - last_refresh) >= _WS_AUTH_REFRESH_SECONDS:
                 membership, roles_by_guild = await resolve_membership(user["id"])
                 last_refresh = now
                 if not membership:
                     await websocket.close(1008)  # no longer a member of any guild
                     return
 
-            if event is None or event.get("guild_id") not in membership:
+            if (now - last_sent) >= _WS_PING_SECONDS:
+                await websocket.send_json({"type": "ping"})
+                last_sent = now
+            if event is None:
+                continue
+            if event.get("guild_id") not in membership:
                 continue
 
             # Guild membership only proves the user belongs to the guild; per-hunt
@@ -777,6 +914,7 @@ async def ws_activity():
 
             if visible:
                 await websocket.send_json(event)
+                last_sent = time.monotonic()
     except asyncio.CancelledError:
         raise
     finally:

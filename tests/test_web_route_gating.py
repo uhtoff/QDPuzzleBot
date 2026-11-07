@@ -115,6 +115,11 @@ UNGATED_BY_DECISION = [
     ("POST", "/canvases/<int:canvas_id>/retile"),
     ("POST", "/canvases/<int:canvas_id>/ocr-preview"),
     ("POST", "/canvases/<int:canvas_id>/regions/<int:region_id>/create-puzzle"),
+    # Extension reply: no dashboard tier — gated per request by hunt visibility and
+    # the member's LIVE Discord view_channel + send_messages on that channel (not
+    # timed out), because the webhook bypasses Discord's own checks. Pinned by
+    # tests/test_channel_reply_web.py.
+    ("POST", "/channels/<int:channel_id>/messages"),
 ]
 
 # The rest of the open surface: reads, and the writes nobody has argued about.
@@ -131,6 +136,8 @@ UNGATED_REMAINDER = [
     ("GET", "/attachments/<int:attachment_id>"),
     ("GET", "/channels/<int:channel_id>/messages"),
     ("GET", "/evidence"),
+    ("GET", "/extension/csrf"),
+    ("GET", "/extension/ws-ticket"),
     ("GET", "/guilds"),
     ("GET", "/hunts"),
     ("GET", "/hunts/<uid>"),
@@ -140,6 +147,7 @@ UNGATED_REMAINDER = [
     ("GET", "/media/<int:media_id>/markup"),
     ("GET", "/media/<int:media_id>/tiles/<int:z>/<int:y>/<int:x>"),
     ("GET", "/puzzles/<int:puzzle_id>/images"),
+    ("GET", "/puzzles/by-sheet"),
     ("GET", "/rollups/<int:tag_group_id>/answers"),
     ("PATCH", "/evidence/<int:item_id>"),
     ("PATCH", "/media/<int:media_id>/markup/<int:mark_id>"),

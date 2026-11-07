@@ -17,6 +17,7 @@ def _msg(*, mid, cid, author_id, is_bot, content, guild_id=42):
     m.id = mid
     m.channel = MagicMock(); m.channel.id = cid
     m.guild = MagicMock(); m.guild.id = guild_id
+    m.webhook_id = None
     m.author = MagicMock(); m.author.id = author_id; m.author.bot = is_bot
     m.author.display_name = "Ann"
     m.author.display_avatar = MagicMock(); m.author.display_avatar.url = "http://a/av.png"
@@ -231,3 +232,25 @@ async def test_worker_delete_unlinks_files(tmp_path):
         await cog._handle({"op": "delete", "id": 1})
     db.delete_message.assert_called_once_with(1)
     assert not f.exists()
+
+
+def test_kind_relay_webhook_is_human_unknown_webhook_is_other_bot():
+    from types import SimpleNamespace
+    from bot.core import channel_relay
+    from bot.cogs.bridge import KIND_HUMAN, KIND_THIS_BOT, KIND_OTHER_BOT
+    cog = _make_cog()
+    channel_relay._hooks.clear()
+    channel_relay._hooks[100] = SimpleNamespace(id=777)
+    try:
+        relay = _msg(mid=1, cid=100, author_id=777, is_bot=True, content="reply")
+        relay.webhook_id = 777
+        assert cog._kind_for(relay) == KIND_HUMAN
+        other = _msg(mid=2, cid=100, author_id=778, is_bot=True, content="x")
+        other.webhook_id = 778
+        assert cog._kind_for(other) == KIND_OTHER_BOT
+        # this-bot check still wins, even if its id were somehow a relay hook id
+        mine = _msg(mid=3, cid=100, author_id=999, is_bot=True, content="x")
+        mine.webhook_id = 777
+        assert cog._kind_for(mine) == KIND_THIS_BOT
+    finally:
+        channel_relay._hooks.clear()

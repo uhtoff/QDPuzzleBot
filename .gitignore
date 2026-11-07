@@ -27,6 +27,7 @@ lib64/
 # the frontend's own source directory. Without this the module would only be
 # committable with `git add -f`, which is how a source file goes missing.
 !frontend/src/lib/
+!extension/src/lib/
 parts/
 # scripts/ is a Python-packaging artefact rule, but it also swallows this repo's own
 # scripts/ source directory. Keep the dir's non-source contents ignored (DB dumps,
