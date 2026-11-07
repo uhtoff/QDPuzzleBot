@@ -20,6 +20,6 @@ Puzzle Chat is a companion to a self-hosted web app (the Puzzbot dashboard) used
 7. Optional: on the dashboard, use "Work on this puzzle" on a puzzle: the extension opens or focuses the sheet tab.
 
 ## Notes
-- The extension reads only the URL and title of Google Sheets tabs (via the docs.google.com host permission); it never reads sheet contents.
+- The extension reads only the address (URL) of Google Sheets tabs (via the docs.google.com/spreadsheets host permission); it never reads sheet contents.
 - If the side panel shows "log in", log in to the dashboard in the same browser profile.
 - No remote code is loaded; all scripts are in the package.

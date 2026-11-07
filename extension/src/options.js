@@ -40,6 +40,7 @@ chrome.storage.sync.get({ notify: false }).then((v) => {
   }
 });
 notify.addEventListener("change", async () => {
+  status.textContent = "";
   if (notify.checked) {
     // Optional permission: must be requested first, inside the user gesture.
     const granted = await chrome.permissions.request({ permissions: ["notifications"] }).catch(() => false);

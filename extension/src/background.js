@@ -655,6 +655,7 @@ chrome.permissions.onAdded.addListener(() => {
 
 // The dashboard origin changed: everything learned from the old one is wrong for the new one.
 async function switchOrigin() {
+  await ready; // else the pending session hydration overwrites the reset state with the old origin's
   registerDashboardScript();
   setAttempt(0);
   detachSocket();

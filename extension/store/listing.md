@@ -30,7 +30,7 @@ Show and send the team's Discord chat for the puzzle in the open Google Sheet, v
 - storage: saves the user's settings (dashboard address, notification choice, group colours) and short-lived per-session state (which tab maps to which puzzle).
 - scripting: registers a content script on the user's own dashboard origin only, so the dashboard's buttons can ask the extension to open or focus puzzle sheets.
 - alarms: wakes the background worker to re-establish the live connection to the dashboard after a network drop and as a periodic watchdog.
-- Host permission https://docs.google.com/*: needed to see the address and title of Google Sheets tabs so the extension can tell which puzzle each tab is. No sheet content is read or modified.
+- Host permission https://docs.google.com/spreadsheets/*: needed to see the address (URL) of Google Sheets tabs so the extension can tell which puzzle each tab is. No sheet content is read or modified.
 - Optional permission "notifications": requested only when the user turns on desktop notifications in the options page.
 - Optional host permission (dashboard origin): requested at runtime for the single dashboard address the user configures (default https://quarantinedecrypters.com), to call its API and open its live connection. Permission for a previously configured address is removed when the address is changed.
 

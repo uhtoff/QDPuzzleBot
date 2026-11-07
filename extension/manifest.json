@@ -26,7 +26,7 @@
     "alarms"
   ],
   "host_permissions": [
-    "https://docs.google.com/*"
+    "https://docs.google.com/spreadsheets/*"
   ],
   "optional_host_permissions": [
     "https://*/*"
