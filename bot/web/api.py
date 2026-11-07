@@ -824,6 +824,19 @@ async def extension_ws_ticket():
     return jsonify({"ticket": ws_ticket.issue(session["user"]["id"])})
 
 
+@api_bp.route("/extension/csrf")
+@login_required
+async def extension_csrf():
+    """The session's CSRF token, for the extension to echo in X-CSRF-Token.
+
+    The extension cannot reliably read the csrf_token cookie; this hands it the
+    same session-bound token the guard in create_app compares against. The
+    before_request guard has already created it. Deliberately no CORS headers:
+    the response is only readable by same-origin / credentialed extension pages.
+    """
+    return jsonify({"csrf": session["csrf_token"]})
+
+
 @api_bp.websocket("/ws/activity")
 async def ws_activity():
     """Push live channel-activity events for guilds the user belongs to."""

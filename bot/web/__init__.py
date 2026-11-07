@@ -67,6 +67,7 @@ def _dist_dir():
 # optional trailing slash. Only these fall back to index.html; keep in step with
 # the <Route> list there.
 _CLIENT_ROUTES = (
+    re.compile(r"privacy/?"),
     re.compile(r"hunts/[A-Za-z0-9_-]+/?"),
     re.compile(r"guilds/\d+/settings/?"),
     re.compile(r"guilds/\d+/teams/?"),
