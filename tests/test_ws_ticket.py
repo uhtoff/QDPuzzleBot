@@ -140,3 +140,49 @@ async def test_ws_reused_ticket_is_closed():
 @pytest.mark.asyncio
 async def test_ws_session_path_unchanged_and_ignores_ticket():
     assert await _open("https://example.test", None, session_user={"id": 8}) == 8
+
+
+def test_reuse_rejected_even_after_pruning_runs():
+    """Nonce expiry shares the signature's wall clock: a jump in the monotonic
+    clock (the old expiry basis) must not free a nonce whose ticket is still valid."""
+    import time
+    from bot.web import ws_ticket
+    t = ws_ticket.issue(3)
+    assert ws_ticket.redeem(t) == "3"
+    with patch("time.monotonic", return_value=time.monotonic() + 10_000):
+        assert ws_ticket.redeem(t) is None
+
+
+@pytest.mark.asyncio
+async def test_ws_ticket_socket_drops_events_the_user_cannot_see():
+    from bot.web import api, events, ws_ticket
+    ticket = ws_ticket.issue(11)
+
+    async def visible(ev, user_id, guild_id):
+        return ev["channel_id"] == "ok"
+
+    with patch("bot.web.api.session", {}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "resolve_membership") as resolve, \
+         patch.object(api, "_activity_event_visible", side_effect=visible):
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        cfg.web_extension_origins = [EXT]
+        resolve.return_value = ({42}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            f"/api/ws/activity?ticket={ticket}", headers={"Origin": EXT}
+        ) as ws:
+            assert (await ws.receive_json())["type"] == "ready"
+            base = {"type": "message", "guild_id": 42}
+            events.publish({**base, "channel_id": "hidden"})
+            events.publish({**base, "channel_id": "ok"})
+            got = await ws.receive_json()
+    assert got["channel_id"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_ws_session_wins_and_does_not_consume_the_ticket():
+    from bot.web import ws_ticket
+    t = ws_ticket.issue(5)
+    assert await _open(EXT, t, session_user={"id": 8}) == 8
+    assert ws_ticket.redeem(t) == "5"
