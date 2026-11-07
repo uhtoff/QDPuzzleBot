@@ -60,16 +60,6 @@ def clean_category_name(name):
     return name[:100].strip()
 
 
-async def create_forum_post(forum, name, content="\u200b"):
-    """Create a post (thread) in a Discord forum channel.
-
-    Returns the Thread object. Handles discord.py 2.7.1 ThreadWithMessage wrapper.
-    """
-    result = await forum.create_thread(name=name, content=content)
-    # discord.py returns ThreadWithMessage(thread=Thread, message=Message)
-    return result.thread if hasattr(result, 'thread') else result
-
-
 def solve_divider_position(category):
     """Return the position of the SOLVE_DIVIDER channel in *category*, or False."""
     for channel in category.channels:
@@ -117,7 +107,6 @@ async def get_or_create_channel(
         created = True
 
     return (channel, created)
-
 
 
 # Discord's per-category channel cap; a full category falls back to top level.

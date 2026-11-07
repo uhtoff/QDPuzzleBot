@@ -2,8 +2,7 @@
 own target puzzle (or, for a target-less Group round, its dedicated chat
 channel), relocates every other member puzzle's Discord channel into the
 hunt's general category instead of deleting it, and leaves their DB
-rows/sheets untouched. Forum-layout rounds ignore keep_puzzles entirely (no
-"move to general category" equivalent for threads) and always full-delete.
+rows/sheets untouched.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -48,7 +47,7 @@ def _general_category(cat_id=500, divider_pos=1):
 @pytest.mark.asyncio
 async def test_keep_puzzles_deletes_target_and_relocates_feeder():
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=1)
 
     target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[5])
@@ -94,7 +93,7 @@ async def test_keep_puzzles_prefers_sibling_group_category_over_general():
     """A kept puzzle also tagged to another group lands in that group's
     category instead of the hunt's general category."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 7], solved=False)
@@ -141,11 +140,11 @@ async def test_keep_puzzles_prefers_sibling_group_category_over_general():
 
 @pytest.mark.asyncio
 async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_category():
-    """If a kept puzzle's other group has no usable category (e.g. forum-home,
-    or the group row is otherwise unresolvable), it still falls back to the
+    """If a kept puzzle's other group has no usable category (e.g. a channel
+    home, or the group row is otherwise unresolvable), it still falls back to the
     hunt's general category rather than being reported as a failure."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5, 7], solved=False)
@@ -188,7 +187,7 @@ async def test_keep_puzzles_falls_back_to_general_when_sibling_group_has_no_cate
 @pytest.mark.asyncio
 async def test_keep_puzzles_relocation_failure_reported():
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5])
@@ -232,7 +231,7 @@ async def test_keep_puzzles_relocation_failure_reported():
 @pytest.mark.asyncio
 async def test_keep_puzzles_group_type_deletes_chat_channel_keeps_feeder():
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
     tag_group.name = "Loose Ends"
 
@@ -271,34 +270,6 @@ async def test_keep_puzzles_group_type_deletes_chat_channel_keeps_feeder():
 
 
 @pytest.mark.asyncio
-async def test_forum_layout_ignores_keep_puzzles_full_deletes():
-    svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="forum")
-    tag_group = make_round(id=5, category_id=777, target_puzzle_id=0)
-
-    p1 = make_puzzle(id=1, channel_id=901, tags=[5])
-    p1_ch = MagicMock(id=901); p1_ch.delete = AsyncMock()
-    forum_ch = MagicMock(id=777); forum_ch.delete = AsyncMock()
-
-    guild = MagicMock()
-    guild.categories = []          # forum channel is NOT a category
-    guild.get_channel = MagicMock(side_effect=lambda cid: {901: p1_ch, 777: forum_ch}.get(cid))
-    guild.get_channel_or_thread = guild.get_channel
-
-    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
-         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
-               AsyncMock(return_value=False)):
-        pdb.get_all_from_tag_group.return_value = [p1]
-
-        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
-
-    pdb.delete.assert_called_once_with(1)     # keep_puzzles=True ignored for forum — full delete
-    forum_ch.delete.assert_awaited_once()
-    assert failed == []
-
-
-@pytest.mark.asyncio
 async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket_delete():
     """Integration coverage for the keep_channel_ids wiring: a puzzle whose
     channel fails to relocate must survive the real (non-mocked)
@@ -307,7 +278,7 @@ async def test_keep_puzzles_split_state_protects_relocation_failure_from_blanket
     from bot.store.tag_group_category_data import TagGroupCategoryData
 
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     feeder = make_puzzle(id=2, name="Feeder", channel_id=902, tags=[5])
@@ -362,7 +333,7 @@ async def test_deletes_categories_before_deleting_group_row():
     (and only tear down) the legacy single-category path and orphan the
     solved/overflow categories."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     round_cat = MagicMock(id=100)
@@ -401,7 +372,7 @@ async def test_full_delete_protects_foreign_target_puzzle():
     target puzzle also feeds this round) must be relocated, not deleted —
     deleting it would orphan the nested group's target_puzzle_id (review #30)."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
 
     ordinary = make_puzzle(id=2, name="Ordinary", channel_id=902, tags=[5])
@@ -452,7 +423,7 @@ async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel()
     mode must still have its dedicated chat channel deleted — this must not
     regress when to_keep is empty (regression guard for #30 fix)."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
     tag_group.name = "Loose Ends"
 
@@ -484,44 +455,6 @@ async def test_keep_puzzles_empty_target_less_round_still_deletes_chat_channel()
 
 
 @pytest.mark.asyncio
-async def test_full_delete_forum_mode_protects_foreign_target_puzzle():
-    """Forum-layout rounds always full-delete regardless of keep_puzzles (no
-    relocation story for threads), but must still protect a member puzzle
-    that is a DIFFERENT tag group's target — deleting it would orphan that
-    nested group's target_puzzle_id, same as the non-forum full-delete path
-    (review #30). Since a forum thread has no relocation equivalent, the
-    protected puzzle's thread is simply left alone: not deleted, not moved."""
-    svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="forum")
-    tag_group = make_round(id=5, category_id=100, target_puzzle_id=0)
-
-    nested_meta_target = make_puzzle(
-        id=3, name="Nested Meta", is_target=True, channel_id=903, tags=[5])
-
-    forum_ch = MagicMock(id=100); forum_ch.delete = AsyncMock()
-    nested_ch = MagicMock(id=903); nested_ch.edit = AsyncMock(); nested_ch.delete = AsyncMock()
-    guild = MagicMock()
-    guild.get_channel = MagicMock(side_effect=lambda cid: {100: forum_ch, 903: nested_ch}.get(cid))
-    guild.get_channel_or_thread = guild.get_channel
-
-    gsheet = MagicMock(); gsheet.delete_puzzle_spreadsheet = AsyncMock()
-
-    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
-         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
-         patch.object(svc, "_gsheet_cog", return_value=gsheet), \
-         patch.object(svc, "_safe_delete_channel", AsyncMock(return_value=True)) as safe_delete:
-        pdb.get_all_from_tag_group.return_value = [nested_meta_target]
-
-        failed = await svc.delete_round(guild, hunt, tag_group, keep_puzzles=True)
-
-    pdb.delete.assert_not_called()             # nested meta target: protected, not deleted
-    safe_delete.assert_not_awaited()           # its thread's own delete never attempted
-    nested_ch.edit.assert_not_awaited()        # no relocation attempted (no equivalent for threads)
-    forum_ch.delete.assert_awaited_once()      # forum channel itself still torn down
-    assert failed == []
-
-
-@pytest.mark.asyncio
 async def test_full_delete_keeps_shared_feeder_deletes_exclusive_feeder():
     """keep_puzzles=False must not delete a member puzzle that is ALSO tagged
     to another group (a shared feeder) — that group still needs it. Only the
@@ -529,7 +462,7 @@ async def test_full_delete_keeps_shared_feeder_deletes_exclusive_feeder():
     game for full delete; a shared feeder is relocated instead (data-loss
     regression: previously any non-target member was deleted outright)."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
 
     target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
@@ -589,7 +522,7 @@ async def test_full_delete_relocates_kept_target_whose_home_is_doomed_to_general
     false 'already placed' success, and the channel was orphaned to the guild
     root ('unclassified') when the category was torn down."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
 
     own_target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
@@ -649,7 +582,7 @@ async def test_full_delete_relocates_foreign_channel_before_category_teardown():
     teardown sweep — not swept up and deleted along with the round's own
     channels (data-loss regression)."""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=10, category_id=100, target_puzzle_id=1)
 
     target = make_puzzle(id=1, is_target=True, channel_id=901, tags=[10])
@@ -706,7 +639,7 @@ async def test_full_delete_refreshes_other_fed_targets():
     exclusivity fix — so this covers the still-deleted case: the round's own
     target, which is also tagged elsewhere.)"""
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=2)
     other_group = make_round(id=9, category_id=200, target_puzzle_id=0)
 
@@ -755,8 +688,7 @@ async def test_files_full_delete_removes_each_file_and_skips_a_mini_whose_file_w
     from bot.cogs.puzzles_gsheet import GoogleSheets
     svc = _svc()
     hunt = make_hunt(google_sheet_id="REF", solved_sheet_id="", sheet_mode="files",
-                     drive_folder_id="FOLDER", solved_folder_id="SOLVEDFOLDER",
-                     layout_mode="channel")
+                     drive_folder_id="FOLDER", solved_folder_id="SOLVEDFOLDER")
     tag_group = make_round(id=5, category_id=0, target_puzzle_id=1)
     target = make_puzzle(id=1, is_target=True, channel_id=0, tags=[5])
     target.google_sheet_id, target.google_page_id = "FILE1", 11

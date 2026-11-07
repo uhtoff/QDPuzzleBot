@@ -11,7 +11,7 @@ from tests.conftest import make_cog, make_ctx
 def _hunt():
     h = MagicMock()
     h.name = "H"; h.role_id = 0; h.start_time = None
-    h.channel_id = 60; h.layout_mode = "channel"
+    h.channel_id = 60
     h.archived = False
     h.roster_role_id = 0
     return h

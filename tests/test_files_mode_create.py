@@ -405,7 +405,6 @@ async def test_bang_create_reports_a_sheet_failure_and_leaves_nothing_behind():
     cog.check_available_space = AsyncMock(return_value=True)
     cog.service._maybe_relieve_overflow = AsyncMock()
     hunt = _files_hunt()
-    hunt.layout_mode = "category"
     guild = MagicMock()
     guild.channels = []
     ctx = MagicMock()

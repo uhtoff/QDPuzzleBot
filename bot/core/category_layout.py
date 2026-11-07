@@ -96,8 +96,8 @@ def primary_category(guild, tag_group):
     ``tag_group.category_id`` is the group's *home container* id, but the kind of
     Discord object it points at varies by how the group was created (see
     :class:`~bot.store.tag_group_data.TagGroupData.category_id`): a real category
-    for a normal channel-layout round/meta, but a forum channel, a group's text
-    channel, or an in-place-converted puzzle channel otherwise.
+    for a normal round/meta, but an in-place-converted puzzle's channel (or the
+    group chat channel it becomes after teardown) otherwise.
 
     This resolves the *primary category* sense: only groups whose home actually
     *is* a category resolve to one; the other kinds (whose home is some other
@@ -110,7 +110,7 @@ def primary_category(guild, tag_group):
 def group_chat_channel(guild, tag_group):
     """The dedicated text channel for a target-less (Group-type) round's
     primary category, or None if the group has a target, its primary category
-    can't be resolved (forum mode, or missing), or no channel matches. Same
+    can't be resolved (a channel home, or missing), or no channel matches. Same
     lookup group_rename_plan uses for its own rename step: the channel was
     created from clean_channel_name(tag_group.name) and every rename keeps
     that invariant, so matching by name (not by category name, which can gain
@@ -356,8 +356,8 @@ async def move_channel_to_owner(guild, owner, dao, channel, solved):
         return True
     if puzzle_count(primary) + 1 > CATEGORY_SOFT_LIMIT:
         if _category_by_id(guild, owner.category_id) is None:
-            # The owner's home is a channel (in-place-converted meta / forum
-            # mode), so `primary` is that channel's HOST category — not ours
+            # The owner's home is a channel (an in-place-converted meta),
+            # so `primary` is that channel's HOST category — not ours
             # to split. split_group would silently no-op on it (it resolves
             # via _category_by_id) and retrying recurses on identical state
             # forever. Skip the move instead, as the pre-overflow code did.
@@ -676,8 +676,7 @@ def group_rename_plan(guild, tag_group, new_name, dao):
     Renames every category the group owns (the single primary category, or every
     split unsolved/solved/overflow category) and, for a metaless Group, its
     dedicated text channel. NEVER includes the target puzzle's channel. Objects
-    Discord can no longer resolve are skipped. Forum layout (category_id is the
-    text channel) is handled best-effort but is out of active scope.
+    Discord can no longer resolve are skipped.
     """
     new_cat_base = clean_category_name(new_name)
     new_chan_name = clean_channel_name(new_name)
@@ -708,7 +707,8 @@ def group_rename_plan(guild, tag_group, new_name, dao):
             if ch is not None:
                 plan.append((ch, new_chan_name))
         else:
-            # Forum-mode Group: category_id IS the text channel.
+            # Group whose home is its own text channel (converted in place,
+            # then its target torn down): category_id IS that channel.
             ch = guild.get_channel(tag_group.category_id)
             if ch is not None:
                 plan.append((ch, new_chan_name))

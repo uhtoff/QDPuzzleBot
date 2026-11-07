@@ -27,7 +27,7 @@ def _ctx(categories, current):
 
 @pytest.mark.asyncio
 async def test_archive_round_split_owner_archives_all_categories():
-    hunt = make_hunt(id=10, layout_mode="channel")
+    hunt = make_hunt(id=10)
     group = make_round(id=5, category_id=100)
     cog = make_cog(hunt=hunt)
     unsolved, solved, overflow = _cat(100), _cat(200), _cat(201)
@@ -57,7 +57,7 @@ async def test_archive_round_split_owner_archives_all_categories():
 async def test_archive_round_single_category_keeps_legacy_path():
     """An unsplit round archives exactly the invoking channel's category, as
     before."""
-    hunt = make_hunt(id=10, layout_mode="channel")
+    hunt = make_hunt(id=10)
     cog = make_cog(hunt=hunt)
     cat = _cat(100)
     ctx = _ctx([cat], cat)

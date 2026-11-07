@@ -1037,11 +1037,11 @@ def test_primary_category_resolves_category_home():
 
 
 def test_primary_category_none_for_non_category_home():
-    """Forum/group/in-place homes store a non-category channel id, which is not
+    """Group/in-place homes store a non-category channel id, which is not
     among guild.categories -> None (the caller then skips category placement)."""
     cat = MagicMock(id=999)
     guild = MagicMock(categories=[cat])
-    tag_group = MagicMock(category_id=12345)  # a forum/text/puzzle channel id
+    tag_group = MagicMock(category_id=12345)  # a text/puzzle channel id
     assert layout.primary_category(guild, tag_group) is None
 
 

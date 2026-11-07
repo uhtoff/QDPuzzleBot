@@ -101,8 +101,7 @@ Notes:
 ```
 
 The trailing `, Team A` gates the hunt to that team role (`!set_hunt_role hunt-name, Team A`
-sets it afterwards). Append `, forum` for the forum-backed layout — note the forum path is
-being left to go stale; prefer the default category layout.
+sets it afterwards).
 
 **Then, manually, in Discord:** set the team role's permission overwrite on the hunt's
 **initial category**. Nothing in the bot does this. Every later category the bot creates

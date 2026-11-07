@@ -132,8 +132,6 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return "This hunt is already being archived.";
     case "use_hub_archive":
       return "This is a team hunt — archive it to the hub instead.";
-    case "forum_not_supported":
-      return "Forum-layout hunts can't be archived to a hub.";
     case "hub_role_missing":
       return "The hub role for this hunt no longer exists.";
     case "not_a_member":
@@ -932,7 +930,6 @@ export interface CreateHuntPayload {
   username?: string;
   password?: string;
   create_solved_sheet?: boolean;
-  layout_mode?: "channel" | "forum";
   sheet_mode?: "tabs" | "files";
   // Set on the second attempt after the backend asks to confirm reusing an
   // existing role (needs_confirm: "existing_role").

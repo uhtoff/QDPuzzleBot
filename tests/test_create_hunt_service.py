@@ -103,38 +103,6 @@ async def test_create_hunt_duplicate_name_does_not_commit():
 
 
 @pytest.mark.asyncio
-async def test_create_hunt_defaults_layout_mode_channel():
-    svc, guild = _create_service(), _create_guild()
-    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        hdb.check_duplicates.return_value = False
-        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
-    hunt = _committed_hunt(hdb.commit)
-    assert hunt.layout_mode == "channel"
-
-
-@pytest.mark.asyncio
-async def test_create_hunt_sets_layout_mode_forum():
-    svc, guild = _create_service(), _create_guild()
-    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        hdb.check_duplicates.return_value = False
-        await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                              layout_mode="forum")
-    hunt = _committed_hunt(hdb.commit)
-    assert hunt.layout_mode == "forum"
-
-
-@pytest.mark.asyncio
-async def test_create_hunt_rejects_bad_layout_mode():
-    svc, guild = _create_service(), _create_guild()
-    with patch("bot.core.puzzle_service.HuntJsonDb") as hdb:
-        hdb.check_duplicates.return_value = False
-        with pytest.raises(RuntimeError):
-            await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
-                                  layout_mode="bogus")
-    hdb.commit.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_create_hunt_captures_sheet_and_role():
     svc, guild = _create_service(), _create_guild()
     role = guild.create_role.return_value

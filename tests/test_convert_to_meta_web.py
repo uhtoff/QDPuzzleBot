@@ -1,5 +1,5 @@
 """The web convert-to-meta route must pass the live guild to the service so the
-Discord-side effects (channel glyph/name refresh, forum tags) actually run —
+Discord-side effects (channel glyph/name refresh) actually run —
 passing guild=None silently no-ops every guild-gated side effect."""
 from contextlib import asynccontextmanager
 from types import SimpleNamespace

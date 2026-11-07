@@ -39,24 +39,8 @@ async def test_hunt_default_is_tabs():
 async def test_hunt_files_token_selects_files():
     args, kwargs = await _run_hunt("m:https://h/, files")
     assert kwargs["sheet_mode"] == "files"
-    assert kwargs["layout_mode"] == "channel"
+    assert "layout_mode" not in kwargs
     assert (args[1], args[2], args[3]) == ("m", "https://h/", None)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("tail", [", forum, files", ", files, forum"])
-async def test_hunt_forum_and_files_in_either_order(tail):
-    args, kwargs = await _run_hunt("m:https://h/, Team A" + tail)
-    assert kwargs["sheet_mode"] == "files"
-    assert kwargs["layout_mode"] == "forum"
-    assert args[3] == "Team A"
-    assert args[2] == "https://h/"
-
-
-@pytest.mark.asyncio
-async def test_hunt_forum_alone_stays_tabs():
-    _, kwargs = await _run_hunt("m:https://h/, forum")
-    assert (kwargs["layout_mode"], kwargs["sheet_mode"]) == ("forum", "tabs")
 
 
 @pytest.mark.asyncio

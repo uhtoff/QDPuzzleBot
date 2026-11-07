@@ -13,7 +13,6 @@ def _hunt():
     h.role_id = 0
     h.start_time = None
     h.channel_id = 60
-    h.layout_mode = "channel"
     h.roster_role_id = None   # not a team-server hunt (a bare Mock attr would be truthy)
     return h
 

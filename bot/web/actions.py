@@ -759,7 +759,7 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "layout_mode", "confirm_existing_role", "sheet_mode"}
+                         "confirm_existing_role", "sheet_mode"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -774,8 +774,6 @@ async def create_hunt():
     extra = set(body.keys()) - _CREATE_HUNT_REQUIRED - _CREATE_HUNT_OPTIONAL
     if extra:
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
-    if body.get("layout_mode", "channel") not in ("channel", "forum"):
-        return jsonify({"error": "bad_layout_mode"}), 400
     if body.get("sheet_mode", "tabs") not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
     start_timestamp = body["start_timestamp"]
@@ -1050,8 +1048,6 @@ async def post_hunt_archive_to_hub(uid):
     from bot.core import hub_channel, hunt_archive, role_panel
     from bot.core.hub_archive_run import RUNNING_HUB_ARCHIVES, run_archive_to_hub
 
-    if getattr(hunt_obj, "layout_mode", "") == "forum":
-        return jsonify({"error": "forum_not_supported"}), 400
     if not getattr(hunt_obj, "roster_role_id", 0):
         return jsonify({"error": "not_a_team_hunt"}), 400
     roster = role_panel.find_roster_role(bot_app().bot, hunt_obj.roster_role_id)

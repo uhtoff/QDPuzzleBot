@@ -318,8 +318,8 @@ class Puzzles(commands.Cog):
             if puzzle:
                 channel_type = 'Puzzle'
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-                # A forum thread can be a group's target (meta/round/capstone): upgrade
-                # the type so !info treats it as a meta, mirroring the category path below.
+                # Upgrade the type when the thread's puzzle is a group's target so !info
+                # treats it as a meta, mirroring the category path below.
                 target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                 if target_group:
                     channel_type = target_group.type
@@ -344,10 +344,8 @@ class Puzzles(commands.Cog):
             if channel_type == 'Hunt':
                 hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             if channel_type == 'Group':
-                # Forum-mode Group: the text channel's OWN id is the group's category_id.
-                # Channel-mode Group: fallback to category lookup below.
-                tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.id)
-                if tag_group is None and channel_category is not None:
+                tag_group = None
+                if channel_category is not None:
                     tag_group = TagGroupJsonDb.get_by_attr(category_id=channel_category.id,)
                 if tag_group:
                     channel_type = tag_group.type
@@ -406,7 +404,7 @@ class Puzzles(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         # Pull valid rounds/metas from DB. Resolve the owning group through the
         # shared fallback (_tag_group_for_channel handles overflow/solved categories
-        # via the join table, forum threads, and null-category contexts); return []
+        # via the join table, threads, and null-category contexts); return []
         # when the context can't be resolved so the autocomplete never raises.
         channel = interaction.channel
         tag_group = self._tag_group_for_channel(channel)
@@ -658,7 +656,7 @@ class Puzzles(commands.Cog):
         return False
 
     async def check_available_space(self, ctx, required_channels = 0, required_categories = 0):
-        # Threads are uncapped (forum mode), always have space
+        # Threads (mini-puzzles) don't count toward channel caps, always have space
         if isinstance(ctx.channel, discord.Thread):
             return True
         # No per-category check here: round and hunt-general categories now
@@ -698,30 +696,21 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, forum][, files]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, files]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
-        Add `, Team A` to gate the hunt behind a role. Append `, forum` to use a
-        forum-backed layout (a forum channel per round), and/or `, files` for one
-        Google spreadsheet per puzzle in a Drive folder (any order). Run in the bot channel.
+        Add `, Team A` to gate the hunt behind a role. Append `, files` for one
+        Google spreadsheet per puzzle in a Drive folder. Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
             return
 
-        # Optional trailing ", forum" / ", files" tokens (either order) select the
-        # forum-backed layout / one-spreadsheet-per-puzzle mode. Strip them first so
-        # the existing name:url[, role] parsing below is unaffected.
-        layout_mode = "channel"
+        # An optional trailing ", files" token selects one-spreadsheet-per-puzzle
+        # mode. Strip it first so the name:url[, role] parsing below is unaffected.
         sheet_mode = "tabs"
         arg = arg.rstrip()
-        while True:
-            lowered = arg.lower()
-            if lowered.endswith(", forum"):
-                arg, layout_mode = arg[: -len(", forum")], "forum"
-            elif lowered.endswith(", files"):
-                arg, sheet_mode = arg[: -len(", files")], "files"
-            else:
-                break
+        if arg.lower().endswith(", files"):
+            arg, sheet_mode = arg[: -len(", files")], "files"
 
         role = None
         if ", " in arg:
@@ -730,7 +719,7 @@ class Puzzles(commands.Cog):
             hunt_name, hunt_url = arg.split(":", 1)
             if HuntJsonDb.check_duplicates(hunt_name, guild_id=ctx.guild.id):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
-            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode,
+            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role,
                                               sheet_mode=sheet_mode)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
@@ -741,7 +730,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          layout_mode: str = "channel", sheet_mode: str = "tabs"):
+                          sheet_mode: str = "tabs"):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
             return None
@@ -756,7 +745,6 @@ class Puzzles(commands.Cog):
                     url=hunt_url,
                     start_timestamp=0,
                     role_name=role_name,
-                    layout_mode=layout_mode,
                     sheet_mode=sheet_mode,
                     guild_id=settings.id if settings else 0,
                     creator=ctx.author,
@@ -1346,12 +1334,9 @@ class Puzzles(commands.Cog):
         """Resolve the tag_group owning a channel's category — primary category
         first, then the join table for solved/overflow categories."""
         if isinstance(channel, discord.Thread):
-            # Forum puzzle: parent is the forum, whose id == tag_group.category_id
-            parent = channel.parent
-            if parent is None:
-                return None
-            tg = TagGroupJsonDb.get_by_attr(category_id=parent.id)
-            return tg
+            # A mini-puzzle's thread: its parent is a text channel, not a group's
+            # category, so there is no owning group to resolve here.
+            return None
         if channel.category is None:
             return None
         tg = TagGroupJsonDb.get_by_attr(category_id=channel.category.id)
@@ -2043,9 +2028,6 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a main group channel")
             return
         hunt = self.get_hunt(ctx)
-        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
-            await ctx.send(":x: !sync is not available for forum hunts yet")
-            return
         meta_category = ctx.channel.category
         target_group = TagGroupJsonDb.get_by_attr(category_id=meta_category.id)
         if not target_group:
@@ -4048,10 +4030,6 @@ class Puzzles(commands.Cog):
         Example: `!archive_round`
         Run in a channel of the round to archive. Admins/mods only.
         Bang-only: no web-dashboard equivalent, by design."""
-        hunt = self.get_hunt(ctx)
-        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
-            await ctx.send(":x: !archive_round is not available for forum hunts yet")
-            return False
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
         ignore_channels = []
@@ -4212,9 +4190,6 @@ class Puzzles(commands.Cog):
             # Only !setup_server records a hub role, so this is a team server.
             await self._archive_to_hub(ctx, None)
             return
-        if getattr(hunt, "layout_mode", "") == "forum":
-            await ctx.send(":x: !archive_hunt is not available for forum hunts yet")
-            return
         team = hunt_archive.resolve_team_name(ctx.guild, hunt, ctx.author)
         final = hunt_archive.archived_channel_name(hunt, team)
         desc = (f"Archive hunt **{hunt.name}**? Condense every channel into threads on this "
@@ -4262,9 +4237,6 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
-            return
-        if getattr(hunt, "layout_mode", "") == "forum":
-            await ctx.send(":x: !archive_hunt_to_hub is not available for forum hunts yet")
             return
         if getattr(hunt, "archived", False):
             await ctx.send(":x: This hunt is already archived. Moving an in-place archive onto a hub isn't supported yet.")

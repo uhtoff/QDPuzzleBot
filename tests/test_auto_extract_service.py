@@ -200,7 +200,7 @@ async def test_create_puzzle_calls_relieve_overflow_before_placing():
     import bot.core.puzzle_service as ps
     svc = _svc()
     guild = MagicMock(); hunt = MagicMock(); hunt.id = 1
-    hunt.layout_mode = "channel"; hunt.url = None
+    hunt.url = None
     round_group = _group(20, "Metapuzzle", 3, 900)
     calls = []
     svc._maybe_relieve_overflow = AsyncMock(side_effect=lambda *a, **k: calls.append("relieve"))

@@ -14,15 +14,14 @@ from tests.conftest import (make_hunt, make_hunt_ctx, make_web_app,
 URL = "/api/hunts/U1/archive-to-hub"
 
 
-def _web(*, archived=False, roster_role_id=70, layout_mode="channel", roster_found=True,
+def _web(*, archived=False, roster_role_id=70, roster_found=True,
          hub_error=None, member=True, runner=None):
     cog = MagicMock()
     team_guild = MagicMock(); team_guild.id = 5
     team_guild.get_member.return_value = MagicMock() if member else None
     team_guild.fetch_member = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
     app = make_web_app("actions", cog=cog, get_guild=team_guild)
-    hunt = make_hunt(name="Big Hunt", roster_role_id=roster_role_id, layout_mode=layout_mode,
-                     archived=archived)
+    hunt = make_hunt(name="Big Hunt", roster_role_id=roster_role_id, archived=archived)
     hdb = MagicMock(); hdb.get_by_attr.return_value = hunt
     hub = MagicMock(); hub.id = 900
     role = MagicMock(); role.guild.id = 900
@@ -86,7 +85,6 @@ async def test_confirm_mismatch_refused():
 
 @pytest.mark.parametrize("kwargs, status, error", [
     ({"roster_role_id": 0}, 400, "not_a_team_hunt"),
-    ({"layout_mode": "forum"}, 400, "forum_not_supported"),
     ({"roster_found": False}, 409, "hub_role_missing"),
     ({"archived": True}, 403, "hunt_archived"),
     ({"member": False}, 403, "not_a_member"),

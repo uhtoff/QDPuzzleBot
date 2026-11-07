@@ -23,10 +23,8 @@ class TagGroupData:
     hunt_id: int = 0
     # The group's "home container" id in Discord — but WHICH kind of object it
     # points at depends on how the group was created:
-    #   * normal round / meta (channel layout) -> a Discord CATEGORY id
-    #   * forum-layout puzzle                  -> a FORUM CHANNEL id
-    #   * metaless Group (channel layout)      -> its cloned Discord CATEGORY id
-    #   * metaless Group (forum layout)        -> its text channel id
+    #   * normal round / meta                  -> a Discord CATEGORY id
+    #   * metaless Group                       -> its cloned Discord CATEGORY id
     #   * in-place-converted puzzle            -> the puzzle's own TEXT CHANNEL id
     # So this is a "group home", not always a category. To resolve it as a Discord
     # category (for channel placement/moves), use
