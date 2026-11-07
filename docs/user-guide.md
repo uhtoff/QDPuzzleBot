@@ -314,6 +314,33 @@ You still talk in Discord; the dashboard only mirrors it. Capturing messages is 
 feature an admin turns on when deploying; until it is enabled the viewer has no history to
 show, but the **Open in Discord** button always works.
 
+### Chrome extension (optional)
+
+The Puzzle Chat extension for Chrome puts a puzzle's Discord channel in a side panel
+beside its Google Sheet, so you can read and answer chat without switching windows.
+Install it from the link your organiser gives you (or see `extension/README.md` for the
+unpacked install), then stay logged in to the dashboard in the same Chrome profile. An
+admin must have listed the extension on the server (`web.extension_origins`), or the live
+chat connection is refused.
+
+- **Open the panel:** click the extension icon (Chrome won't open it for you). Once open and
+  pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle".
+- **Replying:** type in the panel and send. The bot posts it into the puzzle's channel under
+  your server name and avatar, with Discord's APP tag. Messages starting with `!` are refused
+  (run commands in Discord), mentions are disabled, you must be able to see and post in that
+  channel in Discord, and archived hunts refuse replies. The first reply you send may show the
+  default Discord avatar in the panel and dashboard transcript; later ones are fine.
+- **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
+  showing in an open panel. Desktop notifications are optional and off by default (extension
+  Options).
+- **Dashboard buttons**, shown only when the extension is installed: **Work on this puzzle**
+  (puzzle row and drawer), **Open round** (files-mode hunts only; opens the round's puzzle
+  sheets in a named tab group) and **Close solved tabs** (files mode only). In files mode,
+  opening a puzzle sheet that is already open switches to the existing tab.
+- **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
+- **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
+  instance is `https://puzzbot.com`) and the notifications switch.
+
 ### Evidence
 
 The hunt-wide clue log — everything recorded with `!clue`/`!clues`, filterable by source
