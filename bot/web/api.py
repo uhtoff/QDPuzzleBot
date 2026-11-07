@@ -859,7 +859,11 @@ async def ws_activity():
         last_sent = time.monotonic()
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_WS_PING_SECONDS)
+                # Wake when the next ping is due, not a full interval from now, so a
+                # dropped event late in the interval cannot double the gap.
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=max(0.0, _WS_PING_SECONDS - (time.monotonic() - last_sent)))
             except asyncio.TimeoutError:
                 event = None
 

@@ -252,3 +252,30 @@ async def test_activity_websocket_pings_despite_a_busy_queue_of_dropped_events()
             finally:
                 task.cancel()
             assert msg == {"type": "ping"}
+
+
+@pytest.mark.asyncio
+async def test_activity_websocket_dropped_event_late_in_interval_does_not_delay_ping():
+    """A dropped event just before the ping is due must not restart the full wait:
+    the next ping lands ~1 interval after the previous frame, not ~2."""
+    import time
+    from bot.web import api, events
+    interval = 0.2
+    with patch("bot.web.api.session", {"user": {"id": 1}}), \
+         patch("bot.web.api.config") as cfg, \
+         patch.object(api, "_WS_PING_SECONDS", interval), \
+         patch.object(api, "resolve_membership") as resolve:
+        cfg.web_oauth_redirect_uri = "https://example.test/cb"
+        resolve.return_value = ({1: object()}, {})
+        client = _real_app().test_client()
+        async with client.websocket(
+            "/api/ws/activity", headers={"Origin": "https://example.test"}
+        ) as ws:
+            assert (await asyncio.wait_for(ws.receive_json(), 2))["type"] == "ready"
+            assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            t0 = time.monotonic()
+            await asyncio.sleep(interval * 0.85)
+            events.publish({"type": "activity", "guild_id": 999,
+                            "channel_id": "1", "at": "x"})
+            assert await asyncio.wait_for(ws.receive_json(), 2) == {"type": "ping"}
+            assert time.monotonic() - t0 < interval * 1.3
