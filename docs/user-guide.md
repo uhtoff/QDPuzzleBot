@@ -132,6 +132,13 @@ Run these in the **puzzle's** channel, naming the target group:
 A puzzle can feed more than one meta — tag it once per meta. The meta's roll-up sheet
 gathers whatever feeds it: answers from `feeds` tags, facts from `informs` tags.
 
+**Working notes on a roll-up:** add your own columns *inside* the roll-up table, to the
+right of **Content** (right-click the Content column → *Insert 1 column right*), rather
+than typing in loose cells beside it. A column inside the table belongs to its row, so
+your note stays with that puzzle as the bot updates the table. Don't put columns between
+Source, Type and Content: the bot rewrites those columns, and anything inserted among
+them will be overwritten.
+
 ### Changing your mind about what a puzzle is
 
 Target channels carry a leading emoji so you can spot them in the channel list: 🧩 a
