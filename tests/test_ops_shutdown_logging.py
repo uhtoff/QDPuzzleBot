@@ -10,6 +10,7 @@ import json
 import logging
 import logging.handlers
 import signal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -84,8 +85,8 @@ async def test_ops_second_signal_exits_without_closing_twice(monkeypatch):
     fake.close.assert_awaited_once()
 
 
-def test_ops_log_handler_rotates(tmp_path, monkeypatch):
-    """A plain FileHandler grows unbounded -- nothing on the host rotates it."""
+def test_ops_log_handler_rotates_daily_and_keeps_30(tmp_path, monkeypatch):
+    """The privacy page promises daily rotation and deletion after 30 days."""
     monkeypatch.chdir(tmp_path)  # keep discord.log out of the checkout
     root = logging.getLogger()
     before = list(root.handlers)
@@ -94,14 +95,43 @@ def test_ops_log_handler_rotates(tmp_path, monkeypatch):
         added = [h for h in root.handlers if h not in before]
         assert len(added) == 1
         handler = added[0]
-        assert isinstance(handler, logging.handlers.RotatingFileHandler)
-        assert handler.maxBytes > 0, "maxBytes=0 disables rotation entirely"
-        assert handler.backupCount > 0, "backupCount=0 discards history on roll"
+        assert isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+        assert handler.when == "MIDNIGHT"
+        assert handler.backupCount == 30, "backupCount=0 keeps logs forever"
     finally:
         for h in list(root.handlers):
             if h not in before:
                 root.removeHandler(h)
                 h.close()
+
+
+@pytest.mark.asyncio
+async def test_ops_dashboard_access_log_goes_to_a_logger_not_stdout(monkeypatch):
+    """Hypercorn's accesslog='-' writes to stdout (bot.log, cleared only on restart)."""
+    import bot.web as web
+
+    captured = {}
+
+    async def fake_serve(app, cfg, shutdown_trigger=None):
+        captured["cfg"] = cfg
+        captured["trigger"] = shutdown_trigger
+
+    monkeypatch.setattr(web, "serve", fake_serve)
+    monkeypatch.setattr(web, "create_app", lambda bot: object())
+    monkeypatch.setattr(web.config, "web_enabled", True, raising=False)
+    monkeypatch.setattr(web.config, "web_session_secret", "x" * 64, raising=False)
+    monkeypatch.setattr(web, "_valid_session_secret", lambda s: True)
+    monkeypatch.setattr(web.config, "web_host", "127.0.0.1", raising=False)
+    monkeypatch.setattr(web.config, "web_port", 8123, raising=False)
+
+    task = await web.start_web(SimpleNamespace())
+    await task
+
+    cfg = captured["cfg"]
+    assert isinstance(cfg.accesslog, logging.Logger)
+    assert isinstance(cfg.errorlog, logging.Logger)
+    assert cfg.bind == ["127.0.0.1:8123"]
+    assert captured["trigger"] is not None, "without it hypercorn grabs SIGTERM"
 
 
 def test_ops_config_template_covers_every_key_the_code_reads():

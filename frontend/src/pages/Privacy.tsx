@@ -46,6 +46,14 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           can see. A session cookie keeps you signed in.
         </Text>
 
+        <Title order={3}>Team Discord servers</Title>
+        <Text>
+          When you join or leave a team&apos;s Discord server, the bot keeps a record of it: who
+          you are (your Discord user id and display name at the time), which server, when it
+          happened, and any change to your roles there, including who made the change when
+          that is known. This is the hunt&apos;s access log, and it is kept with the hunt.
+        </Text>
+
         <Title order={3}>Puzzle channels</Title>
         <Text>
           If the message bridge is enabled, messages posted in puzzle channels (author name and
@@ -86,8 +94,9 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
 
         <Title order={3}>Retention and deletion</Title>
         <Text>
-          Chat and archive data are kept for the life of the hunt archive. Server logs, which
-          include requested addresses, are kept for [RETENTION PERIOD — operator to confirm].
+          Chat and archive data are kept for the life of the hunt archive. Server logs record the
+          addresses requested (for the extension, that includes the sheet id it asks about) and
+          may include IP addresses. They are rotated daily and deleted after 30 days.
           To request deletion or a copy of your data, contact{" "}
           {site.contact || "the operator of this site"}.
         </Text>

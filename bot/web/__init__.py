@@ -12,6 +12,9 @@ import re
 import secrets
 from pathlib import Path
 
+from hypercorn.asyncio import serve
+from hypercorn.config import Config as HyperConfig
+
 from bot.utils import config
 
 logger = logging.getLogger(__name__)
@@ -195,6 +198,21 @@ def create_app(bot):
     return app
 
 
+def _hypercorn_config(host: str, port: int) -> HyperConfig:
+    """Mirror Quart.run_task's Hypercorn config, except that the access and error
+    logs go to Python loggers (and so to the root logger's rotating discord.log)
+    instead of stdout, where they would pile up in bot.log until a restart."""
+    config_ = HyperConfig()
+    config_.access_log_format = "%(h)s %(r)s %(s)s %(b)s %(D)s"
+    config_.accesslog = logging.getLogger("hypercorn.access")
+    config_.errorlog = logging.getLogger("hypercorn.error")
+    if host.startswith("unix:") or host.startswith("fd:"):
+        config_.bind = [host]
+    else:
+        config_.bind = [f"{host}:{port}"]
+    return config_
+
+
 async def start_web(bot):
     """Start the web server as a background task on the bot's event loop."""
     if not config.web_enabled:
@@ -223,9 +241,9 @@ async def start_web(bot):
         await bot._web_shutdown.wait()
 
     task = asyncio.create_task(
-        app.run_task(
-            host=config.web_host,
-            port=config.web_port,
+        serve(
+            app,
+            _hypercorn_config(config.web_host, config.web_port),
             shutdown_trigger=_wait_shutdown,
         ),
         name="web-dashboard",

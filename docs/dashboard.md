@@ -133,6 +133,13 @@ Restart the bot after editing. See `extension/README.md` for finding the ID and 
 
 See `memory/site-hunt-visibility.md` for the full model.
 
+## Log retention
+
+`discord.log` (which also receives the dashboard's per-request access lines) rotates daily and
+keeps 30 days; the handler deletes older files. In Plesk, set the subscription's Log Rotation to
+remove logs older than 30 days for the site's web-server logs, so the privacy page's retention
+claim holds there too.
+
 ## Deploy steps (run when ready)
 
 > These steps stand up a **single** instance. For the production model — a **live + test** bot side
