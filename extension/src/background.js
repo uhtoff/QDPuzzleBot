@@ -6,6 +6,7 @@ import { backoffDelay } from "./lib/backoff.js";
 import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
+import { groupColour } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
 
@@ -319,7 +320,7 @@ async function openRound(name, urls, senderTab) {
   }
   if (!tabIds.length) return;
   const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: name });
+  await chrome.tabGroups.update(groupId, { title: name, color: groupColour(name) });
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)
