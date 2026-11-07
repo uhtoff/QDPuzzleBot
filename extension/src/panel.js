@@ -1,7 +1,7 @@
 import { rewriteMentions, tokenise, embedLines, emojiUrl } from "./lib/discordText.js";
 import { isBlank, messageView, isBangCommand, errorText } from "./lib/format.js";
 import { canCompose, validate, draftAfterSend } from "./lib/composer.js";
-import { applyEvent, eventChannel, sameTarget, mergeHistory } from "./lib/panelState.js";
+import { applyEvent, eventChannel, sameTarget, mergeHistory, targetChannel } from "./lib/panelState.js";
 import { attachmentView } from "./lib/attachments.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
 import { apiGet, apiSend, getOrigin } from "./api.js";
@@ -210,7 +210,7 @@ draft.addEventListener("keydown", (e) => {
 async function setState({ state, puzzle, channelNames: names }) {
   currentPuzzle = puzzle ?? null;
   channelNames = names ?? {};
-  const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
+  const next = { state, channelId: targetChannel(state, puzzle) };
   const same = sameTarget(current, next);
   current = next;
   renderHead(puzzle, state);
@@ -227,7 +227,8 @@ async function setState({ state, puzzle, channelNames: names }) {
   showComposerError(null);
   messages = [];
   log.replaceChildren();
-  if (state === "not_puzzle") showNotice("Not a puzzle sheet.");
+  if (state === "loading") showNotice("Loading\u2026");
+  else if (state === "not_puzzle") showNotice("Not a puzzle sheet.");
   else if (state === "no_channel") showNotice("This puzzle has no Discord channel.");
   else if (state === "error") {
     const origin = await getOrigin();
@@ -273,6 +274,10 @@ function connectPort() {
   port.onMessage.addListener((msg) => {
     if (msg.type === "puzzle") {
       setState(msg);
+    } else if (msg.type === "reset") {
+      // Dashboard origin changed or was revoked: drop history and composer, then ask afresh.
+      setState({ state: "loading" });
+      askState();
     } else if (msg.type === "names") {
       if (currentPuzzle?.hunt_uid === msg.huntUid) {
         channelNames = { ...channelNames, ...msg.channelNames };

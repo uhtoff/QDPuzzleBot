@@ -1,7 +1,7 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
-import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
+import { cacheValid, stateFor, shouldDeliver, needsLookup, loadingSnapshot } from "./lib/panelState.js";
+import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { createLookupGen } from "./lib/lookupGen.js";
 import { shouldApplyLookup, shouldCloseTab, planWindowClose } from "./lib/closeSolved.js";
@@ -135,6 +135,8 @@ function registerNotificationClick() {
   chrome.notifications.onClicked.addListener(async (id) => {
     const target = parseNotificationId(id);
     if (!target) return;
+    // Synchronously, before any await, to stay inside the click's user gesture; Chrome may still reject it.
+    chrome.sidePanel.open({ windowId: target.windowId }).catch(() => {});
     chrome.notifications.clear(id);
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return;
@@ -168,7 +170,13 @@ async function registerDashboardScript() {
 }
 registerDashboardScript();
 chrome.permissions.onAdded.addListener(() => registerDashboardScript());
-chrome.permissions.onRemoved.addListener(() => registerDashboardScript());
+chrome.permissions.onRemoved.addListener(async (removed) => {
+  registerDashboardScript();
+  // Access to the current dashboard was revoked: forget everything learned from it.
+  if (removesOrigin(removed.origins, await getOrigin())) {
+    await resetDashboardState();
+  }
+});
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   setupPanel();
@@ -242,6 +250,20 @@ async function snapshot(tabId) {
 async function refreshTab(tab, only) {
   await ready;
   const tabId = tab.id;
+  if (needsLookup(registry.get(tabId), tab.url)) {
+    // The tab moved to another sheet: the old entry (and any composer bound to its
+    // channel) must go NOW, not when the lookup lands.
+    registry.delete(tabId);
+    failures.delete(tabId);
+    persist();
+    const fresh = await chrome.tabs.get(tabId).catch(() => null);
+    if (!registry.get(tabId)) {
+      for (const [p, windowId] of ports) {
+        if ((only && p !== only) || !shouldDeliver(windowId, fresh)) continue;
+        safePost(p, loadingSnapshot(tabId));
+      }
+    }
+  }
   if (!parseSheetUrl(tab.url ?? "")) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
     registry.delete(tabId);
@@ -487,7 +509,12 @@ async function closeSolved() {
     const { closing, needBlank } = planWindowClose(all, candidates, windowId);
     if (!closing.length) continue;
     if (needBlank) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
-    await chrome.tabs.remove(closing).catch(() => {});
+    for (const tabId of closing) {
+      // Final check immediately before removal: no other await between get and remove.
+      const spreadsheetId = solved.find((s) => s.tabId === tabId)?.spreadsheetId;
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (shouldCloseTab(tab, spreadsheetId)) chrome.tabs.remove(tabId).catch(() => {});
+    }
   }
 }
 
@@ -654,10 +681,10 @@ chrome.permissions.onAdded.addListener(() => {
 });
 
 // The dashboard origin changed: everything learned from the old one is wrong for the new one.
-async function switchOrigin() {
+// Drop everything learned from the old origin and tell open panels to drop their
+// history and composer.
+async function resetDashboardState() {
   await ready; // else the pending session hydration overwrites the reset state with the old origin's
-  registerDashboardScript();
-  setAttempt(0);
   detachSocket();
   setSocket(false);
   lookupGen.reset(); // in-flight lookups against the old origin must not write back
@@ -667,6 +694,13 @@ async function switchOrigin() {
   unread = createUnread({ isTracked });
   persist();
   updateBadge();
+  broadcast({ type: "reset" });
+}
+
+async function switchOrigin() {
+  registerDashboardScript();
+  setAttempt(0);
+  await resetDashboardState();
   if (connecting) restartConnect = true; // in-flight attempt abandons itself (origin re-check) then restarts
   else connect();
   scanOpenTabs();

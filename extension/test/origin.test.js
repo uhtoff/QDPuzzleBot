@@ -24,3 +24,12 @@ describe("origin helpers", () => {
     expect(safeAvatarUrl(null)).toBeNull();
   });
 });
+
+import { removesOrigin } from "../src/lib/origin.js";
+describe("removesOrigin", () => {
+  it("matches the dashboard origin among removed patterns", () => {
+    expect(removesOrigin(["https://other.example/*", "https://a.example/*"], "https://a.example")).toBe(true);
+    expect(removesOrigin(["https://b.example/*"], "https://a.example")).toBe(false);
+    expect(removesOrigin(undefined, "https://a.example")).toBe(false);
+  });
+});
