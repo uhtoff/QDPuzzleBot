@@ -19,7 +19,8 @@
 - Files mode is the target for tab reuse / open round / close solved; in tabs mode only the panel works (follows the current `#gid=`).
 - Python tests: `timeout 180 pipenv run python -m pytest <files> -q -p no:cacheprovider > <log> 2>&1`; `pipenv run ruff check`; `timeout 300 pipenv run basedpyright bot/` = 0 errors.
 - Extension tests: `cd extension && timeout 120 npm test`.
-- Work in worktree `.claude/worktrees/working-3` (fast-forward to `staging` first; copy nothing — config is already there).
+- Work in worktree `.claude/worktrees/working-3`, branch `working-3`, **based on `main`, not `staging`** — the extension ships to live ahead of the 2026-11 cleanup now on `staging` (copy nothing — config is already there). Never merge `staging` into this branch.
+- For test-instance checks, merge `working-3` into `staging` (a merge commit, never a rebase) and push `staging`; expect small conflicts only in `frontend/src/components/BoardGroup.tsx` and `docs/user-guide.md`. Shipping = fast-forward `main` to `working-3` — only when the user says so (live is held while hunts run; the user may choose to try it on a running hunt).
 
 ## Review Focus
 
