@@ -1,8 +1,9 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
-import { cacheValid, stateFor, shouldDeliver, needsLookup, loadingSnapshot } from "./lib/panelState.js";
+import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
+import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
 import { shouldApplyLookup, shouldCloseTab, planWindowClose } from "./lib/closeSolved.js";
 import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
@@ -20,6 +21,7 @@ const PANEL_PATH = "src/panel.html";
 let registry = createRegistry();
 const lookupGen = createLookupGen();
 const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient)
+const failedFor = new Map(); // tabId -> {spreadsheetId, gid} the failure was recorded for
 const ports = new Map(); // port -> windowId
 let socketUp = false;
 const isTracked = (channelId) => registry.tabsForChannel(channelId).length > 0;
@@ -194,6 +196,7 @@ async function lookup(tabId, url, windowId) {
   if (!parsed) {
     registry.delete(tabId);
     failures.delete(tabId);
+    failedFor.delete(tabId);
     persist();
     return true;
   }
@@ -206,11 +209,14 @@ async function lookup(tabId, url, windowId) {
   if (res.authRequired) {
     registry.delete(tabId);
     failures.set(tabId, "auth");
+    failedFor.set(tabId, parsed);
   } else if (res.error) {
     registry.delete(tabId);
     failures.set(tabId, res.status === 404 ? "notfound" : "error");
+    failedFor.set(tabId, parsed);
   } else {
     failures.delete(tabId);
+    failedFor.delete(tabId);
     registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, spreadsheetId: parsed.spreadsheetId, gid: parsed.gid, windowId });
   }
   persist();
@@ -250,24 +256,12 @@ async function snapshot(tabId) {
 async function refreshTab(tab, only) {
   await ready;
   const tabId = tab.id;
-  if (needsLookup(registry.get(tabId), tab.url)) {
-    // The tab moved to another sheet: the old entry (and any composer bound to its
-    // channel) must go NOW, not when the lookup lands.
-    registry.delete(tabId);
-    failures.delete(tabId);
-    persist();
-    const fresh = await chrome.tabs.get(tabId).catch(() => null);
-    if (!registry.get(tabId)) {
-      for (const [p, windowId] of ports) {
-        if ((only && p !== only) || !shouldDeliver(windowId, fresh)) continue;
-        safePost(p, loadingSnapshot(tabId));
-      }
-    }
-  }
+  if (invalidateOnNavigate({ tab, registry, failures, failedFor, lookupGen, ports, post: safePost })) persist();
   if (!parseSheetUrl(tab.url ?? "")) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
     registry.delete(tabId);
     failures.delete(tabId);
+    failedFor.delete(tabId);
     persist();
   } else if (!(await lookup(tabId, tab.url, tab.windowId))) {
     return; // superseded: the newer refresh delivers
@@ -376,6 +370,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   await ready;
   registry.delete(tabId);
   failures.delete(tabId);
+  failedFor.delete(tabId);
   persist();
   reconcileUnread();
 });
@@ -508,6 +503,16 @@ async function closeSolved() {
     const all = await chrome.tabs.query({ windowId }).catch(() => []);
     const { closing, needBlank } = planWindowClose(all, candidates, windowId);
     if (!closing.length) continue;
+    // Re-check each tab now, before deciding on a blank tab, so none is left when nothing closes.
+    const ready2 = (
+      await Promise.all(
+        closing.map(async (id) => {
+          const spreadsheetId = solved.find((s) => s.tabId === id)?.spreadsheetId;
+          return shouldCloseTab(await chrome.tabs.get(id).catch(() => null), spreadsheetId) ? id : null;
+        }),
+      )
+    ).filter((id) => id !== null);
+    if (ready2.length !== closing.length) continue; // something changed: leave this window for the next run
     if (needBlank) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
     for (const tabId of closing) {
       // Final check immediately before removal: no other await between get and remove.
@@ -690,6 +695,7 @@ async function resetDashboardState() {
   lookupGen.reset(); // in-flight lookups against the old origin must not write back
   names.clear();
   failures.clear();
+  failedFor.clear();
   registry = createRegistry();
   unread = createUnread({ isTracked });
   persist();
