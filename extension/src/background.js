@@ -108,6 +108,8 @@ async function handleMessage(ev) {
   updateBadge();
   const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
   if (!notify || !shouldNotify(ev.message)) return;
+  // "notifications" is an optional permission: skip silently until/unless granted.
+  if (!chrome.notifications || !(await chrome.permissions.contains({ permissions: ["notifications"] }).catch(() => false))) return;
   const channelId = String(ev.channel_id);
   const tabId = registry.tabsForChannel(channelId)[0];
   const huntMap = await huntNames(registry.get(tabId)?.hunt_uid, wantedChannel(ev.message));
@@ -124,15 +126,24 @@ async function handleMessage(ev) {
     .catch(() => {});
 }
 
-chrome.notifications.onClicked.addListener(async (id) => {
-  const target = parseNotificationId(id);
-  if (!target) return;
-  chrome.notifications.clear(id);
-  const tab = await chrome.tabs.get(target.tabId).catch(() => null);
-  if (!tab) return;
-  chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
-  chrome.tabs.update(tab.id, { active: true }).catch(() => {});
-});
+// chrome.notifications is undefined until the optional permission is granted, so register
+// on startup if present and again when the permission is added.
+let notificationClickRegistered = false;
+function registerNotificationClick() {
+  if (notificationClickRegistered || !chrome.notifications) return;
+  notificationClickRegistered = true;
+  chrome.notifications.onClicked.addListener(async (id) => {
+    const target = parseNotificationId(id);
+    if (!target) return;
+    chrome.notifications.clear(id);
+    const tab = await chrome.tabs.get(target.tabId).catch(() => null);
+    if (!tab) return;
+    chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  });
+}
+registerNotificationClick();
+chrome.permissions.onAdded.addListener(registerNotificationClick);
 
 // One global side panel for every tab; non-puzzle tabs show "not a puzzle".
 function setupPanel() {
@@ -573,6 +584,7 @@ async function doConnect() {
   // Chrome withholds the session cookie from a service-worker websocket, so
   // authenticate with a fresh single-use ticket fetched over cookie-carrying HTTP.
   const t = await apiGet(WS_TICKET_PATH);
+  if ((await getOrigin()) !== origin) return; // origin changed while we awaited: the restart handles it
   if (!t || t.authRequired || t.error || !t.ticket) {
     scheduleReconnect(); // logged out / dashboard unreachable: idle with backoff
     return;
@@ -641,14 +653,27 @@ chrome.permissions.onAdded.addListener(() => {
   if (needsSocket(ws?.readyState)) connect();
 });
 
+// The dashboard origin changed: everything learned from the old one is wrong for the new one.
+async function switchOrigin() {
+  registerDashboardScript();
+  setAttempt(0);
+  detachSocket();
+  setSocket(false);
+  lookupGen.reset(); // in-flight lookups against the old origin must not write back
+  names.clear();
+  failures.clear();
+  registry = createRegistry();
+  unread = createUnread({ isTracked });
+  persist();
+  updateBadge();
+  if (connecting) restartConnect = true; // in-flight attempt abandons itself (origin re-check) then restarts
+  else connect();
+  scanOpenTabs();
+}
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
-    registerDashboardScript();
-    setAttempt(0);
-    detachSocket();
-    setSocket(false);
-    if (connecting) restartConnect = true; // in-flight attempt may hold the old origin
-    else connect();
+    switchOrigin();
   }
 });
 

@@ -3,17 +3,19 @@
 export function createNameCache({ fetcher, now = Date.now, ttl = 60000, refetchGap = 30000 }) {
   const hunts = new Map(); // huntUid -> { map, at, tried }
   const pending = new Map(); // huntUid -> in-flight promise (single-flight)
+  let epoch = 0; // bumped by clear(): loads started before it must not repopulate the cache
   async function load(huntUid, e) {
+    const mine = epoch;
     try {
       const map = await fetcher(huntUid);
-      hunts.set(huntUid, { map, at: now(), tried: now() });
+      if (mine === epoch) hunts.set(huntUid, { map, at: now(), tried: now() });
       return map;
     } catch {
       const keep = e?.map ?? {};
-      hunts.set(huntUid, { map: keep, at: e?.at ?? -Infinity, tried: now() });
+      if (mine === epoch) hunts.set(huntUid, { map: keep, at: e?.at ?? -Infinity, tried: now() });
       return keep;
     } finally {
-      pending.delete(huntUid);
+      if (mine === epoch) pending.delete(huntUid);
     }
   }
   async function ensure(huntUid, wantId) {
@@ -29,7 +31,12 @@ export function createNameCache({ fetcher, now = Date.now, ttl = 60000, refetchG
     pending.set(huntUid, p);
     return p;
   }
-  return { ensure, cached: (huntUid) => hunts.get(huntUid)?.map ?? {} };
+  function clear() {
+    epoch++;
+    hunts.clear();
+    pending.clear();
+  }
+  return { ensure, clear, cached: (huntUid) => hunts.get(huntUid)?.map ?? {} };
 }
 
 // Hunt map first, then open tabs (registry), then "#channel" (caller's default).

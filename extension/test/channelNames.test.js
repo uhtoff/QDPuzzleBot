@@ -93,3 +93,25 @@ describe("resolveName", () => {
     expect(resolveName("3", undefined, undefined)).toBeNull();
   });
 });
+
+describe("createNameCache.clear", () => {
+  it("drops cached maps and ignores a load that was in flight at clear time", async () => {
+    let release;
+    let calls = 0;
+    const cache = createNameCache({
+      fetcher: () => {
+        calls++;
+        return new Promise((r) => (release = r));
+      },
+    });
+    const inflight = cache.ensure("h1");
+    cache.clear();
+    release({ 1: "old-origin" });
+    await inflight;
+    expect(cache.cached("h1")).toEqual({}); // stale result not stored
+    const next = cache.ensure("h1"); // fresh fetch, not the pending old one
+    release({ 1: "new-origin" });
+    expect(await next).toEqual({ 1: "new-origin" });
+    expect(calls).toBe(2);
+  });
+});
