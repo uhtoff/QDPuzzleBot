@@ -27,7 +27,23 @@ const ready = (async () => {
     /* start empty */
   }
   updateBadge();
+  // Not awaited: the scan does network lookups and must not stall every handler waiting on `ready`.
+  scanOpenTabs();
 })();
+
+// storage.session is empty after install/reload/browser restart and restored tabs fire no
+// events until visited, so register already-open sheet tabs here. No tab reuse: not new arrivals.
+async function scanOpenTabs() {
+  const tabs = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
+  for (const tab of tabs) {
+    if (registry.get(tab.id)) continue;
+    try {
+      await refreshTab(tab);
+    } catch {
+      /* one bad tab must not stop the scan */
+    }
+  }
+}
 
 const persist = () =>
   chrome.storage.session.set({ registryEntries: registry.entries(), unreadEntries: unread.serialise() }).catch(() => {});
@@ -376,8 +392,11 @@ function ensureKeepalive() {
 async function connect() {
   clearTimeout(timer);
   timer = null;
-  ensureKeepalive();
   const origin = await getOrigin();
+  // No host permission yet (fresh install): stay idle; permissions.onAdded reconnects.
+  const granted = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
+  if (!granted) return;
+  ensureKeepalive();
   try {
     ws = new WebSocket(wsUrl(origin));
   } catch {
@@ -412,6 +431,11 @@ function scheduleReconnect() {
   clearTimeout(timer);
   timer = setTimeout(connect, backoffDelay(attempt++));
 }
+
+chrome.permissions.onAdded.addListener(() => {
+  attempt = 0;
+  if (!ws || ws.readyState > 1) connect();
+});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && changes.dashboardOrigin) {
