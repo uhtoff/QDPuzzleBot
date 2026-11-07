@@ -1,0 +1,7 @@
+{
+  "name": "puzzle-chat-extension",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run" },
+  "devDependencies": { "vitest": "^4.1.10" }
+}

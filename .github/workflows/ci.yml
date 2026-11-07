@@ -112,3 +112,22 @@ jobs:
       - run: npm test
       - name: Type-check and build
         run: npm run build
+
+  extension:
+    # Pure-helper unit tests for the Chrome extension; no build step.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - run: npm ci
+      - run: npm test
