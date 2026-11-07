@@ -30,5 +30,6 @@ export function pickColour(name, usedColours, remembered) {
 // An open group whose title matches the round name (trimmed, case-insensitive).
 export function findRoundGroup(name, groups) {
   const want = String(name ?? "").trim().toLowerCase();
+  if (want === "") return null;
   return groups.find((g) => String(g.title ?? "").trim().toLowerCase() === want) ?? null;
 }

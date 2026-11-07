@@ -29,6 +29,11 @@ describe("validateAction", () => {
     expect(validateAction({ action: "work", payload: { sheetUrl: "javascript:1" } }, ctx).ok).toBe(false);
     expect(validateAction({ action: "openRound", payload: { name: "R", sheetUrls: [SHEET, "https://evil.test/"] } }, ctx).ok).toBe(false);
   });
+  it("rejects an openRound with an empty or blank name", () => {
+    for (const name of ["", "   "]) {
+      expect(validateAction({ action: "openRound", payload: { name, sheetUrls: [SHEET] } }, ctx).ok).toBe(false);
+    }
+  });
   it("enforces openRound size limits", () => {
     const urls = (n) => Array.from({ length: n }, () => SHEET);
     expect(validateAction({ action: "openRound", payload: { name: "R", sheetUrls: urls(100) } }, ctx).ok).toBe(true);

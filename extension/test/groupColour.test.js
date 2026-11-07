@@ -36,15 +36,20 @@ describe("pickColour", () => {
   const at = (n) => GROUP_COLOURS[(i + n) % GROUP_COLOURS.length];
 
   it("remembered wins", () => {
-    expect(pickColour("Office", [h], "cyan")).toBe("cyan");
+    const other = GROUP_COLOURS.find((c) => c !== h);
+    expect(other).not.toBe(h);
+    expect(pickColour("Office", [h], other)).toBe(other);
   });
   it("hash colour when free", () => {
     expect(pickColour("Office", [at(1)], undefined)).toBe(h);
   });
   it("next free from the hash position, wrapping", () => {
     expect(pickColour("Office", [h, at(1)], undefined)).toBe(at(2));
-    const used = GROUP_COLOURS.filter((c) => c !== at(7));
-    expect(pickColour("Office", used, undefined)).toBe(at(7));
+    // "H" hashes to the last colour (index 7), so the walk must wrap to index 0.
+    expect(GROUP_COLOURS.indexOf(groupColour("H"))).toBe(7);
+    const last = GROUP_COLOURS[7];
+    expect(pickColour("H", [last], undefined)).toBe(GROUP_COLOURS[0]);
+    expect(pickColour("H", [last, GROUP_COLOURS[0]], undefined)).toBe(GROUP_COLOURS[1]);
   });
   it("all taken: least used, ties earliest from hash", () => {
     const used = [...GROUP_COLOURS, ...GROUP_COLOURS.filter((c) => c !== at(3))];
@@ -61,5 +66,7 @@ describe("findRoundGroup", () => {
     const gs = [{ id: 1, title: "Other" }, { id: 2, title: " office " }];
     expect(findRoundGroup("Office", gs).id).toBe(2);
     expect(findRoundGroup("Nope", gs)).toBeNull();
+    expect(findRoundGroup("", [{ id: 3, title: "" }])).toBeNull();
+    expect(findRoundGroup("  ", [{ id: 3, title: " " }])).toBeNull();
   });
 });

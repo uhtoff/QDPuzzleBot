@@ -263,8 +263,8 @@ async function maybeReuse(tabId) {
     persist();
     return;
   }
-  await moveIntoGroup(tabId, target);
-  await focusTab(existing);
+  const current = (await moveIntoGroup(tabId, target)) ?? existing;
+  await focusTab(current);
   // Re-check after the awaits: the target may have been closed meanwhile.
   if (!registry.get(target) || !(await chrome.tabs.get(target).catch(() => null))) return;
   chrome.tabs.remove(tabId).catch(() => {});
@@ -276,13 +276,15 @@ async function moveIntoGroup(newId, existingId) {
   try {
     const [newTab, existing] = await Promise.all([chrome.tabs.get(newId), chrome.tabs.get(existingId)]);
     const m = groupMove(newTab, existing);
-    if (!m) return;
+    if (!m) return existing;
     if (m.crossWindow) await chrome.tabs.move(existing.id, { windowId: m.windowId, index: m.index });
     await chrome.tabs.group({ groupId: m.groupId, tabIds: [existing.id] });
     await chrome.tabs.move(existing.id, { index: m.index });
   } catch {
     // Pinned, or the tab/group vanished: dedupe as before.
   }
+  // Current state (the move may have changed its window).
+  return chrome.tabs.get(existingId).catch(() => null);
 }
 
 // Serialised so two duplicates resolving together cannot close each other.
@@ -350,6 +352,13 @@ function sameSheet(a, b) {
   return a.spreadsheetId === b.spreadsheetId && (a.gid ?? null) === (b.gid ?? null);
 }
 
+// Serialised so quick clicks cannot pick the same colour or lose a groupColours write.
+let roundChain = Promise.resolve();
+const queueOpenRound = (name, urls, senderTab) => {
+  roundChain = roundChain.then(() => openRound(name, urls, senderTab)).catch(() => {});
+  return roundChain;
+};
+
 async function openRound(name, urls, senderTab) {
   const windowId = senderTab.windowId;
   const open = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
@@ -375,21 +384,29 @@ async function openRound(name, urls, senderTab) {
   }
   if (!tabIds.length) return;
   const key = name.trim().toLowerCase();
-  const stored = (await chrome.storage.local.get("groupColours").catch(() => ({}))).groupColours ?? {};
+  const readStored = async () => (await chrome.storage.local.get("groupColours").catch(() => ({}))).groupColours ?? {};
+  const remember = async (colour) => {
+    const latest = await readStored();
+    await chrome.storage.local.set({ groupColours: { ...latest, [key]: colour } }).catch(() => {});
+  };
+  const stored = await readStored();
   const groups = await chrome.tabGroups.query({ windowId }).catch(() => []);
   const existingGroup = findRoundGroup(name, groups);
-  if (existingGroup) {
-    // Reuse the open group; leave its colour alone (record it if not yet remembered).
-    await chrome.tabs.group({ groupId: existingGroup.id, tabIds });
-    if (!stored[key]) {
-      await chrome.storage.local.set({ groupColours: { ...stored, [key]: existingGroup.color } }).catch(() => {});
+  // On any failure (pinned tab, vanished group) the tabs stay open, ungrouped.
+  try {
+    if (existingGroup) {
+      // Reuse the open group; leave its colour alone (record it if not yet remembered).
+      await chrome.tabs.group({ groupId: existingGroup.id, tabIds });
+      if (!stored[key]) await remember(existingGroup.color);
+      return;
     }
-    return;
+    const colour = pickColour(name, groups.map((g) => g.color), stored[key]);
+    const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
+    await chrome.tabGroups.update(groupId, { title: name, color: colour });
+    await remember(colour);
+  } catch {
+    // leave the tabs ungrouped
   }
-  const colour = pickColour(name, groups.map((g) => g.color), stored[key]);
-  const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: name, color: colour });
-  await chrome.storage.local.set({ groupColours: { ...stored, [key]: colour } }).catch(() => {});
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)
@@ -425,7 +442,7 @@ async function handleDashboardAction(msg, sender) {
   if (!v.ok) return;
   if (v.action === "work") await workOn(v.payload.sheetUrl, sender.tab);
   else if (v.action === "openRound") {
-    if (v.payload.sheetUrls.length) await openRound(v.payload.name, v.payload.sheetUrls, sender.tab);
+    if (v.payload.sheetUrls.length) await queueOpenRound(v.payload.name, v.payload.sheetUrls, sender.tab);
   } else if (v.action === "closeSolved") await closeSolved();
 }
 
