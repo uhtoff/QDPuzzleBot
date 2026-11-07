@@ -53,8 +53,13 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
 - Replies go through the bot, which posts via a "Puzzbot relay" webhook under your server
   name and avatar (Discord shows an APP tag). The bot needs **Manage Webhooks** in the puzzle
   channels.
-- Dashboard buttons ("Work on this puzzle", "Open round", "Close solved tabs") appear only
-  when the extension is installed; see the user guide.
+- Dashboard buttons appear only when the extension is installed: "Work on this puzzle" (icon
+  on the puzzle row, labelled button in the drawer), an icon button in each round header
+  ("Open round as a tab group", files-mode hunts only; reuses already-open tabs and moves
+  them into the group) and "Close solved tabs" in the board header (files-mode only). Opening
+  an already-open puzzle sheet switches to that tab and closes the duplicate unless it is the
+  only tab in its window.
+- Replies over 2000 characters, or from timed-out members, are refused.
 
 Known limitation: your first panel reply may show the default Discord avatar in the
 panel/dashboard transcript (Discord had not cached the avatar yet); later ones are fine.

@@ -327,16 +327,20 @@ chat connection is refused.
   pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle".
 - **Replying:** type in the panel and send. The bot posts it into the puzzle's channel under
   your server name and avatar, with Discord's APP tag. Messages starting with `!` are refused
-  (run commands in Discord), mentions are disabled, you must be able to see and post in that
+  (run commands in Discord), messages over 2000 characters and replies from timed-out members are refused, mentions are disabled, you must be able to see and post in that
   channel in Discord, and archived hunts refuse replies. The first reply you send may show the
   default Discord avatar in the panel and dashboard transcript; later ones are fine.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
   showing in an open panel. Desktop notifications are optional and off by default (extension
   Options).
 - **Dashboard buttons**, shown only when the extension is installed: **Work on this puzzle**
-  (puzzle row and drawer), **Open round** (files-mode hunts only; opens the round's puzzle
-  sheets in a named tab group) and **Close solved tabs** (files mode only). In files mode,
-  opening a puzzle sheet that is already open switches to the existing tab.
+  (an icon button on the puzzle row, a labelled button in the puzzle drawer; only for puzzles
+  that have a sheet), an icon button in each round's header with the tooltip **Open round as
+  a tab group** (files-mode hunts only; it opens the round's puzzle sheets in a named tab
+  group, reusing tabs that are already open and moving them into the group), and **Close
+  solved tabs** in the hunt board header (files-mode hunts only). In files mode, opening a
+  puzzle sheet that is already open switches to the existing tab and closes the duplicate
+  (unless it is the only tab in its window).
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
 - **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
   instance is `https://puzzbot.com`) and the notifications switch.

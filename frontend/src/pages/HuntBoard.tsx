@@ -145,7 +145,7 @@ export default function HuntBoard() {
           w={450 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
         />
         <Group gap="sm">
-          {extensionPresent() && (
+          {extensionPresent() && data.hunt.sheet_mode === "files" && (
             <Button variant="light" color="gray" leftSection={<IconBrowserX size={16} />} onClick={() => closeSolved()}>
               Close solved tabs
             </Button>
