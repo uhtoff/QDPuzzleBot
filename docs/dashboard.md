@@ -116,6 +116,9 @@ each extension ID in the `web` block of `config.json`:
 }
 ```
 
+The extension authenticates its live connection with a short-lived single-use ticket fetched with the
+dashboard login, accepted only from origins listed in `extension_origins`.
+
 Restart the bot after editing. See `extension/README.md` for finding the ID and packaging.
 
 ## Hunt visibility

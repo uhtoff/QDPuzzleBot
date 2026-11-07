@@ -12,6 +12,7 @@ describe("origin helpers", () => {
   });
   it("builds ws and api paths", () => {
     expect(wsUrl("https://x.com:8443")).toBe("wss://x.com:8443/api/ws/activity");
+    expect(wsUrl("https://x.com", "a+b/c=d&e")).toBe("wss://x.com/api/ws/activity?ticket=a%2Bb%2Fc%3Dd%26e");
     expect(bySheetPath({ spreadsheetId: "a b", gid: 0 })).toBe("/api/puzzles/by-sheet?spreadsheet=a%20b&gid=0");
     expect(bySheetPath({ spreadsheetId: "s", gid: null })).toBe("/api/puzzles/by-sheet?spreadsheet=s");
     expect(messagesPath("123")).toBe("/api/channels/123/messages?limit=50");

@@ -1,7 +1,7 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl } from "./lib/origin.js";
+import { bySheetPath, wsUrl, WS_TICKET_PATH } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
 import { notificationId, parseNotificationId } from "./lib/notify.js";
 import { createUnread, badgeText } from "./lib/unread.js";
@@ -424,10 +424,19 @@ async function doConnect() {
   const granted = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
   if (!granted) return;
   if (!needsSocket(ws?.readyState)) return; // another path already connected
+  // Chrome withholds the session cookie from a service-worker websocket, so
+  // authenticate with a fresh single-use ticket fetched over cookie-carrying HTTP.
+  const t = await apiGet(WS_TICKET_PATH);
+  if (!t || t.authRequired || t.error || !t.ticket) {
+    ensureKeepalive();
+    scheduleReconnect(); // logged out / dashboard unreachable: idle with backoff
+    return;
+  }
+  if (!needsSocket(ws?.readyState)) return; // connected while we awaited the ticket
   detachSocket();
   ensureKeepalive();
   try {
-    ws = new WebSocket(wsUrl(origin));
+    ws = new WebSocket(wsUrl(origin, t.ticket));
   } catch {
     scheduleReconnect();
     return;
