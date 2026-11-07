@@ -1,4 +1,5 @@
 import { DEFAULT_ORIGIN, parseOrigin } from "./lib/origin.js";
+import { CSRF_PATH, shouldRetryCsrf } from "./lib/csrf.js";
 
 export async function getOrigin() {
   try {
@@ -9,13 +10,29 @@ export async function getOrigin() {
   }
 }
 
-async function request(path, method, body) {
+// CSRF token for non-GET requests: fetched from the dashboard (the cookie is not
+// readable without the "cookies" permission), cached per origin in memory.
+let csrf = { origin: null, token: null };
+
+async function csrfToken(origin, refresh) {
+  if (!refresh && csrf.origin === origin && csrf.token) return csrf.token;
+  try {
+    const res = await fetch(origin + CSRF_PATH, { credentials: "include" });
+    const json = res.ok ? await res.json() : null;
+    csrf = { origin, token: (json && json.csrf) || null };
+  } catch {
+    csrf = { origin: null, token: null };
+  }
+  return csrf.token;
+}
+
+async function request(path, method, body, retried = false) {
   const origin = await getOrigin();
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET") {
-    const c = await chrome.cookies.get({ url: origin, name: "csrf_token" });
-    if (c) headers["X-CSRF-Token"] = c.value;
+    const token = await csrfToken(origin, retried);
+    if (token) headers["X-CSRF-Token"] = token;
   }
   let res;
   try {
@@ -34,6 +51,9 @@ async function request(path, method, body) {
     json = await res.json();
   } catch {
     /* non-JSON body */
+  }
+  if (shouldRetryCsrf({ method, status: res.status, error: json && json.error, retried })) {
+    return request(path, method, body, true);
   }
   if (!res.ok) return { error: (json && json.error) || String(res.status), status: res.status };
   return json ?? {};
