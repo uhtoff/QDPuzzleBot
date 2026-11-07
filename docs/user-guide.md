@@ -136,9 +136,10 @@ gathers whatever feeds it: answers from `feeds` tags, facts from `informs` tags.
 right of **Content** (right-click the Content column → *Insert 1 column right*), rather
 than typing in loose cells beside it. A column inside the table belongs to its row, so
 your note stays with that puzzle as the bot updates the table. When a puzzle leaves the
-table, its row (your columns included) is removed and the rows below move up. Don't put
-columns between Source, Type and Content: the bot rewrites those columns, and anything
-inserted among them will be overwritten.
+table, its row (your columns included) is removed and the rows below move up. The same
+goes for the **Unassigned Feeders** tab: once a puzzle is assigned, its row and its Notes
+are removed. Don't put columns between Source, Type and Content: the bot rewrites those
+columns, and anything inserted among them will be overwritten.
 
 ### Changing your mind about what a puzzle is
 
