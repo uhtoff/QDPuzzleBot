@@ -8,6 +8,7 @@ import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
 import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
+import { groupMove } from "./lib/groupMove.js";
 import { groupColour } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { apiGet, getOrigin } from "./api.js";
@@ -262,10 +263,26 @@ async function maybeReuse(tabId) {
     persist();
     return;
   }
+  await moveIntoGroup(tabId, target);
   await focusTab(existing);
   // Re-check after the awaits: the target may have been closed meanwhile.
   if (!registry.get(target) || !(await chrome.tabs.get(target).catch(() => null))) return;
   chrome.tabs.remove(tabId).catch(() => {});
+}
+
+// The duplicate may sit in a tab group (e.g. a restored saved group): the
+// existing tab takes its place there, so the group keeps the puzzle.
+async function moveIntoGroup(newId, existingId) {
+  try {
+    const [newTab, existing] = await Promise.all([chrome.tabs.get(newId), chrome.tabs.get(existingId)]);
+    const m = groupMove(newTab, existing);
+    if (!m) return;
+    if (m.crossWindow) await chrome.tabs.move(existing.id, { windowId: m.windowId, index: m.index });
+    await chrome.tabs.group({ groupId: m.groupId, tabIds: [existing.id] });
+    await chrome.tabs.move(existing.id, { index: m.index });
+  } catch {
+    // Pinned, or the tab/group vanished: dedupe as before.
+  }
 }
 
 // Serialised so two duplicates resolving together cannot close each other.
