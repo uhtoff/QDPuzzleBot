@@ -11,3 +11,7 @@ body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: flex; flex-dire
 .meta strong { color: inherit; font-size: 13px; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .attach { color: var(--dim); font-style: italic; }
+#composer { border-top: 1px solid var(--line); padding: 6px 10px; }
+#composer .row { display: flex; gap: 6px; align-items: flex-end; }
+#draft { flex: 1; resize: vertical; min-height: 2.6em; max-height: 40vh; font: inherit; }
+#composer-error { color: #c33; padding-bottom: 4px; }

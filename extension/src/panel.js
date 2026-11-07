@@ -1,13 +1,18 @@
-import { messageView, isBangCommand } from "./lib/format.js";
+import { messageView, isBangCommand, errorText } from "./lib/format.js";
+import { canCompose, validate } from "./lib/composer.js";
 import { applyEvent, eventChannel, sameTarget } from "./lib/panelState.js";
 import { messagesPath, safeAvatarUrl } from "./lib/origin.js";
-import { apiGet, getOrigin } from "./api.js";
+import { apiGet, apiSend, getOrigin } from "./api.js";
 
 const KIND_COMMAND = 3;
 const POLL_MS = 15000;
 const head = document.getElementById("head");
 const notice = document.getElementById("notice");
 const log = document.getElementById("log");
+const composer = document.getElementById("composer");
+const draft = document.getElementById("draft");
+const sendBtn = document.getElementById("send");
+const composerError = document.getElementById("composer-error");
 
 let channelId = null;
 let messages = [];
@@ -100,14 +105,60 @@ function schedulePoll() {
 }
 
 let current = null; // {state, channelId}
+let sending = false;
+
+function showComposerError(code) {
+  composerError.textContent = code ? errorText(code) : "";
+  composerError.hidden = !code;
+}
+
+function updateComposer(state, puzzle) {
+  const show = canCompose(state, puzzle);
+  if (composer.hidden === show) showComposerError(null);
+  composer.hidden = !show;
+}
+
+async function sendDraft() {
+  if (sending || !channelId) return;
+  const v = validate(draft.value);
+  if (!v.ok) return showComposerError(v.code === "empty" ? null : v.code);
+  showComposerError(null);
+  const target = channelId;
+  sending = true;
+  sendBtn.disabled = true;
+  try {
+    const res = await apiSend("/api/channels/" + encodeURIComponent(target) + "/messages", "POST", { content: v.content });
+    if (target !== channelId) return;
+    if (res.authRequired) return setState({ state: "auth" });
+    if (res.error) return showComposerError(res.error);
+    draft.value = "";
+  } finally {
+    sending = false;
+    sendBtn.disabled = false;
+  }
+}
+
+composer.addEventListener("submit", (e) => {
+  e.preventDefault();
+  sendDraft();
+});
+draft.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendDraft();
+  }
+});
 
 async function setState({ state, puzzle }) {
   const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
   const same = sameTarget(current, next);
   current = next;
   renderHead(puzzle, state);
+  updateComposer(state, puzzle);
   if (same) return;
   channelId = next.channelId;
+  draft.value = "";
+  showComposerError(null);
   messages = [];
   log.replaceChildren();
   if (state === "not_puzzle") showNotice("Not a puzzle sheet.");
