@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { notificationId, parseNotificationId } from "../src/lib/notify.js";
+import { notificationId, parseNotificationId, shouldNotify } from "../src/lib/notify.js";
 
 describe("notification ids", () => {
   it("round-trips tab and window", () => {
@@ -16,8 +16,6 @@ describe("notification ids", () => {
     expect(parseNotificationId(undefined)).toBeNull();
   });
 });
-
-import { shouldNotify } from "../src/lib/notify.js";
 
 describe("shouldNotify", () => {
   const bot = (content, embeds = []) => ({ kind: 1, content, embeds });

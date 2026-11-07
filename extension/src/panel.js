@@ -42,6 +42,7 @@ function showNotice(text, href) {
 }
 
 let currentPuzzle = null;
+let channelNames = {};
 let dashOrigin = null; // refreshed in loadMessages; used for attachment links
 
 function renderMessage(m) {
@@ -76,7 +77,7 @@ function renderMessage(m) {
     text.textContent = "[embed]";
     text.classList.add("attach"); // dimmed italic
   } else {
-    const cleaned = rewriteMentions(v.text, (id) => (id === currentPuzzle?.channel_id ? currentPuzzle.name : null));
+    const cleaned = rewriteMentions(v.text, (id) => channelNames[id] || (id === currentPuzzle?.channel_id ? currentPuzzle.name : null));
     for (const seg of tokenise(cleaned)) {
       if (!seg.bold && !seg.code) {
         text.append(seg.text);
@@ -179,14 +180,18 @@ draft.addEventListener("keydown", (e) => {
   }
 });
 
-async function setState({ state, puzzle }) {
+async function setState({ state, puzzle, channelNames: names }) {
   currentPuzzle = puzzle ?? null;
+  channelNames = names ?? {};
   const next = { state, channelId: state === "chat" ? puzzle.channel_id : null };
   const same = sameTarget(current, next);
   current = next;
   renderHead(puzzle, state);
   updateComposer(state, puzzle);
-  if (same) return;
+  if (same) {
+    renderLog(); // names may have arrived
+    return;
+  }
   channelId = next.channelId;
   draft.value = "";
   showComposerError(null);
