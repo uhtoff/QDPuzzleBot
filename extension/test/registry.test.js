@@ -39,3 +39,17 @@ describe("registry", () => {
     expect(r.get(2).solved).toBe(false);
   });
 });
+
+describe("registry persistence", () => {
+  it("entries() returns serialisable pairs and createRegistry(initial) restores them", () => {
+    const r = createRegistry();
+    r.set(1, p(10, "s1"));
+    r.set(2, p(11, "s2"));
+    const round = JSON.parse(JSON.stringify(r.entries()));
+    expect(round).toEqual([[1, p(10, "s1")], [2, p(11, "s2")]]);
+    const r2 = createRegistry(round);
+    expect(r2.get(2).id).toBe(11);
+    expect(r2.findBySpreadsheet("s1")).toBe(1);
+    expect(createRegistry().entries()).toEqual([]);
+  });
+});
