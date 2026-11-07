@@ -3,6 +3,8 @@
   "name": "Puzzle Chat",
   "version": "0.1.0",
   "description": "Chat with your team's Discord puzzle channel from the Google Sheet.",
+  "icons": { "128": "icons/icon128.png" },
+  "action": { "default_icon": { "128": "icons/icon128.png" } },
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "tabs", "tabGroups", "storage", "cookies", "scripting", "notifications"],
   "host_permissions": ["https://docs.google.com/*"],

@@ -3,6 +3,7 @@ import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
 import { bySheetPath, wsUrl } from "./lib/origin.js";
 import { backoffDelay } from "./lib/backoff.js";
+import { createUnread, badgeText } from "./lib/unread.js";
 import { apiGet, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
@@ -10,18 +11,85 @@ let registry = createRegistry();
 const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient)
 const ports = new Map(); // port -> windowId
 let socketUp = false;
+const isTracked = (channelId) => registry.tabsForChannel(channelId).length > 0;
+let unread = createUnread({ isTracked });
+const notifTabs = new Map(); // notification id -> tabId
 
 // MV3: the worker is killed when idle; rehydrate the registry before any event.
 const ready = (async () => {
   try {
     const { registryEntries } = await chrome.storage.session.get({ registryEntries: [] });
     registry = createRegistry(registryEntries);
+    const { unreadEntries } = await chrome.storage.session.get({ unreadEntries: [] });
+    unread = createUnread({ isTracked, initial: unreadEntries });
   } catch {
     /* start empty */
   }
+  updateBadge();
 })();
 
-const persist = () => chrome.storage.session.set({ registryEntries: registry.entries() }).catch(() => {});
+const persist = () =>
+  chrome.storage.session.set({ registryEntries: registry.entries(), unreadEntries: unread.serialise() }).catch(() => {});
+
+function updateBadge() {
+  chrome.action.setBadgeText({ text: badgeText(unread.total()) }).catch(() => {});
+}
+
+// Channels of the puzzles shown in open panels (active tab of each panel's window).
+async function visibleChannels() {
+  const windows = new Set([...ports.values()].filter((w) => typeof w === "number"));
+  const out = new Set();
+  for (const windowId of windows) {
+    const [tab] = await chrome.tabs.query({ active: true, windowId }).catch(() => []);
+    const channelId = tab && registry.get(tab.id)?.channel_id;
+    if (channelId) out.add(String(channelId));
+  }
+  return [...out];
+}
+
+// Clear counts for channels now visible or no longer backed by any tab.
+async function reconcileUnread() {
+  await ready;
+  const visible = new Set(await visibleChannels());
+  for (const [channelId] of unread.serialise()) {
+    if (visible.has(channelId) || !isTracked(channelId)) unread.clear(channelId);
+  }
+  persist();
+  updateBadge();
+}
+
+async function handleMessage(ev) {
+  await ready;
+  if (!unread.onEvent(ev, await visibleChannels())) return;
+  persist();
+  updateBadge();
+  const { notify } = await chrome.storage.sync.get({ notify: false }).catch(() => ({ notify: false }));
+  if (!notify) return;
+  const channelId = String(ev.channel_id);
+  const tabId = registry.tabsForChannel(channelId)[0];
+  const text = `${ev.message?.author_name ?? ""}: ${ev.message?.content ?? ""}`;
+  const id = await chrome.notifications
+    .create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+      title: registry.get(tabId)?.name ?? "Puzzle chat",
+      message: text.length > 120 ? text.slice(0, 119) + "\u2026" : text,
+    })
+    .catch(() => null);
+  if (id) notifTabs.set(id, tabId);
+}
+
+chrome.notifications.onClicked.addListener(async (id) => {
+  const tabId = notifTabs.get(id);
+  notifTabs.delete(id);
+  chrome.notifications.clear(id);
+  if (tabId == null) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return;
+  chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  chrome.tabs.update(tabId, { active: true }).catch(() => {});
+});
+chrome.notifications.onClosed.addListener((id) => notifTabs.delete(id));
 
 // One global side panel for every tab; non-puzzle tabs show "not a puzzle".
 function setupPanel() {
@@ -29,8 +97,9 @@ function setupPanel() {
   chrome.sidePanel.setOptions({ path: PANEL_PATH, enabled: true }).catch(() => {});
 }
 setupPanel();
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   setupPanel();
+  if (details.reason !== "install") return;
   const origin = await getOrigin();
   const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
   if (!ok) chrome.runtime.openOptionsPage();
@@ -81,6 +150,7 @@ async function refreshTab(tab, only) {
     if ((only && p !== only) || !shouldDeliver(windowId, tab)) continue;
     safePost(p, snap);
   }
+  reconcileUnread();
 }
 
 function safePost(p, msg) {
@@ -107,18 +177,23 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   registry.delete(tabId);
   failures.delete(tabId);
   persist();
+  reconcileUnread();
 });
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "panel") return;
   ports.set(port, null);
-  port.onDisconnect.addListener(() => ports.delete(port));
+  port.onDisconnect.addListener(() => {
+    ports.delete(port);
+    reconcileUnread();
+  });
   safePost(port, { type: "socket", connected: socketUp });
   port.onMessage.addListener(async (msg) => {
     if (msg.type !== "get" || typeof msg.windowId !== "number") return;
     ports.set(port, msg.windowId);
     const [tab] = await chrome.tabs.query({ active: true, windowId: msg.windowId });
     if (tab) await refreshTab(tab, port);
+    else reconcileUnread();
   });
 });
 
@@ -162,6 +237,7 @@ async function connect() {
   }
   ws.onopen = () => {
     attempt = 0;
+    ensureKeepalive();
     setSocket(true);
   };
   ws.onmessage = (e) => {
@@ -171,7 +247,10 @@ async function connect() {
     } catch {
       return;
     }
-    if (ev && ["message", "message_edit", "message_delete"].includes(ev.type)) broadcast({ type: "event", event: ev });
+    if (ev && ["message", "message_edit", "message_delete"].includes(ev.type)) {
+      broadcast({ type: "event", event: ev });
+      if (ev.type === "message") handleMessage(ev);
+    }
   };
   ws.onclose = () => {
     setSocket(false);
