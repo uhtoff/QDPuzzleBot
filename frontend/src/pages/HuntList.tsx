@@ -156,6 +156,15 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
             color: "yellow",
           });
         }
+        // Stays until dismissed: gated servers are rare, so this is easy to forget.
+        if (data.organiser_reminder) {
+          notifications.show({
+            title: "Organiser role on this server",
+            message: data.organiser_reminder,
+            color: "yellow",
+            autoClose: false,
+          });
+        }
         onClose();
         if (data.uid) navigate(`/hunts/${data.uid}`);
       },

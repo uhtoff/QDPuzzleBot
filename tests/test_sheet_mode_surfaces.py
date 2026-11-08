@@ -11,6 +11,14 @@ from tests.conftest import (make_cog, make_ctx, make_hunt, make_hunt_ctx,
                             make_web_app, start_patches, stop_patches)
 
 
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB; tests
+    that care about the reminder patch it themselves (nested patch wins)."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
+
 # --------------------------------------------------------------- !hunt parser
 def _hunt_cog():
     cog = make_cog()
@@ -285,3 +293,37 @@ async def test_solved_sheet_route_on_a_files_hunt_is_409(web):
     resp = await web.client.post("/api/hunts/U1/solved-sheet")
     assert resp.status_code == 409
     assert (await resp.get_json())["error"] == "files_mode_no_solved_sheet"
+
+
+# ------------------------------------------------- organiser reminder at creation
+@pytest.mark.asyncio
+async def test_web_create_hunt_returns_the_organiser_reminder(web):
+    with patch("bot.web.actions.role_gate.organiser_reminder",
+               return_value="On this server only Organiser ...") as rem:
+        resp = await web.client.post("/api/hunts", json=_body())
+    assert (await resp.get_json())["organiser_reminder"] == "On this server only Organiser ..."
+    assert rem.call_args.kwargs["markdown"] is False
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_omits_reminder_on_an_ungated_server(web):
+    with patch("bot.web.actions.role_gate.organiser_reminder", return_value=None):
+        resp = await web.client.post("/api/hunts", json=_body())
+    assert "organiser_reminder" not in await resp.get_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reminder", [":warning: gated", None])
+async def test_hunt_command_posts_the_organiser_reminder(reminder):
+    from bot.cogs.puzzles import Puzzles
+    cog = _hunt_cog()
+    cog.create_hunt = AsyncMock(return_value=MagicMock())
+    ctx = make_ctx()
+    with patch("bot.cogs.puzzles.HuntJsonDb") as hdb, \
+         patch("bot.cogs.puzzles.role_gate.organiser_reminder", return_value=reminder):
+        hdb.check_duplicates.return_value = False
+        await Puzzles.hunt.callback(cog, ctx, arg="m:https://u")
+    sent = [c.args[0] for c in ctx.send.call_args_list]
+    assert sent[0].startswith(":white_check_mark:")
+    assert (":warning: gated" in sent) is (reminder is not None)
+    assert len(sent) == (2 if reminder else 1)

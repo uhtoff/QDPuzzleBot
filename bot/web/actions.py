@@ -855,6 +855,9 @@ async def create_hunt():
     resp = {"uid": new_hunt.uid}
     if body.get("role_name") and not new_hunt.role_id:
         resp["warning"] = "role_not_applied"
+    reminder = role_gate.organiser_reminder(guild, markdown=False)
+    if reminder:
+        resp["organiser_reminder"] = reminder
     return jsonify(resp)
 
 

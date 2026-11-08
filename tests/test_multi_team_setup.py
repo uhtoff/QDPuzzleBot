@@ -8,6 +8,13 @@ from bot.core.server_setup import parse_setup_tail
 from tests.test_server_setup_run import _guild, _history, _hub_row, _hunt, _settings, _targets
 
 
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
+
 @pytest.mark.parametrize("text,expected", [
     ("Big Hunt", ("Big Hunt", "tabs", False)),
     ("Big Hunt, files", ("Big Hunt", "files", False)),

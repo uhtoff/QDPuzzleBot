@@ -102,3 +102,32 @@ def organiser_gate_active(guild) -> bool:
     to everyone.
     """
     return bool(_tier_ids_for_column(guild, ORGANISER_ROLE_NAMES, "organiser_role_ids"))
+
+
+def organiser_reminder(guild, max_names: int = 10, markdown: bool = True):
+    """A reminder for hunt creation when the guild gates the Organiser tier,
+    else None. Gated guilds are the minority, so the team forgets until nobody
+    can create a round or meta mid-hunt (MIT Prehunt, 2026-11-07); every
+    hunt-creation path shows this whenever an organiser role exists."""
+    if not organiser_gate_active(guild):
+        return None
+    ids = _tier_ids_for_column(guild, ORGANISER_ROLE_NAMES, "organiser_role_ids")
+    roles = [r for r in getattr(guild, "roles", ()) if r.id in ids]
+    def bold(text):
+        return f"**{text}**" if markdown else text
+    names = ", ".join(bold(r.name) for r in roles) or "the organiser role (deleted?)"
+    holders = {}
+    for r in roles:
+        for m in getattr(r, "members", ()):
+            holders[m.id] = m.display_name
+    head = ((":warning: " if markdown else "") + f"On this server only {names} (or an admin) can create rounds "
+            "and metas.")
+    if not holders:
+        return (f"{head} {bold('Nobody has it yet')} — give it to someone solving this hunt, "
+                "or the team won't be able to add rounds or metas.")
+    shown = sorted(holders.values(), key=str.lower)
+    listed = ", ".join(shown[:max_names])
+    if len(shown) > max_names:
+        listed += f" and {len(shown) - max_names} more"
+    count = "1 person has it" if len(shown) == 1 else f"{len(shown)} people have it"
+    return f"{head} {count}: {listed}. Make sure someone solving this hunt does."
