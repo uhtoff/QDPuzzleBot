@@ -116,13 +116,17 @@ class Voice(commands.Cog):
 
         Usage: `!voice_cleanup`
         Run in any channel of the hunt. Admins only. Occupied channels get a
-        15 second warning first."""
+        15 second warning first. Also turns `!voice_per_puzzle` off."""
         hunt = _hunt_for(ctx.channel)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
             return
         await ctx.send(":broom: Clearing puzzle voice channels…")
+        was_on = bool(hunt.voice_per_puzzle)
         names = await voice.cleanup_hunt(ctx.guild, hunt, bot=self.bot)
+        if was_on:
+            await ctx.send("Automatic voice channels for new puzzles are now **off** "
+                           "(`!voice_per_puzzle on` turns them back on).")
         if names:
             await voice.notify_board(self.bot, hunt)
             await ctx.send(f":white_check_mark: Removed {len(names)} voice channel(s): "

@@ -49,3 +49,28 @@ async def test_update_settings_refuses_voice_channel_id(env):
     env.hdb.set_voice_channel.assert_not_called()
     env.cog.save_settings.assert_not_called()
     assert "`!voice`" in env.ctx.send.await_args.args[0]
+
+
+def test_every_field_the_generic_commit_skips_is_refused_with_a_pointer():
+    """Guard against the next narrow-only column: each store's SPECIAL_ATTR must be
+    listed, except voice_per_puzzle, which update_settings stores itself."""
+    from bot.cogs.puzzles import _UNSTORED_SETTING_KEYS
+    from bot.store import HuntJsonDb, PuzzleData, PuzzleJsonDb
+    assert set(PuzzleJsonDb.SPECIAL_ATTR) <= set(_UNSTORED_SETTING_KEYS[PuzzleData])
+    assert set(HuntJsonDb.SPECIAL_ATTR) - {"voice_per_puzzle"} \
+        <= set(_UNSTORED_SETTING_KEYS[HuntData])
+
+
+async def test_update_puzzle_settings_refuses_is_target():
+    from bot.store import PuzzleData
+    cog = make_cog()
+    puzzle = PuzzleData(name="P", id=3)
+    cog.get_puzzle = lambda ctx: puzzle
+    ctx = make_ctx()
+    ctx.send = AsyncMock()
+    ctx.invoked_with = "update_puzzle_settings"
+    with patch("bot.cogs.puzzles.PuzzleJsonDb") as pdb:
+        await Puzzles.update_settings.callback(cog, ctx, "is_target", "true")
+    pdb.commit.assert_not_called()
+    assert puzzle.is_target is False
+    assert "`!convert_to_meta`" in ctx.send.await_args.args[0]

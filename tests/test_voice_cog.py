@@ -360,3 +360,20 @@ async def test_voice_refreshes_the_pin_only_when_it_created_a_channel(stores, cr
         refresh.assert_awaited_once_with(ctx.guild, hunt, puzzle)
     else:
         refresh.assert_not_awaited()
+
+
+async def test_voice_cleanup_says_when_it_turned_auto_voice_off(stores):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle()
+    hunt = _hunt()
+    hunt.voice_per_puzzle = 1
+    H.get_by_attr.return_value = hunt
+    ctx = make_ctx()
+    with patch("bot.cogs.voice.voice.cleanup_hunt",
+               new=AsyncMock(return_value=["Cat"])):
+        await Voice.voice_cleanup.callback(_cog(), ctx)
+    sent = [c.args[0] for c in ctx.send.await_args_list]
+    assert sent == [":broom: Clearing puzzle voice channels…",
+                    "Automatic voice channels for new puzzles are now **off** "
+                    "(`!voice_per_puzzle on` turns them back on).",
+                    ":white_check_mark: Removed 1 voice channel(s): Cat"]

@@ -168,3 +168,8 @@ main text channel for an orphan voice channel, the voice chat only if neither ex
 mentioning just the people in the call (`allowed_mentions` users only), e.g.
 "@Russ the voice channel for **Cap One** closes in 15 seconds — the puzzle was solved. You'll
 be moved to #Big Hunt voice." The `@here` wording in goals 5 and 6 above is superseded.
+
+Also (user, 2026-11-08): `!voice_cleanup` / the dashboard cleanup now turns the hunt's
+`voice_per_puzzle` setting off as well — removing every puzzle voice channel while leaving the
+setting on would just start refilling them. This supersedes goal 5's "does not change the
+per-hunt setting".

@@ -470,7 +470,7 @@ export function AdminSettingsPanel({
         onClose={() => setVoiceCleanupOpen(false)}
         onConfirm={handleVoiceCleanup}
         title="Remove puzzle voice channels"
-        message="Removes every puzzle's voice channel in this hunt. People still in one get a 15-second warning and are moved to the hunt's voice channel."
+        message="Removes every puzzle's voice channel in this hunt and turns off voice channels for new puzzles. People still in one get a 15-second warning and are moved to the hunt's voice channel."
         confirmLabel="Remove voice channels"
         confirmColor="red"
       />

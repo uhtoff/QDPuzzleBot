@@ -260,8 +260,12 @@ async def test_cleanup_occupied_channels_share_one_wait(stores):
         await gate.wait()
 
     task = asyncio.create_task(voice.cleanup_hunt(guild, _hunt(voice_channel_id=12), sleep=gated))
-    for _ in range(20):
-        await asyncio.sleep(0)
+    # Wait (bounded) for both warnings: cleanup's first step is a worker-thread DB
+    # write, which takes real time, not a fixed number of loop ticks.
+    for _ in range(200):
+        if c1.send.await_count and c2.send.await_count:
+            break
+        await asyncio.sleep(0.005)
     # both warned while neither sleep has returned -> waits run concurrently
     c1.send.assert_awaited_once()
     c2.send.assert_awaited_once()
@@ -446,3 +450,16 @@ async def test_cleanup_warns_an_occupied_orphan_in_the_hunt_channel(stores):
         "<@5> the voice channel for **Orphan** closes in 15 seconds — "
         "an admin is tidying up voice channels.")
     orphan.send.assert_not_awaited()
+
+
+async def test_cleanup_turns_the_per_puzzle_setting_off_first(stores):
+    h, p = stores
+    p.with_voice.return_value = []
+    hunt = _hunt(voice_per_puzzle=1)
+    order = MagicMock()
+    order.attach_mock(h.set_voice_per_puzzle, "off")
+    order.attach_mock(p.with_voice, "list")
+    await voice.cleanup_hunt(_guild([]), hunt, sleep=AsyncMock())
+    h.set_voice_per_puzzle.assert_called_once_with(hunt.id, False)
+    assert hunt.voice_per_puzzle is False
+    assert [c[0] for c in order.mock_calls][:2] == ["off", "list"]

@@ -261,7 +261,13 @@ async def cleanup_hunt(guild, hunt, *, bot=None, sleep=asyncio.sleep) -> list[st
     """Remove every puzzle voice channel of the hunt (plus orphans left in its
     voice categories) and then its empty voice categories. Never touches the
     hunt voice channel. Returns the names of removed channels. With *bot*, each
-    affected puzzle's pinned info is refreshed (its voice link goes)."""
+    affected puzzle's pinned info is refreshed (its voice link goes).
+
+    Also turns the hunt's "voice channel for every new puzzle" setting off, first,
+    so no new puzzle gets one mid-cleanup: removing them all and leaving the
+    setting on would just start refilling (user, 2026-11-08)."""
+    await asyncio.to_thread(HuntJsonDb.set_voice_per_puzzle, hunt.id, False)
+    hunt.voice_per_puzzle = False
     puzzles = await asyncio.to_thread(PuzzleJsonDb.with_voice, hunt.id)
     stored = {p.voice_channel_id for p in puzzles}
     keep = stored | ({hunt.voice_channel_id} if hunt.voice_channel_id else set())

@@ -75,9 +75,6 @@ PROTECTED_SETTING_KEYS = {
         "it would orphan them.",
     "guild_name":
         "This is filled in from Discord when the guild's settings row is created.",
-    "voice_channel_id":
-        "The bot manages voice channels itself: use `!voice` (`!vc`) to make one "
-        "and `!voice_cleanup` to remove them.",
     "template_link":
         "Use !set_template_link, which validates it.",
 }
@@ -103,6 +100,27 @@ def is_admin():
             return True
         raise commands.MissingAnyRole(list(ADMIN_ROLES))
     return commands.check(predicate)
+
+
+# Fields the generic commit never writes (the stores' SPECIAL_ATTR), keyed by the
+# object !update_settings resolved. Each needs its own command; this says which.
+# test_update_settings_voice checks every SPECIAL_ATTR entry is listed here.
+_UNSTORED_SETTING_KEYS = {
+    PuzzleData: {
+        "is_target": "It's worked out from the puzzle's groups — use `!convert_to_meta` "
+                     "(or the other `!convert_to_*` commands).",
+        "is_minimeta": "It's worked out from the puzzle's minis — use `!make_minimeta`.",
+        "tags": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
+        "tag_edges": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
+        "additional_sheets": "Use `!add_sheet` / `!remove_sheet`.",
+        "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
+                            "`!voice_cleanup`.",
+    },
+    HuntData: {
+        "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
+                            "`!voice_cleanup`.",
+    },
+}
 
 
 def _voice_id(row) -> int:
@@ -2999,6 +3017,13 @@ class Puzzles(commands.Cog):
             await self.service.notifier.board_changed(settings)
             await ctx.send(f":white_check_mark: Updated `{setting_key}={new}` from old value: "
                            f"`{old_flag}`")
+            return
+        unstored = _UNSTORED_SETTING_KEYS.get(type(settings), {})
+        if setting_key in unstored:
+            # The generic commit skips these, so the path below would reply
+            # "Updated" and save nothing.
+            await ctx.send(f":x: `{setting_key}` can't be set from this command. "
+                           f"{unstored[setting_key]}")
             return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
