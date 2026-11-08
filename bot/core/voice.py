@@ -169,12 +169,24 @@ async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.
     return True
 
 
-def _is_voice_category_name(hunt_name: str, name: str) -> bool:
+def is_voice_category_name(hunt_name: str, name: str) -> bool:
+    """True if *name* is one of the hunt's "<hunt> Voice[ N]" category names."""
+    if not isinstance(hunt_name, str) or not isinstance(name, str):
+        return False
     base = voice_category_name(hunt_name, 1)
     if name == base:
         return True
     rest = name[len(base) + 1:] if name.startswith(base + " ") else ""
     return rest.isdigit()
+
+
+def hunt_voice_categories(guild, hunt) -> list:
+    """The hunt's "<hunt> Voice[ N]" categories. A category holding anything but
+    voice channels is not one of them, even if the name matches (e.g. the main
+    category of a hunt that is itself called "<hunt> Voice")."""
+    return [c for c in guild.categories
+            if is_voice_category_name(hunt.name, c.name)
+            and all(isinstance(ch, discord.VoiceChannel) for ch in c.channels)]
 
 
 async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
@@ -184,7 +196,7 @@ async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
     puzzles = await asyncio.to_thread(PuzzleJsonDb.with_voice, hunt.id)
     stored = {p.voice_channel_id for p in puzzles}
     keep = stored | ({hunt.voice_channel_id} if hunt.voice_channel_id else set())
-    categories = [c for c in guild.categories if _is_voice_category_name(hunt.name, c.name)]
+    categories = [c for c in guild.categories if is_voice_category_name(hunt.name, c.name)]
 
     names: list[str] = []
     removed_ids: set[int] = set()

@@ -2215,6 +2215,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+            if guild is not None:
+                try:
+                    await voice.delete_puzzle_voice_now(guild, puzzle)
+                except Exception:
+                    logger.exception("delete_round: voice channel delete failed for %s", puzzle.id)
 
         # A deleted puzzle may also feed an UNRELATED tag group's target (this
         # round's own tag_group is excluded above); refresh those so their
@@ -4315,6 +4320,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+            if guild is not None:
+                try:
+                    await voice.delete_puzzle_voice_now(guild, puzzle)
+                except Exception:
+                    logger.exception("delete_hunt: voice channel delete failed for %s", puzzle.id)
 
         # Delete each group's category + DB row
         tag_groups = TagGroupJsonDb.get_all(hunt.id)
@@ -4373,6 +4383,25 @@ class PuzzleService:
                     await self._safe_delete_channel(guild, hunt.channel_id)
                 except Exception:
                     logger.exception("delete_hunt: could not delete hunt channel %s", hunt.channel_id)
+            # Voice: the hunt's own voice channel, then its "<hunt> Voice[ N]"
+            # categories with whatever is left in them (puzzle channels went above).
+            if hunt.voice_channel_id:
+                try:
+                    await self._safe_delete_channel(guild, hunt.voice_channel_id)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete hunt voice channel %s",
+                                     hunt.voice_channel_id)
+            for voice_category in voice.hunt_voice_categories(guild, hunt):
+                for ch in list(voice_category.channels):
+                    try:
+                        await self._safe_delete_channel(guild, ch.id)
+                    except Exception:
+                        logger.exception("delete_hunt: could not delete voice channel %s", ch.id)
+                try:
+                    await voice_category.delete(reason=self._DISCORD_DELETE_REASON)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete voice category %s",
+                                     voice_category.id)
             if hunt.category_id:
                 # The hunt's general category can split/overflow the same way a
                 # round's can (see create_puzzle/delete_round); delete_group_categories
@@ -4404,7 +4433,7 @@ class PuzzleService:
     def _hunt_categories(self, guild, hunt):
         """Every live category the hunt owns: main + solved-by-name + any
         split/overflow categories the hunt's own general container owns + each
-        group's categories."""
+        group's categories + its voice categories."""
         category_ids = set()
         if hunt.category_id:
             category_ids.add(hunt.category_id)
@@ -4421,6 +4450,9 @@ class PuzzleService:
             for row in category_layout.group_categories(tg, TagGroupCategoryDb):
                 if row.category_id:
                     category_ids.add(row.category_id)
+        # Puzzle voice channels live in "<hunt> Voice[ N]" categories, which no
+        # DB row records (see bot/core/voice.py).
+        category_ids.update(c.id for c in voice.hunt_voice_categories(guild, hunt))
         return [c for c in
                 (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
                 if c is not None]
