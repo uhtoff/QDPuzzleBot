@@ -367,6 +367,17 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         self._exec("UPDATE `hunts` SET `mod_invite_code` = %s WHERE `id` = %s",
                    (code, hunt_id))
 
+    def set_voice_channel(self, hunt_id, channel_id):
+        """Store (or clear, with None) the hunt's shared voice channel. Its own
+        UPDATE so a stale HuntData commit() cannot overwrite it."""
+        self._exec("UPDATE `hunts` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, hunt_id))
+
+    def set_voice_per_puzzle(self, hunt_id, on):
+        """Set the per-puzzle voice channel toggle. Its own UPDATE (see above)."""
+        self._exec("UPDATE `hunts` SET `voice_per_puzzle` = %s WHERE `id` = %s",
+                   (1 if on else 0, hunt_id))
+
     def mod_invite_code(self, hunt_id):
         row = self._fetch_one(
             "SELECT `mod_invite_code` FROM `hunts` WHERE `id` = %s", (hunt_id,))
@@ -790,6 +801,32 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 return self.construct_puzzle(row)
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
             return None
+
+    def set_voice_channel(self, puzzle_id, channel_id):
+        """Store (or clear, with None) a puzzle's voice channel. A single narrow
+        UPDATE: a full commit() of a stale object could overwrite concurrent edits
+        (see the docstring on commit)."""
+        self._exec("UPDATE `puzzles` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, puzzle_id))
+
+    def voice_due(self, cutoff: datetime.datetime) -> List[PuzzleData]:
+        """Solved puzzles in live hunts that still hold a voice channel and were
+        solved at or before *cutoff* (naive UTC). solve_time is cleared on unsolve,
+        so an unsolved puzzle never matches."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles JOIN hunts ON puzzles.hunt_id = hunts.id "
+            "WHERE hunts.archived = 0 AND puzzles.voice_channel_id IS NOT NULL "
+            "AND puzzles.voice_channel_id <> 0 AND puzzles.solved = 1 "
+            "AND puzzles.solve_time IS NOT NULL AND puzzles.solve_time <= %s",
+            (cutoff,))
+        return self.construct_puzzles(rows)
+
+    def with_voice(self, hunt_id) -> List[PuzzleData]:
+        """Every puzzle of the hunt that has a voice channel id."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles WHERE hunt_id = %s "
+            "AND voice_channel_id IS NOT NULL AND voice_channel_id <> 0", (hunt_id,))
+        return self.construct_puzzles(rows)
 
     def get_names_by_ids(self, ids) -> dict:
         """Return {puzzle_id: name} for the given ids, skipping unknown ids.
