@@ -58,6 +58,28 @@ def archive_marker(mt_id) -> str:
     return f"puzzbot-multi-team-archive:{mt_id}"
 
 
+# Discord's IS_SPOILER_CHANNEL channel flag: members get a warning and opt in
+# before they see the channel. discord.py 2.7 neither names it nor keeps a text
+# channel's flags, so it is read and written raw.
+SPOILER_CHANNEL_FLAG = 1 << 21
+
+
+async def mark_spoiler_channel(channel) -> None:
+    """Tick Discord's Spoiler Channel setting on *channel*, keeping its other
+    flags. Never raises: the overwrites are what hide spoilers, this is only the
+    warning on top."""
+    try:
+        http = channel._state.http
+        raw = await http.get_channel(channel.id)
+        flags = int(raw.get("flags", 0))
+        if not flags & SPOILER_CHANNEL_FLAG:
+            await http.edit_channel(channel.id, flags=flags | SPOILER_CHANNEL_FLAG,
+                                    reason="Multi-team finishers channel holds spoilers")
+    except Exception:
+        logger.warning("could not mark channel %s as a spoiler channel",
+                       getattr(channel, "id", "?"), exc_info=True)
+
+
 def _allow():
     return discord.PermissionOverwrite(view_channel=True, send_messages=True,
                                        read_message_history=True)
@@ -90,22 +112,31 @@ def _category_with_room(hub, category_id):
     return with_room(hub.get_channel(category_id) if category_id else None)
 
 
-async def _ensure_one(hub, stored_id, marker, name, topic, overwrites, category=None):
+async def _ensure_one(hub, stored_id, marker, name, topic, overwrites, category=None,
+                      spoiler=False):
     """The hunt's channel (see _find_live), its overwrites replaced by *overwrites*;
     created with *topic* if absent, at the bottom of *category* when given. An
     existing channel is never moved, so an admin's placement sticks, and its topic
     is only rewritten while it is still the legacy *marker*, so an admin's own
     topic sticks too. The overwrites are the channel's own, never synced from the
-    category, so a category can't widen who sees finishers."""
+    category, so a category can't widen who sees finishers. With *spoiler*, the
+    channel is marked a Spoiler Channel once: when created, or when its legacy
+    topic is replaced; after that an admin who unticks it is left alone."""
     channel = _find_live(hub, stored_id, marker)
     if channel is None:
         where = {"category": category} if category is not None else {}
-        return await hub.create_text_channel(name[:100], topic=topic, overwrites=overwrites,
-                                             **where)
+        channel = await hub.create_text_channel(name[:100], topic=topic,
+                                                overwrites=overwrites, **where)
+        if spoiler:
+            await mark_spoiler_channel(channel)
+        return channel
     changes = {"overwrites": overwrites}
-    if channel.topic == marker:
+    legacy = channel.topic == marker
+    if legacy:
         changes["topic"] = topic
     await channel.edit(**changes)
+    if spoiler and legacy:
+        await mark_spoiler_channel(channel)
     return channel
 
 
@@ -131,7 +162,7 @@ async def ensure_channels(hub, mt_id):
         category = _category_with_room(hub, mt.get("hub_category_id"))
         fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
                                 f"{slug}-finishers", finishers_topic(mt["name"]),
-                                _overwrites(hub, done_ids, mt_id), category)
+                                _overwrites(hub, done_ids, mt_id), category, spoiler=True)
         MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
         return ns, fin
 

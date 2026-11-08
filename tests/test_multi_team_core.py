@@ -61,6 +61,16 @@ def _member(hunt_id, role_id, completed=None):
             "roster_role_id": role_id, "archived": 0}
 
 
+def _raw_http(ch, flags=0):
+    """The raw HTTP calls mark_spoiler_channel makes, on the channel's state."""
+    ch._state.http.get_channel = AsyncMock(return_value={"id": ch.id, "flags": flags})
+    ch._state.http.edit_channel = AsyncMock()
+    return ch._state.http
+
+
+SPOILER = 1 << 21
+
+
 def _hub(roles, existing=()):
     hub = MagicMock()
     hub.id = HUB_ID
@@ -80,6 +90,7 @@ def _hub(roles, existing=()):
         ch.name = name
         ch.topic = kw.get("topic")
         ch.edit = AsyncMock()
+        _raw_http(ch)
         created.append((ch, kw))
         hub.text_channels.append(ch)
         return ch
@@ -164,6 +175,7 @@ def _legacy(cid, topic):
     ch.name = f"old-{cid}"
     ch.topic = topic
     ch.edit = AsyncMock()
+    _raw_http(ch)
     return ch
 
 
@@ -357,3 +369,57 @@ async def test_find_or_create_blank_category_is_uncategorised_and_joining_ignore
     assert d.rows[mt_id]["hub_category_id"] is None
     assert (again, created) == (mt_id, False)
     hub.create_category.assert_not_awaited()
+
+
+# ------------------------------------------------------------ spoiler flag
+async def test_new_finishers_channel_is_marked_spoiler_and_no_spoilers_is_not(db, roles):
+    hub = _hub(roles)
+    ns, fin = await multi_team.ensure_channels(hub, MT_ID)
+    fin._state.http.edit_channel.assert_awaited_once()
+    args, kw = fin._state.http.edit_channel.await_args
+    assert args == (fin.id,) and kw["flags"] == SPOILER
+    ns._state.http.edit_channel.assert_not_awaited()
+
+
+async def test_spoiler_mark_keeps_the_channels_other_flags():
+    ch = MagicMock()
+    ch.id = 42
+    http = _raw_http(ch, flags=0b1010)
+    await multi_team.mark_spoiler_channel(ch)
+    assert http.edit_channel.await_args.kwargs["flags"] == 0b1010 | SPOILER
+
+
+async def test_spoiler_mark_skips_a_channel_already_marked():
+    ch = MagicMock()
+    ch.id = 42
+    http = _raw_http(ch, flags=SPOILER | 1)
+    await multi_team.mark_spoiler_channel(ch)
+    http.edit_channel.assert_not_awaited()
+
+
+async def test_spoiler_mark_failure_is_logged_not_raised(caplog):
+    ch = MagicMock()
+    ch.id = 42
+    http = _raw_http(ch)
+    http.edit_channel.side_effect = RuntimeError("Discord said no")
+    await multi_team.mark_spoiler_channel(ch)
+    assert "could not mark channel 42 as a spoiler channel" in caplog.text
+
+
+async def test_later_updates_leave_the_spoiler_setting_alone(db, roles):
+    """Marked once at creation; an admin who unticks it is not overridden."""
+    hub = _hub(roles)
+    _, fin = await multi_team.ensure_channels(hub, MT_ID)
+    fin._state.http.edit_channel.reset_mock()
+    db.members_list = [_member(1, 10, completed="2026-01-01")]
+    await multi_team.ensure_channels(hub, MT_ID)
+    fin._state.http.edit_channel.assert_not_awaited()
+
+
+async def test_legacy_finishers_channel_is_marked_when_its_topic_is_upgraded(db, roles):
+    ns = _legacy(301, "puzzbot-multi-team:7:no-spoilers")
+    fin = _legacy(302, "puzzbot-multi-team:7:finishers")
+    hub = _hub(roles, existing=[ns, fin])
+    await multi_team.ensure_channels(hub, MT_ID)
+    assert fin._state.http.edit_channel.await_args.kwargs["flags"] == SPOILER
+    ns._state.http.edit_channel.assert_not_awaited()
