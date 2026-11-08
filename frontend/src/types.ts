@@ -154,6 +154,10 @@ export interface Puzzle {
   mini_puzzles: MiniPuzzle[];
   rollup_stale?: boolean;
   rollup_error?: string | null;
+  /** Puzzle voice channel (absent on minis, which have none). */
+  voice_channel_id: string | null;
+  voice_url: string | null;
+  voice_count: number;
 }
 
 export interface BoardGroup {
@@ -196,6 +200,11 @@ export interface HuntDetail {
     password: string;
     url_sep: string;
     puzzle_prefix: string;
+    /** The hunt's general voice channel. */
+    voice_channel_id: string | null;
+    voice_url: string | null;
+    voice_count: number;
+    voice_per_puzzle: boolean;
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];
@@ -251,6 +260,8 @@ export interface ActivityEvent {
   author?: string;
   message?: ChatMessage; // for type === "message" | "message_edit"
   message_id?: string; // for type === "message_delete"
+  voice_count?: number; // for type === "voice"; channel_id is the TEXT channel
+  hunt_uid?: string; // for type === "voice" on a hunt's general channel
 }
 
 export interface RollupAnswer {

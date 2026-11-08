@@ -4,6 +4,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Collapse,
   Divider,
   Group,
@@ -22,12 +23,14 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconFileSpreadsheet,
+  IconHeadphones,
   IconTrash,
 } from "@tabler/icons-react";
 import { MarkCompleteModal } from "./MarkCompleteModal";
+import { ConfirmModal } from "./ConfirmModal";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
-import { useArchiveHunt, useCompleteHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, type HuntSettingsPatch } from "../api";
+import { useArchiveHunt, useCompleteHunt, useCreateSolvedSheet, useDeleteHunt, useSetSheetMode, useUpdateHuntSettings, useVoiceCleanup, type HuntSettingsPatch } from "../api";
 import { UTC_OFFSET_OPTIONS, browserOffsetMinutes, localToTs, tsToLocal } from "../util";
 
 interface AdminSettingsPanelProps {
@@ -45,6 +48,7 @@ interface AdminSettingsPanelProps {
   hasSolvedSheet: boolean;
   sheetMode: "tabs" | "files";
   puzzleCount: number;
+  voicePerPuzzle: boolean;
 }
 
 interface FormValues {
@@ -55,6 +59,7 @@ interface FormValues {
   password: string;
   url_sep: string;
   puzzle_prefix: string;
+  voice_per_puzzle: boolean;
 }
 
 export function AdminSettingsPanel({
@@ -72,12 +77,14 @@ export function AdminSettingsPanel({
   hasSolvedSheet,
   sheetMode,
   puzzleCount,
+  voicePerPuzzle,
 }: AdminSettingsPanelProps) {
   const navigate = useNavigate();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [voiceCleanupOpen, setVoiceCleanupOpen] = useState(false);
 
   const settingsMut = useUpdateHuntSettings(uid);
   const archiveMut = useArchiveHunt(uid);
@@ -85,6 +92,7 @@ export function AdminSettingsPanel({
   const modeMut = useSetSheetMode(uid);
   const deleteMut = useDeleteHunt(uid);
   const completeMut = useCompleteHunt(uid);
+  const voiceCleanupMut = useVoiceCleanup(uid);
 
   const [values, setValues] = useState<FormValues>(() => {
     const offset = browserOffsetMinutes();
@@ -96,6 +104,7 @@ export function AdminSettingsPanel({
       password,
       url_sep,
       puzzle_prefix,
+      voice_per_puzzle: voicePerPuzzle,
     };
   });
 
@@ -116,8 +125,9 @@ export function AdminSettingsPanel({
       password,
       url_sep,
       puzzle_prefix,
+      voice_per_puzzle: voicePerPuzzle,
     });
-  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix]);
+  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle]);
 
   const handleSave = useCallback(() => {
     const patch: HuntSettingsPatch = {};
@@ -147,6 +157,9 @@ export function AdminSettingsPanel({
     if (values.puzzle_prefix !== puzzle_prefix) {
       patch.puzzle_prefix = values.puzzle_prefix;
     }
+    if (values.voice_per_puzzle !== voicePerPuzzle) {
+      patch.voice_per_puzzle = values.voice_per_puzzle;
+    }
 
     const changedKeys = Object.keys(patch);
     if (changedKeys.length === 0) {
@@ -165,7 +178,7 @@ export function AdminSettingsPanel({
         notifications.show({ message: (e as Error).message, color: "red" });
       },
     });
-  }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, settingsMut]);
+  }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, settingsMut]);
 
   const handleToggleComplete = (complete: boolean) => {
     completeMut.mutate(complete, {
@@ -216,6 +229,21 @@ export function AdminSettingsPanel({
       },
     });
   }, [sheetMode, modeMut]);
+
+  const handleVoiceCleanup = useCallback(() => {
+    setVoiceCleanupOpen(false);
+    voiceCleanupMut.mutate(undefined, {
+      onSuccess: (r) => {
+        notifications.show({
+          message: `Removed ${r.removed.length} puzzle voice channel${r.removed.length === 1 ? "" : "s"}.`,
+          color: "green",
+        });
+      },
+      onError: (e) => {
+        notifications.show({ message: (e as Error).message, color: "red" });
+      },
+    });
+  }, [voiceCleanupMut]);
 
   const handleDelete = useCallback(() => {
     deleteMut.mutate(undefined, {
@@ -284,6 +312,15 @@ export function AdminSettingsPanel({
           label="Shared password"
           value={values.password}
           onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
+        />
+
+        <Checkbox
+          label="Voice channel for every new puzzle"
+          checked={values.voice_per_puzzle}
+          onChange={(e) => {
+            const checked = e.currentTarget.checked;
+            setValues((v) => ({ ...v, voice_per_puzzle: checked }));
+          }}
         />
 
         <Divider />
@@ -397,6 +434,31 @@ export function AdminSettingsPanel({
           <Text size="sm" c="green">✓ Solved puzzles sheet already created.</Text>
         )}
       </Stack>
+
+      <Stack gap="sm">
+        <Title order={5}>Voice</Title>
+        <Group>
+          <Button
+            variant="light"
+            size="xs"
+            color="red"
+            leftSection={<IconHeadphones size={14} />}
+            onClick={() => setVoiceCleanupOpen(true)}
+            loading={voiceCleanupMut.isPending}
+          >
+            Remove puzzle voice channels
+          </Button>
+        </Group>
+      </Stack>
+      <ConfirmModal
+        opened={voiceCleanupOpen}
+        onClose={() => setVoiceCleanupOpen(false)}
+        onConfirm={handleVoiceCleanup}
+        title="Remove puzzle voice channels"
+        message="Removes every puzzle's voice channel in this hunt. People still in one get a 15-second warning and are moved to the hunt's voice channel."
+        confirmLabel="Remove voice channels"
+        confirmColor="red"
+      />
 
       {isTeamHunt && !archived && (
         <TeamArchiveModal

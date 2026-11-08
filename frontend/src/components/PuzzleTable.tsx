@@ -17,6 +17,8 @@ import { latestActivity } from "../lib/sparkline";
 import { ActivitySparkline } from "./ActivitySparkline";
 import { useRetagPuzzle, useUpdatePuzzle, type EdgeType } from "../api";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { VoiceBadge } from "./VoiceBadge";
+import { puzzleVoiceCount, voiceRowBg, type LiveVoice } from "../lib/voice";
 import { MetaBadge } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
@@ -28,6 +30,7 @@ interface Props {
   detail: HuntDetail;
   puzzles: Puzzle[];
   live: Record<string, LiveActivity>;
+  voice: LiveVoice;
   onOpenNotes: (puzzle: Puzzle) => void;
 }
 
@@ -166,7 +169,7 @@ function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_ty
   return Array.from(set).sort();
 }
 
-export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
+export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props) {
   const [search, setSearch] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [priorities, setPriorities] = useState<string[]>([]);
@@ -293,7 +296,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                 : {};
               return (
               <Table.Tbody key={p.id}>
-              <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
+              <Table.Tr bg={voiceRowBg(p.solved, puzzleVoiceCount(p, voice))}>
                 <Table.Td>
                   <PuzzleLinks
                     puzzle={p}
@@ -305,6 +308,7 @@ export function PuzzleTable({ detail, puzzles, live, onOpenNotes }: Props) {
                     <MetaBadge puzzle={p} />
                     <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                     <MiniCountBadge puzzle={p} />
+                    <VoiceBadge count={puzzleVoiceCount(p, voice)} />
                   </Group>
                 </Table.Td>
                 {debugEdges && (

@@ -25,3 +25,13 @@ describe("friendlyError teams_still_playing", () => {
     expect(friendlyError({ error: "teams_still_playing" }, 409)).toMatch(/archive their servers/);
   });
 });
+
+describe("friendlyError voice slugs", () => {
+  it("explains each create-voice refusal", () => {
+    expect(friendlyError({ error: "solved" }, 409)).toBe("This puzzle is solved — no new voice channel.");
+    expect(friendlyError({ error: "no_hunt_category" }, 409)).toBe(
+      "Can't find the hunt's category to copy permissions from.",
+    );
+    expect(friendlyError({ error: "archived" }, 409)).toMatch(/archived/);
+  });
+});

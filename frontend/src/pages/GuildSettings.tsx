@@ -200,7 +200,7 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             onChange={(e) => setDriveParent(e.currentTarget.value)}
           />
           <Checkbox
-            label="Create a voice channel alongside each puzzle channel"
+            label="New hunts get a voice channel for every puzzle by default"
             checked={voice}
             onChange={(e) => setVoice(e.currentTarget.checked)}
           />
