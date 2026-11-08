@@ -141,8 +141,8 @@ Every hunt has a voice channel in its main category (made at creation; for older
 first time voice is needed). Puzzle voice channels live in a "<hunt> Voice" category (then
 "<hunt> Voice 2", …) cloned from the hunt's category, so they carry the hunt's permissions.
 A solved puzzle's voice channel is removed 15 minutes after the solve (an unsolve in that
-time keeps it). Whenever a channel with people in it is removed, they get an `@here` warning
-15 seconds before and are moved into the hunt's voice channel — the bot needs the **Move
+time keeps it). Whenever a channel with people in it is removed, the people in it are mentioned in the
+puzzle's text channel (or the hunt's, for a channel with no puzzle) 15 seconds before and are moved into the hunt's voice channel — the bot needs the **Move
 Members** permission for that (`!voice` and the drawer say so if it's missing; without it
 people are disconnected instead). An unsolve during that warning keeps the channel. The
 dashboard shows how many people are in each voice channel, and the puzzle drawer has the same

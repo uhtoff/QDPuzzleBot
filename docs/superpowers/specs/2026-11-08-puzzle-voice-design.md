@@ -159,3 +159,12 @@ the channel or joins it directly.
   overwrites.
 - **Presence storage.** In memory only, rebuilt from the guilds' current voice members on
   startup; nothing persisted.
+
+## Change after the first live test (user, 2026-11-08)
+
+The close warning is no longer an `@here` in the voice channel's own chat — that chat is easy
+to miss and is deleted with the channel. It is posted in the puzzle's text channel (the hunt's
+main text channel for an orphan voice channel, the voice chat only if neither exists),
+mentioning just the people in the call (`allowed_mentions` users only), e.g.
+"@Russ the voice channel for **Cap One** closes in 15 seconds — the puzzle was solved. You'll
+be moved to #Big Hunt voice." The `@here` wording in goals 5 and 6 above is superseded.

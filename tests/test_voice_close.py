@@ -9,8 +9,8 @@ import pytest
 from bot.core import voice
 from tests.test_voice_core import _category, _guild, _hunt, _puzzle, _vc
 
-WARN = ("@here this voice channel closes in 15 seconds — **Cap One** was solved. "
-        "Anyone still here will be moved to <#12>.")
+WARN = ("<@1> <@2> the voice channel for **vc** closes in 15 seconds — "
+        "the puzzle was solved. You'll be moved to <#12>.")
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +39,15 @@ async def test_close_voice_channel_reports_skip_when_already_closing():
     assert await voice.close_voice_channel(_guild([ch]), _hunt(), ch, "r", sleep=AsyncMock()) is True
 
 
-def _member(name="m"):
+_ids = iter(range(1, 10_000))
+
+
+def _member(name="m", *, bot=False, uid=None):
     m = MagicMock()
     m.name = name
+    m.bot = bot
+    m.id = uid if uid is not None else next(_ids)
+    m.mention = f"<@{m.id}>"
     m.move_to = AsyncMock()
     return m
 
@@ -57,7 +63,7 @@ async def test_empty_channel_is_deleted_without_a_warning():
 
 async def test_occupied_channel_warns_then_moves_then_deletes():
     hunt_vc = _vc(12)
-    a, b = _member("a"), _member("b")
+    a, b = _member("a", uid=1), _member("b", uid=2)
     ch = _vc(21, members=[a, b])
     guild = _guild([hunt_vc, ch])
     hunt = _hunt(voice_channel_id=12)
@@ -68,10 +74,12 @@ async def test_occupied_channel_warns_then_moves_then_deletes():
     mgr.attach_mock(a.move_to, "move_a")
     mgr.attach_mock(b.move_to, "move_b")
     mgr.attach_mock(ch.delete, "delete")
-    await voice.close_voice_channel(guild, hunt, ch, "**Cap One** was solved", sleep=sleep)
+    await voice.close_voice_channel(guild, hunt, ch, "the puzzle was solved", sleep=sleep)
+    # No notice channel given -> falls back to the voice channel's own chat.
     ch.send.assert_awaited_once()
     assert ch.send.await_args.args[0] == WARN
-    assert ch.send.await_args.kwargs["allowed_mentions"].everyone is True
+    allowed = ch.send.await_args.kwargs["allowed_mentions"]
+    assert allowed.everyone is False and allowed.roles is False and allowed.users is True
     sleep.assert_awaited_once_with(15)
     a.move_to.assert_awaited_once_with(hunt_vc)
     b.move_to.assert_awaited_once_with(hunt_vc)
@@ -95,7 +103,7 @@ async def test_close_without_a_hunt_voice_channel_still_warns_and_deletes(stores
     ch = _vc(21, members=[a])
     guild = _guild([ch])  # hunt has no voice id and no main category -> ensure returns None
     await voice.close_voice_channel(guild, _hunt(), ch, "r", sleep=AsyncMock())
-    assert "the hunt's voice channel" in ch.send.await_args.args[0]
+    assert ch.send.await_args.args[0].endswith("You'll be disconnected when it closes.")
     a.move_to.assert_not_awaited()
     ch.delete.assert_awaited_once()
 
@@ -374,3 +382,67 @@ async def test_sweep_refreshes_each_closed_puzzles_pin(stores):
         await voice.sweep_solved(bot, sleep=AsyncMock())
     assert {c.args[2].id for c in refresh.await_args_list} == {7, 8}
     assert all(c.args[0] is guild and c.args[1] is hunt for c in refresh.await_args_list)
+
+
+
+def _text(cid):
+    t = MagicMock()
+    t.id = cid
+    t.send = AsyncMock()
+    return t
+
+
+async def test_puzzle_close_warns_in_the_puzzle_channel_mentioning_only_the_people_in_voice(stores):
+    hunt_vc, puzzle_text, hunt_text = _vc(12), _text(31), _text(30)
+    human, robot = _member("russ", uid=5), _member("bot", bot=True, uid=6)
+    ch = _vc(21, members=[human, robot])
+    guild = _guild([hunt_vc, ch, puzzle_text, hunt_text])
+    hunt = _hunt(voice_channel_id=12, channel_id=30)
+    puzzle = _puzzle(voice_channel_id=21, channel_id=31)
+    await voice.close_puzzle_voice(guild, hunt, puzzle, voice.SOLVED_REASON, sleep=AsyncMock())
+    puzzle_text.send.assert_awaited_once()
+    assert puzzle_text.send.await_args.args[0] == (
+        "<@5> the voice channel for **Cap One** closes in 15 seconds — "
+        "the puzzle was solved. You'll be moved to <#12>.")
+    ch.send.assert_not_awaited()
+    hunt_text.send.assert_not_awaited()
+
+
+async def test_puzzle_close_falls_back_to_the_hunt_channel(stores):
+    hunt_vc, hunt_text = _vc(12), _text(30)
+    ch = _vc(21, members=[_member(uid=5)])
+    guild = _guild([hunt_vc, ch, hunt_text])  # puzzle's text channel is gone
+    await voice.close_puzzle_voice(guild, _hunt(voice_channel_id=12, channel_id=30),
+                                   _puzzle(voice_channel_id=21, channel_id=31),
+                                   voice.SOLVED_REASON, sleep=AsyncMock())
+    hunt_text.send.assert_awaited_once()
+    ch.send.assert_not_awaited()
+
+
+async def test_a_failed_warning_post_still_moves_and_deletes(stores):
+    hunt_vc, puzzle_text = _vc(12), _text(31)
+    puzzle_text.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="x"), "no")
+    a = _member(uid=5)
+    ch = _vc(21, members=[a])
+    guild = _guild([hunt_vc, ch, puzzle_text])
+    await voice.close_puzzle_voice(guild, _hunt(voice_channel_id=12),
+                                   _puzzle(voice_channel_id=21, channel_id=31),
+                                   voice.SOLVED_REASON, sleep=AsyncMock())
+    a.move_to.assert_awaited_once_with(hunt_vc)
+    ch.delete.assert_awaited_once()
+
+
+async def test_cleanup_warns_an_occupied_orphan_in_the_hunt_channel(stores):
+    _, p = stores
+    hunt_vc, hunt_text = _vc(12, "Big Hunt voice"), _text(30)
+    orphan = _vc(23, "Orphan", members=[_member(uid=5)])
+    vcat = _category(600, "Big Hunt Voice")
+    vcat.channels = [orphan]
+    guild = _guild([hunt_vc, orphan, hunt_text], categories=[vcat])
+    p.with_voice.return_value = []
+    await voice.cleanup_hunt(guild, _hunt(voice_channel_id=12, channel_id=30), sleep=AsyncMock())
+    hunt_text.send.assert_awaited_once()
+    assert hunt_text.send.await_args.args[0].startswith(
+        "<@5> the voice channel for **Orphan** closes in 15 seconds — "
+        "an admin is tidying up voice channels.")
+    orphan.send.assert_not_awaited()

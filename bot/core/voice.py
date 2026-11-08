@@ -147,6 +147,7 @@ async def create_puzzle_voice(guild, hunt, puzzle) -> tuple[discord.VoiceChannel
 WARNING_SECONDS = 15
 SOLVED_GRACE = datetime.timedelta(minutes=15)
 CLEANUP_REASON = "an admin is tidying up voice channels"
+SOLVED_REASON = "the puzzle was solved"
 
 # Ids of channels currently inside close_voice_channel, so the 20 s sweep firing
 # again during a 15 s close neither re-warns nor double-deletes.
@@ -157,23 +158,37 @@ StillWanted = Callable[[], Awaitable[bool]]
 
 
 async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asyncio.sleep,
-                              still_wanted: StillWanted | None = None) -> bool:
+                              still_wanted: StillWanted | None = None,
+                              notice_channel=None, label: str | None = None) -> bool:
     """Warn (if occupied), move occupants to the hunt voice channel, delete.
     Does not touch the database. True if it deleted the channel, False if it
     skipped because a close is already in flight, or because *still_wanted*
-    (checked after the warning) said the close is no longer wanted."""
+    (checked after the warning) said the close is no longer wanted.
+
+    The warning goes to *notice_channel* (a text channel people actually read —
+    the puzzle's or the hunt's), mentioning only the people in the call; without
+    one it falls back to the voice channel's own chat. A voice channel's chat is
+    easy to miss and vanishes with the channel (user test, 2026-11-08)."""
     if channel.id in _closing:
         return False
     _closing.add(channel.id)
     try:
         if channel.members:
             target = await ensure_hunt_voice(guild, hunt)
-            mention = target.mention if target is not None else "the hunt's voice channel"
-            await channel.send(
-                f"@here this voice channel closes in {WARNING_SECONDS} seconds — {reason}. "
-                f"Anyone still here will be moved to {mention}.",
-                allowed_mentions=discord.AllowedMentions(everyone=True),
-            )
+            people = " ".join(m.mention for m in channel.members if not getattr(m, "bot", False))
+            where = (f"You'll be moved to {target.mention}." if target is not None
+                     else "You'll be disconnected when it closes.")
+            text = (f"{people} the voice channel for **{label or channel.name}** closes in "
+                    f"{WARNING_SECONDS} seconds — {reason}. {where}").strip()
+            try:
+                await (notice_channel or channel).send(
+                    text,
+                    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False,
+                                                             users=True),
+                )
+            except Exception:
+                logger.warning("Voice close warning could not be posted for %s", channel.id,
+                               exc_info=True)
             await sleep(WARNING_SECONDS)
             if still_wanted is not None and not await still_wanted():
                 return False
@@ -193,6 +208,16 @@ async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asynci
         _closing.discard(channel.id)
 
 
+def _notice_channel(guild, hunt, puzzle=None):
+    """Where a close warning is posted: the puzzle's text channel, else the
+    hunt's main text channel, else None (the voice channel's own chat)."""
+    for cid in (getattr(puzzle, "channel_id", 0), getattr(hunt, "channel_id", 0)):
+        ch = guild.get_channel(cid) if cid else None
+        if ch is not None:
+            return ch
+    return None
+
+
 async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.sleep,
                              still_wanted: StillWanted | None = None) -> bool:
     """Close the puzzle's voice channel and forget its id. True if a channel was
@@ -202,8 +227,10 @@ async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.
         PuzzleJsonDb.set_voice_channel(puzzle.id, None)
         puzzle.voice_channel_id = 0
         return False
+    notice = _notice_channel(guild, hunt, puzzle)
     if not await close_voice_channel(guild, hunt, channel, reason, sleep=sleep,
-                                     still_wanted=still_wanted):
+                                     still_wanted=still_wanted, notice_channel=notice,
+                                     label=puzzle.name):
         return False
     PuzzleJsonDb.set_voice_channel(puzzle.id, None)
     puzzle.voice_channel_id = 0
@@ -253,7 +280,8 @@ async def cleanup_hunt(guild, hunt, *, bot=None, sleep=asyncio.sleep) -> list[st
                 await refresh_pin(bot, guild, hunt, puzzle)
 
     async def _orphan_job(channel):
-        if await close_voice_channel(guild, hunt, channel, CLEANUP_REASON, sleep=sleep):
+        if await close_voice_channel(guild, hunt, channel, CLEANUP_REASON, sleep=sleep,
+                                     notice_channel=_notice_channel(guild, hunt)):
             names.append(channel.name)
             removed_ids.add(channel.id)
 
@@ -322,7 +350,7 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
             return await asyncio.to_thread(PuzzleJsonDb.is_solved, puzzle.id)
 
         try:
-            if await close_puzzle_voice(guild, hunt, puzzle, f"**{puzzle.name}** was solved",
+            if await close_puzzle_voice(guild, hunt, puzzle, SOLVED_REASON,
                                         sleep=sleep, still_wanted=still_solved):
                 changed[hunt.id] = hunt
                 await refresh_pin(bot, guild, hunt, puzzle)
