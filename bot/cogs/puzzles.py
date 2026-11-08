@@ -75,6 +75,9 @@ PROTECTED_SETTING_KEYS = {
         "it would orphan them.",
     "guild_name":
         "This is filled in from Discord when the guild's settings row is created.",
+    "voice_channel_id":
+        "The bot manages voice channels itself: use `!voice` (`!vc`) to make one "
+        "and `!voice_cleanup` to remove them.",
     "template_link":
         "Use !set_template_link, which validates it.",
 }
@@ -2980,6 +2983,22 @@ class Puzzles(commands.Cog):
             settings = self.get_puzzle(ctx)
         else:
             await self.send_not_puzzle_channel(ctx)
+            return
+        if isinstance(settings, HuntData) and setting_key == "voice_per_puzzle":
+            # Stored only by its narrow setter (the generic commit skips it), so
+            # the generic path below would report success and save nothing.
+            choice = setting_value.strip().lower()
+            if choice not in ("true", "1", "on", "false", "0", "off"):
+                await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs "
+                               f"on/off (or true/false, 1/0).")
+                return
+            new = choice in ("true", "1", "on")
+            old_flag = bool(settings.voice_per_puzzle)
+            await asyncio.to_thread(HuntJsonDb.set_voice_per_puzzle, settings.id, new)
+            settings.voice_per_puzzle = new
+            await self.service.notifier.board_changed(settings)
+            await ctx.send(f":white_check_mark: Updated `{setting_key}={new}` from old value: "
+                           f"`{old_flag}`")
             return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
