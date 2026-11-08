@@ -4186,8 +4186,12 @@ class PuzzleService:
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False,
                           guild_id=0, creator=None, confirm_existing_role=False,
-                          sheet_mode="tabs"):
+                          sheet_mode="tabs", voice_per_puzzle=None):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
+
+        ``voice_per_puzzle`` True/False sets the hunt's "voice channel for every
+        new puzzle" setting; None (default) takes the server's default
+        (guilds.discord_use_voice_channels).
 
         ``sheet_mode`` "tabs" (default) keeps one spreadsheet with a tab per puzzle;
         "files" makes a Drive folder (+ Solved subfolder) holding a reference
@@ -4294,10 +4298,14 @@ class PuzzleService:
             new_hunt.solved_sheet_id = solved_sheet_id
 
         HuntJsonDb.commit(new_hunt)
-        # Voice (best-effort): the guild toggle is the default for new hunts.
+        # Voice (best-effort): an explicit choice wins; else the guild toggle is
+        # the default for new hunts.
         try:
-            guild_settings = GuildSettingsDb.get(guild.id)
-            if guild_settings is not None and guild_settings.discord_use_voice_channels:
+            if voice_per_puzzle is None:
+                guild_settings = GuildSettingsDb.get(guild.id)
+                voice_per_puzzle = bool(guild_settings is not None
+                                        and guild_settings.discord_use_voice_channels)
+            if voice_per_puzzle:
                 HuntJsonDb.set_voice_per_puzzle(new_hunt.id, True)
                 new_hunt.voice_per_puzzle = True
         except Exception:

@@ -8,7 +8,7 @@ export function VoiceBadge({ count }: { count: number }) {
   return (
     <Tooltip label={label}>
       <Badge
-        color="teal"
+        color="indigo"
         variant="light"
         leftSection={<IconHeadphones size={12} />}
         style={{ flexShrink: 0 }}

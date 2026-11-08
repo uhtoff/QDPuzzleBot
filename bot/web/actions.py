@@ -820,7 +820,7 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "confirm_existing_role", "sheet_mode"}
+                         "confirm_existing_role", "sheet_mode", "voice_per_puzzle"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -837,6 +837,8 @@ async def create_hunt():
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
     if body.get("sheet_mode", "tabs") not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
+    if "voice_per_puzzle" in body and not isinstance(body["voice_per_puzzle"], bool):
+        return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
     start_timestamp = body["start_timestamp"]
     if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
         return jsonify({"error": "bad_start_timestamp"}), 400

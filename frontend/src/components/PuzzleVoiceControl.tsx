@@ -21,7 +21,7 @@ export function PuzzleVoiceControl({ voiceUrl, count, solved, archived, pending,
             Join voice
           </Group>
         </Anchor>
-        {count > 0 && <Text size="sm" c="teal">{count} in voice</Text>}
+        {count > 0 && <Text size="sm" c="indigo">{count} in voice</Text>}
       </Group>
     );
   }
@@ -29,7 +29,7 @@ export function PuzzleVoiceControl({ voiceUrl, count, solved, archived, pending,
   return (
     <Button
       variant="light"
-      color="teal"
+      color="indigo"
       leftSection={<IconHeadphones size={16} />}
       loading={pending}
       onClick={onCreate}

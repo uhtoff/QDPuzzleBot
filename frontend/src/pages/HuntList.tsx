@@ -128,6 +128,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [password, setPassword] = useState("");
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
   const [filesMode, setFilesMode] = useState(false);
+  const [voicePerPuzzle, setVoicePerPuzzle] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRole, setConfirmRole] = useState<{ message: string; payload: CreateHuntPayload } | null>(null);
 
@@ -190,6 +191,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     // A files hunt has no solved spreadsheet, so the two are never sent together.
     if (filesMode) payload.sheet_mode = "files";
     else if (createSolvedSheet) payload.create_solved_sheet = true;
+    payload.voice_per_puzzle = voicePerPuzzle;
 
     submit(payload);
   };
@@ -283,6 +285,13 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
             onChange={(e) => setCreateSolvedSheet(e.currentTarget.checked)}
           />
         )}
+
+        <Checkbox
+          label="Voice channel for every puzzle"
+          description="Each new puzzle gets its own voice channel. Can be changed later in Admin settings."
+          checked={voicePerPuzzle}
+          onChange={(e) => setVoicePerPuzzle(e.currentTarget.checked)}
+        />
 
         <Button onClick={handleSubmit} loading={createMut.isPending} disabled={!canSubmit}>
           Create hunt

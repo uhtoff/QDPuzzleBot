@@ -21,7 +21,7 @@ def _voice_mock(**kw):
     return v
 
 
-async def _make_hunt(guild, *, toggle=False, voice=None):
+async def _make_hunt(guild, *, toggle=False, voice=None, **create_kw):
     svc = _create_service()
     voice = voice or _voice_mock()
     with patch("bot.core.puzzle_service.HuntJsonDb") as hdb, \
@@ -30,7 +30,8 @@ async def _make_hunt(guild, *, toggle=False, voice=None):
         hdb.check_duplicates.return_value = False
         hdb.generate_uid.return_value = "abc"
         gdb.get.return_value = MagicMock(discord_use_voice_channels=toggle)
-        hunt = await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0)
+        hunt = await svc.create_hunt(guild, name="H", url="https://h/", start_timestamp=0,
+                                     **create_kw)
     return hunt, hdb, voice
 
 
@@ -239,3 +240,13 @@ async def test_rename_puzzle_without_guild_skips_voice():
     v.rename_puzzle_voice = AsyncMock()
     await _rename(v, None)
     v.rename_puzzle_voice.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_explicit_voice_choice_beats_the_guild_default():
+    hunt, hdb, _ = await _make_hunt(_create_guild(), toggle=False, voice_per_puzzle=True)
+    hdb.set_voice_per_puzzle.assert_called_once_with(hunt.id, True)
+    assert hunt.voice_per_puzzle
+    hunt2, hdb2, _ = await _make_hunt(_create_guild(), toggle=True, voice_per_puzzle=False)
+    hdb2.set_voice_per_puzzle.assert_not_called()
+    assert not hunt2.voice_per_puzzle

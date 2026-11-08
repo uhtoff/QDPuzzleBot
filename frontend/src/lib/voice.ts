@@ -33,10 +33,10 @@ export function huntVoiceCount(uid: string, payloadCount: number, live: LiveVoic
   return live.hunts[uid] ?? payloadCount ?? 0;
 }
 
-/** Row background: solved green wins; otherwise teal when someone is in voice. */
+/** Row background: solved green wins; otherwise indigo when someone is in voice. */
 export function voiceRowBg(solved: boolean, count: number): string | undefined {
   if (solved) return "var(--mantine-color-green-light)";
-  return count > 0 ? "var(--mantine-color-teal-light)" : undefined;
+  return count > 0 ? "var(--mantine-color-indigo-light)" : undefined;
 }
 
 /** Shown when the bot can't move people out of a closing voice channel. */

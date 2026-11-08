@@ -966,6 +966,7 @@ export interface CreateHuntPayload {
   password?: string;
   create_solved_sheet?: boolean;
   sheet_mode?: "tabs" | "files";
+  voice_per_puzzle?: boolean;
   // Set on the second attempt after the backend asks to confirm reusing an
   // existing role (needs_confirm: "existing_role").
   confirm_existing_role?: boolean;

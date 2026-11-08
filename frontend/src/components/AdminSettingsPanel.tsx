@@ -62,6 +62,21 @@ interface FormValues {
   voice_per_puzzle: boolean;
 }
 
+// The "Saved: …" notice names fields as the form labels them, not the API keys.
+const SETTING_LABELS: Record<string, string> = {
+  url: "website URL",
+  start_timestamp: "start time",
+  username: "shared username",
+  password: "shared password",
+  url_sep: "URL separator",
+  puzzle_prefix: "puzzle prefix",
+  voice_per_puzzle: "voice channel for every new puzzle",
+};
+
+export function settingLabel(key: string): string {
+  return SETTING_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
 export function AdminSettingsPanel({
   uid,
   huntName,
@@ -170,7 +185,7 @@ export function AdminSettingsPanel({
     settingsMut.mutate(patch, {
       onSuccess: () => {
         notifications.show({
-          message: `Saved ${changedKeys.join(", ")}`,
+          message: `Saved: ${changedKeys.map(settingLabel).join(", ")}.`,
           color: "green",
         });
       },

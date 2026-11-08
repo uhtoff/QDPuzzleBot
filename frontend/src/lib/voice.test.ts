@@ -37,8 +37,8 @@ describe("counts", () => {
 });
 
 describe("voiceRowBg", () => {
-  it("tints teal only for an unsolved puzzle with someone in voice", () => {
-    expect(voiceRowBg(false, 2)).toBe("var(--mantine-color-teal-light)");
+  it("tints indigo only for an unsolved puzzle with someone in voice", () => {
+    expect(voiceRowBg(false, 2)).toBe("var(--mantine-color-indigo-light)");
     expect(voiceRowBg(false, 0)).toBeUndefined();
     expect(voiceRowBg(true, 2)).toBe("var(--mantine-color-green-light)");
     expect(voiceRowBg(true, 0)).toBe("var(--mantine-color-green-light)");

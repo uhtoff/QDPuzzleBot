@@ -696,10 +696,11 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, files]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, files][, voice]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
         Add `, Team A` to gate the hunt behind a role. Append `, files` for one
-        Google spreadsheet per puzzle in a Drive folder. Run in the bot channel.
+        Google spreadsheet per puzzle in a Drive folder, and/or `, voice` to give
+        every new puzzle its own voice channel. Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
@@ -707,10 +708,18 @@ class Puzzles(commands.Cog):
 
         # An optional trailing ", files" token selects one-spreadsheet-per-puzzle
         # mode. Strip it first so the name:url[, role] parsing below is unaffected.
+        # Likewise a trailing ", voice" (either order with ", files") turns on a
+        # voice channel for every puzzle; without it the server default applies.
         sheet_mode = "tabs"
+        voice_per_puzzle = None
         arg = arg.rstrip()
-        if arg.lower().endswith(", files"):
-            arg, sheet_mode = arg[: -len(", files")], "files"
+        while True:
+            if arg.lower().endswith(", files"):
+                arg, sheet_mode = arg[: -len(", files")].rstrip(), "files"
+            elif arg.lower().endswith(", voice"):
+                arg, voice_per_puzzle = arg[: -len(", voice")].rstrip(), True
+            else:
+                break
 
         role = None
         if ", " in arg:
@@ -720,7 +729,8 @@ class Puzzles(commands.Cog):
             if HuntJsonDb.check_duplicates(hunt_name, guild_id=ctx.guild.id):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
             new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role,
-                                              sheet_mode=sheet_mode)
+                                              sheet_mode=sheet_mode,
+                                              voice_per_puzzle=voice_per_puzzle)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
             await ctx.send(
@@ -734,7 +744,7 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          sheet_mode: str = "tabs"):
+                          sheet_mode: str = "tabs", voice_per_puzzle: Optional[bool] = None):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
             return None
@@ -750,6 +760,7 @@ class Puzzles(commands.Cog):
                     start_timestamp=0,
                     role_name=role_name,
                     sheet_mode=sheet_mode,
+                    voice_per_puzzle=voice_per_puzzle,
                     guild_id=settings.id if settings else 0,
                     creator=ctx.author,
                     confirm_existing_role=confirm_existing,

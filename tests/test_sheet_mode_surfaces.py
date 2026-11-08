@@ -311,3 +311,52 @@ async def test_hunt_command_posts_the_organiser_reminder(reminder):
     assert sent[0].startswith(":white_check_mark:")
     assert (":warning: gated" in sent) is (reminder is not None)
     assert len(sent) == (2 if reminder else 1)
+
+
+# ------------------------------------------------- voice-for-every-puzzle at creation
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arg,expected_mode,expected_role", [
+    ("m:https://h/, voice", "tabs", None),
+    ("m:https://h/, files, voice", "files", None),
+    ("m:https://h/, voice, files", "files", None),
+    ("m:https://h/, Team A, Voice", "tabs", "Team A"),
+])
+async def test_hunt_voice_token(arg, expected_mode, expected_role):
+    args, kwargs = await _run_hunt(arg)
+    assert kwargs["voice_per_puzzle"] is True
+    assert kwargs["sheet_mode"] == expected_mode
+    assert (args[1], args[2], args[3]) == ("m", "https://h/", expected_role)
+
+
+@pytest.mark.asyncio
+async def test_hunt_without_voice_token_leaves_the_server_default():
+    _, kwargs = await _run_hunt("m:https://h/, files")
+    assert kwargs["voice_per_puzzle"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_wrapper_forwards_voice_choice_to_service():
+    from bot.cogs.puzzles import Puzzles
+    cog = make_cog()
+    cog.check_available_space = AsyncMock(return_value=True)
+    cog.get_guild_data = lambda ctx: MagicMock(id=1)
+    cog.bot = MagicMock()
+    cog.service.create_hunt = AsyncMock(return_value=MagicMock(role_id=0, channel_id=0))
+    with patch("bot.core.notifier.DiscordNotifier") as dn:
+        dn.return_value.welcome = AsyncMock()
+        await Puzzles.create_hunt(cog, make_ctx(), "m", "u", None, voice_per_puzzle=True)
+    assert cog.service.create_hunt.call_args.kwargs["voice_per_puzzle"] is True
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_forwards_voice_per_puzzle(web):
+    resp = await web.client.post("/api/hunts", json=_body(voice_per_puzzle=True))
+    assert resp.status_code == 200
+    assert web.cog.service.create_hunt.call_args.kwargs["voice_per_puzzle"] is True
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_rejects_non_bool_voice_per_puzzle(web):
+    resp = await web.client.post("/api/hunts", json=_body(voice_per_puzzle="yes"))
+    assert resp.status_code == 400
+    web.cog.service.create_hunt.assert_not_awaited()
