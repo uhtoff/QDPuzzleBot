@@ -54,11 +54,13 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
   name and avatar (Discord shows an APP tag). The bot needs **Manage Webhooks** in the puzzle
   channels.
 - Dashboard buttons appear only when the extension is installed: "Work on this puzzle" (icon
-  on the puzzle row, labelled button in the drawer), an icon button in each round header
-  ("Open round as a tab group", files-mode hunts only; reuses already-open tabs and moves
-  them into the group) and "Close solved tabs" in the board header (files-mode only). Opening
-  an already-open puzzle sheet switches to that tab and closes the duplicate unless it is the
-  only tab in its window.
+  on the puzzle row, labelled button in the drawer), "Open puzzle as a tab group" (icon on
+  the puzzle row, labelled button in the drawer; opens the puzzle's sheet and hunt page in a
+  group named after the puzzle, or focuses that group if it is already open), an icon button
+  in each round header ("Open round as a tab group", files-mode hunts only; reuses
+  already-open tabs and moves them into the group) and "Close solved tabs" in the board
+  header (files-mode only). Opening an already-open puzzle sheet switches to that tab and
+  closes the duplicate unless it is the only tab in its window.
 - Replies over 2000 characters, or from timed-out members, are refused.
 
 Known limitation: your first panel reply may show the default Discord avatar in the

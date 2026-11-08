@@ -19,7 +19,7 @@ Puzzle Chat is a companion to a self-hosted web app (the Puzzbot dashboard) used
 4. Open the test puzzle's Google Sheet (link above) in a tab. The sheet must open at docs.google.com/spreadsheets/.
 5. Click the Puzzle Chat toolbar icon to open the side panel. It shows the puzzle's chat. Type a message and send it; it appears in the panel and in the linked Discord channel.
 6. Optional: on the options page tick "Desktop notifications"; Chrome asks for the optional notifications permission. Send a message from Discord to see a notification.
-7. Optional: on the dashboard, use "Work on this puzzle" on a puzzle: the extension opens or focuses the sheet tab.
+7. Optional: on the dashboard, use "Work on this puzzle" on a puzzle: the extension opens or focuses the sheet tab. "Open puzzle as a tab group" instead opens the puzzle's sheet and hunt page in a group named after the puzzle.
 
 ## Notes
 - The extension reads only the address (URL) of Google Sheets tabs (via the docs.google.com/spreadsheets host permission); it never reads sheet contents.

@@ -408,18 +408,25 @@ function sameSheet(a, b) {
 }
 
 // Serialised so quick clicks cannot pick the same colour or lose a groupColours write.
-let roundChain = Promise.resolve();
-const queueOpenRound = (name, urls, senderTab) => {
-  roundChain = roundChain.then(() => openRound(name, urls, senderTab)).catch(() => {});
-  return roundChain;
+let groupChain = Promise.resolve();
+const queueOpen = (open) => {
+  groupChain = groupChain.then(open).catch(() => {});
+  return groupChain;
 };
 
-async function openRound(name, urls, senderTab) {
-  const windowId = senderTab.windowId;
+// Open (or reuse) each URL as a background tab in the sender's window.
+async function openTabs(urls, windowId) {
   const open = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
   const tabIds = [];
   for (const url of urls) {
     const want = parseSheetUrl(url);
+    if (!want) {
+      // A non-sheet page (the puzzle page). Without host permission its open
+      // tabs' URLs are unreadable, so always create it rather than try to reuse.
+      const created = await chrome.tabs.create({ url, windowId, active: false }).catch(() => null);
+      if (created) tabIds.push(created.id);
+      continue;
+    }
     // Files mode: the spreadsheet identifies the puzzle (Sheets rewrites #gid, so don't compare it).
     const regId = registry.findFilesTab(want.spreadsheetId);
     const regTab = regId !== null && !tabIds.includes(regId) ? await chrome.tabs.get(regId).catch(() => null) : null;
@@ -437,6 +444,10 @@ async function openRound(name, urls, senderTab) {
       if (created) tabIds.push(created.id);
     }
   }
+  return tabIds;
+}
+
+async function groupTabs(name, tabIds, windowId) {
   if (!tabIds.length) return;
   const key = name.trim().toLowerCase();
   const readStored = async () => (await chrome.storage.local.get("groupColours").catch(() => ({}))).groupColours ?? {};
@@ -462,6 +473,28 @@ async function openRound(name, urls, senderTab) {
   } catch {
     // leave the tabs ungrouped
   }
+}
+
+async function openRound(name, urls, senderTab) {
+  const tabIds = await openTabs(urls, senderTab.windowId);
+  await groupTabs(name, tabIds, senderTab.windowId);
+}
+
+// An individual puzzle: its sheet plus the puzzle page from the hunt, in a
+// group named after the puzzle. A second click focuses that group instead of
+// creating duplicate tabs (unlike openRound, the non-sheet page cannot be
+// matched to an existing tab).
+async function openPuzzle(name, urls, senderTab) {
+  const windowId = senderTab.windowId;
+  const groups = await chrome.tabGroups.query({ windowId }).catch(() => []);
+  const existing = findRoundGroup(name, groups);
+  if (existing) {
+    const tabs = await chrome.tabs.query({ groupId: existing.id }).catch(() => []);
+    if (tabs[0]) await focusTab(tabs[0]);
+    return;
+  }
+  const tabIds = await openTabs(urls, windowId);
+  await groupTabs(name, tabIds, windowId);
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)
@@ -534,8 +567,10 @@ async function handleDashboardAction(msg, sender) {
   });
   if (!v.ok) return;
   if (v.action === "work") await workOn(v.payload.sheetUrl, sender.tab);
-  else if (v.action === "openRound") {
-    if (v.payload.sheetUrls.length) await queueOpenRound(v.payload.name, v.payload.sheetUrls, sender.tab);
+  else if (v.action === "openPuzzle") {
+    await queueOpen(() => openPuzzle(v.payload.name, [v.payload.sheetUrl, v.payload.puzzleUrl], sender.tab));
+  } else if (v.action === "openRound") {
+    if (v.payload.sheetUrls.length) await queueOpen(() => openRound(v.payload.name, v.payload.sheetUrls, sender.tab));
   } else if (v.action === "closeSolved") await closeSolved();
 }
 

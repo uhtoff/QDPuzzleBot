@@ -6,6 +6,17 @@ const MAX_URL_LEN = 2048;
 
 const isSheetUrl = (u) => typeof u === "string" && u.length <= MAX_URL_LEN && parseSheetUrl(u) !== null;
 
+// The puzzle page from the hunt is an ordinary web page (not necessarily a sheet).
+const isPageUrl = (u) => {
+  if (typeof u !== "string" || u.length > MAX_URL_LEN) return false;
+  try {
+    const { protocol } = new URL(u);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
 // R14 gate + payload validation for messages from the dashboard content script.
 // Returns {ok: true, action, payload} with a rebuilt (whitelisted) payload, or {ok: false}.
 export function validateAction(msg, { senderId, senderUrl, senderHasTab, runtimeId, origin }) {
@@ -23,6 +34,16 @@ export function validateAction(msg, { senderId, senderUrl, senderHasTab, runtime
   switch (msg.action) {
     case "work":
       return isSheetUrl(p.sheetUrl) ? { ok: true, action: "work", payload: { sheetUrl: p.sheetUrl } } : no;
+    case "openPuzzle":
+      if (
+        typeof p.name === "string" &&
+        p.name.trim() !== "" &&
+        p.name.length <= MAX_NAME &&
+        isSheetUrl(p.sheetUrl) &&
+        isPageUrl(p.puzzleUrl)
+      )
+        return { ok: true, action: "openPuzzle", payload: { name: p.name, sheetUrl: p.sheetUrl, puzzleUrl: p.puzzleUrl } };
+      return no;
     case "openRound":
       if (
         typeof p.name === "string" &&
