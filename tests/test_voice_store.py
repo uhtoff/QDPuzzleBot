@@ -152,3 +152,16 @@ def test_narrow_voice_channel_id_getters():
         assert not HuntJsonDb.voice_channel_id(-1)
     finally:
         _cleanup(guild)
+
+
+def test_is_solved_reads_the_current_flag():
+    guild = _guild()
+    try:
+        hid = _hunt(guild, "v-solved")
+        yes = _puzzle(hid, "yes", solved=1)
+        no = _puzzle(hid, "no", solved=0)
+        assert PuzzleJsonDb.is_solved(yes) is True
+        assert PuzzleJsonDb.is_solved(no) is False
+        assert PuzzleJsonDb.is_solved(-1) is False
+    finally:
+        _cleanup(guild)

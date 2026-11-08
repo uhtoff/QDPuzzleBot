@@ -836,6 +836,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             "SELECT `voice_channel_id` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
         return row["voice_channel_id"] if row else None
 
+    def is_solved(self, puzzle_id) -> bool:
+        """The puzzle's current solved flag (False if no such puzzle). Narrow read."""
+        row = self._fetch_one("SELECT `solved` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return bool(row and row["solved"])
+
     def by_voice_channel(self, channel_id):
         """The puzzle whose voice channel is *channel_id*, or None. Silent (no log)."""
         row = self._fetch_one(

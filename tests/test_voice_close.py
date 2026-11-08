@@ -27,6 +27,7 @@ def stores():
     with patch("bot.core.voice.HuntJsonDb") as h, patch("bot.core.voice.PuzzleJsonDb") as p:
         h.voice_channel_id.return_value = None  # nothing stored beyond the objects
         p.voice_channel_id.return_value = None
+        p.is_solved.return_value = True         # still solved after any warning
         yield h, p
 
 
@@ -260,3 +261,50 @@ async def test_cleanup_occupied_channels_share_one_wait(stores):
     c2.delete.assert_not_awaited()
     gate.set()
     assert sorted(await task) == ["A", "B"]
+
+
+async def test_close_aborts_when_no_longer_wanted_after_the_warning():
+    hunt_vc = _vc(12)
+    a = _member()
+    ch = _vc(21, members=[a])
+    still = AsyncMock(return_value=False)
+    sleep = AsyncMock()
+    assert await voice.close_voice_channel(_guild([hunt_vc, ch]), _hunt(voice_channel_id=12), ch,
+                                           "r", sleep=sleep, still_wanted=still) is False
+    ch.send.assert_awaited_once()          # the warning still went out
+    still.assert_awaited_once()
+    sleep.assert_awaited_once()
+    a.move_to.assert_not_awaited()
+    ch.delete.assert_not_awaited()
+    assert 21 not in voice._closing
+
+
+async def test_close_goes_ahead_when_still_wanted():
+    hunt_vc = _vc(12)
+    ch = _vc(21, members=[_member()])
+    still = AsyncMock(return_value=True)
+    assert await voice.close_voice_channel(_guild([hunt_vc, ch]), _hunt(voice_channel_id=12), ch,
+                                           "r", sleep=AsyncMock(), still_wanted=still) is True
+    ch.delete.assert_awaited_once()
+
+
+async def test_sweep_keeps_the_channel_of_a_puzzle_unsolved_during_the_warning(stores):
+    h, p = stores
+    hunt_vc = _vc(12)
+    ch = _vc(21, members=[_member()])
+    guild = _guild([hunt_vc, ch])
+    hunt = _hunt(voice_channel_id=12, guild_id=5)
+    puzzle = _puzzle(voice_channel_id=21, hunt_id=1)
+    h.get_by_attr.return_value = hunt
+    p.voice_due.return_value = [puzzle]
+    p.is_solved.return_value = False      # unsolved while the 15 s ran
+    bot = MagicMock()
+    bot.guilds = [guild]
+    with patch("bot.core.voice.GuildSettingsDb") as g:
+        g.get_cached.return_value = SimpleNamespace(id=5)
+        await voice.sweep_solved(bot, sleep=AsyncMock())
+    p.is_solved.assert_called_once_with(7)
+    ch.send.assert_awaited_once()
+    ch.delete.assert_not_awaited()
+    p.set_voice_channel.assert_not_called()
+    assert puzzle.voice_channel_id == 21

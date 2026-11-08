@@ -6,6 +6,7 @@ only for refusals a user should be told about.
 import asyncio
 import datetime
 import logging
+from collections.abc import Awaitable, Callable
 
 import discord
 
@@ -135,10 +136,15 @@ CLEANUP_REASON = "an admin is tidying up voice channels"
 _closing: set[int] = set()
 
 
-async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asyncio.sleep) -> bool:
+StillWanted = Callable[[], Awaitable[bool]]
+
+
+async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asyncio.sleep,
+                              still_wanted: StillWanted | None = None) -> bool:
     """Warn (if occupied), move occupants to the hunt voice channel, delete.
     Does not touch the database. True if it deleted the channel, False if it
-    skipped because a close is already in flight."""
+    skipped because a close is already in flight, or because *still_wanted*
+    (checked after the warning) said the close is no longer wanted."""
     if channel.id in _closing:
         return False
     _closing.add(channel.id)
@@ -152,6 +158,8 @@ async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asynci
                 allowed_mentions=discord.AllowedMentions(everyone=True),
             )
             await sleep(WARNING_SECONDS)
+            if still_wanted is not None and not await still_wanted():
+                return False
             if target is not None:
                 for member in list(channel.members):
                     try:
@@ -168,14 +176,17 @@ async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asynci
         _closing.discard(channel.id)
 
 
-async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.sleep) -> bool:
-    """Close the puzzle's voice channel and forget its id. True if a channel was deleted."""
+async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.sleep,
+                             still_wanted: StillWanted | None = None) -> bool:
+    """Close the puzzle's voice channel and forget its id. True if a channel was
+    deleted; False (id kept) if none was, including when *still_wanted* aborts."""
     channel = guild.get_channel(puzzle.voice_channel_id) if puzzle.voice_channel_id else None
     if channel is None:
         PuzzleJsonDb.set_voice_channel(puzzle.id, None)
         puzzle.voice_channel_id = 0
         return False
-    if not await close_voice_channel(guild, hunt, channel, reason, sleep=sleep):
+    if not await close_voice_channel(guild, hunt, channel, reason, sleep=sleep,
+                                     still_wanted=still_wanted):
         return False
     PuzzleJsonDb.set_voice_channel(puzzle.id, None)
     puzzle.voice_channel_id = 0
@@ -263,9 +274,13 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
     hunts: dict = {}
 
     async def _close(guild, hunt, puzzle):
+        async def still_solved() -> bool:
+            # Unsolved during the warning: keep the channel (fresh read).
+            return await asyncio.to_thread(PuzzleJsonDb.is_solved, puzzle.id)
+
         try:
             await close_puzzle_voice(guild, hunt, puzzle, f"**{puzzle.name}** was solved",
-                                     sleep=sleep)
+                                     sleep=sleep, still_wanted=still_solved)
         except Exception:
             logger.exception("Voice sweep failed for puzzle %s", puzzle.id)
 
