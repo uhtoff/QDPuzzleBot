@@ -222,6 +222,29 @@ async def test_settings_voice_per_puzzle_must_be_bool(web):
     web.hdb.set_voice_per_puzzle.assert_not_called()
 
 
+async def _refuse(_arg):
+    from quart import jsonify
+    return None, (jsonify({"error": "forbidden"}), 403)
+
+
+@pytest.mark.asyncio
+async def test_create_voice_refused_when_puzzle_not_visible(web):
+    with patch("bot.web.actions._visible_hunt_for_puzzle", _refuse), \
+         patch("bot.web.actions.voice.create_puzzle_voice", AsyncMock()) as cpv:
+        resp = await web.client.post("/api/puzzles/7/voice")
+    assert resp.status_code == 403
+    cpv.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_refused_when_hunt_not_visible(web):
+    with patch("bot.web.actions._visible_hunt_by_uid", _refuse), \
+         patch("bot.web.actions.voice.cleanup_hunt", AsyncMock()) as ch:
+        resp = await web.client.post("/api/hunts/U1/voice-cleanup")
+    assert resp.status_code == 403
+    ch.assert_not_awaited()
+
+
 # --------------------------------------------------------------- websocket
 def _guild_for_event(*, can_view_ids):
     def get_channel(cid):

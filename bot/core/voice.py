@@ -181,7 +181,7 @@ async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
     """Remove every puzzle voice channel of the hunt (plus orphans left in its
     voice categories) and then its empty voice categories. Never touches the
     hunt voice channel. Returns the names of removed channels."""
-    puzzles = PuzzleJsonDb.with_voice(hunt.id)
+    puzzles = await asyncio.to_thread(PuzzleJsonDb.with_voice, hunt.id)
     stored = {p.voice_channel_id for p in puzzles}
     keep = stored | ({hunt.voice_channel_id} if hunt.voice_channel_id else set())
     categories = [c for c in guild.categories if _is_voice_category_name(hunt.name, c.name)]
