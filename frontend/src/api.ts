@@ -944,6 +944,8 @@ export interface CreateHuntPayload {
 export interface CreateHuntResult {
   uid?: string;
   warning?: string;
+  // Set when the guild gates the Organiser tier: who can create rounds/metas.
+  organiser_reminder?: string;
   needs_confirm?: string;
   message?: string;
 }

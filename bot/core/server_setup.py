@@ -200,6 +200,9 @@ async def run_setup(service, guild, invoker, targets, settings, hub_row, hunt_na
                 confirm_existing_role=True)
             report.hunt_created = True
             report.steps.append(f"Created hunt **{hunt.name}**, gated to **{team}**.")
+            reminder = role_gate.organiser_reminder(guild)
+            if reminder:
+                report.steps.append(reminder)
         else:
             report.steps.append(f"Hunt **{hunt.name}** was already created; reusing it.")
         report.hunt = hunt

@@ -3,11 +3,21 @@ role, hunt created once, roster recorded, lobby welcomed once, and the run-once
 lock written last -- never after a failure."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bot.core import server_setup
 from bot.core.server_setup import SetupTargets, run_setup
 from bot.store.puzzle_settings import GuildSettings
 
 MOD, ROSTER, BOT = 50, 70, 900
+
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB; tests
+    that care about the reminder patch it themselves (nested patch wins)."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
 
 
 def _history(*messages):
@@ -148,3 +158,19 @@ def test_the_welcome_points_at_join_for_the_team():
     assert "**Join**" in text and "Team Rocket" in text and "Big Hunt" in text
     assert text.endswith(server_setup.WELCOME_MARK)
     assert "**Leave**" in text and "`mod`" in text
+
+
+async def test_a_fresh_hunt_on_a_gated_server_lists_the_organiser_reminder():
+    service = MagicMock(); service.create_hunt = AsyncMock(return_value=_hunt())
+    with patch("bot.core.server_setup.role_gate.organiser_reminder",
+               return_value=":warning: organisers only") as rem:
+        report, _, _ = await _run(_targets(), service)
+    assert ":warning: organisers only" in report.steps
+    rem.assert_called_once()
+
+
+async def test_a_rerun_does_not_repeat_the_organiser_reminder():
+    with patch("bot.core.server_setup.role_gate.organiser_reminder",
+               return_value=":warning: organisers only"):
+        report, _, _ = await _run(_targets(hunt=_hunt(roster_role_id=ROSTER)))
+    assert ":warning: organisers only" not in report.steps

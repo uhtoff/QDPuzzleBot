@@ -9,6 +9,13 @@ import pytest
 from tests.conftest import make_cog, make_ctx, make_web_app, start_patches, stop_patches
 
 
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
+
 # --------------------------------------------------------------- bang command
 def _hunt_cog():
     cog = make_cog()

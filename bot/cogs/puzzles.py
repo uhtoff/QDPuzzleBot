@@ -723,9 +723,13 @@ class Puzzles(commands.Cog):
                                               sheet_mode=sheet_mode)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
-            return await ctx.send(
+            await ctx.send(
                 f":white_check_mark: I've created a new hunt category and channel for {hunt_name}"
             )
+            reminder = role_gate.organiser_reminder(ctx.guild)
+            if reminder:
+                await ctx.send(reminder)
+            return
 
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
