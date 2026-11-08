@@ -51,10 +51,10 @@ def event_for(voice_channel_id: int) -> dict | None:
     if guild_id is None:
         return None
     n = count(voice_channel_id)
-    puzzle = PuzzleJsonDb.by_voice_channel(voice_channel_id)
-    if puzzle is not None:
+    puzzle_channel_id = PuzzleJsonDb.channel_id_for_voice(voice_channel_id)
+    if puzzle_channel_id is not None:
         return {"type": "voice", "guild_id": guild_id,
-                "channel_id": str(puzzle.channel_id), "voice_count": n}
+                "channel_id": str(puzzle_channel_id), "voice_count": n}
     hunt = HuntJsonDb.by_voice_channel(voice_channel_id)
     if hunt is not None:
         return {"type": "voice", "guild_id": guild_id,

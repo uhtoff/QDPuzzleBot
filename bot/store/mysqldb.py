@@ -841,11 +841,14 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         row = self._fetch_one("SELECT `solved` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
         return bool(row and row["solved"])
 
-    def by_voice_channel(self, channel_id):
-        """The puzzle whose voice channel is *channel_id*, or None. Silent (no log)."""
+    def channel_id_for_voice(self, voice_channel_id):
+        """The text channel id of the puzzle whose voice channel is
+        *voice_channel_id*, or None. One narrow, indexed query and no hydration:
+        called for every voice join/leave in the guild. Silent (no log)."""
         row = self._fetch_one(
-            "SELECT * FROM `puzzles` WHERE `voice_channel_id` = %s LIMIT 1", (channel_id,))
-        return self.construct_puzzle(row) if row else None
+            "SELECT `channel_id` FROM `puzzles` WHERE `voice_channel_id` = %s LIMIT 1",
+            (voice_channel_id,))
+        return row["channel_id"] if row else None
 
     def voice_due(self, cutoff: datetime.datetime) -> List[PuzzleData]:
         """Solved puzzles in live hunts that still hold a voice channel and were

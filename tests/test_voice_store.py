@@ -129,9 +129,10 @@ def test_by_voice_channel_lookups_find_and_return_none():
         hid = _hunt(guild, "v-lookup")
         pid = _puzzle(hid, "p", voice=4242)
         HuntJsonDb.set_voice_channel(hid, 4343)
-        assert PuzzleJsonDb.by_voice_channel(4242).id == pid
+        _exec("UPDATE puzzles SET channel_id = %s WHERE id = %s", (4141, pid))
+        assert PuzzleJsonDb.channel_id_for_voice(4242) == 4141
         assert HuntJsonDb.by_voice_channel(4343).id == hid
-        assert PuzzleJsonDb.by_voice_channel(4343) is None
+        assert PuzzleJsonDb.channel_id_for_voice(4343) is None
         assert HuntJsonDb.by_voice_channel(4242) is None
     finally:
         _cleanup(guild)
