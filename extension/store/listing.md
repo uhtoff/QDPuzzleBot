@@ -16,7 +16,7 @@ Features:
 - Live chat for the puzzle in the active Google Sheets tab, in a side panel.
 - Unread count on the toolbar icon.
 - Optional desktop notifications for new messages (off by default).
-- "Work on this puzzle" and "Open round" buttons on the dashboard open and group the right sheets for you.
+- "Work on this puzzle", "Open puzzle as a tab group" and "Open round" buttons on the dashboard open and group the right pages for you.
 - Optionally closes puzzle tabs once a puzzle is marked solved.
 
 Puzzle Chat does not read the contents of your spreadsheets. It only looks at the address of Google Sheets tabs to work out which puzzle you are on.
@@ -26,7 +26,7 @@ Show and send the team's Discord chat for the puzzle in the open Google Sheet, v
 
 ## Permission justifications
 - sidePanel: displays the chat in Chrome's side panel next to the sheet.
-- tabGroups: groups and colours the sheet tabs of a puzzle round when the user opens a round from the dashboard.
+- tabGroups: groups and colours a puzzle's tabs, or a round's sheet tabs, when the user opens them from the dashboard.
 - storage: saves the user's settings (dashboard address, notification choice, group colours) and short-lived per-session state (which tab maps to which puzzle).
 - scripting: registers a content script on the user's own dashboard origin only, so the dashboard's buttons can ask the extension to open or focus puzzle sheets.
 - alarms: wakes the background worker to re-establish the live connection to the dashboard after a network drop and as a periodic watchdog.

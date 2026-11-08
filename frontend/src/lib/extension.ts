@@ -32,6 +32,10 @@ export function workOn(puzzle: { id: number; sheet_url: string | null; hunt_uid:
   send("work", { puzzleId: puzzle.id, sheetUrl: puzzle.sheet_url, huntUid: puzzle.hunt_uid });
 }
 
+export function openPuzzle(name: string, sheetUrl: string, puzzleUrl: string): void {
+  send("openPuzzle", { name, sheetUrl, puzzleUrl });
+}
+
 export function openRound(name: string, sheetUrls: string[]): void {
   send("openRound", { name, sheetUrls });
 }

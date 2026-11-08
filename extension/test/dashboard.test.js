@@ -26,7 +26,7 @@ describe("dashboard content script", () => {
   it("marks the page and lists exactly the actions it relays", () => {
     expect(dataset.puzzbotExtension).toBe("1");
     const listed = dataset.puzzbotActions.split(" ");
-    expect(listed.sort()).toEqual(["closeSolved", "openRound", "work"]);
+    expect(listed.sort()).toEqual(["closeSolved", "openPuzzle", "openRound", "work"]);
     // Every listed action is relayed...
     for (const action of listed) {
       sendMessage.mockClear();
@@ -35,7 +35,7 @@ describe("dashboard content script", () => {
     }
     // ...and one not listed is not, so the list cannot claim more than the gate allows.
     sendMessage.mockClear();
-    post("openPuzzle");
+    post("notAnAction");
     expect(sendMessage).not.toHaveBeenCalled();
   });
 });

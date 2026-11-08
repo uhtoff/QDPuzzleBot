@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closeSolved, extensionPresent, extensionSupports, openRound, workOn } from "./extension";
+import { closeSolved, extensionPresent, extensionSupports, openPuzzle, openRound, workOn } from "./extension";
 
 // vitest runs in node here: stub the two globals the module touches.
 const dataset: Record<string, string> = {};
@@ -72,16 +72,30 @@ describe("extension bridge", () => {
     expect(postMessage).not.toHaveBeenCalled();
   });
 
-  it("openRound and closeSolved post their shapes", () => {
+  it("openPuzzle, openRound and closeSolved post their shapes", () => {
+    openPuzzle("Puzzle A", "https://docs.google.com/spreadsheets/d/s", "https://hunt.test/p/a");
     openRound("Round A", ["u1", "u2"]);
     closeSolved();
     expect(postMessage).toHaveBeenNthCalledWith(
       1,
-      { source: "puzzbot-dashboard", action: "openRound", payload: { name: "Round A", sheetUrls: ["u1", "u2"] } },
+      {
+        source: "puzzbot-dashboard",
+        action: "openPuzzle",
+        payload: {
+          name: "Puzzle A",
+          sheetUrl: "https://docs.google.com/spreadsheets/d/s",
+          puzzleUrl: "https://hunt.test/p/a",
+        },
+      },
       "https://dash.test",
     );
     expect(postMessage).toHaveBeenNthCalledWith(
       2,
+      { source: "puzzbot-dashboard", action: "openRound", payload: { name: "Round A", sheetUrls: ["u1", "u2"] } },
+      "https://dash.test",
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      3,
       { source: "puzzbot-dashboard", action: "closeSolved", payload: {} },
       "https://dash.test",
     );
