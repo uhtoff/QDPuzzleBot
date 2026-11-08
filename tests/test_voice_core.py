@@ -16,7 +16,7 @@ def _hunt(**kw):
 
 
 def _puzzle(**kw):
-    base = dict(id=7, name="Cap One", solved=False, voice_channel_id=0)
+    base = dict(id=7, name="Cap One", solved=False, voice_channel_id=0, parent_puzzle_id=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -161,6 +161,7 @@ async def test_missing_hunt_category_refuses():
 @pytest.mark.parametrize("hunt_kw,puzzle_kw,code", [
     ({"archived": True}, {}, "archived"),
     ({}, {"solved": True}, "solved"),
+    ({}, {"parent_puzzle_id": 3}, "mini"),
 ])
 async def test_create_puzzle_voice_refuses_solved_and_archived(stores, hunt_kw, puzzle_kw, code):
     guild = _guild([])
@@ -296,3 +297,28 @@ def test_can_move_members_checks_the_hunt_category_then_the_guild():
     assert voice.can_move_members(bare, _hunt()) is False
     bare.me.guild_permissions = SimpleNamespace(move_members=True)
     assert voice.can_move_members(bare, _hunt()) is True
+
+
+async def test_rename_puzzle_voice_renames_a_live_channel():
+    ch = _vc(21, name="Old Name")
+    ch.edit = AsyncMock()
+    guild = _guild([ch])
+    await voice.rename_puzzle_voice(guild, _puzzle(voice_channel_id=21), "New Name")
+    ch.edit.assert_awaited_once_with(name="New Name")
+
+
+async def test_rename_puzzle_voice_skips_missing_or_unchanged():
+    same = _vc(21, name="Same")
+    same.edit = AsyncMock()
+    guild = _guild([same])
+    await voice.rename_puzzle_voice(guild, _puzzle(voice_channel_id=21), "Same")
+    await voice.rename_puzzle_voice(guild, _puzzle(voice_channel_id=99), "Other")
+    await voice.rename_puzzle_voice(guild, _puzzle(voice_channel_id=0), "Other")
+    same.edit.assert_not_awaited()
+
+
+async def test_rename_puzzle_voice_truncates_to_100():
+    ch = _vc(21, name="x")
+    ch.edit = AsyncMock()
+    await voice.rename_puzzle_voice(_guild([ch]), _puzzle(voice_channel_id=21), "y" * 150)
+    assert ch.edit.await_args.kwargs["name"] == "y" * 100

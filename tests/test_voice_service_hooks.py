@@ -201,3 +201,41 @@ async def test_delete_puzzle_guild_none_skips_voice():
     voice = _voice_mock()
     await _delete(None, voice)
     voice.delete_puzzle_voice_now.assert_not_awaited()
+
+
+async def _rename(voice, guild):
+    svc = _create_service()
+    svc.desired_channel_name = MagicMock(return_value="new-name")
+    svc._gsheet_cog = MagicMock(return_value=None)
+    svc.refresh_targets = AsyncMock(return_value=[])
+    puzzle = make_puzzle(id=7, name="Old", channel_id=0)
+    with patch("bot.core.puzzle_service.PuzzleJsonDb"), \
+         patch("bot.core.puzzle_service.TagGroupJsonDb"), \
+         patch("bot.core.puzzle_service.voice", voice):
+        await svc.rename_puzzle(guild, MagicMock(), puzzle, "New")
+    return puzzle
+
+
+@pytest.mark.asyncio
+async def test_rename_puzzle_renames_its_voice_channel():
+    v = _voice_mock()
+    v.rename_puzzle_voice = AsyncMock()
+    guild = MagicMock()
+    puzzle = await _rename(v, guild)
+    v.rename_puzzle_voice.assert_awaited_once_with(guild, puzzle, "New")
+
+
+@pytest.mark.asyncio
+async def test_rename_puzzle_survives_voice_rename_failure():
+    v = _voice_mock()
+    v.rename_puzzle_voice = AsyncMock(side_effect=RuntimeError("boom"))
+    puzzle = await _rename(v, MagicMock())
+    assert puzzle.name == "New"
+
+
+@pytest.mark.asyncio
+async def test_rename_puzzle_without_guild_skips_voice():
+    v = _voice_mock()
+    v.rename_puzzle_voice = AsyncMock()
+    await _rename(v, None)
+    v.rename_puzzle_voice.assert_not_awaited()

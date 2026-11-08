@@ -2874,6 +2874,12 @@ class PuzzleService:
             channel = guild.get_channel(puzzle.channel_id)
             if channel is not None and channel.name != puzzle.channel_name:
                 await self.safe_rename(channel, puzzle.channel_name)
+        if guild is not None:
+            # The voice channel follows the puzzle's name (best-effort).
+            try:
+                await voice.rename_puzzle_voice(guild, puzzle, name)
+            except Exception:
+                logger.exception("rename_puzzle: voice channel rename failed for %s", puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
 

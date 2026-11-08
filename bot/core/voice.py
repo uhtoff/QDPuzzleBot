@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceError(Exception):
-    """A refusal; ``code`` is one of no_hunt_category, solved, archived, not_a_puzzle."""
+    """A refusal; ``code`` is one of no_hunt_category, solved, archived, mini, not_a_puzzle."""
 
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
@@ -122,6 +122,9 @@ async def create_puzzle_voice(guild, hunt, puzzle) -> tuple[discord.VoiceChannel
         raise VoiceError("archived")
     if puzzle.solved:
         raise VoiceError("solved")
+    if getattr(puzzle, "parent_puzzle_id", None):
+        # Minis share their minimeta's voice channel (user, 2026-11-08).
+        raise VoiceError("mini")
     async with _hunt_lock(hunt):
         existing = _live(guild, puzzle.voice_channel_id)
         if existing is None:
@@ -326,6 +329,15 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
     await asyncio.gather(*jobs)
     for hunt in changed.values():
         await notify_board(bot, hunt)
+
+
+async def rename_puzzle_voice(guild, puzzle, name: str) -> None:
+    """Rename the puzzle's voice channel to follow the puzzle (no-op when it has
+    none, it's gone, or the name already matches)."""
+    channel = _live(guild, puzzle.voice_channel_id)
+    new_name = name[:100]
+    if channel is not None and channel.name != new_name:
+        await channel.edit(name=new_name)
 
 
 async def delete_puzzle_voice_now(guild, puzzle) -> None:

@@ -18,6 +18,7 @@ _VOICE_ERRORS = {
     "archived": ":x: This hunt is archived.",
     "no_hunt_category": ":x: I can't find this hunt's category to copy permissions "
                         "from, so I won't make a voice channel.",
+    "mini": ":x: Minis don't get their own voice channel — use the minimeta's (`!vc` in its channel).",
 }
 
 

@@ -67,6 +67,8 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return "This hunt is archived (read-only).";
     case "solved":
       return "This puzzle is solved — no new voice channel.";
+    case "mini":
+      return "Minis share their minimeta's voice channel.";
     case "no_hunt_category":
       return "Can't find the hunt's category to copy permissions from.";
     case "csrf":

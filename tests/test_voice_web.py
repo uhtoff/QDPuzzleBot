@@ -165,7 +165,7 @@ async def test_create_voice_existing_reports_created_false(web):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("code", ["solved", "archived", "no_hunt_category"])
+@pytest.mark.parametrize("code", ["solved", "archived", "no_hunt_category", "mini"])
 async def test_create_voice_refusals_are_409(web, code):
     with patch("bot.web.actions.voice.create_puzzle_voice",
                AsyncMock(side_effect=VoiceError(code))):

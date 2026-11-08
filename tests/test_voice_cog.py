@@ -117,6 +117,7 @@ async def test_voice_not_a_puzzle_channel(stores):
     ("archived", ":x: This hunt is archived."),
     ("no_hunt_category", ":x: I can't find this hunt's category to copy permissions "
                          "from, so I won't make a voice channel."),
+    ("mini", ":x: Minis don't get their own voice channel — use the minimeta's (`!vc` in its channel)."),
 ])
 async def test_voice_refusals(stores, code, text):
     P, H, _ = stores

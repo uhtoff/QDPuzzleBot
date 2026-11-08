@@ -156,7 +156,7 @@ deleting a puzzle or a round removes the deleted puzzles' voice channels at once
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
-| `!voice` | `!vc` | — | puzzle channel | anyone | Make (or link to) this puzzle's voice channel. Refused for a solved puzzle or an archived hunt. |
+| `!voice` | `!vc` | — | puzzle channel | anyone | Make (or link to) this puzzle's voice channel. Refused for a solved puzzle, an archived hunt, or a mini (minis share their minimeta's). Renaming the puzzle renames its voice channel. |
 | `!voice_per_puzzle` | | `[on\|off]` | any hunt channel | admins/mods | Show or set whether every NEW puzzle gets a voice channel automatically. Turning it on doesn't add channels to existing puzzles; turning it off doesn't remove any. The server setting "New hunts get a voice channel for every puzzle by default" sets it for new hunts. Also on the dashboard's Admin settings. |
 | `!voice_cleanup` | | — | any hunt channel | admins/mods | Remove every puzzle voice channel in the hunt (occupied ones after the 15-second warning and move). Never removes the hunt's own voice channel. Also on the dashboard's Admin settings. |
 
