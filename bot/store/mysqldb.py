@@ -227,6 +227,9 @@ class _MySQLBaseDb:
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     GENERATED_UNIQUE_FIELDS = ('uid',)
+    # Written only by set_voice_channel / set_voice_per_puzzle, so a stale
+    # HuntData saved whole can't revert them.
+    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle']
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -237,6 +240,13 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
                 return HuntData.import_dict(row)
             logger.info(f"Unable to find hunt for {keyword} - {value}")
             return None
+
+    def by_voice_channel(self, channel_id):
+        """The hunt whose general voice channel is *channel_id*, or None. Silent
+        (no "Unable to find" log): called for every voice join in the guild."""
+        row = self._fetch_one(
+            "SELECT * FROM `hunts` WHERE `voice_channel_id` = %s LIMIT 1", (channel_id,))
+        return HuntData.import_dict(row) if row else None
 
     def get_by_name_for_guild(self, name, guild_snowflake):
         """Retrieve a Hunt by name, scoped to the Discord guild that owns it (M6).
@@ -366,6 +376,24 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         field, so the generic commit() can never clear it."""
         self._exec("UPDATE `hunts` SET `mod_invite_code` = %s WHERE `id` = %s",
                    (code, hunt_id))
+
+    def set_voice_channel(self, hunt_id, channel_id):
+        """Store (or clear, with None) the hunt's shared voice channel. Its own
+        UPDATE so a stale HuntData commit() cannot overwrite it."""
+        self._exec("UPDATE `hunts` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, hunt_id))
+
+    def voice_channel_id(self, hunt_id):
+        """The stored hunt voice channel id (None if unset or no such hunt). A
+        narrow read so a caller holding a stale HuntData can check the truth."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `hunts` WHERE `id` = %s", (hunt_id,))
+        return row["voice_channel_id"] if row else None
+
+    def set_voice_per_puzzle(self, hunt_id, on):
+        """Set the per-puzzle voice channel toggle. Its own UPDATE (see above)."""
+        self._exec("UPDATE `hunts` SET `voice_per_puzzle` = %s WHERE `id` = %s",
+                   (1 if on else 0, hunt_id))
 
     def mod_invite_code(self, hunt_id):
         row = self._fetch_one(
@@ -748,7 +776,10 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta']
+    # voice_channel_id: written only by set_voice_channel (a stale PuzzleData
+    # saved whole must not clear it, or its voice channel is never cleaned up).
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta',
+                    'voice_channel_id']
 
     def construct_puzzle(self, row):
         return self.construct_puzzles([row])[0]
@@ -790,6 +821,53 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 return self.construct_puzzle(row)
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
             return None
+
+    def set_voice_channel(self, puzzle_id, channel_id):
+        """Store (or clear, with None) a puzzle's voice channel. A single narrow
+        UPDATE: a full commit() of a stale object could overwrite concurrent edits
+        (see the docstring on commit)."""
+        self._exec("UPDATE `puzzles` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, puzzle_id))
+
+    def voice_channel_id(self, puzzle_id):
+        """The stored voice channel id of the puzzle (None if unset or no such
+        puzzle). A narrow read so a caller holding a stale PuzzleData can check."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return row["voice_channel_id"] if row else None
+
+    def is_solved(self, puzzle_id) -> bool:
+        """The puzzle's current solved flag (False if no such puzzle). Narrow read."""
+        row = self._fetch_one("SELECT `solved` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return bool(row and row["solved"])
+
+    def channel_id_for_voice(self, voice_channel_id):
+        """The text channel id of the puzzle whose voice channel is
+        *voice_channel_id*, or None. One narrow, indexed query and no hydration:
+        called for every voice join/leave in the guild. Silent (no log)."""
+        row = self._fetch_one(
+            "SELECT `channel_id` FROM `puzzles` WHERE `voice_channel_id` = %s LIMIT 1",
+            (voice_channel_id,))
+        return row["channel_id"] if row else None
+
+    def voice_due(self, cutoff: datetime.datetime) -> List[PuzzleData]:
+        """Solved puzzles in live hunts that still hold a voice channel and were
+        solved at or before *cutoff* (naive UTC). solve_time is cleared on unsolve,
+        so an unsolved puzzle never matches."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles JOIN hunts ON puzzles.hunt_id = hunts.id "
+            "WHERE hunts.archived = 0 AND puzzles.voice_channel_id IS NOT NULL "
+            "AND puzzles.voice_channel_id <> 0 AND puzzles.solved = 1 "
+            "AND puzzles.solve_time IS NOT NULL AND puzzles.solve_time <= %s",
+            (cutoff,))
+        return self.construct_puzzles(rows)
+
+    def with_voice(self, hunt_id) -> List[PuzzleData]:
+        """Every puzzle of the hunt that has a voice channel id."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles WHERE hunt_id = %s "
+            "AND voice_channel_id IS NOT NULL AND voice_channel_id <> 0", (hunt_id,))
+        return self.construct_puzzles(rows)
 
     def get_names_by_ids(self, ids) -> dict:
         """Return {puzzle_id: name} for the given ids, skipping unknown ids.

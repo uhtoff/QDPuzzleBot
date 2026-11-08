@@ -92,8 +92,10 @@ the channel or joins it directly.
 - Solve/unsolve/delete each have a Discord path and a web path; voice behaviour hangs off the
   shared service seam (`bot/core/puzzle_service.py`: `solve`, `unsolve`, `delete_puzzle`,
   `create_puzzle`, `create_hunt`), never one cog.
-- Deleting a puzzle deletes its voice channel immediately. Archiving/deleting a hunt already
-  removes voice channels. A voice channel deleted by hand in Discord is forgotten (its id
+- Deleting a puzzle (directly, or as part of deleting a round) deletes its voice channel
+  immediately. Archiving a hunt sweeps its "<hunt> Voice[ N]" categories along with its other
+  categories; deleting a hunt deletes every puzzle's voice channel, the hunt voice channel and
+  the voice categories (with anything left in them). A voice channel deleted by hand in Discord is forgotten (its id
   cleared), and `!voice` then makes a fresh one.
 - Command-parity principle: every bang command has a dashboard equivalent (create voice,
   toggle setting, cleanup).

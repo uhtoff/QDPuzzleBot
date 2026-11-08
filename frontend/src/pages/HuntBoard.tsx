@@ -29,8 +29,11 @@ import { ReconcilePanel } from "../components/ReconcilePanel";
 import { MediaSweepPanel } from "../components/MediaSweepPanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
+import { VoiceBadge } from "../components/VoiceBadge";
 import { GateHuntPanel } from "../components/GateHuntPanel";
 import { useActivityFeed } from "../hooks/useActivityFeed";
+import { useVoiceFeed } from "../hooks/useVoiceFeed";
+import { huntVoiceCount } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { Puzzle } from "../types";
 
@@ -55,6 +58,7 @@ export default function HuntBoard() {
       qc.invalidateQueries({ queryKey: ["puzzle-images"] });
     }
   });
+  const voice = useVoiceFeed();
   const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "canvas" | "manage">("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
@@ -102,6 +106,11 @@ export default function HuntBoard() {
               </Anchor>
             </Title>
             {data.hunt.archived && <Badge color="gray">Archived</Badge>}
+            {data.hunt.voice_url && huntVoiceCount(data.hunt.uid, data.hunt.voice_count, voice) > 0 && (
+              <Anchor href={data.hunt.voice_url} target="_blank" rel="noreferrer" aria-label="Join hunt voice">
+                <VoiceBadge count={huntVoiceCount(data.hunt.uid, data.hunt.voice_count, voice)} />
+              </Anchor>
+            )}
           </Group>
         </div>
         <Stack gap={4} w={220}>
@@ -181,14 +190,14 @@ export default function HuntBoard() {
               onChange={setOpenGroups}
             >
               {boardGroups.map((g) => (
-                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} onOpenNotes={openNotes} />
+                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} />
               ))}
             </Accordion>
           </Stack>
         );
       })()}
       {view === "all" && (
-        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} onOpenNotes={openNotes} />
+        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} />
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
@@ -212,6 +221,7 @@ export default function HuntBoard() {
               hasSolvedSheet={!!data.hunt.solved_sheet_url}
               sheetMode={data.hunt.sheet_mode}
               puzzleCount={data.summary.total}
+              voicePerPuzzle={data.hunt.voice_per_puzzle}
             />
           )}
           {/* Team-role gating — admin-gated; hidden on archived (read-only) hunts */}
@@ -229,7 +239,7 @@ export default function HuntBoard() {
         </Stack>
       )}
 
-      <PuzzleDrawer puzzle={notesPuzzle} detail={data} onClose={() => setNotesPuzzleId(null)} />
+      <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
   );
 }

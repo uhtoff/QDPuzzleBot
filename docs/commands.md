@@ -38,6 +38,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | | Solve | `!solve` (`!s`) · `!unsolve` (`!u`) · `!mark_as_complete` · `!add_solution` · `!change_solution` · `!partial` (`!ps`) · `!solve_mini` · `!unsolve_mini` |
 | | Tag | `!feeds` · `!feeds_only` · `!informs` · `!informs_only` · `!groups_with` · `!groups_only_with` · `!remove_from` |
 | | Annotate | `!note` · `!erase_note` · `!clue` · `!clues` · `!link` · `!status` · `!priority` · `!type` |
+| | Voice | `!voice` (`!vc`) |
 | | Read | `!info` · `!list_puzzles` (`!list`) · `!list_minis` · `!list_additional_sheets` · `!canvas` · `!info_bot` · `!invite` · `!starttime` · `!uptime` |
 | **Organisers/admins** | Create groups | `!round` (`!r`, `!mp`, `!metapuzzle`, `!capstone`, `!cs`, `!runaround`, `!ra`, `!group`) |
 | | Rename & delete | `!rename_puzzle` · `!rename_group` · `!delete_puzzle` · `!delete_round` · `!delete_mini` · `!remove_minimeta` · `!remove_sheet` |
@@ -46,6 +47,7 @@ reading all of them. Tiers nest — `ORGANISER_ROLES` includes the admin role na
 | | Maintenance | `!reconcile` · `!rebuild` · `!rebuild_unassigned` · `!list_tags` · `!media_stats` · `!media_sweep` · `!start_reminders` · `!stop_reminders` |
 | **Admins/mods** | Hunt lifecycle | `!hunt` (`!h`) · `!delete_hunt` · `!use_solved_sheet` · `!sheet_mode` · `!set_hunt_role` · `!hunt_complete` · `!hunt_not_complete` · `!setup_server` · `!post_role_panel` · `!send_invites` · `!invite_player` · `!mod_invite` |
 | | Settings | `!set_login` · `!set_start` · `!update_settings` · `!show_settings` · `!show_puzzle_settings` |
+| | Voice | `!voice_cleanup` · `!voice_per_puzzle` |
 | | Roles | `!set_admin_roles` · `!set_organiser_roles` · `!show_auth_roles` |
 | | Archive | `!archive_hunt` · `!archive_hunt_to_hub` · `!archive_multi_team` · `!archive_round` · `!archive_category` · `!archive_channel` · `!archive_solved_manually` |
 | | Other | `!debug_puzzle_channel` |
@@ -132,6 +134,31 @@ through the same service.)
 | `!info` | | — | any hunt channel | anyone | Re-post/refresh the channel's pinned info message. |
 | `!list_puzzles` *(slash)* | `!list` | — | puzzle/round channel | anyone | List puzzles in the current round with status/solution. |
 | `!delete_puzzle` | | — | puzzle channel | organisers/admins | Delete the puzzle, its channel and sheet (confirms). |
+
+## Voice
+
+Every hunt has a voice channel in its main category (made at creation; for older hunts, the
+first time voice is needed). Puzzle voice channels live in a "<hunt> Voice" category (then
+"<hunt> Voice 2", …) cloned from the hunt's category, so they carry the hunt's permissions.
+A solved puzzle's voice channel is removed 15 minutes after the solve (an unsolve in that
+time keeps it). Whenever a channel with people in it is removed, they get an `@here` warning
+15 seconds before and are moved into the hunt's voice channel — the bot needs the **Move
+Members** permission for that (`!voice` and the drawer say so if it's missing; without it
+people are disconnected instead). An unsolve during that warning keeps the channel. The
+dashboard shows how many people are in each voice channel, and the puzzle drawer has the same
+create/join controls.
+
+A voice category copies the hunt category's permissions at the moment it is created, so set the
+hunt role overwrite on the hunt category before turning on voice. Automatic per-puzzle voice
+channels stop when the server is within 25 channels of Discord's 500-channel limit (`!voice`
+still works). Archiving or deleting a hunt removes its voice channels and voice categories;
+deleting a puzzle or a round removes the deleted puzzles' voice channels at once.
+
+| Command | Aliases | Arguments | Where | Who | Does |
+|---|---|---|---|---|---|
+| `!voice` | `!vc` | — | puzzle channel | anyone | Make (or link to) this puzzle's voice channel. Refused for a solved puzzle or an archived hunt. |
+| `!voice_per_puzzle` | | `[on\|off]` | any hunt channel | admins/mods | Show or set whether every NEW puzzle gets a voice channel automatically. Turning it on doesn't add channels to existing puzzles; turning it off doesn't remove any. The server setting "New hunts get a voice channel for every puzzle by default" sets it for new hunts. Also on the dashboard's Admin settings. |
+| `!voice_cleanup` | | — | any hunt channel | admins/mods | Remove every puzzle voice channel in the hunt (occupied ones after the 15-second warning and move). Never removes the hunt's own voice channel. Also on the dashboard's Admin settings. |
 
 ## Solving
 

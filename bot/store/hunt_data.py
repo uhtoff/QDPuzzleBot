@@ -31,6 +31,10 @@ class HuntData:
     # The HUB role (made by hand on the hub) listing this team-server hunt's
     # players: slice 3's invite DM list. 0/None on hub-hosted hunts.
     roster_role_id: int = 0
+    # The hunt's shared voice channel (migration 059) and the admin toggle for
+    # per-puzzle voice channels. NULL column reads back as None, like role_id.
+    voice_channel_id: int = 0
+    voice_per_puzzle: bool = False
     start_timestamp: int = 0
     username: str = ""
     password: str = ""

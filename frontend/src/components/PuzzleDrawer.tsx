@@ -22,6 +22,7 @@ import { notifications } from "@mantine/notifications";
 import {
   useAddNote,
   useAddSheet,
+  useCreatePuzzleVoice,
   useDeletePuzzle,
   useEraseNote,
   useRemoveSheet,
@@ -32,12 +33,15 @@ import {
 import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { ConfirmModal } from "./ConfirmModal";
 import { PuzzleImages } from "./PuzzleImages";
+import { PuzzleVoiceControl } from "./PuzzleVoiceControl";
+import { puzzleVoiceCount, voiceCreateNotices, type LiveVoice } from "../lib/voice";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { formatPriority, formatStatus, notifyError, showSheetWarning } from "../util";
 
 interface Props {
   puzzle: Puzzle | null;
   detail: HuntDetail;
+  voice: LiveVoice;
   onClose: () => void;
 }
 
@@ -52,7 +56,7 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
+export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
   const uid = detail.hunt.uid;
   const editable = !detail.hunt.archived;
   const [text, setText] = useState("");
@@ -74,6 +78,7 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
   const addSheet = useAddSheet(uid);
   const removeSheet = useRemoveSheet(uid);
   const rename = useRenamePuzzle(uid);
+  const createVoice = useCreatePuzzleVoice(uid);
 
   // The Drawer is a single long-lived instance: opening a different puzzle
   // swaps the `puzzle` prop underneath it and does NOT remount, so every
@@ -102,6 +107,14 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
     const note = text.trim();
     if (!note || !puzzle) return;
     add.mutate({ puzzleId: puzzle.id, note }, { onSuccess: () => setText(""), onError: notifyError });
+  }
+
+  function runCreateVoice() {
+    if (!puzzle) return;
+    createVoice.mutate(puzzle.id, {
+      onSuccess: (data) => voiceCreateNotices(data).forEach((n) => notifications.show(n)),
+      onError: notifyError,
+    });
   }
 
   function submitSheet() {
@@ -185,6 +198,14 @@ export function PuzzleDrawer({ puzzle, detail, onClose }: Props) {
               Work on this puzzle
             </Button>
           )}
+          <PuzzleVoiceControl
+            voiceUrl={puzzle.voice_url}
+            count={puzzleVoiceCount(puzzle, voice)}
+            solved={puzzle.solved}
+            archived={!editable}
+            pending={createVoice.isPending}
+            onCreate={runCreateVoice}
+          />
           {editable ? (
             <Stack gap="xs">
               <MetaRow label="Status">
