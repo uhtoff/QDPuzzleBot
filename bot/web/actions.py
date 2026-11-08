@@ -598,6 +598,7 @@ async def create_puzzle_voice(puzzle_id):
         "voice_channel_id": str(channel.id),
         "voice_url": voice.voice_url(int(ctx["guild_snowflake"]), channel.id),
         "created": created,
+        "move_members": voice.can_move_members(guild, hunt_obj),
     })
 
 

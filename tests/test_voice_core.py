@@ -279,3 +279,20 @@ async def test_two_stale_puzzle_objects_create_the_puzzle_voice_once():
     assert guild.create_voice_channel.await_count == 1
     assert sorted(created for _ch, created in r) == [False, True]
     assert p1.voice_channel_id == 22 and p2.voice_channel_id == 22
+
+
+def test_can_move_members_checks_the_hunt_category_then_the_guild():
+    main = _category(500, "Big Hunt")
+    guild = _guild([main])
+    main.permissions_for = MagicMock(return_value=SimpleNamespace(move_members=False))
+    guild.me.guild_permissions = SimpleNamespace(move_members=True)
+    assert voice.can_move_members(guild, _hunt()) is False
+    main.permissions_for.assert_called_once_with(guild.me)
+    main.permissions_for.return_value = SimpleNamespace(move_members=True)
+    assert voice.can_move_members(guild, _hunt()) is True
+    # no main category: fall back to the guild-level permission
+    bare = _guild([])
+    bare.me.guild_permissions = SimpleNamespace(move_members=False)
+    assert voice.can_move_members(bare, _hunt()) is False
+    bare.me.guild_permissions = SimpleNamespace(move_members=True)
+    assert voice.can_move_members(bare, _hunt()) is True

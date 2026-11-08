@@ -34,7 +34,7 @@ import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCell
 import { ConfirmModal } from "./ConfirmModal";
 import { PuzzleImages } from "./PuzzleImages";
 import { PuzzleVoiceControl } from "./PuzzleVoiceControl";
-import { puzzleVoiceCount, type LiveVoice } from "../lib/voice";
+import { puzzleVoiceCount, voiceCreateNotices, type LiveVoice } from "../lib/voice";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { formatPriority, formatStatus, notifyError, showSheetWarning } from "../util";
 
@@ -112,11 +112,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
   function runCreateVoice() {
     if (!puzzle) return;
     createVoice.mutate(puzzle.id, {
-      onSuccess: (data) =>
-        notifications.show({
-          message: data.created ? "Voice channel created." : "This puzzle already has a voice channel.",
-          color: "green",
-        }),
+      onSuccess: (data) => voiceCreateNotices(data).forEach((n) => notifications.show(n)),
       onError: notifyError,
     });
   }

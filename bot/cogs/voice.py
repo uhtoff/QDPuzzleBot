@@ -100,7 +100,10 @@ class Voice(commands.Cog):
         except voice.VoiceError as e:
             await ctx.send(_VOICE_ERRORS.get(e.code, ":x: Couldn't make a voice channel."))
             return
-        await ctx.send(f":loud_sound: Voice for **{puzzle.name}**: {channel.mention}")
+        reply = f":loud_sound: Voice for **{puzzle.name}**: {channel.mention}"
+        if not voice.can_move_members(ctx.guild, hunt):
+            reply += f"\n:warning: {voice.MOVE_MEMBERS_WARNING}"
+        await ctx.send(reply)
 
     @commands.command()
     @is_admin()

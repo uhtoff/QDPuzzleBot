@@ -46,6 +46,20 @@ def _has_room(category) -> bool:
     return len(category.channels) < MAX_CATEGORY_CHANNELS
 
 
+MOVE_MEMBERS_WARNING = ("I don't have **Move Members**, so people can't be moved out "
+                        "when this channel closes — they'll be disconnected instead.")
+
+
+def can_move_members(guild, hunt) -> bool:
+    """Whether the bot may move people out of a closing voice channel: its
+    permission on the hunt's main category (which the voice categories copy),
+    or guild-wide when that category is gone."""
+    me = guild.me
+    category = _live(guild, hunt.category_id)
+    perms = category.permissions_for(me) if category is not None else me.guild_permissions
+    return bool(perms.move_members)
+
+
 async def ensure_hunt_voice(guild, hunt) -> discord.VoiceChannel | None:
     async with _hunt_lock(hunt):
         return await _ensure_hunt_voice_locked(guild, hunt)

@@ -133,14 +133,26 @@ def web():
 async def test_create_voice_success(web):
     channel = MagicMock(id=555)
     with patch("bot.web.actions.voice.create_puzzle_voice",
-               AsyncMock(return_value=(channel, True))) as cpv:
+               AsyncMock(return_value=(channel, True))) as cpv, \
+         patch("bot.web.actions.voice.can_move_members", return_value=True) as cmm:
         resp = await web.client.post("/api/puzzles/7/voice")
     assert resp.status_code == 200
     assert await resp.get_json() == {
         "ok": True, "voice_channel_id": "555",
-        "voice_url": "https://discord.com/channels/123/555", "created": True}
+        "voice_url": "https://discord.com/channels/123/555", "created": True,
+        "move_members": True}
+    cmm.assert_called_once_with(web.guild, web.hunt)
     cpv.assert_awaited_once_with(web.guild, web.hunt, web.puzzle)
     web.notify.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_voice_reports_missing_move_members(web):
+    with patch("bot.web.actions.voice.create_puzzle_voice",
+               AsyncMock(return_value=(MagicMock(id=555), True))), \
+         patch("bot.web.actions.voice.can_move_members", return_value=False):
+        resp = await web.client.post("/api/puzzles/7/voice")
+    assert (await resp.get_json())["move_members"] is False
 
 
 @pytest.mark.asyncio

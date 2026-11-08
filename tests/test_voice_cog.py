@@ -57,6 +57,40 @@ async def test_voice_success_mentions_channel(stores):
     assert create.await_args.args[0] is ctx.guild
 
 
+MOVE_WARNING = (":warning: I don't have **Move Members**, so people can't be moved out "
+                "when this channel closes — they'll be disconnected instead.")
+
+
+async def test_voice_warns_when_bot_lacks_move_members(stores):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle("Cat")
+    hunt = _hunt()
+    H.get_by_attr.return_value = hunt
+    chan = MagicMock()
+    chan.mention = "<#9>"
+    ctx = make_ctx()
+    with patch("bot.cogs.voice.voice.create_puzzle_voice",
+               new=AsyncMock(return_value=(chan, True))), \
+         patch("bot.cogs.voice.voice.can_move_members", return_value=False) as cmm:
+        await Voice.voice.callback(_cog(), ctx)
+    assert _sent(ctx) == ":loud_sound: Voice for **Cat**: <#9>\n" + MOVE_WARNING
+    cmm.assert_called_once_with(ctx.guild, hunt)
+
+
+async def test_voice_no_warning_with_move_members(stores):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle("Cat")
+    H.get_by_attr.return_value = _hunt()
+    chan = MagicMock()
+    chan.mention = "<#9>"
+    ctx = make_ctx()
+    with patch("bot.cogs.voice.voice.create_puzzle_voice",
+               new=AsyncMock(return_value=(chan, True))), \
+         patch("bot.cogs.voice.voice.can_move_members", return_value=True):
+        await Voice.voice.callback(_cog(), ctx)
+    assert _sent(ctx) == ":loud_sound: Voice for **Cat**: <#9>"
+
+
 async def test_voice_existing_channel_same_text(stores):
     P, H, _ = stores
     P.get_by_attr.return_value = _puzzle("Cat")

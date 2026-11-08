@@ -777,7 +777,13 @@ export function useCreatePuzzleVoice(uid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (puzzleId: number) =>
-      apiSend<{ ok: boolean; voice_channel_id: string; voice_url: string; created: boolean }>(
+      apiSend<{
+        ok: boolean;
+        voice_channel_id: string;
+        voice_url: string;
+        created: boolean;
+        move_members: boolean;
+      }>(
         `/api/puzzles/${puzzleId}/voice`, "POST",
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),

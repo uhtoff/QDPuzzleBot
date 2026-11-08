@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVoiceEvent, emptyVoice, huntVoiceCount, puzzleVoiceCount, voiceRowBg } from "./voice";
+import { applyVoiceEvent, emptyVoice, huntVoiceCount, MOVE_MEMBERS_WARNING, puzzleVoiceCount, voiceCreateNotices, voiceRowBg } from "./voice";
 
 describe("applyVoiceEvent", () => {
   it("keys a puzzle event by text channel id and ignores other event types", () => {
@@ -42,5 +42,27 @@ describe("voiceRowBg", () => {
     expect(voiceRowBg(false, 0)).toBeUndefined();
     expect(voiceRowBg(true, 2)).toBe("var(--mantine-color-green-light)");
     expect(voiceRowBg(true, 0)).toBe("var(--mantine-color-green-light)");
+  });
+});
+
+describe("voiceCreateNotices", () => {
+  it("confirms a new channel in green", () => {
+    expect(voiceCreateNotices({ created: true, move_members: true })).toEqual([
+      { message: "Voice channel created.", color: "green" },
+    ]);
+  });
+  it("says when the channel already existed", () => {
+    expect(voiceCreateNotices({ created: false, move_members: true })).toEqual([
+      { message: "This puzzle already has a voice channel.", color: "green" },
+    ]);
+  });
+  it("adds a yellow warning when the bot lacks Move Members", () => {
+    expect(voiceCreateNotices({ created: true, move_members: false })).toEqual([
+      { message: "Voice channel created.", color: "green" },
+      { message: MOVE_MEMBERS_WARNING, color: "yellow" },
+    ]);
+    expect(MOVE_MEMBERS_WARNING).toBe(
+      "I don't have Move Members, so people can't be moved out when this channel closes — they'll be disconnected instead.",
+    );
   });
 });

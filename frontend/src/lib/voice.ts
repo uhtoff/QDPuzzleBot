@@ -38,3 +38,22 @@ export function voiceRowBg(solved: boolean, count: number): string | undefined {
   if (solved) return "var(--mantine-color-green-light)";
   return count > 0 ? "var(--mantine-color-teal-light)" : undefined;
 }
+
+/** Shown when the bot can't move people out of a closing voice channel. */
+export const MOVE_MEMBERS_WARNING =
+  "I don't have Move Members, so people can't be moved out when this channel closes — they'll be disconnected instead.";
+
+/** The notifications to show after a create-voice-channel request succeeds. */
+export function voiceCreateNotices(data: { created: boolean; move_members: boolean }): {
+  message: string;
+  color: "green" | "yellow";
+}[] {
+  const notices: { message: string; color: "green" | "yellow" }[] = [
+    {
+      message: data.created ? "Voice channel created." : "This puzzle already has a voice channel.",
+      color: "green",
+    },
+  ];
+  if (data.move_members === false) notices.push({ message: MOVE_MEMBERS_WARNING, color: "yellow" });
+  return notices;
+}
