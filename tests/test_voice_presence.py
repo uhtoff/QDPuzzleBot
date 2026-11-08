@@ -91,8 +91,8 @@ def test_event_for_puzzle_and_hunt_and_unknown():
     hunt = MagicMock(channel_id=666, uid="huntuid")
     with patch("bot.core.voice_presence.PuzzleJsonDb") as P, \
          patch("bot.core.voice_presence.HuntJsonDb") as H:
-        P.get_by_attr.side_effect = lambda **kw: puzzle if kw == {"voice_channel_id": 1} else None
-        H.get_by_attr.side_effect = lambda **kw: hunt if kw == {"voice_channel_id": 2} else None
+        P.by_voice_channel.side_effect = lambda i: puzzle if i == 1 else None
+        H.by_voice_channel.side_effect = lambda i: hunt if i == 2 else None
         assert voice_presence.event_for(1) == {
             "type": "voice", "guild_id": 7, "channel_id": "555", "voice_count": 1}
         assert voice_presence.event_for(2) == {

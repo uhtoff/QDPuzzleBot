@@ -245,10 +245,10 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
             logger.exception("Voice sweep failed for puzzle %s", puzzle.id)
 
     jobs = []
-    for puzzle in PuzzleJsonDb.voice_due(now - SOLVED_GRACE):
+    for puzzle in await asyncio.to_thread(PuzzleJsonDb.voice_due, now - SOLVED_GRACE):
         try:
             if puzzle.hunt_id not in hunts:
-                hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
+                hunt = await asyncio.to_thread(HuntJsonDb.get_by_attr, id=puzzle.hunt_id)
                 hunts[puzzle.hunt_id] = (hunt, _guild_for_hunt(bot, hunt) if hunt else None)
             hunt, guild = hunts[puzzle.hunt_id]
             if hunt is None or guild is None:

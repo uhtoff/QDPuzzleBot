@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from discord.ext import commands
 
-from bot.cogs.voice import Voice
+from bot.cogs.voice import Voice, _hunt_for
 from bot.core.voice import VoiceError
 from tests.conftest import make_ctx
 
@@ -228,12 +228,37 @@ def test_admin_commands_are_gated_and_voice_is_open():
     assert Voice.voice.aliases == ["vc"]
 
 
-async def test_admin_check_refuses_non_admin():
+@pytest.mark.parametrize("cmd", [Voice.voice_cleanup, Voice.voice_per_puzzle])
+async def test_admin_check_refuses_non_admin(cmd):
     ctx = make_ctx()
     ctx.author.roles = []
     with patch("bot.cogs.puzzles._holds", return_value=False):
         with pytest.raises(commands.MissingAnyRole):
-            await Voice.voice_cleanup.checks[0](ctx)
+            await cmd.checks[0](ctx)
+
+
+async def test_hunt_for_resolves_via_group_category(stores):
+    _, H, T = stores
+    hunt = _hunt()
+    group = MagicMock(hunt_id=3)
+    T.get_by_attr.side_effect = lambda **kw: group if kw == {"category_id": 77} else None
+    H.get_by_attr.side_effect = lambda **kw: hunt if kw == {"id": 3} else None
+    channel = MagicMock()
+    channel.category.id = 77
+    assert _hunt_for(channel) is hunt
+    channel.category.id = 78
+    assert _hunt_for(channel) is None
+
+
+async def test_voice_unknown_error_code_fallback(stores):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle()
+    H.get_by_attr.return_value = _hunt()
+    ctx = make_ctx()
+    with patch("bot.cogs.voice.voice.create_puzzle_voice",
+               new=AsyncMock(side_effect=VoiceError("not_a_puzzle"))):
+        await Voice.voice.callback(_cog(), ctx)
+    assert _sent(ctx) == ":x: Couldn't make a voice channel."
 
 
 async def test_sweep_swallows_errors():

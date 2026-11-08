@@ -44,16 +44,18 @@ def on_state_change(member, before_channel, after_channel) -> list[int]:
 
 
 def event_for(voice_channel_id: int) -> dict | None:
-    """The websocket "voice" event for the puzzle or hunt owning this voice channel."""
+    """Blocking (DB lookups): call via asyncio.to_thread.
+
+    The websocket "voice" event for the puzzle or hunt owning this voice channel."""
     guild_id = _guilds.get(voice_channel_id)
     if guild_id is None:
         return None
     n = count(voice_channel_id)
-    puzzle = PuzzleJsonDb.get_by_attr(voice_channel_id=voice_channel_id)
+    puzzle = PuzzleJsonDb.by_voice_channel(voice_channel_id)
     if puzzle is not None:
         return {"type": "voice", "guild_id": guild_id,
                 "channel_id": str(puzzle.channel_id), "voice_count": n}
-    hunt = HuntJsonDb.get_by_attr(voice_channel_id=voice_channel_id)
+    hunt = HuntJsonDb.by_voice_channel(voice_channel_id)
     if hunt is not None:
         return {"type": "voice", "guild_id": guild_id,
                 "channel_id": str(hunt.channel_id), "hunt_uid": hunt.uid,

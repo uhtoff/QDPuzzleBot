@@ -121,3 +121,17 @@ def test_a_stale_full_commit_never_clears_stored_voice_ids():
         assert h.voice_channel_id == 222 and h.voice_per_puzzle
     finally:
         _cleanup(guild)
+
+
+def test_by_voice_channel_lookups_find_and_return_none():
+    guild = _guild()
+    try:
+        hid = _hunt(guild, "v-lookup")
+        pid = _puzzle(hid, "p", voice=4242)
+        HuntJsonDb.set_voice_channel(hid, 4343)
+        assert PuzzleJsonDb.by_voice_channel(4242).id == pid
+        assert HuntJsonDb.by_voice_channel(4343).id == hid
+        assert PuzzleJsonDb.by_voice_channel(4343) is None
+        assert HuntJsonDb.by_voice_channel(4242) is None
+    finally:
+        _cleanup(guild)

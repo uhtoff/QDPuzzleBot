@@ -28,7 +28,8 @@ def _puzzle_for(channel):
 def _hunt_for(channel):
     """The hunt owning *channel*: a puzzle channel, the hunt's own channel, or any
     channel in one of its groups' categories. (The Puzzles cog's per-command
-    environment is private to that cog, so this repeats its three lookups.)"""
+    environment is private to that cog, so this repeats its three lookups.)
+    Solved/overflow group categories are not resolved (only a group's own category)."""
     puzzle = _puzzle_for(channel)
     if puzzle is not None:
         return HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
@@ -77,7 +78,7 @@ class Voice(commands.Cog):
         try:
             for channel_id in voice_presence.on_state_change(
                     member, before.channel, after.channel):
-                event = voice_presence.event_for(channel_id)
+                event = await asyncio.to_thread(voice_presence.event_for, channel_id)
                 if event is not None:
                     events.publish(event)
         except Exception:
@@ -97,7 +98,7 @@ class Voice(commands.Cog):
         try:
             channel, _created = await voice.create_puzzle_voice(ctx.guild, hunt, puzzle)
         except voice.VoiceError as e:
-            await ctx.send(_VOICE_ERRORS.get(e.code, ":x: Run this in a puzzle's channel."))
+            await ctx.send(_VOICE_ERRORS.get(e.code, ":x: Couldn't make a voice channel."))
             return
         await ctx.send(f":loud_sound: Voice for **{puzzle.name}**: {channel.mention}")
 

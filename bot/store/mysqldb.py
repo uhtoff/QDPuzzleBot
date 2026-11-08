@@ -241,6 +241,13 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             logger.info(f"Unable to find hunt for {keyword} - {value}")
             return None
 
+    def by_voice_channel(self, channel_id):
+        """The hunt whose general voice channel is *channel_id*, or None. Silent
+        (no "Unable to find" log): called for every voice join in the guild."""
+        row = self._fetch_one(
+            "SELECT * FROM `hunts` WHERE `voice_channel_id` = %s LIMIT 1", (channel_id,))
+        return HuntData.import_dict(row) if row else None
+
     def get_by_name_for_guild(self, name, guild_snowflake):
         """Retrieve a Hunt by name, scoped to the Discord guild that owns it (M6).
 
@@ -814,6 +821,12 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         (see the docstring on commit)."""
         self._exec("UPDATE `puzzles` SET `voice_channel_id` = %s WHERE `id` = %s",
                    (channel_id, puzzle_id))
+
+    def by_voice_channel(self, channel_id):
+        """The puzzle whose voice channel is *channel_id*, or None. Silent (no log)."""
+        row = self._fetch_one(
+            "SELECT * FROM `puzzles` WHERE `voice_channel_id` = %s LIMIT 1", (channel_id,))
+        return self.construct_puzzle(row) if row else None
 
     def voice_due(self, cutoff: datetime.datetime) -> List[PuzzleData]:
         """Solved puzzles in live hunts that still hold a voice channel and were
