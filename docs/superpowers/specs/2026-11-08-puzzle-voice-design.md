@@ -36,10 +36,12 @@ archive/delete-hunt paths, which already remove voice channels.
    channel automatically (metas included — designer's guess). Turning it on does NOT back-fill
    existing puzzles; turning it off does NOT delete anything (user, 2026-11-08).
 5. **`!voice_cleanup`** (admin only, plus a dashboard equivalent): removes every puzzle voice
-   channel in the hunt — the "I regret turning it on" reconcile (user, 2026-11-08). The hunt
-   voice channel stays. Channels with people in them are skipped and listed in the reply so
-   nobody's call drops (designer's call). Empty voice categories it leaves behind are removed.
-   It does not change the per-hunt setting.
+   channel in the hunt — the "I regret turning it on" reconcile (user, 2026-11-08). It never
+   touches the hunt voice channel, which always exists (user). Empty puzzle voice channels go
+   at once; occupied ones get the same treatment as the post-solve clean-up — a 15 s `@here`
+   warning in the channel's text chat, then occupants moved to the hunt voice channel, then
+   deletion (user, 2026-11-08). The reply reports what was removed. Empty voice categories it
+   leaves behind are removed. It does not change the per-hunt setting.
 6. **Solve clean-up.** 15 minutes after a puzzle is solved its voice channel is deleted. If
    anyone is in it at 15 s before deletion, an `@here` warning is posted in the voice
    channel's own text chat ("this channel closes in 15 seconds — <puzzle> was solved; you'll
@@ -74,8 +76,7 @@ the channel or joins it directly.
 ## Anti-goals
 
 - Dropping someone's call without warning. The only automatic deletion is the post-solve one,
-  which warns and moves people to the hunt voice channel; the admin cleanup skips occupied
-  channels.
+  and the admin cleanup, both of which warn and move people to the hunt voice channel first.
 - A voice channel visible to people who can't see the hunt. Permissions always come from the
   hunt's own category by cloning.
 - Losing a pending clean-up on restart. Every push deploys and restarts the bot, often
