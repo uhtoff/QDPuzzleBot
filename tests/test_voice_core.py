@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -50,6 +51,13 @@ def _guild(channels=(), categories=()):
     g.create_voice_channel = AsyncMock()
     g.create_category = AsyncMock()
     return g
+
+
+@pytest.fixture(autouse=True)
+def _fresh_locks():
+    voice._hunt_locks.clear()
+    yield
+    voice._hunt_locks.clear()
 
 
 @pytest.fixture
@@ -186,3 +194,24 @@ async def test_create_puzzle_voice_creates_hunt_voice_first_if_missing(stores):
     h.set_voice_channel.assert_called_once_with(1, 12)
     p.set_voice_channel.assert_called_once_with(7, 22)
     assert hunt.voice_channel_id == 12 and puzzle.voice_channel_id == 22
+
+
+async def test_concurrent_ensure_hunt_voice_creates_once(stores):
+    h, _ = stores
+    main = _category(500, "Big Hunt")
+    guild = _guild([main])
+
+    created = _vc(12)
+    by_id = {500: main}
+    guild.get_channel = MagicMock(side_effect=lambda i: by_id.get(i))
+
+    async def create_and_register(*a, **k):
+        await asyncio.sleep(0)
+        by_id[12] = created
+        return created
+
+    guild.create_voice_channel.side_effect = create_and_register
+    hunt = _hunt()
+    r = await asyncio.gather(voice.ensure_hunt_voice(guild, hunt), voice.ensure_hunt_voice(guild, hunt))
+    assert guild.create_voice_channel.await_count == 1
+    assert r[0] is created and r[1] is created

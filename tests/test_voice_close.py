@@ -16,14 +16,24 @@ WARN = ("@here this voice channel closes in 15 seconds — **Cap One** was solve
 @pytest.fixture(autouse=True)
 def _clean_closing():
     voice._closing.clear()
+    voice._hunt_locks.clear()
     yield
     voice._closing.clear()
+    voice._hunt_locks.clear()
 
 
 @pytest.fixture
 def stores():
     with patch("bot.core.voice.HuntJsonDb") as h, patch("bot.core.voice.PuzzleJsonDb") as p:
         yield h, p
+
+
+async def test_close_voice_channel_reports_skip_when_already_closing():
+    ch = _vc(21)
+    voice._closing.add(21)
+    assert await voice.close_voice_channel(_guild([ch]), _hunt(), ch, "r", sleep=AsyncMock()) is False
+    voice._closing.clear()
+    assert await voice.close_voice_channel(_guild([ch]), _hunt(), ch, "r", sleep=AsyncMock()) is True
 
 
 def _member(name="m"):
@@ -102,10 +112,14 @@ async def test_close_warns_again_after_restart_mid_window(stores):
         ch = _vc(21, members=[_member()])
         guild = _guild([hunt_vc, ch])
         puzzle.voice_channel_id = 21
+        p.reset_mock()
+        mgr = MagicMock()
+        mgr.attach_mock(ch.send, "send")
+        mgr.attach_mock(ch.delete, "delete")
+        mgr.attach_mock(p.set_voice_channel, "clear")
         assert await voice.close_puzzle_voice(guild, _hunt(voice_channel_id=12), puzzle, "r",
                                               sleep=AsyncMock()) is True
-        ch.send.assert_awaited_once()
-        ch.delete.assert_awaited_once()
+        assert [c[0] for c in mgr.mock_calls] == ["send", "delete", "clear"]
     assert puzzle.voice_channel_id == 0 or puzzle.voice_channel_id is None
     p.set_voice_channel.assert_called_with(7, None)
 
@@ -132,7 +146,7 @@ async def test_sweep_skips_channels_already_closing(stores):
         first = asyncio.create_task(voice.close_puzzle_voice(guild, hunt, puzzle, "r",
                                                              sleep=blocked_sleep))
         await asyncio.sleep(0)
-        await voice.sweep_solved(bot, sleep=blocked_sleep)
+        await asyncio.wait_for(voice.sweep_solved(bot, sleep=blocked_sleep), 1)
         gate.set()
         await first
     ch.send.assert_awaited_once()
@@ -165,13 +179,20 @@ async def test_sweep_skips_unavailable_guild_and_survives_errors(stores):
     bot = MagicMock()
     bot.guilds = []
     await voice.sweep_solved(bot, sleep=AsyncMock())  # no guild: skipped, no raise
-    ch = _vc(21)
-    ch.delete.side_effect = RuntimeError("boom")
-    guild = _guild([ch])
+    p.set_voice_channel.assert_not_called()
+
+    bad, good = _vc(21), _vc(31)
+    bad.delete.side_effect = RuntimeError("boom")
+    guild = _guild([bad, good])
     bot.guilds = [guild]
+    p.voice_due.return_value = [_puzzle(id=7, voice_channel_id=21, hunt_id=1),
+                                _puzzle(id=8, voice_channel_id=31, hunt_id=1)]
     with patch("bot.core.voice.GuildSettingsDb") as g:
         g.get_cached.return_value = SimpleNamespace(id=5)
         await voice.sweep_solved(bot, sleep=AsyncMock())  # error logged, not raised
+    bad.delete.assert_awaited_once()
+    good.delete.assert_awaited_once()
+    p.set_voice_channel.assert_called_once_with(8, None)
 
 
 async def test_close_puzzle_voice_clears_id_when_channel_was_deleted_by_hand(stores):

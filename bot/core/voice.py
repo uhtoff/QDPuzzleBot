@@ -32,11 +32,25 @@ def voice_url(guild_snowflake: int, channel_id: int) -> str:
     return f"https://discord.com/channels/{guild_snowflake}/{channel_id}"
 
 
+# One lock per hunt serialises check-then-create so concurrent callers can't
+# duplicate the hunt voice channel, a voice category, or a puzzle's channel.
+_hunt_locks: dict[int, asyncio.Lock] = {}
+
+
+def _hunt_lock(hunt) -> asyncio.Lock:
+    return _hunt_locks.setdefault(hunt.id, asyncio.Lock())
+
+
 def _has_room(category) -> bool:
     return len(category.channels) < MAX_CATEGORY_CHANNELS
 
 
-async def ensure_hunt_voice(guild, hunt):
+async def ensure_hunt_voice(guild, hunt) -> discord.VoiceChannel | None:
+    async with _hunt_lock(hunt):
+        return await _ensure_hunt_voice_locked(guild, hunt)
+
+
+async def _ensure_hunt_voice_locked(guild, hunt) -> discord.VoiceChannel | None:
     """The hunt's voice channel, created in its main category if missing.
     None (logged) when the main category is missing or full."""
     if hunt.voice_channel_id:
@@ -54,7 +68,12 @@ async def ensure_hunt_voice(guild, hunt):
     return channel
 
 
-async def ensure_voice_category(guild, hunt):
+async def ensure_voice_category(guild, hunt) -> discord.CategoryChannel:
+    async with _hunt_lock(hunt):
+        return await _ensure_voice_category_locked(guild, hunt)
+
+
+async def _ensure_voice_category_locked(guild, hunt) -> discord.CategoryChannel:
     """The first "<hunt> Voice[ n]" category with room, cloned from the hunt's
     main category (so it carries the hunt's permissions) when none exists."""
     hunt_category = guild.get_channel(hunt.category_id)
@@ -73,22 +92,23 @@ async def ensure_voice_category(guild, hunt):
     return await hunt_category.clone(name=voice_category_name(hunt.name, n))
 
 
-async def create_puzzle_voice(guild, hunt, puzzle):
+async def create_puzzle_voice(guild, hunt, puzzle) -> tuple[discord.VoiceChannel, bool]:
     """(channel, created) for the puzzle's voice channel, creating it if needed."""
     if hunt.archived:
         raise VoiceError("archived")
     if puzzle.solved:
         raise VoiceError("solved")
-    if puzzle.voice_channel_id:
-        existing = guild.get_channel(puzzle.voice_channel_id)
-        if existing is not None:
-            return existing, False
-    await ensure_hunt_voice(guild, hunt)
-    category = await ensure_voice_category(guild, hunt)
-    channel = await guild.create_voice_channel(puzzle.name[:100], category=category)
-    PuzzleJsonDb.set_voice_channel(puzzle.id, channel.id)
-    puzzle.voice_channel_id = channel.id
-    return channel, True
+    async with _hunt_lock(hunt):
+        if puzzle.voice_channel_id:
+            existing = guild.get_channel(puzzle.voice_channel_id)
+            if existing is not None:
+                return existing, False
+        await _ensure_hunt_voice_locked(guild, hunt)
+        category = await _ensure_voice_category_locked(guild, hunt)
+        channel = await guild.create_voice_channel(puzzle.name[:100], category=category)
+        PuzzleJsonDb.set_voice_channel(puzzle.id, channel.id)
+        puzzle.voice_channel_id = channel.id
+        return channel, True
 
 
 # ---- close, cleanup, solved sweep ------------------------------------------
@@ -102,11 +122,12 @@ CLEANUP_REASON = "an admin is tidying up voice channels"
 _closing: set[int] = set()
 
 
-async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asyncio.sleep) -> None:
+async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asyncio.sleep) -> bool:
     """Warn (if occupied), move occupants to the hunt voice channel, delete.
-    Does not touch the database."""
+    Does not touch the database. True if it deleted the channel, False if it
+    skipped because a close is already in flight."""
     if channel.id in _closing:
-        return
+        return False
     _closing.add(channel.id)
     try:
         if channel.members:
@@ -129,6 +150,7 @@ async def close_voice_channel(guild, hunt, channel, reason: str, *, sleep=asynci
             await channel.delete(reason=reason)
         except discord.NotFound:
             pass
+        return True
     finally:
         _closing.discard(channel.id)
 
@@ -140,9 +162,8 @@ async def close_puzzle_voice(guild, hunt, puzzle, reason: str, *, sleep=asyncio.
         PuzzleJsonDb.set_voice_channel(puzzle.id, None)
         puzzle.voice_channel_id = 0
         return False
-    if channel.id in _closing:
+    if not await close_voice_channel(guild, hunt, channel, reason, sleep=sleep):
         return False
-    await close_voice_channel(guild, hunt, channel, reason, sleep=sleep)
     PuzzleJsonDb.set_voice_channel(puzzle.id, None)
     puzzle.voice_channel_id = 0
     return True
@@ -176,9 +197,9 @@ async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
             removed_ids.add(channel.id)
 
     async def _orphan_job(channel):
-        await close_voice_channel(guild, hunt, channel, CLEANUP_REASON, sleep=sleep)
-        names.append(channel.name)
-        removed_ids.add(channel.id)
+        if await close_voice_channel(guild, hunt, channel, CLEANUP_REASON, sleep=sleep):
+            names.append(channel.name)
+            removed_ids.add(channel.id)
 
     for puzzle in puzzles:
         jobs.append(_puzzle_job(puzzle))
