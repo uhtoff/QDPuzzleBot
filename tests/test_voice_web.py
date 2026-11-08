@@ -191,7 +191,10 @@ async def test_cleanup_returns_removed_names(web):
         resp = await web.client.post("/api/hunts/U1/voice-cleanup")
     assert resp.status_code == 200
     assert await resp.get_json() == {"ok": True, "removed": ["Alpha", "Beta"]}
-    ch.assert_awaited_once_with(web.guild, web.hunt)
+    # bot= lets cleanup refresh each puzzle's pinned info (its voice link goes).
+    ch.assert_awaited_once()
+    assert ch.await_args.args == (web.guild, web.hunt)
+    assert ch.await_args.kwargs["bot"] is not None
 
 
 @pytest.mark.asyncio

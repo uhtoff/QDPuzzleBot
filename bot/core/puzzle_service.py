@@ -3352,7 +3352,10 @@ class PuzzleService:
                            getattr(guild, "id", "?"), len(guild.channels), new_puzzle.id)
         elif hunt.voice_per_puzzle and not new_puzzle.solved:
             try:
-                await voice.create_puzzle_voice(guild, hunt, new_puzzle)
+                _, created = await voice.create_puzzle_voice(guild, hunt, new_puzzle)
+                if created:
+                    # The welcome was pinned before the voice channel existed.
+                    await self.notifier.refresh_info(guild, hunt, new_puzzle)
             except Exception:
                 logger.exception("create_puzzle: voice channel failed for %s", new_puzzle.id)
 

@@ -102,6 +102,12 @@ def is_admin():
     return commands.check(predicate)
 
 
+def _voice_id(row) -> int:
+    """The row's stored voice channel id, or 0 (NULL, unset, or a non-int)."""
+    vid = getattr(row, "voice_channel_id", None)
+    return vid if isinstance(vid, int) and not isinstance(vid, bool) else 0
+
+
 def is_organiser():
     """Like is_admin() for the wider Organiser tier, except the check passes
     unconditionally when the guild has nothing standing for that tier — see
@@ -3178,6 +3184,9 @@ class Puzzles(commands.Cog):
         if hunt.password:
             puzzle_links += f"""• Hunt Password: {hunt.password}
             """
+        if _voice_id(hunt):
+            puzzle_links += f"""• Voice: <#{hunt.voice_channel_id}>
+            """
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, kwargs.get('guild_data'))})"""
         embed.add_field(
             name="Hunt Information",
@@ -3210,6 +3219,10 @@ class Puzzles(commands.Cog):
         if hunt.sheet_mode == "files":
             # The puzzle's link above is its own file; the hunt-wide one is here.
             puzzle_links += f"""• [Reference sheet]({spreadsheet_link(hunt.google_sheet_id)})
+                                """
+        if _voice_id(puzzle):
+            # <#id> renders as a clickable link to the voice channel.
+            puzzle_links += f"""• Voice: <#{puzzle.voice_channel_id}>
                                 """
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""
         embed.add_field(

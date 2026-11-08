@@ -103,6 +103,7 @@ class Voice(commands.Cog):
             return
         if created:
             await voice.notify_board(self.bot, hunt)
+            await voice.refresh_pin(self.bot, ctx.guild, hunt, puzzle)
         reply = f":loud_sound: Voice for **{puzzle.name}**: {channel.mention}"
         if not voice.can_move_members(ctx.guild, hunt):
             reply += f"\n:warning: {voice.MOVE_MEMBERS_WARNING}"
@@ -121,7 +122,7 @@ class Voice(commands.Cog):
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
             return
         await ctx.send(":broom: Clearing puzzle voice channels…")
-        names = await voice.cleanup_hunt(ctx.guild, hunt)
+        names = await voice.cleanup_hunt(ctx.guild, hunt, bot=self.bot)
         if names:
             await voice.notify_board(self.bot, hunt)
             await ctx.send(f":white_check_mark: Removed {len(names)} voice channel(s): "

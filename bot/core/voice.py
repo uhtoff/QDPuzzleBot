@@ -230,10 +230,11 @@ def hunt_voice_categories(guild, hunt) -> list:
             and all(isinstance(ch, discord.VoiceChannel) for ch in c.channels)]
 
 
-async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
+async def cleanup_hunt(guild, hunt, *, bot=None, sleep=asyncio.sleep) -> list[str]:
     """Remove every puzzle voice channel of the hunt (plus orphans left in its
     voice categories) and then its empty voice categories. Never touches the
-    hunt voice channel. Returns the names of removed channels."""
+    hunt voice channel. Returns the names of removed channels. With *bot*, each
+    affected puzzle's pinned info is refreshed (its voice link goes)."""
     puzzles = await asyncio.to_thread(PuzzleJsonDb.with_voice, hunt.id)
     stored = {p.voice_channel_id for p in puzzles}
     keep = stored | ({hunt.voice_channel_id} if hunt.voice_channel_id else set())
@@ -248,6 +249,8 @@ async def cleanup_hunt(guild, hunt, *, sleep=asyncio.sleep) -> list[str]:
         if await close_puzzle_voice(guild, hunt, puzzle, CLEANUP_REASON, sleep=sleep):
             names.append(channel.name)
             removed_ids.add(channel.id)
+            if bot is not None:
+                await refresh_pin(bot, guild, hunt, puzzle)
 
     async def _orphan_job(channel):
         if await close_voice_channel(guild, hunt, channel, CLEANUP_REASON, sleep=sleep):
@@ -283,6 +286,17 @@ def _guild_for_hunt(bot, hunt):
     return None
 
 
+async def refresh_pin(bot, guild, hunt, puzzle=None) -> None:
+    """Best-effort refresh of the puzzle's (or, with no puzzle, the hunt's)
+    pinned info message, so its voice link matches the channel's existence."""
+    try:
+        cog = bot.get_cog("Puzzles")
+        if cog is not None:
+            await cog.service.notifier.refresh_info(guild, hunt, puzzle)
+    except Exception:
+        logger.exception("Voice pin refresh failed for hunt %s", getattr(hunt, "id", "?"))
+
+
 async def notify_board(bot, hunt) -> None:
     """Best-effort dashboard board push for *hunt*, through the Puzzles
     service's notifier (the same sink every service mutation uses)."""
@@ -311,6 +325,7 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
             if await close_puzzle_voice(guild, hunt, puzzle, f"**{puzzle.name}** was solved",
                                         sleep=sleep, still_wanted=still_solved):
                 changed[hunt.id] = hunt
+                await refresh_pin(bot, guild, hunt, puzzle)
         except Exception:
             logger.exception("Voice sweep failed for puzzle %s", puzzle.id)
 

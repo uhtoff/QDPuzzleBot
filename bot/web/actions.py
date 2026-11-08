@@ -593,6 +593,7 @@ async def create_puzzle_voice(puzzle_id):
     if created:
         await _audit("voice", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
         _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+        await voice.refresh_pin(bot_app().bot, guild, hunt_obj, puzzle)
     return jsonify({
         "ok": True,
         "voice_channel_id": str(channel.id),
@@ -618,7 +619,7 @@ async def post_hunt_voice_cleanup(uid):
         return jsonify({"error": "bot_unavailable"}), 503
 
     try:
-        removed = await voice.cleanup_hunt(guild, hunt_obj)
+        removed = await voice.cleanup_hunt(guild, hunt_obj, bot=bot_app().bot)
     except (discord.RateLimited, discord.HTTPException) as exc:
         return _discord_error_response(exc)
     await _audit("voice_cleanup", hunt_uid=uid, detail=f"removed={len(removed)}")

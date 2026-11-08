@@ -92,10 +92,13 @@ def _puzzle_hunt(per_puzzle):
     return h
 
 
-async def _create_puzzle(per_puzzle, voice, is_meta=False, n_channels=0):
+async def _create_puzzle(per_puzzle, voice, is_meta=False, n_channels=0, svc_out=None):
     bot = MagicMock()
     bot.get_cog.return_value = None
     svc = PuzzleService(bot)
+    svc.notifier.refresh_info = AsyncMock()
+    if svc_out is not None:
+        svc_out.append(svc)
     guild = MagicMock()
     guild.channels = [object()] * n_channels
     guild.categories = [MagicMock(id=999)]
@@ -250,3 +253,19 @@ async def test_create_hunt_explicit_voice_choice_beats_the_guild_default():
     hunt2, hdb2, _ = await _make_hunt(_create_guild(), toggle=True, voice_per_puzzle=False)
     hdb2.set_voice_per_puzzle.assert_not_called()
     assert not hunt2.voice_per_puzzle
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created", [True, False])
+async def test_auto_voice_refreshes_the_pin_only_when_it_created_a_channel(created):
+    """The welcome is pinned before the voice channel exists, so a newly made
+    channel needs a pin refresh to show its link."""
+    v = _voice_mock()
+    v.create_puzzle_voice = AsyncMock(return_value=(MagicMock(), created))
+    out: list = []
+    puzzle, guild, hunt = await _create_puzzle(True, v, svc_out=out)
+    refresh = out[0].notifier.refresh_info
+    if created:
+        refresh.assert_awaited_once_with(guild, hunt, puzzle)
+    else:
+        refresh.assert_not_awaited()

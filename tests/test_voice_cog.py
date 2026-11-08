@@ -341,3 +341,22 @@ async def test_voice_cleanup_pushes_the_board_when_it_removed_something(stores, 
         board_changed.assert_awaited_once_with(hunt)
     else:
         board_changed.assert_not_awaited()
+
+
+@pytest.mark.parametrize("created", [True, False])
+async def test_voice_refreshes_the_pin_only_when_it_created_a_channel(stores, created):
+    P, H, _ = stores
+    puzzle = _puzzle("Cat")
+    P.get_by_attr.return_value = puzzle
+    hunt = _hunt()
+    H.get_by_attr.return_value = hunt
+    cog, _ = _pushing_cog()
+    refresh = cog.bot.get_cog("Puzzles").service.notifier.refresh_info = AsyncMock()
+    ctx = make_ctx()
+    with patch("bot.cogs.voice.voice.create_puzzle_voice",
+               new=AsyncMock(return_value=(MagicMock(mention="<#9>"), created))):
+        await Voice.voice.callback(cog, ctx)
+    if created:
+        refresh.assert_awaited_once_with(ctx.guild, hunt, puzzle)
+    else:
+        refresh.assert_not_awaited()

@@ -355,3 +355,22 @@ async def test_notify_board_never_raises():
     await voice.notify_board(bot, _hunt())
     bot.get_cog.return_value = None
     await voice.notify_board(bot, _hunt())
+
+
+async def test_sweep_refreshes_each_closed_puzzles_pin(stores):
+    """The pinned info's voice link goes once the channel is gone."""
+    h, p = stores
+    c1, c2 = _vc(21), _vc(22)
+    guild = _guild([c1, c2])
+    hunt = _hunt(guild_id=5)
+    h.get_by_attr.return_value = hunt
+    p1 = _puzzle(id=7, voice_channel_id=21, hunt_id=1)
+    p2 = _puzzle(id=8, voice_channel_id=22, hunt_id=1)
+    p.voice_due.return_value = [p1, p2]
+    bot, _ = _bot_with_board([guild])
+    refresh = bot.get_cog("Puzzles").service.notifier.refresh_info = AsyncMock()
+    with patch("bot.core.voice.GuildSettingsDb") as g:
+        g.get_cached.return_value = SimpleNamespace(id=5)
+        await voice.sweep_solved(bot, sleep=AsyncMock())
+    assert {c.args[2].id for c in refresh.await_args_list} == {7, 8}
+    assert all(c.args[0] is guild and c.args[1] is hunt for c in refresh.await_args_list)
