@@ -383,6 +383,13 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         self._exec("UPDATE `hunts` SET `voice_channel_id` = %s WHERE `id` = %s",
                    (channel_id, hunt_id))
 
+    def voice_channel_id(self, hunt_id):
+        """The stored hunt voice channel id (None if unset or no such hunt). A
+        narrow read so a caller holding a stale HuntData can check the truth."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `hunts` WHERE `id` = %s", (hunt_id,))
+        return row["voice_channel_id"] if row else None
+
     def set_voice_per_puzzle(self, hunt_id, on):
         """Set the per-puzzle voice channel toggle. Its own UPDATE (see above)."""
         self._exec("UPDATE `hunts` SET `voice_per_puzzle` = %s WHERE `id` = %s",
@@ -821,6 +828,13 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         (see the docstring on commit)."""
         self._exec("UPDATE `puzzles` SET `voice_channel_id` = %s WHERE `id` = %s",
                    (channel_id, puzzle_id))
+
+    def voice_channel_id(self, puzzle_id):
+        """The stored voice channel id of the puzzle (None if unset or no such
+        puzzle). A narrow read so a caller holding a stale PuzzleData can check."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return row["voice_channel_id"] if row else None
 
     def by_voice_channel(self, channel_id):
         """The puzzle whose voice channel is *channel_id*, or None. Silent (no log)."""

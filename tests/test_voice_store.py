@@ -135,3 +135,20 @@ def test_by_voice_channel_lookups_find_and_return_none():
         assert HuntJsonDb.by_voice_channel(4242) is None
     finally:
         _cleanup(guild)
+
+
+def test_narrow_voice_channel_id_getters():
+    guild = _guild()
+    try:
+        hid = _hunt(guild, "v-getters")
+        pid = _puzzle(hid, "p", voice=5151)
+        bare = _puzzle(hid, "bare")
+        assert PuzzleJsonDb.voice_channel_id(pid) == 5151
+        assert not PuzzleJsonDb.voice_channel_id(bare)
+        assert not PuzzleJsonDb.voice_channel_id(-1)
+        assert not HuntJsonDb.voice_channel_id(hid)
+        HuntJsonDb.set_voice_channel(hid, 5252)
+        assert HuntJsonDb.voice_channel_id(hid) == 5252
+        assert not HuntJsonDb.voice_channel_id(-1)
+    finally:
+        _cleanup(guild)

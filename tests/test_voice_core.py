@@ -63,6 +63,8 @@ def _fresh_locks():
 @pytest.fixture
 def stores():
     with patch("bot.core.voice.HuntJsonDb") as h, patch("bot.core.voice.PuzzleJsonDb") as p:
+        h.voice_channel_id.return_value = None  # nothing stored beyond the objects
+        p.voice_channel_id.return_value = None
         yield h, p
 
 
@@ -215,3 +217,65 @@ async def test_concurrent_ensure_hunt_voice_creates_once(stores):
     r = await asyncio.gather(voice.ensure_hunt_voice(guild, hunt), voice.ensure_hunt_voice(guild, hunt))
     assert guild.create_voice_channel.await_count == 1
     assert r[0] is created and r[1] is created
+
+
+class _FakeStore:
+    """Dict-backed stand-in for the narrow voice setters/getters, so a write by
+    one caller is visible to the next caller's fresh read."""
+
+    def __init__(self):
+        self.ids: dict[int, int | None] = {}
+        self.set_voice_channel = MagicMock(side_effect=self.ids.__setitem__)
+
+    def voice_channel_id(self, row_id):
+        return self.ids.get(row_id)
+
+
+async def test_two_stale_hunt_objects_create_the_hunt_voice_once():
+    """Two callers holding separate HuntData for the same hunt, both loaded before
+    any voice channel existed: the second must see the first's id in the DB."""
+    store = _FakeStore()
+    main = _category(500, "Big Hunt")
+    by_id = {500: main}
+    guild = _guild([main])
+    guild.get_channel = MagicMock(side_effect=lambda i: by_id.get(i))
+    created = _vc(12)
+
+    async def create_and_register(*a, **k):
+        await asyncio.sleep(0)
+        by_id[12] = created
+        return created
+
+    guild.create_voice_channel.side_effect = create_and_register
+    a, b = _hunt(), _hunt()  # same id, distinct stale objects
+    with patch("bot.core.voice.HuntJsonDb", store):
+        r = await asyncio.gather(voice.ensure_hunt_voice(guild, a),
+                                 voice.ensure_hunt_voice(guild, b))
+    assert guild.create_voice_channel.await_count == 1
+    assert r[0] is created and r[1] is created
+    assert a.voice_channel_id == 12 and b.voice_channel_id == 12
+
+
+async def test_two_stale_puzzle_objects_create_the_puzzle_voice_once():
+    hunts, puzzles = _FakeStore(), _FakeStore()
+    main = _category(500, "Big Hunt")
+    vcat = _category(600, "Big Hunt Voice")
+    hunt_vc, puz_vc = _vc(12), _vc(22)
+    by_id = {500: main, 12: hunt_vc}
+    hunts.ids[1] = 12
+    guild = _guild([main], categories=[main, vcat])
+    guild.get_channel = MagicMock(side_effect=lambda i: by_id.get(i))
+
+    async def create_and_register(*a, **k):
+        await asyncio.sleep(0)
+        by_id[22] = puz_vc
+        return puz_vc
+
+    guild.create_voice_channel.side_effect = create_and_register
+    p1, p2 = _puzzle(), _puzzle()
+    with patch("bot.core.voice.HuntJsonDb", hunts), patch("bot.core.voice.PuzzleJsonDb", puzzles):
+        r = await asyncio.gather(voice.create_puzzle_voice(guild, _hunt(), p1),
+                                 voice.create_puzzle_voice(guild, _hunt(), p2))
+    assert guild.create_voice_channel.await_count == 1
+    assert sorted(created for _ch, created in r) == [False, True]
+    assert p1.voice_channel_id == 22 and p2.voice_channel_id == 22

@@ -25,6 +25,8 @@ def _clean_closing():
 @pytest.fixture
 def stores():
     with patch("bot.core.voice.HuntJsonDb") as h, patch("bot.core.voice.PuzzleJsonDb") as p:
+        h.voice_channel_id.return_value = None  # nothing stored beyond the objects
+        p.voice_channel_id.return_value = None
         yield h, p
 
 
@@ -87,7 +89,7 @@ async def test_close_deletes_even_if_a_move_fails():
     ch.delete.assert_awaited_once()
 
 
-async def test_close_without_a_hunt_voice_channel_still_warns_and_deletes():
+async def test_close_without_a_hunt_voice_channel_still_warns_and_deletes(stores):
     a = _member()
     ch = _vc(21, members=[a])
     guild = _guild([ch])  # hunt has no voice id and no main category -> ensure returns None

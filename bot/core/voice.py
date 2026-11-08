@@ -50,13 +50,22 @@ async def ensure_hunt_voice(guild, hunt) -> discord.VoiceChannel | None:
         return await _ensure_hunt_voice_locked(guild, hunt)
 
 
+def _live(guild, channel_id):
+    return guild.get_channel(channel_id) if channel_id else None
+
+
 async def _ensure_hunt_voice_locked(guild, hunt) -> discord.VoiceChannel | None:
     """The hunt's voice channel, created in its main category if missing.
     None (logged) when the main category is missing or full."""
-    if hunt.voice_channel_id:
-        existing = guild.get_channel(hunt.voice_channel_id)
-        if existing is not None:
-            return existing
+    existing = _live(guild, hunt.voice_channel_id)
+    if existing is not None:
+        return existing
+    # *hunt* may be a stale object loaded before another caller made the
+    # channel: re-read the stored id (under the lock) before creating one.
+    hunt.voice_channel_id = await asyncio.to_thread(HuntJsonDb.voice_channel_id, hunt.id) or 0
+    existing = _live(guild, hunt.voice_channel_id)
+    if existing is not None:
+        return existing
     category = guild.get_channel(hunt.category_id)
     if category is None or not _has_room(category):
         logger.warning("No room for a voice channel for hunt %s (category %s missing or full)",
@@ -99,10 +108,14 @@ async def create_puzzle_voice(guild, hunt, puzzle) -> tuple[discord.VoiceChannel
     if puzzle.solved:
         raise VoiceError("solved")
     async with _hunt_lock(hunt):
-        if puzzle.voice_channel_id:
-            existing = guild.get_channel(puzzle.voice_channel_id)
-            if existing is not None:
-                return existing, False
+        existing = _live(guild, puzzle.voice_channel_id)
+        if existing is None:
+            # Stale-object guard, as in _ensure_hunt_voice_locked.
+            puzzle.voice_channel_id = await asyncio.to_thread(
+                PuzzleJsonDb.voice_channel_id, puzzle.id) or 0
+            existing = _live(guild, puzzle.voice_channel_id)
+        if existing is not None:
+            return existing, False
         await _ensure_hunt_voice_locked(guild, hunt)
         category = await _ensure_voice_category_locked(guild, hunt)
         channel = await guild.create_voice_channel(puzzle.name[:100], category=category)
