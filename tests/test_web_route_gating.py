@@ -36,6 +36,7 @@ EXPECTED = {
     ("POST", "/hunts/<uid>/role"): "admin",
     ("POST", "/hunts/<uid>/solved-sheet"): "admin",
     ("PATCH", "/hunts/<uid>/sheet-mode"): "admin",
+    ("POST", "/hunts/<uid>/voice-cleanup"): "admin",
     ("GET", "/guilds/<int:guild_id>/settings"): "admin",
     ("PATCH", "/guilds/<int:guild_id>/settings"): "admin",
     ("GET", "/guilds/<int:guild_id>/team-hunts"): "admin",
@@ -92,6 +93,7 @@ UNGATED_BY_DECISION = [
     ("POST", "/puzzles/<int:puzzle_id>/minis"),     # Create area
     ("POST", "/puzzles/<int:puzzle_id>/sheets"),    # Create area; only removal is gated
     ("POST", "/puzzles/<int:puzzle_id>/solve"),
+    ("POST", "/puzzles/<int:puzzle_id>/voice"),     # any hunt member, like !voice
     ("POST", "/puzzles/<int:puzzle_id>/unsolve"),
     # Team-server setup: gated by _team_setup_ctx (server owner OR Admin tier
     # there), a custom gate this census cannot resolve to a tier. A fresh clone's

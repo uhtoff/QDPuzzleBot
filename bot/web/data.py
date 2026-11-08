@@ -15,6 +15,8 @@ from types import SimpleNamespace
 from mysql.connector import pooling
 from mysql.connector.errors import PoolError
 
+from bot.core import voice_presence
+from bot.core.voice import voice_url
 from bot.core.activity_sparkline import squash
 from bot.core.sheet_location import (
     additional_sheet_location, hunt_sheet_location, puzzle_location, spreadsheet_for)
@@ -147,7 +149,8 @@ async def get_hunt_by_uid(uid):
     return await fetch_one(
         "SELECT id, uid, name, url, guild_id, role_id, roster_role_id, archived, "
         "google_sheet_id, solved_sheet_id, sheet_mode, drive_folder_id, start_time, solve_time, "
-        "start_timestamp, username, password, url_sep, puzzle_prefix "
+        "start_timestamp, username, password, url_sep, puzzle_prefix, "
+        "voice_channel_id, voice_per_puzzle "
         "FROM hunts WHERE uid = %s",
         (uid,),
     )
@@ -287,6 +290,17 @@ async def get_hunt_by_channel_id(channel_id):
     )
 
 
+def voice_fields(guild_snowflake, voice_channel_id):
+    """The voice_channel_id / voice_url / voice_count trio shared by hunt and puzzle."""
+    if not voice_channel_id:
+        return {"voice_channel_id": None, "voice_url": None, "voice_count": 0}
+    return {
+        "voice_channel_id": str(voice_channel_id),
+        "voice_url": voice_url(guild_snowflake, voice_channel_id) if guild_snowflake else None,
+        "voice_count": voice_presence.count(int(voice_channel_id)),
+    }
+
+
 def hunt_to_json(hunt, guilds_map):
     guild = guilds_map.get(hunt["guild_id"], {})
     return {
@@ -376,7 +390,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
         "EXISTS(SELECT 1 FROM tag_group mt WHERE mt.target_puzzle_id = puzzles.id) AS is_target, "
         "puzzles.status, puzzles.solved, puzzles.on_solved_sheet, puzzles.solution, "
         "puzzles.priority, puzzles.puzzle_type, puzzles.notes, "
-        "puzzles.start_time, puzzles.solve_time, "
+        "puzzles.start_time, puzzles.solve_time, puzzles.voice_channel_id, "
         "tag_group.id AS tag_group_id, tag_group.name AS tag_group_name, "
         "tag_group.target_puzzle_id AS tag_group_target_puzzle_id, tag_group.group_code AS tag_group_group_code, "
         "tag_group.type AS tag_group_type, tags.edge_type AS tag_edge_type, "
@@ -432,6 +446,7 @@ async def get_hunt_puzzles(hunt, guild_snowflake):
                     if row["last_human_message_at"] else None
                 ),
                 "parent_puzzle_id": row.get("parent_puzzle_id"),
+                **voice_fields(guild_snowflake, row.get("voice_channel_id")),
                 "mini_puzzles": [],
                 "rounds": [],
                 "sheets": [],
