@@ -20,7 +20,10 @@ archive/delete-hunt paths, which already remove voice channels.
 
 1. **Hunt voice channel.** Every hunt created from now on gets one voice channel in its main
    category (named after the hunt, e.g. "<hunt name> voice" — builder picks exact wording).
-   Existing hunts are not back-filled.
+   A hunt that has none (hunts created before this feature) gets it created on first need:
+   `!voice`, a puzzle auto-creating its voice channel, or any clean-up that would move people
+   (user, 2026-11-08). So every clean-up can always move people rather than disconnect them.
+   No bulk back-fill of all existing hunts.
 2. **`!voice` (alias `!vc`)**, run in a puzzle's text channel by any hunt member, creates that
    puzzle's voice channel, named after the puzzle, and replies with a link to it. If the puzzle
    already has one, it just replies with the link. Refused (with a reason) outside a puzzle
@@ -46,9 +49,8 @@ archive/delete-hunt paths, which already remove voice channels.
    anyone is in it at 15 s before deletion, an `@here` warning is posted in the voice
    channel's own text chat ("this channel closes in 15 seconds — <puzzle> was solved; you'll
    be moved to <hunt voice channel>"). At deletion, anyone still in it is first moved into the
-   hunt's voice channel (user, 2026-11-08), then the channel is deleted. If the hunt has no
-   voice channel (hunts created before this feature) or a move fails, those people are simply
-   disconnected by the deletion. Moving needs the bot to have Move Members on the hunt's
+   hunt's voice channel (user, 2026-11-08; created first if missing — see goal 1), then the
+   channel is deleted. If a move fails, that person is disconnected by the deletion. Moving needs the bot to have Move Members on the hunt's
    channels — check it at hunt/voice creation and say so in the reply if missing. Unsolving
    within the 15 minutes cancels it (the channel stays).
 7. **Dashboard presence.** The board shows, per puzzle, how many people are in its voice
@@ -67,8 +69,8 @@ the channel or joins it directly.
 ## Non-goals (this version)
 
 - Voice in the Chrome extension (presence/join in the side panel) — later.
-- Back-filling hunt voice channels for existing hunts, or puzzle voice channels when the
-  setting is switched on.
+- Bulk back-filling hunt voice channels for every existing hunt (they are created on first
+  need instead), or puzzle voice channels when the setting is switched on.
 - Recording, transcription, moving people between channels, stage channels.
 - Per-user voice presence (names) on the dashboard — counts only (designer's guess; names
   would be easy to add later).
