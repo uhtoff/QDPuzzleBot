@@ -49,6 +49,10 @@ logger = logging.getLogger(__name__)
 _board_push_depth = contextvars.ContextVar("_board_push_depth", default=0)
 
 
+# Channel slots below the guild limit that automatic per-puzzle voice leaves free.
+AUTO_VOICE_HEADROOM = 25
+
+
 def pushes_board(hunt: "str | Callable[[dict[str, Any]], Any]" = "hunt", when=None):
     """Decorator: emit a single ``notifier.board_changed`` after a PuzzleService
     mutation, instead of every method calling the notifier by hand.
@@ -3332,8 +3336,15 @@ class PuzzleService:
             raise
 
         # Per-puzzle voice channel (best-effort; metas included). The flag reads
-        # back from the DB as int 0/1, so test truthiness.
-        if hunt.voice_per_puzzle and not new_puzzle.solved:
+        # back from the DB as int 0/1, so test truthiness. Automatic voice never
+        # takes the guild's last AUTO_VOICE_HEADROOM channel slots: those stay
+        # for puzzle/round channels (an explicit !voice is not limited).
+        if hunt.voice_per_puzzle and not new_puzzle.solved \
+                and len(guild.channels) >= MAX_CHANNELS_PER_GUILD - AUTO_VOICE_HEADROOM:
+            logger.warning("create_puzzle: guild %s is near its channel limit (%s); "
+                           "no automatic voice channel for puzzle %s",
+                           getattr(guild, "id", "?"), len(guild.channels), new_puzzle.id)
+        elif hunt.voice_per_puzzle and not new_puzzle.solved:
             try:
                 await voice.create_puzzle_voice(guild, hunt, new_puzzle)
             except Exception:

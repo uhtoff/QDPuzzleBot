@@ -91,12 +91,12 @@ def _puzzle_hunt(per_puzzle):
     return h
 
 
-async def _create_puzzle(per_puzzle, voice, is_meta=False):
+async def _create_puzzle(per_puzzle, voice, is_meta=False, n_channels=0):
     bot = MagicMock()
     bot.get_cog.return_value = None
     svc = PuzzleService(bot)
     guild = MagicMock()
-    guild.channels = []
+    guild.channels = [object()] * n_channels
     guild.categories = [MagicMock(id=999)]
     text = MagicMock(id=555, mention="#p", spec_set=None)
     text.edit = AsyncMock()
@@ -134,6 +134,25 @@ async def test_create_puzzle_without_flag_skips_voice():
     voice = _voice_mock()
     await _create_puzzle(0, voice)
     voice.create_puzzle_voice.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_skips_auto_voice_near_the_guild_channel_limit(caplog):
+    from bot.core.discord_channels import MAX_CHANNELS_PER_GUILD
+    voice = _voice_mock()
+    with caplog.at_level("WARNING", logger="bot.core.puzzle_service"):
+        puzzle, _g, _h = await _create_puzzle(1, voice, n_channels=MAX_CHANNELS_PER_GUILD - 25)
+    assert puzzle.id == 1
+    voice.create_puzzle_voice.assert_not_awaited()
+    assert any("voice" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_auto_voice_just_below_the_headroom():
+    from bot.core.discord_channels import MAX_CHANNELS_PER_GUILD
+    voice = _voice_mock()
+    await _create_puzzle(1, voice, n_channels=MAX_CHANNELS_PER_GUILD - 26)
+    voice.create_puzzle_voice.assert_awaited_once()
 
 
 @pytest.mark.asyncio
