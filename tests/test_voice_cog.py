@@ -300,3 +300,43 @@ async def test_sweep_swallows_errors():
     with patch("bot.cogs.voice.voice.sweep_solved",
                new=AsyncMock(side_effect=RuntimeError)):
         await cog.sweep.coro(cog)  # must not raise
+
+
+def _pushing_cog():
+    """A Voice cog whose bot has a Puzzles cog with an awaitable board notifier."""
+    bot = MagicMock()
+    puzzles = MagicMock()
+    puzzles.service.notifier.board_changed = AsyncMock()
+    bot.get_cog.side_effect = lambda name: puzzles if name == "Puzzles" else None
+    return Voice(bot), puzzles.service.notifier.board_changed
+
+
+@pytest.mark.parametrize("created", [True, False])
+async def test_voice_pushes_the_board_only_when_it_created_a_channel(stores, created):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle("Cat")
+    hunt = _hunt()
+    H.get_by_attr.return_value = hunt
+    cog, board_changed = _pushing_cog()
+    with patch("bot.cogs.voice.voice.create_puzzle_voice",
+               new=AsyncMock(return_value=(MagicMock(mention="<#9>"), created))):
+        await Voice.voice.callback(cog, make_ctx())
+    if created:
+        board_changed.assert_awaited_once_with(hunt)
+    else:
+        board_changed.assert_not_awaited()
+
+
+@pytest.mark.parametrize("names", [["Cat"], []])
+async def test_voice_cleanup_pushes_the_board_when_it_removed_something(stores, names):
+    P, H, _ = stores
+    P.get_by_attr.return_value = _puzzle()
+    hunt = _hunt()
+    H.get_by_attr.return_value = hunt
+    cog, board_changed = _pushing_cog()
+    with patch("bot.cogs.voice.voice.cleanup_hunt", new=AsyncMock(return_value=names)):
+        await Voice.voice_cleanup.callback(cog, make_ctx())
+    if names:
+        board_changed.assert_awaited_once_with(hunt)
+    else:
+        board_changed.assert_not_awaited()

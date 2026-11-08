@@ -280,12 +280,24 @@ def _guild_for_hunt(bot, hunt):
     return None
 
 
+async def notify_board(bot, hunt) -> None:
+    """Best-effort dashboard board push for *hunt*, through the Puzzles
+    service's notifier (the same sink every service mutation uses)."""
+    try:
+        cog = bot.get_cog("Puzzles")
+        if cog is not None:
+            await cog.service.notifier.board_changed(hunt)
+    except Exception:
+        logger.exception("Voice board push failed for hunt %s", getattr(hunt, "id", "?"))
+
+
 async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
     """Close the voice channel of every puzzle solved at least SOLVED_GRACE ago."""
     if now is None:
         now = datetime.datetime.now(datetime.timezone.utc)
     now = now.replace(tzinfo=None)  # solve_time is stored as naive UTC
     hunts: dict = {}
+    changed: dict = {}  # hunt id -> hunt, for hunts that lost a channel
 
     async def _close(guild, hunt, puzzle):
         async def still_solved() -> bool:
@@ -293,8 +305,9 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
             return await asyncio.to_thread(PuzzleJsonDb.is_solved, puzzle.id)
 
         try:
-            await close_puzzle_voice(guild, hunt, puzzle, f"**{puzzle.name}** was solved",
-                                     sleep=sleep, still_wanted=still_solved)
+            if await close_puzzle_voice(guild, hunt, puzzle, f"**{puzzle.name}** was solved",
+                                        sleep=sleep, still_wanted=still_solved):
+                changed[hunt.id] = hunt
         except Exception:
             logger.exception("Voice sweep failed for puzzle %s", puzzle.id)
 
@@ -311,6 +324,8 @@ async def sweep_solved(bot, *, now=None, sleep=asyncio.sleep) -> None:
         except Exception:
             logger.exception("Voice sweep could not resolve puzzle %s", puzzle.id)
     await asyncio.gather(*jobs)
+    for hunt in changed.values():
+        await notify_board(bot, hunt)
 
 
 async def delete_puzzle_voice_now(guild, puzzle) -> None:

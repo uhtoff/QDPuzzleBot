@@ -308,3 +308,50 @@ async def test_sweep_keeps_the_channel_of_a_puzzle_unsolved_during_the_warning(s
     ch.delete.assert_not_awaited()
     p.set_voice_channel.assert_not_called()
     assert puzzle.voice_channel_id == 21
+
+
+def _bot_with_board(guilds):
+    bot = MagicMock()
+    bot.guilds = guilds
+    puzzles = MagicMock()
+    puzzles.service.notifier.board_changed = AsyncMock()
+    bot.get_cog.side_effect = lambda name: puzzles if name == "Puzzles" else None
+    return bot, puzzles.service.notifier.board_changed
+
+
+async def test_sweep_pushes_the_board_once_per_hunt_that_lost_a_channel(stores):
+    h, p = stores
+    c1, c2 = _vc(21), _vc(22)
+    guild = _guild([c1, c2])
+    hunt = _hunt(guild_id=5)
+    h.get_by_attr.return_value = hunt
+    p.voice_due.return_value = [_puzzle(id=7, voice_channel_id=21, hunt_id=1),
+                                _puzzle(id=8, voice_channel_id=22, hunt_id=1)]
+    bot, board_changed = _bot_with_board([guild])
+    with patch("bot.core.voice.GuildSettingsDb") as g:
+        g.get_cached.return_value = SimpleNamespace(id=5)
+        await voice.sweep_solved(bot, sleep=AsyncMock())
+    board_changed.assert_awaited_once_with(hunt)
+
+
+async def test_sweep_does_not_push_when_nothing_closed(stores):
+    h, p = stores
+    hunt_vc = _vc(12)
+    ch = _vc(21, members=[_member()])
+    guild = _guild([hunt_vc, ch])
+    h.get_by_attr.return_value = _hunt(voice_channel_id=12, guild_id=5)
+    p.voice_due.return_value = [_puzzle(voice_channel_id=21, hunt_id=1)]
+    p.is_solved.return_value = False
+    bot, board_changed = _bot_with_board([guild])
+    with patch("bot.core.voice.GuildSettingsDb") as g:
+        g.get_cached.return_value = SimpleNamespace(id=5)
+        await voice.sweep_solved(bot, sleep=AsyncMock())
+    board_changed.assert_not_awaited()
+
+
+async def test_notify_board_never_raises():
+    bot = MagicMock()
+    bot.get_cog.return_value.service.notifier.board_changed = AsyncMock(side_effect=RuntimeError)
+    await voice.notify_board(bot, _hunt())
+    bot.get_cog.return_value = None
+    await voice.notify_board(bot, _hunt())
