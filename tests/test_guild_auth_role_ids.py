@@ -25,7 +25,6 @@ def _row(**overrides):
         "discord_bot_emoji": "",
         "discord_use_voice_channels": False,
         "drive_parent_id": "",
-        "drive_resources_id": "",
         "admin_role_ids": None,
         "organiser_role_ids": None,
     }

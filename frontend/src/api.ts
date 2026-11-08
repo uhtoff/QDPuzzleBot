@@ -63,6 +63,14 @@ async function apiUpload<T>(path: string, form: FormData): Promise<T> {
 
 export function friendlyError(d: { error?: string; retry_after?: number; detail?: string; message?: string }, status: number): string {
   switch (d.error) {
+    case "archived":
+      return "This hunt is archived (read-only).";
+    case "solved":
+      return "This puzzle is solved — no new voice channel.";
+    case "mini":
+      return "Minis share their minimeta's voice channel.";
+    case "no_hunt_category":
+      return "Can't find the hunt's category to copy permissions from.";
     case "csrf":
       return "Your session expired — please refresh the page.";
     case "discord_rate_limited": {
@@ -132,8 +140,6 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return "This hunt is already being archived.";
     case "use_hub_archive":
       return "This is a team hunt — archive it to the hub instead.";
-    case "forum_not_supported":
-      return "Forum-layout hunts can't be archived to a hub.";
     case "hub_role_missing":
       return "The hub role for this hunt no longer exists.";
     case "not_a_member":
@@ -766,6 +772,33 @@ export interface HuntSettingsPatch {
   password?: string;
   url_sep?: string;
   puzzle_prefix?: string;
+  voice_per_puzzle?: boolean;
+}
+
+export function useCreatePuzzleVoice(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (puzzleId: number) =>
+      apiSend<{
+        ok: boolean;
+        voice_channel_id: string;
+        voice_url: string;
+        created: boolean;
+        move_members: boolean;
+      }>(
+        `/api/puzzles/${puzzleId}/voice`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useVoiceCleanup(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiSend<{ ok: boolean; removed: string[] }>(`/api/hunts/${uid}/voice-cleanup`, "POST"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
 }
 
 export function useUpdateHuntSettings(uid: string) {
@@ -932,8 +965,8 @@ export interface CreateHuntPayload {
   username?: string;
   password?: string;
   create_solved_sheet?: boolean;
-  layout_mode?: "channel" | "forum";
   sheet_mode?: "tabs" | "files";
+  voice_per_puzzle?: boolean;
   // Set on the second attempt after the backend asks to confirm reusing an
   // existing role (needs_confirm: "existing_role").
   confirm_existing_role?: boolean;
@@ -947,6 +980,8 @@ export interface CreateHuntPayload {
 export interface CreateHuntResult {
   uid?: string;
   warning?: string;
+  // Set when the guild gates the Organiser tier: who can create rounds/metas.
+  organiser_reminder?: string;
   needs_confirm?: string;
   message?: string;
 }

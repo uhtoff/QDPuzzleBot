@@ -13,6 +13,13 @@ from bot.core.multi_team import MultiTeamRefused
 from tests.conftest import make_cog, make_ctx, make_web_app, start_patches, stop_patches
 from tests.test_multi_team_core import HUB_ID, MT_ID, FakeMtDb, _hub, _member, _role
 
+
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
 NS_ID, FIN_ID = 801, 802
 CREATED = datetime.datetime(2027, 1, 15)
 

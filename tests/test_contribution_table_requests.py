@@ -2,7 +2,7 @@
 
 Tasks 6-11 of docs/superpowers/plans/2026-06-25-milestone-d-sheet-generation.md.
 No live Google: patch the cog's batch/low-level seams and assert the batchUpdate
-request bodies. Mirrors tests/test_aggregate_to_tab.py (asyncio.run +
+request bodies. Mirrors tests/test_gsheet_metadata.py (asyncio.run +
 GoogleSheets.__new__). Helpers are file-local. Authored test-first (Opus);
 implementation lands separately.
 """
@@ -123,6 +123,108 @@ def test_reconcile_table_appends_updates_prunes():
     # never reusing the blanked informs:9 row.
     append = next(u for u in updates if u["range"]["startRowIndex"] == 3)
     assert append["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "none:3"}}
+    # No Table on the page: nothing is deleted (only a Table bounds a safe delete).
+    assert "deleteRange" not in kinds
+
+
+def _capture_with_table(cog, values, table_range):
+    """Like _capture_lowlevel, but the page carries a named native Table and the
+    values read back are full rows (the Table's width, solver columns included)."""
+    cog.get_spreadsheet_id = lambda: "LIVE"
+
+    async def _fake_sheet_list(spreadsheet_id=None):
+        return {"sheets": [{"properties": {"sheetId": 900, "title": "Meta", "index": 0,
+                                           "gridProperties": {"rowCount": 1000}},
+                            "tables": [{"tableId": "T1", "name": "Contributions 900",
+                                        "range": {"sheetId": 900, **table_range}}]}]}
+    cog.sheet_list = _fake_sheet_list
+
+    async def fake_values_get(spreadsheet_id, a1_range):
+        return {"values": values}
+
+    sent = []
+
+    async def fake_batch(body, spreadsheet_id=None, retry_ambiguous=True):
+        body = dict(body, _retry_ambiguous=retry_ambiguous)
+        sent.append(body)
+
+    cog._values_get = fake_values_get
+    cog.batch_update = fake_batch
+    return sent
+
+
+def _header_rows(n=4):
+    return [["Puzzle Title:"], ["Flavor"], ["Progress"], [], ["key", "Source", "Type", "Content"]][:n + 1]
+
+
+def test_reconcile_rekeys_capstone_row_in_place():
+    cog = _cog()
+    values = _header_rows() + [["informs:12", "One", "Information", "", "my note"]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 6,
+                                             "startColumnIndex": 0, "endColumnIndex": 5})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:12", "One", "Feeder", "WORD"]],
+                                    table_name="Contributions 900"))
+    flat = [r for body in sent for r in body["requests"]]
+    assert not [r for r in flat if "deleteRange" in r]
+    cells = [r["updateCells"] for r in flat if "updateCells" in r]
+    assert len(cells) == 1                       # rewritten in place, nothing appended
+    assert cells[0]["range"]["startRowIndex"] == 5
+    assert cells[0]["range"]["endColumnIndex"] == 4   # the solver's note column is untouched
+    assert cells[0]["rows"][0]["values"][0] == {"userEnteredValue": {"stringValue": "feeds:12"}}
+
+
+def test_deletes_bottom_up_and_append_after_compaction():
+    cog = _cog()
+    values = _header_rows() + [[f"feeds:{i}", f"P{i}", "Feeder", "", "", f"note{i}"]
+                               for i in range(1, 5)]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 9,
+                                             "startColumnIndex": 0, "endColumnIndex": 6})
+    desired = [["feeds:2", "P2", "Feeder", ""], ["feeds:4", "P4", "Feeder", ""],
+               ["feeds:9", "P9", "Feeder", ""]]
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4, desired_rows=desired,
+                                    table_name="Contributions 900", grey_below=True))
+    flat = [r for body in sent for r in body["requests"]]
+    kinds = [next(iter(r)) for r in flat]
+    deletes = [r["deleteRange"] for r in flat if "deleteRange" in r]
+    assert [d["range"]["startRowIndex"] for d in deletes] == [7, 5]       # bottom-up
+    # Full Table width — the solver columns (E, F) go with their row.
+    assert all(d["range"]["startColumnIndex"] == 0 and d["range"]["endColumnIndex"] == 6
+               and d["shiftDimension"] == "ROWS" for d in deletes)
+    append_idx = next(i for i, r in enumerate(flat)
+                      if "updateCells" in r and r["updateCells"]["range"]["startRowIndex"] == 7)
+    assert max(i for i, k in enumerate(kinds) if k == "deleteRange") < append_idx
+    assert flat[append_idx]["updateCells"]["rows"][0]["values"][0] == {
+        "userEnteredValue": {"stringValue": "feeds:9"}}
+    table = next(r["updateTable"]["table"] for r in flat if "updateTable" in r)
+    assert table["range"]["endRowIndex"] == 8 and table["range"]["endColumnIndex"] == 6
+    assert "deleteDimension" not in kinds
+    # A batch that deletes by row index must not be replayed on an ambiguous
+    # failure (a lost response after Google applied it).
+    assert sent[-1]["_retry_ambiguous"] is False
+
+
+def test_rekey_only_batch_keeps_normal_retries():
+    cog = _cog()
+    values = _header_rows() + [["informs:12", "One", "Information", ""]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 6,
+                                             "startColumnIndex": 0, "endColumnIndex": 4})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:12", "One", "Feeder", "W"]],
+                                    table_name="Contributions 900"))
+    assert sent[-1]["_retry_ambiguous"] is True
+
+
+def test_stranded_note_row_survives_reconcile():
+    cog = _cog()
+    values = _header_rows() + [["", "", "", "", "", "kept note"], ["feeds:2", "P2", "Feeder", ""]]
+    sent = _capture_with_table(cog, values, {"startRowIndex": 4, "endRowIndex": 7,
+                                             "startColumnIndex": 0, "endColumnIndex": 6})
+    asyncio.run(cog.reconcile_table(page_id=900, data_col_count=4,
+                                    desired_rows=[["feeds:2", "P2", "Feeder", ""]],
+                                    table_name="Contributions 900"))
+    flat = [r for body in sent for r in body["requests"]]
+    assert not [r for r in flat if "deleteRange" in r]
 
 
 LINK_FIELDS = "userEnteredValue,textFormatRuns"

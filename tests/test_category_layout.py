@@ -535,97 +535,6 @@ async def test_move_channel_to_unsolved_appends_after_existing_channels():
 
 
 @pytest.mark.asyncio
-async def test_cleanup_deletes_empty_overflow_and_row():
-    overflow = _cat(201, 7, n_channels=0)
-    overflow.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [overflow]
-    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
-    dao = MagicMock(); dao.get_by_category.return_value = row
-    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
-
-    await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
-    overflow.delete.assert_awaited_once()
-    dao.delete.assert_called_once_with(9)
-
-
-@pytest.mark.asyncio
-async def test_cleanup_keeps_primary_seq0():
-    primary = _cat(100, 5, n_channels=0)
-    primary.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [primary]
-    row = TagGroupCategoryData(id=1, group_id=5, category_id=100, role="unsolved", seq=0)
-    dao = MagicMock(); dao.get_by_category.return_value = row
-    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
-
-    await layout.cleanup_empty_overflow(guild, tag_group, dao, primary)
-    primary.delete.assert_not_awaited()
-    dao.delete.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_keeps_nonempty_overflow():
-    overflow = _cat(201, 7, n_channels=3)
-    overflow.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [overflow]
-    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
-    dao = MagicMock(); dao.get_by_category.return_value = row
-    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
-
-    await layout.cleanup_empty_overflow(guild, tag_group, dao, overflow)
-    overflow.delete.assert_not_awaited()
-    dao.delete.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_rechecks_emptiness_under_the_lock():
-    """A concurrent move can legally land a channel in an 'empty' overflow
-    category between cleanup's emptiness check and its lock acquisition
-    (_pick_or_allocate returns any row with room). Deleting then would drop
-    that channel to the guild root — the emptiness check must be re-run
-    inside layout_lock."""
-    overflow = _cat(201, 7, n_channels=0)
-    overflow.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [overflow]
-    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
-    dao = MagicMock(); dao.get_by_category.return_value = row
-    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
-
-    async with layout.layout_lock:
-        task = asyncio.ensure_future(
-            layout.cleanup_empty_overflow(guild, tag_group, dao, overflow))
-        await asyncio.sleep(0)          # run cleanup up to the lock
-        late = MagicMock(); late.name = "late-arrival"
-        overflow.channels.append(late)  # concurrent move lands a channel
-    await task
-
-    overflow.delete.assert_not_awaited()
-    dao.delete.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_rechecks_row_under_the_lock():
-    """Symmetric TOCTOU on the row: a concurrent cleanup can delete the join
-    row while this one waits for the lock — the row must be re-fetched inside
-    layout_lock, and a vanished row means nothing to do."""
-    overflow = _cat(201, 7, n_channels=0)
-    overflow.delete = AsyncMock()
-    guild = MagicMock(); guild.categories = [overflow]
-    row = TagGroupCategoryData(id=9, group_id=5, category_id=201, role="solved", seq=1)
-    dao = MagicMock()
-    dao.get_by_category.side_effect = [row, None]   # pre-lock hit, under-lock miss
-    tag_group = MagicMock(id=5, category_id=100, name="Round 1")
-
-    async with layout.layout_lock:
-        task = asyncio.ensure_future(
-            layout.cleanup_empty_overflow(guild, tag_group, dao, overflow))
-        await asyncio.sleep(0)
-    await task
-
-    overflow.delete.assert_not_awaited()
-    dao.delete.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_allocate_rechecks_category_ceiling_under_the_lock():
     """Two concurrent allocations at 49 guild categories must not both pass the
     MAX_CATEGORIES gate: the check has to run inside layout_lock so the loser
@@ -747,8 +656,7 @@ async def test_consolidate_respects_margin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_consolidate_always_reclaims_empty_overflow(monkeypatch):
-    """An EMPTY seq>=1 category is reclaimed unconditionally — no margin gate —
-    matching cleanup_empty_overflow's shipped semantics."""
+    """An EMPTY seq>=1 category is reclaimed unconditionally — no margin gate."""
     monkeypatch.setattr(layout, "CATEGORY_SOFT_LIMIT", 8)
     u0 = _filled_cat(100, 5, n=7)          # nearly full: free(1) < margin
     u1 = _filled_cat(101, 6, n=0)          # empty overflow
@@ -1129,11 +1037,11 @@ def test_primary_category_resolves_category_home():
 
 
 def test_primary_category_none_for_non_category_home():
-    """Forum/group/in-place homes store a non-category channel id, which is not
+    """Group/in-place homes store a non-category channel id, which is not
     among guild.categories -> None (the caller then skips category placement)."""
     cat = MagicMock(id=999)
     guild = MagicMock(categories=[cat])
-    tag_group = MagicMock(category_id=12345)  # a forum/text/puzzle channel id
+    tag_group = MagicMock(category_id=12345)  # a text/puzzle channel id
     assert layout.primary_category(guild, tag_group) is None
 
 

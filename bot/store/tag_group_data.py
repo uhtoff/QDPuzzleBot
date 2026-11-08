@@ -15,9 +15,6 @@ EDGE_NONE = "none"
 # distinguishable from genuine 'none'-edge members without an id comparison.
 EDGE_TARGET = "target"
 
-class MissingTagGroupError(RuntimeError):
-    pass
-
 @dataclass_json
 @dataclass
 class TagGroupData:
@@ -26,10 +23,8 @@ class TagGroupData:
     hunt_id: int = 0
     # The group's "home container" id in Discord — but WHICH kind of object it
     # points at depends on how the group was created:
-    #   * normal round / meta (channel layout) -> a Discord CATEGORY id
-    #   * forum-layout puzzle                  -> a FORUM CHANNEL id
-    #   * metaless Group (channel layout)      -> its cloned Discord CATEGORY id
-    #   * metaless Group (forum layout)        -> its text channel id
+    #   * normal round / meta                  -> a Discord CATEGORY id
+    #   * metaless Group                       -> its cloned Discord CATEGORY id
     #   * in-place-converted puzzle            -> the puzzle's own TEXT CHANNEL id
     # So this is a "group home", not always a category. To resolve it as a Discord
     # category (for channel placement/moves), use
@@ -72,10 +67,6 @@ class TagGroupData:
         # The double asterisk passes the dict as a series of keyword arguments
         return cls(**values)
 
-    @classmethod
-    def sort_by_tag_group_start(cls, tag_groups: list) -> list:
-        """Return list of TagGroupData objects sorted by start time."""
-        return sorted(tag_groups, key=lambda p: p.start_time)
 
 @dataclass
 class GroupMatch:

@@ -213,3 +213,23 @@ def test_files_puzzle_links_keep_the_puzzles_file_and_add_the_reference_sheet():
     assert value.count("•") == 4
     for ln in (ln for ln in value.splitlines() if ln):
         assert ln == ln.lstrip()
+
+
+
+def test_puzzle_links_field_includes_the_voice_channel_link():
+    """A puzzle with a voice channel gets a clickable <#id> line in its pin,
+    flush left like the rest; the plain fake (no int id) gets none (above)."""
+    from bot.cogs.puzzles import Puzzles
+
+    cog = object.__new__(Puzzles)
+    cog.get_puzzle_sheet = MagicMock(return_value="sheet-id")
+    cog._overview_url = MagicMock(return_value="https://example.com/overview")
+    hunt = MagicMock(); hunt.google_sheet_id = "hunt-sheet"; hunt.sheet_mode = "tabs"
+    puzzle = _fake_puzzle(); puzzle.voice_channel_id = 987
+    embed = discord.Embed()
+    with patch("bot.cogs.puzzles.urls.spreadsheet_url", return_value="https://sheet"), \
+         patch("bot.cogs.puzzles.urls.normalize_external_url", return_value="https://puz"):
+        cog._add_puzzle_links_field(None, embed, puzzle, hunt, None)
+    lines = [ln for ln in (embed.fields[0].value or "").splitlines() if ln]
+    assert "• Voice: <#987>" in lines
+    assert lines[-1].startswith("• [Overview Website]")

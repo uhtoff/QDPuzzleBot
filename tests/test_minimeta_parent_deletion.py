@@ -104,7 +104,7 @@ def _round_guild(round_cat_id=100):
 @pytest.mark.asyncio
 async def test_a_full_round_delete_sweeps_the_minis_of_deleted_members():
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=1)
     target = make_puzzle(id=1, is_target=True, channel_id=None, tags=[5])
     member = make_puzzle(id=2, channel_id=None, tags=[5])
@@ -141,7 +141,7 @@ async def test_a_narrow_round_delete_leaves_a_relocated_members_minis_alone():
     and fails this one.
     """
     svc = _svc()
-    hunt = make_hunt(category_id=500, layout_mode="channel")
+    hunt = make_hunt(category_id=500)
     tag_group = make_round(id=5, category_id=100, target_puzzle_id=1)
     target = make_puzzle(id=1, is_target=True, channel_id=None, tags=[5])
     member = make_puzzle(id=2, channel_id=None, tags=[5])

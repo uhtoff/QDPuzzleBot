@@ -3,7 +3,7 @@ sheet write the same way they already isolate meta-refresh failures (#28).
 
 Previously an uncaught HttpError from move_puzzle_to_solved_sheet (solve) or
 update_solution (change_solution/add_solution) propagated past the second
-commit, the forum-tag update, and @pushes_board's board_changed push — even
+commit and @pushes_board's board_changed push — even
 though the DB mutation (solved/solution/solve_time) was already committed.
 The dashboard then never saw the update, and the bang caller told the user
 the change "may not have been saved" despite the DB saying otherwise.
@@ -128,7 +128,6 @@ def test_unsolve_reports_a_failed_meta_refresh_instead_of_swallowing_it(SheetsDb
     svc = _svc_with_gsheet(gsheet_cog)
     svc.notifier = MagicMock(board_changed=AsyncMock())
     svc.refresh_target = AsyncMock(side_effect=RuntimeError("Sheets 500"))
-    svc._update_forum_tags = AsyncMock()
 
     with pytest.raises(SheetRefreshError) as exc:
         asyncio.run(svc.unsolve(None, hunt, puzzle))

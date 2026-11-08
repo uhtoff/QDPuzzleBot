@@ -102,6 +102,33 @@ def is_admin():
     return commands.check(predicate)
 
 
+# Fields the generic commit never writes (the stores' SPECIAL_ATTR), keyed by the
+# object !update_settings resolved. Each needs its own command; this says which.
+# test_update_settings_voice checks every SPECIAL_ATTR entry is listed here.
+_UNSTORED_SETTING_KEYS = {
+    PuzzleData: {
+        "is_target": "It's worked out from the puzzle's groups — use `!convert_to_meta` "
+                     "(or the other `!convert_to_*` commands).",
+        "is_minimeta": "It's worked out from the puzzle's minis — use `!make_minimeta`.",
+        "tags": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
+        "tag_edges": "Use `!feeds` / `!informs` / `!groups_with` / `!remove_from`.",
+        "additional_sheets": "Use `!add_sheet` / `!remove_sheet`.",
+        "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
+                            "`!voice_cleanup`.",
+    },
+    HuntData: {
+        "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
+                            "`!voice_cleanup`.",
+    },
+}
+
+
+def _voice_id(row) -> int:
+    """The row's stored voice channel id, or 0 (NULL, unset, or a non-int)."""
+    vid = getattr(row, "voice_channel_id", None)
+    return vid if isinstance(vid, int) and not isinstance(vid, bool) else 0
+
+
 def is_organiser():
     """Like is_admin() for the wider Organiser tier, except the check passes
     unconditionally when the guild has nothing standing for that tier — see
@@ -318,8 +345,8 @@ class Puzzles(commands.Cog):
             if puzzle:
                 channel_type = 'Puzzle'
                 hunt = HuntJsonDb.get_by_attr(id=puzzle.hunt_id)
-                # A forum thread can be a group's target (meta/round/capstone): upgrade
-                # the type so !info treats it as a meta, mirroring the category path below.
+                # Upgrade the type when the thread's puzzle is a group's target so !info
+                # treats it as a meta, mirroring the category path below.
                 target_group = TagGroupJsonDb.get_by_attr(target_puzzle_id=puzzle.id)
                 if target_group:
                     channel_type = target_group.type
@@ -344,10 +371,8 @@ class Puzzles(commands.Cog):
             if channel_type == 'Hunt':
                 hunt = HuntJsonDb.get_by_attr(channel_id=ctx.channel.id,)
             if channel_type == 'Group':
-                # Forum-mode Group: the text channel's OWN id is the group's category_id.
-                # Channel-mode Group: fallback to category lookup below.
-                tag_group = TagGroupJsonDb.get_by_attr(category_id=ctx.channel.id)
-                if tag_group is None and channel_category is not None:
+                tag_group = None
+                if channel_category is not None:
                     tag_group = TagGroupJsonDb.get_by_attr(category_id=channel_category.id,)
                 if tag_group:
                     channel_type = tag_group.type
@@ -406,7 +431,7 @@ class Puzzles(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         # Pull valid rounds/metas from DB. Resolve the owning group through the
         # shared fallback (_tag_group_for_channel handles overflow/solved categories
-        # via the join table, forum threads, and null-category contexts); return []
+        # via the join table, threads, and null-category contexts); return []
         # when the context can't be resolved so the autocomplete never raises.
         channel = interaction.channel
         tag_group = self._tag_group_for_channel(channel)
@@ -658,7 +683,7 @@ class Puzzles(commands.Cog):
         return False
 
     async def check_available_space(self, ctx, required_channels = 0, required_categories = 0):
-        # Threads are uncapped (forum mode), always have space
+        # Threads (mini-puzzles) don't count toward channel caps, always have space
         if isinstance(ctx.channel, discord.Thread):
             return True
         # No per-category check here: round and hunt-general categories now
@@ -698,28 +723,28 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, forum][, files]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, files][, voice]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
-        Add `, Team A` to gate the hunt behind a role. Append `, forum` to use a
-        forum-backed layout (a forum channel per round), and/or `, files` for one
-        Google spreadsheet per puzzle in a Drive folder (any order). Run in the bot channel.
+        Add `, Team A` to gate the hunt behind a role. Append `, files` for one
+        Google spreadsheet per puzzle in a Drive folder, and/or `, voice` to give
+        every new puzzle its own voice channel. Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
             return
 
-        # Optional trailing ", forum" / ", files" tokens (either order) select the
-        # forum-backed layout / one-spreadsheet-per-puzzle mode. Strip them first so
-        # the existing name:url[, role] parsing below is unaffected.
-        layout_mode = "channel"
+        # An optional trailing ", files" token selects one-spreadsheet-per-puzzle
+        # mode. Strip it first so the name:url[, role] parsing below is unaffected.
+        # Likewise a trailing ", voice" (either order with ", files") turns on a
+        # voice channel for every puzzle; without it the server default applies.
         sheet_mode = "tabs"
+        voice_per_puzzle = None
         arg = arg.rstrip()
         while True:
-            lowered = arg.lower()
-            if lowered.endswith(", forum"):
-                arg, layout_mode = arg[: -len(", forum")], "forum"
-            elif lowered.endswith(", files"):
-                arg, sheet_mode = arg[: -len(", files")], "files"
+            if arg.lower().endswith(", files"):
+                arg, sheet_mode = arg[: -len(", files")].rstrip(), "files"
+            elif arg.lower().endswith(", voice"):
+                arg, voice_per_puzzle = arg[: -len(", voice")].rstrip(), True
             else:
                 break
 
@@ -730,18 +755,23 @@ class Puzzles(commands.Cog):
             hunt_name, hunt_url = arg.split(":", 1)
             if HuntJsonDb.check_duplicates(hunt_name, guild_id=ctx.guild.id):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
-            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role, layout_mode=layout_mode,
-                                              sheet_mode=sheet_mode)
+            new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role,
+                                              sheet_mode=sheet_mode,
+                                              voice_per_puzzle=voice_per_puzzle)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
-            return await ctx.send(
+            await ctx.send(
                 f":white_check_mark: I've created a new hunt category and channel for {hunt_name}"
             )
+            reminder = role_gate.organiser_reminder(ctx.guild)
+            if reminder:
+                await ctx.send(reminder)
+            return
 
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          layout_mode: str = "channel", sheet_mode: str = "tabs"):
+                          sheet_mode: str = "tabs", voice_per_puzzle: Optional[bool] = None):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
             return None
@@ -756,8 +786,8 @@ class Puzzles(commands.Cog):
                     url=hunt_url,
                     start_timestamp=0,
                     role_name=role_name,
-                    layout_mode=layout_mode,
                     sheet_mode=sheet_mode,
+                    voice_per_puzzle=voice_per_puzzle,
                     guild_id=settings.id if settings else 0,
                     creator=ctx.author,
                     confirm_existing_role=confirm_existing,
@@ -1346,12 +1376,9 @@ class Puzzles(commands.Cog):
         """Resolve the tag_group owning a channel's category — primary category
         first, then the join table for solved/overflow categories."""
         if isinstance(channel, discord.Thread):
-            # Forum puzzle: parent is the forum, whose id == tag_group.category_id
-            parent = channel.parent
-            if parent is None:
-                return None
-            tg = TagGroupJsonDb.get_by_attr(category_id=parent.id)
-            return tg
+            # A mini-puzzle's thread: its parent is a text channel, not a group's
+            # category, so there is no owning group to resolve here.
+            return None
         if channel.category is None:
             return None
         tg = TagGroupJsonDb.get_by_attr(category_id=channel.category.id)
@@ -2043,9 +2070,6 @@ class Puzzles(commands.Cog):
             await ctx.send(":x: This does not appear to be a main group channel")
             return
         hunt = self.get_hunt(ctx)
-        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
-            await ctx.send(":x: !sync is not available for forum hunts yet")
-            return
         meta_category = ctx.channel.category
         target_group = TagGroupJsonDb.get_by_attr(category_id=meta_category.id)
         if not target_group:
@@ -2978,6 +3002,29 @@ class Puzzles(commands.Cog):
         else:
             await self.send_not_puzzle_channel(ctx)
             return
+        if isinstance(settings, HuntData) and setting_key == "voice_per_puzzle":
+            # Stored only by its narrow setter (the generic commit skips it), so
+            # the generic path below would report success and save nothing.
+            choice = setting_value.strip().lower()
+            if choice not in ("true", "1", "on", "false", "0", "off"):
+                await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, needs "
+                               f"on/off (or true/false, 1/0).")
+                return
+            new = choice in ("true", "1", "on")
+            old_flag = bool(settings.voice_per_puzzle)
+            await asyncio.to_thread(HuntJsonDb.set_voice_per_puzzle, settings.id, new)
+            settings.voice_per_puzzle = new
+            await self.service.notifier.board_changed(settings)
+            await ctx.send(f":white_check_mark: Updated `{setting_key}={new}` from old value: "
+                           f"`{old_flag}`")
+            return
+        unstored = _UNSTORED_SETTING_KEYS.get(type(settings), {})
+        if setting_key in unstored:
+            # The generic commit skips these, so the path below would reply
+            # "Updated" and save nothing.
+            await ctx.send(f":x: `{setting_key}` can't be set from this command. "
+                           f"{unstored[setting_key]}")
+            return
         if hasattr(settings, setting_key):
             old_value = getattr(settings, setting_key)
             value: Any
@@ -3181,6 +3228,9 @@ class Puzzles(commands.Cog):
         if hunt.password:
             puzzle_links += f"""• Hunt Password: {hunt.password}
             """
+        if _voice_id(hunt):
+            puzzle_links += f"""• Voice: <#{hunt.voice_channel_id}>
+            """
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, kwargs.get('guild_data'))})"""
         embed.add_field(
             name="Hunt Information",
@@ -3213,6 +3263,10 @@ class Puzzles(commands.Cog):
         if hunt.sheet_mode == "files":
             # The puzzle's link above is its own file; the hunt-wide one is here.
             puzzle_links += f"""• [Reference sheet]({spreadsheet_link(hunt.google_sheet_id)})
+                                """
+        if _voice_id(puzzle):
+            # <#id> renders as a clickable link to the voice channel.
+            puzzle_links += f"""• Voice: <#{puzzle.voice_channel_id}>
                                 """
         puzzle_links += f"""• [Overview Website]({self._overview_url(ctx, hunt, guild_data)})"""
         embed.add_field(
@@ -4048,10 +4102,6 @@ class Puzzles(commands.Cog):
         Example: `!archive_round`
         Run in a channel of the round to archive. Admins/mods only.
         Bang-only: no web-dashboard equivalent, by design."""
-        hunt = self.get_hunt(ctx)
-        if hunt and getattr(hunt, 'layout_mode', '') == 'forum':
-            await ctx.send(":x: !archive_round is not available for forum hunts yet")
-            return False
         hunt_general_channel = self.get_hunt_channel(ctx)
         category = ctx.channel.category
         ignore_channels = []
@@ -4212,9 +4262,6 @@ class Puzzles(commands.Cog):
             # Only !setup_server records a hub role, so this is a team server.
             await self._archive_to_hub(ctx, None)
             return
-        if getattr(hunt, "layout_mode", "") == "forum":
-            await ctx.send(":x: !archive_hunt is not available for forum hunts yet")
-            return
         team = hunt_archive.resolve_team_name(ctx.guild, hunt, ctx.author)
         final = hunt_archive.archived_channel_name(hunt, team)
         desc = (f"Archive hunt **{hunt.name}**? Condense every channel into threads on this "
@@ -4262,9 +4309,6 @@ class Puzzles(commands.Cog):
         hunt = self.get_hunt(ctx)
         if hunt is None:
             await ctx.send(":x: I can't tell which hunt this is — run this in a hunt channel.")
-            return
-        if getattr(hunt, "layout_mode", "") == "forum":
-            await ctx.send(":x: !archive_hunt_to_hub is not available for forum hunts yet")
             return
         if getattr(hunt, "archived", False):
             await ctx.send(":x: This hunt is already archived. Moving an in-place archive onto a hub isn't supported yet.")
@@ -4544,7 +4588,9 @@ class Puzzles(commands.Cog):
         # Confirm BEFORE locking: holding every member's lock across the human
         # click blocks all solves/retags in the round for the confirm window. The
         # id set is re-read after confirming so it reflects the state we lock.
-        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets?"):
+        if not await self._confirm_destructive(ctx, f"Delete round **{tag_group.name}** and its {n} puzzle(s), channels and sheets? "
+                f"Feeders shared with another round, and any puzzle that is another round's "
+                f"target, are kept and moved to the hunt's general category."):
             return
         member_puzzle_ids = [p.id for p in PuzzleJsonDb.get_all_from_tag_group(tag_group.id)]
         async with puzzles_lock(member_puzzle_ids):
@@ -4559,8 +4605,9 @@ class Puzzles(commands.Cog):
                 ctx.guild, hunt, tag_group, keep_puzzles=False)
 
             await hunt_general_channel.send(
-                f":white_check_mark: Round {tag_group.name} successfully deleted.  "
-                f"All puzzle sheets have been deleted.")
+                f":white_check_mark: Round {tag_group.name} successfully deleted, with its "
+                f"puzzles' channels and sheets. Any shared feeders were kept in the general "
+                f"category.")
             await self._warn_failed_channels(hunt_general_channel, failed)
         self.set_puzzle(ctx, None)
         self.set_tag_group(ctx, None)

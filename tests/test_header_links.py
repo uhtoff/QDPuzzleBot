@@ -531,19 +531,24 @@ async def test_bulk_re_edge_rewrites_every_members_header_from_fresh_edges():
 
 
 @pytest.mark.asyncio
-async def test_convert_to_meta_keeps_the_puzzles_own_feeds_line_through_promote():
+async def test_convert_to_metapuzzle_keeps_the_puzzles_own_feeds_line_through_promote():
     hunt = make_hunt()
     meta, f1, _pooled, group = _feeder_world()
     svc, gsheet = _service_with_cog()
     gsheet.promote_tab_to_group = AsyncMock()
-    svc._update_forum_tags = AsyncMock()
     svc._refresh_channel_glyph = AsyncMock()
     with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
          patch("bot.core.puzzle_service.TagGroupJsonDb") as mtdb:
         _wire(mpdb, mtdb, {21: meta, 7: f1}, {1: group})
         mtdb.generate_uid.return_value = "G1"
         mtdb.commit.side_effect = lambda g: setattr(g, "id", g.id or 99)
-        await svc.convert_to_meta(None, hunt, f1)
+        svc.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
+        svc.set_source_mode = AsyncMock()
+        svc.notifier = MagicMock()
+        svc.notifier.refresh_info = AsyncMock()
+        svc.notifier.board_changed = AsyncMock()
+        svc._refresh_host_target_glyphs = AsyncMock()
+        await svc.convert_to_type(None, hunt, f1, "Metapuzzle")
     gsheet.promote_tab_to_group.assert_awaited_once_with(
         f1, header_links=[Link("Round Meta", _url("SHEET1", 501))])
 
@@ -572,7 +577,7 @@ async def test_convert_to_puzzle_clears_the_feeds_line_of_its_feeders():
 
 @pytest.mark.asyncio
 async def test_deleting_a_round_clears_the_feeds_line_of_kept_feeders():
-    hunt = make_hunt(layout_mode="category")
+    hunt = make_hunt()
     meta, f1, pooled, group = _feeder_world()
     puzzles = {21: meta, 7: f1, 9: pooled}
     groups = {1: group}
@@ -600,7 +605,6 @@ async def test_a_minimetas_move_rewrites_its_minis_links_to_the_new_tab(action):
     mini = make_puzzle(id=41, name="Mini 1", parent_puzzle_id=40)
     mini.google_page_id = 410
     svc, gsheet = _service_with_cog()
-    svc._update_forum_tags = AsyncMock()
     svc.notifier = MagicMock()
     svc.notifier.board_changed = AsyncMock()
 

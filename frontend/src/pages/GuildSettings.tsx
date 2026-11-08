@@ -83,9 +83,6 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
   );
   const [botChannel, setBotChannel] = useState(data.settings.discord_bot_channel ?? "");
   const [driveParent, setDriveParent] = useState(data.settings.drive_parent_id ?? "");
-  const [driveResources, setDriveResources] = useState(
-    data.settings.drive_resources_id ?? "",
-  );
   const [voice, setVoice] = useState(data.settings.discord_use_voice_channels);
   const [templateLink, setTemplateLink] = useState(data.settings.template_link ?? "");
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -98,7 +95,6 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
     setOrganiserRoles(data.settings.organiser_role_ids);
     setBotChannel(data.settings.discord_bot_channel ?? "");
     setDriveParent(data.settings.drive_parent_id ?? "");
-    setDriveResources(data.settings.drive_resources_id ?? "");
     setVoice(data.settings.discord_use_voice_channels);
     setTemplateLink(data.settings.template_link ?? "");
     setMtCategory(data.settings.multi_team_category);
@@ -122,7 +118,6 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
       organiser_role_ids: organiserRoles,
       discord_bot_channel: botChannel,
       drive_parent_id: driveParent,
-      drive_resources_id: driveResources,
       discord_use_voice_channels: voice,
       template_link: templateLink,
       multi_team_category: mtCategory,
@@ -204,14 +199,8 @@ function SettingsForm({ data, guildId }: { data: GuildSettingsResponse; guildId:
             value={driveParent}
             onChange={(e) => setDriveParent(e.currentTarget.value)}
           />
-          <TextInput
-            label="Google Drive resources doc id"
-            description="Optional; linked from hunt info."
-            value={driveResources}
-            onChange={(e) => setDriveResources(e.currentTarget.value)}
-          />
           <Checkbox
-            label="Create a voice channel alongside each puzzle channel"
+            label="New hunts get a voice channel for every puzzle by default"
             checked={voice}
             onChange={(e) => setVoice(e.currentTarget.checked)}
           />

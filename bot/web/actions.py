@@ -33,7 +33,7 @@ from .auth import (
     resolve_membership,
     resolve_member_role_ids,
 )
-from bot.core import multi_team, role_gate, template_link
+from bot.core import multi_team, role_gate, template_link, voice
 from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
                                      spreadsheet_link)
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb, MultiTeamDb
@@ -565,6 +565,68 @@ async def set_puzzle_link(puzzle_id):
     return jsonify({"ok": True})
 
 
+# --- Voice channels ---------------------------------------------------------
+
+@actions_bp.route("/puzzles/<int:puzzle_id>/voice", methods=["POST"])
+@login_required
+async def create_puzzle_voice(puzzle_id):
+    """Create (or return) the puzzle's voice channel, as !voice does. Any hunt
+    member who can see the puzzle; no role gate."""
+    ctx, hunt_obj, cog, guild, err = await _route_ctx(_visible_hunt_for_puzzle(puzzle_id))
+    if err:
+        return err
+    assert ctx is not None and hunt_obj is not None and cog is not None
+    if guild is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    from bot.store import PuzzleJsonDb
+
+    puzzle = PuzzleJsonDb.get_by_attr(id=puzzle_id)
+    if puzzle is None:
+        return jsonify({"error": "puzzle_not_found"}), 404
+    try:
+        channel, created = await voice.create_puzzle_voice(guild, hunt_obj, puzzle)
+    except voice.VoiceError as exc:
+        return jsonify({"error": exc.code}), 409
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    if created:
+        await _audit("voice", puzzle_id=puzzle.id, hunt_uid=ctx["hunt"]["uid"])
+        _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+        await voice.refresh_pin(bot_app().bot, guild, hunt_obj, puzzle)
+    return jsonify({
+        "ok": True,
+        "voice_channel_id": str(channel.id),
+        "voice_url": voice.voice_url(int(ctx["guild_snowflake"]), channel.id),
+        "created": created,
+        "move_members": voice.can_move_members(guild, hunt_obj),
+    })
+
+
+@actions_bp.route("/hunts/<uid>/voice-cleanup", methods=["POST"])
+@login_required
+async def post_hunt_voice_cleanup(uid):
+    """Remove every puzzle voice channel of the hunt, as !voice_cleanup does.
+    Admin only. Can take 15 s+ when channels are occupied (they get a warning)."""
+    ctx, hunt_obj, _cog, guild, err = await _route_ctx(_visible_hunt_by_uid(uid))
+    if err:
+        return err
+    assert ctx is not None and hunt_obj is not None
+    perm = await require_admin(ctx["guild_snowflake"])
+    if perm:
+        return perm
+    if guild is None:
+        return jsonify({"error": "bot_unavailable"}), 503
+
+    try:
+        removed = await voice.cleanup_hunt(guild, hunt_obj, bot=bot_app().bot)
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+    await _audit("voice_cleanup", hunt_uid=uid, detail=f"removed={len(removed)}")
+    _notify_board(ctx["hunt"]["uid"], ctx["guild_snowflake"])
+    return jsonify({"ok": True, "removed": removed})
+
+
 # --- Make minimeta (organiser+) ------------------------------------------
 
 @actions_bp.route("/puzzles/<int:puzzle_id>/make-minimeta", methods=["POST"])
@@ -759,7 +821,7 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "layout_mode", "confirm_existing_role", "sheet_mode"}
+                         "confirm_existing_role", "sheet_mode", "voice_per_puzzle"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -774,10 +836,10 @@ async def create_hunt():
     extra = set(body.keys()) - _CREATE_HUNT_REQUIRED - _CREATE_HUNT_OPTIONAL
     if extra:
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
-    if body.get("layout_mode", "channel") not in ("channel", "forum"):
-        return jsonify({"error": "bad_layout_mode"}), 400
     if body.get("sheet_mode", "tabs") not in ("tabs", "files"):
         return jsonify({"error": "bad_sheet_mode"}), 400
+    if "voice_per_puzzle" in body and not isinstance(body["voice_per_puzzle"], bool):
+        return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
     start_timestamp = body["start_timestamp"]
     if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
         return jsonify({"error": "bad_start_timestamp"}), 400
@@ -855,12 +917,16 @@ async def create_hunt():
     resp = {"uid": new_hunt.uid}
     if body.get("role_name") and not new_hunt.role_id:
         resp["warning"] = "role_not_applied"
+    reminder = role_gate.organiser_reminder(guild, markdown=False)
+    if reminder:
+        resp["organiser_reminder"] = reminder
     return jsonify(resp)
 
 
 # --- Hunt settings (admin only) --------------------------------------------
 
-_SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix"}
+_SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix",
+                  "voice_per_puzzle"}
 
 
 @actions_bp.route("/hunts/<uid>/settings", methods=["PATCH"])
@@ -880,6 +946,7 @@ async def patch_hunt_settings(uid):
     extra = set(body.keys()) - _SETTINGS_KEYS
     if extra:
         return jsonify({"error": "bad_keys", "unknown": sorted(extra)}), 400
+    request_keys = set(body.keys())
 
     from bot.store import HuntJsonDb
 
@@ -891,7 +958,16 @@ async def patch_hunt_settings(uid):
     if cog is None:
         return jsonify({"error": "bot_unavailable"}), 503
 
+    # voice_per_puzzle is its own narrow UPDATE (not a HuntData commit), applied
+    # after the generic commit so a stale commit cannot overwrite it.
+    voice_on = body.pop("voice_per_puzzle", None)
+    if "voice_per_puzzle" in request_keys and not isinstance(voice_on, bool):
+        return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
+
     await cog.service.update_hunt_settings(hunt_obj, **body)
+    if voice_on is not None:
+        hunt_obj.voice_per_puzzle = voice_on
+        HuntJsonDb.set_voice_per_puzzle(hunt_obj.id, voice_on)
     guild = bot_app().bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     if guild is not None:
         await cog.service.notifier.refresh_info(guild, hunt_obj)
@@ -1050,8 +1126,6 @@ async def post_hunt_archive_to_hub(uid):
     from bot.core import hub_channel, hunt_archive, role_panel
     from bot.core.hub_archive_run import RUNNING_HUB_ARCHIVES, run_archive_to_hub
 
-    if getattr(hunt_obj, "layout_mode", "") == "forum":
-        return jsonify({"error": "forum_not_supported"}), 400
     if not getattr(hunt_obj, "roster_role_id", 0):
         return jsonify({"error": "not_a_team_hunt"}), 400
     roster = role_panel.find_roster_role(bot_app().bot, hunt_obj.roster_role_id)
@@ -1768,7 +1842,7 @@ async def change_group_type(tag_group_id):
 # guild_id/guild_name/id: those mirror Discord and are maintained by the join
 # handler, not by hand.
 _GUILD_SETTINGS_KEYS = {
-    "discord_bot_channel", "drive_parent_id", "drive_resources_id",
+    "discord_bot_channel", "drive_parent_id",
     "discord_use_voice_channels", "website_url", "template_link",
     "multi_team_category", "archive_category",
 }

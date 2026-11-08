@@ -13,7 +13,7 @@ from googleapiclient.errors import HttpError
 from discord.ext import commands
 
 from bot.utils import config
-from bot.store import PuzzleData, TagGroupJsonDb
+from bot.store import PuzzleData
 from bot.core.sheet_location import Link, spreadsheet_for
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
@@ -105,16 +105,19 @@ class GoogleSheets(commands.Cog):
         except Exception:
             logger.exception("Failed to send Sheets retry notice")
 
-    async def batch_update(self, body, spreadsheet_id: str | None = None):
+    async def batch_update(self, body, spreadsheet_id: str | None = None,
+                           retry_ambiguous: bool = True):
         """One batchUpdate on `spreadsheet_id`; None (or "") means the hunt's
-        live spreadsheet."""
+        live spreadsheet. Pass retry_ambiguous=False for a batch that is unsafe to
+        replay (see execute_with_retry)."""
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
         req = get_sheet().batchUpdate(
             spreadsheetId=spreadsheet_id,
             body=body
         )
 
-        return await execute_with_retry(req, on_retry=self._notify_retry)
+        return await execute_with_retry(req, on_retry=self._notify_retry,
+                                        retry_ambiguous=retry_ambiguous)
 
 
     async def sheet_list(self, spreadsheet_id = None):
@@ -381,8 +384,6 @@ class GoogleSheets(commands.Cog):
         """Build a request to move a sheet to an arbitrary index."""
         return self._sheet_props_request(sheet_id, 'index', index)
 
-    def move_sheet_to_start(self, sheet_id = None):
-        return self.move_sheet_to_index(sheet_id, self.INITIAL_OFFSET)
 
     async def move_sheet_to_end(self, sheet_id = None, end_index = None,
                                 spreadsheet_id: str | None = None):
@@ -1231,13 +1232,6 @@ class GoogleSheets(commands.Cog):
         """0-based (row, column) -> A1 cell reference (0,0 -> A1)."""
         return f"{cls._col_letter(column)}{row + 1}"
 
-    @staticmethod
-    def _solution_text(puzzle: PuzzleData) -> str:
-        """Answer-cell text for a roll-up row. A puzzle marked complete with no
-        recorded answer carries the "✅" sentinel (see mark_as_complete); it is
-        shown as-is so the row stays aligned instead of being silently dropped —
-        the bug the old per-cell renderers had via a continue-before-row-increment."""
-        return puzzle.solution if puzzle.solution else "Unsolved"
 
     # --- Developer metadata: stable tab pointers (M5 substrate, M7 load-bearing) ---
     # A tab's numeric sheetId is reassigned when a sheet is moved to the solved
@@ -1276,14 +1270,6 @@ class GoogleSheets(commands.Cog):
             return matched[0]["developerMetadata"]["metadataId"]
         return None
 
-    async def find_tab_by_metadata(self, spreadsheet_id, metadata_id):
-        """Resolve the tab page id carrying developer metadata `metadata_id`, or None
-        if absent (e.g. it didn't survive a copyTo/duplicate). Callers MUST fall back
-        to a known page id — never trust this as the sole pointer."""
-        req = get_sheet().developerMetadata().get(
-            spreadsheetId=spreadsheet_id, metadataId=int(metadata_id))
-        resp = await execute_with_retry(req, on_retry=self._notify_retry)
-        return (resp or {}).get("location", {}).get("sheetId")
 
     async def stamp_rollup_metadata(self, puzzle: PuzzleData, key):
         """Best-effort: ensure developer metadata `key` is on this puzzle's tab,
@@ -1320,70 +1306,6 @@ class GoogleSheets(commands.Cog):
         )
         return await execute_with_retry(req, on_retry=self._notify_retry)
 
-    async def aggregate_to_tab(self, spreadsheet_id, tab_page_id, columns, rows,
-                               start_row=4, start_column=0):
-        """Write a `columns` header + `rows` data block to a tab as a snapshot.
-
-        spreadsheet_id  target spreadsheet (caller picks live vs archive)
-        tab_page_id     destination sheet's numeric page id
-        columns         header strings, one per column
-        rows            list of row-lists (cell strings), each len == len(columns)
-        start_row/col   0-based top-left of the header (default A5, matching the
-                        header row the old renderers used)
-
-        Clears the old block first (replacing the fixed 50-blank-row padding) so a
-        roll-up shorter than last time's leaves no stale trailing rows, then writes
-        the header + rows in a single values().update.
-        """
-        tab_name = await self.get_page_name_by_id(tab_page_id, spreadsheet_id)
-        if tab_name is None:
-            raise RuntimeError(
-                f"aggregate_to_tab: no tab with page id {tab_page_id} "
-                f"in spreadsheet {spreadsheet_id}"
-            )
-        safe_name = tab_name.replace("'", "''")   # escape for the quoted A1 range
-        start_cell = self._a1_cell(start_row, start_column)
-        last_col = self._col_letter(start_column + len(columns) - 1)
-        # Open-ended range: clear everything from the header row down across the
-        # columns this roll-up owns (leaves the puzzle's own B1/B3/I1 + grid alone).
-        await self._values_clear(spreadsheet_id, f"'{safe_name}'!{start_cell}:{last_col}")
-        values = [list(columns)] + [list(r) for r in rows]
-        await self._values_update(spreadsheet_id, f"'{safe_name}'!{start_cell}", values)
-
-    async def add_metapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        rows = [
-            [round_puzzle.name, self._solution_text(round_puzzle)]
-            for round_puzzle in round_puzzles
-            if round_puzzle.id != puzzle.id   # skip the meta's own row
-        ]
-        await self.aggregate_to_tab(
-            self.spreadsheet_of(puzzle),
-            puzzle.google_page_id,
-            ["Puzzle titles", "Puzzle solutions"],
-            rows,
-        )
-
-    async def add_metametapuzzle_data(self, puzzle: PuzzleData, round_puzzles: List[PuzzleData]):
-        rows = []
-        for round_puzzle in round_puzzles:
-            if round_puzzle.id == puzzle.id:      # skip self
-                continue
-            if round_puzzle.is_target:      # metas roll up via their feeders, not here
-                continue
-            if len(round_puzzle.tags) > 1:        # ambiguous multi-round membership
-                continue
-            if round_puzzle.tags:
-                round = TagGroupJsonDb.get_by_attr(id=round_puzzle.tags[0])
-                round_name = round.name if round is not None else "*(deleted round)*"
-            else:
-                round_name = "No Round"
-            rows.append([round_name, round_puzzle.name, self._solution_text(round_puzzle)])
-        await self.aggregate_to_tab(
-            self.spreadsheet_of(puzzle),
-            puzzle.google_page_id,
-            ["Puzzle Round", "Puzzle Title", "Puzzle Solution"],
-            rows,
-        )
 
     # Column layout for the Unassigned Puzzles tab. Bot owns A-D; column E
     # (Notes) belongs to solvers and is NEVER written by the reconcile.
@@ -1640,14 +1562,16 @@ class GoogleSheets(commands.Cog):
         After writing, resizes the Table to cover its header + all data rows, so the
         rows are part of the Table (otherwise the header is purely decorative).
 
-        Pruned rows are blanked in place (their table-owned columns only), never
-        deleted: `deleteDimension {dimension: ROWS}` is full-width and would shift
-        any user-added columns to the right of the table on every other row too.
-        A blanked row is never reused for a later append, so a row's identity (and
-        anything a user has added beside it) stays stable across reconciles. This
-        means the table only grows over a reconcile's lifetime; a user can manually
-        sort the table's range in Sheets to reclaim blank rows."""
-        from bot.core.unassigned import diff_rows
+        Row planning is bot.core.table_reconcile.plan_rows. A row whose member left
+        is removed with `deleteRange` over the Table's FULL width (`key_col`..
+        `end_col`, so solver columns inside the Table go with it) and the cells
+        below shift up — never `deleteDimension`, which is the whole sheet row and
+        would move anything kept outside the Table. A member whose key changed
+        (capstone -> meta turns `informs:12` into `feeds:12`) is re-keyed in its
+        existing row, keeping its solver columns. Keyless rows are deleted when
+        every in-Table cell is empty (blanks left by the old blank-in-place rule)
+        and kept when a solver note survives in one."""
+        from bot.core.table_reconcile import plan_rows
         # The spreadsheet holding `page_id`: None -> live (the hunt-level
         # Unassigned/Evidence tabs); a puzzle's render passes spreadsheet_of.
         spreadsheet_id = spreadsheet_id or self.get_spreadsheet_id()
@@ -1689,21 +1613,29 @@ class GoogleSheets(commands.Cog):
             # `data_col_count` columns but the Table may legitimately span more
             # (Unassigned's solver-owned Notes column), which must stay in it.
             end_col = rng.get("endColumnIndex", key_col + data_col_count)
+            table_end = rng.get("endRowIndex")
             table_id = table.get("tableId")
         else:
             header_row, key_col, end_col, table_id = 0, 0, data_col_count, None
+            table_end = None
 
+        # Read the Table's full width (its solver-added columns included): a keyless
+        # row is only deletable when every in-Table cell is empty.
         key_letter = self._col_letter(key_col)
-        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{key_letter}")
+        end_letter = self._col_letter(end_col - 1)
+        resp = await self._values_get(spreadsheet_id, f"'{safe_name}'!{key_letter}:{end_letter}")
         vals = resp.get("values", []) or []
-        key_to_row = {}
-        for i in range(header_row + 1, len(vals)):
-            if vals[i]:
-                key_to_row[str(vals[i][0])] = i
+        # The rows the plan may touch: the Table's own extent, stretched over any
+        # keyed row below it (never into unkeyed cells under the Table).
+        keyed = [i for i in range(header_row + 1, len(vals)) if vals[i] and str(vals[i][0])]
+        extent_end = table_end if table_end is not None else len(vals)
+        extent_end = max(extent_end, (max(keyed) + 1) if keyed else header_row + 1)
+        rows = [(i, [str(c) for c in (vals[i] if i < len(vals) else [])])
+                for i in range(header_row + 1, extent_end)]
 
-        # Stringify keys for the diff; keep the original cell values for writing.
+        # Stringify keys for the plan; keep the original cell values for writing.
         norm_rows = [[str(r[0])] + list(r[1:]) for r in desired_rows]
-        appends, updates, prunes = diff_rows(list(key_to_row), norm_rows)
+        plan = plan_rows(rows, norm_rows, header_row)
 
         numeric = set(numeric_cols)
 
@@ -1729,12 +1661,10 @@ class GoogleSheets(commands.Cog):
             return [_cell(c, v) for c, v in enumerate(row)]
 
         requests = []
-        # Updates: rewrite the whole row (cols key_col..key_col+data_col_count-1).
-        update_by_key = {row[0]: row for row in updates}
-        for key, grid_row in key_to_row.items():
-            row = update_by_key.get(key)
-            if row is None:
-                continue
+        # Updates first, at their pre-delete grid rows: rewrite the bot's columns
+        # (key_col..key_col+data_col_count-1). A re-keyed member lands here too, so
+        # it keeps its row and the solver columns beside it in the Table.
+        for grid_row, row in plan.updates:
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": grid_row,
                           "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
@@ -1742,22 +1672,37 @@ class GoogleSheets(commands.Cog):
                 "fields": "userEnteredValue,textFormatRuns",
                 "rows": [{"values": _row_cells(row)}],
             }})
-        # Prunes: blank the table's own columns in place, never delete the row —
-        # deleteDimension ROWS is full-width and would shift any user-added columns
-        # to the right of the table on every other row too.
-        blank_cells = [{} for _ in range(data_col_count)]
-        for grid_row in (key_to_row[k] for k in prunes):
-            requests.append({"updateCells": {
-                "range": {"sheetId": page_id, "startRowIndex": grid_row,
-                          "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
-                          "endColumnIndex": key_col + data_col_count},
-                "fields": "userEnteredValue,textFormatRuns",
-                "rows": [{"values": blank_cells}],
-            }})
-        # Appends: write new rows strictly after the highest row currently in use.
-        # Blanked (pruned) rows are never reused, so a row's identity stays stable.
-        existing_rows = list(key_to_row.values())
-        next_row = (max(existing_rows) + 1) if existing_rows else header_row + 1
+        if table_id is not None:
+            # Deletes, bottom-up so each index is still valid when it runs: remove
+            # the row across the Table's FULL width (solver columns go with it) and
+            # shift the cells below up. Never deleteDimension — that is the whole
+            # sheet row and would move anything kept outside the Table.
+            for grid_row in plan.deletes:
+                requests.append({"deleteRange": {
+                    "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                              "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                              "endColumnIndex": end_col},
+                    "shiftDimension": "ROWS",
+                }})
+            # Appends: directly below the compacted table.
+            next_row = plan.append_start
+        else:
+            # No Table on the page: nothing bounds a safe delete (the header row and
+            # any solver columns are unknown), so keep the old rule — blank a
+            # departed keyed row's bot columns in place and append below the last
+            # keyed row, never reusing a blanked one.
+            blank_cells = [{} for _ in range(data_col_count)]
+            for grid_row in sorted(plan.deletes):
+                if grid_row in keyed:
+                    requests.append({"updateCells": {
+                        "range": {"sheetId": page_id, "startRowIndex": grid_row,
+                                  "endRowIndex": grid_row + 1, "startColumnIndex": key_col,
+                                  "endColumnIndex": key_col + data_col_count},
+                        "fields": "userEnteredValue,textFormatRuns",
+                        "rows": [{"values": blank_cells}],
+                    }})
+            next_row = (max(keyed) + 1) if keyed else header_row + 1
+        appends = plan.appends
         if appends:
             requests.append({"updateCells": {
                 "range": {"sheetId": page_id, "startRowIndex": next_row,
@@ -1775,11 +1720,11 @@ class GoogleSheets(commands.Cog):
         # order the three separate calls had before: data writes, then the resize,
         # then the grey-below formatting.
 
-        # Grow the Table so the data rows actually belong to it. Never shrinks:
-        # blanked prune rows stay part of the table's extent until a user sorts
-        # them out manually.
+        # Set the Table to exactly header + data rows. Sheets already shrinks a Table
+        # on deleteRange (live-checked 2026-11-07); this makes the end explicit for
+        # the append case and is consistent either way.
         if table_id is not None:
-            end_row = next_row + len(appends)
+            end_row = plan.end_row
             requests.append({"updateTable": {
                 "table": {
                     "tableId": table_id,
@@ -1817,7 +1762,15 @@ class GoogleSheets(commands.Cog):
                         "fields": "userEnteredFormat.backgroundColor"}})
 
         if requests:
-            await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
+            deletes = any("deleteRange" in r for r in requests)
+            if deletes:
+                # Deleting by row index is not safe to replay on an ambiguous
+                # failure: the rows would have shifted under the indices.
+                await self.batch_update({"requests": requests},
+                                        spreadsheet_id=spreadsheet_id,
+                                        retry_ambiguous=False)
+            else:
+                await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
 
     # --- Task 8: code-generated puzzle tab ---------------------------------
 

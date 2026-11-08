@@ -19,7 +19,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core import category_layout, hunt_archive, media_gc, mod_invite
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -32,14 +32,13 @@ from bot.core.sheet_tables import (
 )
 from bot.utils import config, urls
 from bot.core.discord_channels import (
-    clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position, create_forum_post,
+    clean_channel_name, clean_category_name, get_or_create_channel, solve_divider_position,
     MAX_CHANNELS_PER_GUILD, MAX_CATEGORIES,
     SOLVE_CATEGORY, SOLVE_DIVIDER,
 )
 from bot.core.reconcile import ReconcileReport, ReconcileAction  # noqa: F401
 from bot.core.sheet_location import Link, puzzle_location
 from bot.core.target_glyph import marked_name
-from bot.core.forum_config import desired_tags_for, apply_forum_tags  # noqa: F401  # forum_config kept as a tests' import target
 from bot.core.target_extract import select_extract_puzzles
 
 logger = logging.getLogger(__name__)
@@ -48,6 +47,10 @@ logger = logging.getLogger(__name__)
 # Re-entrancy depth for board-push dedupe. A contextvar (not an instance attr) so
 # concurrent operations in separate asyncio tasks each get an independent count.
 _board_push_depth = contextvars.ContextVar("_board_push_depth", default=0)
+
+
+# Channel slots below the guild limit that automatic per-puzzle voice leaves free.
+AUTO_VOICE_HEADROOM = 25
 
 
 def pushes_board(hunt: "str | Callable[[dict[str, Any]], Any]" = "hunt", when=None):
@@ -339,7 +342,7 @@ class PuzzleService:
         The licence for demote_tab_to_puzzle, which deletes the tab's four
         leftmost columns. "Any native Table is present" is NOT that licence: a
         solver may add a table of their own to a tab the bot never promoted (a
-        minimeta made but never rendered; a convert_to_meta whose
+        minimeta made but never rendered; a promote-in-place convert whose
         promote_tab_to_group failed after is_target was committed), and demoting
         then destroys columns A-D of their grid with no undo. Matching is by the
         name the bot gives its own Table — see bot/core/sheet_tables.py.
@@ -369,59 +372,6 @@ class PuzzleService:
         if hunt is not None and getattr(hunt, "sheet_mode", "tabs") == "files":
             return {"hunt": hunt}
         return {}
-
-    # --- forum tag helpers ---
-
-    async def _update_forum_tags(self, guild, hunt, puzzle):
-        """Best-effort: update forum post tags to match desired state.
-
-        Computes metameta/minimeta from the live DB state and applies the
-        correct structural + solved tag(s).  No-op when hunt is not in
-        forum mode or guild/puzzle.channel_id are missing.
-        """
-        try:
-            if getattr(hunt, "layout_mode", None) != "forum":
-                return
-            if guild is None or not getattr(puzzle, "channel_id", 0):
-                return
-
-            thread = guild.get_channel_or_thread(puzzle.channel_id)
-            if thread is None:
-                return
-
-            # Resolve the owning groups; pick the primary (first) for tagging.
-            group_ids = list(getattr(puzzle, "tags", []) or [])
-            primary_group: TagGroupData | None = None
-            if not group_ids:
-                # Unassigned feeder: only "solved" tag can apply
-                desired = set()
-                if getattr(puzzle, "solved", False):
-                    desired.add("solved")
-            else:
-                primary_group = TagGroupJsonDb.get_by_attr(id=group_ids[0])
-                if primary_group is None:
-                    return  # orphaned tag reference
-                all_groups = TagGroupJsonDb.get_all(hunt_id=hunt.id)
-                puzzles_in_group = PuzzleJsonDb.get_all_from_tag_group(primary_group.id)
-                metameta = is_metameta(primary_group, all_groups, puzzles_in_group)
-                minimeta = bool(self.get_minis(puzzle.id))
-                desired = desired_tags_for(primary_group, puzzle,
-                                           metameta=metameta,
-                                           minimeta=minimeta)
-
-            # Resolve the forum channel (parent container of the thread).
-            cid = getattr(thread, "parent_id", None)
-            if cid is None and primary_group is not None:
-                cid = getattr(primary_group, "category_id", None)
-            if cid is None:
-                return
-            forum = guild.get_channel(cid)
-            if forum is None:
-                return
-
-            await apply_forum_tags(thread, forum, desired)
-        except Exception:
-            logger.exception("_update_forum_tags failed for puzzle %s", puzzle.id)
 
     def _is_metameta_group(self, hunt, group):
         """Whether *group*'s feeders include another group's target (a sub-meta)."""
@@ -1513,8 +1463,6 @@ class PuzzleService:
         default_sm = TYPE_DEFAULTS[new_type]["default_source_mode"]
         await self.set_source_mode(hunt, tag_group, default_sm)
 
-        # Update forum post tags (structural type may have changed).
-        await self._update_forum_tags(guild, hunt, puzzle)
         # Skip the glyph refresh when the target was just torn down: `puzzle` no
         # longer exists (its DB row was deleted) and its channel was repurposed
         # into the group's general chat, not renamed to a glyphed puzzle name.
@@ -1591,12 +1539,12 @@ class PuzzleService:
         the channel from discord.py's cache on the later CHANNEL_DELETE gateway
         event, so a subsequent create could still find the stale channel and skip
         linking. Repurposing in place sidesteps that race and preserves history.
-        Non-forum only (forum is out of scope)."""
+        """
         tag_group.type = new_type
         TagGroupJsonDb.commit(tag_group)
 
         chat = None
-        if guild is not None and getattr(hunt, "layout_mode", None) != "forum":
+        if guild is not None:
             # Find the general chat by its bare name FIRST, then pre-rename it to
             # the glyphed target name so create_puzzle (which now computes the
             # glyphed name) matches it as created=False and we adopt it in place —
@@ -1648,7 +1596,7 @@ class PuzzleService:
         sheet + DB record, clear the group's target, and repurpose the meta's
         channel into the group's general chat channel (rename + group welcome pin).
         The DB mutation is the durable part; Discord/Sheets steps are best-effort.
-        Non-forum only for the channel repurpose (forum is out of scope)."""
+        """
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             try:
@@ -1669,7 +1617,7 @@ class PuzzleService:
             await self.refresh_targets(
                 hunt, [TagGroupJsonDb.get_by_attr(id=gid) for gid in other_fed_group_ids])
 
-        if guild is not None and channel_id and getattr(hunt, "layout_mode", None) != "forum":
+        if guild is not None and channel_id:
             channel = guild.get_channel(channel_id)
             if channel is not None:
                 await self.safe_rename(channel, clean_channel_name(tag_group.name))
@@ -1796,7 +1744,7 @@ class PuzzleService:
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
             # Failure isolation (matches the meta-refresh loop above): a Sheets
-            # failure here must not skip the second commit, forum-tag update, or
+            # failure here must not skip the second commit or
             # board push below — the solve is already committed as applied, so an
             # uncaught raise here would incorrectly present it as failed while
             # leaving the DB out of sync with what did/didn't move to the archive.
@@ -1835,8 +1783,6 @@ class PuzzleService:
 
         await self._refresh_minis_header_links(hunt, puzzle)
 
-        # Update forum post tags (solved status changed).
-        await self._update_forum_tags(guild, hunt, puzzle)
 
         if failed_group_ids or failed_puzzle_ids:
             raise SheetRefreshError(failed_group_ids=failed_group_ids, failed_puzzle_ids=failed_puzzle_ids)
@@ -1939,8 +1885,6 @@ class PuzzleService:
                 round_.status = "active"
                 TagGroupJsonDb.commit(round_)
 
-        # Update forum post tags (solved status changed).
-        await self._update_forum_tags(guild, hunt, puzzle)
 
         # Last, so everything above still runs. The DB mutation is committed and
         # pushes_board fires on this error by design -- only a meta sheet is
@@ -2005,7 +1949,7 @@ class PuzzleService:
 
         gsheet_cog = self._gsheet_cog(hunt)
         # Same guard as remove_minimeta: demote only a tab the bot actually
-        # promoted. convert_to_meta commits is_target BEFORE promote_tab_to_group,
+        # promoted. convert_to_type commits is_target BEFORE promote_tab_to_group,
         # so a Sheets failure there leaves a targeted puzzle on an untouched tab —
         # demoting that deletes columns A-D of an ordinary solver grid.
         if gsheet_cog is not None and puzzle.google_page_id:
@@ -2171,6 +2115,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id else None
         category = getattr(channel, "category", None)
         await self._safe_delete_channel(guild, puzzle.channel_id)
+        if guild is not None:
+            try:
+                await voice.delete_puzzle_voice_now(guild, puzzle)
+            except Exception:
+                logger.exception("delete_puzzle: voice channel delete failed for %s", puzzle.id)
         # A puzzle deletion is the most common shrink event — trigger the
         # vacated owner's consolidation (reclaim/fold/un-split), resolved
         # across both join tables, in the background. Best-effort: the guild
@@ -2195,23 +2144,17 @@ class PuzzleService:
         every other member puzzle's Discord channel into the hunt's general
         category instead of deleting it (their DB rows/sheets are untouched
         either way). Pass keep_puzzles=False for the old all-or-nothing
-        behavior that deletes every member puzzle. Forum-layout rounds always
-        do the full delete regardless of keep_puzzles — forum threads have no
-        "move to the general category" equivalent.
+        behavior that deletes every member puzzle.
 
-        Full delete (keep_puzzles=False, or forum layout regardless of
-        keep_puzzles) still protects any member puzzle that is a DIFFERENT tag
+        Full delete (keep_puzzles=False) still protects any member puzzle that is a DIFFERENT tag
         group's target — deleting it would orphan the nested group's
         target_puzzle_id, the same case delete_puzzle forbids outright — and
         refreshes every other tag group fed by a deleted puzzle, so neither
         path can orphan a nested meta's target_puzzle_id or leave a stale
-        contribution row on an unrelated meta's sheet. Non-forum layouts
-        relocate the protected puzzle's channel out of the round category
-        (below); forum threads have no relocation equivalent, so a protected
-        puzzle's thread is simply left in place, untouched.
+        contribution row on an unrelated meta's sheet. The protected puzzle's
+        channel is relocated out of the round category (below).
         """
-        narrow = keep_puzzles and hunt.layout_mode != "forum"
-        is_forum = hunt.layout_mode == "forum"
+        narrow = keep_puzzles
         all_puzzles = PuzzleJsonDb.get_all_from_tag_group(tag_group.id)
 
         if narrow:
@@ -2231,8 +2174,6 @@ class PuzzleService:
             # nested meta's target) orphan that group's target_puzzle_id, the
             # same case delete_puzzle forbids outright. Kept members are
             # auto-untagged from this group when its row is deleted below.
-            # Applies to forum layout too (which always takes this branch,
-            # since keep_puzzles never yields narrow=True for forum).
             to_delete = [
                 p for p in all_puzzles
                 if p.id == tag_group.target_puzzle_id
@@ -2278,6 +2219,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+            if guild is not None:
+                try:
+                    await voice.delete_puzzle_voice_now(guild, puzzle)
+                except Exception:
+                    logger.exception("delete_round: voice channel delete failed for %s", puzzle.id)
 
         # A deleted puzzle may also feed an UNRELATED tag group's target (this
         # round's own tag_group is excluded above); refresh those so their
@@ -2293,7 +2239,7 @@ class PuzzleService:
                     "member puzzles of group %s", failed_refresh, tag_group.id)
 
         relocation_failed_channel_ids = set()
-        if to_keep and guild is not None and not is_forum:
+        if to_keep and guild is not None:
             owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
             owned_category_ids |= {
                 row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
@@ -2323,7 +2269,7 @@ class PuzzleService:
         # (deleted) by the blanket per-category delete below. Move them to the
         # hunt's general category BEFORE that teardown; their DB rows/edges
         # belong to another group and are left untouched.
-        if guild is not None and not is_forum:
+        if guild is not None:
             foreign_owned_category_ids = {tag_group.category_id} if tag_group.category_id else set()
             foreign_owned_category_ids |= {
                 row.category_id for row in TagGroupCategoryDb.get_for_group(tag_group.id)
@@ -2347,40 +2293,30 @@ class PuzzleService:
                         relocation_failed_channel_ids.add(channel.id)
 
         if guild is not None:
-            if hunt.layout_mode == "forum":
-                # Forum mode: delete the forum channel (cascades its posts)
-                forum_ch = guild.get_channel(tag_group.category_id)
-                if forum_ch is not None:
+            # Split rounds own several categories (unsolved/solved/overflow); delete
+            # them all + drop the join rows. delete_group_categories returns False for
+            # single-category rounds, which keep the legacy divider+category teardown.
+            # keep_channel_ids protects any narrow-mode relocation failure from being
+            # swept up in the blanket per-category channel delete. Must run BEFORE
+            # TagGroupJsonDb.delete below: tag_group_category rows FK-cascade off the
+            # tag_group row, so deleting that first would wipe the rows this reads.
+            if not await category_layout.delete_group_categories(
+                guild, tag_group, TagGroupCategoryDb,
+                keep_channel_ids=frozenset(relocation_failed_channel_ids),
+            ) and tag_group.category_id:
+                category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                if category is not None:
+                    for ch in list(category.channels):
+                        if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                            try:
+                                await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                            except Exception:
+                                logger.exception("delete_round: could not delete divider channel")
                     try:
-                        await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
+                        await category.delete(reason=self._DISCORD_DELETE_REASON)
                     except Exception:
-                        logger.exception("delete_round: could not delete forum %s",
+                        logger.exception("delete_round: could not delete category %s",
                                          tag_group.category_id)
-            else:
-                # Split rounds own several categories (unsolved/solved/overflow); delete
-                # them all + drop the join rows. delete_group_categories returns False for
-                # single-category rounds, which keep the legacy divider+category teardown.
-                # keep_channel_ids protects any narrow-mode relocation failure from being
-                # swept up in the blanket per-category channel delete. Must run BEFORE
-                # TagGroupJsonDb.delete below: tag_group_category rows FK-cascade off the
-                # tag_group row, so deleting that first would wipe the rows this reads.
-                if not await category_layout.delete_group_categories(
-                    guild, tag_group, TagGroupCategoryDb,
-                    keep_channel_ids=frozenset(relocation_failed_channel_ids),
-                ) and tag_group.category_id:
-                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                    if category is not None:
-                        for ch in list(category.channels):
-                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                                try:
-                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                                except Exception:
-                                    logger.exception("delete_round: could not delete divider channel")
-                        try:
-                            await category.delete(reason=self._DISCORD_DELETE_REASON)
-                        except Exception:
-                            logger.exception("delete_round: could not delete category %s",
-                                             tag_group.category_id)
 
         TagGroupJsonDb.delete(tag_group.id)
         await self.refresh_header_links(hunt, orphaned_feeders, reload=True)
@@ -2634,47 +2570,6 @@ class PuzzleService:
 
         puzzle.puzzle_type = None
         PuzzleJsonDb.commit(puzzle)
-
-    @pushes_board()
-    async def convert_to_meta(self, guild, hunt, puzzle):
-        """Convert an existing feeder puzzle into a meta.
-
-        Creates a new round wrapping the puzzle, tags the puzzle to that
-        round, sets is_target=True and commits. Returns (round, puzzle).
-        Raises RuntimeError("already_meta") if the puzzle is already a meta.
-        """
-        if puzzle.is_target:
-            raise RuntimeError("already_meta")
-
-        new_round = TagGroupData(
-            name=puzzle.name,
-            hunt_id=hunt.id,
-            category_id=puzzle.channel_id,
-            type="Metapuzzle",
-            # Minted before the first commit — see the note at the sibling site.
-            group_code=TagGroupJsonDb.generate_uid("group_code", 6, puzzle.name),
-        )
-        TagGroupJsonDb.commit(new_round)
-        new_round.target_puzzle_id = puzzle.id
-        TagGroupJsonDb.commit(new_round)
-
-        puzzle.add_tag(new_round.id)
-        puzzle.is_target = True
-        PuzzleJsonDb.commit(puzzle)
-        # The target's self-edge is 'target' — it is the thing fed, not a feeder.
-        PuzzleJsonDb.tag_puzzle_with_edge(puzzle.id, new_round.id, "target")
-        puzzle.add_edge(new_round.id, "target")
-
-        gsheet_cog = self._gsheet_cog(hunt)
-        if gsheet_cog is not None:
-            await gsheet_cog.promote_tab_to_group(
-                puzzle, **self._header_links_kw(self._header_links(hunt, puzzle)))
-
-        # Update forum post tags (newly converted to meta).
-        await self._update_forum_tags(guild, hunt, puzzle)
-        await self._refresh_channel_glyph(guild, hunt, puzzle)
-
-        return new_round, puzzle
 
     def _highest_value_nested_meta(self, guild, hunt, cat):
         """The nested channel-home meta inside *cat* whose extraction frees the most
@@ -2979,6 +2874,12 @@ class PuzzleService:
             channel = guild.get_channel(puzzle.channel_id)
             if channel is not None and channel.name != puzzle.channel_name:
                 await self.safe_rename(channel, puzzle.channel_name)
+        if guild is not None:
+            # The voice channel follows the puzzle's name (best-effort).
+            try:
+                await voice.rename_puzzle_voice(guild, puzzle, name)
+            except Exception:
+                logger.exception("rename_puzzle: voice channel rename failed for %s", puzzle.id)
 
         PuzzleJsonDb.commit(puzzle)
 
@@ -3073,15 +2974,6 @@ class PuzzleService:
         await self.refresh_minimeta(hunt, minimeta)
         return minimeta
 
-    async def delete_mini_by_number(self, guild, hunt, minimeta_id, number):
-        """Delete the Nth mini-puzzle (1-indexed) under the given minimeta puzzle id.
-        Returns the deleted mini's PuzzleData (its row is already gone)."""
-        minis = self.get_minis(minimeta_id)
-        if number < 1 or number > len(minis):
-            raise ValueError(f"No mini #{number} — {len(minis)} mini(s) exist")
-        mini = minis[number - 1]
-        await self.delete_mini(guild, hunt, mini)
-        return mini
 
     @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
@@ -3336,19 +3228,13 @@ class PuzzleService:
 
         # No round (an unassigned puzzle) → drop the channel in the hunt's own category
         # rather than at the guild root.
-        forum_channel = None
         if round_data is not None:
-            if hunt.layout_mode == "forum":
-                # Forum mode: resolve the forum channel from the round's category_id
-                forum_channel = guild.get_channel(round_data.category_id)
-                category = None  # no category layout needed for threads
-            else:
-                # Round puzzles flow through the multi-category layout: this splits the
-                # round and/or allocates an overflow category as needed, so a single
-                # category never hits the 50 cap.
-                category = await category_layout.pick_unsolved_category(
-                    guild, round_data, TagGroupCategoryDb,
-                )
+            # Round puzzles flow through the multi-category layout: this splits the
+            # round and/or allocates an overflow category as needed, so a single
+            # category never hits the 50 cap.
+            category = await category_layout.pick_unsolved_category(
+                guild, round_data, TagGroupCategoryDb,
+            )
         else:
             # Unassigned puzzles flow through the same multi-category layout as
             # rounds, keyed to the hunt itself rather than a tag_group — so the
@@ -3359,8 +3245,7 @@ class PuzzleService:
             )
 
         # Guild-wide ceiling still applies (overflow can't conjure channel slots).
-        # Threads don't count toward the 500 cap.
-        if hunt.layout_mode != "forum" and len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
+        if len(guild.channels) >= MAX_CHANNELS_PER_GUILD:
             raise RuntimeError("guild_full")
 
         new_puzzle = PuzzleData(
@@ -3417,11 +3302,30 @@ class PuzzleService:
         try:
             channel_name = self.desired_channel_name(
                 guild, hunt, new_puzzle, group=round_data if is_meta else None)
-            if hunt.layout_mode == "forum" and round_data is not None:
-                thread = await create_forum_post(forum_channel, channel_name)
-                new_puzzle.channel_id = thread.id
-                new_puzzle.channel_mention = thread.mention
-                new_puzzle.channel_name = thread.name
+            # Re-pick the target category NOW: the pick at the top of this
+            # method ran before seconds-long sheet awaits, during which
+            # concurrent creates can fill that category past the cap, or a
+            # background consolidation can delete an overflow category
+            # outright. The early pick stays as the fail-fast capacity
+            # probe (no_category_space raises before any sheet/DB work);
+            # this one is the authoritative placement.
+            owner, owner_dao = (
+                (round_data, TagGroupCategoryDb) if round_data is not None
+                else (hunt, HuntCategoryDb))
+            category = await category_layout.pick_unsolved_category(
+                guild, owner, owner_dao)
+            text_channel, created = await get_or_create_channel(
+                guild=guild, category=category, channel_name=channel_name,
+                channel_type="text",
+            )
+            if created:
+                if category is not None:
+                    divider = solve_divider_position(category)
+                    if divider is not False:
+                        await text_channel.edit(position=divider)
+                new_puzzle.channel_mention = text_channel.mention
+                new_puzzle.channel_id = text_channel.id
+                new_puzzle.channel_name = text_channel.name
                 PuzzleJsonDb.commit(new_puzzle)
                 # Notify (welcome) after channel + DB are committed.
                 if notifier is not None:
@@ -3429,49 +3333,31 @@ class PuzzleService:
                         guild, hunt,
                         tag_group=round_data,
                         puzzle=new_puzzle,
-                        channel=thread,
+                        channel=text_channel,
                     )
-                # Apply forum post tags to the new thread.
-                await self._update_forum_tags(guild, hunt, new_puzzle)
-            else:
-                # Re-pick the target category NOW: the pick at the top of this
-                # method ran before seconds-long sheet awaits, during which
-                # concurrent creates can fill that category past the cap, or a
-                # background consolidation can delete an overflow category
-                # outright. The early pick stays as the fail-fast capacity
-                # probe (no_category_space raises before any sheet/DB work);
-                # this one is the authoritative placement.
-                owner, owner_dao = (
-                    (round_data, TagGroupCategoryDb) if round_data is not None
-                    else (hunt, HuntCategoryDb))
-                category = await category_layout.pick_unsolved_category(
-                    guild, owner, owner_dao)
-                text_channel, created = await get_or_create_channel(
-                    guild=guild, category=category, channel_name=channel_name,
-                    channel_type="text",
-                )
-                if created:
-                    if category is not None:
-                        divider = solve_divider_position(category)
-                        if divider is not False:
-                            await text_channel.edit(position=divider)
-                    new_puzzle.channel_mention = text_channel.mention
-                    new_puzzle.channel_id = text_channel.id
-                    new_puzzle.channel_name = text_channel.name
-                    PuzzleJsonDb.commit(new_puzzle)
-                    # Notify (welcome) after channel + DB are committed.
-                    if notifier is not None:
-                        await notifier.welcome(
-                            guild, hunt,
-                            tag_group=round_data,
-                            puzzle=new_puzzle,
-                            channel=text_channel,
-                        )
         except Exception:
             # Channel create (or post-create work) failed after the sheet + DB row
             # were committed — clean up both so we don't strand an orphan.
             await self._cleanup_orphan_puzzle(hunt, new_puzzle)
             raise
+
+        # Per-puzzle voice channel (best-effort; metas included). The flag reads
+        # back from the DB as int 0/1, so test truthiness. Automatic voice never
+        # takes the guild's last AUTO_VOICE_HEADROOM channel slots: those stay
+        # for puzzle/round channels (an explicit !voice is not limited).
+        if hunt.voice_per_puzzle and not new_puzzle.solved \
+                and len(guild.channels) >= MAX_CHANNELS_PER_GUILD - AUTO_VOICE_HEADROOM:
+            logger.warning("create_puzzle: guild %s is near its channel limit (%s); "
+                           "no automatic voice channel for puzzle %s",
+                           getattr(guild, "id", "?"), len(guild.channels), new_puzzle.id)
+        elif hunt.voice_per_puzzle and not new_puzzle.solved:
+            try:
+                _, created = await voice.create_puzzle_voice(guild, hunt, new_puzzle)
+                if created:
+                    # The welcome was pinned before the voice channel existed.
+                    await self.notifier.refresh_info(guild, hunt, new_puzzle)
+            except Exception:
+                logger.exception("create_puzzle: voice channel failed for %s", new_puzzle.id)
 
         # Refresh metas for every tag that was assigned.
         for tag in new_puzzle.tags:
@@ -3517,69 +3403,31 @@ class PuzzleService:
             raise RuntimeError("no_template_category")
 
         new_category = None
-        forum_channel = None
         group_text_channel = None
         new_round = None
         puzzle = None
         is_group = round_type == "Group"
         try:
-            # --- Group: no forum, no category clone (forum mode) or with clone
-            # (channel mode) — but always a plain text channel for chat. ---
+            # Every group clones the hunt's template category. A Group (no target)
+            # also gets a plain text channel for chat; the others get a divider.
+            new_category = await ref_category.clone(name=new_category_name)
+            await new_category.edit(position=ref_category.position + 1)
             if is_group:
-                host_category = ref_category if hunt.layout_mode == "forum" else None
-                if hunt.layout_mode != "forum":
-                    new_category = await ref_category.clone(name=new_category_name)
-                    await new_category.edit(position=ref_category.position + 1)
-                    host_category = new_category
                 group_text_channel, _created_flag = await get_or_create_channel(
-                    guild=guild, category=host_category,
+                    guild=guild, category=new_category,
                     channel_name=clean_channel_name(name), channel_type="text",
                 )
-
-            # --- Forum vs channel layout (non-Group types) ---
-            elif hunt.layout_mode == "forum":
-                from types import SimpleNamespace
-                from bot.core.forum_config import forum_create_kwargs, render_welcome_plaintext
-                kwargs = forum_create_kwargs()
-                # Placeholder topic before the row/group_code exist; synced for real
-                # after creation. Carry the name so the fallback isn't a bare "?".
-                placeholder_group = SimpleNamespace(name=name, group_code="", type=round_type)
-                placeholder_kind = "capstone" if round_type == "Capstone" else "meta"
-                kwargs["topic"] = render_welcome_plaintext(
-                    placeholder_kind, placeholder_group, None, hunt
+            elif SOLVE_CATEGORY is False:
+                await get_or_create_channel(
+                    guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
+                    channel_type="text", position=500,
                 )
-                forum_channel = await guild.create_forum(
-                    name=new_category_name, category=ref_category,
-                    **kwargs,
-                )
-            else:
-                new_category = await ref_category.clone(name=new_category_name)
-                await new_category.edit(position=ref_category.position + 1)
-                if SOLVE_CATEGORY is False:
-                    await get_or_create_channel(
-                        guild=guild, category=new_category, channel_name=SOLVE_DIVIDER,
-                        channel_type="text", position=500,
-                    )
 
-            if is_group:
-                # Forum-mode Group has no cloned category, so it is identified by
-                # its own text channel. Channel-mode Group clones a real category
-                # for its puzzles — store THAT so puzzles assigned to the group
-                # land under it (category_layout resolves category_id against
-                # guild.categories; the cog resolves channel-mode groups via the
-                # channel's parent category — see Puzzles.cog_before_invoke).
-                if hunt.layout_mode == "forum":
-                    assert group_text_channel is not None  # created above for every Group
-                    parent_id = group_text_channel.id
-                else:
-                    assert new_category is not None  # cloned above in channel mode
-                    parent_id = new_category.id
-            elif hunt.layout_mode == "forum":
-                assert forum_channel is not None  # created above in forum mode
-                parent_id = forum_channel.id
-            else:
-                assert new_category is not None  # cloned above in channel mode
-                parent_id = new_category.id
+            # Store the cloned category so puzzles assigned to the group land under
+            # it (category_layout resolves category_id against guild.categories;
+            # the cog resolves groups via the channel's parent category — see
+            # Puzzles.cog_before_invoke).
+            parent_id = new_category.id
             new_round = TagGroupData(
                 name=name, hunt_id=hunt.id,
                 category_id=parent_id,
@@ -3613,12 +3461,6 @@ class PuzzleService:
 
             TagGroupJsonDb.commit(new_round)
 
-            # Forum was created with a placeholder topic before the row/group_code
-            # existed — sync the real guidelines now that they're populated.
-            if hunt.layout_mode == "forum":
-                from bot.core.forum_config import sync_forum_guidelines
-                await sync_forum_guidelines(guild, hunt, new_round, puzzle)
-
             return new_round, puzzle
         except Exception:
             # Roll back so partial create leaves neither a meta-less round row
@@ -3637,11 +3479,6 @@ class PuzzleService:
                     await new_category.delete(reason="create_round rollback")
                 except Exception:
                     logger.exception("create_round: rollback of orphan category failed")
-            if forum_channel is not None:
-                try:
-                    await forum_channel.delete(reason="create_round rollback")
-                except Exception:
-                    logger.exception("create_round: rollback of orphan forum failed")
             if group_text_channel is not None:
                 try:
                     await group_text_channel.delete(reason="create_round rollback")
@@ -4350,27 +4187,24 @@ class PuzzleService:
 
     async def create_hunt(self, guild, *, name, url, start_timestamp,
                           role_name=None, username=None, password=None,
-                          create_solved_sheet=False, layout_mode="channel",
+                          create_solved_sheet=False,
                           guild_id=0, creator=None, confirm_existing_role=False,
-                          sheet_mode="tabs"):
+                          sheet_mode="tabs", voice_per_puzzle=None):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
-        ``layout_mode`` is fixed at creation: "channel" (default) clones a
-        category per round; "forum" creates a forum channel per round. It cannot
-        be changed once the hunt has rounds, so it is set here only.
+        ``voice_per_puzzle`` True/False sets the hunt's "voice channel for every
+        new puzzle" setting; None (default) takes the server's default
+        (guilds.discord_use_voice_channels).
 
         ``sheet_mode`` "tabs" (default) keeps one spreadsheet with a tab per puzzle;
         "files" makes a Drive folder (+ Solved subfolder) holding a reference
         spreadsheet, one spreadsheet per puzzle going in the folder.
 
         Raises RuntimeError("hunt_exists") if the name is already taken,
-        RuntimeError("bad_layout_mode") for an unrecognised ``layout_mode``,
         RuntimeError("bad_sheet_mode") for an unrecognised ``sheet_mode``, or
         RuntimeError("files_mode_no_solved_sheet") for a files hunt asked to
         have a solved spreadsheet. Returns the committed HuntData.
         """
-        if layout_mode not in ("channel", "forum"):
-            raise RuntimeError("bad_layout_mode")
         if sheet_mode not in ("tabs", "files"):
             raise RuntimeError("bad_sheet_mode")
         if sheet_mode == "files" and create_solved_sheet:
@@ -4450,7 +4284,6 @@ class PuzzleService:
             url=urls.normalize_external_url(url),
             uid=HuntJsonDb.generate_uid('uid'),
         )
-        new_hunt.layout_mode = layout_mode
         new_hunt.sheet_mode = sheet_mode
         new_hunt.drive_folder_id = drive_folder_id
         new_hunt.solved_folder_id = solved_folder_id
@@ -4468,6 +4301,22 @@ class PuzzleService:
             new_hunt.solved_sheet_id = solved_sheet_id
 
         HuntJsonDb.commit(new_hunt)
+        # Voice (best-effort): an explicit choice wins; else the guild toggle is
+        # the default for new hunts.
+        try:
+            if voice_per_puzzle is None:
+                guild_settings = GuildSettingsDb.get(guild.id)
+                voice_per_puzzle = bool(guild_settings is not None
+                                        and guild_settings.discord_use_voice_channels)
+            if voice_per_puzzle:
+                HuntJsonDb.set_voice_per_puzzle(new_hunt.id, True)
+                new_hunt.voice_per_puzzle = True
+        except Exception:
+            logger.exception("create_hunt: could not default voice_per_puzzle for %s", name)
+        try:
+            await voice.ensure_hunt_voice(guild, new_hunt)
+        except Exception:
+            logger.exception("create_hunt: hunt voice channel failed for %s", name)
         if self.notifier is not None:
             # Not @pushes_board: there is no pre-existing hunt to bind the
             # decorator's `hunt` parameter to (this call creates it) — push
@@ -4499,6 +4348,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id:
                 if not await self._safe_delete_channel(guild, puzzle.channel_id):
                     failed_channels.append(puzzle.name)
+            if guild is not None:
+                try:
+                    await voice.delete_puzzle_voice_now(guild, puzzle)
+                except Exception:
+                    logger.exception("delete_hunt: voice channel delete failed for %s", puzzle.id)
 
         # Delete each group's category + DB row
         tag_groups = TagGroupJsonDb.get_all(hunt.id)
@@ -4507,40 +4361,30 @@ class PuzzleService:
             # rows FK-cascade off the tag_group row, so deleting it first would wipe the
             # rows delete_group_categories below needs to read.
             if guild is not None and tag_group.category_id:
-                if hunt.layout_mode == "forum":
-                    # Forum mode: category_id holds a forum channel id
-                    forum_ch = guild.get_channel(tag_group.category_id)
-                    if forum_ch is not None:
+                group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
+                if group_chat_ch is not None:
+                    await self._safe_delete_channel(guild, group_chat_ch.id)
+                # Split rounds own several categories (unsolved/solved/overflow);
+                # delete_group_categories tears down all of them + the DB join
+                # rows (also FK-cascaded now, but Discord objects still need an
+                # explicit API call). Returns False for single-category groups,
+                # which keep the legacy divider+category teardown below.
+                if not await category_layout.delete_group_categories(
+                    guild, tag_group, TagGroupCategoryDb,
+                ):
+                    category = discord.utils.get(guild.categories, id=tag_group.category_id)
+                    if category is not None:
+                        for ch in list(category.channels):
+                            if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
+                                try:
+                                    await ch.delete(reason=self._DISCORD_DELETE_REASON)
+                                except Exception:
+                                    logger.exception("delete_hunt: could not delete divider channel")
                         try:
-                            await forum_ch.delete(reason=self._DISCORD_DELETE_REASON)
+                            await category.delete(reason=self._DISCORD_DELETE_REASON)
                         except Exception:
-                            logger.exception("delete_hunt: could not delete forum %s",
+                            logger.exception("delete_hunt: could not delete group category %s",
                                              tag_group.category_id)
-                else:
-                    group_chat_ch = category_layout.group_chat_channel(guild, tag_group)
-                    if group_chat_ch is not None:
-                        await self._safe_delete_channel(guild, group_chat_ch.id)
-                    # Split rounds own several categories (unsolved/solved/overflow);
-                    # delete_group_categories tears down all of them + the DB join
-                    # rows (also FK-cascaded now, but Discord objects still need an
-                    # explicit API call). Returns False for single-category groups,
-                    # which keep the legacy divider+category teardown below.
-                    if not await category_layout.delete_group_categories(
-                        guild, tag_group, TagGroupCategoryDb,
-                    ):
-                        category = discord.utils.get(guild.categories, id=tag_group.category_id)
-                        if category is not None:
-                            for ch in list(category.channels):
-                                if getattr(ch, "name", "") == self._SOLVE_DIVIDER_NAME:
-                                    try:
-                                        await ch.delete(reason=self._DISCORD_DELETE_REASON)
-                                    except Exception:
-                                        logger.exception("delete_hunt: could not delete divider channel")
-                            try:
-                                await category.delete(reason=self._DISCORD_DELETE_REASON)
-                            except Exception:
-                                logger.exception("delete_hunt: could not delete group category %s",
-                                                 tag_group.category_id)
             TagGroupJsonDb.delete(tag_group.id)
 
         # Delete spreadsheet files (whole Drive file, not just tabs)
@@ -4567,6 +4411,25 @@ class PuzzleService:
                     await self._safe_delete_channel(guild, hunt.channel_id)
                 except Exception:
                     logger.exception("delete_hunt: could not delete hunt channel %s", hunt.channel_id)
+            # Voice: the hunt's own voice channel, then its "<hunt> Voice[ N]"
+            # categories with whatever is left in them (puzzle channels went above).
+            if hunt.voice_channel_id:
+                try:
+                    await self._safe_delete_channel(guild, hunt.voice_channel_id)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete hunt voice channel %s",
+                                     hunt.voice_channel_id)
+            for voice_category in voice.hunt_voice_categories(guild, hunt):
+                for ch in list(voice_category.channels):
+                    try:
+                        await self._safe_delete_channel(guild, ch.id)
+                    except Exception:
+                        logger.exception("delete_hunt: could not delete voice channel %s", ch.id)
+                try:
+                    await voice_category.delete(reason=self._DISCORD_DELETE_REASON)
+                except Exception:
+                    logger.exception("delete_hunt: could not delete voice category %s",
+                                     voice_category.id)
             if hunt.category_id:
                 # The hunt's general category can split/overflow the same way a
                 # round's can (see create_puzzle/delete_round); delete_group_categories
@@ -4598,7 +4461,7 @@ class PuzzleService:
     def _hunt_categories(self, guild, hunt):
         """Every live category the hunt owns: main + solved-by-name + any
         split/overflow categories the hunt's own general container owns + each
-        group's categories."""
+        group's categories + its voice categories."""
         category_ids = set()
         if hunt.category_id:
             category_ids.add(hunt.category_id)
@@ -4615,6 +4478,9 @@ class PuzzleService:
             for row in category_layout.group_categories(tg, TagGroupCategoryDb):
                 if row.category_id:
                     category_ids.add(row.category_id)
+        # Puzzle voice channels live in "<hunt> Voice[ N]" categories, which no
+        # DB row records (see bot/core/voice.py).
+        category_ids.update(c.id for c in voice.hunt_voice_categories(guild, hunt))
         return [c for c in
                 (discord.utils.get(guild.categories, id=cid) for cid in category_ids)
                 if c is not None]

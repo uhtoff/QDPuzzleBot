@@ -51,7 +51,6 @@ def _live_hunt():
     """The real hunts row, with the two fields these paths branch on pinned in
     memory (never committed) so the test doesn't depend on the row's contents."""
     hunt = HuntJsonDb.get_by_attr(id=live_hunt_id())
-    hunt.layout_mode = "category"
     hunt.url = None
     hunt.category_id = 990001
     return hunt

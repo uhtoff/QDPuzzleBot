@@ -227,6 +227,9 @@ class _MySQLBaseDb:
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     GENERATED_UNIQUE_FIELDS = ('uid',)
+    # Written only by set_voice_channel / set_voice_per_puzzle, so a stale
+    # HuntData saved whole can't revert them.
+    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle']
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -237,6 +240,13 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
                 return HuntData.import_dict(row)
             logger.info(f"Unable to find hunt for {keyword} - {value}")
             return None
+
+    def by_voice_channel(self, channel_id):
+        """The hunt whose general voice channel is *channel_id*, or None. Silent
+        (no "Unable to find" log): called for every voice join in the guild."""
+        row = self._fetch_one(
+            "SELECT * FROM `hunts` WHERE `voice_channel_id` = %s LIMIT 1", (channel_id,))
+        return HuntData.import_dict(row) if row else None
 
     def get_by_name_for_guild(self, name, guild_snowflake):
         """Retrieve a Hunt by name, scoped to the Discord guild that owns it (M6).
@@ -366,6 +376,24 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         field, so the generic commit() can never clear it."""
         self._exec("UPDATE `hunts` SET `mod_invite_code` = %s WHERE `id` = %s",
                    (code, hunt_id))
+
+    def set_voice_channel(self, hunt_id, channel_id):
+        """Store (or clear, with None) the hunt's shared voice channel. Its own
+        UPDATE so a stale HuntData commit() cannot overwrite it."""
+        self._exec("UPDATE `hunts` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, hunt_id))
+
+    def voice_channel_id(self, hunt_id):
+        """The stored hunt voice channel id (None if unset or no such hunt). A
+        narrow read so a caller holding a stale HuntData can check the truth."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `hunts` WHERE `id` = %s", (hunt_id,))
+        return row["voice_channel_id"] if row else None
+
+    def set_voice_per_puzzle(self, hunt_id, on):
+        """Set the per-puzzle voice channel toggle. Its own UPDATE (see above)."""
+        self._exec("UPDATE `hunts` SET `voice_per_puzzle` = %s WHERE `id` = %s",
+                   (1 if on else 0, hunt_id))
 
     def mod_invite_code(self, hunt_id):
         row = self._fetch_one(
@@ -748,7 +776,10 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta']
+    # voice_channel_id: written only by set_voice_channel (a stale PuzzleData
+    # saved whole must not clear it, or its voice channel is never cleaned up).
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta',
+                    'voice_channel_id']
 
     def construct_puzzle(self, row):
         return self.construct_puzzles([row])[0]
@@ -790,6 +821,53 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 return self.construct_puzzle(row)
             logger.info(f"Unable to find puzzle for {keyword} - {value}")
             return None
+
+    def set_voice_channel(self, puzzle_id, channel_id):
+        """Store (or clear, with None) a puzzle's voice channel. A single narrow
+        UPDATE: a full commit() of a stale object could overwrite concurrent edits
+        (see the docstring on commit)."""
+        self._exec("UPDATE `puzzles` SET `voice_channel_id` = %s WHERE `id` = %s",
+                   (channel_id, puzzle_id))
+
+    def voice_channel_id(self, puzzle_id):
+        """The stored voice channel id of the puzzle (None if unset or no such
+        puzzle). A narrow read so a caller holding a stale PuzzleData can check."""
+        row = self._fetch_one(
+            "SELECT `voice_channel_id` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return row["voice_channel_id"] if row else None
+
+    def is_solved(self, puzzle_id) -> bool:
+        """The puzzle's current solved flag (False if no such puzzle). Narrow read."""
+        row = self._fetch_one("SELECT `solved` FROM `puzzles` WHERE `id` = %s", (puzzle_id,))
+        return bool(row and row["solved"])
+
+    def channel_id_for_voice(self, voice_channel_id):
+        """The text channel id of the puzzle whose voice channel is
+        *voice_channel_id*, or None. One narrow, indexed query and no hydration:
+        called for every voice join/leave in the guild. Silent (no log)."""
+        row = self._fetch_one(
+            "SELECT `channel_id` FROM `puzzles` WHERE `voice_channel_id` = %s LIMIT 1",
+            (voice_channel_id,))
+        return row["channel_id"] if row else None
+
+    def voice_due(self, cutoff: datetime.datetime) -> List[PuzzleData]:
+        """Solved puzzles in live hunts that still hold a voice channel and were
+        solved at or before *cutoff* (naive UTC). solve_time is cleared on unsolve,
+        so an unsolved puzzle never matches."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles JOIN hunts ON puzzles.hunt_id = hunts.id "
+            "WHERE hunts.archived = 0 AND puzzles.voice_channel_id IS NOT NULL "
+            "AND puzzles.voice_channel_id <> 0 AND puzzles.solved = 1 "
+            "AND puzzles.solve_time IS NOT NULL AND puzzles.solve_time <= %s",
+            (cutoff,))
+        return self.construct_puzzles(rows)
+
+    def with_voice(self, hunt_id) -> List[PuzzleData]:
+        """Every puzzle of the hunt that has a voice channel id."""
+        rows = self._fetch_all(
+            "SELECT puzzles.* FROM puzzles WHERE hunt_id = %s "
+            "AND voice_channel_id IS NOT NULL AND voice_channel_id <> 0", (hunt_id,))
+        return self.construct_puzzles(rows)
 
     def get_names_by_ids(self, ids) -> dict:
         """Return {puzzle_id: name} for the given ids, skipping unknown ids.
@@ -874,9 +952,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
     def _placeholders(count: int) -> str:
         return ", ".join(["%s"] * count)
 
-    def get_tags(self, puzzle):
-        self._hydrate_tags([puzzle])
-
     def _hydrate_tags(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
@@ -890,9 +965,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
             if gid not in puzzle.tags:
                 puzzle.tags.append(gid)
             puzzle.tag_edges.setdefault(gid, set()).add(row['edge_type'] or "feeds")
-
-    def get_additional_sheets(self, puzzle):
-        self._hydrate_additional_sheets([puzzle])
 
     def _hydrate_additional_sheets(self, puzzles):
         by_id = {p.id: p for p in puzzles}
@@ -908,14 +980,11 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
                 setattr(sheet, attr, row.get(attr, None))
             by_id[row['puzzle_id']].additional_sheets.append(sheet)
 
-    def get_is_target(self, puzzle):
+    def _hydrate_is_target(self, puzzles):
         """Derive is-target: True iff some tag_group targets this puzzle.
 
         Eager-loaded here (the single read seam) so is-meta reads stay free
         attribute accesses. Lookup on tag_group.target_puzzle_id."""
-        self._hydrate_is_target([puzzle])
-
-    def _hydrate_is_target(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
             "SELECT DISTINCT target_puzzle_id FROM tag_group"
@@ -926,7 +995,7 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         for pid, puzzle in by_id.items():
             puzzle.is_target = pid in targeted
 
-    def get_is_minimeta(self, puzzle):
+    def _hydrate_is_minimeta(self, puzzles):
         """Derive is-minimeta: True iff this puzzle has mini-children.
 
         A minimeta is keyed by parent_puzzle_id (the puzzle-keyed roll-up path),
@@ -934,9 +1003,6 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
         though its tab is promoted to the same shifted target geometry. Eager-load
         it here, the single read seam, so is-minimeta reads stay free attribute
         accesses (e.g. _header_shift needs it to offset solution/progress writes)."""
-        self._hydrate_is_minimeta([puzzle])
-
-    def _hydrate_is_minimeta(self, puzzles):
         by_id = {p.id: p for p in puzzles}
         rows = self._fetch_all(
             "SELECT DISTINCT parent_puzzle_id FROM puzzles"
@@ -1064,18 +1130,17 @@ class MySQLPuzzleJsonDb(_MySQLBaseDb):
 class MySQLChannelActivityDb(_MySQLBaseDb):
     TABLE_NAME = 'channel_activity'
 
-    def record(self, channel_id, guild_id, at, author_id, author_name):
+    def record(self, channel_id, guild_id, at, author_name):
         """Upsert the most recent human (non-bot) message seen in a channel."""
         self._exec(
             "INSERT INTO channel_activity "
-            "(channel_id, guild_id, last_human_message_at, last_author_id, last_author_name) "
-            "VALUES (%s, %s, %s, %s, %s) "
+            "(channel_id, guild_id, last_human_message_at, last_author_name) "
+            "VALUES (%s, %s, %s, %s) "
             "ON DUPLICATE KEY UPDATE "
             "guild_id=VALUES(guild_id), "
             "last_human_message_at=VALUES(last_human_message_at), "
-            "last_author_id=VALUES(last_author_id), "
             "last_author_name=VALUES(last_author_name)",
-            (channel_id, guild_id, at, author_id, author_name),
+            (channel_id, guild_id, at, author_name),
         )
 
 class MySQLPuzzleActivityDb(_MySQLBaseDb):
@@ -1730,14 +1795,14 @@ class MySQLGuildSettingsDb():
         cursor = self.mydb.cursor()
         data = (settings.guild_id, settings.guild_name, settings.website_url,
                 settings.discord_bot_channel, settings.discord_bot_emoji, settings.discord_use_voice_channels,
-                settings.drive_parent_id, settings.drive_resources_id,
+                settings.drive_parent_id,
                 settings.admin_role_ids or None, settings.organiser_role_ids or None,
                 settings.template_link or None, settings.multi_team_category or "",
                 settings.archive_category or "")
         if settings.id > 0:
             update_stmt = ("UPDATE `guilds` SET `guild_id`=%s,`guild_name`=%s, `website_url`=%s,"
                            "`discord_bot_channel`=%s,`discord_bot_emoji`=%s,`discord_use_voice_channels`=%s,"
-                           "`drive_parent_id`=%s,`drive_resources_id`=%s,"
+                           "`drive_parent_id`=%s,"
                            "`admin_role_ids`=%s,`organiser_role_ids`=%s,`template_link`=%s,"
                            "`multi_team_category`=%s,`archive_category`=%s "
                            "WHERE id=%s")
@@ -1746,10 +1811,10 @@ class MySQLGuildSettingsDb():
         else:
             insert_stmt = ("INSERT INTO `guilds`(`guild_id`, `guild_name`, `website_url`,"
                            "`discord_bot_channel`, `discord_bot_emoji`, `discord_use_voice_channels`, "
-                           "`drive_parent_id`, `drive_resources_id`, "
+                           "`drive_parent_id`, "
                            "`admin_role_ids`, `organiser_role_ids`, `template_link`, "
                            "`multi_team_category`, `archive_category`) "
-                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+                           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
             cursor.execute(insert_stmt, data)
             settings.id = cursor.lastrowid or 0
         cursor.close()

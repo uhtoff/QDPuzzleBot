@@ -22,36 +22,6 @@ def _grp_text_ctx(channel_id, category_id):
     return ctx
 
 
-def test_forum_group_channel_classifies_as_group_by_channel_id():
-    # A forum-mode group's general channel is a normal text channel whose OWN id is
-    # the group's category_id (no parent category match).
-    import asyncio
-    from bot.cogs.puzzles import Puzzles
-
-    group = make_round(id=1, category_id=4242)
-    group.type = "Group"
-    ctx = _grp_text_ctx(channel_id=4242, category_id=1)
-
-    bot = MagicMock(); bot.get_cog.return_value = None
-    cog = Puzzles(bot)
-
-    with patch("bot.cogs.puzzles.GuildSettingsDb") as GuildDb, \
-         patch("bot.cogs.puzzles.PuzzleJsonDb"), \
-         patch("bot.cogs.puzzles.HuntJsonDb") as HuntDb, \
-         patch("bot.cogs.puzzles.TagGroupJsonDb") as RoundDb:
-        GuildDb.get.return_value = MagicMock()
-        GuildDb.get_channel_type.return_value = "Group"          # channel's own id is 'Group'
-        HuntDb.get_by_attr.return_value = MagicMock()
-        # The group's category_id == ctx.channel.id (4242); the parent category (1) misses.
-        RoundDb.get_by_attr.side_effect = \
-            lambda **kw: group if kw.get("category_id") == 4242 else None
-        asyncio.run(cog.cog_before_invoke(ctx))
-
-    env = cog.environment[999]
-    assert env["channel_type"] == "Group"
-    assert env["tag_group"] is group        # proves lookup by ctx.channel.id
-
-
 def test_channel_group_classifies_via_category():
     # channel-mode group: the general channel's .category.id is the group's category_id.
     import asyncio

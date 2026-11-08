@@ -277,7 +277,6 @@ def _svc_with(cog):
     svc.refresh_target = AsyncMock()
     svc.refresh_minimeta = AsyncMock()
     svc.refresh_header_links = AsyncMock()
-    svc._update_forum_tags = AsyncMock()
     return svc
 
 
@@ -401,7 +400,6 @@ def test_service_unsolve_of_a_puzzle_with_no_file_completes_and_badges_it(
     assert puzzle.solved is False and puzzle.solution == ""
     PuzzleDb.commit.assert_called_with(puzzle)
     assert rec.calls == []          # nothing was addressed to the wrong spreadsheet
-    svc._update_forum_tags.assert_awaited_once()
 
 
 # ----------------------------------------------------------------- rename

@@ -68,55 +68,6 @@ async def test_composite_notifier_with_no_sinks_is_a_noop():
     assert await comp.refresh_info(guild=None, hunt=None, puzzle=None) is None
 
 
-# ---- forum guidelines sync on refresh ----
-
-@pytest.mark.asyncio
-async def test_discord_refresh_info_syncs_forum_guidelines():
-    # In a forum-mode hunt, refreshing a meta's pinned info must also re-sync the
-    # forum guidelines/topic so a rename or solve keeps the rules in step.
-    cog = MagicMock()
-    cog.send_initial_metapuzzle_channel_messages = AsyncMock()
-    bot = MagicMock(); bot.get_cog.return_value = cog
-    n = DiscordNotifier(bot)
-
-    guild = MagicMock(); guild.get_channel_or_thread.return_value = MagicMock()
-    hunt = MagicMock(); hunt.layout_mode = "forum"
-    puzzle = MagicMock(); puzzle.is_target = True; puzzle.channel_id = 50; puzzle.id = 9
-    puzzle.tags = [1]
-    group = MagicMock(); group.target_puzzle_id = 9; group.type = "Metapuzzle"
-
-    sync = AsyncMock()
-    with patch("bot.store.TagGroupJsonDb") as tdb, \
-         patch("bot.core.forum_config.sync_forum_guidelines", sync):
-        tdb.get_by_attr.return_value = group
-        await n.refresh_info(guild, hunt, puzzle)
-
-    sync.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_discord_refresh_info_skips_guidelines_for_channel_hunt():
-    # Channel-mode hunts have no forum guidelines to sync.
-    cog = MagicMock()
-    cog.send_initial_metapuzzle_channel_messages = AsyncMock()
-    bot = MagicMock(); bot.get_cog.return_value = cog
-    n = DiscordNotifier(bot)
-
-    guild = MagicMock(); guild.get_channel_or_thread.return_value = MagicMock()
-    hunt = MagicMock(); hunt.layout_mode = "channel"
-    puzzle = MagicMock(); puzzle.is_target = True; puzzle.channel_id = 50; puzzle.id = 9
-    puzzle.tags = [1]
-    group = MagicMock(); group.target_puzzle_id = 9; group.type = "Metapuzzle"
-
-    sync = AsyncMock()
-    with patch("bot.store.TagGroupJsonDb") as tdb, \
-         patch("bot.core.forum_config.sync_forum_guidelines", sync):
-        tdb.get_by_attr.return_value = group
-        await n.refresh_info(guild, hunt, puzzle)
-
-    sync.assert_not_awaited()
-
-
 # ---- welcome: hunt-channel dispatch (#81) ----
 
 @pytest.mark.asyncio

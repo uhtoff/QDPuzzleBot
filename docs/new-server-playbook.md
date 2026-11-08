@@ -47,7 +47,6 @@ On the dashboard under **Server settings**, or from any channel the bot can see:
 ```
 !update_settings discord_bot_channel bot-commands
 !update_settings drive_parent_id <Google Drive folder id>
-!update_settings drive_resources_id <Google Doc id>      # optional
 !update_settings discord_use_voice_channels true         # optional, off by default
 ```
 
@@ -101,8 +100,7 @@ Notes:
 ```
 
 The trailing `, Team A` gates the hunt to that team role (`!set_hunt_role hunt-name, Team A`
-sets it afterwards). Append `, forum` for the forum-backed layout — note the forum path is
-being left to go stale; prefer the default category layout.
+sets it afterwards).
 
 **Then, manually, in Discord:** set the team role's permission overwrite on the hunt's
 **initial category**. Nothing in the bot does this. Every later category the bot creates

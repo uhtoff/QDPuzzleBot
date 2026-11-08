@@ -951,13 +951,13 @@ class TestWebSetPuzzleUrl:
 
 
 # ---------------------------------------------------------------------------
-# convert_to_meta (service) — mirrors !convert_to_meta + _round_impl convert
-# branch: create a RoundData wrapping the puzzle (type "Metapuzzle"), meta_id =
-# puzzle.id, generate meta_code; then puzzle.add_tag(round.id), metapuzzle=1,
-# commit. gsheet restructure (promote_tab_to_group) + channel-type live at
-# the edge / are skipped with no gsheet cog. Method returns (round, puzzle).
-# NOTE: _round_impl calls TagGroupJsonDb.generate_uid for meta_code — the harness
-# must give TagGroupJsonDb.generate_uid a return value (e.g. "MCODE1").
+# convert_to_type(..., "Metapuzzle") (service) — the one seam behind both
+# !convert_to_meta and the web convert route. On a bare puzzle it promotes in
+# place: a TagGroupData of type "Metapuzzle" with target_puzzle_id = puzzle.id
+# and a generated group_code; then puzzle.add_tag(group.id), is_target=True,
+# commit. gsheet restructure (promote_tab_to_group) is skipped with no gsheet cog;
+# the edge flip and source-mode render are stubbed. Returns (group, summary).
+# NOTE: the harness must give TagGroupJsonDb.generate_uid a return value.
 # ---------------------------------------------------------------------------
 class TestWebConvertToMeta:
     @pytest.fixture
@@ -990,7 +990,11 @@ class TestWebConvertToMeta:
             mock_hdb.get_by_attr.return_value = hunt
             mock_gsdb.get.return_value = None
 
-            result = await cog.service.convert_to_meta(_no_guild(), hunt, puzzle)
+            cog.service.bulk_re_edge = AsyncMock(return_value="flipped 0 → feeds")
+            cog.service.set_source_mode = AsyncMock()
+            cog.service.notifier.refresh_info = AsyncMock()
+            result = await cog.service.convert_to_type(
+                _no_guild(), hunt, puzzle, "Metapuzzle")
 
         return result
 

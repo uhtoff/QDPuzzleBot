@@ -11,7 +11,7 @@ AT = datetime.datetime(2026, 11, 1, 12, 1)
 
 def _record(channel_id=1001):
     return {"channel_id": channel_id, "guild_id": 7, "at": AT,
-            "author_id": 9, "author_name": "alice"}
+            "author_name": "alice"}
 
 
 async def _drain(records, last_db, slot_db):

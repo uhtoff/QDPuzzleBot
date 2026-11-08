@@ -179,6 +179,8 @@ async def hunt_detail(uid):
             "password": hunt.get("password") or "",
             "url_sep": hunt.get("url_sep") or "-",
             "puzzle_prefix": hunt.get("puzzle_prefix") or "puzzle",
+            **data.voice_fields(guild_snowflake, hunt.get("voice_channel_id")),
+            "voice_per_puzzle": bool(hunt.get("voice_per_puzzle")),
         },
         "summary": {"total": len(puzzles), "solved": solved},
         "board": board,
@@ -907,9 +909,11 @@ async def ws_activity():
                 visible = await _activity_event_visible(event, user["id"], event["guild_id"])
             elif event.get("type") == "board":
                 visible = await _board_event_visible(event, membership, roles_by_guild)
-            elif event.get("type") in ("message", "message_edit", "message_delete"):
+            elif event.get("type") in ("message", "message_edit", "message_delete", "voice"):
                 # Live channels only (archived channels emit no events); the live
                 # channel-permission check matches the same per-hunt role gate.
+                # "voice" carries the puzzle's (or hunt general) TEXT channel id, so
+                # the same check applies.
                 visible = await _activity_event_visible(event, user["id"], event["guild_id"])
 
             if visible:

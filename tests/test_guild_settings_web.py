@@ -40,7 +40,7 @@ def web():
         id=3, guild_id=SNOWFLAKE, guild_name="Team A", website_url="",
         discord_bot_channel="bot-commands", discord_bot_emoji="",
         discord_use_voice_channels=False,
-        drive_parent_id="DRIVE1", drive_resources_id="",
+        drive_parent_id="DRIVE1",
         admin_role_ids=str(RUNNERS_ID), organiser_role_ids=str(HELPERS_ID),
         template_link="https://discord.new/old", multi_team_category="general",
         archive_category="",

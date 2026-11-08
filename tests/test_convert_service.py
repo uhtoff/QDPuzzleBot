@@ -207,30 +207,7 @@ class TestConvertToType:
             mhdb.get_by_attr.return_value = make_hunt()
             await cog.service.convert_to_type(None, make_hunt(), puz, "Metapuzzle")
         mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "target")
-
-
-class TestConvertToMeta:
-    """convert_to_meta wraps a feeder in a new round; the new target's self-edge
-    is 'target' (it is the thing fed, not a feeder)."""
-
-    @pytest.mark.asyncio
-    async def test_tags_target_self_edge(self):
-        cog = _make_cog_convert()
-        puz = make_puzzle(id=7)
-        cog.service.notifier = MagicMock()
-        cog.service.notifier.board_changed = AsyncMock()
-        cog.service.notifier.refresh_info = AsyncMock()
-        cog.service._update_forum_tags = AsyncMock()
-        with patch("bot.core.puzzle_service.PuzzleJsonDb") as mpdb, \
-             patch("bot.core.puzzle_service.TagGroupJsonDb") as mrdb, \
-             patch("bot.core.puzzle_service.HuntJsonDb") as mhdb:
-            mpdb.commit.side_effect = lambda p: None
-            mrdb.commit.side_effect = lambda r: setattr(r, "id", 42)
-            mrdb.generate_uid.return_value = "GCODE1"
-            mhdb.get_by_attr.return_value = make_hunt()
-            _new_round, puzzle = await cog.service.convert_to_meta(None, make_hunt(), puz)
-        mpdb.tag_puzzle_with_edge.assert_called_once_with(7, 42, "target")
-        assert puzzle.has_edge(42, "target")
+        assert puz.has_edge(42, "target")
 
 
 class TestConvertToPuzzle:
@@ -876,7 +853,7 @@ class TestConvertToPuzzleDemoteGuard:
     """M16 (sibling of remove_minimeta's guard): convert_to_puzzle demoted the
     tab unconditionally.
 
-    convert_to_meta commits ``is_target=True`` BEFORE promote_tab_to_group, so a
+    convert_to_type commits ``is_target=True`` BEFORE promote_tab_to_group, so a
     Sheets failure there leaves a targeted puzzle whose tab was never promoted —
     no contribution columns, no Table of ours. Demoting that tab deletes columns
     A-D of an ordinary puzzle tab (the solver grid), with no undo. Demote only
@@ -935,7 +912,7 @@ class TestConvertToPuzzleDemoteGuard:
 
     @pytest.mark.asyncio
     async def test_refuses_to_demote_a_tab_that_was_never_promoted(self):
-        # convert_to_meta's promote_tab_to_group failed: is_target committed,
+        # convert_to_type's promote_tab_to_group failed: is_target committed,
         # tab untouched, no Table at all.
         meta = make_puzzle(id=1, is_target=True, channel_id=901, tags=[])
         meta.google_page_id = 77

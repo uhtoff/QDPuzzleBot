@@ -78,7 +78,7 @@ def _tag_rows(tag_group_id, puzzle_id):
     return rows
 
 
-def test_get_tags_populates_tag_edges():
+def test_hydrate_tags_populates_tag_edges():
     rid_default = _insert_tag_group()
     rid_aggr = _insert_tag_group()
     pid = _insert_puzzle()
@@ -88,7 +88,7 @@ def test_get_tags_populates_tag_edges():
 
         puzzle = PuzzleData()
         puzzle.id = pid
-        PuzzleJsonDb.get_tags(puzzle)
+        PuzzleJsonDb._hydrate_tags([puzzle])
 
         # tags is unchanged: still the list of tag_group_ids.
         assert set(puzzle.tags) == {rid_default, rid_aggr}

@@ -20,9 +20,6 @@ GLYPHS = {
 # category rather than owning one) keeps just its kind glyph, no marker.
 PRIMARY_MARKER = "⭐"
 
-# Longest first so a metameta ("🧩🧩") isn't half-stripped as a meta ("🧩").
-_STRIP_ORDER = sorted(GLYPHS.values(), key=len, reverse=True)
-
 
 def glyph_for_kind(kind):
     """The glyph for a structural kind, or "" for kinds/None that carry none."""
@@ -45,13 +42,3 @@ def marked_name(kind, clean_name, is_primary):
     return name
 
 
-def strip_glyph(channel_name):
-    """*channel_name* with a leading PRIMARY_MARKER and/or known glyph (and its
-    '-' separator, if any) removed; unchanged if there is no leading glyph."""
-    if channel_name.startswith(PRIMARY_MARKER):
-        channel_name = channel_name[len(PRIMARY_MARKER):]
-    for glyph in _STRIP_ORDER:
-        if channel_name.startswith(glyph):
-            rest = channel_name[len(glyph):]
-            return rest[1:] if rest.startswith("-") else rest
-    return channel_name

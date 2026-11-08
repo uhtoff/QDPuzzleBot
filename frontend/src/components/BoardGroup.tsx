@@ -30,6 +30,8 @@ import {
 } from "../api";
 import { DeleteRoundModal } from "./DeleteRoundModal";
 import { PuzzleLinks } from "./PuzzleLinks";
+import { VoiceBadge } from "./VoiceBadge";
+import { puzzleVoiceCount, voiceRowBg, type LiveVoice } from "../lib/voice";
 import { MetaBadge, getKind, kindColorVar } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
@@ -45,10 +47,11 @@ interface Props {
   group: BoardGroupType;
   detail: HuntDetail;
   live: Record<string, LiveActivity>;
+  voice: LiveVoice;
   onOpenNotes: (puzzle: Puzzle) => void;
 }
 
-export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
+export function BoardGroup({ group, detail, live, voice, onOpenNotes }: Props) {
   const solvedAll = group.target_solved;
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
@@ -228,7 +231,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
         )}
         {/* Delete round button — organiser only, non-archived, real rounds only */}
         {group.tag_group_id !== 0 && isOrganiser && editable && (
-          <Tooltip label="Delete this round and all its puzzles">
+          <Tooltip label="Delete this round…">
             <ActionIcon
               variant="subtle"
               color="red"
@@ -252,9 +255,10 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                 ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
                 : {};
               const rowKind = getKind(p);
+              const voiceCount = puzzleVoiceCount(p, voice);
               return (
               <Fragment key={`${group.tag_group_id}-${p.id}`}>
-                <Table.Tr bg={p.solved ? "var(--mantine-color-green-light)" : undefined}>
+                <Table.Tr bg={voiceRowBg(p.solved, voiceCount)}>
                   {/* Kind strip — both layouts */}
                   <Table.Td w={4} p={0} style={{ backgroundColor: rowKind ? kindColorVar(rowKind.color) : undefined }} />
                   {isNarrow ? (
@@ -270,6 +274,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                         <Group gap={6} wrap="nowrap">
                           <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                           <MiniCountBadge puzzle={p} />
+                          <VoiceBadge count={voiceCount} />
                         </Group>
                         <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
                           {p.solution || "—"}
@@ -299,6 +304,7 @@ export function BoardGroup({ group, detail, live, onOpenNotes }: Props) {
                           <MetaBadge puzzle={p} />
                           <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
                           <MiniCountBadge puzzle={p} />
+                          <VoiceBadge count={voiceCount} />
                         </Group>
                       </Table.Td>
                       <Table.Td {...bandProps}>

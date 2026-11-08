@@ -27,8 +27,6 @@ def _hunt():
 
 def _svc_with_sheets():
     gsheet = MagicMock()
-    gsheet.add_metapuzzle_data = AsyncMock()
-    gsheet.add_metametapuzzle_data = AsyncMock()
     gsheet.render_contribution = AsyncMock()
     gsheet.move_puzzle_to_solved_sheet = AsyncMock()
     gsheet.stamp_rollup_metadata = AsyncMock(return_value=(None, None))

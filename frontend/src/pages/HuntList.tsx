@@ -127,8 +127,8 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
-  const [forumLayout, setForumLayout] = useState(false);
   const [filesMode, setFilesMode] = useState(false);
+  const [voicePerPuzzle, setVoicePerPuzzle] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRole, setConfirmRole] = useState<{ message: string; payload: CreateHuntPayload } | null>(null);
 
@@ -154,6 +154,15 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           notifications.show({
             message: "Hunt created, but it couldn't be gated to that role — it's open (ungated).",
             color: "yellow",
+          });
+        }
+        // Stays until dismissed: gated servers are rare, so this is easy to forget.
+        if (data.organiser_reminder) {
+          notifications.show({
+            title: "Organiser role on this server",
+            message: data.organiser_reminder,
+            color: "yellow",
+            autoClose: false,
           });
         }
         onClose();
@@ -182,7 +191,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     // A files hunt has no solved spreadsheet, so the two are never sent together.
     if (filesMode) payload.sheet_mode = "files";
     else if (createSolvedSheet) payload.create_solved_sheet = true;
-    if (forumLayout) payload.layout_mode = "forum";
+    payload.voice_per_puzzle = voicePerPuzzle;
 
     submit(payload);
   };
@@ -261,12 +270,6 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
               onChange={(e) => setPassword(e.currentTarget.value)}
             />
             <Switch
-              label="Forum-backed layout"
-              description="Use a forum channel per round (each puzzle is a post) instead of a category per round. Fixed at creation."
-              checked={forumLayout}
-              onChange={(e) => setForumLayout(e.currentTarget.checked)}
-            />
-            <Switch
               label="One spreadsheet per puzzle"
               description="A Drive folder holds a spreadsheet for each puzzle instead of a tab per puzzle."
               checked={filesMode}
@@ -282,6 +285,13 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
             onChange={(e) => setCreateSolvedSheet(e.currentTarget.checked)}
           />
         )}
+
+        <Checkbox
+          label="Voice channel for every puzzle"
+          description="Each new puzzle gets its own voice channel. Can be changed later in Admin settings."
+          checked={voicePerPuzzle}
+          onChange={(e) => setVoicePerPuzzle(e.currentTarget.checked)}
+        />
 
         <Button onClick={handleSubmit} loading={createMut.isPending} disabled={!canSubmit}>
           Create hunt

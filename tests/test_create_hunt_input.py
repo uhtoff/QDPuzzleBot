@@ -1,16 +1,19 @@
-"""Creation-time forum-layout selector: !hunt parser + POST /api/hunts.
-
-Covers the two *write surfaces* that let an admin opt a new hunt into forum mode:
-  - the Discord ``!hunt`` command's optional trailing ``, forum`` token, and
-  - the web ``POST /api/hunts`` ``layout_mode`` body field.
-Both must forward ``layout_mode`` into ``service.create_hunt``. Helpers are uniquely
-named and local to this file (the parallel runner shards by file).
+"""Hunt-creation input handling: the !hunt argument parser and POST /api/hunts
+body validation. Helpers are uniquely named and local to this file (the parallel
+runner shards by file).
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tests.conftest import make_cog, make_ctx, make_web_app, start_patches, stop_patches
+
+
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
 
 
 # --------------------------------------------------------------- bang command
@@ -32,28 +35,13 @@ async def _run_hunt(cog, arg):
 
 
 @pytest.mark.asyncio
-async def test_hunt_default_layout_is_channel():
+async def test_hunt_parses_name_url_and_role():
     cog = _hunt_cog()
-    args, kwargs = await _run_hunt(cog, "mystery:https://h/")
-    assert kwargs.get("layout_mode") == "channel"
-
-
-@pytest.mark.asyncio
-async def test_hunt_forum_token_selects_forum():
-    cog = _hunt_cog()
-    args, kwargs = await _run_hunt(cog, "mystery:https://h/, forum")
-    assert kwargs.get("layout_mode") == "forum"
-    # name/url unaffected by the trailing token
+    args, kwargs = await _run_hunt(cog, "mystery:https://h/, Team A")
     assert args[1] == "mystery"
     assert args[2] == "https://h/"
-
-
-@pytest.mark.asyncio
-async def test_hunt_role_and_forum_token_coexist():
-    cog = _hunt_cog()
-    args, kwargs = await _run_hunt(cog, "mystery:https://h/, Team A, forum")
-    assert kwargs.get("layout_mode") == "forum"
-    assert args[3] == "Team A"          # role still parsed
+    assert args[3] == "Team A"
+    assert "layout_mode" not in kwargs   # the forum layout option is gone
 
 
 # ------------------------------------------------------------------- web API
@@ -88,21 +76,16 @@ def _body(**extra):
 
 
 @pytest.mark.asyncio
-async def test_web_create_hunt_forwards_layout_mode(web):
+async def test_web_create_hunt_rejects_layout_mode_as_unknown_key(web):
+    # The forum layout option is gone: a client still sending layout_mode is
+    # refused before any Discord/Sheets work, not silently ignored.
     app, cog = web
     client = app.test_client()
     resp = await client.post("/api/hunts", json=_body(layout_mode="forum"))
-    assert resp.status_code == 200
-    _, kwargs = cog.service.create_hunt.call_args
-    assert kwargs.get("layout_mode") == "forum"
-
-
-@pytest.mark.asyncio
-async def test_web_create_hunt_rejects_bad_layout_mode(web):
-    app, cog = web
-    client = app.test_client()
-    resp = await client.post("/api/hunts", json=_body(layout_mode="bogus"))
     assert resp.status_code == 400
+    body = await resp.get_json()
+    assert body["error"] == "bad_keys"
+    assert body["unknown"] == ["layout_mode"]
     cog.service.create_hunt.assert_not_awaited()
 
 

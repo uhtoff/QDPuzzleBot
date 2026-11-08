@@ -4,7 +4,7 @@
 `_render_rollup` so a read path (the aggregated-answers endpoint) can reuse the
 SAME selection the sheet render uses, WITHOUT the Google-Sheet side-effect. These
 tests pin the puzzle-id set returned per `source_mode` and assert that neither
-renderer is awaited (the selector is pure — no sheet write).
+contribution renderer is awaited (the selector is pure — no sheet write).
 
 The seam is copied module-local from tests/test_refresh_meta.py (NOT imported from
 the sibling file, so this file is self-contained under the parallel gate).
@@ -23,8 +23,8 @@ def _svc_with_sheets():
     """A PuzzleService whose (mocked) GoogleSheets cog exposes the two renderers,
     so a test can assert the selector NEVER awaits them."""
     gsheet = MagicMock()
-    gsheet.add_metapuzzle_data = AsyncMock()
-    gsheet.add_metametapuzzle_data = AsyncMock()
+    gsheet.render_contribution = AsyncMock()
+    gsheet.render_minimeta_contribution = AsyncMock()
     bot = MagicMock()
     bot.get_cog.return_value = gsheet
     return PuzzleService(bot), gsheet
@@ -51,8 +51,8 @@ class TestSelectRollupMembers:
             pdb.get_all_from_tag_group.return_value = [feeder]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
-        gsheet.add_metapuzzle_data.assert_not_awaited()
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
+        gsheet.render_contribution.assert_not_awaited()
+        gsheet.render_minimeta_contribution.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_round_mode_excludes_non_matching_edge_type(self):
@@ -126,8 +126,8 @@ class TestSelectRollupMembers:
                 5: [target, nested_meta], 6: [nested_meta, solved]}.get(rid, [])
             members = await svc.select_rollup_members(meta_round, rollup)
         assert sorted(p.id for p in members) == [2, 7]
-        gsheet.add_metapuzzle_data.assert_not_awaited()
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
+        gsheet.render_contribution.assert_not_awaited()
+        gsheet.render_minimeta_contribution.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_explicit_mode_returns_only_none_edge_members(self):
@@ -142,8 +142,8 @@ class TestSelectRollupMembers:
             pdb.get_all_from_tag_group.return_value = [pooled, other]
             members = await svc.select_rollup_members(meta_round, rollup)
         assert [p.id for p in members] == [2]
-        gsheet.add_metapuzzle_data.assert_not_awaited()
-        gsheet.add_metametapuzzle_data.assert_not_awaited()
+        gsheet.render_contribution.assert_not_awaited()
+        gsheet.render_minimeta_contribution.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_falsy_source_mode_defaults_to_round(self):

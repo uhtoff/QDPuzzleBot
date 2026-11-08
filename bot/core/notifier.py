@@ -224,11 +224,6 @@ class DiscordNotifier(Notifier):
         except Exception:
             logger.exception("refresh_info: failed for puzzle %s", puzzle.id)
 
-        # Forum-mode metas keep their guidelines/topic in step with the welcome.
-        if tag_group is not None and getattr(hunt, "layout_mode", None) == "forum":
-            from bot.core.forum_config import sync_forum_guidelines
-            await sync_forum_guidelines(guild, hunt, tag_group, puzzle)
-
     async def refresh_group_info(self, guild, hunt, tag_group) -> None:
         """Refresh a bare-Group channel's pinned welcome after a type change."""
         if guild is None or tag_group is None:

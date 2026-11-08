@@ -72,7 +72,6 @@ class ChannelActivity(commands.Cog):
             "channel_id": message.channel.id,
             "guild_id": message.guild.id,
             "at": message.created_at.replace(tzinfo=None),  # store naive UTC, as elsewhere
-            "author_id": message.author.id,
             "author_name": author_name,
         }
         try:

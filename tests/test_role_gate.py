@@ -141,3 +141,67 @@ def test_organiser_gate_active_by_name_when_unconfigured():
     guild = _guild(_role(101, "Organiser"))
     with _with_settings(_settings()):
         assert role_gate.organiser_gate_active(guild) is True
+
+
+# ---------------------------------------------------------------- organiser reminder
+
+def _member(name, id):
+    return SimpleNamespace(display_name=name, id=id)
+
+
+def test_no_reminder_when_the_organiser_tier_is_open_to_everyone():
+    guild = _guild(_role(101, "Solvers"))
+    with _with_settings(_settings()):
+        assert role_gate.organiser_reminder(guild) is None
+
+
+def test_reminder_names_the_role_and_its_holders():
+    org = _role(800, "Hunt Helpers")
+    org.members = [_member("Bob", 2), _member("Alice", 1)]
+    other = _role(801, "Solvers")
+    other.members = [_member("Carol", 3)]
+    guild = _guild(org, other)
+    with _with_settings(_settings(organiser_role_ids="800")):
+        text = role_gate.organiser_reminder(guild)
+    assert text is not None
+    assert "**Hunt Helpers**" in text
+    assert "Solvers" not in text and "Carol" not in text
+    # Sorted, deduplicated holder list with the count.
+    assert "2 people have it: Alice, Bob" in text
+
+
+def test_reminder_dedupes_members_holding_two_organiser_roles():
+    a, b = _role(800, "Organiser"), _role(801, "Organisers")
+    alice = _member("Alice", 1)
+    a.members, b.members = [alice], [alice]
+    guild = _guild(a, b)
+    with _with_settings(_settings()):
+        text = role_gate.organiser_reminder(guild)
+    assert "**Organiser**, **Organisers**" in text
+    assert "1 person has it: Alice" in text
+
+
+def test_reminder_is_louder_when_nobody_holds_the_role():
+    org = _role(800, "Organiser")
+    org.members = []
+    guild = _guild(org)
+    with _with_settings(_settings()):
+        text = role_gate.organiser_reminder(guild)
+    assert "Nobody has it yet" in text
+
+
+def test_reminder_when_configured_role_was_deleted():
+    guild = _guild(_role(101, "Solvers"))
+    with _with_settings(_settings(organiser_role_ids="800")):
+        text = role_gate.organiser_reminder(guild)
+    assert text is not None and "Nobody has it yet" in text
+
+
+def test_plain_reminder_for_the_dashboard_has_no_discord_markup():
+    org = _role(800, "Organiser")
+    org.members = []
+    guild = _guild(org)
+    with _with_settings(_settings()):
+        text = role_gate.organiser_reminder(guild, markdown=False)
+    assert "**" not in text and ":warning:" not in text
+    assert text.startswith("On this server only Organiser (or an admin)")

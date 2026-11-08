@@ -11,6 +11,14 @@ from tests.conftest import (make_cog, make_ctx, make_hunt, make_hunt_ctx,
                             make_web_app, start_patches, stop_patches)
 
 
+@pytest.fixture(autouse=True)
+def _no_organiser_reminder():
+    """Mock guilds would send organiser_reminder to the real settings DB; tests
+    that care about the reminder patch it themselves (nested patch wins)."""
+    with patch("bot.core.role_gate.organiser_reminder", return_value=None):
+        yield
+
+
 # --------------------------------------------------------------- !hunt parser
 def _hunt_cog():
     cog = make_cog()
@@ -39,24 +47,8 @@ async def test_hunt_default_is_tabs():
 async def test_hunt_files_token_selects_files():
     args, kwargs = await _run_hunt("m:https://h/, files")
     assert kwargs["sheet_mode"] == "files"
-    assert kwargs["layout_mode"] == "channel"
+    assert "layout_mode" not in kwargs
     assert (args[1], args[2], args[3]) == ("m", "https://h/", None)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("tail", [", forum, files", ", files, forum"])
-async def test_hunt_forum_and_files_in_either_order(tail):
-    args, kwargs = await _run_hunt("m:https://h/, Team A" + tail)
-    assert kwargs["sheet_mode"] == "files"
-    assert kwargs["layout_mode"] == "forum"
-    assert args[3] == "Team A"
-    assert args[2] == "https://h/"
-
-
-@pytest.mark.asyncio
-async def test_hunt_forum_alone_stays_tabs():
-    _, kwargs = await _run_hunt("m:https://h/, forum")
-    assert (kwargs["layout_mode"], kwargs["sheet_mode"]) == ("forum", "tabs")
 
 
 @pytest.mark.asyncio
@@ -285,3 +277,86 @@ async def test_solved_sheet_route_on_a_files_hunt_is_409(web):
     resp = await web.client.post("/api/hunts/U1/solved-sheet")
     assert resp.status_code == 409
     assert (await resp.get_json())["error"] == "files_mode_no_solved_sheet"
+
+
+# ------------------------------------------------- organiser reminder at creation
+@pytest.mark.asyncio
+async def test_web_create_hunt_returns_the_organiser_reminder(web):
+    with patch("bot.web.actions.role_gate.organiser_reminder",
+               return_value="On this server only Organiser ...") as rem:
+        resp = await web.client.post("/api/hunts", json=_body())
+    assert (await resp.get_json())["organiser_reminder"] == "On this server only Organiser ..."
+    assert rem.call_args.kwargs["markdown"] is False
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_omits_reminder_on_an_ungated_server(web):
+    with patch("bot.web.actions.role_gate.organiser_reminder", return_value=None):
+        resp = await web.client.post("/api/hunts", json=_body())
+    assert "organiser_reminder" not in await resp.get_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reminder", [":warning: gated", None])
+async def test_hunt_command_posts_the_organiser_reminder(reminder):
+    from bot.cogs.puzzles import Puzzles
+    cog = _hunt_cog()
+    cog.create_hunt = AsyncMock(return_value=MagicMock())
+    ctx = make_ctx()
+    with patch("bot.cogs.puzzles.HuntJsonDb") as hdb, \
+         patch("bot.cogs.puzzles.role_gate.organiser_reminder", return_value=reminder):
+        hdb.check_duplicates.return_value = False
+        await Puzzles.hunt.callback(cog, ctx, arg="m:https://u")
+    sent = [c.args[0] for c in ctx.send.call_args_list]
+    assert sent[0].startswith(":white_check_mark:")
+    assert (":warning: gated" in sent) is (reminder is not None)
+    assert len(sent) == (2 if reminder else 1)
+
+
+# ------------------------------------------------- voice-for-every-puzzle at creation
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arg,expected_mode,expected_role", [
+    ("m:https://h/, voice", "tabs", None),
+    ("m:https://h/, files, voice", "files", None),
+    ("m:https://h/, voice, files", "files", None),
+    ("m:https://h/, Team A, Voice", "tabs", "Team A"),
+])
+async def test_hunt_voice_token(arg, expected_mode, expected_role):
+    args, kwargs = await _run_hunt(arg)
+    assert kwargs["voice_per_puzzle"] is True
+    assert kwargs["sheet_mode"] == expected_mode
+    assert (args[1], args[2], args[3]) == ("m", "https://h/", expected_role)
+
+
+@pytest.mark.asyncio
+async def test_hunt_without_voice_token_leaves_the_server_default():
+    _, kwargs = await _run_hunt("m:https://h/, files")
+    assert kwargs["voice_per_puzzle"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_hunt_wrapper_forwards_voice_choice_to_service():
+    from bot.cogs.puzzles import Puzzles
+    cog = make_cog()
+    cog.check_available_space = AsyncMock(return_value=True)
+    cog.get_guild_data = lambda ctx: MagicMock(id=1)
+    cog.bot = MagicMock()
+    cog.service.create_hunt = AsyncMock(return_value=MagicMock(role_id=0, channel_id=0))
+    with patch("bot.core.notifier.DiscordNotifier") as dn:
+        dn.return_value.welcome = AsyncMock()
+        await Puzzles.create_hunt(cog, make_ctx(), "m", "u", None, voice_per_puzzle=True)
+    assert cog.service.create_hunt.call_args.kwargs["voice_per_puzzle"] is True
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_forwards_voice_per_puzzle(web):
+    resp = await web.client.post("/api/hunts", json=_body(voice_per_puzzle=True))
+    assert resp.status_code == 200
+    assert web.cog.service.create_hunt.call_args.kwargs["voice_per_puzzle"] is True
+
+
+@pytest.mark.asyncio
+async def test_web_create_hunt_rejects_non_bool_voice_per_puzzle(web):
+    resp = await web.client.post("/api/hunts", json=_body(voice_per_puzzle="yes"))
+    assert resp.status_code == 400
+    web.cog.service.create_hunt.assert_not_awaited()
