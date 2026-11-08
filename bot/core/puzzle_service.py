@@ -19,7 +19,7 @@ import pytz
 from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
-from bot.core import category_layout, hunt_archive, media_gc, mod_invite
+from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
 from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
@@ -2111,6 +2111,11 @@ class PuzzleService:
             if guild is not None and puzzle.channel_id else None
         category = getattr(channel, "category", None)
         await self._safe_delete_channel(guild, puzzle.channel_id)
+        if guild is not None:
+            try:
+                await voice.delete_puzzle_voice_now(guild, puzzle)
+            except Exception:
+                logger.exception("delete_puzzle: voice channel delete failed for %s", puzzle.id)
         # A puzzle deletion is the most common shrink event — trigger the
         # vacated owner's consolidation (reclaim/fold/un-split), resolved
         # across both join tables, in the background. Best-effort: the guild
@@ -3321,6 +3326,14 @@ class PuzzleService:
             await self._cleanup_orphan_puzzle(hunt, new_puzzle)
             raise
 
+        # Per-puzzle voice channel (best-effort; metas included). The flag reads
+        # back from the DB as int 0/1, so test truthiness.
+        if hunt.voice_per_puzzle and not new_puzzle.solved:
+            try:
+                await voice.create_puzzle_voice(guild, hunt, new_puzzle)
+            except Exception:
+                logger.exception("create_puzzle: voice channel failed for %s", new_puzzle.id)
+
         # Refresh metas for every tag that was assigned.
         for tag in new_puzzle.tags:
             try:
@@ -4259,6 +4272,18 @@ class PuzzleService:
             new_hunt.solved_sheet_id = solved_sheet_id
 
         HuntJsonDb.commit(new_hunt)
+        # Voice (best-effort): the guild toggle is the default for new hunts.
+        try:
+            guild_settings = GuildSettingsDb.get(guild.id)
+            if guild_settings is not None and guild_settings.discord_use_voice_channels:
+                HuntJsonDb.set_voice_per_puzzle(new_hunt.id, True)
+                new_hunt.voice_per_puzzle = True
+        except Exception:
+            logger.exception("create_hunt: could not default voice_per_puzzle for %s", name)
+        try:
+            await voice.ensure_hunt_voice(guild, new_hunt)
+        except Exception:
+            logger.exception("create_hunt: hunt voice channel failed for %s", name)
         if self.notifier is not None:
             # Not @pushes_board: there is no pre-existing hunt to bind the
             # decorator's `hunt` parameter to (this call creates it) — push
