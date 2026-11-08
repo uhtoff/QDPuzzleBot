@@ -143,8 +143,16 @@ first time voice is needed). Puzzle voice channels live in a "<hunt> Voice" cate
 A solved puzzle's voice channel is removed 15 minutes after the solve (an unsolve in that
 time keeps it). Whenever a channel with people in it is removed, they get an `@here` warning
 15 seconds before and are moved into the hunt's voice channel — the bot needs the **Move
-Members** permission for that. The dashboard shows how many people are in each voice
-channel, and the puzzle drawer has the same create/join controls.
+Members** permission for that (`!voice` and the drawer say so if it's missing; without it
+people are disconnected instead). An unsolve during that warning keeps the channel. The
+dashboard shows how many people are in each voice channel, and the puzzle drawer has the same
+create/join controls.
+
+A voice category copies the hunt category's permissions at the moment it is created, so set the
+hunt role overwrite on the hunt category before turning on voice. Automatic per-puzzle voice
+channels stop when the server is within 25 channels of Discord's 500-channel limit (`!voice`
+still works). Archiving or deleting a hunt removes its voice channels and voice categories;
+deleting a puzzle or a round removes the deleted puzzles' voice channels at once.
 
 | Command | Aliases | Arguments | Where | Who | Does |
 |---|---|---|---|---|---|
