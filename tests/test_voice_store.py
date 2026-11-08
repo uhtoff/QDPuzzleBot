@@ -99,3 +99,25 @@ def test_with_voice_lists_only_this_hunts_voice_puzzles():
         assert [p.id for p in PuzzleJsonDb.with_voice(b)] == [b1]
     finally:
         _cleanup(guild)
+
+
+def test_a_stale_full_commit_never_clears_stored_voice_ids():
+    """The narrow setters are the ONLY writers: a puzzle/hunt object loaded before
+    its voice channel was made, then saved whole, must not wipe the id (else a
+    solved puzzle's voice channel would never be cleaned up)."""
+    guild = _guild()
+    try:
+        hid = _hunt(guild, "voice stale")
+        pid = _puzzle(hid, "stale puzzle")
+        stale_p = PuzzleJsonDb.get_by_attr(id=pid)
+        stale_h = HuntJsonDb.get_by_attr(id=hid)
+        PuzzleJsonDb.set_voice_channel(pid, 111)
+        HuntJsonDb.set_voice_channel(hid, 222)
+        HuntJsonDb.set_voice_per_puzzle(hid, True)
+        PuzzleJsonDb.commit(stale_p)
+        HuntJsonDb.commit(stale_h)
+        assert PuzzleJsonDb.get_by_attr(id=pid).voice_channel_id == 111
+        h = HuntJsonDb.get_by_attr(id=hid)
+        assert h.voice_channel_id == 222 and h.voice_per_puzzle
+    finally:
+        _cleanup(guild)

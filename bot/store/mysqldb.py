@@ -227,6 +227,9 @@ class _MySQLBaseDb:
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     GENERATED_UNIQUE_FIELDS = ('uid',)
+    # Written only by set_voice_channel / set_voice_per_puzzle, so a stale
+    # HuntData saved whole can't revert them.
+    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle']
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -759,7 +762,10 @@ class MySQLRollupJsonDb(_MySQLBaseDb):
 
 class MySQLPuzzleJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'puzzles'
-    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta']
+    # voice_channel_id: written only by set_voice_channel (a stale PuzzleData
+    # saved whole must not clear it, or its voice channel is never cleaned up).
+    SPECIAL_ATTR = ['tags', 'additional_sheets', 'tag_edges', 'is_target', 'is_minimeta',
+                    'voice_channel_id']
 
     def construct_puzzle(self, row):
         return self.construct_puzzles([row])[0]
