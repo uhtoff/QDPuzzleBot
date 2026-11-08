@@ -1,8 +1,11 @@
 """Multi-team hunts: several teams' hunts on one hub guild sharing hub channels.
 
-Each multi-team hunt owns two hub channels, found again by a topic marker and
+Each multi-team hunt owns two hub channels, found again by their stored ids and
 made at the bottom of the hub's multi_team_category (or at top level): a no-spoiler channel every team (and hub admin) can chat in, and a
-finishers channel only teams that have completed can see. Their overwrites are
+finishers channel only teams that have completed can see. Their topics are
+readable text, because Discord shows the topic in a Spoiler Channel's warning;
+channels made before that carry a ``puzzbot-multi-team:`` marker topic, which is
+still recognised and replaced. Their overwrites are
 always rebuilt from the database and applied as a whole dict, so a stale role is
 removed rather than left behind.
 """
@@ -33,11 +36,22 @@ class MultiTeamRefused(Exception):
 
 
 def no_spoiler_marker(mt_id) -> str:
+    """The legacy topic of a no-spoiler channel made before readable topics."""
     return f"puzzbot-multi-team:{mt_id}:no-spoilers"
 
 
 def finishers_marker(mt_id) -> str:
+    """The legacy topic of a finishers channel made before readable topics."""
     return f"puzzbot-multi-team:{mt_id}:finishers"
+
+
+def no_spoiler_topic(hunt_name) -> str:
+    return f"Chat for every team playing {hunt_name}. No spoilers, please!"
+
+
+def finishers_topic(hunt_name) -> str:
+    return (f"Spoilers for {hunt_name}. Only teams that have finished "
+            "can see this channel.")
 
 
 def archive_marker(mt_id) -> str:
@@ -76,22 +90,22 @@ def _category_with_room(hub, category_id):
     return with_room(hub.get_channel(category_id) if category_id else None)
 
 
-async def _ensure_one(hub, stored_id, marker, name, overwrites, category=None):
-    """The channel tagged *marker* (stored id first, then a topic scan), its
-    overwrites replaced by *overwrites*; created if absent, at the bottom of
-    *category* when given. An existing channel is never moved, so an admin's
-    placement sticks. The overwrites are the channel's own, never synced from
-    the category, so a category can't widen who sees finishers."""
-    channel = hub.get_channel(stored_id) if stored_id else None
-    if channel is not None and channel.topic != marker:
-        channel = None
-    if channel is None:
-        channel = next((c for c in hub.text_channels if c.topic == marker), None)
+async def _ensure_one(hub, stored_id, marker, name, topic, overwrites, category=None):
+    """The hunt's channel (see _find_live), its overwrites replaced by *overwrites*;
+    created with *topic* if absent, at the bottom of *category* when given. An
+    existing channel is never moved, so an admin's placement sticks, and its topic
+    is only rewritten while it is still the legacy *marker*, so an admin's own
+    topic sticks too. The overwrites are the channel's own, never synced from the
+    category, so a category can't widen who sees finishers."""
+    channel = _find_live(hub, stored_id, marker)
     if channel is None:
         where = {"category": category} if category is not None else {}
-        return await hub.create_text_channel(name[:100], topic=marker, overwrites=overwrites,
+        return await hub.create_text_channel(name[:100], topic=topic, overwrites=overwrites,
                                              **where)
-    await channel.edit(overwrites=overwrites)
+    changes = {"overwrites": overwrites}
+    if channel.topic == marker:
+        changes["topic"] = topic
+    await channel.edit(**changes)
     return channel
 
 
@@ -112,11 +126,12 @@ async def ensure_channels(hub, mt_id):
         slug = clean_channel_name(mt["name"])
         category = _category_with_room(hub, mt.get("hub_category_id"))
         ns = await _ensure_one(hub, mt.get("no_spoiler_channel_id"), no_spoiler_marker(mt_id),
-                               f"{slug}-no-spoilers",
+                               f"{slug}-no-spoilers", no_spoiler_topic(mt["name"]),
                                _overwrites(hub, team_ids + admin_ids, mt_id), category)
         category = _category_with_room(hub, mt.get("hub_category_id"))
         fin = await _ensure_one(hub, mt.get("finishers_channel_id"), finishers_marker(mt_id),
-                                f"{slug}-finishers", _overwrites(hub, done_ids, mt_id), category)
+                                f"{slug}-finishers", finishers_topic(mt["name"]),
+                                _overwrites(hub, done_ids, mt_id), category)
         MultiTeamDb.set_channels(mt_id, ns.id, fin.id)
         return ns, fin
 
@@ -178,10 +193,10 @@ async def set_complete(bot, hunt, complete: bool) -> CompleteOutcome:
 
 
 def _find_live(hub, stored_id, marker):
-    """The live channel tagged *marker* (stored id first, then a topic scan), or None."""
+    """The channel with the stored id, else (for channels made before readable
+    topics, whose id may never have been stored) the one whose topic is the
+    legacy *marker*; None if neither exists."""
     channel = hub.get_channel(stored_id) if stored_id else None
-    if channel is not None and channel.topic != marker:
-        channel = None
     if channel is None:
         channel = next((c for c in hub.text_channels if c.topic == marker), None)
     return channel

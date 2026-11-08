@@ -31,8 +31,9 @@ class FakeMtDb:
         self.category_id = None
 
     def get(self, mt_id):
+        ns, fin = self.channels or (None, None)
         return {"id": mt_id, "name": self.name, "hub_guild_id": HUB_ID,
-                "no_spoiler_channel_id": None, "finishers_channel_id": None,
+                "no_spoiler_channel_id": ns, "finishers_channel_id": fin,
                 "hub_category_id": self.category_id}
 
     def members(self, mt_id):
@@ -67,7 +68,9 @@ def _hub(roles, existing=()):
     hub.me = _role(2, "bot")
     hub.get_role.side_effect = lambda rid: roles.get(rid)
     hub.text_channels = list(existing)
-    hub.get_channel.side_effect = lambda cid: None
+    # Like the real cache: a channel is found by id until it is deleted.
+    hub.get_channel.side_effect = lambda cid: next(
+        (c for c in hub.text_channels if c.id == cid), None)
     created = []
 
     async def create(name, **kw):
@@ -133,8 +136,9 @@ async def test_first_call_creates_both_with_exact_overwrites(db, roles):
     ns, fin = await multi_team.ensure_channels(hub, MT_ID)
     (c1, kw1), (c2, kw2) = hub.created
     assert c1.name == "big-hunt-no-spoilers" and c2.name == "big-hunt-finishers"
-    assert kw1["topic"] == "puzzbot-multi-team:7:no-spoilers"
-    assert kw2["topic"] == "puzzbot-multi-team:7:finishers"
+    assert kw1["topic"] == "Chat for every team playing Big Hunt. No spoilers, please!"
+    assert kw2["topic"] == ("Spoilers for Big Hunt. Only teams that have finished "
+                            "can see this channel.")
     assert "category" not in kw1 and "category" not in kw2
     assert _actual(kw1["overwrites"]) == _expect(hub, [10, 11, 90])
     assert _actual(kw2["overwrites"]) == _expect(hub, [])
@@ -142,15 +146,49 @@ async def test_first_call_creates_both_with_exact_overwrites(db, roles):
     assert (ns, fin) == (c1, c2)
 
 
-async def test_second_call_finds_by_marker_and_creates_nothing(db, roles):
+async def test_second_call_finds_by_stored_id_and_creates_nothing(db, roles):
     hub = _hub(roles)
-    await multi_team.ensure_channels(hub, MT_ID)
+    first = await multi_team.ensure_channels(hub, MT_ID)
     hub.create_text_channel.reset_mock()
     ns, fin = await multi_team.ensure_channels(hub, MT_ID)
     hub.create_text_channel.assert_not_awaited()
-    assert ns.topic.endswith(":no-spoilers") and fin.topic.endswith(":finishers")
+    assert (ns, fin) == first
     for ch in (ns, fin):
         ch.edit.assert_awaited_once()
+        assert "topic" not in ch.edit.await_args.kwargs  # readable already: left alone
+
+
+def _legacy(cid, topic):
+    ch = MagicMock()
+    ch.id = cid
+    ch.name = f"old-{cid}"
+    ch.topic = topic
+    ch.edit = AsyncMock()
+    return ch
+
+
+async def test_legacy_marker_channels_are_found_and_get_readable_topics(db, roles):
+    """Channels made before readable topics, never stored: found by the marker
+    and their topics replaced, nothing created."""
+    ns = _legacy(301, "puzzbot-multi-team:7:no-spoilers")
+    fin = _legacy(302, "puzzbot-multi-team:7:finishers")
+    hub = _hub(roles, existing=[fin, ns])
+    got = await multi_team.ensure_channels(hub, MT_ID)
+    assert got == (ns, fin)
+    hub.create_text_channel.assert_not_awaited()
+    assert ns.edit.await_args.kwargs["topic"] == (
+        "Chat for every team playing Big Hunt. No spoilers, please!")
+    assert fin.edit.await_args.kwargs["topic"] == (
+        "Spoilers for Big Hunt. Only teams that have finished can see this channel.")
+    assert db.channels == (301, 302)
+
+
+async def test_an_admins_own_topic_is_kept(db, roles):
+    hub = _hub(roles)
+    ns, _ = await multi_team.ensure_channels(hub, MT_ID)
+    ns.topic = "Our own words"
+    await multi_team.ensure_channels(hub, MT_ID)
+    assert "topic" not in ns.edit.await_args.kwargs
 
 
 async def test_completed_member_gains_exactly_that_role_on_finishers(db, roles):
@@ -179,7 +217,7 @@ async def test_deleted_finishers_channel_is_recreated(db, roles):
     assert ns2 is ns and fin2 is not fin
     hub.create_text_channel.assert_awaited_once()
     kw = hub.create_text_channel.await_args.kwargs
-    assert kw["topic"] == "puzzbot-multi-team:7:finishers"
+    assert kw["topic"] == multi_team.finishers_topic("Big Hunt")
     assert _actual(kw["overwrites"]) == _expect(hub, [])
     assert db.channels == (ns.id, fin2.id)
 
@@ -191,7 +229,7 @@ async def test_missing_hub_role_is_skipped(db, roles):
     assert _actual(hub.created[0][1]["overwrites"]) == _expect(hub, [10, 90])
 
 
-async def test_stored_id_is_used_when_topic_matches(db, roles):
+async def test_stored_id_is_used_without_a_topic_scan(db, roles):
     hub = _hub(roles)
     ns, fin = await multi_team.ensure_channels(hub, MT_ID)
     hub.text_channels.clear()  # scan would find nothing; stored id must
@@ -209,8 +247,8 @@ async def test_concurrent_ensure_channels_creates_one_pair(db, roles):
     (a_ns, a_fin), (b_ns, b_fin) = await asyncio.gather(
         multi_team.ensure_channels(hub, MT_ID), multi_team.ensure_channels(hub, MT_ID))
     assert hub.create_text_channel.await_count == 2
-    assert sorted(kw["topic"] for _, kw in hub.created) == [
-        "puzzbot-multi-team:7:finishers", "puzzbot-multi-team:7:no-spoilers"]
+    assert [kw["topic"] for _, kw in hub.created] == [
+        multi_team.no_spoiler_topic("Big Hunt"), multi_team.finishers_topic("Big Hunt")]
     assert (a_ns, a_fin) == (b_ns, b_fin)
 
 
