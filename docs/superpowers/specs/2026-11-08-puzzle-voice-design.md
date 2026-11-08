@@ -32,7 +32,7 @@ archive/delete-hunt paths, which already remove voice channels.
    voice category reaches Discord's 50-channel limit, a "<hunt name> Voice 2" follows
    (designer's call).
 4. **Per-hunt "voice channel for every puzzle" setting**, off by default, changeable mid-hunt
-   by anyone who can manage the hunt. When on, each puzzle created afterwards gets its voice
+   by admins only (user, 2026-11-08). When on, each puzzle created afterwards gets its voice
    channel automatically (metas included — designer's guess). Turning it on does NOT back-fill
    existing puzzles; turning it off does NOT delete anything (user, 2026-11-08).
 5. **`!voice_cleanup`** (admin only, plus a dashboard equivalent): removes every puzzle voice
@@ -145,9 +145,9 @@ the channel or joins it directly.
   re-solve or answer change restarts the clock. A meta/capstone solve does nothing to its
   feeders' voice channels. No separate `voice_cleanup_at` column unless the builder finds a
   path where `solve_time` is not trustworthy.
-- **Who may do what.** Reuse the existing checks: the per-hunt toggle uses the hunt's
-  `can_manage` gate (organiser tier); `!voice_cleanup` and its dashboard button use
-  `can_administer` (admin tier); `!voice` and dashboard "Create voice channel" use the same
+- **Who may do what.** Reuse the existing checks: the per-hunt toggle (user, 2026-11-08),
+  `!voice_cleanup` and their dashboard controls all use `can_administer` (admin tier, not
+  organiser); `!voice` and dashboard "Create voice channel" use the same
   gate as any puzzle-channel action a hunt member can take.
 - **Permission source missing.** If the hunt's initial category can't be found to clone
   from, refuse to create the voice category and say why — never create one with no
