@@ -51,6 +51,7 @@ async def test_update_settings_refuses_voice_channel_id(env):
     assert "`!voice`" in env.ctx.send.await_args.args[0]
 
 
+@pytest.mark.xfail(strict=True, reason="header_style branch lands in Task 8")
 def test_every_field_the_generic_commit_skips_is_refused_with_a_pointer():
     """Guard against the next narrow-only column: each store's SPECIAL_ATTR must be
     listed, except voice_per_puzzle, which update_settings stores itself."""

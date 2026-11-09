@@ -35,6 +35,8 @@ class HuntData:
     # per-puzzle voice channels. NULL column reads back as None, like role_id.
     voice_channel_id: int = 0
     voice_per_puzzle: bool = False
+    # Puzzle-sheet header style for new puzzles (migration 060): full or compact.
+    header_style: str = "full"
     start_timestamp: int = 0
     username: str = ""
     password: str = ""

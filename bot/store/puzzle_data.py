@@ -46,6 +46,8 @@ class PuzzleData:
     google_page_id: str = ""
     # Own spreadsheet (files mode, migration 051); "" = a tab on the hunt's.
     google_sheet_id: str = ""
+    # Header layout this puzzle's sheet was created with (migration 060).
+    header_layout: str = "full"
     additional_sheets: List[AdditionalSheetData] = field(default_factory=list)
     status: str = ""
     solved: bool = False
