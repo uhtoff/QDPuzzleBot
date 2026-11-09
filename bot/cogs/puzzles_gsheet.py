@@ -2241,6 +2241,8 @@ class GoogleSheets(commands.Cog):
         has its own Table is left alone (unless the caller just proved it has none)."""
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
+        # Relies on the atomic invariant (header in B <=> own Table); a Table deleted
+        # by hand while the header is in B would be re-promoted.
         if not known_tableless and await self._own_table_present(page_id, spreadsheet_id):
             return
         w, shift = self.CONTRIBUTION_WIDTH, self.TARGET_HEADER_SHIFT
@@ -2249,6 +2251,13 @@ class GoogleSheets(commands.Cog):
                 "range": {"sheetId": page_id, "dimension": "COLUMNS",
                           "startIndex": 0, "endIndex": w},
                 "inheritFromBefore": False}},
+            # The insert copies the old column A's header format into A-D: clear it.
+            {"repeatCell": {
+                "range": {"sheetId": page_id, "startRowIndex": 0, "endRowIndex": 3,
+                          "startColumnIndex": 0, "endColumnIndex": w},
+                "cell": {"userEnteredFormat": {}},
+                "fields": "userEnteredFormat.backgroundColor,"
+                          "userEnteredFormat.borders,userEnteredFormat.textFormat.bold"}},
             self._header_cut(page_id, w, shift),
             {"updateDimensionProperties": {
                 "range": {"sheetId": page_id, "dimension": "COLUMNS",
@@ -2279,6 +2288,12 @@ class GoogleSheets(commands.Cog):
             {"deleteDimension": {"range": {
                 "sheetId": page_id, "dimension": "COLUMNS",
                 "startIndex": 0, "endIndex": w}}},
+            # A target created compact never widened column E; give the new A its width.
+            {"updateDimensionProperties": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": 1},
+                "properties": {"pixelSize": self.LABEL_COL_WIDTH},
+                "fields": "pixelSize"}},
         ]
         if header_links is not None:
             reqs.append(self.header_links_request(

@@ -664,8 +664,19 @@ def test_compact_promote_is_one_atomic_batch_moving_only_the_three_cells():
     asyncio.run(cog.promote_tab_to_target(_paged(_compact())))
     assert cog.batch_update.await_count == 1
     reqs = _bodies(cog)[0]
-    assert _index(reqs, "insertDimension") < _index(reqs, "cutPaste") < _index(reqs, "addTable")
+    assert (_index(reqs, "insertDimension") < _index(reqs, "repeatCell")
+            < _index(reqs, "cutPaste") < _index(reqs, "addTable"))
+    clear = reqs[_index(reqs, "repeatCell")]["repeatCell"]
+    assert clear["range"] == _rng(0, 3, 0, 4)
+    assert "fontFamily" not in clear["fields"]
     cut = reqs[_index(reqs, "cutPaste")]["cutPaste"]
+    assert cut["pasteType"] == "PASTE_NORMAL"
+    widths = [r["updateDimensionProperties"] for r in reqs
+              if "updateDimensionProperties" in r]
+    assert any(w["range"]["startIndex"] == 1 and w["properties"] == {"pixelSize": 220}
+               for w in widths)
+    assert any(w["range"]["startIndex"] == 0 and w["properties"] == {"hiddenByUser": True}
+               for w in widths)
     assert cut["source"] == _rng(0, 3, 4, 5)
     assert cut["destination"] == {"sheetId": P, "rowIndex": 0, "columnIndex": 1}
     assert reqs[_index(reqs, "addTable")]["addTable"]["table"]["range"]["startRowIndex"] == 3
@@ -697,6 +708,7 @@ def test_ensure_contribution_table_promotes_a_tableless_compact_tab_without_prob
     assert cog.sheet_list.await_count == 1
     assert cog.batch_update.await_count == 1
     assert "insertDimension" in str(_bodies(cog)[0])
+    cog.get_page_name_by_id.assert_awaited_once()
     cog._tab_layout.assert_not_awaited()
 
 
@@ -707,8 +719,12 @@ def test_compact_demote_moves_b_back_before_deleting_columns():
     reqs = _bodies(cog)[0]
     cut = reqs[_index(reqs, "cutPaste")]["cutPaste"]
     assert cut["source"] == _rng(0, 3, 1, 2)
-    assert cut["destination"]["columnIndex"] == 4
+    assert cut["destination"] == {"sheetId": P, "rowIndex": 0, "columnIndex": 4}
     assert _index(reqs, "cutPaste") < _index(reqs, "deleteDimension")
+    w = reqs[_index(reqs, "updateDimensionProperties")]["updateDimensionProperties"]
+    assert _index(reqs, "updateDimensionProperties") > _index(reqs, "deleteDimension")
+    assert w["range"]["startIndex"] == 0 and w["range"]["endIndex"] == 1
+    assert w["properties"] == {"pixelSize": 220}
     assert reqs[_index(reqs, "deleteDimension")]["deleteDimension"]["range"] == {
         "sheetId": P, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 4}
     assert not any("unmergeCells" in r for r in reqs)
@@ -719,6 +735,8 @@ def test_compact_demote_without_a_table_does_nothing():
     cog = _promo_cog()
     asyncio.run(cog.demote_tab_to_puzzle(_paged(_compact())))
     assert cog.batch_update.await_count == 0
+    cog._tab_layout.assert_not_awaited()
+    cog.sheet_list.assert_awaited_once()
 
 
 def test_full_promote_still_probes():
