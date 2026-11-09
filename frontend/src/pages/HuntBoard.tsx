@@ -222,6 +222,7 @@ export default function HuntBoard() {
               sheetMode={data.hunt.sheet_mode}
               puzzleCount={data.summary.total}
               voicePerPuzzle={data.hunt.voice_per_puzzle}
+              headerStyle={data.hunt.header_style}
             />
           )}
           {/* Team-role gating — admin-gated; hidden on archived (read-only) hunts */}

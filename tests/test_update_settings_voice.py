@@ -53,11 +53,11 @@ async def test_update_settings_refuses_voice_channel_id(env):
 
 def test_every_field_the_generic_commit_skips_is_refused_with_a_pointer():
     """Guard against the next narrow-only column: each store's SPECIAL_ATTR must be
-    listed, except voice_per_puzzle, which update_settings stores itself."""
+    listed, except voice_per_puzzle and header_style, which update_settings stores itself."""
     from bot.cogs.puzzles import _UNSTORED_SETTING_KEYS
     from bot.store import HuntJsonDb, PuzzleData, PuzzleJsonDb
     assert set(PuzzleJsonDb.SPECIAL_ATTR) <= set(_UNSTORED_SETTING_KEYS[PuzzleData])
-    assert set(HuntJsonDb.SPECIAL_ATTR) - {"voice_per_puzzle"} \
+    assert set(HuntJsonDb.SPECIAL_ATTR) - {"voice_per_puzzle", "header_style"} \
         <= set(_UNSTORED_SETTING_KEYS[HuntData])
 
 

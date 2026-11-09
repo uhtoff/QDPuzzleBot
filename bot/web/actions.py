@@ -34,6 +34,7 @@ from .auth import (
     resolve_member_role_ids,
 )
 from bot.core import multi_team, role_gate, template_link, voice
+from bot.core.constants import HEADER_STYLES
 from bot.core.sheet_location import (additional_sheet_location, hunt_sheet_location,
                                      spreadsheet_link)
 from bot.store import GuildSettingsDb, HuntJsonDb, HuntInviteDb, HuntAccessLogDb, MultiTeamDb
@@ -821,7 +822,8 @@ async def require_admin(guild_snowflake):
 
 _CREATE_HUNT_REQUIRED = {"guild_id", "name", "url", "start_timestamp"}
 _CREATE_HUNT_OPTIONAL = {"username", "password", "role_name", "create_solved_sheet",
-                         "confirm_existing_role", "sheet_mode", "voice_per_puzzle"}
+                         "confirm_existing_role", "sheet_mode", "voice_per_puzzle",
+                         "header_style"}
 
 
 @actions_bp.route("/hunts", methods=["POST"])
@@ -840,6 +842,8 @@ async def create_hunt():
         return jsonify({"error": "bad_sheet_mode"}), 400
     if "voice_per_puzzle" in body and not isinstance(body["voice_per_puzzle"], bool):
         return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
+    if "header_style" in body and body["header_style"] not in HEADER_STYLES:
+        return jsonify({"error": "bad_header_style"}), 400
     start_timestamp = body["start_timestamp"]
     if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, (int, float)):
         return jsonify({"error": "bad_start_timestamp"}), 400
@@ -926,7 +930,7 @@ async def create_hunt():
 # --- Hunt settings (admin only) --------------------------------------------
 
 _SETTINGS_KEYS = {"url", "start_timestamp", "username", "password", "url_sep", "puzzle_prefix",
-                  "voice_per_puzzle"}
+                  "voice_per_puzzle", "header_style"}
 
 
 @actions_bp.route("/hunts/<uid>/settings", methods=["PATCH"])
@@ -963,11 +967,18 @@ async def patch_hunt_settings(uid):
     voice_on = body.pop("voice_per_puzzle", None)
     if "voice_per_puzzle" in request_keys and not isinstance(voice_on, bool):
         return jsonify({"error": "bad_value", "field": "voice_per_puzzle"}), 400
+    # header_style likewise: its own narrow UPDATE, after the generic commit.
+    style = body.pop("header_style", None)
+    if "header_style" in request_keys and style not in HEADER_STYLES:
+        return jsonify({"error": "bad_value", "field": "header_style"}), 400
 
     await cog.service.update_hunt_settings(hunt_obj, **body)
     if voice_on is not None:
         hunt_obj.voice_per_puzzle = voice_on
         HuntJsonDb.set_voice_per_puzzle(hunt_obj.id, voice_on)
+    if style is not None:
+        hunt_obj.header_style = style
+        HuntJsonDb.set_header_style(hunt_obj.id, style)
     guild = bot_app().bot.get_guild(int(ctx["guild_snowflake"])) if ctx["guild_snowflake"] else None
     if guild is not None:
         await cog.service.notifier.refresh_info(guild, hunt_obj)

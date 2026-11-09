@@ -150,7 +150,7 @@ async def get_hunt_by_uid(uid):
         "SELECT id, uid, name, url, guild_id, role_id, roster_role_id, archived, "
         "google_sheet_id, solved_sheet_id, sheet_mode, drive_folder_id, start_time, solve_time, "
         "start_timestamp, username, password, url_sep, puzzle_prefix, "
-        "voice_channel_id, voice_per_puzzle "
+        "voice_channel_id, voice_per_puzzle, header_style "
         "FROM hunts WHERE uid = %s",
         (uid,),
     )

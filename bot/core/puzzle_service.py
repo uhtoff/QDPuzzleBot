@@ -20,7 +20,7 @@ from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
-from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
+from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, DEFAULT_HEADER_STYLE, HEADER_COMPACT, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
@@ -2975,6 +2975,12 @@ class PuzzleService:
         return minimeta
 
 
+    @staticmethod
+    def _header_layout_for(hunt) -> str:
+        """The header layout a new puzzle takes from its hunt (unknown -> full)."""
+        style = getattr(hunt, "header_style", None)
+        return style if style in HEADER_STYLES else HEADER_FULL
+
     @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
@@ -3005,6 +3011,7 @@ class PuzzleService:
 
         if files_mode:
             mini.google_sheet_id = minimeta.google_sheet_id
+        mini.header_layout = self._header_layout_for(hunt)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -3257,6 +3264,7 @@ class PuzzleService:
         )
         if is_meta:
             new_puzzle.is_target = True
+        new_puzzle.header_layout = self._header_layout_for(hunt)
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
             hunt_url_base = urls.normalize_external_url(hunt.url).rstrip("/")
@@ -3755,18 +3763,23 @@ class PuzzleService:
                 puzzles = self._reloaded(puzzles)
             tabs = []
             names: dict[str, str] = {}
+            layouts: dict[tuple[str, str], str] = {}
             seen = set()
             for p in puzzles:
                 if p is None or not p.google_page_id or p.id in seen:
                     continue
                 seen.add(p.id)
                 names[str(p.google_page_id)] = p.name
-                tabs.append((puzzle_location(hunt, p),
+                loc = puzzle_location(hunt, p)
+                tabs.append((loc,
                              gsheet_cog._header_shift(p, p.google_page_id),
                              self._header_links(hunt, p)))
+                if p.header_layout == HEADER_COMPACT:
+                    layouts[(loc.spreadsheet_id, str(loc.page_id))] = HEADER_COMPACT
             if not tabs:
                 return []
-            failed = await gsheet_cog.write_header_links(tabs)
+            failed = await gsheet_cog.write_header_links(
+                tabs, **({"layouts": layouts} if layouts else {}))
             return [names.get(str(page), str(page)) for page in failed or []]
         except Exception:  # noqa: BLE001
             logger.exception("refresh_header_links: failed for hunt %s",
@@ -4189,7 +4202,8 @@ class PuzzleService:
                           role_name=None, username=None, password=None,
                           create_solved_sheet=False,
                           guild_id=0, creator=None, confirm_existing_role=False,
-                          sheet_mode="tabs", voice_per_puzzle=None):
+                          sheet_mode="tabs", voice_per_puzzle=None,
+                          header_style=DEFAULT_HEADER_STYLE):
         """Create a hunt: Discord category/channels + Google Sheet + DB row.
 
         ``voice_per_puzzle`` True/False sets the hunt's "voice channel for every
@@ -4200,13 +4214,19 @@ class PuzzleService:
         "files" makes a Drive folder (+ Solved subfolder) holding a reference
         spreadsheet, one spreadsheet per puzzle going in the folder.
 
+        ``header_style`` "compact" (default) or "full" is the puzzle-sheet header
+        that puzzles created in this hunt get (see _header_layout_for).
+
         Raises RuntimeError("hunt_exists") if the name is already taken,
-        RuntimeError("bad_sheet_mode") for an unrecognised ``sheet_mode``, or
+        RuntimeError("bad_sheet_mode") for an unrecognised ``sheet_mode``,
+        RuntimeError("bad_header_style") for an unrecognised ``header_style``, or
         RuntimeError("files_mode_no_solved_sheet") for a files hunt asked to
         have a solved spreadsheet. Returns the committed HuntData.
         """
         if sheet_mode not in ("tabs", "files"):
             raise RuntimeError("bad_sheet_mode")
+        if header_style not in HEADER_STYLES:
+            raise RuntimeError("bad_header_style")
         if sheet_mode == "files" and create_solved_sheet:
             raise RuntimeError("files_mode_no_solved_sheet")
         # Scoped to the INVOKING guild (M6). guild.id is the Discord snowflake --
@@ -4313,6 +4333,11 @@ class PuzzleService:
                 new_hunt.voice_per_puzzle = True
         except Exception:
             logger.exception("create_hunt: could not default voice_per_puzzle for %s", name)
+        try:
+            HuntJsonDb.set_header_style(new_hunt.id, header_style)
+            new_hunt.header_style = header_style
+        except Exception:
+            logger.exception("create_hunt: could not store header_style for %s", name)
         try:
             await voice.ensure_hunt_voice(guild, new_hunt)
         except Exception:

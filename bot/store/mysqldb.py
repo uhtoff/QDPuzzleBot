@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from bot.core.discord_channels import clean_channel_name
 from bot.core.activity_slots import slot_start
+from bot.core.constants import HEADER_STYLES
 from .puzzle_data import PuzzleData, MissingPuzzleError, AdditionalSheetData
 from .tag_group_data import TagGroupData
 from .tag_group_category_data import TagGroupCategoryData
@@ -227,9 +228,9 @@ class _MySQLBaseDb:
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     GENERATED_UNIQUE_FIELDS = ('uid',)
-    # Written only by set_voice_channel / set_voice_per_puzzle, so a stale
+    # Written only by set_voice_channel / set_voice_per_puzzle / set_header_style, so a stale
     # HuntData saved whole can't revert them.
-    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle']
+    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle', 'header_style']
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -394,6 +395,13 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
         """Set the per-puzzle voice channel toggle. Its own UPDATE (see above)."""
         self._exec("UPDATE `hunts` SET `voice_per_puzzle` = %s WHERE `id` = %s",
                    (1 if on else 0, hunt_id))
+
+    def set_header_style(self, hunt_id, style):
+        """Set the hunt's puzzle-sheet header style. Its own UPDATE (see above)."""
+        if style not in HEADER_STYLES:
+            raise ValueError(f"unknown header style: {style!r}")
+        self._exec("UPDATE `hunts` SET `header_style` = %s WHERE `id` = %s",
+                   (style, hunt_id))
 
     def mod_invite_code(self, hunt_id):
         row = self._fetch_one(

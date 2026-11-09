@@ -772,6 +772,7 @@ export interface HuntSettingsPatch {
   password?: string;
   url_sep?: string;
   puzzle_prefix?: string;
+  header_style?: "full" | "compact";
   voice_per_puzzle?: boolean;
 }
 
@@ -966,6 +967,7 @@ export interface CreateHuntPayload {
   password?: string;
   create_solved_sheet?: boolean;
   sheet_mode?: "tabs" | "files";
+  header_style?: "full" | "compact";
   voice_per_puzzle?: boolean;
   // Set on the second attempt after the backend asks to confirm reusing an
   // existing role (needs_confirm: "existing_role").

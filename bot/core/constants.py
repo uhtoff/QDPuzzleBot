@@ -51,3 +51,12 @@ def format_status(status):
 def format_priority(priority):
     """Title-case a stored priority for display. Same contract as format_status."""
     return priority.title() if priority else priority
+
+
+# Puzzle-sheet header styles (migration 060). A hunt's header_style applies to
+# puzzles made after it is set; each puzzle keeps the header_layout it was made with.
+HEADER_FULL = "full"
+HEADER_COMPACT = "compact"
+HEADER_STYLES = (HEADER_FULL, HEADER_COMPACT)
+DEFAULT_HEADER_STYLE = HEADER_COMPACT
+HEADER_STYLE_LABELS = {HEADER_FULL: "Full header", HEADER_COMPACT: "Compact header"}

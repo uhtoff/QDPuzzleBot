@@ -25,6 +25,7 @@ import { notifications } from "@mantine/notifications";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconChevronDown, IconChevronUp, IconPlus, IconShieldOff } from "@tabler/icons-react";
 import { useAdminGuilds, useCreateHunt, useHunts, type CreateHuntPayload } from "../api";
+import { HEADER_STYLE_OPTIONS } from "../components/AdminSettingsPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { useViewAs } from "../context/ViewAsContext";
 import { useActivityFeed } from "../hooks/useActivityFeed";
@@ -129,6 +130,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
   const [createSolvedSheet, setCreateSolvedSheet] = useState(false);
   const [filesMode, setFilesMode] = useState(false);
   const [voicePerPuzzle, setVoicePerPuzzle] = useState(false);
+  const [headerStyle, setHeaderStyle] = useState<"full" | "compact">("compact");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [confirmRole, setConfirmRole] = useState<{ message: string; payload: CreateHuntPayload } | null>(null);
 
@@ -192,6 +194,7 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
     if (filesMode) payload.sheet_mode = "files";
     else if (createSolvedSheet) payload.create_solved_sheet = true;
     payload.voice_per_puzzle = voicePerPuzzle;
+    payload.header_style = headerStyle;
 
     submit(payload);
   };
@@ -291,6 +294,17 @@ function NewHuntModal({ opened, onClose }: { opened: boolean; onClose: () => voi
           description="Each new puzzle gets its own voice channel. Can be changed later in Admin settings."
           checked={voicePerPuzzle}
           onChange={(e) => setVoicePerPuzzle(e.currentTarget.checked)}
+        />
+
+        <Select
+          label="Header style"
+          description="Compact: title, status and feeds in three cells. Full: the original labelled header."
+          data={[...HEADER_STYLE_OPTIONS]}
+          value={headerStyle}
+          allowDeselect={false}
+          onChange={(val) => {
+            if (val === "full" || val === "compact") setHeaderStyle(val);
+          }}
         />
 
         <Button onClick={handleSubmit} loading={createMut.isPending} disabled={!canSubmit}>

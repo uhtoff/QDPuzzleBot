@@ -8,8 +8,9 @@ every puzzle tab is generated in code.
 Captured 2026-06-25 from master spreadsheet "Tab template" (sheetId 1971123506)
 and "Meta Tab template" (sheetId 42737759); both 3 frozen header rows.
 
-Cell roles in the template (do NOT re-emit the dynamic ones from here — the bot
-writes them at runtime from config.puzzle_cell_*):
+Cell roles in the template. These describe the FULL layout; the compact layout
+is COMPACT_GEOMETRY below. Do NOT re-emit the dynamic ones from here — the bot
+writes them at runtime from config.puzzle_cell_*:
   * B1  name/url hyperlink   -> config.puzzle_cell_name / _link  (DYNAMIC)
   * I1  solution             -> config.puzzle_cell_solution      (DYNAMIC)
   * B3  progress ("none")    -> config.puzzle_cell_progress      (DYNAMIC)
@@ -22,9 +23,39 @@ is intentionally NOT reproduced — the generated contribution Table replaces it
 A cell spec is {"a1": str, "value": str, "type": "stringValue"|"formulaValue",
 "bold": bool}. A merge spec is (start_row, end_row, start_col, end_col), 0-based
 half-open (Sheets GridRange form).
+
+The full layout's dynamic cell addresses and header extents are described by
+``HeaderGeometry``; GoogleSheets builds one per write instead of reading
+config.puzzle_cell_* / FROZEN_ROWS directly, so another layout can plug in.
 """
 
+import dataclasses
+from dataclasses import dataclass
+from typing import Any
+
+
+
+@dataclass(frozen=True)
+class HeaderGeometry:
+    """Where a puzzle tab's dynamic header cells sit and how much of the tab the
+    header band occupies. Built per write by GoogleSheets._header_geometry."""
+    layout: str            # HEADER_FULL | HEADER_COMPACT
+    title_a1: Any          # name/title cell (full: config.puzzle_cell_name)
+    status_a1: Any         # solution/status cell (full: config.puzzle_cell_solution)
+    progress_a1: Any       # full: config.puzzle_cell_progress; compact: None
+    feeds_a1: str | None   # full: FEEDS_LINKS_A1; compact main: "A3"; compact extra: None
+    frozen_rows: int       # full: FROZEN_ROWS; compact: 0
+    band_rows: int         # rows the header occupies (grey/border): full FROZEN_ROWS
+    band_cols: int         # columns bordered from the header column: full 17
+    grey_whole_rows: bool  # full: True (grey spans the whole rows); compact: False
+
+
 FROZEN_ROWS = 3
+
+# Compact layout: title / status / feeds in A1:A3 of the header column, no labels,
+# merges or frozen rows. An additional sheet has no feeds line, so its band is A1:A2.
+COMPACT_GEOMETRY = HeaderGeometry("compact", "A1", "A2", None, "A3", 0, 3, 1, False)
+COMPACT_EXTRA_GEOMETRY = dataclasses.replace(COMPACT_GEOMETRY, feeds_a1=None, band_rows=2)
 
 # Static header labels shared by every puzzle tab.
 PUZZLE_TAB_CELLS = [
