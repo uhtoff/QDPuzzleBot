@@ -26,7 +26,8 @@ from bot.utils.components import (
     build_plain_messages, build_sectioned_views, send_plain, send_views,
 )
 from bot.utils.text import flush_left
-from bot.core.constants import ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority
+from bot.core.constants import (DEFAULT_HEADER_STYLE, HEADER_FULL, HEADER_STYLES,
+                                HEADER_STYLE_LABELS, ADMIN_ROLES, ORGANISER_ROLES, ORGANISER_ROLE_NAMES, STATUSES, PRIORITIES, format_status, format_priority)
 from bot.core import hub_channel, role_gate, template_link
 from bot.core.media_ingest import ingest_image_bytes
 from bot.core.media_store import MediaRejected
@@ -115,6 +116,9 @@ _UNSTORED_SETTING_KEYS = {
         "additional_sheets": "Use `!add_sheet` / `!remove_sheet`.",
         "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
                             "`!voice_cleanup`.",
+        "header_layout": "It's fixed when the puzzle is created, from the hunt's "
+                         "`header_style` (`!update_settings header_style full|compact`); "
+                         "an existing tab isn't converted.",
     },
     HuntData: {
         "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
@@ -723,11 +727,12 @@ class Puzzles(commands.Cog):
     async def hunt(self, ctx, *, arg):
         """*Create a new hunt: its category, general channel and Google sheet.*
 
-        Usage: `!hunt hunt-name:hunt-url[, role-name][, files][, voice]`
+        Usage: `!hunt hunt-name:hunt-url[, role-name][, files][, voice][, full]`
         Example: `!hunt mystery-2026:https://hunt.example.com`
         Add `, Team A` to gate the hunt behind a role. Append `, files` for one
         Google spreadsheet per puzzle in a Drive folder, and/or `, voice` to give
-        every new puzzle its own voice channel. Run in the bot channel.
+        every new puzzle its own voice channel. Append `, full` for the original
+        labelled sheet header (new hunts get the compact one). Run in the bot channel.
         Admins/mods only. Alias: `!h`"""
 
         if not (await self.check_is_bot_channel(ctx)):
@@ -739,12 +744,15 @@ class Puzzles(commands.Cog):
         # voice channel for every puzzle; without it the server default applies.
         sheet_mode = "tabs"
         voice_per_puzzle = None
+        header_style = DEFAULT_HEADER_STYLE
         arg = arg.rstrip()
         while True:
             if arg.lower().endswith(", files"):
                 arg, sheet_mode = arg[: -len(", files")].rstrip(), "files"
             elif arg.lower().endswith(", voice"):
                 arg, voice_per_puzzle = arg[: -len(", voice")].rstrip(), True
+            elif arg.lower().endswith(", full"):
+                arg, header_style = arg[: -len(", full")].rstrip(), HEADER_FULL
             else:
                 break
 
@@ -757,7 +765,8 @@ class Puzzles(commands.Cog):
                 return await ctx.send(f":exclamation: **Hunt {hunt_name}** already exists, please use a different name")
             new_hunt = await self.create_hunt(ctx, hunt_name, hunt_url, role,
                                               sheet_mode=sheet_mode,
-                                              voice_per_puzzle=voice_per_puzzle)
+                                              voice_per_puzzle=voice_per_puzzle,
+                                              header_style=header_style)
             if new_hunt is None:
                 return  # wrapper already messaged (cancelled / no space)
             await ctx.send(
@@ -771,7 +780,8 @@ class Puzzles(commands.Cog):
         await ctx.send(f"Unable to parse hunt name {arg}, try using `!h hunt-name:hunt-url`")
 
     async def create_hunt(self, ctx, hunt_name: str, hunt_url: str, role_name: Optional[str] = None,
-                          sheet_mode: str = "tabs", voice_per_puzzle: Optional[bool] = None):
+                          sheet_mode: str = "tabs", voice_per_puzzle: Optional[bool] = None,
+                          header_style: str = DEFAULT_HEADER_STYLE):
         if await self.check_available_space(ctx, 5, 2) is False:
             await ctx.send(":x: There is not enough enough space on the server to create a new hunt, please inform the moderators.")
             return None
@@ -788,6 +798,7 @@ class Puzzles(commands.Cog):
                     role_name=role_name,
                     sheet_mode=sheet_mode,
                     voice_per_puzzle=voice_per_puzzle,
+                    header_style=header_style,
                     guild_id=settings.id if settings else 0,
                     creator=ctx.author,
                     confirm_existing_role=confirm_existing,
@@ -3017,6 +3028,20 @@ class Puzzles(commands.Cog):
             await self.service.notifier.board_changed(settings)
             await ctx.send(f":white_check_mark: Updated `{setting_key}={new}` from old value: "
                            f"`{old_flag}`")
+            return
+        if isinstance(settings, HuntData) and setting_key == "header_style":
+            # Narrow-setter column like voice_per_puzzle: the generic commit skips it.
+            choice = setting_value.strip().lower()
+            if choice not in HEADER_STYLES:
+                await ctx.send(f":x: Cannot set `{setting_key}={setting_value}`, "
+                               f"needs `full` or `compact`.")
+                return
+            old_style = settings.header_style
+            await asyncio.to_thread(HuntJsonDb.set_header_style, settings.id, choice)
+            settings.header_style = choice
+            await ctx.send(f":white_check_mark: Updated `{setting_key}={choice}` from old value: "
+                           f"`{old_style}`. Puzzles created from now on get the "
+                           f"{HEADER_STYLE_LABELS[choice].lower()}; existing puzzles keep theirs.")
             return
         unstored = _UNSTORED_SETTING_KEYS.get(type(settings), {})
         if setting_key in unstored:
