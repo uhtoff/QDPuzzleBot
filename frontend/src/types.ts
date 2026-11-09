@@ -205,6 +205,7 @@ export interface HuntDetail {
     voice_url: string | null;
     voice_count: number;
     voice_per_puzzle: boolean;
+    header_style: "full" | "compact";
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];

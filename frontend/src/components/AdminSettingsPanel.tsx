@@ -49,6 +49,7 @@ interface AdminSettingsPanelProps {
   sheetMode: "tabs" | "files";
   puzzleCount: number;
   voicePerPuzzle: boolean;
+  headerStyle: "full" | "compact";
 }
 
 interface FormValues {
@@ -60,7 +61,13 @@ interface FormValues {
   url_sep: string;
   puzzle_prefix: string;
   voice_per_puzzle: boolean;
+  header_style: "full" | "compact";
 }
+
+export const HEADER_STYLE_OPTIONS = [
+  { value: "compact", label: "Compact header" },
+  { value: "full", label: "Full header" },
+] as const;
 
 // The "Saved: …" notice names fields as the form labels them, not the API keys.
 const SETTING_LABELS: Record<string, string> = {
@@ -71,6 +78,7 @@ const SETTING_LABELS: Record<string, string> = {
   url_sep: "URL separator",
   puzzle_prefix: "puzzle prefix",
   voice_per_puzzle: "voice channel for every new puzzle",
+  header_style: "header style",
 };
 
 export function settingLabel(key: string): string {
@@ -93,6 +101,7 @@ export function AdminSettingsPanel({
   sheetMode,
   puzzleCount,
   voicePerPuzzle,
+  headerStyle,
 }: AdminSettingsPanelProps) {
   const navigate = useNavigate();
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -120,6 +129,7 @@ export function AdminSettingsPanel({
       url_sep,
       puzzle_prefix,
       voice_per_puzzle: voicePerPuzzle,
+      header_style: headerStyle,
     };
   });
 
@@ -141,8 +151,9 @@ export function AdminSettingsPanel({
       url_sep,
       puzzle_prefix,
       voice_per_puzzle: voicePerPuzzle,
+      header_style: headerStyle,
     });
-  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle]);
+  }, [uid, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle]);
 
   const handleSave = useCallback(() => {
     const patch: HuntSettingsPatch = {};
@@ -175,6 +186,9 @@ export function AdminSettingsPanel({
     if (values.voice_per_puzzle !== voicePerPuzzle) {
       patch.voice_per_puzzle = values.voice_per_puzzle;
     }
+    if (values.header_style !== headerStyle) {
+      patch.header_style = values.header_style;
+    }
 
     const changedKeys = Object.keys(patch);
     if (changedKeys.length === 0) {
@@ -193,7 +207,7 @@ export function AdminSettingsPanel({
         notifications.show({ message: (e as Error).message, color: "red" });
       },
     });
-  }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, settingsMut]);
+  }, [values, url, start_timestamp, username, password, url_sep, puzzle_prefix, voicePerPuzzle, headerStyle, settingsMut]);
 
   const handleToggleComplete = (complete: boolean) => {
     completeMut.mutate(complete, {
@@ -335,6 +349,19 @@ export function AdminSettingsPanel({
           onChange={(e) => {
             const checked = e.currentTarget.checked;
             setValues((v) => ({ ...v, voice_per_puzzle: checked }));
+          }}
+        />
+
+        <Select
+          label="Header style"
+          description="Applies to puzzles created from now on; existing puzzles keep their header."
+          data={[...HEADER_STYLE_OPTIONS]}
+          value={values.header_style}
+          allowDeselect={false}
+          onChange={(val) => {
+            if (val === "full" || val === "compact") {
+              setValues((v) => ({ ...v, header_style: val }));
+            }
           }}
         />
 
