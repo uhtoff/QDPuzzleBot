@@ -1280,10 +1280,17 @@ class GoogleSheets(commands.Cog):
         The regenerated header includes the name hyperlink, so the tab is NOT
         renamed — renaming it to its own (unchanged) name makes get_unique_tab_name
         treat the tab as a collision and append "(2)". `header_links` re-fills
-        the Feeds line the header wipe clears."""
+        the Feeds line the header wipe clears.
+
+        A compact puzzle takes _demote_compact: one atomic batch (cut the header
+        back, delete the columns), gated on its own Table being present, which
+        for a compact tab is equivalent to its header being in column B."""
         from bot.cogs import sheet_layout
         page_id = puzzle_data.google_page_id
         spreadsheet_id = self.spreadsheet_of(puzzle_data)
+        if getattr(puzzle_data, "header_layout", None) == HEADER_COMPACT:
+            await self._demote_compact(puzzle_data, spreadsheet_id, header_links)
+            return
         tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         safe_name = tab_name.replace("'", "''") if tab_name else None
 
@@ -2210,6 +2217,74 @@ class GoogleSheets(commands.Cog):
             return self.LAYOUT_TARGET
         return self.LAYOUT_UNKNOWN
 
+    async def _own_table_present(self, page_id, spreadsheet_id) -> bool:
+        """Whether `page_id` carries its own contribution Table. One sheet_list read."""
+        sheets = (await self.sheet_list(spreadsheet_id))["sheets"]
+        for s in sheets:
+            if s["properties"]["sheetId"] == int(page_id):
+                return bool(select_table(s.get("tables"), contribution_table_name(page_id)))
+        return False
+
+    def _header_cut(self, page_id, from_col, to_col) -> dict:
+        """cutPaste of the three header cells (rows 1-3) between two columns."""
+        return {"cutPaste": {
+            "source": {"sheetId": page_id, "startRowIndex": 0, "endRowIndex": 3,
+                       "startColumnIndex": from_col, "endColumnIndex": from_col + 1},
+            "destination": {"sheetId": page_id, "rowIndex": 0, "columnIndex": to_col},
+            "pasteType": "PASTE_NORMAL"}}
+
+    async def _promote_compact(self, puzzle, spreadsheet_id, header_links=None, *,
+                               known_tableless=False) -> None:
+        """Compact promote: ONE batch that opens CONTRIBUTION_WIDTH columns at A,
+        moves the three header cells from the pushed-right column to
+        TARGET_HEADER_SHIFT, and adds the Table. Idempotent: a tab that already
+        has its own Table is left alone (unless the caller just proved it has none)."""
+        from bot.cogs import sheet_layout
+        page_id = puzzle.google_page_id
+        if not known_tableless and await self._own_table_present(page_id, spreadsheet_id):
+            return
+        w, shift = self.CONTRIBUTION_WIDTH, self.TARGET_HEADER_SHIFT
+        reqs = [
+            {"insertDimension": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": 0, "endIndex": w},
+                "inheritFromBefore": False}},
+            self._header_cut(page_id, w, shift),
+            {"updateDimensionProperties": {
+                "range": {"sheetId": page_id, "dimension": "COLUMNS",
+                          "startIndex": shift, "endIndex": shift + 1},
+                "properties": {"pixelSize": self.LABEL_COL_WIDTH},
+                "fields": "pixelSize"}},
+        ]
+        if header_links is not None:
+            reqs.append(self.header_links_request(
+                page_id, shift, header_links, sheet_layout.COMPACT_GEOMETRY))
+        reqs += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+        reqs.append(self._hide_key_column_request(page_id))
+        await self.batch_update({"requests": reqs}, spreadsheet_id=spreadsheet_id)
+
+    async def _demote_compact(self, puzzle, spreadsheet_id, header_links=None) -> None:
+        """Compact demote: ONE batch that moves the header cells back to where
+        promote's cut left the originals, then deletes the CONTRIBUTION_WIDTH
+        columns. A tab with no own Table is already demoted: nothing to do."""
+        from bot.cogs import sheet_layout
+        page_id = puzzle.google_page_id
+        if not await self._own_table_present(page_id, spreadsheet_id):
+            logger.warning("demote_tab_to_puzzle: compact tab %s has no contribution "
+                           "Table; already demoted, nothing to do", page_id)
+            return
+        w, shift = self.CONTRIBUTION_WIDTH, self.TARGET_HEADER_SHIFT
+        reqs = [
+            self._header_cut(page_id, shift, w),
+            {"deleteDimension": {"range": {
+                "sheetId": page_id, "dimension": "COLUMNS",
+                "startIndex": 0, "endIndex": w}}},
+        ]
+        if header_links is not None:
+            reqs.append(self.header_links_request(
+                page_id, 0, header_links, sheet_layout.COMPACT_GEOMETRY))
+        await self.batch_update({"requests": reqs}, spreadsheet_id=spreadsheet_id)
+
     async def promote_tab_to_target(self, puzzle, header_links=None):
         """Transform an existing puzzle tab into a target tab in place, ending in
         the SAME geometry as a freshly generated target: header at offset 1, the
@@ -2221,10 +2296,18 @@ class GoogleSheets(commands.Cog):
         insert pushes the old header to offset 4, whose merges would otherwise
         collide with the new ones). Finally add the Table at A4. The user's
         flavour text and the bot-written progress/solution values are preserved
-        across the insert."""
+        across the insert.
+
+        A compact puzzle takes _promote_compact instead: one atomic batch, with no
+        probe. That relies on the invariant that a compact target is created with
+        its header in column B AND its own Table in one batch, so "own Table
+        present" is equivalent to "header is in column B"."""
         from bot.cogs import sheet_layout
         page_id = puzzle.google_page_id
         spreadsheet_id = self.spreadsheet_of(puzzle)
+        if getattr(puzzle, "header_layout", None) == HEADER_COMPACT:
+            await self._promote_compact(puzzle, spreadsheet_id, header_links)
+            return
         tab_name = await self.get_page_name_by_id(page_id, spreadsheet_id)
         if tab_name is None:
             return
@@ -2348,6 +2431,11 @@ class GoogleSheets(commands.Cog):
         if tab_name is None:
             await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
                                                spreadsheet_id=spreadsheet_id)
+            return None
+        if getattr(puzzle, "header_layout", None) == HEADER_COMPACT:
+            # Tableless compact tab: by the atomic-create invariant its header is
+            # still in column A, so promote without probing.
+            await self._promote_compact(puzzle, spreadsheet_id, known_tableless=True)
             return None
         # One shared geometry probe rather than this function's own A1 read --
         # see _tab_layout for why A1 alone is not sufficient (D7).

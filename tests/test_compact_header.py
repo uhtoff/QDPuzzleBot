@@ -626,3 +626,105 @@ def test_refresh_header_links_passes_layouts_for_compact_puzzles_only():
     svc, gsheet = _refresh_service()
     asyncio.run(svc.refresh_header_links(hunt, [f, f2]))
     assert "layouts" not in gsheet.write_header_links.await_args.kwargs
+
+
+# --- Task 7: compact promote / demote ---------------------------------------
+
+def _promo_cog(tables=None):
+    cog = GoogleSheets.__new__(GoogleSheets)
+    cog.spreadsheet_of = lambda p: "SS"
+    cog.get_page_name_by_id = AsyncMock(return_value="Alpha")
+    cog._values_get = AsyncMock(return_value={})
+    cog._tab_layout = AsyncMock(return_value=GoogleSheets.LAYOUT_PLAIN)
+    cog.sheet_list = AsyncMock(return_value={"sheets": [{
+        "properties": {"sheetId": P, "title": "Alpha"},
+        **({"tables": tables} if tables is not None else {})}]})
+    cog.batch_update = AsyncMock(return_value={"replies": []})
+    return cog
+
+
+_OWN_TABLE = [{"tableId": "T", "name": "Contributions 900"}]
+
+
+def _paged(p):
+    p.google_page_id = P
+    return p
+
+
+def _bodies(cog):
+    return [c.args[0]["requests"] for c in cog.batch_update.await_args_list]
+
+
+def _index(reqs, key):
+    return next(i for i, r in enumerate(reqs) if key in r)
+
+
+def test_compact_promote_is_one_atomic_batch_moving_only_the_three_cells():
+    cog = _promo_cog()
+    asyncio.run(cog.promote_tab_to_target(_paged(_compact())))
+    assert cog.batch_update.await_count == 1
+    reqs = _bodies(cog)[0]
+    assert _index(reqs, "insertDimension") < _index(reqs, "cutPaste") < _index(reqs, "addTable")
+    cut = reqs[_index(reqs, "cutPaste")]["cutPaste"]
+    assert cut["source"] == _rng(0, 3, 4, 5)
+    assert cut["destination"] == {"sheetId": P, "rowIndex": 0, "columnIndex": 1}
+    assert reqs[_index(reqs, "addTable")]["addTable"]["table"]["range"]["startRowIndex"] == 3
+    assert not any("unmergeCells" in r for r in reqs)
+    assert not any("updateCells" in r and "rows" not in r["updateCells"] for r in reqs)
+    cog._values_get.assert_not_awaited()
+    cog._tab_layout.assert_not_awaited()
+
+
+def test_compact_promote_is_a_no_op_when_the_table_exists():
+    cog = _promo_cog(tables=_OWN_TABLE)
+    asyncio.run(cog.promote_tab_to_target(_paged(_compact())))
+    assert cog.batch_update.await_count == 0
+
+
+def test_compact_promote_rewrites_b3_when_links_given():
+    cog = _promo_cog()
+    asyncio.run(cog.promote_tab_to_target(
+        _paged(_compact()), header_links=[Link("Meta", "U1")]))
+    reqs = _bodies(cog)[0]
+    link = _cell_at(reqs, 2, 1)
+    assert reqs.index(link) > _index(reqs, "cutPaste")
+
+
+def test_ensure_contribution_table_promotes_a_tableless_compact_tab_without_probing():
+    cog = _promo_cog()
+    assert asyncio.run(cog._ensure_contribution_table(
+        _paged(_compact()), "SS")) is None
+    assert cog.sheet_list.await_count == 1
+    assert cog.batch_update.await_count == 1
+    assert "insertDimension" in str(_bodies(cog)[0])
+    cog._tab_layout.assert_not_awaited()
+
+
+def test_compact_demote_moves_b_back_before_deleting_columns():
+    cog = _promo_cog(tables=_OWN_TABLE)
+    asyncio.run(cog.demote_tab_to_puzzle(_paged(_compact())))
+    assert cog.batch_update.await_count == 1
+    reqs = _bodies(cog)[0]
+    cut = reqs[_index(reqs, "cutPaste")]["cutPaste"]
+    assert cut["source"] == _rng(0, 3, 1, 2)
+    assert cut["destination"]["columnIndex"] == 4
+    assert _index(reqs, "cutPaste") < _index(reqs, "deleteDimension")
+    assert reqs[_index(reqs, "deleteDimension")]["deleteDimension"]["range"] == {
+        "sheetId": P, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 4}
+    assert not any("unmergeCells" in r for r in reqs)
+    cog._tab_layout.assert_not_awaited()
+
+
+def test_compact_demote_without_a_table_does_nothing():
+    cog = _promo_cog()
+    asyncio.run(cog.demote_tab_to_puzzle(_paged(_compact())))
+    assert cog.batch_update.await_count == 0
+
+
+def test_full_promote_still_probes():
+    cog = _promo_cog()
+    cog._tab_layout = AsyncMock(return_value=GoogleSheets.LAYOUT_TARGET)
+    cog._add_contribution_table = AsyncMock()
+    full = _paged(make_puzzle())
+    asyncio.run(cog.promote_tab_to_target(full))
+    cog._tab_layout.assert_awaited_once()

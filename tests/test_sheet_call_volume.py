@@ -132,3 +132,31 @@ async def test_compact_tab_create_budget(is_target):
     assert cog.create_blank_tab.await_count == 1
     assert cog.batch_update.await_count == 2
     cog._add_contribution_table.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compact_promote_and_demote_budgets():
+    """Each is 1 sheet_list read + 1 batch_update, with no tab-name or A1:B1 probe."""
+    cog = make_sheets_cog()
+    puzzle = make_puzzle(name="Alpha", is_target=True)
+    puzzle.header_layout = "compact"
+    puzzle.google_page_id = 900
+    cog.spreadsheet_of = lambda p: "SS"
+    cog.batch_update = AsyncMock(return_value={"replies": []})
+    cog.get_page_name_by_id = AsyncMock(return_value="Alpha")
+    cog._values_get = AsyncMock(return_value={})
+    page = {"properties": {"sheetId": 900, "title": "Alpha"}}
+    cog.sheet_list = AsyncMock(return_value={"sheets": [page]})
+
+    await cog.promote_tab_to_target(puzzle)
+    assert cog.sheet_list.await_count == 1
+    assert cog.batch_update.await_count == 1
+
+    cog.sheet_list = AsyncMock(return_value={"sheets": [
+        {**page, "tables": [{"tableId": "T", "name": "Contributions 900"}]}]})
+    cog.batch_update.reset_mock()
+    await cog.demote_tab_to_puzzle(puzzle)
+    assert cog.sheet_list.await_count == 1
+    assert cog.batch_update.await_count == 1
+    cog.get_page_name_by_id.assert_not_awaited()
+    cog._values_get.assert_not_awaited()
