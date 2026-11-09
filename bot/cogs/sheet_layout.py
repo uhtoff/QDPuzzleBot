@@ -22,7 +22,31 @@ is intentionally NOT reproduced — the generated contribution Table replaces it
 A cell spec is {"a1": str, "value": str, "type": "stringValue"|"formulaValue",
 "bold": bool}. A merge spec is (start_row, end_row, start_col, end_col), 0-based
 half-open (Sheets GridRange form).
+
+The full layout's dynamic cell addresses and header extents are described by
+``HeaderGeometry``; GoogleSheets builds one per write instead of reading
+config.puzzle_cell_* / FROZEN_ROWS directly, so another layout can plug in.
 """
+
+from dataclasses import dataclass
+from typing import Any
+
+
+
+@dataclass(frozen=True)
+class HeaderGeometry:
+    """Where a puzzle tab's dynamic header cells sit and how much of the tab the
+    header band occupies. Built per write by GoogleSheets._header_geometry."""
+    layout: str            # HEADER_FULL | HEADER_COMPACT
+    title_a1: Any          # name/title cell (full: config.puzzle_cell_name)
+    status_a1: Any         # solution/status cell (full: config.puzzle_cell_solution)
+    progress_a1: Any       # full: config.puzzle_cell_progress; compact: None
+    feeds_a1: str | None   # full: FEEDS_LINKS_A1; compact main: "A3"; compact extra: None
+    frozen_rows: int       # full: FROZEN_ROWS; compact: 0
+    band_rows: int         # rows the header occupies (grey/border): full FROZEN_ROWS
+    band_cols: int         # columns bordered from the header column: full 17
+    grey_whole_rows: bool  # full: True (grey spans the whole rows); compact: False
+
 
 FROZEN_ROWS = 3
 
