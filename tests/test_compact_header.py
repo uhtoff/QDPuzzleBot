@@ -1,5 +1,6 @@
 """Compact three-cell header at tab/file creation (tabs, files, files retry, meta)."""
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -512,3 +513,116 @@ def test_compact_change_answer_writes_a_formula_looking_answer_as_text():
     rec.run(_logged_cog(rec).update_solution(p))
     req = rec.batches[0][2]["requests"][0]
     assert req["updateCells"]["rows"][0]["values"]["userEnteredValue"] == {"stringValue": "=A1"}
+
+
+# --- Feeds refresh on compact tabs ------------------------------------------
+
+from bot.core.sheet_location import SheetLocation as Loc  # noqa: E402
+
+
+def _run_links(tabs, layouts=None):
+    cog = GoogleSheets.__new__(GoogleSheets)
+    by_sheet = {}
+
+    async def fake(body, spreadsheet_id=None):
+        by_sheet.setdefault(spreadsheet_id, []).append(body)
+        return {"replies": []}
+
+    cog.batch_update = fake
+    kw = {} if layouts is None else {"layouts": layouts}
+    failed = asyncio.run(cog.write_header_links(tabs, **kw))
+    assert failed == []
+    return by_sheet
+
+
+def _for_page(reqs, page):
+    return [r for r in reqs for v in r.values()
+            if isinstance(v, dict) and v.get("range", {}).get("sheetId") == page]
+
+
+def _kinds(reqs):
+    return {k for r in reqs for k in r}
+
+
+def test_mixed_layouts_in_one_spreadsheet_batch():
+    by_sheet = _run_links(
+        [(Loc("LIVE", 901), 0, [Link("M", "U")]),
+         (Loc("LIVE", 902), 0, [Link("M", "U")])],
+        layouts={("LIVE", "902"): "compact"})
+    assert len(by_sheet["LIVE"]) == 1
+    reqs = by_sheet["LIVE"][0]["requests"]
+    full = _for_page(reqs, 901)
+    assert "unmergeCells" in _kinds(full)
+    assert "Feeds:" in json.dumps(full)
+    compact = _for_page(reqs, 902)
+    assert len(compact) == 1
+    assert compact[0]["updateCells"]["range"]["startRowIndex"] == 2
+    assert compact[0]["updateCells"]["range"]["startColumnIndex"] == 0
+    assert compact[0]["updateCells"]["rows"][0]["values"][0][
+        "userEnteredValue"]["stringValue"] == "Feeds: M"
+    assert not _kinds(compact) & {"unmergeCells", "mergeCells", "updateBorders"}
+
+
+def test_compact_refresh_with_no_links_writes_no_links():
+    by_sheet = _run_links([(Loc("LIVE", 902), 0, [])],
+                          layouts={("LIVE", "902"): "compact"})
+    reqs = by_sheet["LIVE"][0]["requests"]
+    assert len(reqs) == 1
+    assert reqs[0]["updateCells"]["rows"][0]["values"][0][
+        "userEnteredValue"]["stringValue"] == "No links"
+
+
+def test_compact_meta_refresh_writes_b3():
+    meta = _compact(id=21, name="Meta", is_target=True)
+    meta.google_page_id = 902
+    offset = GoogleSheets.__new__(GoogleSheets)._header_shift(meta, 902)
+    assert offset == 1
+    by_sheet = _run_links([(Loc("LIVE", 902), offset, [Link("X", "U")])],
+                          layouts={("LIVE", "902"): "compact"})
+    req = by_sheet["LIVE"][0]["requests"][0]["updateCells"]
+    assert (req["range"]["startRowIndex"], req["range"]["startColumnIndex"]) == (2, 1)
+
+
+def test_same_page_id_on_two_spreadsheets_keeps_each_layout():
+    by_sheet = _run_links(
+        [(Loc("F1", 5), 0, [Link("M", "U")]), (Loc("F2", 5), 0, [Link("M", "U")])],
+        layouts={("F1", "5"): "compact"})
+    f1 = by_sheet["F1"][0]["requests"]
+    assert len(f1) == 1
+    assert f1[0]["updateCells"]["rows"][0]["values"][0][
+        "userEnteredValue"]["stringValue"] == "Feeds: M"
+    f2 = by_sheet["F2"][0]["requests"]
+    assert "unmergeCells" in _kinds(f2)
+    assert len(f2) > 1
+
+
+def _refresh_service():
+    from bot.core.puzzle_service import PuzzleService
+    gsheet = MagicMock()
+    gsheet.write_header_links = AsyncMock(return_value=[])
+    gsheet._header_shift = GoogleSheets.__new__(GoogleSheets)._header_shift
+    bot = MagicMock()
+    bot.get_cog.return_value = gsheet
+    svc = PuzzleService(bot)
+    svc._header_links = MagicMock(return_value=[])
+    return svc, gsheet
+
+
+def test_refresh_header_links_passes_layouts_for_compact_puzzles_only():
+    from tests.conftest import make_hunt
+    hunt = make_hunt()
+    hunt.google_sheet_id = "LIVE"
+    hunt.solved_sheet_id = "SOLVED"
+    c = _compact(id=1, name="C")
+    c.google_page_id = 801
+    f = make_puzzle(id=2, name="F")
+    f.google_page_id = 802
+    svc, gsheet = _refresh_service()
+    asyncio.run(svc.refresh_header_links(hunt, [c, f]))
+    assert gsheet.write_header_links.await_args.kwargs["layouts"] == {
+        ("LIVE", "801"): "compact"}
+    f2 = make_puzzle(id=3, name="F2")
+    f2.google_page_id = 803
+    svc, gsheet = _refresh_service()
+    asyncio.run(svc.refresh_header_links(hunt, [f, f2]))
+    assert "layouts" not in gsheet.write_header_links.await_args.kwargs

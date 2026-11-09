@@ -6,7 +6,7 @@ can be easily disabled; simply omit this file.
 import datetime
 import contextvars
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional
 
 import discord
 from googleapiclient.errors import HttpError
@@ -2036,7 +2036,8 @@ class GoogleSheets(commands.Cog):
         requests.append(self._header_border_request(page_id, offset))
         return requests
 
-    async def write_header_links(self, tabs) -> list[str]:
+    async def write_header_links(
+            self, tabs, layouts: Mapping[tuple[str, str], str] | None = None) -> list[str]:
         """Write the Feeds line on existing tabs. `tabs` is a list of
         (SheetLocation, offset, list[Link]); one batch_update per spreadsheet,
         never per tab, written to the spreadsheet each location names. A
@@ -2049,7 +2050,12 @@ class GoogleSheets(commands.Cog):
         failure (429/5xx, already retried by batch_update) is not fanned out:
         per-tab writes would only add load to a saturated quota or a down
         service, so every tab on that spreadsheet is marked failed. Best-effort:
-        never raises; returns the page ids whose line was not written."""
+        never raises; returns the page ids whose line was not written.
+
+        `layouts` maps (spreadsheet_id, str(page_id)) to a header layout; a tab
+        keyed HEADER_COMPACT gets only its A3 cell. Keyed by spreadsheet too,
+        because files-mode copies share page ids across spreadsheets."""
+        layouts = layouts or {}
         by_sheet: dict[str, list[tuple[str, list]]] = {}
         for loc, offset, links in tabs:
             if loc.page_id is None or loc.page_id == "":
@@ -2059,9 +2065,13 @@ class GoogleSheets(commands.Cog):
                 logger.warning("write_header_links: page %s has no spreadsheet id; "
                                "skipped", loc.page_id)
                 continue
-            by_sheet.setdefault(sid, []).append(
-                (str(loc.page_id),
-                 self._feeds_line_requests(int(loc.page_id), offset, links)))
+            if layouts.get((sid, str(loc.page_id))) == HEADER_COMPACT:
+                from bot.cogs import sheet_layout
+                reqs = [self.header_links_request(
+                    int(loc.page_id), offset, links, sheet_layout.COMPACT_GEOMETRY)]
+            else:
+                reqs = self._feeds_line_requests(int(loc.page_id), offset, links)
+            by_sheet.setdefault(sid, []).append((str(loc.page_id), reqs))
         failed: list[str] = []
         for spreadsheet_id, per_tab in by_sheet.items():
             try:

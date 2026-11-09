@@ -20,7 +20,7 @@ from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
-from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, HEADER_FULL, HEADER_STYLES
+from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, HEADER_COMPACT, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
@@ -3763,18 +3763,23 @@ class PuzzleService:
                 puzzles = self._reloaded(puzzles)
             tabs = []
             names: dict[str, str] = {}
+            layouts: dict[tuple[str, str], str] = {}
             seen = set()
             for p in puzzles:
                 if p is None or not p.google_page_id or p.id in seen:
                     continue
                 seen.add(p.id)
                 names[str(p.google_page_id)] = p.name
-                tabs.append((puzzle_location(hunt, p),
+                loc = puzzle_location(hunt, p)
+                tabs.append((loc,
                              gsheet_cog._header_shift(p, p.google_page_id),
                              self._header_links(hunt, p)))
+                if p.header_layout == HEADER_COMPACT:
+                    layouts[(loc.spreadsheet_id, str(loc.page_id))] = HEADER_COMPACT
             if not tabs:
                 return []
-            failed = await gsheet_cog.write_header_links(tabs)
+            failed = await gsheet_cog.write_header_links(
+                tabs, **({"layouts": layouts} if layouts else {}))
             return [names.get(str(page), str(page)) for page in failed or []]
         except Exception:  # noqa: BLE001
             logger.exception("refresh_header_links: failed for hunt %s",
