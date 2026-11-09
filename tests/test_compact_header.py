@@ -421,6 +421,8 @@ def test_compact_solve_touches_only_the_status_cell_on_main_and_extras():
         assert v["userEnteredFormat"]["textFormat"] == {"bold": True}
         assert v["userEnteredFormat"]["backgroundColor"] == GREEN
     assert not any("repeatCell" in r for r in reqs)   # no separate solution bg
+    kinds = [next(iter(r)) for r in reqs]
+    assert kinds.index("updateCells") < kinds.index("updateSheetProperties")
 
 
 def test_compact_meta_solve_writes_b2():
@@ -487,3 +489,26 @@ def test_full_puzzle_solve_is_unchanged():
     reqs = _run_solve(p)
     assert _cells(reqs) == {(11, 0, 8), (11, 2, 1)}
     assert any("repeatCell" in r for r in reqs)
+
+
+def test_compact_change_answer_sends_each_extra_to_its_own_spreadsheet():
+    p = _compact_own(solution="NEW")
+    p.google_sheet_id = ""                      # tabs mode: main tab on LIVE
+    live_extra = _extra(7, 12, "")
+    solved_extra = _extra(8, 13, "")
+    solved_extra.on_solved_sheet = True         # archived -> SOLVED
+    p.additional_sheets = [live_extra, solved_extra]
+    rec = Recorder()
+    rec.run(_logged_cog(rec).update_solution(p))
+    by_ss = {sid: _cells(body["requests"]) for _, sid, body in rec.batches}
+    assert len(rec.batches) == 2
+    assert by_ss == {"LIVE": {(11, 1, 0), (12, 1, 0)}, "SOLVED": {(13, 1, 0)}}
+
+
+def test_compact_change_answer_writes_a_formula_looking_answer_as_text():
+    rec = Recorder()
+    p = _compact_own(solution="=A1")
+    p.additional_sheets = []
+    rec.run(_logged_cog(rec).update_solution(p))
+    req = rec.batches[0][2]["requests"][0]
+    assert req["updateCells"]["rows"][0]["values"]["userEnteredValue"] == {"stringValue": "=A1"}
