@@ -392,13 +392,15 @@ class GoogleSheets(commands.Cog):
                                  header_links=None, title=None) -> list:
         """The compact header: title, status, (feeds,) then format and border."""
         answer = puzzle.solution if puzzle.solved else None
-        reqs = [self._title_request(puzzle, page_id, offset, geom, name=title),
-                self._status_cell_request(page_id, offset, geom, answer)]
+        # Band grey and border first: the grey repeatCell covers the whole band,
+        # so the status cell (green when solved) must be written after it.
+        reqs = self._tab_format_requests(page_id, label_col=offset, geom=geom)
+        reqs.append(self._header_border_request(page_id, offset, geom))
+        reqs.append(self._title_request(puzzle, page_id, offset, geom, name=title))
         if geom.feeds_a1:
             reqs.append(self.header_links_request(
                 page_id, offset, header_links or [], geom))
-        reqs += self._tab_format_requests(page_id, label_col=offset, geom=geom)
-        reqs.append(self._header_border_request(page_id, offset, geom))
+        reqs.append(self._status_cell_request(page_id, offset, geom, answer))
         return reqs
 
     def _solve_header_requests(self, puzzle, page_id, offset, geom, *, own_tab: bool) -> list:
@@ -2073,9 +2075,8 @@ class GoogleSheets(commands.Cog):
                                "skipped", loc.page_id)
                 continue
             if layouts.get((sid, str(loc.page_id))) == HEADER_COMPACT:
-                from bot.cogs import sheet_layout
                 reqs = [self.header_links_request(
-                    int(loc.page_id), offset, links, sheet_layout.COMPACT_GEOMETRY)]
+                    int(loc.page_id), offset, links, COMPACT_GEOMETRY)]
             else:
                 reqs = self._feeds_line_requests(int(loc.page_id), offset, links)
             by_sheet.setdefault(sid, []).append((str(loc.page_id), reqs))

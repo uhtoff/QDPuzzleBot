@@ -544,7 +544,9 @@ The full [command reference](commands.md) lists every command; highlights:
   compact header by default; append `, full` to `!hunt` for the original labelled header,
   or change it later with `!update_settings header_style full|compact` or in the
   dashboard's Admin settings. A change applies only to puzzles created afterwards;
-  existing puzzles keep the header they were made with.
+  existing puzzles keep the header they were made with. Hunts created through server
+  setup (`!setup_server` or the dashboard setup) also get the compact header, and can be
+  switched with `!update_settings header_style full`.
 - **After the hunt:** `!archive_hunt` condenses every channel into threads under one
   channel, deletes the categories, and marks the hunt archived (sheets are kept). For a
   hunt played on its own team server, `!archive_hunt` (or `!archive_hunt_to_hub`) does the

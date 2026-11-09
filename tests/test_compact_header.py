@@ -746,3 +746,31 @@ def test_full_promote_still_probes():
     full = _paged(make_puzzle())
     asyncio.run(cog.promote_tab_to_target(full))
     cog._tab_layout.assert_awaited_once()
+
+
+def test_solved_compact_tab_keeps_its_green_answer_after_the_band_grey():
+    cog = _cog()
+    calls = _capture_batch(cog)
+    puzzle = _compact(name="Alpha", solved=True, solution="BLUE")
+    asyncio.run(cog.generate_puzzle_tab(puzzle, is_target=False, header_links=None))
+    reqs = _reqs(calls)
+
+    def covers_a2(r):
+        for key in ("repeatCell", "updateCells"):
+            body = r.get(key)
+            if not body:
+                continue
+            rng = body["range"]
+            if (rng.get("startRowIndex", 0) <= 1 < rng.get("endRowIndex", 1 << 30)
+                    and rng.get("startColumnIndex", 0) <= 0
+                    < rng.get("endColumnIndex", 1 << 30)):
+                fmt = (body["cell"] if key == "repeatCell"
+                       else body["rows"][0]["values"][0]).get("userEnteredFormat", {})
+                if "backgroundColor" in fmt:
+                    return fmt
+        return None
+
+    fmts = [f for f in map(covers_a2, reqs) if f]
+    assert len(fmts) >= 2          # the band grey and the status cell
+    assert fmts[-1]["backgroundColor"] == GoogleSheets.SOLUTION_GREEN
+    assert fmts[-1]["textFormat"]["bold"] is True
