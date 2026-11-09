@@ -109,3 +109,26 @@ async def test_the_tab_count_is_fetched_once_however_many_extras_there_are():
 
     assert listing.await_count == 1, (
         f"end index re-fetched per sheet: {listing.await_count} calls for 2 extras")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_target", [False, True])
+async def test_compact_tab_create_budget(is_target):
+    """A compact create is 1 create_blank_tab + 2 batch_updates (the header batch,
+    then update_puzzle_info's title rewrite) -- and a compact target's Table rides
+    in the header batch, so _add_contribution_table is never called."""
+    cog = make_sheets_cog()
+    puzzle = make_puzzle(name="Alpha", is_target=is_target)
+    puzzle.header_layout = "compact"
+    puzzle.url = "https://h/alpha"
+    cog.spreadsheet_of = lambda p: "SS"
+    cog.get_unique_tab_name = AsyncMock(return_value="Alpha")
+    cog.create_blank_tab = AsyncMock(return_value=900)
+    cog.batch_update = AsyncMock(return_value={"replies": []})
+    cog._add_contribution_table = AsyncMock()
+
+    await cog.create_puzzle_spreadsheet(puzzle)
+
+    assert cog.create_blank_tab.await_count == 1
+    assert cog.batch_update.await_count == 2
+    cog._add_contribution_table.assert_not_awaited()

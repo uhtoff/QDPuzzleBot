@@ -28,6 +28,7 @@ The full layout's dynamic cell addresses and header extents are described by
 config.puzzle_cell_* / FROZEN_ROWS directly, so another layout can plug in.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
@@ -49,6 +50,11 @@ class HeaderGeometry:
 
 
 FROZEN_ROWS = 3
+
+# Compact layout: title / status / feeds in A1:A3 of the header column, no labels,
+# merges or frozen rows. An additional sheet has no feeds line, so its band is A1:A2.
+COMPACT_GEOMETRY = HeaderGeometry("compact", "A1", "A2", None, "A3", 0, 3, 1, False)
+COMPACT_EXTRA_GEOMETRY = dataclasses.replace(COMPACT_GEOMETRY, feeds_a1=None, band_rows=2)
 
 # Static header labels shared by every puzzle tab.
 PUZZLE_TAB_CELLS = [

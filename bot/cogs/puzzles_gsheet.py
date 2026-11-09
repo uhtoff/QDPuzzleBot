@@ -14,8 +14,8 @@ from discord.ext import commands
 
 from bot.utils import config
 from bot.store import PuzzleData
-from bot.cogs.sheet_layout import HeaderGeometry
-from bot.core.constants import HEADER_FULL
+from bot.cogs.sheet_layout import COMPACT_EXTRA_GEOMETRY, COMPACT_GEOMETRY, HeaderGeometry
+from bot.core.constants import HEADER_COMPACT, HEADER_FULL
 from bot.core.sheet_location import Link, spreadsheet_for
 from bot.core.sheet_tables import (
     EVIDENCE_TABLE_NAME, UNASSIGNED_TABLE_NAME, contribution_table_name, select_table,
@@ -238,7 +238,12 @@ class GoogleSheets(commands.Cog):
             grey_whole_rows=True)
 
     def _header_geometry(self, puzzle, page_id=None) -> HeaderGeometry:
-        """The header geometry for one of `puzzle`'s tabs (main, or `page_id`)."""
+        """The header geometry for one of `puzzle`'s tabs (main, or `page_id`).
+        Compact only when the puzzle says so (a MagicMock attribute is full)."""
+        if getattr(puzzle, "header_layout", None) == HEADER_COMPACT:
+            if page_id is not None and int(page_id) != int(puzzle.google_page_id or 0):
+                return COMPACT_EXTRA_GEOMETRY
+            return COMPACT_GEOMETRY
         return self._full_geometry()
 
     def _tab_format_requests(self, page_id, label_col, geom=None):
@@ -246,18 +251,24 @@ class GoogleSheets(commands.Cog):
         whole tab in JetBrains Mono, the 3 header rows frozen + grey, and the label
         column widened. (The old duplicateSheet template carried these.)"""
         geom = geom or self._full_geometry()
-        return [
-            {"updateSheetProperties": {
+        grey_range = {"sheetId": page_id, "startRowIndex": 0,
+                      "endRowIndex": geom.band_rows}
+        if not geom.grey_whole_rows:
+            grey_range["startColumnIndex"] = label_col
+            grey_range["endColumnIndex"] = label_col + geom.band_cols
+        reqs: list = []
+        if geom.frozen_rows:
+            reqs.append({"updateSheetProperties": {
                 "properties": {"sheetId": page_id,
                                "gridProperties": {"frozenRowCount": geom.frozen_rows}},
-                "fields": "gridProperties.frozenRowCount"}},
+                "fields": "gridProperties.frozenRowCount"}})
+        reqs += [
             {"repeatCell": {
                 "range": {"sheetId": page_id},
                 "cell": {"userEnteredFormat": {"textFormat": {"fontFamily": self.HEADER_FONT}}},
                 "fields": "userEnteredFormat.textFormat.fontFamily"}},
             {"repeatCell": {
-                "range": {"sheetId": page_id, "startRowIndex": 0,
-                          "endRowIndex": geom.band_rows},
+                "range": grey_range,
                 "cell": {"userEnteredFormat": {"backgroundColor": self.HEADER_GREY}},
                 "fields": "userEnteredFormat.backgroundColor"}},
             {"updateDimensionProperties": {
@@ -266,6 +277,7 @@ class GoogleSheets(commands.Cog):
                 "properties": {"pixelSize": self.LABEL_COL_WIDTH},
                 "fields": "pixelSize"}},
         ]
+        return reqs
 
     def _label_bold_requests(self, page_id, cells, offset):
         """repeatCell requests that bold the static label cells. The captured
@@ -338,11 +350,56 @@ class GoogleSheets(commands.Cog):
             "fields": "userEnteredFormat.backgroundColor"}}
 
     def _title_request(self, puzzle, page_id, offset, geom, name=None) -> dict:
-        """The name/url hyperlink write for the title cell."""
+        """The name/url hyperlink write for the title cell. Compact: rich text
+        (never a formula), so a name that looks like one is shown verbatim."""
+        if geom.layout == HEADER_COMPACT:
+            row = self.get_row(geom.title_a1)
+            col = self.get_column(geom.title_a1) + offset
+            url = puzzle.url
+            return {"updateCells": {
+                "rows": [{"values": [{
+                    "userEnteredValue": {"stringValue": name or puzzle.name},
+                    "textFormatRuns": [{"startIndex": 0,
+                                        "format": {"link": {"uri": url}} if url else {}}]}]}],
+                "fields": "userEnteredValue,textFormatRuns",
+                "range": {"sheetId": page_id,
+                          "startRowIndex": row, "endRowIndex": row + 1,
+                          "startColumnIndex": col, "endColumnIndex": col + 1}}}
         return self.update_cell(
             f'=HYPERLINK("{_formula_string(puzzle.url)}","{_formula_string(name or puzzle.name)}")',
             self.get_row(geom.title_a1),
             self.get_column(geom.title_a1) + offset, self.FORMULA_INPUT, page_id)
+
+    def _status_cell_request(self, page_id, offset, geom, answer: str | None) -> dict:
+        """Compact A2: "Unsolved" on grey, or the answer on green and bold. Always
+        a stringValue, so an answer that looks like a formula stays text."""
+        solved = answer is not None
+        row = self.get_row(geom.status_a1)
+        col = self.get_column(geom.status_a1) + offset
+        return {"updateCells": {
+            "rows": [{"values": [{
+                "userEnteredValue": {"stringValue": answer if solved else "Unsolved"},
+                "userEnteredFormat": {
+                    "backgroundColor": self.SOLUTION_GREEN if solved else self.HEADER_GREY,
+                    "textFormat": {"bold": solved}}}]}],
+            "fields": "userEnteredValue,userEnteredFormat.backgroundColor,"
+                      "userEnteredFormat.textFormat.bold",
+            "range": {"sheetId": page_id,
+                      "startRowIndex": row, "endRowIndex": row + 1,
+                      "startColumnIndex": col, "endColumnIndex": col + 1}}}
+
+    def _compact_header_requests(self, puzzle, page_id, offset, geom, *,
+                                 header_links=None, title=None) -> list:
+        """The compact header: title, status, (feeds,) then format and border."""
+        answer = puzzle.solution if puzzle.solved else None
+        reqs = [self._title_request(puzzle, page_id, offset, geom, name=title),
+                self._status_cell_request(page_id, offset, geom, answer)]
+        if geom.feeds_a1:
+            reqs.append(self.header_links_request(
+                page_id, offset, header_links or [], geom))
+        reqs += self._tab_format_requests(page_id, label_col=offset, geom=geom)
+        reqs.append(self._header_border_request(page_id, offset, geom))
+        return reqs
 
     def _solve_header_requests(self, puzzle, page_id, offset, geom, *, own_tab: bool) -> list:
         """Solution + "Solved" writes (and, on the puzzle's own tab, the green
@@ -1842,6 +1899,9 @@ class GoogleSheets(commands.Cog):
         `header_links` (list[Link]) fills the Feeds line; None leaves it empty."""
         from bot.cogs import sheet_layout
         geom = self._header_geometry(puzzle, page_id)
+        if geom.layout == HEADER_COMPACT:
+            return self._compact_header_requests(
+                puzzle, page_id, offset, geom, header_links=header_links)
         cells, merges = sheet_layout.puzzle_tab_layout(is_target)
         requests = []
         for c in cells:
@@ -1902,10 +1962,13 @@ class GoogleSheets(commands.Cog):
         # promote / demote, where a TypeError would fail the user's action.
         links = [lk for lk in links if lk.text]
         cell: dict[str, Any] = {}
+        compact = geom.layout == HEADER_COMPACT
         if links:
-            text, runs = self._link_runs("", links)
+            text, runs = self._link_runs("Feeds: " if compact else "", links)
             cell = {"userEnteredValue": {"stringValue": text},
                     "textFormatRuns": runs}
+        elif compact:
+            cell = {"userEnteredValue": {"stringValue": "No links"}}
         return {"updateCells": {
             "rows": [{"values": [cell]}],
             "fields": "userEnteredValue,textFormatRuns",
@@ -2038,6 +2101,13 @@ class GoogleSheets(commands.Cog):
         requests = self._puzzle_tab_header_requests(
             puzzle, page_id, offset, is_target,
             header_links=header_links or None)
+        # A compact target's Table and key-column hide ride in the same atomic
+        # batch (no deferral): a failed batch leaves nothing half-made.
+        compact_target = is_target \
+            and self._header_geometry(puzzle, page_id).layout == HEADER_COMPACT
+        if compact_target:
+            requests += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+            requests.append(self._hide_key_column_request(page_id))
         requests += extra_requests or []
         if requests:
             await self.batch_update({"requests": requests}, spreadsheet_id=spreadsheet_id)
@@ -2048,7 +2118,7 @@ class GoogleSheets(commands.Cog):
         # and a flicker here must NOT abort meta creation (the user just sees a 500 and
         # a half-made meta). If it fails, the tab is left without the Table; it is
         # created lazily on the first contribution render (see _ensure_contribution_table).
-        if is_target:
+        if is_target and not compact_target:
             try:
                 await self._add_contribution_table(page_id, header_row=sheet_layout.FROZEN_ROWS,
                                                    spreadsheet_id=spreadsheet_id)
