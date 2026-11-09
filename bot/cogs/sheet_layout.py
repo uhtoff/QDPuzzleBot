@@ -8,7 +8,8 @@ every puzzle tab is generated in code.
 Captured 2026-06-25 from master spreadsheet "Tab template" (sheetId 1971123506)
 and "Meta Tab template" (sheetId 42737759); both 3 frozen header rows.
 
-Cell roles in the template (do NOT re-emit the dynamic ones from here — the bot
+Cell roles in the template (these describe the FULL layout; the compact layout
+is COMPACT_GEOMETRY below) (do NOT re-emit the dynamic ones from here — the bot
 writes them at runtime from config.puzzle_cell_*):
   * B1  name/url hyperlink   -> config.puzzle_cell_name / _link  (DYNAMIC)
   * I1  solution             -> config.puzzle_cell_solution      (DYNAMIC)

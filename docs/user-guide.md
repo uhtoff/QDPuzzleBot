@@ -525,17 +525,26 @@ The full [command reference](commands.md) lists every command; highlights:
   code performs, pinning the admin/organiser roles (`!set_admin_roles`) and setting the
   team role's overwrite on the hunt's initial category.
 - **Starting a hunt:** `!hunt Hunt Name:https://hunt.example` in the bot channel.
-  Append `, RoleName` to gate the hunt to a team role, and `, files` for
-  [one spreadsheet per puzzle](#files-mode-one-spreadsheet-per-puzzle). Then `!set_start TIMESTAMP` and
+  Append `, RoleName` to gate the hunt to a team role, `, files` for
+  [one spreadsheet per puzzle](#files-mode-one-spreadsheet-per-puzzle), and `, full` for the
+  original labelled sheet header (see "Sheet header style" below). Then `!set_start TIMESTAMP` and
   `!set_login user:pass` if the hunt has a shared login, and `!use_solved_sheet` if you
   want solved puzzles moved to a second spreadsheet to keep the main one fast.
 - **Keeping things tidy mid-hunt:** `!sync` (in a group's channel) tags every channel in
   the category into the group; `!rebuild` regenerates meta roll-up sheets;
   `!reconcile apply` heals any drift between Discord, Sheets and the database.
-- **Links between sheets:** under **Solution** in each puzzle's sheet header, a
-  **Feeds:** line links to the metas that puzzle feeds. Puzzle names in meta and minimeta tables and
+- **Links between sheets:** in each puzzle's sheet header a **Feeds:** line links to the
+  metas it feeds: under **Solution** on the full header, in cell A3 (B3 on a meta) on the
+  compact header. Puzzle names in meta and minimeta tables and
   on Unassigned Feeders link to each puzzle's own sheet. On a hunt started before this
   update, run `!reconcile apply` once to add them.
+- **Sheet header style:** the compact header is three cells: A1 the puzzle's linked title,
+  A2 its status or answer, A3 the **Feeds:** line. A compact meta tab has its header in
+  column B, and additional sheets carry A1 (title) and A2 (status) only. New hunts use the
+  compact header by default; append `, full` to `!hunt` for the original labelled header,
+  or change it later with `!update_settings header_style full|compact` or in the
+  dashboard's Admin settings. A change applies only to puzzles created afterwards;
+  existing puzzles keep the header they were made with.
 - **After the hunt:** `!archive_hunt` condenses every channel into threads under one
   channel, deletes the categories, and marks the hunt archived (sheets are kept). For a
   hunt played on its own team server, `!archive_hunt` (or `!archive_hunt_to_hub`) does the
