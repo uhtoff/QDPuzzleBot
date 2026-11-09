@@ -363,3 +363,127 @@ def test_full_extra_sheet_still_duplicates_the_template():
     cog.update_puzzle_info.assert_awaited_once()
     cog.create_blank_tab.assert_not_awaited()
     assert calls == []
+
+
+# ---- Task 5: solve / unsolve / change answer / rename ----------------------
+
+from tests.test_files_mode_create import _files_hunt as _hunt  # noqa: E402
+from tests.test_files_mode_lifecycle import _extra, _logged_cog, _own  # noqa: E402
+
+GREEN = GoogleSheets.SOLUTION_GREEN
+GREY = GoogleSheets.HEADER_GREY
+
+
+def _cells(requests):
+    """{(sheetId, row, col)} of every updateCells/repeatCell range with column bounds."""
+    out = set()
+    for r in requests:
+        rng = (r.get("updateCells") or r.get("repeatCell") or {}).get("range")
+        if rng and "startColumnIndex" in rng:
+            for row in range(rng.get("startRowIndex", 0), rng["endRowIndex"]):
+                for col in range(rng["startColumnIndex"], rng["endColumnIndex"]):
+                    out.add((int(rng["sheetId"]), row, col))
+    return out
+
+
+def _compact_own(solution="BLUE", **kw):
+    p = _own(solution=solution, **kw)
+    p.header_layout = "compact"
+    p.url = "https://h/x"
+    p.additional_sheets = [_extra(7, 12, "FILE1")]
+    return p
+
+
+def _status_values(reqs):
+    return {int(r["updateCells"]["range"]["sheetId"]):
+            r["updateCells"]["rows"][0]["values"][0] for r in reqs
+            if "updateCells" in r}
+
+
+def _run_solve(puzzle):
+    rec = Recorder()
+    rec.run(_logged_cog(rec).move_puzzle_to_solved_sheet(puzzle, hunt=_hunt()))
+    return [r for b in rec.batches for r in b[2]["requests"]]
+
+
+def _run_unsolve(puzzle):
+    rec = Recorder()
+    rec.run(_logged_cog(rec).restore_puzzle_from_solved_sheet(puzzle, hunt=_hunt()))
+    return [r for b in rec.batches for r in b[2]["requests"]]
+
+
+def test_compact_solve_touches_only_the_status_cell_on_main_and_extras():
+    reqs = _run_solve(_compact_own())
+    assert _cells(reqs) == {(11, 1, 0), (12, 1, 0)}
+    for sid in (11, 12):
+        v = _status_values(reqs)[sid]
+        assert v["userEnteredValue"] == {"stringValue": "BLUE"}
+        assert v["userEnteredFormat"]["textFormat"] == {"bold": True}
+        assert v["userEnteredFormat"]["backgroundColor"] == GREEN
+    assert not any("repeatCell" in r for r in reqs)   # no separate solution bg
+
+
+def test_compact_meta_solve_writes_b2():
+    p = _compact_own(is_target=True)
+    p.additional_sheets = []
+    reqs = _run_solve(p)
+    assert _cells(reqs) == {(11, 1, 1)}
+
+
+def test_compact_unsolve_restores_unsolved_grey_not_bold():
+    reqs = _run_unsolve(_compact_own(solved=False))
+    assert _cells(reqs) == {(11, 1, 0), (12, 1, 0)}
+    for sid in (11, 12):
+        v = _status_values(reqs)[sid]
+        assert v["userEnteredValue"] == {"stringValue": "Unsolved"}
+        assert v["userEnteredFormat"]["backgroundColor"] == GREY
+        assert v["userEnteredFormat"]["textFormat"] == {"bold": False}
+
+
+def test_compact_solve_writes_a_formula_looking_answer_as_text():
+    p = _compact_own(solution="=A1")
+    p.additional_sheets = []
+    v = _status_values(_run_solve(p))[11]
+    assert v["userEnteredValue"] == {"stringValue": "=A1"}
+
+
+def test_compact_change_answer_updates_main_and_extras_value_only():
+    rec = Recorder()
+    rec.run(_logged_cog(rec).update_solution(_compact_own(solution="NEW")))
+    assert len(rec.batches) == 1
+    reqs = rec.batches[0][2]["requests"]
+    assert len(reqs) == 2
+    assert all(r["updateCells"]["fields"] == "userEnteredValue" for r in reqs)
+    assert _cells(reqs) == {(11, 1, 0), (12, 1, 0)}
+    assert all(r["updateCells"]["rows"][0]["values"]["userEnteredValue"]
+               == {"stringValue": "NEW"} for r in reqs)
+
+
+def test_full_change_answer_still_writes_the_main_tab_only():
+    p = _own(solution="NEW")
+    p.additional_sheets = [_extra(7, 12, "FILE1")]
+    rec = Recorder()
+    rec.run(_logged_cog(rec).update_solution(p))
+    reqs = rec.batches[0][2]["requests"]
+    assert _cells(reqs) == {(11, 0, 8)}
+
+
+def test_compact_rename_rewrites_a1_only():
+    cog = _cog()
+    calls = _capture_batch(cog)
+    puzzle = _compact(name="New Name")
+    puzzle.google_page_id = P
+    asyncio.run(cog.update_puzzle_info(puzzle, True))
+    reqs = _reqs(calls)
+    assert len(reqs) == 2
+    assert reqs[0] == _title("New Name", "https://h/alpha")
+    assert "updateSheetProperties" in reqs[1]
+    assert "formulaValue" not in str(reqs)
+
+
+def test_full_puzzle_solve_is_unchanged():
+    p = _own(solution="BLUE")
+    p.additional_sheets = []
+    reqs = _run_solve(p)
+    assert _cells(reqs) == {(11, 0, 8), (11, 2, 1)}
+    assert any("repeatCell" in r for r in reqs)

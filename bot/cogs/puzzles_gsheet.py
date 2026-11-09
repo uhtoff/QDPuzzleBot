@@ -403,7 +403,10 @@ class GoogleSheets(commands.Cog):
 
     def _solve_header_requests(self, puzzle, page_id, offset, geom, *, own_tab: bool) -> list:
         """Solution + "Solved" writes (and, on the puzzle's own tab, the green
-        solution cell) for one tab."""
+        solution cell) for one tab. Compact: the A2 status cell alone (it carries
+        its own green background)."""
+        if geom.layout == HEADER_COMPACT:
+            return [self._status_cell_request(page_id, offset, geom, puzzle.solution)]
         reqs = [
             self.update_cell(puzzle.solution, self.get_row(geom.status_a1),
                              self.get_column(geom.status_a1) + offset, self.STRING_INPUT, page_id),
@@ -416,7 +419,9 @@ class GoogleSheets(commands.Cog):
 
     def _unsolve_header_requests(self, puzzle, page_id, offset, geom, *, own_tab: bool) -> list:
         """Clear the solution + progress cells (and, on the puzzle's own tab,
-        un-green the solution cell) for one tab."""
+        un-green the solution cell) for one tab. Compact: A2 back to "Unsolved"."""
+        if geom.layout == HEADER_COMPACT:
+            return [self._status_cell_request(page_id, offset, geom, None)]
         reqs = [
             self.update_cell("", self.get_row(geom.status_a1),
                              self.get_column(geom.status_a1) + offset, self.STRING_INPUT, page_id),
@@ -802,10 +807,23 @@ class GoogleSheets(commands.Cog):
         requests = [self.update_cell(puzzle_data.solution, self.get_row(geom.status_a1),
                                      self.get_column(geom.status_a1) + offset, self.STRING_INPUT, puzzle_data.google_page_id)
                     ]
-        updates = {
-            'requests': requests
-        }
-        await self.batch_update(updates, spreadsheet_id=self.spreadsheet_of(puzzle_data))
+        if geom.layout != HEADER_COMPACT:
+            await self.batch_update({'requests': requests},
+                                    spreadsheet_id=self.spreadsheet_of(puzzle_data))
+            return
+        # Compact extras show the answer too (value only: the status cell's
+        # colour and bold are already set). Each goes to the spreadsheet its
+        # tab is in, which can differ from the main tab's.
+        by_sheet = {self.spreadsheet_of(puzzle_data): requests}
+        for sheet in puzzle_data.additional_sheets:
+            if len(sheet.google_page_id) > 0:
+                extra_geom = self._header_geometry(puzzle_data, sheet.google_page_id)
+                by_sheet.setdefault(self.spreadsheet_of(sheet), []).append(
+                    self.update_cell(puzzle_data.solution, self.get_row(extra_geom.status_a1),
+                                     self.get_column(extra_geom.status_a1), self.STRING_INPUT,
+                                     sheet.google_page_id))
+        for spreadsheet_id, reqs in by_sheet.items():
+            await self.batch_update({'requests': reqs}, spreadsheet_id=spreadsheet_id)
 
     async def move_puzzle_to_solved_sheet(self, puzzle_data: PuzzleData, *, hunt=None):
         """Solve placement (the dispatch point). Tabs: the in-place solve batch

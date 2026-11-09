@@ -155,6 +155,32 @@ def test_files_target_solve_moves_too_with_the_shifted_header():
     assert target.on_solved_sheet is False
 
 
+def test_files_compact_solve_and_unsolve_write_a2():
+    puzzle = _own(solution="ANSWER")
+    puzzle.header_layout = "compact"
+    rec = Recorder()
+    cog = _logged_cog(rec)
+    rec.run(cog.move_puzzle_to_solved_sheet(puzzle, hunt=_files_hunt()))
+    assert [c[0] for c in rec.calls] == ["batch", "move_file"]   # file move unchanged
+    _, sid, body = rec.calls[0]
+    assert sid == "FILE1"
+    cell = next(r["updateCells"] for r in body["requests"] if "updateCells" in r)
+    assert cell["range"]["startRowIndex"] == 1 and cell["range"]["startColumnIndex"] == 0
+    assert cell["rows"][0]["values"][0]["userEnteredValue"] == {"stringValue": "ANSWER"}
+    assert _bgs(body) == []                      # no separate solution bg
+    assert rec.calls[1] == ("move_file", "FILE1", ("SOLVEDFOLDER", "FOLDER"))
+
+    rec = Recorder()
+    cog = _logged_cog(rec)
+    rec.run(cog.restore_puzzle_from_solved_sheet(puzzle, hunt=_files_hunt()))
+    assert [c[0] for c in rec.calls] == ["batch", "move_file"]
+    _, sid, body = rec.calls[0]
+    assert sid == "FILE1"
+    cell = next(r["updateCells"] for r in body["requests"] if "updateCells" in r)
+    assert cell["rows"][0]["values"][0]["userEnteredValue"] == {"stringValue": "Unsolved"}
+    assert rec.calls[1] == ("move_file", "FILE1", ("FOLDER", "SOLVEDFOLDER"))
+
+
 def test_files_solve_with_a_failed_folder_move_keeps_the_header_and_does_not_raise(caplog):
     """Chosen behaviour: the header (the visible solve) is written; a Drive
     move failure is logged, not raised, so the solve is not reported as a sheet
