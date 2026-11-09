@@ -20,7 +20,7 @@ from googleapiclient.errors import HttpError
 
 from bot.store import PuzzleJsonDb, TagGroupJsonDb, HuntJsonDb, GuildSettingsDb, SheetsJsonDb, RollupsJsonDb, EvidenceJsonDb, TagGroupCategoryDb, HuntCategoryDb, CanvasRegionJsonDb  # noqa: F401  # GuildSettingsDb kept as a tests' patch target
 from bot.core import category_layout, hunt_archive, media_gc, mod_invite, voice
-from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS
+from bot.core.constants import STATUSES, PRIORITIES, UNSOLVED_STATUS, PARTIAL_STATUS, HEADER_FULL, HEADER_STYLES
 from bot.store.puzzle_data import PuzzleData, AdditionalSheetData
 from bot.store.rollup_data import RollupData
 from bot.store.tag_group_data import TagGroupData
@@ -2975,6 +2975,12 @@ class PuzzleService:
         return minimeta
 
 
+    @staticmethod
+    def _header_layout_for(hunt) -> str:
+        """The header layout a new puzzle takes from its hunt (unknown -> full)."""
+        style = getattr(hunt, "header_style", None)
+        return style if style in HEADER_STYLES else HEADER_FULL
+
     @pushes_board()
     async def create_mini(self, guild, hunt, minimeta, name, notifier=None):
         """Create a mini-puzzle: thread in minimeta's channel + Google tab + PuzzleData row.
@@ -3005,6 +3011,7 @@ class PuzzleService:
 
         if files_mode:
             mini.google_sheet_id = minimeta.google_sheet_id
+        mini.header_layout = self._header_layout_for(hunt)
 
         gsheet_cog = self._gsheet_cog(hunt)
         if gsheet_cog is not None:
@@ -3257,6 +3264,7 @@ class PuzzleService:
         )
         if is_meta:
             new_puzzle.is_target = True
+        new_puzzle.header_layout = self._header_layout_for(hunt)
         if hunt.url:
             prefix = hunt.puzzle_prefix or 'puzzle'
             hunt_url_base = urls.normalize_external_url(hunt.url).rstrip("/")

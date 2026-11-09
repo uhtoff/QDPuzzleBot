@@ -1220,6 +1220,17 @@ class GoogleSheets(commands.Cog):
             sheet_name = f"{name} ({puzzle_data.name})"
         else:
             sheet_name = f"Extra Sheet for {puzzle_data.name}"
+        if getattr(puzzle_data, "header_layout", None) == HEADER_COMPACT:
+            # A blank tab, not the template duplicate: the template carries the
+            # full labelled header. Title + status only, in one batch.
+            tab_name = await self.get_unique_tab_name(sheet_name, spreadsheet_id)
+            sheet_id = await self.create_blank_tab(spreadsheet_id, tab_name, index + 1)
+            await self.batch_update(
+                {"requests": self._compact_header_requests(
+                    puzzle_data, sheet_id, 0, COMPACT_EXTRA_GEOMETRY,
+                    title=name or puzzle_data.name)},
+                spreadsheet_id=spreadsheet_id)
+            return sheet_id
         sheet_id = await self.add_new_sheet(sheet_name, index+1, spreadsheet_id=spreadsheet_id)
         await self.update_puzzle_info(puzzle_data, False, name, sheet_id,
                                       spreadsheet_id=spreadsheet_id)

@@ -212,3 +212,154 @@ def test_full_puzzle_with_magicmock_layout_gets_the_full_header():
     reqs = _reqs(calls)
     assert any("mergeCells" in r for r in reqs)
     assert "Puzzle Title:" in repr(reqs)
+
+
+# --- Task 4: the flag is set at creation; extra sheets -----------------------
+
+from unittest.mock import patch  # noqa: E402
+
+from tests.test_create_service import _service_with_sheets, _svc_hunt  # noqa: E402
+import tests.test_reconcile as _rec  # noqa: E402
+
+
+def _hunt_with_style(style):
+    h = _svc_hunt()
+    h.header_style = style
+    return h
+
+
+async def _create_one(svc, hunt):
+    guild = MagicMock()
+    guild.channels = []
+    guild.categories = [MagicMock(id=999)]
+    notifier = MagicMock()
+    notifier.welcome = AsyncMock()
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.category_layout.pick_unsolved_category",
+               AsyncMock(return_value=MagicMock(id=999, channels=[]))), \
+         patch("bot.core.puzzle_service.get_or_create_channel",
+               AsyncMock(return_value=(MagicMock(id=222, mention="<#222>", name="np"), True))):
+        pdb.commit.side_effect = lambda p: setattr(p, "id", 1)
+        await svc.create_puzzle(guild, hunt, None, "Newpuz", notifier=notifier)
+
+
+def _record_layout(gsheet):
+    seen = []
+
+    async def rec(puzzle, **kw):
+        seen.append(puzzle.header_layout)
+
+    gsheet.create_puzzle_spreadsheet = AsyncMock(side_effect=rec)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_create_puzzle_copies_the_hunt_style_before_the_sheet_call():
+    svc, gsheet = _service_with_sheets()
+    seen = _record_layout(gsheet)
+    await _create_one(svc, _hunt_with_style("compact"))
+    await _create_one(svc, _hunt_with_style("full"))
+    assert seen == ["compact", "full"]
+
+
+@pytest.mark.asyncio
+async def test_create_mini_copies_the_hunt_style():
+    svc, gsheet = _service_with_sheets()
+    gsheet.mini_insert_index = AsyncMock(return_value=0)
+    seen = _record_layout(gsheet)
+    svc.make_minimeta = AsyncMock()
+    svc._links_to_safe = MagicMock(return_value=[])
+    for style in ("compact", "full"):
+        minimeta = make_puzzle(id=7, name="MM")
+        thread = MagicMock(id=5)
+        thread.name = "t"
+        thread.send = AsyncMock()
+        channel = MagicMock()
+        channel.create_thread = AsyncMock(return_value=thread)
+        svc.bot.get_cog.return_value = gsheet
+        with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb:
+            pdb.get_all_from_hunt.return_value = []
+            pdb.commit.side_effect = lambda p: setattr(p, "id", 2)
+            svc.refresh_minimeta = AsyncMock()
+            svc.refresh_header_links = AsyncMock()
+            guild = MagicMock()
+            guild.get_channel.return_value = channel
+            await svc.create_mini(guild, _hunt_with_style(style), minimeta, "Mini")
+    assert seen == ["compact", "full"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_hunt_style_creates_a_full_puzzle():
+    svc, gsheet = _service_with_sheets()
+    seen = _record_layout(gsheet)
+    await _create_one(svc, _hunt_with_style("weird"))
+    assert seen == ["full"]
+
+
+def test_reconcile_recreates_an_old_full_puzzle_full_in_a_compact_hunt():
+    gcog = _rec._gcog(page_name=None)
+
+    async def _add(puzzle, index):
+        puzzle.google_page_id = "77"
+        return "77"
+
+    gcog.add_new_puzzle_sheet.side_effect = _add
+    svc = _rec._service_with_gsheet(gcog)
+    p = _rec._puzzle(google_page_id="42", tags=[10], header_layout="full")
+    hunt = _rec._hunt(header_style="compact")
+    with patch.object(_rec.ps.PuzzleJsonDb, "commit"):
+        asyncio.run(svc._reconcile_tabs(hunt, p, apply=True))
+    gcog.add_new_puzzle_sheet.assert_awaited_once()
+    assert gcog.add_new_puzzle_sheet.await_args.args[0] is p
+    assert p.header_layout == "full"
+
+
+def _extra_cog(sheet_id=555):
+    cog = _cog()
+    cog.get_puzzle_sheet_index = AsyncMock(return_value=4)
+    cog.create_blank_tab = AsyncMock(return_value=sheet_id)
+    cog.add_new_sheet = AsyncMock(return_value=sheet_id)
+    cog.update_puzzle_info = AsyncMock()
+    cog.get_unique_tab_name = AsyncMock(side_effect=lambda n, s=None: n)
+    return cog
+
+
+def test_compact_extra_sheet_is_a_blank_tab_with_title_and_status():
+    cog = _extra_cog()
+    calls = _capture_batch(cog)
+    puzzle = _compact(name="Alpha", solved=True, solution="ANSWER")
+    puzzle.google_page_id = 100
+    sid = asyncio.run(cog.create_additional_spreadsheet(puzzle, "Grid"))
+    assert sid == 555
+    cog.create_blank_tab.assert_awaited_once_with("SS", "Grid (Alpha)", 5)
+    cog.add_new_sheet.assert_not_awaited()
+    cog.update_puzzle_info.assert_not_awaited()
+    assert len(calls) == 1
+    reqs = _reqs(calls)
+    assert _cell_at(reqs, 0, 0)["updateCells"]["range"]["sheetId"] == 555
+    a1 = _cell_at(reqs, 0, 0)["updateCells"]["rows"][0]["values"][0]
+    assert a1["userEnteredValue"] == {"stringValue": "Grid"}
+    assert a1["textFormatRuns"] == [{"startIndex": 0,
+                                     "format": {"link": {"uri": "https://h/alpha"}}}]
+    a2 = _cell_at(reqs, 1, 0)["updateCells"]["rows"][0]["values"][0]
+    assert a2["userEnteredValue"] == {"stringValue": "ANSWER"}
+    assert a2["userEnteredFormat"]["textFormat"] == {"bold": True}
+    assert a2["userEnteredFormat"]["backgroundColor"] == GoogleSheets.SOLUTION_GREEN
+    with pytest.raises(AssertionError):
+        _cell_at(reqs, 2, 0)
+    greys = [r["repeatCell"]["range"] for r in reqs if "repeatCell" in r
+             and "backgroundColor" in r["repeatCell"]["cell"].get("userEnteredFormat", {})]
+    assert greys == [_rng(0, 2, 0, 1, sid=555)]
+    borders = [r["updateBorders"]["range"] for r in reqs if "updateBorders" in r]
+    assert borders == [_rng(0, 2, 0, 1, sid=555)]
+
+
+def test_full_extra_sheet_still_duplicates_the_template():
+    cog = _extra_cog()
+    calls = _capture_batch(cog)
+    puzzle = make_puzzle(name="Alpha")
+    asyncio.run(cog.create_additional_spreadsheet(puzzle, "Grid"))
+    cog.add_new_sheet.assert_awaited_once()
+    cog.update_puzzle_info.assert_awaited_once()
+    cog.create_blank_tab.assert_not_awaited()
+    assert calls == []
