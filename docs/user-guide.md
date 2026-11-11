@@ -353,14 +353,17 @@ dashboard. After updating the extension, reload any open dashboard tabs.
   in the panel.
 - **Dashboard buttons**, shown only when the extension is installed: **Work on this puzzle**
   (an icon button on the puzzle row, a labelled button in the puzzle drawer; only for
-  puzzles that have a sheet), an icon button in each round's header with the tooltip **Open
-  round as a tab group** (files-mode hunts only; it opens the round's puzzle sheets in a
-  named tab group, reusing tabs that are already open and moving them into the group; Chrome
-  hides saved, closed tab groups from extensions, so reopen a closed round from Chrome's
-  saved-groups bar rather than the dashboard, or you'll get a second saved group), and
-  **Close solved tabs** in the hunt board header (files-mode hunts only). In files mode,
-  opening a puzzle sheet that is already open switches to the existing tab and closes the
-  duplicate (unless it is the only tab in its window).
+  puzzles that have a sheet), **Open puzzle as a tab group** (icon on the puzzle row and a
+  labelled button in the drawer; opens the puzzle's sheet and its hunt page in a tab group
+  named after the puzzle, or focuses that group if it is already open), an icon button in
+  each round's header with the tooltip **Open round as a tab group** (files-mode hunts only;
+  it opens the round's puzzle sheets in a named tab group, reusing tabs that are already
+  open and moving them into the group; Chrome hides saved, closed tab groups from
+  extensions, so reopen a closed round from Chrome's saved-groups bar rather than the
+  dashboard, or you'll get a second saved group), and **Close solved tabs** in the hunt
+  board header (files-mode hunts only). In files mode, opening a puzzle sheet that is
+  already open switches to the existing tab and closes the duplicate (unless it is the only
+  tab in its window).
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
 - **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
   instance is `https://puzzbot.com`) and the notifications switch.

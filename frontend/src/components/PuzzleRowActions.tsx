@@ -1,7 +1,14 @@
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
-import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconNote, IconPlayerPlay } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconBrowserPlus,
+  IconCircleCheck,
+  IconCircleX,
+  IconNote,
+  IconPlayerPlay,
+} from "@tabler/icons-react";
 import type { Puzzle } from "../types";
-import { extensionPresent, workOn } from "../lib/extension";
+import { extensionPresent, openPuzzle, workOn } from "../lib/extension";
 
 interface PuzzleRowActionsProps {
   puzzle: Puzzle;
@@ -31,6 +38,8 @@ export function PuzzleRowActions({
   huntUid,
   tdWidth,
 }: PuzzleRowActionsProps) {
+  const sheetUrl = p.sheet_url;
+  const puzzleUrl = p.url;
   return (
     <Table.Td w={tdWidth}>
       <Group gap={4} wrap="nowrap">
@@ -48,15 +57,27 @@ export function PuzzleRowActions({
             </ActionIcon>
           </Tooltip>
         )}
-        {huntUid && p.sheet_url && extensionPresent() && (
+        {huntUid && sheetUrl && extensionPresent() && (
           <Tooltip label="Work on this puzzle">
             <ActionIcon
               variant="subtle"
               color="blue"
-              onClick={() => workOn({ id: p.id, sheet_url: p.sheet_url, hunt_uid: huntUid })}
+              onClick={() => workOn({ id: p.id, sheet_url: sheetUrl, hunt_uid: huntUid })}
               aria-label="Work on this puzzle"
             >
               <IconPlayerPlay size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {sheetUrl && puzzleUrl && extensionPresent() && (
+          <Tooltip label="Open puzzle as a tab group">
+            <ActionIcon
+              variant="subtle"
+              color="blue"
+              onClick={() => openPuzzle(p.name, sheetUrl, puzzleUrl)}
+              aria-label="Open puzzle as a tab group"
+            >
+              <IconBrowserPlus size={16} />
             </ActionIcon>
           </Tooltip>
         )}

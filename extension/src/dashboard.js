@@ -2,7 +2,7 @@
 // and relays the SPA's window messages to the background worker.
 document.documentElement.dataset.puzzbotExtension = "1";
 
-const ACTIONS = new Set(["work", "openRound", "closeSolved"]);
+const ACTIONS = new Set(["work", "openPuzzle", "openRound", "closeSolved"]);
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
