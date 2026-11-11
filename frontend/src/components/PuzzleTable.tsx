@@ -25,6 +25,7 @@ import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCell
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, formatPriority, formatStatus, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
+import { matchesSearch } from "../lib/searchText";
 
 interface Props {
   detail: HuntDetail;
@@ -198,15 +199,17 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props
   const typeOptions = useMemo(() => uniqueValues(puzzles, "puzzle_type"), [puzzles]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const result = puzzles.filter((p) => {
       if (hideSolved && p.solved) return false;
       if (statuses.length && !statuses.includes(p.status || "")) return false;
       if (priorities.length && !priorities.includes(p.priority || "")) return false;
       if (types.length && !types.includes(p.puzzle_type || "")) return false;
       if (q) {
-        const hay = `${p.name} ${p.solution ?? ""} ${p.rounds.map((r) => r.name).join(" ")}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        // Each field separately: folding strips spaces, so one joined string would let a
+        // query match across the name/answer/round boundary.
+        const fields = [p.name, p.solution ?? "", ...p.rounds.map((r) => r.name)];
+        if (!fields.some((f) => matchesSearch(f, q))) return false;
       }
       return true;
     });

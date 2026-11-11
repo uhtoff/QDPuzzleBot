@@ -271,7 +271,10 @@ notes.
 
 One flat table of every puzzle with search, and filters by status, priority and type
 (plus a "hide solved" toggle). This is the quickest way to find "that puzzle with FUR
-COAT in the answer" or everything currently *Stuck* or *Needs Extraction*.
+COAT in the answer" or everything currently *Stuck* or *Needs Extraction*. Search looks
+at the name, the answer and the round names, and compares letters and digits only:
+punctuation, spaces, capitals and accents are ignored, so `worlds best` finds
+"World’s Best Crossword" and `cafe` finds "Café".
 
 The **Activity** column shows each unsolved puzzle's whole life since it was added as a
 small bar chart, beside the time since anyone last chatted or edited its sheet. Bar
