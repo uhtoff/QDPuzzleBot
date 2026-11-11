@@ -59,6 +59,12 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
   them into the group) and "Close solved tabs" in the board header (files-mode only). Opening
   an already-open puzzle sheet switches to that tab and closes the duplicate unless it is the
   only tab in its window.
+- The content script publishes the dashboard requests it relays (`data-puzzbot-actions` on the
+  page, straight from its `ACTIONS` gate), and the dashboard shows each extension button only
+  when its request is listed (`extensionSupports` in `frontend/src/lib/extension.ts`). A copy
+  that publishes no list is 1.0.0 (`work`, `openRound`, `closeSolved`). So a new button can
+  deploy before the extension update that handles it: add its action to `ACTIONS` and gate
+  the button on it.
 - Replies over 2000 characters, or from timed-out members, are refused.
 
 Known limitation: your first panel reply may show the default Discord avatar in the

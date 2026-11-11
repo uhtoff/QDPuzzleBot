@@ -38,7 +38,7 @@ import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
-import { extensionPresent, openRound } from "../lib/extension";
+import { extensionSupports, openRound } from "../lib/extension";
 import { groupTarget } from "../lib/groupTarget";
 import { latestActivity } from "../lib/sparkline";
 import { ActivitySparkline } from "./ActivitySparkline";
@@ -193,7 +193,7 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes }: Props) {
           </Tooltip>
         )}
         {/* Extension: open every puzzle sheet of this round as a named tab group */}
-        {extensionPresent() && detail.hunt.sheet_mode === "files" && group.puzzles.some((p) => p.sheet_url) && (
+        {extensionSupports("openRound") && detail.hunt.sheet_mode === "files" && group.puzzles.some((p) => p.sheet_url) && (
           <Tooltip label="Open round as a tab group">
             <ActionIcon
               variant="subtle"

@@ -16,7 +16,7 @@ import {
 import { Link, useParams } from "react-router-dom";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
-import { closeSolved, extensionPresent } from "../lib/extension";
+import { closeSolved, extensionSupports } from "../lib/extension";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
@@ -154,7 +154,7 @@ export default function HuntBoard() {
           w={450 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
         />
         <Group gap="sm">
-          {extensionPresent() && data.hunt.sheet_mode === "files" && (
+          {extensionSupports("closeSolved") && data.hunt.sheet_mode === "files" && (
             <Button variant="light" color="gray" leftSection={<IconBrowserX size={16} />} onClick={() => closeSolved()}>
               Close solved tabs
             </Button>

@@ -3,6 +3,10 @@
 document.documentElement.dataset.puzzbotExtension = "1";
 
 const ACTIONS = new Set(["work", "openRound", "closeSolved"]);
+// Published so the dashboard shows only the buttons this copy can act on. It is
+// the relay gate itself, so it can never list an action that would be dropped.
+// (1.0.0 published nothing; the dashboard treats that as its three actions.)
+document.documentElement.dataset.puzzbotActions = [...ACTIONS].join(" ");
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
