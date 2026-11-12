@@ -335,8 +335,8 @@ show, but the **Open in Discord** button always works.
 
 The Puzzle Chat extension for Chrome puts a puzzle's Discord channel in a side panel
 beside its Google Sheet, so you can read and answer chat without switching windows.
-Install it from the link your organiser gives you (or see `extension/README.md` for the
-unpacked install), then stay logged in to the dashboard in the same Chrome profile. An
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand) (it is unlisted, so it
+won't turn up in a Store search; use this link), then stay logged in to the dashboard in the same Chrome profile. An
 admin must have listed the extension on the server (`web.extension_origins`), or the live
 chat connection is refused.
 To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the

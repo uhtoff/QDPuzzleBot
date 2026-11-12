@@ -8,6 +8,11 @@ For the user-facing description see the "Chrome extension" section of `docs/user
 
 Requires Chrome 116 or later.
 
+## Install from the Chrome Web Store
+
+Team members install the published build from the Store: <https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand>. It is unlisted, so it
+is reachable only by that link, not by searching the Store.
+
 ## Install (unpacked)
 
 1. Open `chrome://extensions`, switch on **Developer mode**.
