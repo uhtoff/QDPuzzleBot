@@ -5,12 +5,9 @@ import {
   Checkbox,
   Group,
   Menu,
-  MultiSelect,
   Table,
   Text,
-  TextInput,
 } from "@mantine/core";
-import { IconSearch } from "@tabler/icons-react";
 import type { HuntDetail, Puzzle, PuzzleTagGroup } from "../types";
 import type { LiveActivity } from "../hooks/useActivityFeed";
 import { latestActivity } from "../lib/sparkline";
@@ -25,7 +22,8 @@ import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCell
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, formatPriority, formatStatus, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
-import { matchesSearch } from "../lib/searchText";
+import { puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
+import { PuzzleFilterBar } from "./PuzzleFilterBar";
 
 interface Props {
   detail: HuntDetail;
@@ -33,6 +31,9 @@ interface Props {
   live: Record<string, LiveActivity>;
   voice: LiveVoice;
   onOpenNotes: (puzzle: Puzzle) => void;
+  /** Shared with the "By group" view, so a search survives switching views. */
+  filter: PuzzleFilter;
+  onFilterChange: (next: PuzzleFilter) => void;
 }
 
 // Debug edge annotation: how this puzzle is tagged into a given group.
@@ -162,20 +163,7 @@ function EdgeBadge({
   );
 }
 
-function uniqueValues(puzzles: Puzzle[], key: "status" | "priority" | "puzzle_type") {
-  const set = new Set<string>();
-  puzzles.forEach((p) => {
-    if (p[key]) set.add(p[key] as string);
-  });
-  return Array.from(set).sort();
-}
-
-export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props) {
-  const [search, setSearch] = useState("");
-  const [statuses, setStatuses] = useState<string[]>([]);
-  const [priorities, setPriorities] = useState<string[]>([]);
-  const [types, setTypes] = useState<string[]>([]);
-  const [hideSolved, setHideSolved] = useState(false);
+export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes, filter, onFilterChange }: Props) {
   const [debugEdges, setDebugEdges] = useState(false);
   const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
@@ -186,35 +174,10 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props
   // already false for archived hunts and matches the backend's require_organiser gate.
   const canManage = detail.hunt.can_manage;
 
-  // Filter VALUES stay the stored strings (that is what the rows are matched
-  // against); only the label is title-cased.
-  const statusOptions = useMemo(
-    () => uniqueValues(puzzles, "status").map((v) => ({ value: v, label: formatStatus(v) })),
-    [puzzles],
+  const filtered = useMemo(
+    () => sortPuzzles(puzzles.filter((p) => puzzleMatches(p, filter))),
+    [puzzles, filter],
   );
-  const priorityOptions = useMemo(
-    () => uniqueValues(puzzles, "priority").map((v) => ({ value: v, label: formatPriority(v) })),
-    [puzzles],
-  );
-  const typeOptions = useMemo(() => uniqueValues(puzzles, "puzzle_type"), [puzzles]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim();
-    const result = puzzles.filter((p) => {
-      if (hideSolved && p.solved) return false;
-      if (statuses.length && !statuses.includes(p.status || "")) return false;
-      if (priorities.length && !priorities.includes(p.priority || "")) return false;
-      if (types.length && !types.includes(p.puzzle_type || "")) return false;
-      if (q) {
-        // Each field separately: folding strips spaces, so one joined string would let a
-        // query match across the name/answer/round boundary.
-        const fields = [p.name, p.solution ?? "", ...p.rounds.map((r) => r.name)];
-        if (!fields.some((f) => matchesSearch(f, q))) return false;
-      }
-      return true;
-    });
-    return sortPuzzles(result);
-  }, [puzzles, search, statuses, priorities, types, hideSolved]);
 
   function activityFor(p: Puzzle): string {
     const liveHit = p.channel_id ? live[p.channel_id] : undefined;
@@ -225,45 +188,13 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props
 
   return (
     <>
-      <Group mb="md" align="flex-end" wrap="wrap">
-        <TextInput
-          label="Search"
-          placeholder="Name, solution, round…"
-          leftSection={<IconSearch size={16} />}
-          value={search}
-          onChange={(e) => setSearch(e.currentTarget.value)}
-          w={240}
-        />
-        <MultiSelect
-          label="Status"
-          data={statusOptions}
-          value={statuses}
-          onChange={setStatuses}
-          clearable
-          w={180}
-        />
-        <MultiSelect
-          label="Priority"
-          data={priorityOptions}
-          value={priorities}
-          onChange={setPriorities}
-          clearable
-          w={150}
-        />
-        <MultiSelect
-          label="Type"
-          data={typeOptions}
-          value={types}
-          onChange={setTypes}
-          clearable
-          w={180}
-        />
-        <Checkbox
-          label="Hide solved"
-          checked={hideSolved}
-          onChange={(e) => setHideSolved(e.currentTarget.checked)}
-          mb={8}
-        />
+      <PuzzleFilterBar
+        puzzles={puzzles}
+        filter={filter}
+        onChange={onFilterChange}
+        shown={filtered.length}
+        total={puzzles.length}
+      >
         {canManage && (
           <Checkbox
             label="Debug tags"
@@ -272,10 +203,7 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes }: Props
             mb={8}
           />
         )}
-        <Text c="dimmed" size="sm" mb={8}>
-          {filtered.length} / {puzzles.length}
-        </Text>
-      </Group>
+      </PuzzleFilterBar>
 
       <Table.ScrollContainer minWidth={900}>
         <Table striped highlightOnHover stickyHeader>

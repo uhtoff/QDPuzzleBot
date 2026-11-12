@@ -19,6 +19,8 @@ import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
+import { EMPTY_FILTER, filterActive, puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
+import { PuzzleFilterBar } from "../components/PuzzleFilterBar";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
@@ -64,6 +66,13 @@ export default function HuntBoard() {
   const [view, setView] = useState<BoardView>("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
+  // One filter for both "By group" and "All puzzles", so it survives switching views.
+  const [filter, setFilter] = useState<PuzzleFilter>(EMPTY_FILTER);
+  // A changed filter re-opens every group that still has matches.
+  const changeFilter = (next: PuzzleFilter) => {
+    setFilter(next);
+    setOpenGroups(null);
+  };
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
   const allPuzzles = useMemo(() => {
@@ -173,15 +182,31 @@ export default function HuntBoard() {
         // Arrange keeps Unassigned Feeders far left; the By-group summary instead
         // places it below unsolved targets and plain groups but above solved
         // targets (which sink to the bottom).
-        const withPuzzles = data.board.filter((g) => g.puzzles.length > 0);
+        const filtering = filterActive(filter);
+        const withPuzzles = data.board.filter((g) =>
+          filtering ? g.puzzles.some((p) => puzzleMatches(p, filter)) : g.puzzles.length > 0,
+        );
         const unassigned = withPuzzles.filter((g) => g.tag_group_id === 0);
         const rest = withPuzzles.filter((g) => g.tag_group_id !== 0);
         const firstSolved = rest.findIndex((g) => g.target_solved);
         const at = firstSolved === -1 ? rest.length : firstSolved;
         const boardGroups = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
-        const defaultOpen = boardGroups.filter((g) => !g.target_solved).map((g) => String(g.tag_group_id));
+        // Filtering opens every group with a match, solved ones included.
+        const defaultOpen = boardGroups
+          .filter((g) => filtering || !g.target_solved)
+          .map((g) => String(g.tag_group_id));
         return (
           <Stack gap="xs">
+            <PuzzleFilterBar
+              puzzles={allPuzzles}
+              filter={filter}
+              onChange={changeFilter}
+              shown={filtering ? allPuzzles.filter((p) => puzzleMatches(p, filter)).length : allPuzzles.length}
+              total={allPuzzles.length}
+            />
+            {filtering && boardGroups.length === 0 && (
+              <Text c="dimmed" size="sm">No puzzles match.</Text>
+            )}
             <Group justify="flex-end">
               <Anchor component="button" type="button" size="sm" onClick={() => setOpenGroups([])}>
                 Collapse all
@@ -194,14 +219,14 @@ export default function HuntBoard() {
               onChange={setOpenGroups}
             >
               {boardGroups.map((g) => (
-                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} />
+                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} filter={filtering ? filter : undefined} />
               ))}
             </Accordion>
           </Stack>
         );
       })()}
       {view === "all" && (
-        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} />
+        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} filter={filter} onFilterChange={setFilter} />
       )}
       {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
