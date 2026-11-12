@@ -9,6 +9,7 @@ import {
   Loader,
   Progress,
   SegmentedControl,
+  Select,
   Stack,
   Text,
   Title,
@@ -17,6 +18,7 @@ import { Link, useParams } from "react-router-dom";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
+import { boardViews, type BoardView } from "../lib/boardViews";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
@@ -59,7 +61,7 @@ export default function HuntBoard() {
     }
   });
   const voice = useVoiceFeed();
-  const [view, setView] = useState<"board" | "all" | "arrange" | "evidence" | "canvas" | "manage">("board");
+  const [view, setView] = useState<BoardView>("board");
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
 
@@ -86,6 +88,7 @@ export default function HuntBoard() {
   // cascades to every gated child, since they all read detail.hunt.{can_manage,can_administer}.
   const data = applyViewAs(rawData, viewAs);
 
+  const views = boardViews({ canManage: data.hunt.can_manage, canAdminister: data.hunt.can_administer });
   const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
   const openNotes = (p: Puzzle) => setNotesPuzzleId(p.id);
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
@@ -136,22 +139,23 @@ export default function HuntBoard() {
       />
 
       <Group justify="space-between" align="center">
+        {/* Wide screens: the tab bar. Narrow ones get a dropdown, since the bar
+            needs up to 660px and cannot scroll. */}
         <SegmentedControl
+          visibleFrom="md"
           value={view}
-          onChange={(v) => setView(v as "board" | "all" | "arrange" | "evidence" | "canvas" | "manage")}
-          data={[
-            { label: "By group", value: "board" },
-            { label: "All puzzles", value: "all" },
-            { label: "Evidence", value: "evidence" },
-            { label: "Canvas", value: "canvas" },
-            ...(data.hunt.can_manage ? [{ label: "Arrange", value: "arrange" }] : []),
-            // Admins can always reach Manage (to unarchive) even when the hunt is
-            // archived and can_manage is therefore false.
-            ...(data.hunt.can_manage || data.hunt.can_administer ? [{ label: "Manage", value: "manage" }] : []),
-          ]}
-          // Hard-coded width: each entry needs its own allowance or the control
-          // clips. "Canvas" adds 90 to the 360 base.
-          w={450 + (data.hunt.can_manage ? 105 : 0) + (data.hunt.can_manage || data.hunt.can_administer ? 105 : 0)}
+          onChange={(v) => setView(v as BoardView)}
+          data={views.map(({ label, value }) => ({ label, value }))}
+          w={views.reduce((sum, v) => sum + v.width, 0)}
+        />
+        <Select
+          hiddenFrom="md"
+          aria-label="View"
+          value={view}
+          onChange={(v) => v && setView(v as BoardView)}
+          data={views.map(({ label, value }) => ({ label, value }))}
+          allowDeselect={false}
+          w={180}
         />
         <Group gap="sm">
           {extensionSupports("closeSolved") && data.hunt.sheet_mode === "files" && (
