@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Group, Loader, Stack, Text, Title } from "@mantine/core";
+import { Button, Group, Loader, Stack, Text } from "@mantine/core";
 import { IconAlertTriangle, IconCheck } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useMediaStats, useMediaSweep, type MediaGcResult } from "../api";
@@ -49,9 +49,9 @@ export function MediaSweepPanel({ uid }: { uid: string }) {
   const busy = statsMut.isPending || sweepMut.isPending;
 
   return (
-    <Stack gap="md">
-      <Title order={4}>Reclaim image storage</Title>
-      <Text size="sm" c="dimmed">
+    <Stack gap={6}>
+      <Text size="sm" fw={600}>Reclaim image storage</Text>
+      <Text size="xs" c="dimmed">
         Finds images nothing points at any more — pictures detached from a puzzle, clue
         images that were replaced, and the leftovers of a deleted canvas — and deletes them
         with their files. Anything still shown on a puzzle, canvas or evidence item is never
@@ -59,13 +59,14 @@ export function MediaSweepPanel({ uid }: { uid: string }) {
       </Text>
 
       <Group>
-        <Button variant="light" onClick={runReport} loading={statsMut.isPending}>
+        <Button variant="light" size="xs" onClick={runReport} loading={statsMut.isPending}>
           Report
         </Button>
         {report && report.count > 0 && (
           <Button
             color="red"
             variant="light"
+            size="xs"
             onClick={() => setConfirmOpen(true)}
             leftSection={<IconAlertTriangle size={14} />}
           >

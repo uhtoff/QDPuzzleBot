@@ -11,7 +11,6 @@ import {
   Anchor,
   Stack,
   Text,
-  Title,
 } from "@mantine/core";
 import { IconAlertTriangle, IconCheck } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -71,19 +70,18 @@ export function ReconcilePanel({ uid }: { uid: string }) {
     : [];
 
   return (
-    <Stack gap="md">
-      <Title order={4}>Reconcile Discord ↔ Database</Title>
-      <Text size="sm" c="dimmed">
-        Scans every puzzle in this hunt and creates any missing Discord channels or Google Sheet
-        tabs. The &ldquo;Apply&rdquo; mode fixes gaps; &ldquo;Report&rdquo; shows a dry-run.
-        Orphan deletion requires a separate typed-confirm.
+    <Stack gap={6}>
+      <Text size="sm" fw={600}>Reconcile Discord ↔ Database</Text>
+      <Text size="xs" c="dimmed">
+        Creates any missing Discord channels or Google Sheet tabs. &ldquo;Report&rdquo; is a dry
+        run; deleting orphans needs a separate typed confirm.
       </Text>
 
       <Group>
-        <Button variant="light" onClick={runReport} loading={reconcileMut.isPending}>
+        <Button variant="light" size="xs" onClick={runReport} loading={reconcileMut.isPending}>
           Report (dry run)
         </Button>
-        <Button variant="filled" color="blue" onClick={runApply} loading={reconcileMut.isPending}>
+        <Button variant="filled" color="blue" size="xs" onClick={runApply} loading={reconcileMut.isPending}>
           Apply fixes
         </Button>
       </Group>

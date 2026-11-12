@@ -252,7 +252,9 @@ button here — no more copy-pasting the `!hunt` incantation.
 
 ### The hunt board — "By group"
 
-The default view groups puzzles under their meta, mirroring the Discord categories. For
+The bar at the top switches between the board's views (By group, All puzzles, Evidence,
+and for organisers Arrange and Manage); on a phone it's a dropdown instead. The default
+view groups puzzles under their meta, mirroring the Discord categories. For
 each group you can see the code, feeders solved, and each puzzle's status, answer and
 recent activity (with the activity bar chart described under
 ["All puzzles"](#all-puzzles--search-and-filter), on wider screens). Solved rows go
@@ -296,7 +298,8 @@ this feature was installed.
 
 Click a puzzle's notes icon to open its drawer: set status, priority and type, follow
 its links, mark it solved, add working sheets, and read or add notes — the same notes as
-`!note` in Discord.
+`!note` in Discord. Click the puzzle's name at the top to rename it: press Enter or the
+green **✓** to save, Escape or **✕** to cancel (clicking elsewhere does not save).
 
 ![Puzzle drawer](img/userguide/05-puzzle-drawer.jpg)
 
@@ -403,7 +406,7 @@ Some hunts hand you one enormous image — an extravaganza sheet with forty puzz
 on it — rather than a puzzle per page. The **Canvas** view is for those.
 
 The view is **off for new hunts**, since most hunts never need it. An organiser turns it
-on from the hunt's **Manage** tab (**Canvas view** switch) or with `!canvas on` in a hunt
+on from the hunt's **Manage** tab (**Canvas view** switch, under **Advanced**) or with `!canvas on` in a hunt
 channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
 kept and come back when it is turned on.
 
@@ -473,16 +476,27 @@ same sheet.
 A drag board for re-organising the hunt: drag a puzzle card onto a group to re-tag it
 (its Discord channel moves too), or onto **Unassigned Feeders** to untag it. The `⋮`
 menu on each card adds a puzzle to an *additional* group — that's how one puzzle feeds
-two metas.
+two metas. Click a group's name to rename it, then Enter or **✓** to save, Escape or **✕**
+to cancel.
 
 ![Arrange](img/userguide/07-arrange.png)
 
 ### Manage (organisers/admins)
 
-Hunt settings (URL, start time, shared login), archiving the hunt when it's over,
-gating the hunt behind a Discord team role, deleting it, and **Reconcile** — a
-self-repair pass that scans for missing channels or sheet tabs and fixes them
-("Report" shows a dry run first).
+One column of sections, top to bottom:
+
+- **Hunt details**: website URL, start time, shared login. Press **Save settings**.
+- **Advanced** (folded away): header style and voice channels for new puzzles, URL
+  separator and prefix (also saved with **Save settings**), then switches that act at once:
+  one spreadsheet per puzzle or tabs, and the **Canvas view**.
+- **Maintenance**: **Reconcile**, a self-repair pass that scans for missing channels or
+  sheet tabs and fixes them ("Report" shows a dry run first); reclaiming unused image
+  storage; removing puzzle voice channels.
+- **Hunt status**: archive the hunt when it's over, mark a multi-team hunt finished, and
+  gate the hunt behind a Discord team role.
+- **Danger zone**: delete the hunt.
+
+Organisers who aren't admins see only the Canvas switch and Maintenance.
 
 ![Manage](img/userguide/08-manage.png)
 

@@ -5,28 +5,26 @@ import {
   Badge,
   Button,
   Checkbox,
-  Collapse,
   Divider,
   Group,
   Select,
+  SimpleGrid,
   Stack,
   Switch,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   IconAlertTriangle,
   IconArchive,
-  IconChevronDown,
-  IconChevronUp,
   IconFileSpreadsheet,
   IconHeadphones,
   IconTrash,
 } from "@tabler/icons-react";
 import { MarkCompleteModal } from "./MarkCompleteModal";
+import { ManageItem, ManageSection } from "./ManageSection";
 import { ConfirmModal } from "./ConfirmModal";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { TeamArchiveModal } from "./TeamArchiveModal";
@@ -50,6 +48,10 @@ interface AdminSettingsPanelProps {
   puzzleCount: number;
   voicePerPuzzle: boolean;
   headerStyle: "full" | "compact";
+  /** Organiser-level controls placed inside this panel's sections. */
+  canvasControl?: ReactNode;
+  maintenance?: ReactNode;
+  teamRole?: ReactNode;
 }
 
 interface FormValues {
@@ -102,9 +104,11 @@ export function AdminSettingsPanel({
   puzzleCount,
   voicePerPuzzle,
   headerStyle,
+  canvasControl,
+  maintenance,
+  teamRole,
 }: AdminSettingsPanelProps) {
   const navigate = useNavigate();
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -286,20 +290,25 @@ export function AdminSettingsPanel({
     });
   }, [deleteMut, huntName, navigate]);
 
+  // Fields saved by "Save settings" sit together above the button; everything
+  // under "Change straight away" acts as soon as it is clicked.
+  const saveButton = (
+    <Group gap="sm">
+      <Button onClick={handleSave} loading={settingsMut.isPending}>
+        Save settings
+      </Button>
+    </Group>
+  );
+
   return (
     <Stack gap="md">
-      <Title order={4}>Hunt Settings</Title>
-      <Text size="sm" c="dimmed">
-        Edit per-hunt settings. Only changed fields are saved when you press Save.
-      </Text>
-
       {settingsMut.isError && (
         <Alert icon={<IconAlertTriangle size={16} />} color="red" title="Error">
           {(settingsMut.error as Error).message}
         </Alert>
       )}
 
-      <Stack gap="sm">
+      <ManageSection title="Hunt details">
         <TextInput
           label="Website URL"
           placeholder="https://example.com/"
@@ -307,7 +316,7 @@ export function AdminSettingsPanel({
           onChange={(e) => setValues((v) => ({ ...v, url: e.target.value }))}
         />
 
-        <Group align="flex-end" gap="sm">
+        <Group align="flex-end" gap="sm" wrap="nowrap">
           <TextInput
             type="datetime-local"
             label="Start time"
@@ -325,33 +334,29 @@ export function AdminSettingsPanel({
               setValues((v) => ({ ...v, start_offset_minutes: Number(val) }))
             }
             allowDeselect={false}
-            w={140}
+            w={130}
           />
         </Group>
 
-        <TextInput
-          label="Shared username"
-          placeholder="team-name"
-          value={values.username}
-          onChange={(e) => setValues((v) => ({ ...v, username: e.target.value }))}
-        />
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+          <TextInput
+            label="Shared username"
+            placeholder="team-name"
+            value={values.username}
+            onChange={(e) => setValues((v) => ({ ...v, username: e.target.value }))}
+          />
+          <TextInput
+            autoComplete="off"
+            label="Shared password"
+            value={values.password}
+            onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
+          />
+        </SimpleGrid>
 
-        <TextInput
-          autoComplete="off"
-          label="Shared password"
-          value={values.password}
-          onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
-        />
+        {saveButton}
+      </ManageSection>
 
-        <Checkbox
-          label="Voice channel for every new puzzle"
-          checked={values.voice_per_puzzle}
-          onChange={(e) => {
-            const checked = e.currentTarget.checked;
-            setValues((v) => ({ ...v, voice_per_puzzle: checked }));
-          }}
-        />
-
+      <ManageSection title="Advanced" collapsible>
         <Select
           label="Header style"
           description="Applies to puzzles created from now on; existing puzzles keep their header."
@@ -365,49 +370,116 @@ export function AdminSettingsPanel({
           }}
         />
 
-        <Divider />
+        <Checkbox
+          label="Voice channel for every new puzzle"
+          checked={values.voice_per_puzzle}
+          onChange={(e) => {
+            const checked = e.currentTarget.checked;
+            setValues((v) => ({ ...v, voice_per_puzzle: checked }));
+          }}
+        />
 
-        <Group onClick={() => setAdvancedOpen((o) => !o)} style={{ cursor: "pointer" }}>
-          {advancedOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-          <Text size="sm" fw={600}>Advanced</Text>
-        </Group>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+          <TextInput
+            label="URL separator"
+            description="Used to build puzzle URLs (e.g. puzzle-1, puzzles_2)."
+            placeholder="-"
+            value={values.url_sep}
+            onChange={(e) => setValues((v) => ({ ...v, url_sep: e.target.value }))}
+          />
+          <TextInput
+            label="Puzzle prefix"
+            description="Prefix embedded in puzzle URLs."
+            placeholder="puzzle"
+            value={values.puzzle_prefix}
+            onChange={(e) => setValues((v) => ({ ...v, puzzle_prefix: e.target.value }))}
+          />
+        </SimpleGrid>
 
-        <Collapse in={advancedOpen}>
-          <Stack gap="sm" pb="sm">
-            <TextInput
-              label="URL separator"
-              description="Used to build puzzle URLs (e.g. puzzle-1, puzzles_2)."
-              placeholder="-"
-              value={values.url_sep}
-              onChange={(e) => setValues((v) => ({ ...v, url_sep: e.target.value }))}
-            />
+        {saveButton}
 
-            <TextInput
-              label="Puzzle prefix"
-              description="Prefix embedded in puzzle URLs."
-              placeholder="puzzle"
-              value={values.puzzle_prefix}
-              onChange={(e) => setValues((v) => ({ ...v, puzzle_prefix: e.target.value }))}
-            />
-          </Stack>
-        </Collapse>
+        <Divider label="Change straight away" labelPosition="left" />
 
-        <Group gap="sm">
-          <Button onClick={handleSave} loading={settingsMut.isPending}>
-            Save settings
-          </Button>
-        </Group>
-      </Stack>
+        <ManageItem
+          title="Sheets"
+          description={
+            puzzleCount === 0
+              ? "Can be changed until the first puzzle is added."
+              : "Fixed once the hunt has puzzles."
+          }
+        >
+          <Group>
+            <Badge color={sheetMode === "files" ? "blue" : "gray"} size="sm">
+              {sheetMode === "files" ? "One spreadsheet per puzzle" : "Tabs in one spreadsheet"}
+            </Badge>
+            {puzzleCount === 0 && (
+              <Button
+                size="xs"
+                variant="light"
+                onClick={handleToggleSheetMode}
+                loading={modeMut.isPending}
+              >
+                {sheetMode === "files" ? "Use tabs instead" : "Use one spreadsheet per puzzle"}
+              </Button>
+            )}
+          </Group>
 
-      <Divider />
+          {sheetMode === "tabs" && !hasSolvedSheet && (
+            <Group>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconFileSpreadsheet size={14} />}
+                onClick={handleCreateSolvedSheet}
+                loading={sheetMut.isPending}
+              >
+                Move solved feeders to their own sheet
+              </Button>
+            </Group>
+          )}
 
-      {/* Archive actions */}
-      <Stack gap="sm">
-        <Title order={5}>Archive</Title>
+          {sheetMode === "tabs" && hasSolvedSheet && (
+            <Text size="sm" c="green">✓ Solved puzzles sheet already created.</Text>
+          )}
+        </ManageItem>
 
+        {canvasControl}
+      </ManageSection>
+
+      <ManageSection title="Maintenance">
+        {maintenance}
+        <ManageItem
+          title="Puzzle voice channels"
+          description="Removes every puzzle's voice channel and turns them off for new puzzles."
+        >
+          <Group>
+            <Button
+              variant="light"
+              size="xs"
+              color="red"
+              leftSection={<IconHeadphones size={14} />}
+              onClick={() => setVoiceCleanupOpen(true)}
+              loading={voiceCleanupMut.isPending}
+            >
+              Remove puzzle voice channels
+            </Button>
+          </Group>
+        </ManageItem>
+      </ManageSection>
+      <ConfirmModal
+        opened={voiceCleanupOpen}
+        onClose={() => setVoiceCleanupOpen(false)}
+        onConfirm={handleVoiceCleanup}
+        title="Remove puzzle voice channels"
+        message="Removes every puzzle's voice channel in this hunt and turns off voice channels for new puzzles. People still in one get a 15-second warning and are moved to the hunt's voice channel."
+        confirmLabel="Remove voice channels"
+        confirmColor="red"
+      />
+
+      <ManageSection title="Hunt status">
         <Group>
           <Badge color={archived ? "gray" : "green"} size="sm">
-            Currently: {archived ? "Archived" : "Active"}
+            {archived ? "Archived" : "Active"}
           </Badge>
           <Button
             variant="light"
@@ -444,63 +516,8 @@ export function AdminSettingsPanel({
           />
         )}
 
-        <Group>
-          <Badge color={sheetMode === "files" ? "blue" : "gray"} size="sm">
-            Sheets: {sheetMode === "files" ? "one spreadsheet per puzzle" : "tabs in one spreadsheet"}
-          </Badge>
-          {puzzleCount === 0 && (
-            <Button
-              size="xs"
-              variant="light"
-              onClick={handleToggleSheetMode}
-              loading={modeMut.isPending}
-            >
-              {sheetMode === "files" ? "Use tabs instead" : "Use one spreadsheet per puzzle"}
-            </Button>
-          )}
-        </Group>
-
-        {sheetMode === "tabs" && !hasSolvedSheet && (
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconFileSpreadsheet size={14} />}
-            onClick={handleCreateSolvedSheet}
-            loading={sheetMut.isPending}
-          >
-            Move solved feeders to their own sheet
-          </Button>
-        )}
-
-        {sheetMode === "tabs" && hasSolvedSheet && (
-          <Text size="sm" c="green">✓ Solved puzzles sheet already created.</Text>
-        )}
-      </Stack>
-
-      <Stack gap="sm">
-        <Title order={5}>Voice</Title>
-        <Group>
-          <Button
-            variant="light"
-            size="xs"
-            color="red"
-            leftSection={<IconHeadphones size={14} />}
-            onClick={() => setVoiceCleanupOpen(true)}
-            loading={voiceCleanupMut.isPending}
-          >
-            Remove puzzle voice channels
-          </Button>
-        </Group>
-      </Stack>
-      <ConfirmModal
-        opened={voiceCleanupOpen}
-        onClose={() => setVoiceCleanupOpen(false)}
-        onConfirm={handleVoiceCleanup}
-        title="Remove puzzle voice channels"
-        message="Removes every puzzle's voice channel in this hunt and turns off voice channels for new puzzles. People still in one get a 15-second warning and are moved to the hunt's voice channel."
-        confirmLabel="Remove voice channels"
-        confirmColor="red"
-      />
+        {teamRole}
+      </ManageSection>
 
       {isTeamHunt && !archived && (
         <TeamArchiveModal
@@ -526,22 +543,22 @@ export function AdminSettingsPanel({
         </Text>
       </TypedConfirmModal>
 
-      <Divider />
-
-      {/* Delete danger zone */}
-      <Stack gap="sm">
-        <Title order={5} c="red">Danger zone</Title>
-        <Button
-          color="red"
-          variant="light"
-          size="xs"
-          leftSection={<IconTrash size={14} />}
-          onClick={() => setDeleteConfirmOpen(true)}
-          loading={deleteMut.isPending}
-        >
-          Delete hunt
-        </Button>
-      </Stack>
+      <ManageSection title="Danger zone" danger>
+        <ManageItem title="Delete hunt" description="Deletes every puzzle, channel and spreadsheet. Cannot be undone.">
+          <Group>
+            <Button
+              color="red"
+              variant="light"
+              size="xs"
+              leftSection={<IconTrash size={14} />}
+              onClick={() => setDeleteConfirmOpen(true)}
+              loading={deleteMut.isPending}
+            >
+              Delete hunt
+            </Button>
+          </Group>
+        </ManageItem>
+      </ManageSection>
 
       <TypedConfirmModal
         opened={deleteConfirmOpen}
