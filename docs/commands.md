@@ -223,7 +223,7 @@ the archiving family: marking up a picture needs a picture in front of you.
 
 | Command | Aliases | Arguments | Does |
 |---|---|---|---|
-| `!canvas` | `!canvases` | — | Link to the hunt's Canvas view, and name the canvases it has. |
+| `!canvas` | `!canvases` | `[on\|off]` | Link to the hunt's Canvas view, and name the canvases it has. `on` / `off` (**organisers only**) show or hide the dashboard's Canvas view for this hunt; it starts off, and off keeps the canvases. Dashboard: Manage → **Canvas view**. |
 
 ## Notes, clues & metadata
 

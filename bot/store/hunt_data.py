@@ -37,6 +37,9 @@ class HuntData:
     voice_per_puzzle: bool = False
     # Puzzle-sheet header style for new puzzles (migration 060): full or compact.
     header_style: str = "full"
+    # Whether the dashboard shows the Canvas view (migration 061); organisers
+    # toggle it. Off for new hunts.
+    canvas_enabled: bool = False
     start_timestamp: int = 0
     username: str = ""
     password: str = ""

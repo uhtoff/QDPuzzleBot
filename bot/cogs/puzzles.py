@@ -123,6 +123,7 @@ _UNSTORED_SETTING_KEYS = {
     HuntData: {
         "voice_channel_id": "The bot manages voice channels: use `!voice` (`!vc`) and "
                             "`!voice_cleanup`.",
+        "canvas_enabled": "Use `!canvas on` / `!canvas off` (organisers).",
     },
 }
 
@@ -133,6 +134,16 @@ def _voice_id(row) -> int:
     return vid if isinstance(vid, int) and not isinstance(vid, bool) else 0
 
 
+def _is_organiser(ctx):
+    """Does the author pass the Organiser tier here? True when the guild has
+    nothing standing for that tier (role_gate.organiser_gate_active). For a
+    command open to everyone with one organiser-only form; is_organiser() is
+    the decorator for a whole command."""
+    if ctx.guild is None:
+        return False
+    return not role_gate.organiser_gate_active(ctx.guild) or _holds(ctx, ORGANISER_ROLES)
+
+
 def is_organiser():
     """Like is_admin() for the wider Organiser tier, except the check passes
     unconditionally when the guild has nothing standing for that tier — see
@@ -140,9 +151,7 @@ def is_organiser():
     def predicate(ctx):
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not role_gate.organiser_gate_active(ctx.guild):
-            return True
-        if _holds(ctx, ORGANISER_ROLES):
+        if _is_organiser(ctx):
             return True
         raise commands.MissingAnyRole(list(ORGANISER_ROLES))
     return commands.check(predicate)
@@ -1631,18 +1640,37 @@ class Puzzles(commands.Cog):
         return await ctx.send(f":white_check_mark: Removed sheet {name} from puzzle.")
 
     @commands.command(aliases=['canvases'])
-    async def canvas(self, ctx):
-        """*Link to this hunt's marked-up images.*
+    async def canvas(self, ctx, arg: Optional[str] = None):
+        """*Link to this hunt's marked-up images, or turn the Canvas view on/off.*
 
-        Usage: `!canvas`
-        Example: `!canvas`
+        Usage: `!canvas` · `!canvas on` · `!canvas off`
+        Example: `!canvas on`
         Posts a link to the hunt's Canvas view, where a big image can be marked
-        up with a box round each puzzle. Drawing itself is web-only. Alias:
-        `!canvases`."""
+        up with a box round each puzzle. Drawing itself is web-only.
+        `on` / `off` (organisers only) show or hide the dashboard's Canvas view
+        for this hunt; turning it off keeps the canvases. New hunts start off.
+        Alias: `!canvases`."""
         hunt = self.get_hunt(ctx)
         if hunt is None:
             return await ctx.send(
                 ":x: This channel isn't part of a hunt, so there are no canvases.")
+        if arg is not None:
+            choice = arg.strip().lower()
+            if choice not in ("on", "off"):
+                return await ctx.send(
+                    ":x: Use `!canvas on` or `!canvas off` (or plain `!canvas` for the link).")
+            if not _is_organiser(ctx):
+                return await ctx.send(":x: Only organisers can turn the Canvas view on or off.")
+            on = choice == "on"
+            await asyncio.to_thread(HuntJsonDb.set_canvas_enabled, hunt.id, on)
+            hunt.canvas_enabled = on
+            return await ctx.send(
+                f":white_check_mark: The Canvas view is now **{choice}** for **{hunt.name}**."
+                + ("" if on else " Its canvases are kept; `!canvas on` brings them back."))
+        if not hunt.canvas_enabled:
+            return await ctx.send(
+                f":information_source: The Canvas view is off for **{hunt.name}**. "
+                f"An organiser can turn it on with `!canvas on`.")
         base = (config.web_frontend_url or "").rstrip("/")
         if not base:
             return await ctx.send(

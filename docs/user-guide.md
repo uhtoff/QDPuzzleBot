@@ -271,7 +271,15 @@ notes.
 
 One flat table of every puzzle with search, and filters by status, priority and type
 (plus a "hide solved" toggle). This is the quickest way to find "that puzzle with FUR
-COAT in the answer" or everything currently *Stuck* or *Needs Extraction*.
+COAT in the answer" or everything currently *Stuck* or *Needs Extraction*. Search looks
+at the name, the answer and the round names, and compares letters and digits only:
+punctuation, spaces, capitals and accents are ignored, so `worlds best` finds
+"World’s Best Crossword" and `cafe` finds "Café". The same search and filters appear on **By group**,
+and stay set when you switch between the two views. There a puzzle matches on its own
+name or answer, and a group whose name matches shows all of its puzzles.
+The status, priority, type and hide-solved settings are remembered for each hunt in your
+browser, so they survive a reload; the search box starts empty each time. **Reset filters**
+clears them all.
 
 The **Activity** column shows each unsolved puzzle's whole life since it was added as a
 small bar chart, beside the time since anyone last chatted or edited its sheet. Bar
@@ -327,8 +335,8 @@ show, but the **Open in Discord** button always works.
 
 The Puzzle Chat extension for Chrome puts a puzzle's Discord channel in a side panel
 beside its Google Sheet, so you can read and answer chat without switching windows.
-Install it from the link your organiser gives you (or see `extension/README.md` for the
-unpacked install), then stay logged in to the dashboard in the same Chrome profile. An
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand) (it is unlisted, so it
+won't turn up in a Store search; use this link), then stay logged in to the dashboard in the same Chrome profile. An
 admin must have listed the extension on the server (`web.extension_origins`), or the live
 chat connection is refused.
 To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the
@@ -394,6 +402,11 @@ region, so a clue carved off a hunt sheet still says which part of which sheet i
 Some hunts hand you one enormous image — an extravaganza sheet with forty puzzles printed
 on it — rather than a puzzle per page. The **Canvas** view is for those.
 
+The view is **off for new hunts**, since most hunts never need it. An organiser turns it
+on from the hunt's **Manage** tab (**Canvas view** switch) or with `!canvas on` in a hunt
+channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
+kept and come back when it is turned on.
+
 An organiser uploads the image, and then anyone on the team can draw boxes round the
 puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
 sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
@@ -418,7 +431,7 @@ in progress, stuck, or not started. Hovering a box lights up every other box bel
 the same puzzle, and the toolbar's puzzle picker pins that highlight while you hunt around
 a busy sheet for the rest of it. Boxes are shared: everyone sees them as they are drawn.
 
-In Discord, `!canvas` links to this view and lists the hunt's canvases.
+In Discord, `!canvas` links to this view and lists the hunt's canvases (or says the view is off).
 
 ### Marking up an image
 

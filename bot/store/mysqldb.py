@@ -228,9 +228,9 @@ class _MySQLBaseDb:
 class MySQLHuntJsonDb(_MySQLBaseDb):
     TABLE_NAME = 'hunts'
     GENERATED_UNIQUE_FIELDS = ('uid',)
-    # Written only by set_voice_channel / set_voice_per_puzzle / set_header_style, so a stale
-    # HuntData saved whole can't revert them.
-    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle', 'header_style']
+    # Written only by set_voice_channel / set_voice_per_puzzle / set_header_style /
+    # set_canvas_enabled, so a stale HuntData saved whole can't revert them.
+    SPECIAL_ATTR = ['voice_channel_id', 'voice_per_puzzle', 'header_style', 'canvas_enabled']
     def get_by_attr(self,**kwargs):
         """Retrieve Hunt by attribute.  Only first sent attribute processed"""
         keyword, value = kwargs.popitem()
@@ -402,6 +402,11 @@ class MySQLHuntJsonDb(_MySQLBaseDb):
             raise ValueError(f"unknown header style: {style!r}")
         self._exec("UPDATE `hunts` SET `header_style` = %s WHERE `id` = %s",
                    (style, hunt_id))
+
+    def set_canvas_enabled(self, hunt_id, on):
+        """Show or hide the hunt's Canvas view. Its own UPDATE (see above)."""
+        self._exec("UPDATE `hunts` SET `canvas_enabled` = %s WHERE `id` = %s",
+                   (1 if on else 0, hunt_id))
 
     def mod_invite_code(self, hunt_id):
         row = self._fetch_one(

@@ -20,7 +20,9 @@ def _canvas(id=3, name="Extravaganza"):
 @pytest.fixture
 def cog():
     c = make_cog()
-    c.get_hunt = MagicMock(return_value=make_hunt(id=10))
+    # The Canvas view is on: !canvas only lists canvases then (off is covered in
+    # test_canvas_toggle.py). Migration 061 made the switch; HuntData defaults off.
+    c.get_hunt = MagicMock(return_value=make_hunt(id=10, canvas_enabled=True))
     return c
 
 

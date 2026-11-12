@@ -1,7 +1,7 @@
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
 import { IconAlertTriangle, IconCircleCheck, IconCircleX, IconNote, IconPlayerPlay } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
-import { extensionPresent, workOn } from "../lib/extension";
+import { extensionSupports, workOn } from "../lib/extension";
 
 interface PuzzleRowActionsProps {
   puzzle: Puzzle;
@@ -48,7 +48,7 @@ export function PuzzleRowActions({
             </ActionIcon>
           </Tooltip>
         )}
-        {huntUid && p.sheet_url && extensionPresent() && (
+        {huntUid && p.sheet_url && extensionSupports("work") && (
           <Tooltip label="Work on this puzzle">
             <ActionIcon
               variant="subtle"

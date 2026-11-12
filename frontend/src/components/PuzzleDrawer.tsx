@@ -15,8 +15,8 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { IconCircleCheck, IconEdit, IconPlayerPlay, IconPlus, IconSend, IconTrash } from "@tabler/icons-react";
-import { extensionPresent, workOn } from "../lib/extension";
+import { IconCheck, IconCircleCheck, IconEdit, IconPlayerPlay, IconPlus, IconSend, IconTrash, IconX } from "@tabler/icons-react";
+import { extensionSupports, workOn } from "../lib/extension";
 import type { HuntDetail, Puzzle } from "../types";
 import { notifications } from "@mantine/notifications";
 import {
@@ -139,6 +139,21 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
     });
   }
 
+  // Enter or the tick button saves; Escape or the cross abandons. An unchanged
+  // or blank name just closes the box without a round trip.
+  const commitRename = () => {
+    if (rename.isPending) return; // a second Enter while the first save is in flight
+    const newName = renameTemp.trim();
+    if (!puzzle || puzzle.id === undefined || !newName || newName === puzzle.name) {
+      setRenameEditing(false);
+      return;
+    }
+    rename.mutate({ puzzleId: puzzle.id, name: newName }, {
+      onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
+      onError: () => setRenameEditing(false),
+    });
+  };
+
   return (
     <Drawer
       opened={puzzle !== null}
@@ -149,26 +164,28 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
         puzzle && editable ? (
           <Group gap={4} justify="center" wrap="nowrap">
             {renameEditing ? (
+              <>
               <TextInput
                 size="sm"
                 value={renameTemp}
                 onChange={(e) => setRenameTemp(e.currentTarget.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const newName = renameTemp.trim();
-                    if (newName && puzzle.id !== undefined) {
-                      rename.mutate({ puzzleId: puzzle.id, name: newName }, {
-                        onSuccess: (data) => { showSheetWarning(data); setRenameEditing(false); },
-                        onError: () => setRenameEditing(false),
-                      });
-                    } else {
-                      setRenameEditing(false);
-                    }
-                  }
+                  if (e.key === "Enter") commitRename();
                   if (e.key === "Escape") setRenameEditing(false);
                 }}
                 autoFocus
               />
+              <ActionIcon variant="light" color="green" size="md" aria-label="Save name"
+                loading={rename.isPending} onClick={commitRename}
+              >
+                <IconCheck size={16} />
+              </ActionIcon>
+              <ActionIcon variant="subtle" color="gray" size="md" aria-label="Cancel rename"
+                disabled={rename.isPending} onClick={() => setRenameEditing(false)}
+              >
+                <IconX size={16} />
+              </ActionIcon>
+              </>
             ) : (
               <>
                 <Text size="sm" fw={600} style={{ cursor: "pointer" }}
@@ -189,7 +206,7 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
     >
       {puzzle && (
         <Stack>
-          {extensionPresent() && puzzle.sheet_url && (
+          {extensionSupports("work") && puzzle.sheet_url && (
             <Button
               variant="light"
               leftSection={<IconPlayerPlay size={16} />}

@@ -48,6 +48,7 @@ EXPECTED = {
     # organiser action like renaming/deleting/retyping one. Creating a PUZZLE is
     # not — POST /hunts/<uid>/puzzles stays open, asserted below.
     ("POST", "/hunts/<uid>/metas"): "organiser",
+    ("PATCH", "/hunts/<uid>/canvas"): "organiser",
     ("POST", "/tag_groups/<int:tag_group_id>/change-type"): "organiser",
     ("POST", "/tag_groups/<int:tag_group_id>/rename"): "organiser",
     ("DELETE", "/tag_groups/<int:tag_group_id>"): "organiser",

@@ -986,6 +986,28 @@ async def patch_hunt_settings(uid):
     return jsonify({"ok": True})
 
 
+@actions_bp.route("/hunts/<uid>/canvas", methods=["PATCH"])
+@login_required
+async def patch_hunt_canvas(uid):
+    """Show or hide the hunt's Canvas view: body {"enabled": bool}. Organiser
+    level (like !canvas on/off), not admin; turning it off keeps the canvases."""
+    ctx, _hunt_obj, _cog, _guild, err = await _route_ctx(
+        _visible_hunt_by_uid(uid), tier="organiser", need_cog=False)
+    if err:
+        return err
+    assert ctx is not None
+    body = await request.get_json(silent=True) or {}
+    enabled = body.get("enabled")
+    if set(body.keys()) != {"enabled"} or not isinstance(enabled, bool):
+        return jsonify({"error": "bad_value", "field": "enabled"}), 400
+
+    from bot.store import HuntJsonDb
+
+    await asyncio.to_thread(HuntJsonDb.set_canvas_enabled, ctx["hunt"]["id"], enabled)
+    await _audit("hunt_canvas", hunt_uid=uid, detail=f"canvas_enabled={enabled}")
+    return jsonify({"ok": True, "canvas_enabled": enabled})
+
+
 @actions_bp.route("/hunts/<uid>/role", methods=["POST"])
 @login_required
 async def set_hunt_role(uid):

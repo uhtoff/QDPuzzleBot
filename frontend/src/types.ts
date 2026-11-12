@@ -206,6 +206,8 @@ export interface HuntDetail {
     voice_count: number;
     voice_per_puzzle: boolean;
     header_style: "full" | "compact";
+    /** Whether the Canvas view is shown (organisers toggle it; new hunts start off). */
+    canvas_enabled: boolean;
   };
   summary: { total: number; solved: number };
   board: BoardGroup[];
