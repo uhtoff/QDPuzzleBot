@@ -22,7 +22,9 @@ export function filterActive(f: PuzzleFilter): boolean {
   );
 }
 
-export function puzzleMatches(p: Filterable, f: PuzzleFilter): boolean {
+/** `rounds: false` searches only the puzzle's name and answer; the By group
+ *  view uses that, because there the groups themselves are the rounds. */
+export function puzzleMatches(p: Filterable, f: PuzzleFilter, { rounds = true } = {}): boolean {
   if (f.hideSolved && p.solved) return false;
   if (f.statuses.length && !f.statuses.includes(p.status || "")) return false;
   if (f.priorities.length && !f.priorities.includes(p.priority || "")) return false;
@@ -31,10 +33,25 @@ export function puzzleMatches(p: Filterable, f: PuzzleFilter): boolean {
   if (q) {
     // Each field separately: folding strips spaces, so one joined string would let a
     // query match across the name/answer/round boundary.
-    const fields = [p.name, p.solution ?? "", ...p.rounds.map((r) => r.name)];
+    const fields = [p.name, p.solution ?? "", ...(rounds ? p.rounds.map((r) => r.name) : [])];
     if (!fields.some((field) => matchesSearch(field, q))) return false;
   }
   return true;
+}
+
+/** The rows the By group view shows for one group. A group whose own name
+ *  matches the search shows all its puzzles (the other filters still apply);
+ *  otherwise a puzzle must match on its own name or answer. Round names are
+ *  not searched per puzzle, or a feeder would turn up under every group it is
+ *  in because one of them matched. */
+export function boardGroupRows<T extends Filterable>(groupName: string, puzzles: T[], f: PuzzleFilter): T[] {
+  if (!filterActive(f)) return puzzles;
+  const q = f.search.trim();
+  if (q && matchesSearch(groupName, q)) {
+    const rest = { ...f, search: "" };
+    return puzzles.filter((p) => puzzleMatches(p, rest));
+  }
+  return puzzles.filter((p) => puzzleMatches(p, f, { rounds: false }));
 }
 
 /** The distinct non-empty values of one field, sorted: the filter's options. */

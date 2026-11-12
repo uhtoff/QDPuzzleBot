@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_FILTER, filterActive, puzzleMatches, type PuzzleFilter } from "./puzzleFilter";
+import { boardGroupRows, EMPTY_FILTER, filterActive, puzzleMatches, type PuzzleFilter } from "./puzzleFilter";
 
 type P = Parameters<typeof puzzleMatches>[0];
 const puzzle = (over: Partial<P>): P => ({
@@ -49,5 +49,40 @@ describe("puzzleMatches", () => {
     expect(filterActive(f({ search: "   " }))).toBe(false);
     expect(filterActive(f({ hideSolved: true }))).toBe(true);
     expect(filterActive(f({ types: ["word"] }))).toBe(true);
+  });
+});
+
+describe("boardGroupRows (By group)", () => {
+  // Name That Tune's feeders sit in a group named after it; one of them is also in Aviaria.
+  const tune = puzzle({ name: "Name That Tune", rounds: [{ name: "Name That Tune" }] });
+  const birds = puzzle({ name: "Bird Calls", solution: "FIREBIRD", rounds: [{ name: "Name That Tune" }, { name: "Aviaria" }] });
+  const jump = puzzle({ name: "Jumping to Conclusions", solved: true, rounds: [{ name: "Name That Tune" }] });
+  const names = (ps: P[]) => ps.map((p) => p.name);
+
+  it("shows every row when nothing is filtered", () => {
+    expect(names(boardGroupRows("Aviaria", [birds], EMPTY_FILTER))).toEqual(["Bird Calls"]);
+  });
+
+  it("matches puzzles on name and answer, not on the round names they carry", () => {
+    expect(names(boardGroupRows("Aviaria", [birds], f({ search: "name" })))).toEqual([]);
+    expect(names(boardGroupRows("Aviaria", [birds], f({ search: "firebird" })))).toEqual(["Bird Calls"]);
+  });
+
+  it("shows a whole group whose own name matches", () => {
+    expect(names(boardGroupRows("Name That Tune", [tune, birds, jump], f({ search: "name" })))).toEqual([
+      "Name That Tune", "Bird Calls", "Jumping to Conclusions",
+    ]);
+  });
+
+  it("still applies the other filters to a group whose name matches", () => {
+    expect(names(boardGroupRows("Name That Tune", [tune, birds, jump], f({ search: "name", hideSolved: true })))).toEqual([
+      "Name That Tune", "Bird Calls",
+    ]);
+  });
+
+  it("finds a puzzle in a group whose name does not match", () => {
+    expect(names(boardGroupRows("Name That Tune", [tune, birds, jump], f({ search: "jumping" })))).toEqual([
+      "Jumping to Conclusions",
+    ]);
   });
 });

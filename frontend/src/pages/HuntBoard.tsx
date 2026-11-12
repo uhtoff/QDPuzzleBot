@@ -19,7 +19,7 @@ import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
-import { EMPTY_FILTER, filterActive, puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
+import { boardGroupRows, EMPTY_FILTER, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "../components/PuzzleFilterBar";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
@@ -190,9 +190,11 @@ export default function HuntBoard() {
         // places it below unsolved targets and plain groups but above solved
         // targets (which sink to the bottom).
         const filtering = filterActive(filter);
-        const withPuzzles = data.board.filter((g) =>
-          filtering ? g.puzzles.some((p) => puzzleMatches(p, filter)) : g.puzzles.length > 0,
-        );
+        // While filtering, each group's own rows (see boardGroupRows): a group matching by
+        // name shows everything; otherwise puzzles match on their own name or answer.
+        const rowsByGroup = new Map(data.board.map((g) => [g.tag_group_id, boardGroupRows(g.name, g.puzzles, filter)]));
+        const withPuzzles = data.board.filter((g) => (rowsByGroup.get(g.tag_group_id) ?? []).length > 0);
+        const shownCount = new Set(withPuzzles.flatMap((g) => (rowsByGroup.get(g.tag_group_id) ?? []).map((p) => p.id))).size;
         const unassigned = withPuzzles.filter((g) => g.tag_group_id === 0);
         const rest = withPuzzles.filter((g) => g.tag_group_id !== 0);
         const firstSolved = rest.findIndex((g) => g.target_solved);
@@ -208,7 +210,7 @@ export default function HuntBoard() {
               puzzles={allPuzzles}
               filter={filter}
               onChange={changeFilter}
-              shown={filtering ? allPuzzles.filter((p) => puzzleMatches(p, filter)).length : allPuzzles.length}
+              shown={filtering ? shownCount : allPuzzles.length}
               total={allPuzzles.length}
             />
             {filtering && boardGroups.length === 0 && (
@@ -226,7 +228,7 @@ export default function HuntBoard() {
               onChange={setOpenGroups}
             >
               {boardGroups.map((g) => (
-                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} filter={filtering ? filter : undefined} />
+                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} rows={filtering ? rowsByGroup.get(g.tag_group_id) : undefined} />
               ))}
             </Accordion>
           </Stack>

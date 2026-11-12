@@ -39,7 +39,6 @@ import { SolveModal, StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 import { extensionSupports, openRound } from "../lib/extension";
-import { puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
 import { groupTarget } from "../lib/groupTarget";
 import { latestActivity } from "../lib/sparkline";
 import { ActivitySparkline } from "./ActivitySparkline";
@@ -50,12 +49,12 @@ interface Props {
   live: Record<string, LiveActivity>;
   voice: LiveVoice;
   onOpenNotes: (puzzle: Puzzle) => void;
-  /** Hides rows that don't match. Only the rows: the header's counts and
-   *  "Open round as a tab group" still cover the whole group. */
-  filter?: PuzzleFilter;
+  /** The rows to show while filtering (default: all). Only the rows: the
+   *  header's counts and "Open round as a tab group" still cover the whole group. */
+  rows?: Puzzle[];
 }
 
-export function BoardGroup({ group, detail, live, voice, onOpenNotes, filter }: Props) {
+export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Props) {
   const solvedAll = group.target_solved;
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
@@ -254,7 +253,7 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes, filter }: 
       <Accordion.Panel>
         <Table>
           <Table.Tbody>
-            {sortPuzzles(filter ? group.puzzles.filter((p) => puzzleMatches(p, filter)) : group.puzzles, group.group_code).map((p) => {
+            {sortPuzzles(rows ?? group.puzzles, group.group_code).map((p) => {
               const bandProps = p.is_minimeta
                 ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
                 : {};
