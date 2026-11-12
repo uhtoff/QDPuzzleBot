@@ -252,7 +252,9 @@ button here — no more copy-pasting the `!hunt` incantation.
 
 ### The hunt board — "By group"
 
-The default view groups puzzles under their meta, mirroring the Discord categories. For
+The bar at the top switches between the board's views (By group, All puzzles, Evidence,
+and for organisers Arrange and Manage); on a phone it's a dropdown instead. The default
+view groups puzzles under their meta, mirroring the Discord categories. For
 each group you can see the code, feeders solved, and each puzzle's status, answer and
 recent activity (with the activity bar chart described under
 ["All puzzles"](#all-puzzles--search-and-filter), on wider screens). Solved rows go
@@ -296,7 +298,8 @@ this feature was installed.
 
 Click a puzzle's notes icon to open its drawer: set status, priority and type, follow
 its links, mark it solved, add working sheets, and read or add notes — the same notes as
-`!note` in Discord.
+`!note` in Discord. Click the puzzle's name at the top to rename it: press Enter or the
+green **✓** to save, Escape or **✕** to cancel (clicking elsewhere does not save).
 
 ![Puzzle drawer](img/userguide/05-puzzle-drawer.jpg)
 
@@ -473,7 +476,8 @@ same sheet.
 A drag board for re-organising the hunt: drag a puzzle card onto a group to re-tag it
 (its Discord channel moves too), or onto **Unassigned Feeders** to untag it. The `⋮`
 menu on each card adds a puzzle to an *additional* group — that's how one puzzle feeds
-two metas.
+two metas. Click a group's name to rename it, then Enter or **✓** to save, Escape or **✕**
+to cancel.
 
 ![Arrange](img/userguide/07-arrange.png)
 
