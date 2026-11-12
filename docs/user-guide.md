@@ -403,7 +403,7 @@ Some hunts hand you one enormous image — an extravaganza sheet with forty puzz
 on it — rather than a puzzle per page. The **Canvas** view is for those.
 
 The view is **off for new hunts**, since most hunts never need it. An organiser turns it
-on from the hunt's **Manage** tab (**Canvas view** switch) or with `!canvas on` in a hunt
+on from the hunt's **Manage** tab (**Canvas view** switch, under **Advanced**) or with `!canvas on` in a hunt
 channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
 kept and come back when it is turned on.
 
@@ -479,10 +479,20 @@ two metas.
 
 ### Manage (organisers/admins)
 
-Hunt settings (URL, start time, shared login), archiving the hunt when it's over,
-gating the hunt behind a Discord team role, deleting it, and **Reconcile** — a
-self-repair pass that scans for missing channels or sheet tabs and fixes them
-("Report" shows a dry run first).
+One column of sections, top to bottom:
+
+- **Hunt details**: website URL, start time, shared login. Press **Save settings**.
+- **Advanced** (folded away): header style and voice channels for new puzzles, URL
+  separator and prefix (also saved with **Save settings**), then switches that act at once:
+  one spreadsheet per puzzle or tabs, and the **Canvas view**.
+- **Maintenance**: **Reconcile**, a self-repair pass that scans for missing channels or
+  sheet tabs and fixes them ("Report" shows a dry run first); reclaiming unused image
+  storage; removing puzzle voice channels.
+- **Hunt status**: archive the hunt when it's over, mark a multi-team hunt finished, and
+  gate the hunt behind a Discord team role.
+- **Danger zone**: delete the hunt.
+
+Organisers who aren't admins see only the Canvas switch and Maintenance.
 
 ![Manage](img/userguide/08-manage.png)
 

@@ -1,5 +1,5 @@
 import { notifications } from "@mantine/notifications";
-import { Badge, Button, Group, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Badge, Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import { ConfirmModal } from "./ConfirmModal";
 import { useSetHuntRole } from "../api";
@@ -26,7 +26,7 @@ export function GateHuntPanel({
   if (isGated) {
     return (
       <Stack gap="sm">
-        <Title order={5}>Team role</Title>
+        <Text size="sm" fw={600}>Team role</Text>
         <Group>
           <Badge color="green" size="sm">Gated</Badge>
           <Text size="sm">
@@ -66,7 +66,7 @@ export function GateHuntPanel({
 
   return (
     <Stack gap="sm">
-      <Title order={5}>Team role</Title>
+      <Text size="sm" fw={600}>Team role</Text>
       <Text size="sm" c="dimmed">
         This hunt is open (visible to everyone in the server). Gate it behind a Discord
         team role to restrict the dashboard and channels to that team.

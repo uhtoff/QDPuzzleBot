@@ -37,6 +37,7 @@ import { HuntInfoPanel } from "../components/HuntInfoPanel";
 import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
 import { VoiceBadge } from "../components/VoiceBadge";
 import { GateHuntPanel } from "../components/GateHuntPanel";
+import { ManageSection } from "../components/ManageSection";
 import { useActivityFeed } from "../hooks/useActivityFeed";
 import { useVoiceFeed } from "../hooks/useVoiceFeed";
 import { huntVoiceCount } from "../lib/voice";
@@ -253,45 +254,58 @@ export default function HuntBoard() {
       {shown === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {shown === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
       {shown === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
-      {shown === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (
-        <Stack gap="md">
-          {/* Admin settings panel — admin-gated; reachable even when archived */}
-          {data.hunt.can_administer && (
-            <AdminSettingsPanel
-              uid={uid!}
-              huntName={data.hunt.name}
-              url={data.hunt.url}
-              start_timestamp={data.hunt.start_timestamp}
-              username={data.hunt.username}
-              password={data.hunt.password}
-              url_sep={data.hunt.url_sep}
-              puzzle_prefix={data.hunt.puzzle_prefix}
-              archived={data.hunt.archived}
-              isTeamHunt={data.hunt.is_team_hunt}
-              multiTeam={data.hunt.multi_team}
-              hasSolvedSheet={!!data.hunt.solved_sheet_url}
-              sheetMode={data.hunt.sheet_mode}
-              puzzleCount={data.summary.total}
-              voicePerPuzzle={data.hunt.voice_per_puzzle}
-              headerStyle={data.hunt.header_style}
-            />
-          )}
-          {/* Team-role gating — admin-gated; hidden on archived (read-only) hunts */}
-          {data.hunt.can_administer && !data.hunt.archived && (
-            <GateHuntPanel
-              uid={uid!}
-              isGated={data.hunt.is_gated}
-              roleName={data.hunt.role_name}
-            />
-          )}
-          {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}
-          {data.hunt.can_manage && <ReconcilePanel uid={uid!} />}
-          {/* Organiser level, like !canvas on/off; hidden on archived (read-only) hunts. */}
-          {data.hunt.can_manage && <CanvasTogglePanel uid={uid!} enabled={data.hunt.canvas_enabled} />}
-          {/* Same organiser gate: the media sweep is a bulk delete. */}
-          {data.hunt.can_manage && <MediaSweepPanel uid={uid!} />}
-        </Stack>
-      )}
+      {shown === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (() => {
+        // Organiser-level pieces (hidden on archived hunts, where can_manage is false).
+        const canvasControl = data.hunt.can_manage && (
+          <CanvasTogglePanel uid={uid!} enabled={data.hunt.canvas_enabled} />
+        );
+        const maintenance = data.hunt.can_manage && (
+          <>
+            <ReconcilePanel uid={uid!} />
+            {/* The media sweep is a bulk delete, so organiser-gated too. */}
+            <MediaSweepPanel uid={uid!} />
+          </>
+        );
+        return (
+          <Stack gap="md" maw={760}>
+            {data.hunt.can_administer ? (
+              // Admin: every section; reachable even when archived (to unarchive).
+              <AdminSettingsPanel
+                uid={uid!}
+                huntName={data.hunt.name}
+                url={data.hunt.url}
+                start_timestamp={data.hunt.start_timestamp}
+                username={data.hunt.username}
+                password={data.hunt.password}
+                url_sep={data.hunt.url_sep}
+                puzzle_prefix={data.hunt.puzzle_prefix}
+                archived={data.hunt.archived}
+                isTeamHunt={data.hunt.is_team_hunt}
+                multiTeam={data.hunt.multi_team}
+                hasSolvedSheet={!!data.hunt.solved_sheet_url}
+                sheetMode={data.hunt.sheet_mode}
+                puzzleCount={data.summary.total}
+                voicePerPuzzle={data.hunt.voice_per_puzzle}
+                headerStyle={data.hunt.header_style}
+                canvasControl={canvasControl}
+                maintenance={maintenance}
+                teamRole={
+                  // Hidden on archived (read-only) hunts.
+                  !data.hunt.archived && (
+                    <GateHuntPanel uid={uid!} isGated={data.hunt.is_gated} roleName={data.hunt.role_name} />
+                  )
+                }
+              />
+            ) : (
+              // Organiser without admin: only the organiser-level sections.
+              <>
+                <ManageSection title="Advanced" collapsible>{canvasControl}</ManageSection>
+                <ManageSection title="Maintenance">{maintenance}</ManageSection>
+              </>
+            )}
+          </Stack>
+        );
+      })()}
 
       <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
     </Stack>
