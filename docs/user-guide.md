@@ -277,6 +277,9 @@ punctuation, spaces, capitals and accents are ignored, so `worlds best` finds
 "World’s Best Crossword" and `cafe` finds "Café". The same search and filters appear on **By group**,
 and stay set when you switch between the two views. There a puzzle matches on its own
 name or answer, and a group whose name matches shows all of its puzzles.
+The status, priority, type and hide-solved settings are remembered for each hunt in your
+browser, so they survive a reload; the search box starts empty each time. **Reset filters**
+clears them all.
 
 The **Activity** column shows each unsolved puzzle's whole life since it was added as a
 small bar chart, beside the time since anyone last chatted or edited its sheet. Bar

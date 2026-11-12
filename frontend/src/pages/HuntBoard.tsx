@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Accordion,
   Anchor,
@@ -19,8 +19,9 @@ import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
 import { closeSolved, extensionSupports } from "../lib/extension";
 import { boardViews, type BoardView } from "../lib/boardViews";
-import { boardGroupRows, EMPTY_FILTER, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
+import { boardGroupRows, filterActive, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "../components/PuzzleFilterBar";
+import { loadFilter, saveFilter } from "../lib/filterStorage";
 import { useQueryClient } from "@tanstack/react-query";
 import { BoardGroup } from "../components/BoardGroup";
 import { PuzzleTable } from "../components/PuzzleTable";
@@ -68,10 +69,22 @@ export default function HuntBoard() {
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
   // One filter for both "By group" and "All puzzles", so it survives switching views.
-  const [filter, setFilter] = useState<PuzzleFilter>(EMPTY_FILTER);
+  // Its settings (not the search) are remembered per hunt in this browser.
+  const [filter, setFilter] = useState<PuzzleFilter>(() => loadFilter(uid));
+  // The route param can change without remounting (hunt to hunt), so reload then.
+  useEffect(() => {
+    setFilter(loadFilter(uid));
+    setOpenGroups(null);
+  }, [uid]);
+  // Saved here, in the setter, not in an effect on `filter`: an effect would
+  // write the previous hunt's filter under the new hunt's key on a switch.
+  const updateFilter = (next: PuzzleFilter) => {
+    setFilter(next);
+    saveFilter(uid, next);
+  };
   // A changed filter re-opens every group that still has matches.
   const changeFilter = (next: PuzzleFilter) => {
-    setFilter(next);
+    updateFilter(next);
     setOpenGroups(null);
   };
 
@@ -235,7 +248,7 @@ export default function HuntBoard() {
         );
       })()}
       {shown === "all" && (
-        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} filter={filter} onFilterChange={setFilter} />
+        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} filter={filter} onFilterChange={updateFilter} />
       )}
       {shown === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
       {shown === "evidence" && <EvidencePanel uid={uid!} detail={data} />}

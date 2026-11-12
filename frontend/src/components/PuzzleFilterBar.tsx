@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { useMemo } from "react";
-import { Checkbox, Group, MultiSelect, Text, TextInput } from "@mantine/core";
-import { IconSearch } from "@tabler/icons-react";
+import { Button, Checkbox, Group, MultiSelect, Text, TextInput } from "@mantine/core";
+import { IconFilterOff, IconSearch } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 import { formatPriority, formatStatus } from "../util";
-import { uniqueValues, type PuzzleFilter } from "../lib/puzzleFilter";
+import { EMPTY_FILTER, filterActive, uniqueValues, type PuzzleFilter } from "../lib/puzzleFilter";
 
 interface Props {
   /** Every puzzle the view could show: the filter's options come from these. */
@@ -71,6 +71,16 @@ export function PuzzleFilterBar({ puzzles, filter, onChange, shown, total, child
         onChange={(e) => set({ hideSolved: e.currentTarget.checked })}
         mb={8}
       />
+      <Button
+        variant="subtle"
+        size="xs"
+        mb={6}
+        leftSection={<IconFilterOff size={14} />}
+        disabled={!filterActive(filter)}
+        onClick={() => onChange(EMPTY_FILTER)}
+      >
+        Reset filters
+      </Button>
       {children}
       <Text c="dimmed" size="sm" mb={8}>
         {shown} / {total}
