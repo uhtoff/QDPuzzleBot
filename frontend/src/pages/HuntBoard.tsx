@@ -29,6 +29,7 @@ import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { CanvasPanel } from "../components/CanvasPanel";
+import { CanvasTogglePanel } from "../components/CanvasTogglePanel";
 import { ReconcilePanel } from "../components/ReconcilePanel";
 import { MediaSweepPanel } from "../components/MediaSweepPanel";
 import { HuntInfoPanel } from "../components/HuntInfoPanel";
@@ -97,7 +98,13 @@ export default function HuntBoard() {
   // cascades to every gated child, since they all read detail.hunt.{can_manage,can_administer}.
   const data = applyViewAs(rawData, viewAs);
 
-  const views = boardViews({ canManage: data.hunt.can_manage, canAdminister: data.hunt.can_administer });
+  const views = boardViews({
+    canManage: data.hunt.can_manage,
+    canAdminister: data.hunt.can_administer,
+    canvas: data.hunt.canvas_enabled,
+  });
+  // A view that is no longer offered (Canvas just switched off, say) falls back to By group.
+  const shown: BoardView = views.some((v) => v.value === view) ? view : "board";
   const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
   const openNotes = (p: Puzzle) => setNotesPuzzleId(p.id);
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
@@ -152,7 +159,7 @@ export default function HuntBoard() {
             needs up to 660px and cannot scroll. */}
         <SegmentedControl
           visibleFrom="md"
-          value={view}
+          value={shown}
           onChange={(v) => setView(v as BoardView)}
           data={views.map(({ label, value }) => ({ label, value }))}
           w={views.reduce((sum, v) => sum + v.width, 0)}
@@ -160,7 +167,7 @@ export default function HuntBoard() {
         <Select
           hiddenFrom="md"
           aria-label="View"
-          value={view}
+          value={shown}
           onChange={(v) => v && setView(v as BoardView)}
           data={views.map(({ label, value }) => ({ label, value }))}
           allowDeselect={false}
@@ -176,7 +183,7 @@ export default function HuntBoard() {
         </Group>
       </Group>
 
-      {view === "board" && (() => {
+      {shown === "board" && (() => {
         // Bare groups (no puzzles) are drop targets for the Arrange view only —
         // hide them from the board summary so it isn't cluttered with empties.
         // Arrange keeps Unassigned Feeders far left; the By-group summary instead
@@ -225,13 +232,13 @@ export default function HuntBoard() {
           </Stack>
         );
       })()}
-      {view === "all" && (
+      {shown === "all" && (
         <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} filter={filter} onFilterChange={setFilter} />
       )}
-      {view === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
-      {view === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
-      {view === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
-      {view === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (
+      {shown === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
+      {shown === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
+      {shown === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
+      {shown === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (
         <Stack gap="md">
           {/* Admin settings panel — admin-gated; reachable even when archived */}
           {data.hunt.can_administer && (
@@ -264,6 +271,8 @@ export default function HuntBoard() {
           )}
           {/* Reconcile stays organiser-gated and hidden on archived (read-only) hunts */}
           {data.hunt.can_manage && <ReconcilePanel uid={uid!} />}
+          {/* Organiser level, like !canvas on/off; hidden on archived (read-only) hunts. */}
+          {data.hunt.can_manage && <CanvasTogglePanel uid={uid!} enabled={data.hunt.canvas_enabled} />}
           {/* Same organiser gate: the media sweep is a bulk delete. */}
           {data.hunt.can_manage && <MediaSweepPanel uid={uid!} />}
         </Stack>

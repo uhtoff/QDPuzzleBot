@@ -182,6 +182,7 @@ async def hunt_detail(uid):
             **data.voice_fields(guild_snowflake, hunt.get("voice_channel_id")),
             "voice_per_puzzle": bool(hunt.get("voice_per_puzzle")),
             "header_style": hunt.get("header_style") or "full",
+            "canvas_enabled": bool(hunt.get("canvas_enabled")),
         },
         "summary": {"total": len(puzzles), "solved": solved},
         "board": board,

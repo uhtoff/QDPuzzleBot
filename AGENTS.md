@@ -141,6 +141,7 @@ test_backfill_consistency.py   test_bang_edge_atomicity.py     test_bulk_edge_at
 test_get_unassigned.py         test_hunt_category_cascade.py   test_is_target_derivation.py
 test_media_gc.py               test_message_delete_cascade.py  test_missing_row_update_logs.py
 test_puzzle_image_positions.py test_tag_edges.py               test_header_style_store.py
+test_canvas_toggle_store.py
 ```
 
 The convention: `from bot.store import mydb` for a cursor, and `live_hunt_id()` from

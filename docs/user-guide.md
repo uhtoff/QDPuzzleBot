@@ -397,6 +397,11 @@ region, so a clue carved off a hunt sheet still says which part of which sheet i
 Some hunts hand you one enormous image — an extravaganza sheet with forty puzzles printed
 on it — rather than a puzzle per page. The **Canvas** view is for those.
 
+The view is **off for new hunts**, since most hunts never need it. An organiser turns it
+on from the hunt's **Manage** tab (**Canvas view** switch) or with `!canvas on` in a hunt
+channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
+kept and come back when it is turned on.
+
 An organiser uploads the image, and then anyone on the team can draw boxes round the
 puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
 sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
@@ -421,7 +426,7 @@ in progress, stuck, or not started. Hovering a box lights up every other box bel
 the same puzzle, and the toolbar's puzzle picker pins that highlight while you hunt around
 a busy sheet for the rest of it. Boxes are shared: everyone sees them as they are drawn.
 
-In Discord, `!canvas` links to this view and lists the hunt's canvases.
+In Discord, `!canvas` links to this view and lists the hunt's canvases (or says the view is off).
 
 ### Marking up an image
 

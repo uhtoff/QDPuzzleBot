@@ -811,6 +811,16 @@ export function useUpdateHuntSettings(uid: string) {
   });
 }
 
+/** Show or hide the hunt's Canvas view (organiser level). The canvases are kept. */
+export function useSetCanvasEnabled(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiSend<{ ok: boolean; canvas_enabled: boolean }>(`/api/hunts/${uid}/canvas`, "PATCH", { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
 export function useArchiveHunt(uid: string) {
   const qc = useQueryClient();
   return useMutation({
