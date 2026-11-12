@@ -24,7 +24,7 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { IconDotsVertical } from "@tabler/icons-react";
+import { IconCheck, IconDotsVertical, IconX } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { BoardGroup, HuntDetail, Puzzle } from "../types";
 import {
@@ -345,6 +345,11 @@ function Column({
   const isUnassigned = group.group_code == null;
   const [editing, setEditing] = useState(false);
   const [temp, setTemp] = useState("");
+  const commitRename = () => {
+    const newName = temp.trim();
+    if (newName && newName !== group.name) onRenameGroup(group.tag_group_id, newName);
+    setEditing(false);
+  };
   const { setNodeRef, isOver } = useDroppable({
     id: `meta:${group.group_code}`,
     data: { groupCode: group.group_code },
@@ -372,23 +377,27 @@ function Column({
       <Group justify="space-between" mb="xs">
         <Group gap={6}>
           {editing ? (
-            <TextInput
-              size="xs"
-              value={temp}
-              onChange={(e) => setTemp(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const newName = temp.trim();
-                  if (newName && newName !== group.name) {
-                    onRenameGroup(group.tag_group_id, newName);
-                  }
-                  setEditing(false);
-                }
-                if (e.key === "Escape") setEditing(false);
-              }}
-              onBlur={() => setEditing(false)}
-              autoFocus
-            />
+            // No close-on-blur: clicking away used to drop the edit silently.
+            // Enter or the tick saves; Escape or the cross abandons.
+            <Group gap={2} wrap="nowrap">
+              <TextInput
+                size="xs"
+                w={150}
+                value={temp}
+                onChange={(e) => setTemp(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") setEditing(false);
+                }}
+                autoFocus
+              />
+              <ActionIcon variant="light" color="green" size="sm" aria-label="Save group name" onClick={commitRename}>
+                <IconCheck size={14} />
+              </ActionIcon>
+              <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Cancel rename" onClick={() => setEditing(false)}>
+                <IconX size={14} />
+              </ActionIcon>
+            </Group>
           ) : (
             <Text
               fw={600}
