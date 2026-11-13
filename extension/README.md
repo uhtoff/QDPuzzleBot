@@ -5,6 +5,7 @@ looking at in a side panel next to the Google Sheet, and adds a few dashboard bu
 opening puzzles. It talks to the puzzbot dashboard using your existing dashboard login; it
 holds no Discord credentials of its own. Design: `docs/superpowers/specs/2026-11-07-puzzle-chat-extension-design.md`.
 For the user-facing description see the "Chrome extension" section of `docs/user-guide.md`.
+It also runs in Firefox; see "Firefox" below.
 
 Requires Chrome 116 or later.
 
@@ -22,6 +23,28 @@ is reachable only by that link, not by searching the Store.
 4. Add that ID to the server (see below), then restart the bot.
 5. Open the extension's **Options** and check the dashboard origin.
 6. Be logged in to the dashboard in the same Chrome profile (the extension reuses that session).
+
+## Firefox
+
+The same source runs in desktop Firefox 140 or later (not Firefox for Android, which has no
+sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
+`scripts/firefoxManifest.js` at package time, so never edit a copy under `dist/`.
+
+- **Try it locally:** `bash package.sh firefox`, then in Firefox open
+  `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
+  `dist/firefox/manifest.json`. It stays loaded until Firefox restarts.
+- **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
+  **unlisted** add-on (Mozilla signs it; it is not searchable), then share the signed `.xpi`
+  link with the team. Notes for the submission form: `store/amo-notes.md`.
+- **Server:** nothing to configure. Firefox gives every install its own random
+  `moz-extension://<uuid>` origin, so it cannot be listed; the server accepts any well-formed
+  one instead (a web page can never send that origin). `web.extension_origins` is for
+  Chrome only.
+- **Differences from Chrome:** the toolbar button toggles the sidebar. Firefox only opens a
+  sidebar from a click on the extension's own button, so **Work on this puzzle** and
+  notification clicks switch to the tab but cannot open the sidebar; open it yourself.
+  Firefox lets you revoke the Google Sheets permission in `about:addons`; the Options page
+  then shows an **Allow access to Google Sheets** button.
 
 ## Options
 
@@ -49,6 +72,8 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
 - Editing `config.json` needs a bot restart.
 - Each distinct extension ID needs its own entry. For team installs, list the Chrome Web
   Store ID (below) rather than everyone's unpacked ID.
+- Chrome only. Firefox origins (`moz-extension://<uuid>`) are accepted without an entry
+  (see "Firefox" above).
 
 ## Using it
 

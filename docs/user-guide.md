@@ -375,6 +375,13 @@ dashboard. After updating the extension, reload any open dashboard tabs.
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
 - **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
   instance is `https://puzzbot.com`) and the notifications switch.
+- **Firefox:** the same extension works in Firefox 140 or later; install it from the link
+  your team shares, and stay logged in to the dashboard in the same Firefox profile. The
+  panel is a Firefox sidebar: click the extension's toolbar button to show or hide it.
+  Firefox won't let the extension open the sidebar for you, so **Work on this puzzle** and
+  notification clicks switch to the puzzle's tab but you open the sidebar yourself. If every
+  tab says "not a puzzle", open the extension's Options and click **Allow access to Google
+  Sheets**. Nothing needs adding on the server for Firefox.
 
 ### Evidence
 
