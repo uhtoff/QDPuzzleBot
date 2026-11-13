@@ -42,6 +42,9 @@ Run against the test instance (`https://puzzbot.com`, staging) before uploading:
    **Open puzzle as a tab group**, **Open round as a tab group**, **Close solved tabs**.
 7. Revoke "Access your data for docs.google.com" in `about:addons` -> Permissions; Options shows
    **Allow access to Google Sheets**, and clicking it restores puzzle detection.
-8. Leave Firefox idle for 5+ minutes (the background page may be suspended), then confirm new
-   Discord messages still arrive (unread badge / sidebar).
-9. With notifications on, a notification click switches to the puzzle tab.
+8. **Close the sidebar** (an open sidebar may keep the background page awake), have a puzzle
+   sheet open in a tab, and leave Firefox idle for 5+ minutes so the background page can be
+   suspended. Then post in that puzzle's Discord channel: the unread badge should appear within
+   about a minute.
+9. With notifications on and the sidebar still closed, repeat step 8: the notification appears,
+   and clicking it switches to the puzzle tab.
