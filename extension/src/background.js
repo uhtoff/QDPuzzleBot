@@ -1,7 +1,7 @@
 import { parseSheetUrl } from "./lib/sheetUrl.js";
 import { createRegistry } from "./lib/registry.js";
 import { cacheValid, stateFor, shouldDeliver } from "./lib/panelState.js";
-import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin } from "./lib/origin.js";
+import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } from "./lib/origin.js";
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
@@ -194,7 +194,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason !== "install") return;
   const origin = await getOrigin();
   const ok = await chrome.permissions.contains({ origins: [origin + "/*"] }).catch(() => false);
-  if (!ok) chrome.runtime.openOptionsPage();
+  // Firefox can install without the Sheets permission granted (or it can be revoked later).
+  const sheetsOk = await chrome.permissions.contains({ origins: SHEETS_ORIGINS }).catch(() => false);
+  if (!ok || !sheetsOk) chrome.runtime.openOptionsPage();
 });
 
 // Returns false when a newer lookup for the same tab (or the tab closing) made this one stale.

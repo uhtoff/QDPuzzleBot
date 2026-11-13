@@ -1,5 +1,9 @@
 export const DEFAULT_ORIGIN = "https://quarantinedecrypters.com";
 
+// The Google Sheets host permission (manifest host_permissions). Chrome always grants it;
+// Firefox grants it at install but lets the user revoke it in about:addons.
+export const SHEETS_ORIGINS = ["https://docs.google.com/spreadsheets/*"];
+
 // Accept only a bare https origin (no path/query/hash/credentials). Returns the
 // normalised origin string, or null.
 export function parseOrigin(input) {

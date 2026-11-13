@@ -33,3 +33,13 @@ describe("removesOrigin", () => {
     expect(removesOrigin(undefined, "https://a.example")).toBe(false);
   });
 });
+
+describe("SHEETS_ORIGINS", () => {
+  it("is exactly the manifest's Google Sheets host permission", async () => {
+    const { SHEETS_ORIGINS } = await import("../src/lib/origin.js");
+    const { readFileSync } = await import("node:fs");
+    const m = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
+    expect(SHEETS_ORIGINS).toEqual(m.host_permissions);
+    expect(SHEETS_ORIGINS).toEqual(["https://docs.google.com/spreadsheets/*"]);
+  });
+});
