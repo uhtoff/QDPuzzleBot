@@ -1,6 +1,7 @@
 """Dashboard read API and live-activity WebSocket."""
 import asyncio
 import logging
+import re
 import time
 from types import SimpleNamespace
 
@@ -815,10 +816,28 @@ def _ws_origin_allowed(origin):
     expected = _dashboard_origin()
     if expected is None:
         return True
-    if origin == expected:
-        return True
+    return origin == expected or _is_extension_origin(origin)
+
+
+# Firefox gives every install of an extension its own random UUID origin, so it cannot
+# be listed in web.extension_origins. Accepting the scheme is still a cross-site guard:
+# a web page can never send a moz-extension:// Origin. (Another installed Firefox
+# add-on could; that was accepted when the Firefox port was agreed.)
+_FIREFOX_EXTENSION_ORIGIN = re.compile(
+    r"moz-extension://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+)
+
+
+def _is_extension_origin(origin):
+    """True for a browser-extension origin: an exact web.extension_origins entry
+    (Chrome's fixed chrome-extension://<id>) or any well-formed Firefox
+    moz-extension://<uuid>."""
+    if not isinstance(origin, str):
+        return False
     extra = getattr(config, "web_extension_origins", None)
-    return isinstance(extra, list) and origin in extra
+    if isinstance(extra, list) and origin in extra:
+        return True
+    return _FIREFOX_EXTENSION_ORIGIN.fullmatch(origin) is not None
 
 
 @api_bp.route("/extension/ws-ticket")
@@ -852,11 +871,10 @@ async def ws_activity():
     user = session.get("user")
     if not user:
         # Chrome withholds the session cookie from an extension service worker's
-        # websocket, so a listed extension origin may authenticate with a
-        # single-use ticket instead (see ws_ticket).
+        # websocket, so an extension origin may authenticate with a single-use
+        # ticket instead (see ws_ticket).
         uid = None
-        extra = getattr(config, "web_extension_origins", None)
-        if isinstance(extra, list) and websocket.headers.get("Origin") in extra:
+        if _is_extension_origin(websocket.headers.get("Origin")):
             uid = ws_ticket.redeem(websocket.args.get("ticket", ""))
         if not uid or not uid.isdigit():
             await websocket.close(1008)  # policy violation / unauthenticated
