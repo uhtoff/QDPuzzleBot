@@ -15,9 +15,17 @@ import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
 import { pickColour, findRoundGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
+import { createPanelHost } from "./lib/panelHost.js";
 import { apiGet, getOrigin } from "./api.js";
 
 const PANEL_PATH = "src/panel.html";
+// Chrome side panel or Firefox sidebar (Firefox cannot open it from the handlers below).
+const panelHost = createPanelHost({
+  sidePanel: chrome.sidePanel,
+  sidebarAction: globalThis.browser?.sidebarAction ?? chrome.sidebarAction,
+  action: chrome.action,
+  path: PANEL_PATH,
+});
 let registry = createRegistry();
 const lookupGen = createLookupGen();
 const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient)
@@ -138,7 +146,7 @@ function registerNotificationClick() {
     const target = parseNotificationId(id);
     if (!target) return;
     // Synchronously, before any await, to stay inside the click's user gesture; Chrome may still reject it.
-    chrome.sidePanel.open({ windowId: target.windowId }).catch(() => {});
+    panelHost.open(target.windowId);
     chrome.notifications.clear(id);
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return;
@@ -149,10 +157,10 @@ function registerNotificationClick() {
 registerNotificationClick();
 chrome.permissions.onAdded.addListener(registerNotificationClick);
 
-// One global side panel for every tab; non-puzzle tabs show "not a puzzle".
+// One global panel (Chrome side panel / Firefox sidebar) for every tab; non-puzzle
+// tabs show "not a puzzle".
 function setupPanel() {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-  chrome.sidePanel.setOptions({ path: PANEL_PATH, enabled: true }).catch(() => {});
+  panelHost.setup();
 }
 setupPanel();
 
@@ -583,7 +591,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     const parsed = parseSheetUrl(msg.payload?.sheetUrl ?? "");
     const tabId = parsed ? registry.findFilesTab(parsed.spreadsheetId) : null;
     const entry = tabId === null ? null : registry.get(tabId);
-    chrome.sidePanel.open({ windowId: panelWindow(entry, sender.tab.windowId) }).catch(() => {});
+    panelHost.open(panelWindow(entry, sender.tab.windowId));
   }
   handleDashboardAction(msg, sender).catch(() => {});
 });
