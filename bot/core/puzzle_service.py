@@ -2326,6 +2326,11 @@ class PuzzleService:
 
         TagGroupJsonDb.delete(tag_group.id)
         await self.refresh_header_links(hunt, orphaned_feeders, reload=True)
+        # Kept members that fed this group's target are now unassigned, and
+        # deleted members must leave the tab. Only after the group row is gone:
+        # the members' tags rows cascade off it, so an earlier refresh would
+        # reconcile against the old membership.
+        asyncio.create_task(self.refresh_unassigned_safe(hunt))
         return failed_channels
 
     async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,

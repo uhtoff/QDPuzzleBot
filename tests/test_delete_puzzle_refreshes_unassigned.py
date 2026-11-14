@@ -62,3 +62,64 @@ async def test_deleting_a_minimeta_parent_refreshes_once_not_per_mini():
     refresh = await _delete(svc, hunt, parent, children={1: [mini_a, mini_b]})
 
     refresh.assert_awaited_once_with(hunt)
+
+
+# ---------------------------------------------------------------------------
+# delete_round -- its own teardown loop, so it needs its own refresh
+# ---------------------------------------------------------------------------
+
+def _round_guild(round_cat_id=100):
+    from bot.core.discord_channels import SOLVE_DIVIDER
+    div = MagicMock(); div.name = SOLVE_DIVIDER; div.position = 1
+    gen = MagicMock(); gen.name = "general"; gen.position = 0
+    general = MagicMock(id=500); general.channels = [gen, div]
+    round_cat = MagicMock(id=round_cat_id); round_cat.channels = []
+    round_cat.delete = AsyncMock()
+    guild = MagicMock()
+    guild.categories = [round_cat, general]
+    guild.get_channel = MagicMock(return_value=None)
+    guild.get_channel_or_thread = guild.get_channel
+    return guild
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keep_puzzles", [True, False])
+async def test_deleting_a_round_refreshes_the_unassigned_tab_after_the_group_goes(
+        keep_puzzles):
+    """Kept members lose their feeds edge only when the tag_group row is deleted
+    (the tags rows cascade off it), so the refresh must come AFTER that delete
+    or it reconciles against the old membership and adds nothing."""
+    from tests.conftest import make_round
+    svc = _svc()
+    hunt = make_hunt(category_id=500)
+    tag_group = make_round(id=5, category_id=100, target_puzzle_id=1)
+    target = make_puzzle(id=1, is_target=True, channel_id=None, tags=[5])
+    member = make_puzzle(id=2, channel_id=None, tags=[5])
+    order = []
+
+    async def refresh(h):
+        order.append("refresh")
+
+    with patch("bot.core.puzzle_service.PuzzleJsonDb") as pdb, \
+         patch("bot.core.puzzle_service.TagGroupJsonDb") as tgdb, \
+         patch("bot.core.puzzle_service.TagGroupCategoryDb") as tgcdb, \
+         patch("bot.core.puzzle_service.HuntCategoryDb") as hcdb, \
+         patch.object(svc, "_gsheet_cog", return_value=None), \
+         patch.object(svc, "refresh_header_links", new=AsyncMock(return_value=[])), \
+         patch("bot.core.puzzle_service.category_layout.delete_group_categories",
+               AsyncMock(return_value=False)), \
+         patch.object(svc, "refresh_unassigned_safe",
+                      new=AsyncMock(side_effect=refresh)) as refresh_m:
+        pdb.get_all_from_tag_group.return_value = [target, member]
+        pdb.get_by_attr.return_value = None
+        pdb.get_children.return_value = []
+        tgcdb.get_for_group.return_value = []
+        hcdb.get_for_group.return_value = []
+        tgdb.delete.side_effect = lambda gid: order.append("group_deleted")
+        await svc.delete_round(_round_guild(), hunt, tag_group,
+                               keep_puzzles=keep_puzzles)
+        import asyncio
+        await asyncio.sleep(0)
+
+    refresh_m.assert_awaited_once_with(hunt)
+    assert order == ["group_deleted", "refresh"], order
