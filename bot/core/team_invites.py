@@ -69,7 +69,12 @@ async def deliver(guild, hunt, team, user):
     invite = await make_invite(guild, hunt)
     try:
         await user.send(dm_text(hunt, team, invite.url))
-    except discord.HTTPException:
+    except discord.HTTPException as exc:
+        # Status + Discord's error code tell closed DMs (403/50007) from the bot
+        # being throttled (e.g. 40003); the report says "DMs closed" either way.
+        # Never the link.
+        logger.warning("invite DM to user %s for hunt %s failed: HTTP %s, code %s: %s",
+                       user.id, hunt.id, exc.status, exc.code, exc.text)
         await _discard(invite)
         return False
     HuntInviteDb.record(hunt.id, user.id, invite.code)

@@ -146,6 +146,31 @@ async def test_closed_dms_delete_the_invite_and_record_nothing():
     hdb.mark_invites_sent.assert_called_once_with(HUNT_ID)
 
 
+async def test_a_failed_dm_logs_discords_status_and_error_code(caplog):
+    """A refused DM used to vanish without trace, so "DMs closed" could not be told
+    apart from Discord throttling the bot. Two people with DIFFERENT codes, so a
+    log line that names the wrong person or a fixed code would not pass."""
+    ann = _person(1, "Ann")
+    ann.send = AsyncMock(side_effect=discord.Forbidden(
+        MagicMock(status=403, reason="Forbidden"),
+        {"code": 50007, "message": "Cannot send messages to this user"}))
+    bob = _person(2, "Bob")
+    bob.send = AsyncMock(side_effect=discord.HTTPException(
+        MagicMock(status=429, reason="Too Many Requests"),
+        {"code": 40003, "message": "You are opening direct messages too fast"}))
+    w = World(members=[ann, bob])
+    with caplog.at_level("WARNING", logger="bot.core.team_invites"):
+        report, _idb, _hdb = await w.send()
+    assert report.failed == ["Ann", "Bob"]
+    lines = [r.getMessage() for r in caplog.records if "invite DM" in r.getMessage()]
+    assert len(lines) == 2, lines
+    assert "user 1" in lines[0] and "403" in lines[0] and "50007" in lines[0]
+    assert "user 2" in lines[1] and "429" in lines[1] and "40003" in lines[1]
+    assert all(f"hunt {HUNT_ID}" in line for line in lines)
+    # Never the link: the invite URL must not reach the log.
+    assert not any(inv.url in line for inv in w.invites for line in lines)
+
+
 async def test_bots_with_the_hub_role_are_skipped():
     robot = _person(1, "Robot", bot=True)
     w = World(members=[robot])
