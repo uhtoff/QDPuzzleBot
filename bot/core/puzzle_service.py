@@ -864,6 +864,14 @@ class PuzzleService:
                     logger.exception("reconcile: minimeta roll-up failed for %s",
                                      minimeta.name)
                     report.add_failure(f"minimeta roll-up ({minimeta.name})", error)
+            # The hunt-wide Unassigned Feeders tab. Awaited (not the _safe
+            # fire-and-forget) so a failure lands in the report; this is also
+            # the dashboard's only route to the !rebuild_unassigned rebuild.
+            try:
+                await self.refresh_unassigned(hunt)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("reconcile: Unassigned Feeders refresh failed")
+                report.add_failure("Unassigned Feeders tab", error)
             for name in await self.refresh_header_links(hunt, puzzles) or []:
                 report.add_failure(f"header links ({name})",
                                    RuntimeError("Feeds line write failed"))
