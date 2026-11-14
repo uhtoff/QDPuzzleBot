@@ -2110,6 +2110,12 @@ class PuzzleService:
             await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
         target_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         PuzzleJsonDb.delete(puzzle.id)
+        # Keep the Unassigned Feeders tab in sync: the board drops the puzzle via
+        # the push, but the sheet Table only reconciles when refreshed. Skipped for
+        # minis -- they are never on the tab, and the parent's own refresh runs
+        # after they are gone, so one refresh covers the whole teardown.
+        if puzzle.parent_puzzle_id is None:
+            asyncio.create_task(self.refresh_unassigned_safe(hunt))
         failed = await self.refresh_targets(hunt, target_groups)
         channel = guild.get_channel(puzzle.channel_id) \
             if guild is not None and puzzle.channel_id else None
