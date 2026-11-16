@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldApplyLookup, shouldCloseTab, planWindowClose } from "../src/lib/closeSolved.js";
+import { shouldApplyLookup, shouldCloseTab, planWindowClose, canClose } from "../src/lib/closeSolved.js";
 
 const url = (id) => "https://docs.google.com/spreadsheets/d/" + id + "/edit#gid=0";
 
@@ -42,5 +42,21 @@ describe("planWindowClose", () => {
   });
   it("closes nothing when no candidates remain", () => {
     expect(planWindowClose([t(1, 7)], [], 7)).toEqual({ closing: [], needBlank: false });
+  });
+});
+
+describe("canClose", () => {
+  const page = { kind: "page", tabId: 5, spreadsheetId: "A" };
+  const sheet = { kind: "sheet", tabId: 5, spreadsheetId: "A" };
+  it("closes a page tab wherever it is, unless it is loading or gone", () => {
+    expect(canClose(page, { id: 5, status: "complete" })).toBe(true);
+    expect(canClose(page, { id: 5, status: "complete", url: "https://example.com/elsewhere" })).toBe(true);
+    expect(canClose(page, { id: 5, status: "loading" })).toBe(false);
+    expect(canClose(page, null)).toBe(false);
+  });
+  it("checks a sheet tab against its spreadsheet", () => {
+    expect(canClose(sheet, { id: 5, url: url("A") })).toBe(true);
+    expect(canClose(sheet, { id: 5, url: url("B") })).toBe(false);
+    expect(canClose(sheet, { id: 5, status: "complete" })).toBe(false);
   });
 });
