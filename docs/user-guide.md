@@ -1,6 +1,6 @@
-# PuzzleHuntBot User Guide
+# Puzzbot User Guide
 
-PuzzleHuntBot is Quarantine Decrypter's puzzle-hunt organisational aide. It keeps three
+Puzzbot is Quarantine Decrypter's puzzle-hunt organisational aide. It keeps three
 things in sync for you during a hunt:
 
 - **Discord** — a category and channel for every round and puzzle, so discussion stays
@@ -21,28 +21,43 @@ use whichever is closer to hand.
 
 ## 1. The basics — a puzzle's life
 
+Everything here can be done on the dashboard or in Discord; each step shows the dashboard
+way first, then the Discord command. Section 6 tours the dashboard in detail.
+
 ### Where things live
 
-Each hunt is a set of Discord categories: one per round (or "group"), plus a `solved`
-area. Every puzzle gets **its own text channel** and **its own sheet tab**. The channel's
-pinned info message links to the puzzle page, the sheet tab, and shows the current
-status — if the pin gets stale, `!info` refreshes it.
+- **The dashboard** shows the whole hunt at a glance: every puzzle, its round, status and
+  answer, with buttons to create, edit and solve puzzles.
+- **Discord:** each hunt is a set of categories, one per round (or "group"), plus a
+  `solved` area. Every puzzle gets **its own text channel**, whose pinned info message
+  links to the puzzle page and its sheet and shows its status (`!info` refreshes a stale
+  pin).
+- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
+  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 
 ### Creating a puzzle
 
-In the hunt's main channel or a round channel:
+**On the dashboard:** click **New puzzle** at the top right of the hunt board, name it, and
+pick the round or meta it belongs to (or *Unassigned*).
+
+**In Discord:** in the hunt's main channel or a round channel:
 
 ```
 !p Puzzle Name
 ```
 
-The bot creates the channel, makes the sheet tab, and posts a welcome message with all
-the links. If you create it in a round channel, the puzzle lands in that round.
+Either way the bot creates the channel and the sheet and posts a welcome message with all
+the links. A puzzle created in a round channel lands in that round.
 
 ### Telling the bot where the puzzle is
 
-If the guessed puzzle URL is wrong (it usually guesses from the hunt URL and puzzle
-name), fix it from the puzzle's channel:
+The bot guesses the puzzle's page from the hunt URL and the puzzle name. If the guess is
+wrong:
+
+**On the dashboard:** open the puzzle's drawer (its notes icon), click the link next to
+**Link** (or *set link*), paste the right address and save.
+
+**In Discord:** from the puzzle's channel:
 
 ```
 !link https://hunt.example/puzzles/actual-page
@@ -50,19 +65,21 @@ name), fix it from the puzzle's channel:
 
 ### Solving
 
-All from the puzzle's own channel:
+**On the dashboard,** click the green **✓** (*Mark solved*) on the puzzle's row, or
+**Mark solved** in its drawer, to open the solve window. **In Discord,** use the commands
+from the puzzle's own channel.
 
-| You want to… | Command |
-|---|---|
-| Record the answer | `!s ANSWER` (alias of `!solve`) |
-| Record a partial/intermediate answer | `!partial ANSWER` |
-| Mark solved when there's no text answer | `!mark_as_complete` |
-| Add a second valid answer | `!add_solution ANSWER` |
-| Replace a wrong recorded answer | `!change_solution ANSWER` |
-| Undo a solve | `!unsolve` |
+| You want to… | On the dashboard (solve window) | In Discord |
+|---|---|---|
+| Record the answer | type it under **Answer**, then **Solve** | `!s ANSWER` (alias of `!solve`) |
+| Record a partial/intermediate answer | **Advanced** → **Mark partial** | `!partial ANSWER` |
+| Mark solved when there's no text answer | **Advanced** → **Mark complete (no answer)** | `!mark_as_complete` |
+| Add a second valid answer | on a solved puzzle, **Advanced** → **Add solution** | `!add_solution ANSWER` |
+| Replace a wrong recorded answer | on a solved puzzle, **Advanced** → **Change solution** | `!change_solution ANSWER` |
+| Undo a solve | on a solved puzzle, **Mark unsolved** | `!unsolve` |
 
-On `!s` the bot records the answer, updates the sheet, celebrates in channel, and moves
-the channel to the solved section (and, if the hunt uses a separate solved-puzzles
+When a puzzle is solved (either way), the bot records the answer, updates the sheet,
+celebrates in channel, and moves the channel to the solved section (and, if the hunt uses a separate solved-puzzles
 spreadsheet, moves the tab there). Solved feeder answers appear automatically on their
 meta's roll-up.
 
@@ -336,22 +353,45 @@ show, but the **Open in Discord** button always works.
 
 ### Browser extension (optional)
 
-The Puzzle Chat extension puts a puzzle's Discord channel in a side panel beside its Google
-Sheet (or its hunt page), so you can read and answer chat without switching windows. It
-works in Chrome and in Firefox (see **Firefox** below for its install link and
-differences). For Chrome, install it from the
-[Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand)
-(it is unlisted, so it won't turn up in a Store search; use this link), then stay logged in
-to the dashboard in the same Chrome profile. For Chrome, an admin must have listed the
-extension on the server (`web.extension_origins`), or the live chat connection is refused.
-To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the
-dashboard. After updating the extension, reload any open dashboard tabs.
+The Puzzle Chat extension puts a puzzle's Discord channel beside its Google Sheet (or its hunt
+page), so you can read and answer chat without switching windows. It works in **Chrome**, as a
+side panel, and in **Firefox** 140 or later on the desktop, as a sidebar.
 
-- **Open the panel:** click the extension icon (Chrome won't open it for you). Once open and
-  pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle". A
-  puzzle's hunt page also shows its chat, if you opened it from the dashboard (the
-  **Puzzle page** link, or **Open puzzle as a tab group**). Pages opened from Discord or the
-  sheet, or with ctrl/cmd/middle-click, still show "not a puzzle".
+#### Installing
+
+- **Chrome:** install it from the
+  [Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand).
+  It is unlisted, so use this link: it won't turn up in a Store search. An admin must also
+  have listed the Chrome extension on the server (`web.extension_origins`), or the live chat
+  connection is refused.
+- **Firefox:** open
+  [puzzle-chat-firefox-1.1.0.xpi](https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.1.0.xpi)
+  in Firefox and click **Add**. It updates itself after that, and nothing needs adding on the
+  server. Firefox for Android isn't supported (it has no sidebar).
+
+Then, in either browser:
+
+1. Stay logged in to the dashboard in the same browser profile; the extension uses that login.
+2. Optionally open the extension's **Options** to change the dashboard address (default
+   `https://quarantinedecrypters.com`; the test instance is `https://puzzbot.com`) or to turn
+   on desktop notifications (off by default).
+3. Reload any dashboard tabs that were already open, so the extension's buttons appear. Do
+   the same after each extension update.
+
+To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the
+dashboard. If every tab says "not a puzzle" (most likely in Firefox), open the extension's
+Options and click **Allow access to Google Sheets**.
+
+#### Using it
+
+- **Open the panel:** click the extension's toolbar button. Once open (and pinned, in
+  Chrome) it follows your active tab: a puzzle sheet shows its chat, and a tab that isn't a
+  puzzle shows "not a puzzle". A puzzle's hunt page also shows its chat if you opened it from
+  the dashboard (the **Puzzle page** link, or **Open puzzle as a tab group**); pages opened
+  from Discord or the sheet, or with ctrl/cmd/middle-click, show "not a puzzle".
+  **Firefox:** the toolbar button is the only way to open the sidebar; Firefox never lets
+  an extension open it for you. It opens on the left; to move it, use the sidebar's own menu
+  (**Move Sidebar to Right**) or Firefox's sidebar settings.
 - **Replying:** type in the panel and send. The bot posts it into the puzzle's channel under
   your server name and avatar, with Discord's APP tag. Messages starting with `!` are refused
   (run commands in Discord), as are messages over 2000 characters and replies from timed-out
@@ -361,43 +401,34 @@ dashboard. After updating the extension, reload any open dashboard tabs.
 - **Attachments** show as links (the file name) that open in a new tab; ones the bot has not
   downloaded yet show as plain names.
 - **Unread badge:** counts new messages in puzzles you have open in tabs, except the one
-  showing in an open panel. Desktop notifications are optional and off by default (extension
-  Options); they fire for people's messages and solve announcements, not for a puzzle open
-  in the panel.
-- **Puzzle page link:** with the extension installed, a plain click on a puzzle's ↗
-  **Puzzle page** icon opens the hunt page through the extension, beside the dashboard
-  tab, so the panel shows that puzzle's chat there and **Close solved tabs** can close it
-  later. Ctrl/cmd/shift-click or middle-click opens it as an ordinary link instead.
-- **Dashboard buttons**, shown only when the extension is installed: **Work on this puzzle**
-  (an icon button on the puzzle row, a labelled button in the puzzle drawer; only for
-  puzzles that have a sheet), **Open puzzle as a tab group** (icon on the puzzle row and a
-  labelled button in the drawer; opens the puzzle's sheet and its hunt page in a tab group
-  named after the puzzle, or focuses that group if it is already open), an icon button in
-  each round's header with the tooltip **Open round as a tab group** (files-mode hunts only;
-  it opens the round's puzzle sheets in a named tab group, reusing tabs that are already
-  open and moving them into the group; Chrome hides saved, closed tab groups from
+  showing in an open panel. Desktop notifications, if you turned them on, fire for people's
+  messages and solve announcements, not for a puzzle open in the panel. Clicking one switches
+  to that puzzle's tab. **Firefox:** open the sidebar yourself if it is closed.
+- **Work on this puzzle** (an icon on the puzzle row, a labelled button in the puzzle drawer;
+  only for puzzles that have a sheet): switches to the puzzle's sheet, opening it if needed,
+  and opens the side panel. **Firefox:** it switches to the sheet, but you open the sidebar
+  yourself.
+- **Puzzle page link:** a plain click on a puzzle's ↗ **Puzzle page** icon opens the hunt
+  page through the extension, beside the dashboard tab, so the panel shows that puzzle's chat
+  there and **Close solved tabs** can close it later. Ctrl/cmd/shift-click or middle-click
+  opens it as an ordinary link instead.
+- **Open puzzle as a tab group** (an icon on the puzzle row, a labelled button in the
+  drawer): opens the puzzle's sheet and its hunt page in a tab group named after the puzzle,
+  or focuses that group if it is already open. If the sheet is already open in a round's
+  group, it moves into the puzzle's group.
+- **Open round as a tab group** (an icon in each round's header; files-mode hunts only):
+  opens the round's puzzle sheets in a named tab group, reusing tabs that are already open
+  and moving them into the group. **Chrome:** Chrome hides saved, closed tab groups from
   extensions, so reopen a closed round from Chrome's saved-groups bar rather than the
-  dashboard, or you'll get a second saved group), and **Close solved tabs** in the hunt
-  board header (files-mode hunts only; it also closes the hunt pages of solved puzzles that
-  you opened from the dashboard, with **Open puzzle as a tab group** or the **Puzzle page**
-  link, even if you moved them out of the group or to another window, but not puzzle pages
-  you opened from Discord or the sheet). In files mode, opening a puzzle sheet that is
-  already open switches to the existing tab and closes the duplicate (unless it is the only
-  tab in its window).
+  dashboard, or you'll get a second saved group.
+- **Close solved tabs** (in the hunt board header; files-mode hunts only): closes the sheets
+  of solved puzzles, and the hunt pages of solved puzzles that you opened from the dashboard
+  (with **Open puzzle as a tab group** or the **Puzzle page** link), even if you moved them
+  out of the group or to another window. Puzzle pages you opened from Discord or the sheet
+  stay open.
+- **Duplicate sheets:** in files mode, opening a puzzle sheet that is already open switches to
+  the existing tab and closes the duplicate (unless it is the only tab in its window).
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
-- **Options:** the dashboard origin (default `https://quarantinedecrypters.com`; the test
-  instance is `https://puzzbot.com`) and the notifications switch.
-- **Firefox:** the same extension works in Firefox 140 or later (desktop). Install it by
-  opening [puzzle-chat-firefox-1.1.0.xpi](https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.1.0.xpi)
-  in Firefox and clicking **Add**; it updates itself after that. Stay logged in to the
-  dashboard in the same Firefox profile. Everything above works the same, except:
-  the panel is a Firefox sidebar (click the extension's toolbar button to show or hide it);
-  Firefox won't let the extension open the sidebar for you, so **Work on this puzzle** and
-  notification clicks switch to the puzzle's tab but you open the sidebar yourself; and
-  Firefox puts sidebars on the left (to move it, use the sidebar's own menu, **Move Sidebar
-  to Right**, or Firefox's sidebar settings). If every tab says "not a puzzle", open the
-  extension's Options and click **Allow access to Google Sheets**. Nothing needs adding on
-  the server for Firefox.
 
 ### Evidence
 
