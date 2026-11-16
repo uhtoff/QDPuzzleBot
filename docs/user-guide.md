@@ -93,13 +93,21 @@ nobody is pinged.
 
 ## 2. Keeping the team informed
 
-These all run in the puzzle's channel and show up on the pinned info, the sheet, and the
-dashboard:
+Whichever way you set them, these show up on the dashboard, the puzzle's pinned info and
+the sheet.
+
+**On the dashboard:** open the puzzle's drawer (its notes icon) and set **Status**,
+**Priority** and **Type** there; in the **All puzzles** view you can also change them
+straight from the table. Notes are at the bottom of the drawer: type in *Add a note…* and
+click **Add note**. Clues go in the **Evidence** view. The board itself is the list of
+puzzles, with their status and answers.
+
+**In Discord,** from the puzzle's channel:
 
 - `!status VALUE` — one of *Unstarted, In Progress, Stuck, Needs Extraction, Needs
   Submission, Solved, Backsolved*. The case you type does not matter.
-  (*Unsolved* and *Partially Solved* also appear on puzzles, but they are set by the
-  solve/unsolve/partial commands rather than by `!status`.)
+  (*Unsolved* and *Partially Solved* also appear on puzzles, but they are set by
+  solving, unsolving and partial answers rather than by `!status`.)
 - `!priority VALUE` — *low, medium, high, very high*.
 - `!type VALUE` — freeform label like `crossword` or `image quiz` (the slash version
   autocompletes types already used this hunt).
@@ -118,7 +126,10 @@ dashboard:
 
 ### Creating them
 
-Run in the hunt's main channel:
+**On the dashboard:** click **New Group** at the top right of the hunt board, name it and
+pick its **Type** (a round, metapuzzle, capstone, runaround or plain group).
+
+**In Discord,** in the hunt's main channel:
 
 | Command | Creates |
 |---|---|
@@ -128,14 +139,19 @@ Run in the hunt's main channel:
 | `!ra Name` | A **runaround** (an end-of-hunt group) |
 | `!group Name` | A plain **group** — a category with no meta puzzle |
 
-Every group gets a **6-character group code** (shown on its pinned info, e.g. `SULXHX`).
-Commands that point at a group take this code — or just the group's name (or a unique
-part of it); the bot will list candidates if it's ambiguous. Slash commands autocomplete
-the codes for you.
+Every group gets a **6-character group code** (shown on the board and on its pinned info,
+e.g. `SULXHX`). Commands that point at a group take this code — or just the group's name
+(or a unique part of it); the bot will list candidates if it's ambiguous. Slash commands
+autocomplete the codes for you.
 
 ### Tagging puzzles into groups
 
-Run these in the **puzzle's** channel, naming the target group:
+**On the dashboard** (organisers), in the **Arrange** view: drag a puzzle's card onto a
+group to make it feed that group's meta (its Discord channel moves too), or onto
+**Unassigned Feeders** to untag it. A card's `⋮` menu has **Add to group…** (feed an
+*additional* meta), **Move to group…** and **Remove from** its current group.
+
+**In Discord,** run these in the **puzzle's** channel, naming the target group:
 
 - `!feeds CODE` — this puzzle **feeds** the group's meta: its *answer* contributes.
   `!feeds_only CODE` additionally clears any other feeds-tags and moves the channel into
@@ -145,6 +161,9 @@ Run these in the **puzzle's** channel, naming the target group:
   the puzzle is even solved.
 - `!groups_with CODE` — group the puzzle for tidiness without contributing to any meta.
 - `!remove_from CODE` — take the puzzle out of a group.
+
+`!informs` and `!groups_with` are Discord-only; on the dashboard, converting a meta to a
+capstone turns its feeders' tags into *informs* for you.
 
 A puzzle can feed more than one meta — tag it once per meta. The meta's roll-up sheet
 gathers whatever feeds it: answers from `feeds` tags, facts from `informs` tags.
@@ -165,12 +184,17 @@ metapuzzle, 🧩🧩 a meta whose feeders are themselves metas, 👑 a capstone,
 Plain feeders have none. New and converted targets get their glyph automatically; for a
 hunt created before this feature, an organiser can run `!backfill_glyphs` once to add them.
 
-From the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
+**On the dashboard** (organisers), in the **Arrange** view: a puzzle card's `⋮` menu has
+**Convert to meta**, **Convert to capstone**, **Convert to runaround** and **Make
+minimeta**; a group's `⋮` menu has **Change type**, **Convert to feeder (keep puzzle)…** and
+**Delete group…**.
+
+**In Discord,** from the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
 `!convert_to_runaround`, `!convert_to_group`, `!convert_to_metapuzzle`,
 `!convert_to_puzzle` — promote a feeder to a meta, turn a meta back into a plain
 puzzle, and so on. Feeders and their tags survive the conversion.
 
-Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
+Moving metas between Discord categories is Discord-only. Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
 puzzle channel) moves that meta and the puzzles that feed *only* it into a fresh Discord
 category — useful when a meta you promoted in place has outgrown the category it was
 sharing. Shared feeders and nested metas stay where they are.
@@ -185,16 +209,29 @@ up, the bot automatically extracts a promoted-in-place meta into its own categor
 you're adding to, or the fullest nested meta in the round) so puzzle creation keeps working
 instead of erroring. It only does this when it actually frees up space.
 
-Renames: `!rename_puzzle New Name` (puzzle channel) and `!rename_group New Name`
-(group's channel). Deletion (`!delete_puzzle`, `!delete_round`, `!delete_hunt`) always
-asks for confirmation — and really does delete channels and sheets.
+**Renames:** on the dashboard, click a puzzle's name at the top of its drawer, or a group's
+name in **Arrange**. In Discord, `!rename_puzzle New Name` (puzzle channel) and
+`!rename_group New Name` (group's channel).
+
+**Deleting:** on the dashboard, a puzzle from its drawer or its `⋮` menu in **Arrange**, a
+group from its `⋮` menu in **Arrange**, and a hunt from **Manage** → **Danger zone**. In
+Discord, `!delete_puzzle`, `!delete_round` and `!delete_hunt`. Either way it asks for
+confirmation — and really does delete channels and sheets.
 
 ---
 
 ## 4. Minimetas
 
 For puzzles that contain a cluster of mini-puzzles, each wanting its own sheet but not
-its own channel:
+its own channel.
+
+**On the dashboard:** an organiser makes a puzzle a minimeta from its card's `⋮` menu in
+**Arrange** (**Make minimeta**; **Remove minimeta status…** reverts it). Minimeta puzzles
+show a `MINIMETA` badge and a solved-count (e.g. `1/2`) on the board: click the puzzle's
+row to show its minis. There you add one (type in *New mini-puzzle name…* and press
+Enter), type a mini's answer and mark it solved, unsolve it, or delete it.
+
+**In Discord:**
 
 ```
 !make_minimeta          (in the puzzle's channel)
@@ -206,14 +243,16 @@ its own channel:
 !remove_minimeta        (revert to an ordinary puzzle — deletes the minis)
 ```
 
-Minimeta puzzles show a `MINIMETA` badge and a solved-count (e.g. `1/2`) on the
-dashboard.
-
 ---
 
 ## 5. Extra sheets
 
-Need a scratch sheet, a grid copy, a second workspace? From the puzzle's channel:
+Need a scratch sheet, a grid copy, a second workspace?
+
+**On the dashboard:** in the puzzle's drawer, under **Sheets**, type a name (optional) and
+click **Add**; each extra sheet is listed there with a link, and a remove button.
+
+**In Discord,** from the puzzle's channel:
 
 ```
 !add_sheet grid-copy
@@ -565,8 +604,8 @@ exactly as `!p` would.
 
 ![New puzzle modal](img/userguide/09-new-puzzle-modal.png)
 
-Minimetas show up with their mini-count, and their minis are managed from the puzzle's
-drawer:
+Minimetas show up with their mini-count; click a minimeta's row to manage its minis (see
+[Minimetas](#4-minimetas)):
 
 ![Minimeta board](img/userguide/10-minimeta-board.png)
 
