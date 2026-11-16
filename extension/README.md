@@ -89,7 +89,8 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
   group named after the puzzle, or focuses that group if it is already open), an icon button
   in each round header ("Open round as a tab group", files-mode hunts only; reuses
   already-open tabs and moves them into the group) and "Close solved tabs" in the board
-  header (files-mode only). Opening an already-open puzzle sheet switches to that tab and
+  header (files-mode only; also closes the hunt pages that "Open puzzle as a tab group"
+  opened for solved puzzles, wherever they have moved, but not pages opened any other way). Opening an already-open puzzle sheet switches to that tab and
   closes the duplicate unless it is the only tab in its window.
 - The content script publishes the dashboard requests it relays (`data-puzzbot-actions` on the
   page, straight from its `ACTIONS` gate), and the dashboard shows each extension button only

@@ -369,7 +369,9 @@ dashboard. After updating the extension, reload any open dashboard tabs.
   open and moving them into the group; Chrome hides saved, closed tab groups from
   extensions, so reopen a closed round from Chrome's saved-groups bar rather than the
   dashboard, or you'll get a second saved group), and **Close solved tabs** in the hunt
-  board header (files-mode hunts only). In files mode, opening a puzzle sheet that is
+  board header (files-mode hunts only; it also closes the puzzle pages that **Open puzzle
+  as a tab group** opened for solved puzzles, even if you moved them out of the group, but
+  not puzzle pages you opened another way). In files mode, opening a puzzle sheet that is
   already open switches to the existing tab and closes the duplicate (unless it is the only
   tab in its window).
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.

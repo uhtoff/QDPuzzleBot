@@ -5,7 +5,8 @@ import { bySheetPath, wsUrl, WS_TICKET_PATH, removesOrigin, SHEETS_ORIGINS } fro
 import { backoffDelay, reconnectVia, resolveAttempt } from "./lib/backoff.js";
 import { invalidateOnNavigate } from "./lib/tabRefresh.js";
 import { createLookupGen } from "./lib/lookupGen.js";
-import { shouldApplyLookup, shouldCloseTab, planWindowClose } from "./lib/closeSolved.js";
+import { shouldApplyLookup, canClose, planWindowClose } from "./lib/closeSolved.js";
+import { createPageTabs, pageTabsFor } from "./lib/pageTabs.js";
 import { notificationId, parseNotificationId, shouldNotify } from "./lib/notify.js";
 import { createNameCache, resolveName } from "./lib/channelNames.js";
 import { notificationText } from "./lib/discordText.js";
@@ -27,6 +28,7 @@ const panelHost = createPanelHost({
   path: PANEL_PATH,
 });
 let registry = createRegistry();
+let pageTabs = createPageTabs(); // hunt pages opened by Open puzzle: tabId -> its sheet
 const lookupGen = createLookupGen();
 const failures = new Map(); // tabId -> "auth" | "error" | "notfound" (transient)
 const failedFor = new Map(); // tabId -> {spreadsheetId, gid} the failure was recorded for
@@ -42,6 +44,8 @@ const ready = (async () => {
     registry = createRegistry(registryEntries);
     const { unreadEntries } = await chrome.storage.session.get({ unreadEntries: [] });
     unread = createUnread({ isTracked, initial: unreadEntries });
+    const { pageTabEntries } = await chrome.storage.session.get({ pageTabEntries: [] });
+    pageTabs = createPageTabs(pageTabEntries);
   } catch {
     /* start empty */
   }
@@ -65,7 +69,9 @@ async function scanOpenTabs() {
 }
 
 const persist = () =>
-  chrome.storage.session.set({ registryEntries: registry.entries(), unreadEntries: unread.serialise() }).catch(() => {});
+  chrome.storage.session
+    .set({ registryEntries: registry.entries(), unreadEntries: unread.serialise(), pageTabEntries: pageTabs.entries() })
+    .catch(() => {});
 
 function updateBadge() {
   chrome.action.setBadgeText({ text: badgeText(unread.total()) }).catch(() => {});
@@ -379,10 +385,16 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   lookupGen.drop(tabId); // synchronous: before any in-flight lookup can resolve
   await ready;
   registry.delete(tabId);
+  pageTabs.remove(tabId);
   failures.delete(tabId);
   failedFor.delete(tabId);
   persist();
   reconcileUnread();
+});
+// A prerendered/discarded tab swapped for a new id keeps its page record.
+chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
+  await ready;
+  if (pageTabs.replace(removedTabId, addedTabId)) persist();
 });
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -425,7 +437,8 @@ const queueOpen = (open) => {
 };
 
 // Open (or reuse) each URL as a background tab in the sender's window.
-async function openTabs(urls, windowId) {
+// `onPageTab(tabId)` is told about each non-sheet (puzzle page) tab created.
+async function openTabs(urls, windowId, onPageTab) {
   const open = await chrome.tabs.query({ url: "https://docs.google.com/spreadsheets/*" }).catch(() => []);
   const tabIds = [];
   for (const url of urls) {
@@ -434,7 +447,10 @@ async function openTabs(urls, windowId) {
       // A non-sheet page (the puzzle page). Without host permission its open
       // tabs' URLs are unreadable, so always create it rather than try to reuse.
       const created = await chrome.tabs.create({ url, windowId, active: false }).catch(() => null);
-      if (created) tabIds.push(created.id);
+      if (created) {
+        tabIds.push(created.id);
+        onPageTab?.(created.id);
+      }
       continue;
     }
     // Files mode: the spreadsheet identifies the puzzle (Sheets rewrites #gid, so don't compare it).
@@ -503,39 +519,62 @@ async function openPuzzle(name, urls, senderTab) {
     if (tabs[0]) await focusTab(tabs[0]);
     return;
   }
-  const tabIds = await openTabs(urls, windowId);
+  // Remember the page against its sheet (urls[0], validated) so Close solved can close it.
+  const sheet = parseSheetUrl(urls[0]);
+  const tabIds = await openTabs(urls, windowId, (id) => {
+    if (sheet) pageTabs.add(id, sheet);
+    persist();
+  });
   await groupTabs(name, tabIds, windowId);
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)
-// and close those whose puzzle is now solved. A window is never left empty.
+// and close those whose puzzle is now solved, plus any hunt page Open puzzle
+// opened for a solved puzzle (looked up even if its sheet tab is gone).
+// A window is never left empty.
 async function closeSolved() {
   const entries = registry.entries().filter(([, e]) => e.sheet_mode === "files"); // files mode only
-  const results = await Promise.allSettled(
-    entries.map(async ([tabId, entry]) => ({
-      tabId,
-      entry,
-      res: await apiGet(bySheetPath({ spreadsheetId: entry.spreadsheetId, gid: entry.gid ?? null })),
-    })),
-  );
-  const solved = []; // {tabId, spreadsheetId}
+  const sheetLookups = entries.map(async ([tabId, entry]) => ({
+    kind: "sheet",
+    tabId,
+    entry,
+    res: await apiGet(bySheetPath({ spreadsheetId: entry.spreadsheetId, gid: entry.gid ?? null })),
+  }));
+  const pageLookups = pageTabs.sheets().map(async (sheet) => ({
+    kind: "page",
+    sheet,
+    res: await apiGet(bySheetPath(sheet)),
+  }));
+  const results = await Promise.allSettled([...sheetLookups, ...pageLookups]);
+  const solved = []; // {kind, tabId, spreadsheetId}
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
-    const { tabId, entry, res } = r.value;
+    const { kind, res } = r.value;
     if (res.authRequired || res.error || !res.puzzle) continue;
+    if (kind === "page") {
+      // Page lookups never touch the registry: the page is not a sheet tab.
+      if (!res.puzzle.solved) continue;
+      const { spreadsheetId, gid } = r.value.sheet;
+      for (const tabId of pageTabsFor(pageTabs.entries(), spreadsheetId, gid)) {
+        solved.push({ kind, tabId, spreadsheetId });
+      }
+      continue;
+    }
+    const { tabId, entry } = r.value;
     // The tab may have closed or moved on while we waited: never re-insert it.
     const current = registry.get(tabId);
     if (!shouldApplyLookup(current, entry.spreadsheetId)) continue;
     registry.set(tabId, { ...current, ...res.puzzle, bridge_enabled: res.bridge_enabled });
-    if (res.puzzle.solved) solved.push({ tabId, spreadsheetId: entry.spreadsheetId });
+    if (res.puzzle.solved) solved.push({ kind, tabId, spreadsheetId: entry.spreadsheetId });
   }
   persist();
+  const itemFor = (tabId) => solved.find((s) => s.tabId === tabId);
   const stillSolved = async (list) =>
     (
       await Promise.all(
         list.map(async (s) => {
           const tab = await chrome.tabs.get(s.tabId).catch(() => null);
-          return shouldCloseTab(tab, s.spreadsheetId) ? tab : null;
+          return canClose(s, tab) ? tab : null;
         }),
       )
     ).filter(Boolean);
@@ -549,19 +588,15 @@ async function closeSolved() {
     // Re-check each tab now, before deciding on a blank tab, so none is left when nothing closes.
     const ready2 = (
       await Promise.all(
-        closing.map(async (id) => {
-          const spreadsheetId = solved.find((s) => s.tabId === id)?.spreadsheetId;
-          return shouldCloseTab(await chrome.tabs.get(id).catch(() => null), spreadsheetId) ? id : null;
-        }),
+        closing.map(async (id) => (canClose(itemFor(id), await chrome.tabs.get(id).catch(() => null)) ? id : null)),
       )
     ).filter((id) => id !== null);
     if (ready2.length !== closing.length) continue; // something changed: leave this window for the next run
     if (needBlank) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
     for (const tabId of closing) {
       // Final check immediately before removal: no other await between get and remove.
-      const spreadsheetId = solved.find((s) => s.tabId === tabId)?.spreadsheetId;
       const tab = await chrome.tabs.get(tabId).catch(() => null);
-      if (shouldCloseTab(tab, spreadsheetId)) chrome.tabs.remove(tabId).catch(() => {});
+      if (canClose(itemFor(tabId), tab)) chrome.tabs.remove(tabId).catch(() => {});
     }
   }
 }
@@ -742,6 +777,7 @@ async function resetDashboardState() {
   failures.clear();
   failedFor.clear();
   registry = createRegistry();
+  pageTabs = createPageTabs(); // the old server's puzzles
   unread = createUnread({ isTracked });
   persist();
   updateBadge();
