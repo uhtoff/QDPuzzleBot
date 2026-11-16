@@ -26,8 +26,9 @@ export function planWindowClose(windowTabs, candidates, windowId) {
 
 // Is `tab` still safe to close as `item` ({kind, tabId, spreadsheetId})?
 // A sheet tab must still show its spreadsheet. A hunt page the extension opened
-// is closed wherever it has navigated since (its URL is unreadable), but not mid-load.
+// is closed wherever it has navigated since, but not mid-load. Its URL is unreadable
+// while it is on the hunt site; a readable URL means a sheet or the dashboard, so keep it.
 export function canClose(item, tab) {
-  if (item.kind === "page") return !!tab && tab.status !== "loading";
+  if (item.kind === "page") return !!tab && tab.status !== "loading" && !tab.url && !tab.pendingUrl;
   return shouldCloseTab(tab, item.spreadsheetId);
 }

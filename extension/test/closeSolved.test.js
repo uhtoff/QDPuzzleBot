@@ -50,7 +50,10 @@ describe("canClose", () => {
   const sheet = { kind: "sheet", tabId: 5, spreadsheetId: "A" };
   it("closes a page tab wherever it is, unless it is loading or gone", () => {
     expect(canClose(page, { id: 5, status: "complete" })).toBe(true);
-    expect(canClose(page, { id: 5, status: "complete", url: "https://example.com/elsewhere" })).toBe(true);
+    // A readable URL means a host the extension can see (a sheet, the dashboard): never the hunt page.
+    expect(canClose(page, { id: 5, status: "complete", url: url("B") })).toBe(false);
+    expect(canClose(page, { id: 5, status: "complete", url: "https://quarantinedecrypters.com/hunts/x" })).toBe(false);
+    expect(canClose(page, { id: 5, status: "complete", pendingUrl: url("B") })).toBe(false);
     expect(canClose(page, { id: 5, status: "loading" })).toBe(false);
     expect(canClose(page, null)).toBe(false);
   });
