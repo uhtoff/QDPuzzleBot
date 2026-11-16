@@ -270,6 +270,13 @@ const RENAMED_IDS = {
   evidence: "8-evidence",
   "browser-extension-optional": "10-browser-extension",
   "7-for-organisers-and-admins": "11-for-organisers-and-admins",
+  // The web dashboard moved to section 1; the sections before it moved down one.
+  "6-the-web-dashboard": "1-the-web-dashboard",
+  "1-the-basics--a-puzzles-life": "2-the-basics--a-puzzles-life",
+  "2-keeping-the-team-informed": "3-keeping-the-team-informed",
+  "3-rounds-metas-and-groups": "4-rounds-metas-and-groups",
+  "4-minimetas": "5-minimetas",
+  "5-extra-sheets": "6-extra-sheets",
 };
 // Only an id no heading still uses is forwarded (a later heading may reuse the old name).
 const renamedIds = Object.fromEntries(
