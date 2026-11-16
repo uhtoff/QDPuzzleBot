@@ -338,10 +338,12 @@ show, but the **Open in Discord** button always works.
 
 The Puzzle Chat extension puts a puzzle's Discord channel in a side panel beside its Google
 Sheet (or its hunt page), so you can read and answer chat without switching windows. It
-works in Chrome and in Firefox (see **Firefox** below). For Chrome, install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand) (it is unlisted, so it
-won't turn up in a Store search; use this link), then stay logged in to the dashboard in the same Chrome profile. An
-admin must have listed the extension on the server (`web.extension_origins`), or the live
-chat connection is refused.
+works in Chrome and in Firefox (see **Firefox** below for its install link and
+differences). For Chrome, install it from the
+[Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand)
+(it is unlisted, so it won't turn up in a Store search; use this link), then stay logged in
+to the dashboard in the same Chrome profile. For Chrome, an admin must have listed the
+extension on the server (`web.extension_origins`), or the live chat connection is refused.
 To recognise puzzle sheets, the extension sends the id of each Google Sheet you open to the
 dashboard. After updating the extension, reload any open dashboard tabs.
 
@@ -388,14 +390,14 @@ dashboard. After updating the extension, reload any open dashboard tabs.
 - **Firefox:** the same extension works in Firefox 140 or later (desktop). Install it by
   opening [puzzle-chat-firefox-1.1.0.xpi](https://quarantinedecrypters.com/extension/puzzle-chat-firefox-1.1.0.xpi)
   in Firefox and clicking **Add**; it updates itself after that. Stay logged in to the
-  dashboard in the same Firefox profile. The
-  panel is a Firefox sidebar: click the extension's toolbar button to show or hide it.
+  dashboard in the same Firefox profile. Everything above works the same, except:
+  the panel is a Firefox sidebar (click the extension's toolbar button to show or hide it);
   Firefox won't let the extension open the sidebar for you, so **Work on this puzzle** and
-  notification clicks switch to the puzzle's tab but you open the sidebar yourself. Firefox
-  puts sidebars on the left; to move it, use the sidebar's own menu (**Move Sidebar to
-  Right**) or Firefox's sidebar settings. If every
-  tab says "not a puzzle", open the extension's Options and click **Allow access to Google
-  Sheets**. Nothing needs adding on the server for Firefox.
+  notification clicks switch to the puzzle's tab but you open the sidebar yourself; and
+  Firefox puts sidebars on the left (to move it, use the sidebar's own menu, **Move Sidebar
+  to Right**, or Firefox's sidebar settings). If every tab says "not a puzzle", open the
+  extension's Options and click **Allow access to Google Sheets**. Nothing needs adding on
+  the server for Firefox.
 
 ### Evidence
 
