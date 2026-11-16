@@ -346,7 +346,10 @@ To recognise puzzle sheets, the extension sends the id of each Google Sheet you 
 dashboard. After updating the extension, reload any open dashboard tabs.
 
 - **Open the panel:** click the extension icon (Chrome won't open it for you). Once open and
-  pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle".
+  pinned it follows your active tab. A tab that isn't a puzzle shows "not a puzzle". A
+  puzzle's hunt page also shows its chat, if you opened it from the dashboard (the
+  **Puzzle page** link, or **Open puzzle as a tab group**). Pages opened from Discord or the
+  sheet, or with ctrl/cmd/middle-click, still show "not a puzzle".
 - **Replying:** type in the panel and send. The bot posts it into the puzzle's channel under
   your server name and avatar, with Discord's APP tag. Messages starting with `!` are refused
   (run commands in Discord), as are messages over 2000 characters and replies from timed-out

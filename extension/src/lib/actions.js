@@ -44,6 +44,10 @@ export function validateAction(msg, { senderId, senderUrl, senderHasTab, runtime
       )
         return { ok: true, action: "openPuzzle", payload: { name: p.name, sheetUrl: p.sheetUrl, puzzleUrl: p.puzzleUrl } };
       return no;
+    case "openPage":
+      if (isSheetUrl(p.sheetUrl) && isPageUrl(p.puzzleUrl))
+        return { ok: true, action: "openPage", payload: { sheetUrl: p.sheetUrl, puzzleUrl: p.puzzleUrl } };
+      return no;
     case "openRound":
       if (
         typeof p.name === "string" &&

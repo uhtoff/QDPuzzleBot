@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { closeSolved, extensionPresent, extensionSupports, openPuzzle, openRound, workOn } from "./extension";
+import {
+  closeSolved,
+  extensionPresent,
+  extensionSupports,
+  openPageViaExtension,
+  openPuzzle,
+  openRound,
+  workOn,
+} from "./extension";
 
 // vitest runs in node here: stub the two globals the module touches.
 const dataset: Record<string, string> = {};
@@ -99,5 +107,50 @@ describe("extension bridge", () => {
       { source: "puzzbot-dashboard", action: "closeSolved", payload: {} },
       "https://dash.test",
     );
+  });
+
+  describe("openPageViaExtension (the Puzzle page link)", () => {
+    const SHEET = "https://docs.google.com/spreadsheets/d/s";
+    const PAGE = "https://hunt.test/p/a";
+    const click = (over: Partial<MouseEvent> = {}) => {
+      const preventDefault = vi.fn();
+      const ev = { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, preventDefault, ...over };
+      return { ev: ev as unknown as MouseEvent, preventDefault };
+    };
+    const equipped = () => {
+      dataset.puzzbotExtension = "1";
+      dataset.puzzbotActions = "work openPuzzle openPage openRound closeSolved";
+    };
+
+    it("routes a plain left click through the extension", () => {
+      equipped();
+      const { ev, preventDefault } = click();
+      expect(openPageViaExtension(ev, SHEET, PAGE)).toBe(true);
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledWith(
+        { source: "puzzbot-dashboard", action: "openPage", payload: { sheetUrl: SHEET, puzzleUrl: PAGE } },
+        "https://dash.test",
+      );
+    });
+
+    it("leaves modified and non-left clicks as a normal link", () => {
+      equipped();
+      for (const over of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+        const { ev, preventDefault } = click(over);
+        expect(openPageViaExtension(ev, SHEET, PAGE)).toBe(false);
+        expect(preventDefault).not.toHaveBeenCalled();
+      }
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it("leaves the link alone without a sheet, or for a copy that cannot open pages", () => {
+      equipped();
+      expect(openPageViaExtension(click().ev, null, PAGE)).toBe(false);
+      dataset.puzzbotActions = "work openPuzzle openRound closeSolved";
+      expect(openPageViaExtension(click().ev, SHEET, PAGE)).toBe(false);
+      delete dataset.puzzbotActions; // 1.0.0
+      expect(openPageViaExtension(click().ev, SHEET, PAGE)).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
+    });
   });
 });

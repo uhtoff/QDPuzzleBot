@@ -87,5 +87,18 @@ describe("registry persistence", () => {
       expect(r.findFilesTab("s2")).toBe(2);
       expect(r.findFilesTab("s2", 2)).toBeNull();
     });
+    it("never picks or reuses a puzzle-page tab as its sheet", () => {
+      const r = createRegistry();
+      r.set(5, f(10, "s1")); // the sheet
+      r.set(6, { ...f(10, "s1"), page: true }); // its hunt page, opened by the extension
+      expect(r.findFilesTab("s1", 5)).toBeNull();
+      expect(r.findFilesTab("s1")).toBe(5);
+      expect(r.reuseTarget(6, "s1", 3)).toBeNull(); // the page is not a duplicate sheet
+      const pageFirst = createRegistry();
+      pageFirst.set(6, { ...f(10, "s1"), page: true });
+      pageFirst.set(5, f(10, "s1"));
+      expect(pageFirst.reuseTarget(5, "s1", 3)).toBeNull(); // the sheet is not a duplicate of the page
+      expect(pageFirst.findFilesTab("s1")).toBe(5);
+    });
   });
 });

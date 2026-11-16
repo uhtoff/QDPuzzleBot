@@ -9,6 +9,13 @@ describe("pageTabs", () => {
     expect(pageTabsFor(rebuilt.entries(), "A", 3)).toEqual([7]);
   });
 
+  it("get returns the remembered sheet, or null", () => {
+    const p = createPageTabs();
+    p.add(7, { spreadsheetId: "A", gid: 3 });
+    expect(p.get(7)).toEqual({ spreadsheetId: "A", gid: 3 });
+    expect(p.get(8)).toBeNull();
+  });
+
   it("remove forgets the tab", () => {
     const p = createPageTabs();
     p.add(7, { spreadsheetId: "A", gid: 3 });

@@ -43,3 +43,19 @@ export function openRound(name: string, sheetUrls: string[]): void {
 export function closeSolved(): void {
   send("closeSolved", {});
 }
+
+/** The "Puzzle page" link: a plain left click goes through the extension when it can
+ *  open pages, so it remembers the tab (its chat shows beside it, Close solved closes it).
+ *  Modified or middle clicks, no sheet, or an older extension: returns false and the
+ *  link works as a normal link. */
+export function openPageViaExtension(
+  event: Pick<MouseEvent, "button" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "preventDefault">,
+  sheetUrl: string | null,
+  puzzleUrl: string,
+): boolean {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+  if (!sheetUrl || !extensionSupports("openPage")) return false;
+  event.preventDefault();
+  send("openPage", { sheetUrl, puzzleUrl });
+  return true;
+}

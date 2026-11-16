@@ -43,6 +43,17 @@ describe("validateAction", () => {
     expect(withPayload({ name: "P", sheetUrl: SHEET, puzzleUrl: "https://hunt.test/" + "x".repeat(2048) })).toBe(false);
     expect(withPayload({ name: "P", sheetUrl: SHEET })).toBe(false);
   });
+  it("accepts a valid openPage and rebuilds its payload", () => {
+    const msg = { action: "openPage", payload: { sheetUrl: SHEET, puzzleUrl: PAGE, extra: 1 } };
+    expect(validateAction(msg, ctx)).toEqual({ ok: true, action: "openPage", payload: { sheetUrl: SHEET, puzzleUrl: PAGE } });
+  });
+  it("rejects an openPage with a bad sheet or page URL", () => {
+    const withPayload = (payload) => validateAction({ action: "openPage", payload }, ctx).ok;
+    expect(withPayload({ sheetUrl: "https://evil.test/spreadsheets/d/a", puzzleUrl: PAGE })).toBe(false);
+    expect(withPayload({ sheetUrl: SHEET, puzzleUrl: "javascript:1" })).toBe(false);
+    expect(withPayload({ sheetUrl: SHEET })).toBe(false);
+    expect(withPayload({ puzzleUrl: PAGE })).toBe(false);
+  });
   it("rejects an openRound with an empty or blank name", () => {
     for (const name of ["", "   "]) {
       expect(validateAction({ action: "openRound", payload: { name, sheetUrls: [SHEET] } }, ctx).ok).toBe(false);

@@ -206,9 +206,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 // Returns false when a newer lookup for the same tab (or the tab closing) made this one stale.
-async function lookup(tabId, url, windowId) {
+// `parsed` is the sheet to look up: the tab's own, or (`page`) the remembered sheet of a
+// hunt page the extension opened, registered with `page: true` so it is never taken for the sheet.
+async function lookup(tabId, parsed, windowId, page = false) {
   const token = lookupGen.begin(tabId);
-  const parsed = parseSheetUrl(url);
   if (!parsed) {
     registry.delete(tabId);
     failures.delete(tabId);
@@ -233,7 +234,8 @@ async function lookup(tabId, url, windowId) {
   } else {
     failures.delete(tabId);
     failedFor.delete(tabId);
-    registry.set(tabId, { ...res.puzzle, bridge_enabled: res.bridge_enabled, spreadsheetId: parsed.spreadsheetId, gid: parsed.gid, windowId });
+    const entry = { ...res.puzzle, bridge_enabled: res.bridge_enabled, spreadsheetId: parsed.spreadsheetId, gid: parsed.gid, windowId };
+    registry.set(tabId, page ? { ...entry, page: true } : entry);
   }
   persist();
   return true;
@@ -273,13 +275,17 @@ async function refreshTab(tab, only) {
   await ready;
   const tabId = tab.id;
   if (invalidateOnNavigate({ tab, registry, failures, failedFor, lookupGen, ports, post: safePost })) persist();
-  if (!parseSheetUrl(tab.url ?? "")) {
+  const sheet = parseSheetUrl(tab.url ?? "");
+  // A hunt page the extension opened shows its puzzle's chat. Its URL is unreadable while it
+  // is on the hunt site; a readable non-sheet URL (the dashboard, say) is "not a puzzle".
+  const pageSheet = !sheet && !tab.url && !tab.pendingUrl ? pageTabs.get(tabId) : null;
+  if (!sheet && !pageSheet) {
     lookupGen.begin(tabId); // invalidate any in-flight lookup for the old URL
     registry.delete(tabId);
     failures.delete(tabId);
     failedFor.delete(tabId);
     persist();
-  } else if (!(await lookup(tabId, tab.url, tab.windowId))) {
+  } else if (!(await lookup(tabId, sheet ?? pageSheet, tab.windowId, !sheet))) {
     return; // superseded: the newer refresh delivers
   }
   const token = lookupGen.current(tabId);
@@ -528,12 +534,27 @@ async function openPuzzle(name, urls, senderTab) {
   await groupTabs(name, tabIds, windowId);
 }
 
+// The dashboard's "Puzzle page" link, routed through the extension: open the page as a
+// normal click would (active, beside the dashboard tab) and remember it against its sheet,
+// so its chat shows in the panel and Close solved can close it.
+async function openPage(sheetUrl, puzzleUrl, senderTab) {
+  const sheet = parseSheetUrl(sheetUrl);
+  const created = await chrome.tabs
+    .create({ url: puzzleUrl, windowId: senderTab.windowId, index: senderTab.index + 1, openerTabId: senderTab.id, active: true })
+    .catch(() => null);
+  if (!created || !sheet) return;
+  pageTabs.add(created.id, sheet);
+  persist();
+  refreshTab(created);
+}
+
 // Re-ask the server about every registered tab (cached solved flags go stale)
 // and close those whose puzzle is now solved, plus any hunt page Open puzzle
 // opened for a solved puzzle (looked up even if its sheet tab is gone).
 // A window is never left empty.
 async function closeSolved() {
-  const entries = registry.entries().filter(([, e]) => e.sheet_mode === "files"); // files mode only
+  // Files mode only; page tabs close through the page pass below.
+  const entries = registry.entries().filter(([, e]) => e.sheet_mode === "files" && !e.page);
   const sheetLookups = entries.map(async ([tabId, entry]) => ({
     kind: "sheet",
     tabId,
@@ -612,6 +633,7 @@ async function handleDashboardAction(msg, sender) {
   });
   if (!v.ok) return;
   if (v.action === "work") await workOn(v.payload.sheetUrl, sender.tab);
+  else if (v.action === "openPage") await openPage(v.payload.sheetUrl, v.payload.puzzleUrl, sender.tab);
   else if (v.action === "openPuzzle") {
     await queueOpen(() => openPuzzle(v.payload.name, [v.payload.sheetUrl, v.payload.puzzleUrl], sender.tab));
   } else if (v.action === "openRound") {

@@ -78,7 +78,11 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
 ## Using it
 
 - Chrome cannot open the side panel by itself: click the extension icon. Once open (and pinned)
-  the panel follows the active tab. A tab that is not a known puzzle sheet shows "not a puzzle".
+  the panel follows the active tab. A tab that is not a known puzzle sheet shows "not a puzzle",
+  except a hunt puzzle page the extension opened ("Open puzzle as a tab group", or the
+  dashboard's "Puzzle page" link), which shows its puzzle's chat. With this copy installed
+  a plain click on the dashboard's "Puzzle page" link (`openPage`) goes through the
+  extension; ctrl/cmd/shift/middle clicks stay ordinary links.
 - Tabs-mode hunts: only the chat panel applies (it follows the `#gid` of the sheet tab).
 - Replies go through the bot, which posts via a "Puzzbot relay" webhook under your server
   name and avatar (Discord shows an APP tag). The bot needs **Manage Webhooks** in the puzzle

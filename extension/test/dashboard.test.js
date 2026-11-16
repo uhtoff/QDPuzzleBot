@@ -26,7 +26,7 @@ describe("dashboard content script", () => {
   it("marks the page and lists exactly the actions it relays", () => {
     expect(dataset.puzzbotExtension).toBe("1");
     const listed = dataset.puzzbotActions.split(" ");
-    expect(listed.sort()).toEqual(["closeSolved", "openPuzzle", "openRound", "work"]);
+    expect(listed.sort()).toEqual(["closeSolved", "openPage", "openPuzzle", "openRound", "work"]);
     // Every listed action is relayed...
     for (const action of listed) {
       sendMessage.mockClear();

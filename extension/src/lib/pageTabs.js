@@ -12,6 +12,10 @@ export function createPageTabs(initial = []) {
     add(tabId, { spreadsheetId, gid }) {
       tabs.set(tabId, { spreadsheetId, gid: gid ?? null });
     },
+    get(tabId) {
+      const s = tabs.get(tabId);
+      return s ? { ...s } : null;
+    },
     remove: (tabId) => tabs.delete(tabId),
     replace(oldId, newId) {
       const s = tabs.get(oldId);
