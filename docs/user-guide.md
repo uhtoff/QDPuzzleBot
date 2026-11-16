@@ -1,6 +1,6 @@
-# PuzzleHuntBot User Guide
+# Puzzbot User Guide
 
-PuzzleHuntBot is Quarantine Decrypter's puzzle-hunt organisational aide. It keeps three
+Puzzbot is Quarantine Decrypter's puzzle-hunt organisational aide. It keeps three
 things in sync for you during a hunt:
 
 - **Discord** — a category and channel for every round and puzzle, so discussion stays

@@ -18,7 +18,7 @@ const srcImgDir = join(repoRoot, "docs", "img", "userguide");
 const outDir = join(frontendDir, "public");
 const guideDir = join(outDir, "guide");
 const outImgDir = join(guideDir, "img");
-const GUIDE_TITLE = "PuzzleHuntBot User Guide";
+const GUIDE_TITLE = "Puzzbot User Guide";
 
 // Relative *.md links work in the repo but 404 on the dashboard. Point links at a
 // published doc to its page (`resolve(target, anchor)` gives the URL, or null), and unwrap
@@ -291,7 +291,7 @@ const commandsMd = rewriteLinks(readFileSync(join(repoRoot, "docs", "commands.md
 ).replaceAll("img/userguide/", "guide/img/");
 const commandTokens = marked.lexer(commandsMd);
 idOf = headingIds(commandTokens);
-writeFileSync(join(outDir, "commands.html"), singlePage("PuzzleHuntBot Command Reference", marked.parser(commandTokens)));
+writeFileSync(join(outDir, "commands.html"), singlePage("Puzzbot Command Reference", marked.parser(commandTokens)));
 
 let copied = 0;
 for (const f of readdirSync(srcImgDir)) {
