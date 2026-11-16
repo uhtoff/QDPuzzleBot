@@ -32,6 +32,9 @@ def client(tmp_path):
     (tmp_path / "assets" / "app-abc123.js").write_text("console.log('app')")
     (tmp_path / "favicon.ico").write_bytes(b"\x00\x00\x01\x00")
     (tmp_path / ".secret").write_text("never serve me")   # a dotfile that exists on disk
+    (tmp_path / "guide").mkdir()
+    (tmp_path / "guide" / "index.html").write_text("<html>guide</html>")
+    (tmp_path / "guide" / "search-index.json").write_text("[]")
     return _app(tmp_path).test_client()
 
 
@@ -93,3 +96,20 @@ async def test_everything_else_is_a_404(client, path):
     resp = await client.get(path)
     assert resp.status_code == 404
     assert INDEX_MARKER not in await resp.get_data(as_text=True)
+
+
+# Unhashed pages and data (the user guide's pages, its search index, the Firefox update
+# manifest) change in place on every deploy: browsers must revalidate them, or they show a
+# stale guide (or miss an add-on update) until a heuristic cache expires. Hashed assets
+# keep normal caching: their names change whenever their content does.
+@pytest.mark.parametrize("path", ["/guide/index.html", "/guide/search-index.json"])
+async def test_unhashed_pages_and_data_are_revalidated(client, path):
+    resp = await client.get(path)
+    assert resp.status_code == 200
+    assert resp.headers.get("Cache-Control") == "no-cache"
+
+
+async def test_hashed_assets_keep_normal_caching(client):
+    resp = await client.get("/assets/app-abc123.js")
+    assert resp.status_code == 200
+    assert resp.headers.get("Cache-Control") != "no-cache"

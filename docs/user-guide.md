@@ -3,37 +3,133 @@
 Puzzbot is Quarantine Decrypter's puzzle-hunt organisational aide. It keeps three
 things in sync for you during a hunt:
 
+- **The web dashboard** — a live website showing the whole hunt: every puzzle's status and
+  answer, with buttons for nearly everything you need to do.
+- **Google Sheets** — a sheet for every puzzle, created automatically (a tab in the hunt's
+  spreadsheet, or its own spreadsheet), plus roll-up tables that gather feeder answers
+  under their meta.
 - **Discord** — a category and channel for every round and puzzle, so discussion stays
   organised and findable.
-- **Google Sheets** — a spreadsheet tab for every puzzle, created automatically, plus
-  roll-up tabs that gather feeder answers under their meta.
-- **The web dashboard** — a live website showing every puzzle's status, with buttons for
-  almost everything the chat commands can do.
 
-You drive the bot with `!` chat commands in Discord (most also work as `/` slash
-commands), or with the dashboard in your browser. Both do the same thing underneath, so
-use whichever is closer to hand.
+You can do almost everything from the dashboard in your browser, or with `!` chat commands
+in Discord (most also work as `/` slash commands). Both do the same thing underneath, so
+use whichever is closer to hand; this guide shows the dashboard way first.
 
-> **Getting help in Discord:** `!help` lists every command; `!help solve` (or any command
-> name) shows its usage and examples.
+> **Getting help:** this guide is a click away on the dashboard (**User guide**, at the top
+> of every page). In Discord, `!help` lists every command, and `!help solve` (or any
+> command name) shows its usage and examples.
 
 ---
 
-## 1. The basics — a puzzle's life
+## 1. The web dashboard
+
+The dashboard shows the whole hunt at a glance and can do nearly everything the chat
+commands can — create puzzles and groups, solve, retag, take notes, log clues — with the
+same effects in Discord and Sheets (channels get created, pins get updated, the works).
+
+### Logging in
+
+Open the dashboard site and click **Log in with Discord**. It uses your Discord account
+to check you're on the team; there's no separate password.
+
+![Login page](img/userguide/01-login.png)
+
+### Your hunts
+
+The front page lists active hunts by server. Old hunts move to an archived list when
+they're wrapped up. Click a hunt to open its board. Admins also get a **New hunt**
+button here — no more copy-pasting the `!hunt` incantation.
+
+![Hunt list](img/userguide/02-hunt-list.png)
+
+### The hunt board — "By group"
+
+The bar at the top switches between the board's views (By group, All puzzles, Evidence,
+and for organisers Arrange and Manage); on a phone it's a dropdown instead. The default
+view groups puzzles under their meta, mirroring the Discord categories. For
+each group you can see the code, feeders solved, and each puzzle's status, answer and
+recent activity (with the activity bar chart described under
+["All puzzles"](#all-puzzles--search-and-filter), on wider screens). Solved rows go
+green and sink; solved groups collapse. For a hunt where each puzzle has its own
+spreadsheet, the hunt info panel links to the hunt's **Drive folder**, which holds
+them all.
+
+The icons on each row open the puzzle's **sheet**, its **chat** (a Discord-style
+window — see [Reading a puzzle's chat](#reading-a-puzzles-chat)), and the **puzzle page**
+on the hunt site. The buttons on the right mark a puzzle solved or unsolved and open its
+notes.
+
+![Board by group](img/userguide/03-board-by-group.png)
+
+### "All puzzles" — search and filter
+
+One flat table of every puzzle with search, and filters by status, priority and type
+(plus a "hide solved" toggle). This is the quickest way to find "that puzzle with FUR
+COAT in the answer" or everything currently *Stuck* or *Needs Extraction*. Search looks
+at the name, the answer and the round names, and compares letters and digits only:
+punctuation, spaces, capitals and accents are ignored, so `worlds best` finds
+"World’s Best Crossword" and `cafe` finds "Café". The same search and filters appear on **By group**,
+and stay set when you switch between the two views. There a puzzle matches on its own
+name or answer, and a group whose name matches shows all of its puzzles.
+The status, priority, type and hide-solved settings are remembered for each hunt in your
+browser, so they survive a reload; the search box starts empty each time. **Reset filters**
+clears them all.
+
+The **Activity** column shows each unsolved puzzle's whole life since it was added as a
+small bar chart, beside the time since anyone last chatted or edited its sheet. Bar
+height is how busy the puzzle's Discord channel was; an **orange** bar means someone
+(not the bot) edited the puzzle's spreadsheet then. So you can tell a puzzle nobody
+has started (flat) from one people gave up on (busy, then flat) or are stuck on (a
+steady trickle) without anyone having to mark it. Sheet edits only show for hunts
+whose puzzles each have their own spreadsheet (files mode); history starts from when
+this feature was installed.
+
+![All puzzles](img/userguide/04-all-puzzles.png)
+
+### Reading a puzzle's chat
+
+Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
+a read-only window showing that channel's discussion right inside the dashboard, rendered
+Discord-style (avatars, replies, images, embeds and `:shortcode:` emoji). For a live hunt
+it shows the recent history and keeps updating as people talk, with an **Open in Discord**
+button to jump to the real channel. For an **archived** hunt — whose Discord channels have
+been condensed into threads or deleted — it shows the **captured transcript**, so the
+discussion stays readable on the dashboard long after the hunt is over.
+
+You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
+feature an admin turns on when deploying; until it is enabled the viewer has no history to
+show, but the **Open in Discord** button always works.
+
+### Creating from the web
+
+**New puzzle** and **New Group** buttons live top-right of every hunt board. Pick the
+meta it belongs to (or *Unassigned*) and the bot creates the Discord channel and sheet
+exactly as `!p` would.
+
+![New puzzle modal](img/userguide/09-new-puzzle-modal.png)
+
+Minimetas show up with their mini-count; click a minimeta's row to manage its minis (see
+[Minimetas](#5-minimetas)):
+
+![Minimeta board](img/userguide/10-minimeta-board.png)
+
+---
+
+## 2. The basics — a puzzle's life
 
 Everything here can be done on the dashboard or in Discord; each step shows the dashboard
-way first, then the Discord command. Section 6 tours the dashboard in detail.
+way first, then the Discord command. Section 1 tours the dashboard in detail.
 
 ### Where things live
 
 - **The dashboard** shows the whole hunt at a glance: every puzzle, its round, status and
   answer, with buttons to create, edit and solve puzzles.
+- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
+  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 - **Discord:** each hunt is a set of categories, one per round (or "group"), plus a
   `solved` area. Every puzzle gets **its own text channel**, whose pinned info message
   links to the puzzle page and its sheet and shows its status (`!info` refreshes a stale
   pin).
-- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
-  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 
 ### Creating a puzzle
 
@@ -91,7 +187,7 @@ nobody is pinged.
 
 ---
 
-## 2. Keeping the team informed
+## 3. Keeping the team informed
 
 Whichever way you set them, these show up on the dashboard, the puzzle's pinned info and
 the sheet.
@@ -122,7 +218,7 @@ puzzles, with their status and answers.
 
 ---
 
-## 3. Rounds, metas and groups
+## 4. Rounds, metas and groups
 
 ### Creating them
 
@@ -222,7 +318,7 @@ confirmation — and really does delete channels and sheets.
 
 ---
 
-## 4. Minimetas
+## 5. Minimetas
 
 For puzzles that contain a cluster of mini-puzzles, each wanting its own sheet but not
 its own channel.
@@ -247,7 +343,7 @@ Enter), type a mini's answer and mark it solved, unsolve it, or delete it.
 
 ---
 
-## 5. Extra sheets
+## 6. Extra sheets
 
 Need a scratch sheet, a grid copy, a second workspace?
 
@@ -284,100 +380,6 @@ the dashboard's create form and server setup page). What goes where:
   checkbox, the dashboard button) don't apply, and a solved puzzle keeps its file and link.
 - The mode can only be switched (`!sheet_mode files` / `tabs`, or Admin settings) while the
   hunt has no puzzles or groups.
-
----
-
-## 6. The web dashboard
-
-The dashboard shows the whole hunt at a glance and can do nearly everything the chat
-commands can — create puzzles and groups, solve, retag, take notes, log clues — with the
-same effects in Discord and Sheets (channels get created, pins get updated, the works).
-
-### Logging in
-
-Open the dashboard site and click **Log in with Discord**. It uses your Discord account
-to check you're on the team; there's no separate password.
-
-![Login page](img/userguide/01-login.png)
-
-### Your hunts
-
-The front page lists active hunts by server. Old hunts move to an archived list when
-they're wrapped up. Click a hunt to open its board. Admins also get a **New hunt**
-button here — no more copy-pasting the `!hunt` incantation.
-
-![Hunt list](img/userguide/02-hunt-list.png)
-
-### The hunt board — "By group"
-
-The bar at the top switches between the board's views (By group, All puzzles, Evidence,
-and for organisers Arrange and Manage); on a phone it's a dropdown instead. The default
-view groups puzzles under their meta, mirroring the Discord categories. For
-each group you can see the code, feeders solved, and each puzzle's status, answer and
-recent activity (with the activity bar chart described under
-["All puzzles"](#all-puzzles--search-and-filter), on wider screens). Solved rows go
-green and sink; solved groups collapse. For a hunt where each puzzle has its own
-spreadsheet, the hunt info panel links to the hunt's **Drive folder**, which holds
-them all.
-
-The icons on each row open the puzzle's **sheet**, its **chat** (a Discord-style
-window — see [Reading a puzzle's chat](#reading-a-puzzles-chat)), and the **puzzle page**
-on the hunt site. The buttons on the right mark a puzzle solved or unsolved and open its
-notes.
-
-![Board by group](img/userguide/03-board-by-group.png)
-
-### "All puzzles" — search and filter
-
-One flat table of every puzzle with search, and filters by status, priority and type
-(plus a "hide solved" toggle). This is the quickest way to find "that puzzle with FUR
-COAT in the answer" or everything currently *Stuck* or *Needs Extraction*. Search looks
-at the name, the answer and the round names, and compares letters and digits only:
-punctuation, spaces, capitals and accents are ignored, so `worlds best` finds
-"World’s Best Crossword" and `cafe` finds "Café". The same search and filters appear on **By group**,
-and stay set when you switch between the two views. There a puzzle matches on its own
-name or answer, and a group whose name matches shows all of its puzzles.
-The status, priority, type and hide-solved settings are remembered for each hunt in your
-browser, so they survive a reload; the search box starts empty each time. **Reset filters**
-clears them all.
-
-The **Activity** column shows each unsolved puzzle's whole life since it was added as a
-small bar chart, beside the time since anyone last chatted or edited its sheet. Bar
-height is how busy the puzzle's Discord channel was; an **orange** bar means someone
-(not the bot) edited the puzzle's spreadsheet then. So you can tell a puzzle nobody
-has started (flat) from one people gave up on (busy, then flat) or are stuck on (a
-steady trickle) without anyone having to mark it. Sheet edits only show for hunts
-whose puzzles each have their own spreadsheet (files mode); history starts from when
-this feature was installed.
-
-![All puzzles](img/userguide/04-all-puzzles.png)
-
-### Reading a puzzle's chat
-
-Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
-a read-only window showing that channel's discussion right inside the dashboard, rendered
-Discord-style (avatars, replies, images, embeds and `:shortcode:` emoji). For a live hunt
-it shows the recent history and keeps updating as people talk, with an **Open in Discord**
-button to jump to the real channel. For an **archived** hunt — whose Discord channels have
-been condensed into threads or deleted — it shows the **captured transcript**, so the
-discussion stays readable on the dashboard long after the hunt is over.
-
-You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
-feature an admin turns on when deploying; until it is enabled the viewer has no history to
-show, but the **Open in Discord** button always works.
-
-### Creating from the web
-
-**New puzzle** and **New Group** buttons live top-right of every hunt board. Pick the
-meta it belongs to (or *Unassigned*) and the bot creates the Discord channel and sheet
-exactly as `!p` would.
-
-![New puzzle modal](img/userguide/09-new-puzzle-modal.png)
-
-Minimetas show up with their mini-count; click a minimeta's row to manage its minis (see
-[Minimetas](#4-minimetas)):
-
-![Minimeta board](img/userguide/10-minimeta-board.png)
 
 ---
 
@@ -605,7 +607,7 @@ Options and click **Allow access to Google Sheets**.
 The **Arrange** view is the organisers' drag board for re-organising a hunt. What you can
 do in it (tagging puzzles into groups, converting them, renaming and deleting groups) is
 covered with the matching Discord commands in
-[3. Rounds, metas and groups](#3-rounds-metas-and-groups).
+[4. Rounds, metas and groups](#4-rounds-metas-and-groups).
 
 ### Manage (organisers/admins)
 
