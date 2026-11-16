@@ -73,7 +73,20 @@ function SetupResultView({ result }: { result: SetupResult }) {
   );
 }
 
-function SetupFormView({
+/** Shown while "Send invites" is off: the switch starts off for every server, and
+ *  setup then DMs nobody -- easy to miss when setting up several teams in a row. */
+export function InvitesOffNotice({ sendInvites, huntName }: { sendInvites: boolean; huntName: string }) {
+  if (sendInvites) return null;
+  const name = huntName.trim() || "<hunt name>";
+  return (
+    <Alert color="yellow" variant="light">
+      Invites are off, so nobody will be DM&apos;d an invite. When you&apos;re ready, run{" "}
+      <code>!send_invites {name}</code> in #bot-commands on this server.
+    </Alert>
+  );
+}
+
+export function SetupFormView({
   status,
   mut,
 }: {
@@ -264,6 +277,7 @@ function SetupFormView({
         checked={form.sendInvites}
         onChange={(e) => set("sendInvites", e.currentTarget.checked)}
       />
+      <InvitesOffNotice sendInvites={form.sendInvites} huntName={form.huntName} />
 
       {mut.error && <Alert color="red">{(mut.error as Error).message}</Alert>}
       <Group>

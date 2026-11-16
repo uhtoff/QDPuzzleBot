@@ -36,6 +36,12 @@ describe("invalidateOnNavigate", () => {
     expect(t.land(1, tokenA, "A")).toBe(false);
     expect(t.registry.get(1)).toBeUndefined();
   });
+  it("drops a puzzle-page entry when the tab arrives at that same sheet", () => {
+    const t = setup();
+    t.registry.set(1, { spreadsheetId: "A", gid: 0, channel_id: "chanA", page: true });
+    expect(t.nav({ id: 1, windowId: 7, active: true, url: url("A") })).toBe(true);
+    expect(t.registry.get(1)).toBeUndefined();
+  });
   it("drops a registered A entry immediately", () => {
     const t = setup();
     t.registry.set(1, { spreadsheetId: "A", gid: 0, channel_id: "chanA" });

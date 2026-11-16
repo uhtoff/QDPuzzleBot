@@ -32,10 +32,49 @@ export function workOn(puzzle: { id: number; sheet_url: string | null; hunt_uid:
   send("work", { puzzleId: puzzle.id, sheetUrl: puzzle.sheet_url, huntUid: puzzle.hunt_uid });
 }
 
+export function openPuzzle(name: string, sheetUrl: string, puzzleUrl: string): void {
+  send("openPuzzle", { name, sheetUrl, puzzleUrl });
+}
+
 export function openRound(name: string, sheetUrls: string[]): void {
   send("openRound", { name, sheetUrls });
 }
 
 export function closeSolved(): void {
   send("closeSolved", {});
+}
+
+// The same URL checks the extension applies to openPage (extension/src/lib/actions.js), so
+// a link is only routed when the extension will act on it, never swallowed.
+function acceptedUrls(sheetUrl: string, puzzleUrl: string): boolean {
+  try {
+    const sheet = new URL(sheetUrl);
+    const page = new URL(puzzleUrl);
+    return (
+      sheet.protocol === "https:" &&
+      sheet.hostname === "docs.google.com" &&
+      /^\/spreadsheets\/d\/[^/]+/.test(sheet.pathname) &&
+      sheetUrl.length <= 2048 &&
+      (page.protocol === "https:" || page.protocol === "http:") &&
+      puzzleUrl.length <= 2048
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The "Puzzle page" link: a plain left click goes through the extension when it can
+ *  open pages, so it remembers the tab (its chat shows beside it, Close solved closes it).
+ *  Modified or middle clicks, no sheet, or an older extension: returns false and the
+ *  link works as a normal link. */
+export function openPageViaExtension(
+  event: Pick<MouseEvent, "button" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "preventDefault">,
+  sheetUrl: string | null,
+  puzzleUrl: string,
+): boolean {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+  if (!sheetUrl || !extensionSupports("openPage") || !acceptedUrls(sheetUrl, puzzleUrl)) return false;
+  event.preventDefault();
+  send("openPage", { sheetUrl, puzzleUrl });
+  return true;
 }

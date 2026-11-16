@@ -186,3 +186,41 @@ async def test_ws_session_wins_and_does_not_consume_the_ticket():
     t = ws_ticket.issue(5)
     assert await _open(EXT, t, session_user={"id": 8}) == 8
     assert ws_ticket.redeem(t) == "5"
+
+
+MOZ = "moz-extension://0123abcd-4567-89ef-0123-456789abcdef"
+
+
+@pytest.mark.asyncio
+async def test_ws_firefox_origin_with_ticket_proceeds_without_listing():
+    # Firefox gives each install a random moz-extension UUID, so it is never listed.
+    from bot.web import ws_ticket
+    assert await _open(MOZ, ws_ticket.issue(77)) == 77
+
+
+@pytest.mark.asyncio
+async def test_ws_firefox_origin_without_ticket_is_closed():
+    assert await _open(MOZ, None) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [
+    "moz-extension://abc",
+    MOZ + "/x",
+    "moz-extension://0123ABCD-4567-89EF-0123-456789ABCDEF",
+    MOZ + ".evil.test",
+    "https://" + MOZ[len("moz-extension://"):],
+])
+async def test_ws_malformed_firefox_origin_is_closed(origin):
+    from bot.web import ws_ticket
+    assert await _open(origin, ws_ticket.issue(3)) is None
+
+
+def test_is_extension_origin_unit():
+    from bot.web import api
+    with patch("bot.web.api.config") as cfg:
+        cfg.web_extension_origins = [EXT]
+        assert api._is_extension_origin(EXT)
+        assert api._is_extension_origin(MOZ)
+        assert not api._is_extension_origin(None)
+        assert not api._is_extension_origin("chrome-extension://other")

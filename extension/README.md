@@ -5,6 +5,7 @@ looking at in a side panel next to the Google Sheet, and adds a few dashboard bu
 opening puzzles. It talks to the puzzbot dashboard using your existing dashboard login; it
 holds no Discord credentials of its own. Design: `docs/superpowers/specs/2026-11-07-puzzle-chat-extension-design.md`.
 For the user-facing description see the "Chrome extension" section of `docs/user-guide.md`.
+It also runs in Firefox; see "Firefox" below.
 
 Requires Chrome 116 or later.
 
@@ -22,6 +23,28 @@ is reachable only by that link, not by searching the Store.
 4. Add that ID to the server (see below), then restart the bot.
 5. Open the extension's **Options** and check the dashboard origin.
 6. Be logged in to the dashboard in the same Chrome profile (the extension reuses that session).
+
+## Firefox
+
+The same source runs in desktop Firefox 140 or later (not Firefox for Android, which has no
+sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated from it by
+`scripts/firefoxManifest.js` at package time, so never edit a copy under `dist/`.
+
+- **Try it locally:** `bash package.sh firefox`, then in Firefox open
+  `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
+  `dist/firefox/manifest.json`. It stays loaded until Firefox restarts.
+- **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
+  **unlisted** add-on (Mozilla signs it; it is not searchable), then share the signed `.xpi`
+  link with the team. Notes for the submission form: `store/amo-notes.md`.
+- **Server:** nothing to configure. Firefox gives every install its own random
+  `moz-extension://<uuid>` origin, so it cannot be listed; the server accepts any well-formed
+  one instead (a web page can never send that origin). `web.extension_origins` is for
+  Chrome only.
+- **Differences from Chrome:** the toolbar button toggles the sidebar. Firefox only opens a
+  sidebar from a click on the extension's own button, so **Work on this puzzle** and
+  notification clicks switch to the tab but cannot open the sidebar; open it yourself.
+  Firefox lets you revoke the Google Sheets permission in `about:addons`; the Options page
+  then shows an **Allow access to Google Sheets** button.
 
 ## Options
 
@@ -49,21 +72,30 @@ origin, so it must be listed explicitly in the `web` block of `config.json`:
 - Editing `config.json` needs a bot restart.
 - Each distinct extension ID needs its own entry. For team installs, list the Chrome Web
   Store ID (below) rather than everyone's unpacked ID.
+- Chrome only. Firefox origins (`moz-extension://<uuid>`) are accepted without an entry
+  (see "Firefox" above).
 
 ## Using it
 
 - Chrome cannot open the side panel by itself: click the extension icon. Once open (and pinned)
-  the panel follows the active tab. A tab that is not a known puzzle sheet shows "not a puzzle".
+  the panel follows the active tab. A tab that is not a known puzzle sheet shows "not a puzzle",
+  except a hunt puzzle page the extension opened ("Open puzzle as a tab group", or the
+  dashboard's "Puzzle page" link), which shows its puzzle's chat. With this copy installed
+  a plain click on the dashboard's "Puzzle page" link (`openPage`) goes through the
+  extension; ctrl/cmd/shift/middle clicks stay ordinary links.
 - Tabs-mode hunts: only the chat panel applies (it follows the `#gid` of the sheet tab).
 - Replies go through the bot, which posts via a "Puzzbot relay" webhook under your server
   name and avatar (Discord shows an APP tag). The bot needs **Manage Webhooks** in the puzzle
   channels.
 - Dashboard buttons appear only when the extension is installed: "Work on this puzzle" (icon
-  on the puzzle row, labelled button in the drawer), an icon button in each round header
-  ("Open round as a tab group", files-mode hunts only; reuses already-open tabs and moves
-  them into the group) and "Close solved tabs" in the board header (files-mode only). Opening
-  an already-open puzzle sheet switches to that tab and closes the duplicate unless it is the
-  only tab in its window.
+  on the puzzle row, labelled button in the drawer), "Open puzzle as a tab group" (icon on
+  the puzzle row, labelled button in the drawer; opens the puzzle's sheet and hunt page in a
+  group named after the puzzle, or focuses that group if it is already open), an icon button
+  in each round header ("Open round as a tab group", files-mode hunts only; reuses
+  already-open tabs and moves them into the group) and "Close solved tabs" in the board
+  header (files-mode only; also closes the hunt pages that "Open puzzle as a tab group"
+  opened for solved puzzles, wherever they have moved, but not pages opened any other way). Opening an already-open puzzle sheet switches to that tab and
+  closes the duplicate unless it is the only tab in its window.
 - The content script publishes the dashboard requests it relays (`data-puzzbot-actions` on the
   page, straight from its `ACTIONS` gate), and the dashboard shows each extension button only
   when its request is listed (`extensionSupports` in `frontend/src/lib/extension.ts`). A copy

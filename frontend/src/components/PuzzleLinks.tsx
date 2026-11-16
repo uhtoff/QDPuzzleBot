@@ -3,6 +3,7 @@ import { ActionIcon, Group, Indicator, Tooltip } from "@mantine/core";
 import { IconBrandDiscord, IconExternalLink, IconFileSpreadsheet } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
 import { ChatViewer } from "./ChatViewer";
+import { openPageViaExtension } from "../lib/extension";
 
 interface Props {
   puzzle: Puzzle;
@@ -11,6 +12,7 @@ interface Props {
 
 export function PuzzleLinks({ puzzle, huntArchived }: Props) {
   const sheetUrl = puzzle.sheet_url;
+  const pageUrl = puzzle.url;
   const [chatOpen, setChatOpen] = useState(false);
 
   return (
@@ -42,9 +44,16 @@ export function PuzzleLinks({ puzzle, huntArchived }: Props) {
           />
         </>
       )}
-      {puzzle.url && (
+      {pageUrl && (
         <Tooltip label="Puzzle page">
-          <ActionIcon component="a" href={puzzle.url} target="_blank" variant="subtle" color="gray">
+          <ActionIcon
+            component="a"
+            href={pageUrl}
+            target="_blank"
+            variant="subtle"
+            color="gray"
+            onClick={(e) => openPageViaExtension(e, sheetUrl, pageUrl)}
+          >
             <IconExternalLink size={16} />
           </ActionIcon>
         </Tooltip>

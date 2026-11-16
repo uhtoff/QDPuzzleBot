@@ -24,6 +24,13 @@ describe("cacheValid", () => {
     expect(cacheValid(e({ gid: null }), { spreadsheetId: "s", gid: null })).toBe(true);
     expect(cacheValid(undefined, { spreadsheetId: "s", gid: 5 })).toBe(false);
   });
+  it("treats a puzzle-page entry and a sheet entry for the same sheet as different answers", () => {
+    const sheet = { spreadsheetId: "s", gid: 5 };
+    expect(cacheValid(e({ page: true }), sheet)).toBe(false); // the tab now shows the sheet itself
+    expect(cacheValid(e({ page: true }), sheet, true)).toBe(true);
+    expect(cacheValid(e(), sheet, true)).toBe(false); // a sheet entry on a tab back on the hunt page
+    expect(cacheValid(e(), sheet, false)).toBe(true);
+  });
 });
 
 describe("eventChannel", () => {

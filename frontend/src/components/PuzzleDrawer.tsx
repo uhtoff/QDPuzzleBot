@@ -15,8 +15,18 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { IconCheck, IconCircleCheck, IconEdit, IconPlayerPlay, IconPlus, IconSend, IconTrash, IconX } from "@tabler/icons-react";
-import { extensionSupports, workOn } from "../lib/extension";
+import {
+  IconBrowserPlus,
+  IconCheck,
+  IconCircleCheck,
+  IconEdit,
+  IconPlayerPlay,
+  IconPlus,
+  IconSend,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
+import { extensionSupports, openPuzzle, workOn } from "../lib/extension";
 import type { HuntDetail, Puzzle } from "../types";
 import { notifications } from "@mantine/notifications";
 import {
@@ -69,6 +79,9 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [eraseIndex, setEraseIndex] = useState<number | null>(null);
   const canManage = detail.hunt.can_manage;
+  const sheetUrl = puzzle?.sheet_url ?? null;
+  const puzzleUrl = puzzle?.url ?? null;
+  const puzzleName = puzzle?.name ?? "";
 
   const add = useAddNote(uid);
   const deletePuzzleMut = useDeletePuzzle(uid);
@@ -206,13 +219,22 @@ export function PuzzleDrawer({ puzzle, detail, voice, onClose }: Props) {
     >
       {puzzle && (
         <Stack>
-          {extensionSupports("work") && puzzle.sheet_url && (
+          {extensionSupports("work") && sheetUrl && (
             <Button
               variant="light"
               leftSection={<IconPlayerPlay size={16} />}
-              onClick={() => workOn({ id: puzzle.id, sheet_url: puzzle.sheet_url, hunt_uid: uid })}
+              onClick={() => workOn({ id: puzzle.id, sheet_url: sheetUrl, hunt_uid: uid })}
             >
               Work on this puzzle
+            </Button>
+          )}
+          {extensionSupports("openPuzzle") && sheetUrl && puzzleUrl && (
+            <Button
+              variant="light"
+              leftSection={<IconBrowserPlus size={16} />}
+              onClick={() => openPuzzle(puzzleName, sheetUrl, puzzleUrl)}
+            >
+              Open puzzle as a tab group
             </Button>
           )}
           <PuzzleVoiceControl

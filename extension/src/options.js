@@ -1,4 +1,4 @@
-import { DEFAULT_ORIGIN, parseOrigin } from "./lib/origin.js";
+import { DEFAULT_ORIGIN, SHEETS_ORIGINS, parseOrigin } from "./lib/origin.js";
 
 // Live: https://quarantinedecrypters.com (default). Test instance: https://puzzbot.com
 const input = document.getElementById("origin");
@@ -54,4 +54,23 @@ notify.addEventListener("change", async () => {
     await chrome.storage.sync.set({ notify: false });
     await chrome.permissions.remove({ permissions: ["notifications"] }).catch(() => {});
   }
+});
+
+// Firefox lets the user revoke the Sheets permission; without it every tab is "not a puzzle".
+const sheets = document.getElementById("sheets");
+const checkSheets = () =>
+  chrome.permissions
+    .contains({ origins: SHEETS_ORIGINS })
+    .then((ok) => {
+      sheets.hidden = ok;
+    })
+    .catch(() => {});
+checkSheets();
+chrome.permissions.onAdded.addListener(checkSheets);
+chrome.permissions.onRemoved.addListener(checkSheets);
+document.getElementById("sheets-grant").addEventListener("click", async () => {
+  // First await, so the click still counts as the user action Firefox requires.
+  const granted = await chrome.permissions.request({ origins: SHEETS_ORIGINS }).catch(() => false);
+  status.textContent = granted ? "Google Sheets access allowed." : "Google Sheets access was not allowed.";
+  checkSheets();
 });

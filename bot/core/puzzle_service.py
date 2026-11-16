@@ -864,6 +864,14 @@ class PuzzleService:
                     logger.exception("reconcile: minimeta roll-up failed for %s",
                                      minimeta.name)
                     report.add_failure(f"minimeta roll-up ({minimeta.name})", error)
+            # The hunt-wide Unassigned Feeders tab. Awaited (not the _safe
+            # fire-and-forget) so a failure lands in the report; this is also
+            # the dashboard's only route to the !rebuild_unassigned rebuild.
+            try:
+                await self.refresh_unassigned(hunt)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("reconcile: Unassigned Feeders refresh failed")
+                report.add_failure("Unassigned Feeders tab", error)
             for name in await self.refresh_header_links(hunt, puzzles) or []:
                 report.add_failure(f"header links ({name})",
                                    RuntimeError("Feeds line write failed"))
@@ -2110,6 +2118,12 @@ class PuzzleService:
             await gsheet_cog.delete_puzzle_spreadsheet(puzzle)
         target_groups = [TagGroupJsonDb.get_by_attr(id=tag) for tag in puzzle.tags]
         PuzzleJsonDb.delete(puzzle.id)
+        # Keep the Unassigned Feeders tab in sync: the board drops the puzzle via
+        # the push, but the sheet Table only reconciles when refreshed. Skipped for
+        # minis -- they are never on the tab, and the parent's own refresh runs
+        # after they are gone, so one refresh covers the whole teardown.
+        if puzzle.parent_puzzle_id is None:
+            asyncio.create_task(self.refresh_unassigned_safe(hunt))
         failed = await self.refresh_targets(hunt, target_groups)
         channel = guild.get_channel(puzzle.channel_id) \
             if guild is not None and puzzle.channel_id else None
@@ -2320,6 +2334,11 @@ class PuzzleService:
 
         TagGroupJsonDb.delete(tag_group.id)
         await self.refresh_header_links(hunt, orphaned_feeders, reload=True)
+        # Kept members that fed this group's target are now unassigned, and
+        # deleted members must leave the tab. Only after the group row is gone:
+        # the members' tags rows cascade off it, so an earlier refresh would
+        # reconcile against the old membership.
+        asyncio.create_task(self.refresh_unassigned_safe(hunt))
         return failed_channels
 
     async def _relocate_kept_puzzle(self, guild, hunt, tag_group, puzzle, channel,

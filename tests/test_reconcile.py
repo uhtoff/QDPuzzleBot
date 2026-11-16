@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+import pytest
 
 import bot.core.puzzle_service as ps
 from bot.core.puzzle_service import PuzzleService
@@ -18,6 +19,16 @@ from tests.conftest import make_hunt
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _stub_unassigned_refresh():
+    """reconcile apply also rebuilds the hunt-wide Unassigned Feeders tab. Most
+    tests here exercise other steps against a MagicMock sheets cog, where the
+    real rebuild would fail or create a tab; stub it file-wide. The tests that
+    cover the rebuild patch the instance on top of this."""
+    with patch.object(PuzzleService, "refresh_unassigned", new=AsyncMock()):
+        yield
+
 
 def _service(notifier=None):
     bot = MagicMock()
@@ -878,6 +889,56 @@ def test_reconcile_apply_reports_a_failed_minimeta_refresh_and_carries_on():
         report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=True))
     assert [t for t, _ in report.failures] == ["minimeta roll-up (MM)"]
     links_m.assert_awaited_once()
+
+
+def _run_reconcile_unassigned(apply, unassigned_side_effect=None):
+    """Run reconcile with every sheet step stubbed; return (report, order)."""
+    svc = _service()
+    p1 = _puzzle(name="A", id=1, google_page_id="11")
+    order = []
+
+    async def targets(hunt, groups):
+        order.append("targets")
+        return []
+
+    async def links(hunt, puzzles, **k):
+        order.append("links")
+        return []
+
+    async def unassigned(hunt):
+        order.append("unassigned")
+        if unassigned_side_effect is not None:
+            raise unassigned_side_effect
+
+    with patch.object(ps.PuzzleJsonDb, "get_all_from_hunt", return_value=[p1]), \
+         patch.object(ps.TagGroupJsonDb, "get_all", return_value=[]), \
+         patch.object(svc, "_fetch_present_tab_ids", new=AsyncMock(return_value={})), \
+         patch.object(svc, "_reconcile_channel", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "_reconcile_tabs", new=AsyncMock(return_value=[])), \
+         patch.object(svc, "refresh_targets", new=AsyncMock(side_effect=targets)), \
+         patch.object(svc, "refresh_header_links", new=AsyncMock(side_effect=links)), \
+         patch.object(svc, "refresh_unassigned", new=AsyncMock(side_effect=unassigned)):
+        report = asyncio.run(svc.reconcile(_guild_with(), _hunt(), apply=apply))
+    return report, order
+
+
+def test_reconcile_apply_rebuilds_the_unassigned_tab():
+    # Awaited, not fire-and-forget: reconcile must report a failure, and the
+    # dashboard's Reconcile panel is the only web route to this rebuild.
+    report, order = _run_reconcile_unassigned(True)
+    assert order == ["targets", "unassigned", "links"]
+    assert report.failures == []
+
+
+def test_reconcile_report_only_leaves_the_unassigned_tab_alone():
+    _report, order = _run_reconcile_unassigned(False)
+    assert "unassigned" not in order
+
+
+def test_reconcile_apply_reports_a_failed_unassigned_rebuild_and_carries_on():
+    report, order = _run_reconcile_unassigned(True, RuntimeError("quota"))
+    assert [t for t, _ in report.failures] == ["Unassigned Feeders tab"]
+    assert order[-1] == "links"
 
 
 # --------------------------------------------------------------------------
