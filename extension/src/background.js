@@ -516,7 +516,7 @@ async function openRound(name, urls, senderTab) {
 
 // An individual puzzle: its sheet plus the puzzle page from the hunt, in a
 // group named after the puzzle. A second click focuses that puzzle's own group
-// (one holding its sheet or remembered page, not just any group with its name)
+// (one holding its remembered page; a round's group holds its meta's sheet too)
 // instead of creating duplicate tabs.
 async function openPuzzle(name, urls, senderTab) {
   const windowId = senderTab.windowId;
@@ -527,7 +527,13 @@ async function openPuzzle(name, urls, senderTab) {
   for (const g of groups) {
     if (!findRoundGroup(name, [g])) continue;
     const tabs = await chrome.tabs.query({ groupId: g.id }).catch(() => []);
-    tabsOf.set(g.id, tabs.map((t) => registry.get(t.id) ?? pageTabs.get(t.id)).filter(Boolean));
+    tabsOf.set(
+      g.id,
+      tabs.map((t) => {
+        const pageSheet = pageTabs.get(t.id);
+        return pageSheet ? { ...pageSheet, page: true } : { ...registry.get(t.id), page: false };
+      }),
+    );
   }
   const existing = findPuzzleGroup(name, groups, tabsOf, want);
   if (existing) {
