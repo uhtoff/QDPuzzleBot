@@ -5,11 +5,11 @@ things in sync for you during a hunt:
 
 - **The web dashboard** — a live website showing the whole hunt: every puzzle's status and
   answer, with buttons for nearly everything you need to do.
-- **Discord** — a category and channel for every round and puzzle, so discussion stays
-  organised and findable.
 - **Google Sheets** — a sheet for every puzzle, created automatically (a tab in the hunt's
   spreadsheet, or its own spreadsheet), plus roll-up tables that gather feeder answers
   under their meta.
+- **Discord** — a category and channel for every round and puzzle, so discussion stays
+  organised and findable.
 
 You can do almost everything from the dashboard in your browser, or with `!` chat commands
 in Discord (most also work as `/` slash commands). Both do the same thing underneath, so
@@ -123,12 +123,12 @@ way first, then the Discord command. Section 1 tours the dashboard in detail.
 
 - **The dashboard** shows the whole hunt at a glance: every puzzle, its round, status and
   answer, with buttons to create, edit and solve puzzles.
+- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
+  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 - **Discord:** each hunt is a set of categories, one per round (or "group"), plus a
   `solved` area. Every puzzle gets **its own text channel**, whose pinned info message
   links to the puzzle page and its sheet and shows its status (`!info` refreshes a stale
   pin).
-- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
-  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 
 ### Creating a puzzle
 
