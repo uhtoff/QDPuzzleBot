@@ -34,20 +34,19 @@ export function findRoundGroup(name, groups) {
   return groups.find((g) => String(g.title ?? "").trim().toLowerCase() === want) ?? null;
 }
 
-// The open group for one puzzle: its title matches the puzzle name AND it holds one of that
-// puzzle's tabs (its sheet, or a hunt page remembered for it). A title alone is not enough:
-// a round is often named like its meta, and other hunts can reuse names. `tabsOf` maps a
-// candidate group's id to the sheets ({spreadsheetId, gid, sheet_mode?}) of its known tabs.
-// A files-mode sheet is the puzzle whatever its #gid (Sheets rewrites it); a shared
-// tabs-mode spreadsheet also needs the gid.
+// The open group for one puzzle: its title matches the puzzle name AND it holds that
+// puzzle's hunt page (remembered when Open puzzle or the Puzzle page link opened it). A title
+// alone is not enough (a round is often named like its meta, other hunts reuse names), nor is
+// holding the puzzle's sheet: the round's own group holds its meta's sheet. Only a puzzle
+// group ever gets a page. `tabsOf` maps a candidate group's id to its known tabs'
+// {spreadsheetId, gid, page}.
 export function findPuzzleGroup(name, groups, tabsOf, want) {
   const title = String(name ?? "").trim().toLowerCase();
   if (title === "" || !want) return null;
-  const isThisPuzzle = (s) =>
-    !!s && s.spreadsheetId === want.spreadsheetId && (s.sheet_mode === "files" || (s.gid ?? null) === (want.gid ?? null));
+  const isThisPage = (s) =>
+    !!s && s.page === true && s.spreadsheetId === want.spreadsheetId && (s.gid ?? null) === (want.gid ?? null);
   return (
-    groups.find(
-      (g) => String(g.title ?? "").trim().toLowerCase() === title && (tabsOf.get(g.id) ?? []).some(isThisPuzzle),
-    ) ?? null
+    groups.find((g) => String(g.title ?? "").trim().toLowerCase() === title && (tabsOf.get(g.id) ?? []).some(isThisPage)) ??
+    null
   );
 }
