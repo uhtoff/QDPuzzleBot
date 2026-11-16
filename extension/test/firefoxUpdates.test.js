@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { firefoxManifest } from "../scripts/firefoxManifest.js";
 
 // The file Firefox polls for updates (served by the live dashboard). A malformed entry
@@ -22,6 +23,13 @@ describe("firefox-updates.json", () => {
       expect(u.version).toMatch(/^\d+\.\d+\.\d+$/);
       expect(u.update_link).toBe(`https://quarantinedecrypters.com/extension/puzzle-chat-firefox-${u.version}.xpi`);
       expect(u.update_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    }
+  });
+
+  it("publishes each listed .xpi beside it, matching its hash (a mismatch silently blocks the update)", () => {
+    for (const u of updates.addons[gecko.id].updates) {
+      const xpi = readFileSync(new URL(`../../frontend/public/extension/puzzle-chat-firefox-${u.version}.xpi`, import.meta.url));
+      expect("sha256:" + createHash("sha256").update(xpi).digest("hex")).toBe(u.update_hash);
     }
   });
 });
