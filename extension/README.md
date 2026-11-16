@@ -34,8 +34,15 @@ sidebar). `manifest.json` is the Chrome manifest; the Firefox one is generated f
   `about:debugging#/runtime/this-firefox`, **Load Temporary Add-on** and pick
   `dist/firefox/manifest.json`. It stays loaded until Firefox restarts.
 - **Release:** upload `dist/puzzle-chat-firefox-<version>.zip` to addons.mozilla.org as an
-  **unlisted** add-on (Mozilla signs it; it is not searchable), then share the signed `.xpi`
-  link with the team. Notes for the submission form: `store/amo-notes.md`.
+  **unlisted** add-on (Mozilla signs it; it is not searchable). Notes for the submission
+  form: `store/amo-notes.md`. Then publish the signed file from the live dashboard:
+  1. Save it as `frontend/public/extension/puzzle-chat-firefox-<version>.xpi`.
+  2. Add `{"version": "<version>", "update_link": "https://quarantinedecrypters.com/extension/puzzle-chat-firefox-<version>.xpi", "update_hash": "sha256:<sha256sum of the .xpi>"}`
+     to the `updates` list in `frontend/public/extension/firefox-updates.json`
+     (`test/firefoxUpdates.test.js` checks the shape).
+  3. Ship to live. The team installs from that `.xpi` link once; after that Firefox
+     updates itself, because the manifest's `update_url` (set in `scripts/firefoxManifest.js`)
+     points at `firefox-updates.json`. Unlisted add-ons get no updates from AMO itself.
 - **Server:** nothing to configure. Firefox gives every install its own random
   `moz-extension://<uuid>` origin, so it cannot be listed; the server accepts any well-formed
   one instead (a web page can never send that origin). `web.extension_origins` is for

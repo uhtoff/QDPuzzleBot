@@ -3,7 +3,9 @@
 Upload `dist/puzzle-chat-firefox-<version>.zip` (built by `bash package.sh firefox`) as an
 **unlisted** add-on. Mozilla signs it and returns an `.xpi` to share with the team by link.
 The add-on id is `puzzle-chat@puzzbot.com` and the minimum version is Firefox 140; both are
-set in `scripts/firefoxManifest.js`.
+set in `scripts/firefoxManifest.js`, as is the `update_url`
+(`https://quarantinedecrypters.com/extension/firefox-updates.json`): self-distributed add-ons
+update from that file, so publish each signed `.xpi` there (see the README's Firefox "Release").
 
 ## Data collection declaration
 

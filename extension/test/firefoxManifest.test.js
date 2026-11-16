@@ -33,6 +33,8 @@ describe("firefoxManifest", () => {
       gecko: {
         id: "puzzle-chat@puzzbot.com",
         strict_min_version: "140.0",
+        // Self-distributed (unlisted) add-ons only update through a hosted manifest.
+        update_url: "https://quarantinedecrypters.com/extension/firefox-updates.json",
         data_collection_permissions: {
           required: ["authenticationInfo", "websiteContent", "personalCommunications"],
         },

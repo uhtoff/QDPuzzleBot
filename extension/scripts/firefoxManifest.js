@@ -5,6 +5,9 @@
 const GECKO = {
   id: "puzzle-chat@puzzbot.com",
   strict_min_version: "140.0", // ESR; tabs.group (138), tabGroups (139), data_collection_permissions (140)
+  // Unlisted add-ons get no updates from AMO: Firefox polls this file (served by the live
+  // dashboard from frontend/public/extension/) and installs the newest signed .xpi it lists.
+  update_url: "https://quarantinedecrypters.com/extension/firefox-updates.json",
   // Mirrors the Chrome Store disclosure in store/listing.md ("Data use disclosure").
   data_collection_permissions: {
     required: ["authenticationInfo", "websiteContent", "personalCommunications"],
