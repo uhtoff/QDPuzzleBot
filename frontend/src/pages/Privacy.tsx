@@ -61,7 +61,7 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           show chat and keep a hunt archive. Attachments are downloaded to the server.
         </Text>
 
-        <Title order={3}>Chrome extension (Puzzle Chat)</Title>
+        <Title order={3}>Browser extension (Puzzle Chat, for Chrome and Firefox)</Title>
         <List spacing="xs">
           <List.Item>
             It reads the address of Google Sheets tabs only (docs.google.com) and sends each
@@ -72,21 +72,24 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
             While you are signed in, the extension receives live message notifications for every
             puzzle channel you can see on the dashboard, not just the puzzle open in the panel. It
             uses them only to show chat, the unread count and optional notifications. Message
-            content is held in memory only; only unread counts are kept in Chrome session storage.
+            content is held in memory only; only unread counts are kept in the browser&apos;s session storage.
             Nothing is sent anywhere else.
           </List.Item>
           <List.Item>
             Replies you send are posted to Discord by the bot under your server name and avatar.
           </List.Item>
           <List.Item>
-            It stores its settings (dashboard address, notifications on or off) in Chrome sync
-            storage, its working state (which tab is which puzzle, unread counts) in Chrome
-            session storage, which is cleared when the browser closes, and the colour it gave
-            each round&apos;s tab group (by round name) in Chrome local storage.
+            It stores its settings (dashboard address, notifications on or off) in the
+            browser&apos;s sync storage, its working state (which tab is which puzzle, including
+            the hunt pages it opened for you, and unread counts) in the browser&apos;s session
+            storage, which is cleared when the browser closes, and the colour it gave each
+            round&apos;s tab group (by round name) in the browser&apos;s local storage.
           </List.Item>
           <List.Item>
-            It can open a hunt&apos;s sheets and gather them into named Chrome tab groups, and
-            close the tabs of solved puzzles, only when you click the dashboard&apos;s buttons.
+            It can open a hunt&apos;s sheets and puzzle pages, gather them into named tab
+            groups, and close the tabs of solved puzzles, only when you click the
+            dashboard&apos;s buttons or links. It never reads the address or content of hunt
+            pages.
           </List.Item>
           <List.Item>It loads avatars and custom emoji images from Discord&apos;s CDN.</List.Item>
           <List.Item>

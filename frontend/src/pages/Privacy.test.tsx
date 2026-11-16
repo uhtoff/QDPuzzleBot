@@ -21,9 +21,10 @@ describe("PrivacyPolicy", () => {
     expect(html).toContain("deleted once they are 30 days old");
     expect(html).toContain("web-server logs follow the same 30-day rule");
     expect(html).toContain("every puzzle channel you can see on the dashboard");
-    expect(html).toContain("only unread counts are kept in Chrome session storage");
+    expect(html).toContain("only unread counts are kept in the browser&#x27;s session storage");
     expect(html).toContain("kept with the hunt");
-    expect(html).toContain("Chrome local storage");
+    expect(html).toContain("in the browser&#x27;s local storage");
+    expect(html).toContain("It never reads the address or content of hunt pages");
     expect(html).toContain("only when you click the dashboard&#x27;s buttons");
   });
 
