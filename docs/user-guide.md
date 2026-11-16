@@ -93,13 +93,21 @@ nobody is pinged.
 
 ## 2. Keeping the team informed
 
-These all run in the puzzle's channel and show up on the pinned info, the sheet, and the
-dashboard:
+Whichever way you set them, these show up on the dashboard, the puzzle's pinned info and
+the sheet.
+
+**On the dashboard:** open the puzzle's drawer (its notes icon) and set **Status**,
+**Priority** and **Type** there; in the **All puzzles** view you can also change them
+straight from the table. Notes are at the bottom of the drawer: type in *Add a note…* and
+click **Add note**. Clues go in the **Evidence** view. The board itself is the list of
+puzzles, with their status and answers.
+
+**In Discord,** from the puzzle's channel:
 
 - `!status VALUE` — one of *Unstarted, In Progress, Stuck, Needs Extraction, Needs
   Submission, Solved, Backsolved*. The case you type does not matter.
-  (*Unsolved* and *Partially Solved* also appear on puzzles, but they are set by the
-  solve/unsolve/partial commands rather than by `!status`.)
+  (*Unsolved* and *Partially Solved* also appear on puzzles, but they are set by
+  solving, unsolving and partial answers rather than by `!status`.)
 - `!priority VALUE` — *low, medium, high, very high*.
 - `!type VALUE` — freeform label like `crossword` or `image quiz` (the slash version
   autocompletes types already used this hunt).
@@ -118,7 +126,10 @@ dashboard:
 
 ### Creating them
 
-Run in the hunt's main channel:
+**On the dashboard:** click **New Group** at the top right of the hunt board, name it and
+pick its **Type** (a round, metapuzzle, capstone, runaround or plain group).
+
+**In Discord,** in the hunt's main channel:
 
 | Command | Creates |
 |---|---|
@@ -128,14 +139,21 @@ Run in the hunt's main channel:
 | `!ra Name` | A **runaround** (an end-of-hunt group) |
 | `!group Name` | A plain **group** — a category with no meta puzzle |
 
-Every group gets a **6-character group code** (shown on its pinned info, e.g. `SULXHX`).
-Commands that point at a group take this code — or just the group's name (or a unique
-part of it); the bot will list candidates if it's ambiguous. Slash commands autocomplete
-the codes for you.
+Every group gets a **6-character group code** (shown on the board and on its pinned info,
+e.g. `SULXHX`). Commands that point at a group take this code — or just the group's name
+(or a unique part of it); the bot will list candidates if it's ambiguous. Slash commands
+autocomplete the codes for you.
 
 ### Tagging puzzles into groups
 
-Run these in the **puzzle's** channel, naming the target group:
+**On the dashboard** (organisers), in the **Arrange** view: drag a puzzle's card onto a
+group to make it feed that group's meta (its Discord channel moves too), or onto
+**Unassigned Feeders** to untag it. A card's `⋮` menu has **Add to group…** (feed an
+*additional* meta), **Move to group…** and **Remove from** its current group.
+
+![Arrange](img/userguide/07-arrange.png)
+
+**In Discord,** run these in the **puzzle's** channel, naming the target group:
 
 - `!feeds CODE` — this puzzle **feeds** the group's meta: its *answer* contributes.
   `!feeds_only CODE` additionally clears any other feeds-tags and moves the channel into
@@ -145,6 +163,9 @@ Run these in the **puzzle's** channel, naming the target group:
   the puzzle is even solved.
 - `!groups_with CODE` — group the puzzle for tidiness without contributing to any meta.
 - `!remove_from CODE` — take the puzzle out of a group.
+
+`!informs` and `!groups_with` are Discord-only; on the dashboard, converting a meta to a
+capstone turns its feeders' tags into *informs* for you.
 
 A puzzle can feed more than one meta — tag it once per meta. The meta's roll-up sheet
 gathers whatever feeds it: answers from `feeds` tags, facts from `informs` tags.
@@ -165,12 +186,17 @@ metapuzzle, 🧩🧩 a meta whose feeders are themselves metas, 👑 a capstone,
 Plain feeders have none. New and converted targets get their glyph automatically; for a
 hunt created before this feature, an organiser can run `!backfill_glyphs` once to add them.
 
-From the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
+**On the dashboard** (organisers), in the **Arrange** view: a puzzle card's `⋮` menu has
+**Convert to meta**, **Convert to capstone**, **Convert to runaround** and **Make
+minimeta**; a group's `⋮` menu has **Change type**, **Convert to feeder (keep puzzle)…** and
+**Delete group…**.
+
+**In Discord,** from the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
 `!convert_to_runaround`, `!convert_to_group`, `!convert_to_metapuzzle`,
 `!convert_to_puzzle` — promote a feeder to a meta, turn a meta back into a plain
 puzzle, and so on. Feeders and their tags survive the conversion.
 
-Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
+Moving metas between Discord categories is Discord-only. Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
 puzzle channel) moves that meta and the puzzles that feed *only* it into a fresh Discord
 category — useful when a meta you promoted in place has outgrown the category it was
 sharing. Shared feeders and nested metas stay where they are.
@@ -185,16 +211,29 @@ up, the bot automatically extracts a promoted-in-place meta into its own categor
 you're adding to, or the fullest nested meta in the round) so puzzle creation keeps working
 instead of erroring. It only does this when it actually frees up space.
 
-Renames: `!rename_puzzle New Name` (puzzle channel) and `!rename_group New Name`
-(group's channel). Deletion (`!delete_puzzle`, `!delete_round`, `!delete_hunt`) always
-asks for confirmation — and really does delete channels and sheets.
+**Renames:** on the dashboard, click a puzzle's name at the top of its drawer, or a group's
+name in **Arrange**, then Enter or **✓** to save (Escape or **✕** cancels). In Discord, `!rename_puzzle New Name` (puzzle channel) and
+`!rename_group New Name` (group's channel).
+
+**Deleting:** on the dashboard, a puzzle from its drawer or its `⋮` menu in **Arrange**, a
+group from its `⋮` menu in **Arrange**, and a hunt from **Manage** → **Danger zone**. In
+Discord, `!delete_puzzle`, `!delete_round` and `!delete_hunt`. Either way it asks for
+confirmation — and really does delete channels and sheets.
 
 ---
 
 ## 4. Minimetas
 
 For puzzles that contain a cluster of mini-puzzles, each wanting its own sheet but not
-its own channel:
+its own channel.
+
+**On the dashboard:** an organiser makes a puzzle a minimeta from its card's `⋮` menu in
+**Arrange** (**Make minimeta**; **Remove minimeta status…** reverts it). Minimeta puzzles
+show a `MINIMETA` badge and a solved-count (e.g. `1/2`) on the board: click the puzzle's
+row to show its minis. There you add one (type in *New mini-puzzle name…* and press
+Enter), type a mini's answer and mark it solved, unsolve it, or delete it.
+
+**In Discord:**
 
 ```
 !make_minimeta          (in the puzzle's channel)
@@ -206,14 +245,16 @@ its own channel:
 !remove_minimeta        (revert to an ordinary puzzle — deletes the minis)
 ```
 
-Minimeta puzzles show a `MINIMETA` badge and a solved-count (e.g. `1/2`) on the
-dashboard.
-
 ---
 
 ## 5. Extra sheets
 
-Need a scratch sheet, a grid copy, a second workspace? From the puzzle's channel:
+Need a scratch sheet, a grid copy, a second workspace?
+
+**On the dashboard:** in the puzzle's drawer, under **Sheets**, type a name (optional) and
+click **Add**; each extra sheet is listed there with a link, and a remove button.
+
+**In Discord,** from the puzzle's channel:
 
 ```
 !add_sheet grid-copy
@@ -311,7 +352,36 @@ this feature was installed.
 
 ![All puzzles](img/userguide/04-all-puzzles.png)
 
-### The puzzle drawer
+### Reading a puzzle's chat
+
+Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
+a read-only window showing that channel's discussion right inside the dashboard, rendered
+Discord-style (avatars, replies, images, embeds and `:shortcode:` emoji). For a live hunt
+it shows the recent history and keeps updating as people talk, with an **Open in Discord**
+button to jump to the real channel. For an **archived** hunt — whose Discord channels have
+been condensed into threads or deleted — it shows the **captured transcript**, so the
+discussion stays readable on the dashboard long after the hunt is over.
+
+You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
+feature an admin turns on when deploying; until it is enabled the viewer has no history to
+show, but the **Open in Discord** button always works.
+
+### Creating from the web
+
+**New puzzle** and **New Group** buttons live top-right of every hunt board. Pick the
+meta it belongs to (or *Unassigned*) and the bot creates the Discord channel and sheet
+exactly as `!p` would.
+
+![New puzzle modal](img/userguide/09-new-puzzle-modal.png)
+
+Minimetas show up with their mini-count; click a minimeta's row to manage its minis (see
+[Minimetas](#4-minimetas)):
+
+![Minimeta board](img/userguide/10-minimeta-board.png)
+
+---
+
+## 7. The puzzle drawer
 
 Click a puzzle's notes icon to open its drawer: set status, priority and type, follow
 its links, mark it solved, add working sheets, and read or add notes — the same notes as
@@ -337,27 +407,123 @@ points at any more isn't deleted straight away — it is reclaimed later by the 
 sweep (organisers: `!media_sweep`, or the hunt's Maintenance panel), so there is a day's
 grace to put it back.
 
-### Reading a puzzle's chat
+---
 
-Every puzzle row has a **Discord icon** — click it to open the puzzle's **chat viewer**,
-a read-only window showing that channel's discussion right inside the dashboard, rendered
-Discord-style (avatars, replies, images, embeds and `:shortcode:` emoji). For a live hunt
-it shows the recent history and keeps updating as people talk, with an **Open in Discord**
-button to jump to the real channel. For an **archived** hunt — whose Discord channels have
-been condensed into threads or deleted — it shows the **captured transcript**, so the
-discussion stays readable on the dashboard long after the hunt is over.
+## 8. Evidence
 
-You still talk in Discord; the dashboard only mirrors it. Capturing messages is an opt-in
-feature an admin turns on when deploying; until it is enabled the viewer has no history to
-show, but the **Open in Discord** button always works.
+The hunt-wide clue log — everything recorded with `!clue`/`!clues`, filterable by source
+puzzle, and you can log new clues from here too. It mirrors the Evidence tab on the hunt
+spreadsheet.
 
-### Browser extension (optional)
+![Evidence](img/userguide/06-evidence.jpg)
+
+**Clues can be pictures.** When logging one, attach a file or simply **paste a
+screenshot** into the clue box — the usual way you'll capture a chunk of a puzzle. A
+clue can be an image with no text at all.
+
+- **Extract text** runs the image through text recognition and offers the result for the
+  note, so you don't retype a wall of letters. It asks before replacing anything you have
+  already typed. It is a machine reading a picture: expect to correct it.
+- Notes can run to **several lines** — Enter starts a new line, **Ctrl/⌘+Enter** logs the
+  clue. That matters because extracted text usually arrives as lines that mean something.
+- **Click a clue's thumbnail** to open it full-screen and mark it up (see below).
+- **Replace** swaps the picture while keeping the note, the target and the row's place in
+  the table — for when someone produces a clearer scan of the same thing. You can also
+  click the image cell and paste. The old picture is kept, not deleted — it stays on the
+  server until an organiser runs the maintenance sweep (`!media_sweep`, or the hunt's
+  Maintenance panel), which reclaims pictures nothing points at any more.
+
+The **Source** column says where a clue came from: a puzzle, a sheet, or a **canvas**
+region, so a clue carved off a hunt sheet still says which part of which sheet it was.
+
+---
+
+## 9. Images
+
+The dashboard holds pictures as well as text: a puzzle's own images in its drawer, clue
+pictures in Evidence, and, for hunts that hand out one huge sheet, a shared canvas to cut
+it up on.
+
+### Marking up an image
+
+Any image the dashboard holds — a clue's picture, or a puzzle's own picture in the drawer
+— can be drawn on. Click its thumbnail to open it full-screen.
+
+![Marking up an image](img/userguide/12-markup.jpg)
+
+The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter**,
+**text** and an **eraser**, plus a colour and a size. Some details worth knowing:
+
+- Hold **Shift** while drawing with the pen or highlighter to snap the stroke straight.
+- The **size** slider sets line thickness, text size, and how wide the eraser bites.
+- **Text**: click where you want it, type, then **Ctrl/⌘+Enter**.
+- **Ctrl+scroll** zooms about the pointer, and **holding Ctrl** turns any tool into a drag
+  to pan — the **Pan** button does the same without the key. **Fit** returns to the whole
+  picture.
+- The **eraser** is a circle, shown around the pointer: it takes every mark it touches, and
+  you can drag it across several. Make it bigger or smaller with the size slider.
+- **Undo** (**Ctrl/⌘+Z**) removes what you just drew, most recent first.
+- **Save** closes the image. Marks are saved as you draw them, so nothing is lost if you
+  close it another way.
+
+Keyboard shortcuts pick a tool by its position in the toolbar: **1** pen, **2** line,
+**3** arrow, **4** highlight, **5** text, **6** erase. **Tab** steps through the colours
+(**Shift+Tab** goes back), and the one you are drawing in is ringed in the toolbar — so
+you can change colour without letting go of the mouse. All of these are ignored while you
+are typing a text mark, so a "1" mid-word will not swap the tool under you, and Tab
+indents as usual. Press **Escape** to close the image.
+
+Markup is **shared and live**: two people can annotate the same image at once and each
+sees the other's marks appear. It is also purely visual — a circle round an answer is not
+a clue, and never turns into one. Marks belong to the image you drew them on, so ink on a
+clue's picture does not appear on the puzzle's picture, even when the two came from the
+same sheet.
+
+### Canvas
+
+Some hunts hand you one enormous image — an extravaganza sheet with forty puzzles printed
+on it — rather than a puzzle per page. The **Canvas** view is for those.
+
+The view is **off for new hunts**, since most hunts never need it. An organiser turns it
+on from the hunt's **Manage** tab (**Canvas view** switch, under **Advanced**) or with `!canvas on` in a hunt
+channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
+kept and come back when it is turned on.
+
+An organiser uploads the image, and then anyone on the team can draw boxes round the
+puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
+sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
+
+![Canvas](img/userguide/11-canvas.jpg)
+
+Click **Draw a region** and drag a box round something. You are then asked what it is:
+
+- **this section is the puzzle** — the box *is* a puzzle. Its picture appears on that
+  puzzle in the drawer, ready to work on.
+- **this is a clue for a puzzle** — the box is evidence about some puzzle elsewhere. It
+  becomes a row in the Evidence log, carrying the cropped picture with it.
+- **no puzzle** — just a box for now. Perfectly reasonable while you are still working
+  out what is on the sheet.
+
+You can also **create a new puzzle straight from a box**, naming it and choosing its round
+in one go; the bot makes the channel and the sheet as usual. **Extract text** works here
+too, reading whatever is inside the box.
+
+Boxes are tinted by their puzzle's status, so a glance at the sheet shows what is solved,
+in progress, stuck, or not started. Hovering a box lights up every other box belonging to
+the same puzzle, and the toolbar's puzzle picker pins that highlight while you hunt around
+a busy sheet for the rest of it. Boxes are shared: everyone sees them as they are drawn.
+
+In Discord, `!canvas` links to this view and lists the hunt's canvases (or says the view is off).
+
+---
+
+## 10. Browser extension
 
 The Puzzle Chat extension puts a puzzle's Discord channel beside its Google Sheet (or its hunt
 page), so you can read and answer chat without switching windows. It works in **Chrome**, as a
 side panel, and in **Firefox** 140 or later on the desktop, as a sidebar.
 
-#### Installing
+### Installing
 
 - **Chrome:** install it from the
   [Chrome Web Store](https://chromewebstore.google.com/detail/jadkkcgfeaadaobdmcgcafikblnkiand).
@@ -382,7 +548,7 @@ To recognise puzzle sheets, the extension sends the id of each Google Sheet you 
 dashboard. If every tab says "not a puzzle" (most likely in Firefox), open the extension's
 Options and click **Allow access to Google Sheets**.
 
-#### Using it
+### Using it
 
 - **Open the panel:** click the extension's toolbar button. Once open (and pinned, in
   Chrome) it follows your active tab: a puzzle sheet shows its chat, and a tab that isn't a
@@ -430,113 +596,16 @@ Options and click **Allow access to Google Sheets**.
   the existing tab and closes the duplicate (unless it is the only tab in its window).
 - **Tabs-mode hunts:** only the chat panel applies; it follows the sheet tab you are on.
 
-### Evidence
+---
 
-The hunt-wide clue log — everything recorded with `!clue`/`!clues`, filterable by source
-puzzle, and you can log new clues from here too. It mirrors the Evidence tab on the hunt
-spreadsheet.
-
-![Evidence](img/userguide/06-evidence.jpg)
-
-**Clues can be pictures.** When logging one, attach a file or simply **paste a
-screenshot** into the clue box — the usual way you'll capture a chunk of a puzzle. A
-clue can be an image with no text at all.
-
-- **Extract text** runs the image through text recognition and offers the result for the
-  note, so you don't retype a wall of letters. It asks before replacing anything you have
-  already typed. It is a machine reading a picture: expect to correct it.
-- Notes can run to **several lines** — Enter starts a new line, **Ctrl/⌘+Enter** logs the
-  clue. That matters because extracted text usually arrives as lines that mean something.
-- **Click a clue's thumbnail** to open it full-screen and mark it up (see below).
-- **Replace** swaps the picture while keeping the note, the target and the row's place in
-  the table — for when someone produces a clearer scan of the same thing. You can also
-  click the image cell and paste. The old picture is kept, not deleted — it stays on the
-  server until an organiser runs the maintenance sweep (`!media_sweep`, or the hunt's
-  Maintenance panel), which reclaims pictures nothing points at any more.
-
-The **Source** column says where a clue came from: a puzzle, a sheet, or a **canvas**
-region, so a clue carved off a hunt sheet still says which part of which sheet it was.
-
-### Canvas
-
-Some hunts hand you one enormous image — an extravaganza sheet with forty puzzles printed
-on it — rather than a puzzle per page. The **Canvas** view is for those.
-
-The view is **off for new hunts**, since most hunts never need it. An organiser turns it
-on from the hunt's **Manage** tab (**Canvas view** switch, under **Advanced**) or with `!canvas on` in a hunt
-channel, and off again with `!canvas off`. Turning it off hides the tab; any canvases are
-kept and come back when it is turned on.
-
-An organiser uploads the image, and then anyone on the team can draw boxes round the
-puzzles on it. Pan by dragging, zoom with **Ctrl+scroll** or the zoom buttons; large
-sheets are served in tiles, so a 14,000-pixel-wide sheet stays usable.
-
-![Canvas](img/userguide/11-canvas.jpg)
-
-Click **Draw a region** and drag a box round something. You are then asked what it is:
-
-- **this section is the puzzle** — the box *is* a puzzle. Its picture appears on that
-  puzzle in the drawer, ready to work on.
-- **this is a clue for a puzzle** — the box is evidence about some puzzle elsewhere. It
-  becomes a row in the Evidence log, carrying the cropped picture with it.
-- **no puzzle** — just a box for now. Perfectly reasonable while you are still working
-  out what is on the sheet.
-
-You can also **create a new puzzle straight from a box**, naming it and choosing its round
-in one go; the bot makes the channel and the sheet as usual. **Extract text** works here
-too, reading whatever is inside the box.
-
-Boxes are tinted by their puzzle's status, so a glance at the sheet shows what is solved,
-in progress, stuck, or not started. Hovering a box lights up every other box belonging to
-the same puzzle, and the toolbar's puzzle picker pins that highlight while you hunt around
-a busy sheet for the rest of it. Boxes are shared: everyone sees them as they are drawn.
-
-In Discord, `!canvas` links to this view and lists the hunt's canvases (or says the view is off).
-
-### Marking up an image
-
-Any image the dashboard holds — a clue's picture, or a puzzle's own picture in the drawer
-— can be drawn on. Click its thumbnail to open it full-screen.
-
-![Marking up an image](img/userguide/12-markup.jpg)
-
-The tools are what you would expect: **pen**, **line**, **arrow**, **highlighter**,
-**text** and an **eraser**, plus a colour and a size. Some details worth knowing:
-
-- Hold **Shift** while drawing with the pen or highlighter to snap the stroke straight.
-- The **size** slider sets line thickness, text size, and how wide the eraser bites.
-- **Text**: click where you want it, type, then **Ctrl/⌘+Enter**.
-- **Ctrl+scroll** zooms about the pointer, and **holding Ctrl** turns any tool into a drag
-  to pan — the **Pan** button does the same without the key. **Fit** returns to the whole
-  picture.
-- The **eraser** is a circle, shown around the pointer: it takes every mark it touches, and
-  you can drag it across several. Make it bigger or smaller with the size slider.
-- **Undo** (**Ctrl/⌘+Z**) removes what you just drew, most recent first.
-- **Save** closes the image. Marks are saved as you draw them, so nothing is lost if you
-  close it another way.
-
-Keyboard shortcuts pick a tool by its position in the toolbar: **1** pen, **2** line,
-**3** arrow, **4** highlight, **5** text, **6** erase. **Tab** steps through the colours
-(**Shift+Tab** goes back), and the one you are drawing in is ringed in the toolbar — so
-you can change colour without letting go of the mouse. All of these are ignored while you
-are typing a text mark, so a "1" mid-word will not swap the tool under you, and Tab
-indents as usual. Press **Escape** to close the image.
-
-Markup is **shared and live**: two people can annotate the same image at once and each
-sees the other's marks appear. It is also purely visual — a circle round an answer is not
-a clue, and never turns into one. Marks belong to the image you drew them on, so ink on a
-clue's picture does not appear on the puzzle's picture, even when the two came from the
-same sheet.
+## 11. For organisers and admins
 
 ### Arrange (organisers)
 
-A drag board for re-organising the hunt: drag a puzzle card onto a group to re-tag it
-(its Discord channel moves too), or onto **Unassigned Feeders** to untag it. The `⋮`
-menu on each card adds a puzzle to an *additional* group — that's how one puzzle feeds
-two metas. Click a group's name to rename it, then Enter or **✓** to save, Escape or **✕**
-to cancel.
-
-![Arrange](img/userguide/07-arrange.png)
+The **Arrange** view is the organisers' drag board for re-organising a hunt. What you can
+do in it (tagging puzzles into groups, converting them, renaming and deleting groups) is
+covered with the matching Discord commands in
+[3. Rounds, metas and groups](#3-rounds-metas-and-groups).
 
 ### Manage (organisers/admins)
 
@@ -557,22 +626,7 @@ Organisers who aren't admins see only the Canvas switch and Maintenance.
 
 ![Manage](img/userguide/08-manage.png)
 
-### Creating from the web
-
-**New puzzle** and **New Group** buttons live top-right of every hunt board. Pick the
-meta it belongs to (or *Unassigned*) and the bot creates the Discord channel and sheet
-exactly as `!p` would.
-
-![New puzzle modal](img/userguide/09-new-puzzle-modal.png)
-
-Minimetas show up with their mini-count, and their minis are managed from the puzzle's
-drawer:
-
-![Minimeta board](img/userguide/10-minimeta-board.png)
-
----
-
-## 7. For organisers and admins
+### Setting up and running hunts
 
 The full [command reference](commands.md) lists every command; highlights:
 

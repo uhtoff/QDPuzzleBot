@@ -263,6 +263,22 @@ writeFileSync(
   JSON.stringify(searchEntries(pages).map((e) => ({ ...e, title: plainTitle(e.title), section: plainTitle(e.section) }))),
 );
 
+// Headings that became numbered sections when the guide was regrouped: old #links to
+// them still land in the right place.
+const RENAMED_IDS = {
+  "the-puzzle-drawer": "7-the-puzzle-drawer",
+  evidence: "8-evidence",
+  "browser-extension-optional": "10-browser-extension",
+  "7-for-organisers-and-admins": "11-for-organisers-and-admins",
+};
+// Only an id no heading still uses is forwarded (a later heading may reuse the old name).
+const renamedIds = Object.fromEntries(
+  Object.entries(RENAMED_IDS).filter(([oldId, newId]) => {
+    if (!pageOf.has(newId)) throw new Error(`build-guide: RENAMED_IDS target #${newId} no longer exists`);
+    return !pageOf.has(oldId);
+  }),
+);
+
 // /guide.html: old links (and bookmarks) forward to the page holding their #anchor.
 writeFileSync(
   join(outDir, "guide.html"),
@@ -275,7 +291,9 @@ writeFileSync(
 (() => {
   const pageOf = ${JSON.stringify(Object.fromEntries(pageOf))};
   const id = decodeURIComponent(location.hash.slice(1));
-  location.replace("guide/" + (pageOf[id] ? pageOf[id] + ".html#" + encodeURIComponent(id) : "index.html"));
+  const renamed = ${JSON.stringify(renamedIds)};
+  const target = renamed[id] ?? id;
+  location.replace("guide/" + (pageOf[target] ? pageOf[target] + ".html#" + encodeURIComponent(target) : "index.html"));
 })();
 </script>
 <noscript><meta http-equiv="refresh" content="0; url=guide/index.html"></noscript>
