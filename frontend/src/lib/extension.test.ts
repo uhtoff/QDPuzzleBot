@@ -143,6 +143,15 @@ describe("extension bridge", () => {
       expect(postMessage).not.toHaveBeenCalled();
     });
 
+    it("leaves the link alone when the extension would refuse the URLs", () => {
+      equipped();
+      expect(openPageViaExtension(click().ev, "https://evil.test/spreadsheets/d/s", PAGE)).toBe(false);
+      expect(openPageViaExtension(click().ev, "http://docs.google.com/spreadsheets/d/s", PAGE)).toBe(false);
+      expect(openPageViaExtension(click().ev, SHEET, "javascript:alert(1)")).toBe(false);
+      expect(openPageViaExtension(click().ev, SHEET, "not a url")).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+
     it("leaves the link alone without a sheet, or for a copy that cannot open pages", () => {
       equipped();
       expect(openPageViaExtension(click().ev, null, PAGE)).toBe(false);

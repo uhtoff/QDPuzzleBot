@@ -44,6 +44,25 @@ export function closeSolved(): void {
   send("closeSolved", {});
 }
 
+// The same URL checks the extension applies to openPage (extension/src/lib/actions.js), so
+// a link is only routed when the extension will act on it, never swallowed.
+function acceptedUrls(sheetUrl: string, puzzleUrl: string): boolean {
+  try {
+    const sheet = new URL(sheetUrl);
+    const page = new URL(puzzleUrl);
+    return (
+      sheet.protocol === "https:" &&
+      sheet.hostname === "docs.google.com" &&
+      /^\/spreadsheets\/d\/[^/]+/.test(sheet.pathname) &&
+      sheetUrl.length <= 2048 &&
+      (page.protocol === "https:" || page.protocol === "http:") &&
+      puzzleUrl.length <= 2048
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** The "Puzzle page" link: a plain left click goes through the extension when it can
  *  open pages, so it remembers the tab (its chat shows beside it, Close solved closes it).
  *  Modified or middle clicks, no sheet, or an older extension: returns false and the
@@ -54,7 +73,7 @@ export function openPageViaExtension(
   puzzleUrl: string,
 ): boolean {
   if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
-  if (!sheetUrl || !extensionSupports("openPage")) return false;
+  if (!sheetUrl || !extensionSupports("openPage") || !acceptedUrls(sheetUrl, puzzleUrl)) return false;
   event.preventDefault();
   send("openPage", { sheetUrl, puzzleUrl });
   return true;
