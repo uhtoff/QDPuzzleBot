@@ -21,28 +21,43 @@ use whichever is closer to hand.
 
 ## 1. The basics — a puzzle's life
 
+Everything here can be done on the dashboard or in Discord; each step shows the dashboard
+way first, then the Discord command. Section 6 tours the dashboard in detail.
+
 ### Where things live
 
-Each hunt is a set of Discord categories: one per round (or "group"), plus a `solved`
-area. Every puzzle gets **its own text channel** and **its own sheet tab**. The channel's
-pinned info message links to the puzzle page, the sheet tab, and shows the current
-status — if the pin gets stale, `!info` refreshes it.
+- **The dashboard** shows the whole hunt at a glance: every puzzle, its round, status and
+  answer, with buttons to create, edit and solve puzzles.
+- **Discord:** each hunt is a set of categories, one per round (or "group"), plus a
+  `solved` area. Every puzzle gets **its own text channel**, whose pinned info message
+  links to the puzzle page and its sheet and shows its status (`!info` refreshes a stale
+  pin).
+- **Google Sheets:** every puzzle gets a sheet: its own tab in the hunt's spreadsheet, or
+  in [files mode](#files-mode-one-spreadsheet-per-puzzle) its own spreadsheet.
 
 ### Creating a puzzle
 
-In the hunt's main channel or a round channel:
+**On the dashboard:** click **New puzzle** at the top right of the hunt board, name it, and
+pick the round or meta it belongs to (or *Unassigned*).
+
+**In Discord:** in the hunt's main channel or a round channel:
 
 ```
 !p Puzzle Name
 ```
 
-The bot creates the channel, makes the sheet tab, and posts a welcome message with all
-the links. If you create it in a round channel, the puzzle lands in that round.
+Either way the bot creates the channel and the sheet and posts a welcome message with all
+the links. A puzzle created in a round channel lands in that round.
 
 ### Telling the bot where the puzzle is
 
-If the guessed puzzle URL is wrong (it usually guesses from the hunt URL and puzzle
-name), fix it from the puzzle's channel:
+The bot guesses the puzzle's page from the hunt URL and the puzzle name. If the guess is
+wrong:
+
+**On the dashboard:** open the puzzle's drawer (its notes icon), click the link next to
+**Link** (or *set link*), paste the right address and save.
+
+**In Discord:** from the puzzle's channel:
 
 ```
 !link https://hunt.example/puzzles/actual-page
@@ -50,19 +65,21 @@ name), fix it from the puzzle's channel:
 
 ### Solving
 
-All from the puzzle's own channel:
+**On the dashboard,** click the green **✓** (*Mark solved*) on the puzzle's row, or
+**Mark solved** in its drawer, to open the solve window. **In Discord,** use the commands
+from the puzzle's own channel.
 
-| You want to… | Command |
-|---|---|
-| Record the answer | `!s ANSWER` (alias of `!solve`) |
-| Record a partial/intermediate answer | `!partial ANSWER` |
-| Mark solved when there's no text answer | `!mark_as_complete` |
-| Add a second valid answer | `!add_solution ANSWER` |
-| Replace a wrong recorded answer | `!change_solution ANSWER` |
-| Undo a solve | `!unsolve` |
+| You want to… | On the dashboard (solve window) | In Discord |
+|---|---|---|
+| Record the answer | type it under **Answer**, then **Solve** | `!s ANSWER` (alias of `!solve`) |
+| Record a partial/intermediate answer | **Advanced** → **Mark partial** | `!partial ANSWER` |
+| Mark solved when there's no text answer | **Advanced** → **Mark complete (no answer)** | `!mark_as_complete` |
+| Add a second valid answer | on a solved puzzle, **Advanced** → **Add solution** | `!add_solution ANSWER` |
+| Replace a wrong recorded answer | on a solved puzzle, **Advanced** → **Change solution** | `!change_solution ANSWER` |
+| Undo a solve | on a solved puzzle, **Mark unsolved** | `!unsolve` |
 
-On `!s` the bot records the answer, updates the sheet, celebrates in channel, and moves
-the channel to the solved section (and, if the hunt uses a separate solved-puzzles
+When a puzzle is solved (either way), the bot records the answer, updates the sheet,
+celebrates in channel, and moves the channel to the solved section (and, if the hunt uses a separate solved-puzzles
 spreadsheet, moves the tab there). Solved feeder answers appear automatically on their
 meta's roll-up.
 
