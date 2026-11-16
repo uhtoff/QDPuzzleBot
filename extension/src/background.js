@@ -14,7 +14,7 @@ import { createUnread, badgeText } from "./lib/unread.js";
 import { validateAction, isNewArrival } from "./lib/actions.js";
 import { panelWindow } from "./lib/panelWindow.js";
 import { groupMove } from "./lib/groupMove.js";
-import { pickColour, findRoundGroup } from "./lib/groupColour.js";
+import { pickColour, findRoundGroup, findPuzzleGroup } from "./lib/groupColour.js";
 import { needsSocket } from "./lib/connection.js";
 import { createPanelHost } from "./lib/panelHost.js";
 import { apiGet, getOrigin } from "./api.js";
@@ -479,7 +479,9 @@ async function openTabs(urls, windowId, onPageTab) {
   return tabIds;
 }
 
-async function groupTabs(name, tabIds, windowId) {
+// `reuse`: add to an open group with this title (rounds). Puzzles pass false: their group
+// was already looked for by identity (findPuzzleGroup), so a same-named group is someone else's.
+async function groupTabs(name, tabIds, windowId, reuse = true) {
   if (!tabIds.length) return;
   const key = name.trim().toLowerCase();
   const readStored = async () => (await chrome.storage.local.get("groupColours").catch(() => ({}))).groupColours ?? {};
@@ -489,7 +491,7 @@ async function groupTabs(name, tabIds, windowId) {
   };
   const stored = await readStored();
   const groups = await chrome.tabGroups.query({ windowId }).catch(() => []);
-  const existingGroup = findRoundGroup(name, groups);
+  const existingGroup = reuse ? findRoundGroup(name, groups) : null;
   // On any failure (pinned tab, vanished group) the tabs stay open, ungrouped.
   try {
     if (existingGroup) {
@@ -513,25 +515,32 @@ async function openRound(name, urls, senderTab) {
 }
 
 // An individual puzzle: its sheet plus the puzzle page from the hunt, in a
-// group named after the puzzle. A second click focuses that group instead of
-// creating duplicate tabs (unlike openRound, the non-sheet page cannot be
-// matched to an existing tab).
+// group named after the puzzle. A second click focuses that puzzle's own group
+// (one holding its sheet or remembered page, not just any group with its name)
+// instead of creating duplicate tabs.
 async function openPuzzle(name, urls, senderTab) {
   const windowId = senderTab.windowId;
+  const want = parseSheetUrl(urls[0]); // validated sheet URL
   const groups = await chrome.tabGroups.query({ windowId }).catch(() => []);
-  const existing = findRoundGroup(name, groups);
+  // Only same-named groups can be this puzzle's; learn which puzzles their tabs hold.
+  const tabsOf = new Map();
+  for (const g of groups) {
+    if (!findRoundGroup(name, [g])) continue;
+    const tabs = await chrome.tabs.query({ groupId: g.id }).catch(() => []);
+    tabsOf.set(g.id, tabs.map((t) => registry.get(t.id) ?? pageTabs.get(t.id)).filter(Boolean));
+  }
+  const existing = findPuzzleGroup(name, groups, tabsOf, want);
   if (existing) {
     const tabs = await chrome.tabs.query({ groupId: existing.id }).catch(() => []);
     if (tabs[0]) await focusTab(tabs[0]);
     return;
   }
-  // Remember the page against its sheet (urls[0], validated) so Close solved can close it.
-  const sheet = parseSheetUrl(urls[0]);
+  // Remember the page against its sheet so its chat shows and Close solved can close it.
   const tabIds = await openTabs(urls, windowId, (id) => {
-    if (sheet) pageTabs.add(id, sheet);
+    if (want) pageTabs.add(id, want);
     persist();
   });
-  await groupTabs(name, tabIds, windowId);
+  await groupTabs(name, tabIds, windowId, false);
 }
 
 // The dashboard's "Puzzle page" link, routed through the extension: open the page as a

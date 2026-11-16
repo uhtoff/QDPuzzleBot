@@ -24,7 +24,7 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
       <Stack gap="md">
         <Title order={1}>Privacy policy</Title>
         <Text c="dimmed" size="sm">
-          Last updated: 7 November 2026
+          Last updated: 16 November 2026
         </Text>
 
         <Title order={3}>Who runs this</Title>
@@ -88,8 +88,10 @@ export function PrivacyPolicy({ site }: { site: SiteInfo }) {
           <List.Item>
             It can open a hunt&apos;s sheets and puzzle pages, gather them into named tab
             groups, and close the tabs of solved puzzles, only when you click the
-            dashboard&apos;s buttons or links. It never reads the address or content of hunt
-            pages.
+            dashboard&apos;s buttons or links. When you click a puzzle page link, it receives
+            that page&apos;s address from the dashboard only to open the tab. It has no access
+            to hunt websites, so it cannot read hunt pages&apos; addresses or content
+            afterwards.
           </List.Item>
           <List.Item>It loads avatars and custom emoji images from Discord&apos;s CDN.</List.Item>
           <List.Item>

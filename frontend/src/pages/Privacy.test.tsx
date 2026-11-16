@@ -16,7 +16,7 @@ describe("PrivacyPolicy", () => {
     const html = render({ name: "QD Puzzbot", contact: "ops@example.test", test_instance: false });
     expect(html).toContain("QD Puzzbot");
     expect(html).toContain("ops@example.test");
-    expect(html).toContain("Last updated: 7 November 2026");
+    expect(html).toContain("Last updated: 16 November 2026");
     expect(html).not.toContain("RETENTION PERIOD");
     expect(html).toContain("deleted once they are 30 days old");
     expect(html).toContain("web-server logs follow the same 30-day rule");
@@ -24,7 +24,8 @@ describe("PrivacyPolicy", () => {
     expect(html).toContain("only unread counts are kept in the browser&#x27;s session storage");
     expect(html).toContain("kept with the hunt");
     expect(html).toContain("in the browser&#x27;s local storage");
-    expect(html).toContain("It never reads the address or content of hunt pages");
+    expect(html).toContain("only to open the tab. It has no access to hunt websites");
+    expect(html).not.toContain("never reads the address");
     expect(html).toContain("only when you click the dashboard&#x27;s buttons");
   });
 
