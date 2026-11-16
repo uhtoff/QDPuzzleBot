@@ -57,7 +57,7 @@ export function AppShellLayout({ user, children }: { user: User; children: React
             <UnstyledButton component={Link} to="/">
               <Title order={4}>🧩 Puzzle Dashboard</Title>
             </UnstyledButton>
-            <Anchor href="/guide.html" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">
+            <Anchor href="/guide/index.html" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">
               User guide
             </Anchor>
             <Anchor href="/privacy" target="_blank" rel="noopener" size="sm" c="dimmed" visibleFrom="sm">

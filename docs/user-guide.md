@@ -15,8 +15,9 @@ You can do almost everything from the dashboard in your browser, or with `!` cha
 in Discord (most also work as `/` slash commands). Both do the same thing underneath, so
 use whichever is closer to hand; this guide shows the dashboard way first.
 
-> **Getting help in Discord:** `!help` lists every command; `!help solve` (or any command
-> name) shows its usage and examples.
+> **Getting help:** this guide is a click away on the dashboard (**User guide**, at the top
+> of every page). In Discord, `!help` lists every command, and `!help solve` (or any
+> command name) shows its usage and examples.
 
 ---
 
