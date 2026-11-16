@@ -217,7 +217,7 @@ async function lookup(tabId, parsed, windowId, page = false) {
     persist();
     return true;
   }
-  if (cacheValid(registry.get(tabId), parsed)) {
+  if (cacheValid(registry.get(tabId), parsed, page)) {
     if (registry.setWindow(tabId, windowId)) persist();
     return true;
   }
@@ -545,7 +545,7 @@ async function openPage(sheetUrl, puzzleUrl, senderTab) {
   if (!created || !sheet) return;
   pageTabs.add(created.id, sheet);
   persist();
-  refreshTab(created);
+  refreshTab(created).catch(() => {});
 }
 
 // Re-ask the server about every registered tab (cached solved flags go stale)

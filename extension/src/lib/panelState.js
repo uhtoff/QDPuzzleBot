@@ -1,8 +1,16 @@
 import { parseSheetUrl } from "./sheetUrl.js";
 
-// Is the cached registry entry still the answer for this URL?
-export function cacheValid(entry, parsed) {
-  return !!entry && !!parsed && entry.spreadsheetId === parsed.spreadsheetId && (entry.gid ?? null) === (parsed.gid ?? null);
+// Is the cached registry entry still the answer for this URL? `page`: the tab is a hunt
+// page the extension opened (looked up by its remembered sheet), not the sheet itself; an
+// entry of the other kind is a different answer even for the same sheet.
+export function cacheValid(entry, parsed, page = false) {
+  return (
+    !!entry &&
+    !!parsed &&
+    !!entry.page === page &&
+    entry.spreadsheetId === parsed.spreadsheetId &&
+    (entry.gid ?? null) === (parsed.gid ?? null)
+  );
 }
 
 // Does this URL need a fresh lookup (vs the cached registry entry)? A sheet URL
