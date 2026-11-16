@@ -122,7 +122,13 @@ def _register_spa(app):
         if any(seg.startswith(".") for seg in segments):
             abort(404)
         if os.path.isfile(os.path.join(dist_dir, path)):
-            return await send_from_directory(dist_dir, path)
+            resp = await send_from_directory(dist_dir, path)
+            # Unhashed pages and data (the user guide, its search index, the Firefox
+            # update manifest) change in place on each deploy, so browsers must
+            # revalidate them; hashed assets keep normal caching.
+            if path.endswith((".html", ".json")):
+                resp.headers["Cache-Control"] = "no-cache"
+            return resp
         # A path with a file extension that isn't a real file is a miss, not a
         # client route (a stale hashed asset, wp-login.php, …).
         if "." in segments[-1]:
