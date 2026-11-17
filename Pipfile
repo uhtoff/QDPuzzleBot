@@ -37,6 +37,9 @@ pillow = "==13.0.0"
 # Transitive (google-auth -> pyasn1-modules -> pyasn1), pinned exactly here for
 # the 2026-11 decoder DoS advisories (fixed in 0.6.5) so a relock cannot fall back.
 pyasn1 = "==0.6.5"
+# Transitive (google-api-core -> opentelemetry-api), pinned exactly here for
+# CVE-2026-126360 (fixed in 1.45.2) so a relock cannot fall back.
+opentelemetry-api = "==1.45.2"
 
 [requires]
 python_version = "3.12"
