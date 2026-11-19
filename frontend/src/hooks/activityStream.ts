@@ -21,7 +21,26 @@ let failedAttempts = 0;
 function connect() {
   reconnectTimer = null;
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${window.location.host}/api/ws/activity`);
+  // Guard construction: in HTTPS-proxied or sandboxed preview iframes (where
+  // location.protocol may be shimmed to http: or WebSockets disallowed),
+  // `new WebSocket()` throws synchronously. Try wss:// once if ws:// was
+  // refused, otherwise degrade gracefully so the board still renders on its
+  // 30s polling interval rather than crashing into ErrorBoundary.
+  try {
+    ws = new WebSocket(`${proto}://${window.location.host}/api/ws/activity`);
+  } catch {
+    if (proto === "ws") {
+      try {
+        ws = new WebSocket(`wss://${window.location.host}/api/ws/activity`);
+      } catch {
+        ws = null;
+        return;
+      }
+    } else {
+      ws = null;
+      return;
+    }
+  }
   ws.onopen = () => { failedAttempts = 0; };
   ws.onmessage = (msg) => {
     let ev: ActivityEvent;

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
   Accordion,
   Anchor,
   Badge,
+  Box,
   Button,
   Center,
   Group,
@@ -14,6 +15,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { Link, useParams } from "react-router-dom";
 import { IconArrowLeft, IconBrowserX } from "@tabler/icons-react";
 import { useHunt } from "../api";
@@ -28,6 +30,8 @@ import { PuzzleTable } from "../components/PuzzleTable";
 import { DragBoard } from "../components/DragBoard";
 import { CreateControls } from "../components/CreateControls";
 import { PuzzleDrawer } from "../components/PuzzleDrawer";
+import { ChatViewer } from "../components/ChatViewer";
+import { SolveModal } from "../components/PuzzleEditCells";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { CanvasPanel } from "../components/CanvasPanel";
 import { CanvasTogglePanel } from "../components/CanvasTogglePanel";
@@ -38,11 +42,124 @@ import { AdminSettingsPanel } from "../components/AdminSettingsPanel";
 import { VoiceBadge } from "../components/VoiceBadge";
 import { GateHuntPanel } from "../components/GateHuntPanel";
 import { ManageSection } from "../components/ManageSection";
-import { useActivityFeed } from "../hooks/useActivityFeed";
+import { useActivityFeed, type LiveActivity } from "../hooks/useActivityFeed";
 import { useVoiceFeed } from "../hooks/useVoiceFeed";
-import { huntVoiceCount } from "../lib/voice";
+import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
-import type { Puzzle } from "../types";
+import type { HuntDetail, Puzzle } from "../types";
+import "./HuntBoard.css";
+
+interface BoardByGroupViewProps {
+  data: HuntDetail;
+  allPuzzles: Puzzle[];
+  filter: PuzzleFilter;
+  onChangeFilter: (next: PuzzleFilter) => void;
+  openGroups: string[] | null;
+  onOpenGroupsChange: (next: string[]) => void;
+  live: Record<string, LiveActivity>;
+  voice: LiveVoice;
+  isNarrow: boolean;
+  onSolve: (puzzle: Puzzle) => void;
+  onOpenNotes: (puzzle: Puzzle) => void;
+  onOpenChat: (puzzle: Puzzle) => void;
+}
+
+const BoardByGroupView = memo(function BoardByGroupView({
+  data,
+  allPuzzles,
+  filter,
+  onChangeFilter,
+  openGroups,
+  onOpenGroupsChange,
+  live,
+  voice,
+  isNarrow,
+  onSolve,
+  onOpenNotes,
+  onOpenChat,
+}: BoardByGroupViewProps) {
+  // Bare groups (no puzzles) are drop targets for the Arrange view only —
+  // hide them from the board summary so it isn't cluttered with empties.
+  // Arrange keeps Unassigned Feeders far left; the By-group summary instead
+  // places it below unsolved targets and plain groups but above solved
+  // targets (which sink to the bottom).
+  const { filtering, rowsByGroup, shownCount, boardGroups, defaultOpen } = useMemo(() => {
+    const isFiltering = filterActive(filter);
+    // While filtering, each group's own rows (see boardGroupRows): a group matching by
+    // name shows everything; otherwise puzzles match on their own name or answer.
+    const rowsMap = new Map(
+      data.board.map((g) => [g.tag_group_id, boardGroupRows(g.name, g.puzzles, filter)]),
+    );
+    const withPuzzles = data.board.filter((g) => (rowsMap.get(g.tag_group_id) ?? []).length > 0);
+    const count = new Set(
+      withPuzzles.flatMap((g) => (rowsMap.get(g.tag_group_id) ?? []).map((p) => p.id)),
+    ).size;
+    const unassigned = withPuzzles.filter((g) => g.tag_group_id === 0);
+    const rest = withPuzzles.filter((g) => g.tag_group_id !== 0);
+    const firstSolved = rest.findIndex((g) => g.target_solved);
+    const at = firstSolved === -1 ? rest.length : firstSolved;
+    const ordered = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
+    // Filtering opens every group with a match, solved ones included.
+    const defOpen = ordered
+      .filter((g) => isFiltering || !g.target_solved)
+      .map((g) => String(g.tag_group_id));
+    return {
+      filtering: isFiltering,
+      rowsByGroup: rowsMap,
+      shownCount: count,
+      boardGroups: ordered,
+      defaultOpen: defOpen,
+    };
+  }, [data.board, filter]);
+
+  const effectiveOpen = openGroups ?? defaultOpen;
+  const openSet = useMemo(() => new Set(effectiveOpen), [effectiveOpen]);
+
+  return (
+    <Stack gap="xs">
+      <PuzzleFilterBar
+        puzzles={allPuzzles}
+        filter={filter}
+        onChange={onChangeFilter}
+        shown={filtering ? shownCount : allPuzzles.length}
+        total={allPuzzles.length}
+      />
+      {filtering && boardGroups.length === 0 && (
+        <Text c="dimmed" size="sm">No puzzles match.</Text>
+      )}
+      <Group justify="flex-end">
+        <Anchor component="button" type="button" size="sm" onClick={() => onOpenGroupsChange([])}>
+          Collapse all
+        </Anchor>
+      </Group>
+      <Accordion
+        variant="separated"
+        multiple
+        value={effectiveOpen}
+        onChange={onOpenGroupsChange}
+      >
+        {boardGroups.map((g) => {
+          const idStr = String(g.tag_group_id);
+          return (
+            <BoardGroup
+              key={g.tag_group_id}
+              group={g}
+              detail={data}
+              live={live}
+              voice={voice}
+              isOpen={openSet.has(idStr)}
+              isNarrow={isNarrow}
+              onSolve={onSolve}
+              onOpenNotes={onOpenNotes}
+              onOpenChat={onOpenChat}
+              rows={filtering ? rowsByGroup.get(g.tag_group_id) : undefined}
+            />
+          );
+        })}
+      </Accordion>
+    </Stack>
+  );
+});
 
 export default function HuntBoard() {
   const { uid } = useParams();
@@ -66,9 +183,20 @@ export default function HuntBoard() {
     }
   });
   const voice = useVoiceFeed();
-  const [view, setView] = useState<BoardView>("board");
+  // Separate immediate selection (so the SegmentedControl responds on frame 1)
+  // from the transition-deferred panel switch, and keep visited puzzle-board
+  // tabs mounted so switching back is an instant CSS toggle.
+  const [selectedView, setSelectedView] = useState<BoardView>("board");
+  const [renderedView, setRenderedView] = useState<BoardView>("board");
+  const [visitedViews, setVisitedViews] = useState<Set<BoardView>>(() => new Set(["board"]));
+  const [isPending, startTransition] = useTransition();
+
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
+  const [chatPuzzleId, setChatPuzzleId] = useState<number | null>(null);
+  const [solvePuzzleId, setSolvePuzzleId] = useState<number | null>(null);
   const [openGroups, setOpenGroups] = useState<string[] | null>(null);
+  const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
+
   // One filter for both "By group" and "All puzzles", so it survives switching views.
   // Its settings (not the search) are remembered per hunt in this browser.
   const [filter, setFilter] = useState<PuzzleFilter>(() => loadFilter(uid));
@@ -76,18 +204,36 @@ export default function HuntBoard() {
   useEffect(() => {
     setFilter(loadFilter(uid));
     setOpenGroups(null);
+    setVisitedViews(new Set(["board"]));
+    setSelectedView("board");
+    setRenderedView("board");
   }, [uid]);
+
+  const switchView = useCallback((next: BoardView) => {
+    setSelectedView(next);
+    startTransition(() => {
+      setRenderedView(next);
+      setVisitedViews((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+    });
+  }, []);
+
   // Saved here, in the setter, not in an effect on `filter`: an effect would
   // write the previous hunt's filter under the new hunt's key on a switch.
-  const updateFilter = (next: PuzzleFilter) => {
-    setFilter(next);
-    saveFilter(uid, next);
-  };
+  const updateFilter = useCallback(
+    (next: PuzzleFilter) => {
+      setFilter(next);
+      saveFilter(uid, next);
+    },
+    [uid],
+  );
   // A changed filter re-opens every group that still has matches.
-  const changeFilter = (next: PuzzleFilter) => {
-    updateFilter(next);
-    setOpenGroups(null);
-  };
+  const changeFilter = useCallback(
+    (next: PuzzleFilter) => {
+      updateFilter(next);
+      setOpenGroups(null);
+    },
+    [updateFilter],
+  );
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
   const allPuzzles = useMemo(() => {
@@ -97,6 +243,17 @@ export default function HuntBoard() {
     return Array.from(seen.values());
   }, [rawData]);
 
+  // Apply the Admin "view as" ceiling: overriding can_manage/can_administer here
+  // cascades to every gated child, since they all read detail.hunt.{can_manage,can_administer}.
+  const data = useMemo(
+    () => (rawData ? applyViewAs(rawData, viewAs) : null),
+    [rawData, viewAs],
+  );
+
+  const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
+  const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
+  const openSolve = useCallback((p: Puzzle) => setSolvePuzzleId(p.id), []);
+
   if (isLoading) {
     return (
       <Center h={200}>
@@ -104,13 +261,9 @@ export default function HuntBoard() {
       </Center>
     );
   }
-  if (error || !rawData) {
+  if (error || !data) {
     return <Text c="red">Could not load this hunt (you may not have access).</Text>;
   }
-
-  // Apply the Admin "view as" ceiling: overriding can_manage/can_administer here
-  // cascades to every gated child, since they all read detail.hunt.{can_manage,can_administer}.
-  const data = applyViewAs(rawData, viewAs);
 
   const views = boardViews({
     canManage: data.hunt.can_manage,
@@ -118,9 +271,11 @@ export default function HuntBoard() {
     canvas: data.hunt.canvas_enabled,
   });
   // A view that is no longer offered (Canvas just switched off, say) falls back to By group.
-  const shown: BoardView = views.some((v) => v.value === view) ? view : "board";
-  const notesPuzzle = allPuzzles.find((p) => p.id === notesPuzzleId) ?? null;
-  const openNotes = (p: Puzzle) => setNotesPuzzleId(p.id);
+  const activeControlView: BoardView = views.some((v) => v.value === selectedView) ? selectedView : "board";
+  const shown: BoardView = views.some((v) => v.value === renderedView) ? renderedView : "board";
+  const notesPuzzle = notesPuzzleId != null ? allPuzzles.find((p) => p.id === notesPuzzleId) ?? null : null;
+  const chatPuzzle = chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null;
+  const solvePuzzle = solvePuzzleId != null ? allPuzzles.find((p) => p.id === solvePuzzleId) ?? null : null;
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
 
   return (
@@ -172,17 +327,19 @@ export default function HuntBoard() {
         {/* Wide screens: the tab bar. Narrow ones get a dropdown, since the bar
             needs up to 660px and cannot scroll. */}
         <SegmentedControl
+          className="hunt-view-tabs"
+          data-pending={isPending ? "true" : undefined}
           visibleFrom="md"
-          value={shown}
-          onChange={(v) => setView(v as BoardView)}
+          value={activeControlView}
+          onChange={(v) => switchView(v as BoardView)}
           data={views.map(({ label, value }) => ({ label, value }))}
           w={views.reduce((sum, v) => sum + v.width, 0)}
         />
         <Select
           hiddenFrom="md"
           aria-label="View"
-          value={shown}
-          onChange={(v) => v && setView(v as BoardView)}
+          value={activeControlView}
+          onChange={(v) => v && switchView(v as BoardView)}
           data={views.map(({ label, value }) => ({ label, value }))}
           allowDeselect={false}
           w={180}
@@ -197,117 +354,114 @@ export default function HuntBoard() {
         </Group>
       </Group>
 
-      {shown === "board" && (() => {
-        // Bare groups (no puzzles) are drop targets for the Arrange view only —
-        // hide them from the board summary so it isn't cluttered with empties.
-        // Arrange keeps Unassigned Feeders far left; the By-group summary instead
-        // places it below unsolved targets and plain groups but above solved
-        // targets (which sink to the bottom).
-        const filtering = filterActive(filter);
-        // While filtering, each group's own rows (see boardGroupRows): a group matching by
-        // name shows everything; otherwise puzzles match on their own name or answer.
-        const rowsByGroup = new Map(data.board.map((g) => [g.tag_group_id, boardGroupRows(g.name, g.puzzles, filter)]));
-        const withPuzzles = data.board.filter((g) => (rowsByGroup.get(g.tag_group_id) ?? []).length > 0);
-        const shownCount = new Set(withPuzzles.flatMap((g) => (rowsByGroup.get(g.tag_group_id) ?? []).map((p) => p.id))).size;
-        const unassigned = withPuzzles.filter((g) => g.tag_group_id === 0);
-        const rest = withPuzzles.filter((g) => g.tag_group_id !== 0);
-        const firstSolved = rest.findIndex((g) => g.target_solved);
-        const at = firstSolved === -1 ? rest.length : firstSolved;
-        const boardGroups = [...rest.slice(0, at), ...unassigned, ...rest.slice(at)];
-        // Filtering opens every group with a match, solved ones included.
-        const defaultOpen = boardGroups
-          .filter((g) => filtering || !g.target_solved)
-          .map((g) => String(g.tag_group_id));
-        return (
-          <Stack gap="xs">
-            <PuzzleFilterBar
-              puzzles={allPuzzles}
+      <Box style={{ opacity: isPending ? 0.65 : 1, transition: "opacity 120ms ease" }}>
+        {(visitedViews.has("board") || shown === "board") && (
+          <Box style={{ display: shown === "board" ? undefined : "none" }}>
+            <BoardByGroupView
+              data={data}
+              allPuzzles={allPuzzles}
               filter={filter}
-              onChange={changeFilter}
-              shown={filtering ? shownCount : allPuzzles.length}
-              total={allPuzzles.length}
+              onChangeFilter={changeFilter}
+              openGroups={openGroups}
+              onOpenGroupsChange={setOpenGroups}
+              live={live}
+              voice={voice}
+              isNarrow={isNarrow}
+              onSolve={openSolve}
+              onOpenNotes={openNotes}
+              onOpenChat={openChat}
             />
-            {filtering && boardGroups.length === 0 && (
-              <Text c="dimmed" size="sm">No puzzles match.</Text>
-            )}
-            <Group justify="flex-end">
-              <Anchor component="button" type="button" size="sm" onClick={() => setOpenGroups([])}>
-                Collapse all
-              </Anchor>
-            </Group>
-            <Accordion
-              variant="separated"
-              multiple
-              value={openGroups ?? defaultOpen}
-              onChange={setOpenGroups}
-            >
-              {boardGroups.map((g) => (
-                <BoardGroup key={g.tag_group_id} group={g} detail={data} live={live} voice={voice} onOpenNotes={openNotes} rows={filtering ? rowsByGroup.get(g.tag_group_id) : undefined} />
-              ))}
-            </Accordion>
-          </Stack>
-        );
-      })()}
-      {shown === "all" && (
-        <PuzzleTable detail={data} puzzles={allPuzzles} live={live} voice={voice} onOpenNotes={openNotes} filter={filter} onFilterChange={updateFilter} />
-      )}
-      {shown === "arrange" && data.hunt.can_manage && <DragBoard detail={data} uid={uid!} />}
-      {shown === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
-      {shown === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
-      {shown === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (() => {
-        // Organiser-level pieces (hidden on archived hunts, where can_manage is false).
-        const canvasControl = data.hunt.can_manage && (
-          <CanvasTogglePanel uid={uid!} enabled={data.hunt.canvas_enabled} />
-        );
-        const maintenance = data.hunt.can_manage && (
-          <>
-            <ReconcilePanel uid={uid!} />
-            {/* The media sweep is a bulk delete, so organiser-gated too. */}
-            <MediaSweepPanel uid={uid!} />
-          </>
-        );
-        return (
-          <Stack gap="md" maw={760}>
-            {data.hunt.can_administer ? (
-              // Admin: every section; reachable even when archived (to unarchive).
-              <AdminSettingsPanel
-                uid={uid!}
-                huntName={data.hunt.name}
-                url={data.hunt.url}
-                start_timestamp={data.hunt.start_timestamp}
-                username={data.hunt.username}
-                password={data.hunt.password}
-                url_sep={data.hunt.url_sep}
-                puzzle_prefix={data.hunt.puzzle_prefix}
-                archived={data.hunt.archived}
-                isTeamHunt={data.hunt.is_team_hunt}
-                multiTeam={data.hunt.multi_team}
-                hasSolvedSheet={!!data.hunt.solved_sheet_url}
-                sheetMode={data.hunt.sheet_mode}
-                puzzleCount={data.summary.total}
-                voicePerPuzzle={data.hunt.voice_per_puzzle}
-                headerStyle={data.hunt.header_style}
-                canvasControl={canvasControl}
-                maintenance={maintenance}
-                teamRole={
-                  // Hidden on archived (read-only) hunts.
-                  !data.hunt.archived && (
-                    <GateHuntPanel uid={uid!} isGated={data.hunt.is_gated} roleName={data.hunt.role_name} />
-                  )
-                }
-              />
-            ) : (
-              // Organiser without admin: only the organiser-level sections.
-              <>
-                <ManageSection title="Advanced" collapsible>{canvasControl}</ManageSection>
-                <ManageSection title="Maintenance">{maintenance}</ManageSection>
-              </>
-            )}
-          </Stack>
-        );
-      })()}
+          </Box>
+        )}
+        {(visitedViews.has("all") || shown === "all") && (
+          <Box style={{ display: shown === "all" ? undefined : "none" }}>
+            <PuzzleTable
+              detail={data}
+              puzzles={allPuzzles}
+              live={live}
+              voice={voice}
+              onSolve={openSolve}
+              onOpenNotes={openNotes}
+              onOpenChat={openChat}
+              filter={filter}
+              onFilterChange={updateFilter}
+            />
+          </Box>
+        )}
+        {data.hunt.can_manage && (visitedViews.has("arrange") || shown === "arrange") && (
+          <Box style={{ display: shown === "arrange" ? undefined : "none" }}>
+            <DragBoard detail={data} uid={uid!} />
+          </Box>
+        )}
+        {shown === "evidence" && <EvidencePanel uid={uid!} detail={data} />}
+        {shown === "canvas" && <CanvasPanel uid={uid!} detail={data} />}
+        {shown === "manage" && (data.hunt.can_manage || data.hunt.can_administer) && (() => {
+          // Organiser-level pieces (hidden on archived hunts, where can_manage is false).
+          const canvasControl = data.hunt.can_manage && (
+            <CanvasTogglePanel uid={uid!} enabled={data.hunt.canvas_enabled} />
+          );
+          const maintenance = data.hunt.can_manage && (
+            <>
+              <ReconcilePanel uid={uid!} />
+              {/* The media sweep is a bulk delete, so organiser-gated too. */}
+              <MediaSweepPanel uid={uid!} />
+            </>
+          );
+          return (
+            <Stack gap="md" maw={760}>
+              {data.hunt.can_administer ? (
+                // Admin: every section; reachable even when archived (to unarchive).
+                <AdminSettingsPanel
+                  uid={uid!}
+                  huntName={data.hunt.name}
+                  url={data.hunt.url}
+                  start_timestamp={data.hunt.start_timestamp}
+                  username={data.hunt.username}
+                  password={data.hunt.password}
+                  url_sep={data.hunt.url_sep}
+                  puzzle_prefix={data.hunt.puzzle_prefix}
+                  archived={data.hunt.archived}
+                  isTeamHunt={data.hunt.is_team_hunt}
+                  multiTeam={data.hunt.multi_team}
+                  hasSolvedSheet={!!data.hunt.solved_sheet_url}
+                  sheetMode={data.hunt.sheet_mode}
+                  puzzleCount={data.summary.total}
+                  voicePerPuzzle={data.hunt.voice_per_puzzle}
+                  headerStyle={data.hunt.header_style}
+                  canvasControl={canvasControl}
+                  maintenance={maintenance}
+                  teamRole={
+                    // Hidden on archived (read-only) hunts.
+                    !data.hunt.archived && (
+                      <GateHuntPanel uid={uid!} isGated={data.hunt.is_gated} roleName={data.hunt.role_name} />
+                    )
+                  }
+                />
+              ) : (
+                // Organiser without admin: only the organiser-level sections.
+                <>
+                  <ManageSection title="Advanced" collapsible>{canvasControl}</ManageSection>
+                  <ManageSection title="Maintenance">{maintenance}</ManageSection>
+                </>
+              )}
+            </Stack>
+          );
+        })()}
+      </Box>
 
       <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
+      <SolveModal puzzle={solvePuzzle} uid={data.hunt.uid} onClose={() => setSolvePuzzleId(null)} />
+      {chatPuzzle && (
+        <ChatViewer
+          opened
+          onClose={() => setChatPuzzleId(null)}
+          channelId={chatPuzzle.channel_id}
+          live={!data.hunt.archived}
+          title={chatPuzzle.name}
+          discordDeepUrl={chatPuzzle.discord_deep_url}
+          discordUrl={chatPuzzle.discord_url}
+        />
+      )}
     </Stack>
   );
 }

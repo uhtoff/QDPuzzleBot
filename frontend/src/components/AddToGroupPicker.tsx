@@ -74,7 +74,12 @@ function buildRows(
   return rows;
 }
 
-export function AddToGroupPicker({
+export function AddToGroupPicker(props: AddToGroupPickerProps) {
+  if (!props.opened) return null;
+  return <AddToGroupPickerContent {...props} />;
+}
+
+function AddToGroupPickerContent({
   opened,
   onClose,
   puzzleId,
