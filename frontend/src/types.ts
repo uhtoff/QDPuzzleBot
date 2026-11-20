@@ -174,6 +174,9 @@ export interface BoardGroup {
   source_mode: string;  // "round" | "subtree" | "explicit" (M7)
   group_type: string | null;
   target_puzzle_id: number | null;
+  /** A target group with a Discord category of its own (false for a meta made
+   *  in place, and for target-less groups). Drives Extract vs Fold in Arrange. */
+  own_category?: boolean;
 }
 
 export interface HuntDetail {

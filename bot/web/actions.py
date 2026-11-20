@@ -1869,6 +1869,130 @@ async def change_group_type(tag_group_id):
     return jsonify(resp)
 
 
+# --- Give a meta its own Discord category / fold it back (organiser only) ----
+#
+# Dashboard twins of !extract_target_to_category and !consolidate_to (user,
+# 2026-11-20: reverses the earlier bang-only call, because a Discord-only
+# command was hard to find). Both share the service seams with the bang
+# commands; the previews exist so the confirm modals can say exactly what moves.
+
+async def _category_route_ctx(tag_group_id):
+    """(ctx, hunt, cog, guild, meta, err) for the category routes: organiser
+    tier, a live guild (these only move Discord channels), and a group that has
+    a target — extract/fold only apply to metas/capstones/runarounds."""
+    ctx, hunt_obj, cog, guild, err = await _route_ctx(
+        _visible_hunt_for_tag_group(tag_group_id), tier="organiser")
+    if err:
+        return None, None, None, None, None, err
+    if guild is None:
+        return None, None, None, None, None, (jsonify({"error": "guild_unavailable"}), 503)
+
+    from bot.store import TagGroupJsonDb
+
+    meta = TagGroupJsonDb.get_by_attr(id=tag_group_id)
+    if meta is None:
+        return None, None, None, None, None, (jsonify({"error": "round_not_found"}), 404)
+    if not meta.has_target:
+        return None, None, None, None, None, (jsonify({"error": "not_a_meta"}), 400)
+    return ctx, hunt_obj, cog, guild, meta, None
+
+
+@actions_bp.route("/tag_groups/<int:tag_group_id>/extract-category/preview", methods=["GET"])
+@login_required
+async def extract_category_preview(tag_group_id):
+    """Read-only preview for the extract confirm modal: which puzzles would move
+    into the new category, which stay behind, and how many category slots the
+    server has left. `own_category` is checked against the live guild."""
+    _ctx, hunt_obj, cog, guild, meta, err = await _category_route_ctx(tag_group_id)
+    if err:
+        return err
+    assert hunt_obj is not None and cog is not None and meta is not None
+
+    from bot.core import category_layout
+    from bot.store import PuzzleJsonDb
+
+    try:
+        moving = cog.service.extract_candidates(hunt_obj, meta)
+    except RuntimeError as exc:
+        return jsonify({"error": _error_slug(exc)}), 400
+    moving_ids = {p.id for p in moving}
+    staying = [p for p in PuzzleJsonDb.get_all_from_tag_group(meta.id)
+               if p.id not in moving_ids]
+    return jsonify({
+        "own_category": category_layout.primary_category(guild, meta) is not None,
+        "free_category_slots": cog.service.free_category_slots(guild),
+        "moving": [{"id": p.id, "name": p.name} for p in moving],
+        "staying": [{"id": p.id, "name": p.name} for p in staying],
+    })
+
+
+@actions_bp.route("/tag_groups/<int:tag_group_id>/extract-category", methods=["POST"])
+@login_required
+async def extract_category(tag_group_id):
+    """Give this meta its own Discord category (mirrors !extract_target_to_category):
+    its target and exclusive feeders move into a new category cloned from the
+    hunt's template. Refusals come back as 400 slugs (already_own_category,
+    no_category_space, no_template_category, no_target_puzzle)."""
+    ctx, hunt_obj, cog, guild, meta, err = await _category_route_ctx(tag_group_id)
+    if err:
+        return err
+    assert ctx is not None and hunt_obj is not None and cog is not None and meta is not None
+
+    try:
+        async with puzzles_lock([meta.target_puzzle_id]):
+            category = await cog.service.extract_target_to_category(guild, hunt_obj, meta)
+    except RuntimeError as exc:
+        return jsonify({"error": _error_slug(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("extract_target_to_category", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"tag_group_id={tag_group_id} category={category.name}")
+    return jsonify({"ok": True, "category_name": category.name})
+
+
+@actions_bp.route("/tag_groups/<int:tag_group_id>/consolidate", methods=["POST"])
+@login_required
+async def consolidate_category(tag_group_id):
+    """Fold this meta into another group's category (mirrors !consolidate_to).
+    Body {"destination_tag_group_id": int, "force": bool}. Without force, a fold
+    that would push the destination past its soft limit is refused with 409
+    would_overflow so the modal can ask again (the bang command's force retry)."""
+    ctx, hunt_obj, cog, guild, meta, err = await _category_route_ctx(tag_group_id)
+    if err:
+        return err
+    assert ctx is not None and hunt_obj is not None and cog is not None and meta is not None
+
+    body = await request.get_json(silent=True) or {}
+    try:
+        dest_id = int(body.get("destination_tag_group_id") or 0)
+    except (TypeError, ValueError):
+        dest_id = 0
+    force = bool(body.get("force", False))
+
+    from bot.store import TagGroupJsonDb
+
+    dest = TagGroupJsonDb.get_by_attr(id=dest_id) if dest_id else None
+    if dest is None or dest.hunt_id != meta.hunt_id:
+        return jsonify({"error": "bad_destination"}), 400
+    if dest.id == meta.id:
+        return jsonify({"error": "same_group"}), 400
+
+    try:
+        async with puzzles_lock([meta.target_puzzle_id]):
+            await cog.service.consolidate_to(guild, hunt_obj, meta, dest, force=force)
+    except RuntimeError as exc:
+        if str(exc) == "would_overflow":
+            return jsonify({"error": "would_overflow"}), 409
+        return jsonify({"error": _error_slug(exc)}), 400
+    except (discord.RateLimited, discord.HTTPException) as exc:
+        return _discord_error_response(exc)
+
+    await _audit("consolidate_to", hunt_uid=ctx["hunt"]["uid"],
+                 detail=f"tag_group_id={tag_group_id} destination={dest.id} force={force}")
+    return jsonify({"ok": True, "destination_name": dest.name})
+
+
 # --- Guild settings (admin only) ---------------------------------------------
 
 # Whitelisted `guilds` columns the dashboard may write. Deliberately excludes

@@ -15,6 +15,19 @@ async function apiGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** An API failure: the friendly message, plus the server's error slug and
+ *  status for callers that branch on a specific refusal (e.g. would_overflow). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly slug: string | undefined,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -33,7 +46,7 @@ async function apiSend<T>(path: string, method: string, body?: unknown): Promise
       detail?: string;
       message?: string;
     };
-    throw new Error(friendlyError(detail, res.status));
+    throw new ApiError(friendlyError(detail, res.status), detail.error, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -56,7 +69,7 @@ async function apiUpload<T>(path: string, form: FormData): Promise<T> {
       retry_after?: number;
       detail?: string;
     };
-    throw new Error(friendlyError(detail, res.status));
+    throw new ApiError(friendlyError(detail, res.status), detail.error, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -114,6 +127,22 @@ export function friendlyError(d: { error?: string; retry_after?: number; detail?
       return "You can't add sheets to a solved puzzle.";
     case "sheet_not_found":
       return "That sheet no longer exists — refresh and try again.";
+    case "already_own_category":
+      return "This meta already has its own Discord category.";
+    case "no_template_category":
+      return "Couldn't find the hunt's own Discord category to copy — check it still exists.";
+    case "no_target_puzzle":
+      return "Couldn't find this meta's target puzzle — refresh and try again.";
+    case "not_a_meta":
+      return "Only a meta, capstone or runaround can have its own category.";
+    case "bad_destination":
+      return "That group has no Discord category to fold into — pick another.";
+    case "same_group":
+      return "Pick a different group to fold into.";
+    case "would_overflow":
+      return "That category would overflow and split.";
+    case "guild_unavailable":
+      return "The bot can't reach the Discord server right now — try again shortly.";
     case "bad_group_code":
       return "That meta no longer exists — refresh and try again.";
     case "discord_error":
@@ -379,6 +408,56 @@ export function useChangeGroupType(uid: string) {
     mutationFn: ({ tagGroupId, type }: { tagGroupId: number; type: string }) =>
       apiSend<{ ok: boolean; summary?: string; sheet_warning?: string }>(
         `/api/tag_groups/${tagGroupId}/change-type`, "POST", { type },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export interface ExtractCategoryPreview {
+  own_category: boolean;
+  free_category_slots: number;
+  moving: { id: number; name: string }[];
+  staying: { id: number; name: string }[];
+}
+
+export function useExtractCategoryPreview(tagGroupId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["extract-category-preview", tagGroupId],
+    queryFn: () =>
+      apiGet<ExtractCategoryPreview>(`/api/tag_groups/${tagGroupId}/extract-category/preview`),
+    enabled: enabled && tagGroupId != null,
+    // Slot count and membership change under us; always re-read on open.
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useExtractCategory(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tagGroupId: number) =>
+      apiSend<{ ok: boolean; category_name: string }>(
+        `/api/tag_groups/${tagGroupId}/extract-category`, "POST",
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
+  });
+}
+
+export function useConsolidateCategory(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      tagGroupId,
+      destinationTagGroupId,
+      force,
+    }: {
+      tagGroupId: number;
+      destinationTagGroupId: number;
+      force: boolean;
+    }) =>
+      apiSend<{ ok: boolean; destination_name: string }>(
+        `/api/tag_groups/${tagGroupId}/consolidate`, "POST",
+        { destination_tag_group_id: destinationTagGroupId, force },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["hunt", uid] }),
   });

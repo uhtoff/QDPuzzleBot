@@ -653,17 +653,35 @@ async def get_all_tag_groups(hunt_id):
     """Every tag_group in the hunt (id, name, group_code, type), so build_board
     can surface bare groups — ones with no tagged puzzles yet — as drop targets."""
     rows = await fetch_all(
-        "SELECT id, name, group_code, type, target_puzzle_id "
-        "FROM tag_group WHERE hunt_id = %s ORDER BY id ASC",
+        "SELECT tg.id, tg.name, tg.group_code, tg.type, tg.target_puzzle_id, "
+        "tg.category_id, tp.channel_id AS target_channel_id "
+        "FROM tag_group tg LEFT JOIN puzzles tp ON tp.id = tg.target_puzzle_id "
+        "WHERE tg.hunt_id = %s ORDER BY tg.id ASC",
         (hunt_id,),
     )
     return [
         {
             "id": r["id"], "name": r["name"], "group_code": r["group_code"],
             "type": r["type"], "target_puzzle_id": r["target_puzzle_id"],
+            "own_category": has_own_category(
+                r["target_puzzle_id"], r.get("category_id"), r.get("target_channel_id")),
         }
         for r in rows
     ]
+
+
+def has_own_category(target_puzzle_id, category_id, target_channel_id):
+    """Whether a group with a target has a Discord category of its own.
+
+    A target group's home (tag_group.category_id) is either its own category, or
+    — for a meta made in place — its target puzzle's channel (see TagGroupData).
+    So it has its own category exactly when the home is set and is not the
+    target's channel. Target-less groups report False: extract/fold only apply
+    to metas. DB-only, so the board can say it without touching Discord; the
+    extract/fold routes re-check against the live guild."""
+    if not target_puzzle_id or not category_id:
+        return False
+    return int(category_id) != int(target_channel_id or 0)
 
 
 async def get_rollups_by_tag_group(hunt_id):
@@ -721,6 +739,7 @@ def build_board(puzzles, rollups_by_tag_group=None, all_groups=None):
                 "source_mode": ru.get("source_mode") or "round",
                 "group_type": group_info.get(tag_group_id, {}).get("type"),
                 "target_puzzle_id": group_info.get(tag_group_id, {}).get("target_puzzle_id") or 0,
+                "own_category": bool(group_info.get(tag_group_id, {}).get("own_category")),
             }
             order.append(tag_group_id)
         return groups[tag_group_id]
