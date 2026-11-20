@@ -52,6 +52,9 @@ EXPECTED = {
     ("POST", "/tag_groups/<int:tag_group_id>/change-type"): "organiser",
     ("POST", "/tag_groups/<int:tag_group_id>/rename"): "organiser",
     ("DELETE", "/tag_groups/<int:tag_group_id>"): "organiser",
+    ("GET", "/tag_groups/<int:tag_group_id>/extract-category/preview"): "organiser",
+    ("POST", "/tag_groups/<int:tag_group_id>/extract-category"): "organiser",
+    ("POST", "/tag_groups/<int:tag_group_id>/consolidate"): "organiser",
     ("POST", "/puzzles/<int:puzzle_id>/rename"): "organiser",
     ("DELETE", "/puzzles/<int:puzzle_id>"): "organiser",
     # --- organiser: convert family (all via _convert_to_type_handler) --------

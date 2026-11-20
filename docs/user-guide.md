@@ -284,7 +284,8 @@ hunt created before this feature, an organiser can run `!backfill_glyphs` once t
 
 **On the dashboard** (organisers), in the **Arrange** view: a puzzle card's `⋮` menu has
 **Convert to meta**, **Convert to capstone**, **Convert to runaround** and **Make
-minimeta**; a group's `⋮` menu has **Change type**, **Convert to feeder (keep puzzle)…** and
+minimeta**; a group's `⋮` menu has **Change type**, **Convert to feeder (keep puzzle)…**,
+**Extract to own category…** or **Fold into another category…** (see below) and
 **Delete group…**.
 
 **In Discord,** from the puzzle's channel (organisers/mods): `!convert_to_meta`, `!convert_to_capstone`,
@@ -292,12 +293,15 @@ minimeta**; a group's `⋮` menu has **Change type**, **Convert to feeder (keep 
 `!convert_to_puzzle` — promote a feeder to a meta, turn a meta back into a plain
 puzzle, and so on. Feeders and their tags survive the conversion.
 
-Moving metas between Discord categories is Discord-only. Giving a meta its own category: `!extract_target_to_category` (run in the meta's own
-puzzle channel) moves that meta and the puzzles that feed *only* it into a fresh Discord
+**Moving metas between Discord categories.** Giving a meta its own category: on the dashboard,
+**Extract to own category…** in the meta's `⋮` menu in **Arrange** (the dialog lists exactly
+which channels move and how many category slots are free), or `!extract_target_to_category`
+in Discord (run in the meta's own puzzle channel). Either moves that meta and the puzzles that feed *only* it into a fresh Discord
 category — useful when a meta you promoted in place has outgrown the category it was
 sharing. Shared feeders and nested metas stay where they are.
 
-The reverse is `!consolidate_to <destination>`: run in the meta's own puzzle channel, it
+The reverse is **Fold into another category…** in the same menu (shown once the meta has its
+own category), or `!consolidate_to <destination>` run in the meta's own puzzle channel. It
 moves the meta and its puzzles into the destination round's category and deletes this
 meta's category — handy when you're short on categories but have channel room to spare. If
 the destination would overflow, the bot asks you to confirm first.

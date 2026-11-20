@@ -426,3 +426,26 @@ class TestBuildBoardSubKindOrder:
         names = [g["name"] for g in board if g["tag_group_id"] != 0]
         assert names == ["URunaround", "UMetameta", "UMeta",
                          "SRunaround", "SMetameta", "SMeta"]
+
+
+def test_build_board_own_category_passes_through_per_group():
+    # Two groups so a swapped/constant flag can't pass: one with its own
+    # category, one made in place.
+    all_groups = [
+        {"id": 6, "name": "Own", "group_code": "OW", "type": "Metapuzzle",
+         "target_puzzle_id": 88, "own_category": True},
+        {"id": 7, "name": "InPlace", "group_code": "IP", "type": "Metapuzzle",
+         "target_puzzle_id": 89, "own_category": False},
+    ]
+    board = {g["tag_group_id"]: g for g in build_board(puzzles=[], all_groups=all_groups)}
+    assert board[6]["own_category"] is True
+    assert board[7]["own_category"] is False
+
+
+def test_has_own_category():
+    from bot.web.data import has_own_category
+    assert has_own_category(88, 5000, 1234) is True        # home is a category
+    assert has_own_category(88, 1234, 1234) is False       # home is the target's channel
+    assert has_own_category(0, 5000, None) is False        # target-less group
+    assert has_own_category(88, None, 1234) is False       # no home
+    assert has_own_category(88, 5000, None) is True        # target has no channel

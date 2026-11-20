@@ -2663,6 +2663,24 @@ class PuzzleService:
             logger.info("auto-extract (Case B) skipped for meta %s",
                         getattr(best[0], "id", "?"))
 
+    def extract_candidates(self, hunt, meta):
+        """The puzzles extracting *meta* would move: its target first, then every
+        exclusive plain feeder (see select_extract_puzzles). Shared feeders and
+        sub-metas are left out. Raises RuntimeError("no_target_puzzle")."""
+        target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
+        if target_puzzle is None:
+            raise RuntimeError("no_target_puzzle")
+        members = PuzzleJsonDb.get_all_from_tag_group(meta.id)
+        all_groups = TagGroupJsonDb.get_all(hunt.id)
+        target_puzzle_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
+        return select_extract_puzzles(meta, target_puzzle, members, target_puzzle_ids)
+
+    @staticmethod
+    def free_category_slots(guild):
+        """Categories still creatable on *guild* before Discord's per-server cap."""
+        return max(0, MAX_CATEGORIES - len(guild.categories))
+
+    @pushes_board()
     async def extract_target_to_category(self, guild, hunt, meta):
         """Give a channel-home *meta* its own Discord category.
 
@@ -2685,13 +2703,8 @@ class PuzzleService:
             raise RuntimeError("no_template_category")
 
         # Which puzzles move (pure edge logic; data from the DAOs).
-        target_puzzle = PuzzleJsonDb.get_by_attr(id=meta.target_puzzle_id)
-        if target_puzzle is None:
-            raise RuntimeError("no_target_puzzle")
-        members = PuzzleJsonDb.get_all_from_tag_group(meta.id)
-        all_groups = TagGroupJsonDb.get_all(hunt.id)
-        target_puzzle_ids = {g.target_puzzle_id for g in all_groups if g.target_puzzle_id}
-        puzzles = select_extract_puzzles(meta, target_puzzle, members, target_puzzle_ids)
+        puzzles = self.extract_candidates(hunt, meta)
+        target_puzzle = puzzles[0]
 
         sources = set()
         async with category_layout.layout_lock:
@@ -2808,6 +2821,7 @@ class PuzzleService:
             return False
         return True
 
+    @pushes_board()
     async def consolidate_to(self, guild, hunt, meta, destination, force=False):
         """Fold *meta* into *destination*'s category, reverting meta to channel-home.
 

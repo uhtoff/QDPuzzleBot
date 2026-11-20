@@ -51,6 +51,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { getKind, kindColorVar } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { DeleteRoundModal } from "./DeleteRoundModal";
+import { ExtractCategoryModal, FoldCategoryModal } from "./CategoryModals";
 
 interface MetaOption {
   code: string;
@@ -331,6 +332,8 @@ function Column({
   onRenameGroup,
   onChangeType,
   onConvertGroupToFeeder,
+  onExtractCategory,
+  onFoldCategory,
   onDeleteGroup,
 }: {
   group: BoardGroup;
@@ -338,6 +341,8 @@ function Column({
   onRenameGroup: (tagGroupId: number, name: string) => void;
   onChangeType: (group: BoardGroup, type: string) => void;
   onConvertGroupToFeeder: (group: BoardGroup) => void;
+  onExtractCategory: (group: BoardGroup) => void;
+  onFoldCategory: (group: BoardGroup) => void;
   onDeleteGroup: (group: BoardGroup) => void;
 }) {
   // The Unassigned column (group_code === null) is a drop target too: dropping a
@@ -443,6 +448,17 @@ function Column({
                     <Menu.Item color="orange" onClick={() => onConvertGroupToFeeder(group)}>
                       Convert to feeder (keep puzzle)…
                     </Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Label>Discord category</Menu.Label>
+                    {group.own_category ? (
+                      <Menu.Item onClick={() => onFoldCategory(group)}>
+                        Fold into another category…
+                      </Menu.Item>
+                    ) : (
+                      <Menu.Item onClick={() => onExtractCategory(group)}>
+                        Extract to own category…
+                      </Menu.Item>
+                    )}
                   </>
                 )}
                 <Menu.Divider />
@@ -483,6 +499,9 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
   const [removeMinimetaTarget, setRemoveMinimetaTarget] = useState<Puzzle | null>(null);
   // Group awaiting a delete confirm (null = modal closed).
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<BoardGroup | null>(null);
+  // Arrange-menu Discord category actions (null = dialog closed).
+  const [extractTarget, setExtractTarget] = useState<BoardGroup | null>(null);
+  const [foldTarget, setFoldTarget] = useState<BoardGroup | null>(null);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
   // Puzzles a full delete actually removes (excludes shared feeders and foreign
   // targets, which are kept & relocated) — so the warning doesn't over-promise.
@@ -794,6 +813,8 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
                 onRenameGroup={onRenameGroup}
                 onChangeType={onChangeType}
                 onConvertGroupToFeeder={onConvertGroupToFeeder}
+                onExtractCategory={setExtractTarget}
+                onFoldCategory={setFoldTarget}
                 onDeleteGroup={onDeleteGroup}
               >
                 {sortPuzzles(group.puzzles, group.group_code).map((p) => (
@@ -961,6 +982,18 @@ export function DragBoard({ detail, uid }: { detail: HuntDetail; uid: string }) 
         deleteAllPuzzles={deleteAllPuzzles}
         onDeleteAllPuzzlesChange={setDeleteAllPuzzles}
       />
+
+      {extractTarget && (
+        <ExtractCategoryModal group={extractTarget} uid={uid} onClose={() => setExtractTarget(null)} />
+      )}
+      {foldTarget && (
+        <FoldCategoryModal
+          group={foldTarget}
+          groups={detail.board}
+          uid={uid}
+          onClose={() => setFoldTarget(null)}
+        />
+      )}
     </Box>
   );
 }

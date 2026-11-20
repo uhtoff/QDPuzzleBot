@@ -2650,7 +2650,7 @@ class Puzzles(commands.Cog):
 
         Usage: `!extract_target_to_category`
         Run in the meta's own target-puzzle channel. Organisers/admins only.
-        Bang-only: no web-dashboard equivalent, by design (Discord plumbing)."""
+        Dashboard: "Extract to own category…" in the meta's menu in Arrange."""
         hunt = self.get_hunt(ctx)
         meta = self.get_tag_group(ctx)
         puzzle = self.get_puzzle(ctx)
@@ -2687,7 +2687,8 @@ class Puzzles(commands.Cog):
 
         Usage: `!consolidate_to <destination-code>`
         Run in the meta's own target-puzzle channel. Organisers/admins only.
-        Not done lightly: it deletes this meta's category and moves its puzzles."""
+        Not done lightly: it deletes this meta's category and moves its puzzles.
+        Dashboard: "Fold into another category…" in the meta's menu in Arrange."""
         hunt = self.get_hunt(ctx)
         meta = self.get_tag_group(ctx)
         puzzle = self.get_puzzle(ctx)
