@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { PuzzleActivity } from "../types";
 import { barHeight } from "../lib/sparkline";
 
@@ -17,20 +18,25 @@ function summary(a: PuzzleActivity): string {
 }
 
 /** Whole-life activity: bar height is chat rate; orange bars had sheet edits. */
-export function ActivitySparkline({ activity }: { activity: PuzzleActivity | null | undefined }) {
+export const ActivitySparkline = memo(function ActivitySparkline({
+  activity,
+}: {
+  activity: PuzzleActivity | null | undefined;
+}) {
   if (!activity || activity.bars.length === 0) return null;
   const n = activity.bars.length;
   const barW = Math.max(1, (WIDTH - GAP * (n - 1)) / n);
+  const label = summary(activity);
   return (
     <svg
       width={WIDTH}
       height={HEIGHT}
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       role="img"
-      aria-label={summary(activity)}
+      aria-label={label}
       style={{ flex: "none", display: "block" }}
     >
-      <title>{summary(activity)}</title>
+      <title>{label}</title>
       <line
         x1={0}
         x2={WIDTH}
@@ -56,4 +62,4 @@ export function ActivitySparkline({ activity }: { activity: PuzzleActivity | nul
       })}
     </svg>
   );
-}
+});

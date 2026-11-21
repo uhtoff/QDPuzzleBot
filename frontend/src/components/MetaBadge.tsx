@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Badge } from "@mantine/core";
 import type { Puzzle } from "../types";
 
@@ -29,7 +30,7 @@ export function kindColorVar(color: string): string {
   return `var(--mantine-color-${name}-${shade ?? 6})`;
 }
 
-export function MetaBadge({ puzzle }: { puzzle: Puzzle }) {
+export const MetaBadge = memo(function MetaBadge({ puzzle }: { puzzle: Puzzle }) {
   const kind = getKind(puzzle);
   if (!kind) return null;
   return (
@@ -37,4 +38,4 @@ export function MetaBadge({ puzzle }: { puzzle: Puzzle }) {
       {kind.label}
     </Badge>
   );
-}
+});

@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
-import { useClipboard, useDisclosure, useMediaQuery } from "@mantine/hooks";
+import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
   ActionIcon,
@@ -35,7 +35,7 @@ import { puzzleVoiceCount, voiceRowBg, type LiveVoice } from "../lib/voice";
 import { MetaBadge, getKind, kindColorVar } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
-import { SolveModal, StatusCell } from "./PuzzleEditCells";
+import { StatusCell } from "./PuzzleEditCells";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { formatStatus, fullDeletePuzzleCount, notifyError, relativeTime, sortPuzzles, statusColor } from "../util";
 import { extensionSupports, openRound } from "../lib/extension";
@@ -48,17 +48,175 @@ interface Props {
   detail: HuntDetail;
   live: Record<string, LiveActivity>;
   voice: LiveVoice;
+  isOpen: boolean;
+  isNarrow: boolean;
+  onSolve: (puzzle: Puzzle) => void;
   onOpenNotes: (puzzle: Puzzle) => void;
+  onOpenChat: (puzzle: Puzzle) => void;
   /** The rows to show while filtering (default: all). Only the rows: the
    *  header's counts and "Open round as a tab group" still cover the whole group. */
   rows?: Puzzle[];
 }
 
-export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Props) {
+interface RowProps {
+  puzzle: Puzzle;
+  isNarrow: boolean;
+  editable: boolean;
+  huntUid: string;
+  canManage: boolean;
+  liveAt: string | undefined;
+  voiceCount: number;
+  minisExpanded: boolean;
+  onToggleMinis: (puzzleId: number) => void;
+  onStatusChange: (puzzleId: number, status: string) => void;
+  onSolve: (puzzle: Puzzle) => void;
+  onOpenNotes: (puzzle: Puzzle) => void;
+  onOpenChat: (puzzle: Puzzle) => void;
+}
+
+const BoardPuzzleRow = memo(function BoardPuzzleRow({
+  puzzle: p,
+  isNarrow,
+  editable,
+  huntUid,
+  canManage,
+  liveAt,
+  voiceCount,
+  minisExpanded,
+  onToggleMinis,
+  onStatusChange,
+  onSolve,
+  onOpenNotes,
+  onOpenChat,
+}: RowProps) {
+  const handleStatusChange = useCallback(
+    (status: string) => onStatusChange(p.id, status),
+    [onStatusChange, p.id],
+  );
+  const bandProps = p.is_minimeta
+    ? { onClick: () => onToggleMinis(p.id), style: { cursor: "pointer" as const } }
+    : {};
+  const rowKind = getKind(p);
+  const activityText = relativeTime(
+    latestActivity(liveAt, p.last_activity?.at, p.activity?.last_sheet_edit_at),
+  );
+
+  return (
+    <Fragment>
+      <Table.Tr bg={voiceRowBg(p.solved, voiceCount)}>
+        {/* Kind strip — both layouts */}
+        <Table.Td w={4} p={0} style={{ backgroundColor: rowKind ? kindColorVar(rowKind.color) : undefined }} />
+        {isNarrow ? (
+          <>
+            {/* Compact layout: links | title+solution | actions */}
+            <Table.Td w={92}>
+              <PuzzleLinks puzzle={p} onOpenChat={onOpenChat} />
+            </Table.Td>
+            <Table.Td {...bandProps}>
+              <Group gap={6} wrap="nowrap">
+                <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                <MiniCountBadge puzzle={p} />
+                <VoiceBadge count={voiceCount} />
+              </Group>
+              <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
+                {p.solution || "—"}
+              </Text>
+            </Table.Td>
+            <PuzzleRowActions
+              puzzle={p}
+              editable={editable}
+              onSolve={onSolve}
+              onUnsolve={onSolve}
+              onOpenNotes={onOpenNotes}
+              huntUid={huntUid}
+              tdWidth={80}
+            />
+          </>
+        ) : (
+          <>
+            {/* Wide layout: all original columns */}
+            <Table.Td w={110}>
+              <PuzzleLinks puzzle={p} onOpenChat={onOpenChat} />
+            </Table.Td>
+            <Table.Td {...bandProps}>
+              <Group gap={6}>
+                <MetaBadge puzzle={p} />
+                <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+                <MiniCountBadge puzzle={p} />
+                <VoiceBadge count={voiceCount} />
+              </Group>
+            </Table.Td>
+            <Table.Td {...bandProps}>
+              <Text ff="monospace" size="sm">
+                {p.solution || ""}
+              </Text>
+            </Table.Td>
+            <Table.Td w={130}>
+              {editable ? (
+                <StatusCell
+                  value={p.status}
+                  solved={p.solved}
+                  onChange={handleStatusChange}
+                />
+              ) : (
+                p.status && (
+                  <Badge variant="light" color={statusColor(p.status)}>
+                    {formatStatus(p.status)}
+                  </Badge>
+                )
+              )}
+            </Table.Td>
+            <Table.Td w={160}>
+              <Group gap={6} wrap="nowrap">
+                <ActivitySparkline activity={p.activity} />
+                <Text size="xs" c="dimmed">
+                  {activityText}
+                </Text>
+              </Group>
+            </Table.Td>
+            <PuzzleRowActions
+              puzzle={p}
+              editable={editable}
+              onSolve={onSolve}
+              onUnsolve={onSolve}
+              onOpenNotes={onOpenNotes}
+              huntUid={huntUid}
+              tdWidth={76}
+            />
+          </>
+        )}
+      </Table.Tr>
+      {p.is_minimeta && minisExpanded && (
+        <Table.Tr>
+          <Table.Td colSpan={99} p={0}>
+            <MiniPuzzlePanel
+              parentId={p.id}
+              minis={p.mini_puzzles}
+              uid={huntUid}
+              canManage={canManage}
+            />
+          </Table.Td>
+        </Table.Tr>
+      )}
+    </Fragment>
+  );
+});
+
+export const BoardGroup = memo(function BoardGroup({
+  group,
+  detail,
+  live,
+  voice,
+  isOpen,
+  isNarrow,
+  onSolve,
+  onOpenNotes,
+  onOpenChat,
+  rows,
+}: Props) {
   const solvedAll = group.target_solved;
   const editable = !detail.hunt.archived;
   const isOrganiser = detail.hunt.can_manage;
-  const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   // Aggregated answers reveal
   const [answersOpened, { open: openAnswers, close }] = useDisclosure(false);
@@ -70,7 +228,6 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Pr
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
-  const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
   // A plain group / Unassigned Feeders has no target, so no kind bar — only a
   // group with a target (meta/capstone/metameta/runaround) carries one, in the
   // target puzzle's own kind colour. Mirrors the Arrange board's group lines.
@@ -78,13 +235,28 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Pr
   const groupKind = targetPuzzle ? getKind(targetPuzzle) : null;
   // Puzzles a full delete actually removes (excludes shared feeders and foreign
   // targets, which are kept & relocated) — the warning must not over-promise.
-  const deleteCount = fullDeletePuzzleCount(group);
+  const deleteCount = useMemo(
+    () => (deleteRoundOpen ? fullDeletePuzzleCount(group) : 0),
+    [deleteRoundOpen, group],
+  );
 
   // Reset the scope choice whenever the modal closes, so a reopen (this round
   // or another) starts from "keep" rather than a stale "all" selection.
   useEffect(() => {
     if (!deleteRoundOpen) setDeleteAllPuzzles(false);
   }, [deleteRoundOpen]);
+
+  const { mutate: updateMutate } = updateMut;
+  const onStatusChange = useCallback(
+    (puzzleId: number, status: string) =>
+      updateMutate({ puzzleId, patch: { status } }, { onError: notifyError }),
+    [updateMutate],
+  );
+
+  const sortedRows = useMemo(
+    () => (isOpen ? sortPuzzles(rows ?? group.puzzles, group.group_code) : []),
+    [isOpen, rows, group.puzzles, group.group_code],
+  );
 
   function rebuild() {
     rebuildMut.mutate(group.tag_group_id, {
@@ -121,22 +293,15 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Pr
 
   function copyAnswers() {
     if (!answersQuery.data) return;
-    const rows = answersQuery.data.answers
+    const answerRows = answersQuery.data.answers
       .filter((a) => a.solution && a.solution.trim().length > 0)
       .map((a) => `${a.name}\t${a.solution}`);
-    if (rows.length === 0) {
+    if (answerRows.length === 0) {
       notifications.show({ message: "No solved answers to copy", color: "yellow" });
       return;
     }
-    clipboard.copy(rows.join("\n"));
-    notifications.show({ message: `Copied ${rows.length} answers`, color: "green" });
-  }
-
-  function activityFor(p: Puzzle): string {
-    const liveAt = p.channel_id ? live[p.channel_id]?.at : undefined;
-    return relativeTime(
-      latestActivity(liveAt, p.last_activity?.at, p.activity?.last_sheet_edit_at),
-    );
+    clipboard.copy(answerRows.join("\n"));
+    notifications.show({ message: `Copied ${answerRows.length} answers`, color: "green" });
   }
 
   return (
@@ -179,250 +344,153 @@ export function BoardGroup({ group, detail, live, voice, onOpenNotes, rows }: Pr
           </Group>
         </Accordion.Control>
         {group.rollup_stale && editable && detail.hunt.can_manage && (
-          <Tooltip label="Rebuild this meta sheet">
-            <ActionIcon
-              variant="subtle"
-              color="red"
-              mr="sm"
-              loading={rebuildMut.isPending}
-              onClick={(e) => {
-                e.stopPropagation();
-                rebuild();
-              }}
-              aria-label="Rebuild meta sheet"
-            >
-              <IconRefresh size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            mr="sm"
+            loading={rebuildMut.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              rebuild();
+            }}
+            title="Rebuild this meta sheet"
+            aria-label="Rebuild meta sheet"
+          >
+            <IconRefresh size={16} />
+          </ActionIcon>
         )}
         {/* Extension: open every puzzle sheet of this round as a named tab group */}
         {extensionSupports("openRound") && detail.hunt.sheet_mode === "files" && group.puzzles.some((p) => p.sheet_url) && (
-          <Tooltip label="Open round as a tab group">
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              mr="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                openRound(
-                  group.name,
-                  group.puzzles.flatMap((p) => (p.sheet_url ? [p.sheet_url] : [])),
-                );
-              }}
-              aria-label="Open round as a tab group"
-            >
-              <IconBrowserPlus size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="blue"
+            mr="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              openRound(
+                group.name,
+                group.puzzles.flatMap((p) => (p.sheet_url ? [p.sheet_url] : [])),
+              );
+            }}
+            title="Open round as a tab group"
+            aria-label="Open round as a tab group"
+          >
+            <IconBrowserPlus size={16} />
+          </ActionIcon>
         )}
         {/* M7.5 aggregated answers toggle (only for meta rounds) */}
         {isMeta && (
-          <Tooltip label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}>
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              mr="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                answersOpened ? close() : openAnswers();
-              }}
-              aria-label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
-            >
-              <IconCopy size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="blue"
+            mr="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              answersOpened ? close() : openAnswers();
+            }}
+            title={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
+            aria-label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
+          >
+            <IconCopy size={16} />
+          </ActionIcon>
         )}
         {/* Delete round button — organiser only, non-archived, real rounds only */}
         {group.tag_group_id !== 0 && isOrganiser && editable && (
-          <Tooltip label="Delete this round…">
-            <ActionIcon
-              variant="subtle"
-              color="red"
-              mr="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteRoundOpen(true);
-              }}
-              aria-label="Delete round"
-            >
-              <IconTrash size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            mr="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteRoundOpen(true);
+            }}
+            title="Delete this round…"
+            aria-label="Delete round"
+          >
+            <IconTrash size={16} />
+          </ActionIcon>
         )}
       </Box>
       <Accordion.Panel>
-        <Table>
-          <Table.Tbody>
-            {sortPuzzles(rows ?? group.puzzles, group.group_code).map((p) => {
-              const bandProps = p.is_minimeta
-                ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
-                : {};
-              const rowKind = getKind(p);
-              const voiceCount = puzzleVoiceCount(p, voice);
-              return (
-              <Fragment key={`${group.tag_group_id}-${p.id}`}>
-                <Table.Tr bg={voiceRowBg(p.solved, voiceCount)}>
-                  {/* Kind strip — both layouts */}
-                  <Table.Td w={4} p={0} style={{ backgroundColor: rowKind ? kindColorVar(rowKind.color) : undefined }} />
-                  {isNarrow ? (
-                    <>
-                      {/* Compact layout: links | title+solution | actions */}
-                      <Table.Td w={92}>
-                        <PuzzleLinks
-                          puzzle={p}
-                          huntArchived={detail.hunt.archived}
-                        />
-                      </Table.Td>
-                      <Table.Td {...bandProps}>
-                        <Group gap={6} wrap="nowrap">
-                          <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
-                          <MiniCountBadge puzzle={p} />
-                          <VoiceBadge count={voiceCount} />
-                        </Group>
-                        <Text ff="monospace" size="xs" c={p.solved ? "green" : "dimmed"} mt={2}>
-                          {p.solution || "—"}
-                        </Text>
-                      </Table.Td>
-                      <PuzzleRowActions
-                        puzzle={p}
-                        editable={editable}
-                        onSolve={setSolvePuzzle}
-                        onUnsolve={setSolvePuzzle}
-                        onOpenNotes={onOpenNotes}
-                        huntUid={detail.hunt.uid}
-                        tdWidth={80}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      {/* Wide layout: all original columns */}
-                      <Table.Td w={110}>
-                        <PuzzleLinks
-                          puzzle={p}
-                          huntArchived={detail.hunt.archived}
-                        />
-                      </Table.Td>
-                      <Table.Td {...bandProps}>
-                        <Group gap={6}>
-                          <MetaBadge puzzle={p} />
-                          <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
-                          <MiniCountBadge puzzle={p} />
-                          <VoiceBadge count={voiceCount} />
-                        </Group>
-                      </Table.Td>
-                      <Table.Td {...bandProps}>
-                        <Text ff="monospace" size="sm">
-                          {p.solution || ""}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td w={130}>
-                        {editable ? (
-                          <StatusCell
-                            value={p.status}
-                            solved={p.solved}
-                            onChange={(status) =>
-                              updateMut.mutate({ puzzleId: p.id, patch: { status } }, { onError: notifyError })
-                            }
-                          />
-                        ) : (
-                          p.status && (
-                            <Badge variant="light" color={statusColor(p.status)}>
-                              {formatStatus(p.status)}
-                            </Badge>
-                          )
-                        )}
-                      </Table.Td>
-                      <Table.Td w={isNarrow ? 90 : 160}>
-                        <Group gap={6} wrap="nowrap">
-                          {!isNarrow && <ActivitySparkline activity={p.activity} />}
-                          <Text size="xs" c="dimmed">
-                            {activityFor(p)}
-                          </Text>
-                        </Group>
-                      </Table.Td>
-                      <PuzzleRowActions
-                        puzzle={p}
-                        editable={editable}
-                        onSolve={setSolvePuzzle}
-                        onUnsolve={setSolvePuzzle}
-                        onOpenNotes={onOpenNotes}
-                        huntUid={detail.hunt.uid}
-                        tdWidth={76}
-                      />
-                    </>
-                  )}
-                </Table.Tr>
-                {p.is_minimeta && expandedMinis.has(p.id) && (
-                  <Table.Tr>
-                    <Table.Td colSpan={99} p={0}>
-                      <MiniPuzzlePanel
-                        parentId={p.id}
-                        minis={p.mini_puzzles}
-                        uid={detail.hunt.uid}
-                        canManage={detail.hunt.can_manage}
-                      />
-                    </Table.Td>
-                  </Table.Tr>
-                )}
-              </Fragment>
-            );
-            })}
-          </Table.Tbody>
-        </Table>
+        {isOpen && (
+          <>
+            <Table>
+              <Table.Tbody>
+                {sortedRows.map((p) => (
+                  <BoardPuzzleRow
+                    key={`${group.tag_group_id}-${p.id}`}
+                    puzzle={p}
+                    isNarrow={isNarrow}
+                    editable={editable}
+                    huntUid={detail.hunt.uid}
+                    canManage={detail.hunt.can_manage}
+                    liveAt={p.channel_id ? live[p.channel_id]?.at : undefined}
+                    voiceCount={puzzleVoiceCount(p, voice)}
+                    minisExpanded={expandedMinis.has(p.id)}
+                    onToggleMinis={toggleMinis}
+                    onStatusChange={onStatusChange}
+                    onSolve={onSolve}
+                    onOpenNotes={onOpenNotes}
+                    onOpenChat={onOpenChat}
+                  />
+                ))}
+              </Table.Tbody>
+            </Table>
 
-        <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
-
-        {/* M7.5 aggregated answers panel (only for meta rounds) */}
-        {isMeta && answersOpened && (
-          <Box mt="sm" p="sm" style={{ backgroundColor: "var(--mantine-color-gray-light)", borderRadius: "md" }}>
-            <Group justify="space-between" mb="xs">
-              <Text size="sm" fw={600}>
-                Aggregated answers
-                {answersQuery.data && (
-                  <Text component="span" c="dimmed" fw={400} ml="xs">
-                    mode: {answersQuery.data.mode} · {answersQuery.data.answers.length} answers
+            {/* M7.5 aggregated answers panel (only for meta rounds) */}
+            {isMeta && answersOpened && (
+              <Box mt="sm" p="sm" style={{ backgroundColor: "var(--mantine-color-gray-light)", borderRadius: "md" }}>
+                <Group justify="space-between" mb="xs">
+                  <Text size="sm" fw={600}>
+                    Aggregated answers
+                    {answersQuery.data && (
+                      <Text component="span" c="dimmed" fw={400} ml="xs">
+                        mode: {answersQuery.data.mode} · {answersQuery.data.answers.length} answers
+                      </Text>
+                    )}
                   </Text>
+                  <ActionIcon
+                    variant="light"
+                    color="blue"
+                    onClick={copyAnswers}
+                    disabled={!answersQuery.data}
+                    title="Copy to clipboard"
+                    aria-label="Copy answers"
+                  >
+                    {clipboard.copied ? <IconCircleCheck size={14} /> : <IconCopy size={14} />}
+                  </ActionIcon>
+                </Group>
+                {answersQuery.data && (
+                  <Table>
+                    <Table.Tbody>
+                      {answersQuery.data.answers.map((a) => (
+                        <Table.Tr key={a.name}>
+                          <Table.Td><Text size="xs" fw={500}>{a.name}</Text></Table.Td>
+                          <Table.Td><Text ff="monospace" size="xs">{a.solution || ""}</Text></Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
                 )}
-              </Text>
-              <Tooltip label="Copy to clipboard">
-                <ActionIcon
-                  variant="light"
-                  color="blue"
-                  onClick={copyAnswers}
-                  disabled={!answersQuery.data}
-                  aria-label="Copy answers"
-                >
-                  {clipboard.copied ? <IconCircleCheck size={14} /> : <IconCopy size={14} />}
-                </ActionIcon>
-              </Tooltip>
-            </Group>
-            {answersQuery.data && (
-              <Table>
-                <Table.Tbody>
-                  {answersQuery.data.answers.map((a) => (
-                    <Table.Tr key={a.name}>
-                      <Table.Td><Text size="xs" fw={500}>{a.name}</Text></Table.Td>
-                      <Table.Td><Text ff="monospace" size="xs">{a.solution || ""}</Text></Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
+              </Box>
             )}
-          </Box>
+          </>
         )}
       </Accordion.Panel>
 
-      <DeleteRoundModal
-        opened={deleteRoundOpen}
-        onClose={() => setDeleteRoundOpen(false)}
-        onConfirm={runDeleteRound}
-        name={group.name}
-        noun="round"
-        puzzleCount={deleteCount}
-        loading={deleteRoundMut.isPending}
-        deleteAllPuzzles={deleteAllPuzzles}
-        onDeleteAllPuzzlesChange={setDeleteAllPuzzles}
-      />
+      {deleteRoundOpen && (
+        <DeleteRoundModal
+          opened={deleteRoundOpen}
+          onClose={() => setDeleteRoundOpen(false)}
+          onConfirm={runDeleteRound}
+          name={group.name}
+          noun="round"
+          puzzleCount={deleteCount}
+          loading={deleteRoundMut.isPending}
+          deleteAllPuzzles={deleteAllPuzzles}
+          onDeleteAllPuzzlesChange={setDeleteAllPuzzles}
+        />
+      )}
     </Accordion.Item>
   );
-}
+});

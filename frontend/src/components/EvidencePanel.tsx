@@ -58,6 +58,7 @@ export function EvidencePanel({ uid, detail }: Props) {
   const ocrClueImage = useOcrEvidenceImage(uid);
   const replaceClueImage = useReplaceClueImage(uid);
   const [markupItem, setMarkupItem] = useState<EvidenceItem | null>(null);
+  const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
   const [filterTarget, setFilterTarget] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
@@ -386,7 +387,7 @@ export function EvidencePanel({ uid, detail }: Props) {
                 editable={editable}
                 updateEvidenceMutate={updateEvidence.mutate}
                 editClueNoteMutate={editClueNote.mutate}
-                deleteEvidenceMutate={deleteEvidence.mutate}
+                onRequestDelete={setDeleteItemId}
                 onReplaceImage={onReplaceImage}
                 onMarkup={setMarkupItem}
               />
@@ -395,6 +396,21 @@ export function EvidencePanel({ uid, detail }: Props) {
         </Table>
       )}
       {clueOcrConfirm.confirmModal}
+      {deleteItemId != null && (
+        <ConfirmModal
+          opened
+          onClose={() => setDeleteItemId(null)}
+          onConfirm={() => {
+            const id = deleteItemId;
+            setDeleteItemId(null);
+            deleteEvidence.mutate(id, { onError: notifyError });
+          }}
+          title="Delete clue"
+          message="Delete this clue? This cannot be undone."
+          confirmLabel="Delete"
+          confirmColor="red"
+        />
+      )}
       <MarkupModal
         mediaId={markupItem?.media_id ?? null}
         alt={markupItem?.note ?? "Evidence image"}
@@ -436,7 +452,7 @@ const EvidenceRow = memo(function EvidenceRow({
   editable,
   updateEvidenceMutate,
   editClueNoteMutate,
-  deleteEvidenceMutate,
+  onRequestDelete,
   onReplaceImage,
   onMarkup,
 }: {
@@ -445,13 +461,13 @@ const EvidenceRow = memo(function EvidenceRow({
   editable: boolean;
   updateEvidenceMutate: ReturnType<typeof useUpdateEvidence>["mutate"];
   editClueNoteMutate: ReturnType<typeof useEditClueNote>["mutate"];
-  deleteEvidenceMutate: ReturnType<typeof useDeleteEvidence>["mutate"];
+  onRequestDelete: (itemId: number) => void;
   onReplaceImage: (itemId: number, file: File) => void;
   onMarkup: (item: EvidenceItem) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pickingTarget, setPickingTarget] = useState(false);
 
   // created_at is a UTC-offset ISO string (#33); parse it so the display is in
   // the viewer's local time, like every other dashboard timestamp.
@@ -460,11 +476,11 @@ const EvidenceRow = memo(function EvidenceRow({
   const itemId = item.id;
   const itemNote = item.note;
 
-  // updateEvidenceMutate/editClueNoteMutate/deleteEvidenceMutate must be the
-  // bare .mutate function (react-query keeps that reference-stable), not the
-  // useMutation() result object — that object is a fresh literal every
-  // render, which would defeat the memo() above and re-render every row on
-  // every keystroke anywhere in EvidencePanel.
+  // updateEvidenceMutate/editClueNoteMutate must be the bare .mutate function
+  // (react-query keeps that reference-stable), not the useMutation() result
+  // object — that object is a fresh literal every render, which would defeat
+  // the memo() above and re-render every row on every keystroke anywhere in
+  // EvidencePanel.
   const onSetTarget = useCallback(
     (targetId: number | null) =>
       updateEvidenceMutate({ itemId, targetPuzzleId: targetId }, { onError: notifyError }),
@@ -473,10 +489,6 @@ const EvidenceRow = memo(function EvidenceRow({
   const onEditNote = useCallback(
     (note: string) => editClueNoteMutate({ itemId, note }, { onError: notifyError }),
     [editClueNoteMutate, itemId]
-  );
-  const onDelete = useCallback(
-    () => deleteEvidenceMutate(itemId, { onError: notifyError }),
-    [deleteEvidenceMutate, itemId]
   );
 
   function startEdit() {
@@ -606,17 +618,47 @@ const EvidenceRow = memo(function EvidenceRow({
         )}
       </Table.Td>
       <Table.Td>
-        <Select
-          size="xs"
-          placeholder="Assign target…"
-          data={puzzleOptions}
-          value={item.target_puzzle_id ? String(item.target_puzzle_id) : null}
-          onChange={(v) => onSetTarget(v ? Number(v) : null)}
-          searchable
-          clearable
-          w={200}
-          disabled={!editable}
-        />
+        {editable && pickingTarget ? (
+          <Select
+            size="xs"
+            placeholder="Assign target…"
+            data={puzzleOptions}
+            value={item.target_puzzle_id ? String(item.target_puzzle_id) : null}
+            onChange={(v) => {
+              onSetTarget(v ? Number(v) : null);
+              setPickingTarget(false);
+            }}
+            onDropdownClose={() => setPickingTarget(false)}
+            defaultDropdownOpened
+            autoFocus
+            searchable
+            clearable
+            w={200}
+          />
+        ) : editable ? (
+          <UnstyledButton
+            onClick={() => setPickingTarget(true)}
+            title="Click to assign target puzzle"
+            style={{
+              width: 200,
+              padding: "4px 8px",
+              borderRadius: "var(--mantine-radius-sm)",
+              border: "1px solid var(--mantine-color-default-border)",
+              fontSize: "var(--mantine-font-size-xs)",
+              color: item.target_puzzle_name ? "inherit" : "var(--mantine-color-dimmed)",
+              textAlign: "left",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {item.target_puzzle_name || "Assign target…"}
+          </UnstyledButton>
+        ) : (
+          <Text size="sm" c={item.target_puzzle_name ? undefined : "dimmed"}>
+            {item.target_puzzle_name || "—"}
+          </Text>
+        )}
       </Table.Td>
       <Table.Td>{loggedAt}</Table.Td>
       {editable && (
@@ -625,20 +667,11 @@ const EvidenceRow = memo(function EvidenceRow({
             variant="subtle"
             color="red"
             size="sm"
-            onClick={() => setConfirmOpen(true)}
+            onClick={() => onRequestDelete(item.id)}
             aria-label="Delete clue"
           >
             <IconTrash size={14} />
           </ActionIcon>
-          <ConfirmModal
-            opened={confirmOpen}
-            onClose={() => setConfirmOpen(false)}
-            onConfirm={() => { setConfirmOpen(false); onDelete(); }}
-            title="Delete clue"
-            message="Delete this clue? This cannot be undone."
-            confirmLabel="Delete"
-            confirmColor="red"
-          />
         </Table.Td>
       )}
     </Table.Tr>
