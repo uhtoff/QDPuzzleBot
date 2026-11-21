@@ -74,6 +74,8 @@ function buildRows(
   return rows;
 }
 
+/** The board mounts this only while a picker is in use (see Lingering in
+ *  DragBoard), so it carries no closed-state gate of its own. */
 export function AddToGroupPicker({
   opened,
   onClose,

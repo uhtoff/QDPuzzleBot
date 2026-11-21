@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ActionIcon, Badge, Group, Indicator, Table, Tooltip } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -29,7 +30,7 @@ interface PuzzleRowActionsProps {
  *
  * Place this inside the puzzle's <Table.Tr>.
  */
-export function PuzzleRowActions({
+export const PuzzleRowActions = memo(function PuzzleRowActions({
   puzzle: p,
   editable,
   onSolve,
@@ -44,51 +45,69 @@ export function PuzzleRowActions({
     <Table.Td w={tdWidth}>
       <Group gap={4} wrap="nowrap">
         {editable && !p.solved && (
-          <Tooltip label="Mark solved">
-            <ActionIcon variant="subtle" color="green" onClick={() => onSolve(p)} aria-label="Solve">
-              <IconCircleCheck size={17} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="green"
+            onClick={() => onSolve(p)}
+            data-tip="Mark solved"
+            aria-label="Solve"
+          >
+            <IconCircleCheck size={17} />
+          </ActionIcon>
         )}
         {editable && p.solved && (
-          <Tooltip label="Mark unsolved">
-            <ActionIcon variant="subtle" color="red" onClick={() => onUnsolve(p)} aria-label="Unsolve">
-              <IconCircleX size={17} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            onClick={() => onUnsolve(p)}
+            data-tip="Mark unsolved"
+            aria-label="Unsolve"
+          >
+            <IconCircleX size={17} />
+          </ActionIcon>
         )}
         {huntUid && sheetUrl && extensionSupports("work") && (
-          <Tooltip label="Work on this puzzle">
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              onClick={() => workOn({ id: p.id, sheet_url: sheetUrl, hunt_uid: huntUid })}
-              aria-label="Work on this puzzle"
-            >
-              <IconPlayerPlay size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="blue"
+            onClick={() => workOn({ id: p.id, sheet_url: sheetUrl, hunt_uid: huntUid })}
+            data-tip="Work on this puzzle"
+            aria-label="Work on this puzzle"
+          >
+            <IconPlayerPlay size={16} />
+          </ActionIcon>
         )}
         {sheetUrl && puzzleUrl && extensionSupports("openPuzzle") && (
-          <Tooltip label="Open puzzle as a tab group">
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              onClick={() => openPuzzle(p.name, sheetUrl, puzzleUrl)}
-              aria-label="Open puzzle as a tab group"
-            >
-              <IconBrowserPlus size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="blue"
+            onClick={() => openPuzzle(p.name, sheetUrl, puzzleUrl)}
+            data-tip="Open puzzle as a tab group"
+            aria-label="Open puzzle as a tab group"
+          >
+            <IconBrowserPlus size={16} />
+          </ActionIcon>
         )}
         <Indicator label={p.notes.length} size={16} disabled={p.notes.length === 0} color="blue">
-          <ActionIcon variant="subtle" color="gray" onClick={() => onOpenNotes(p)} aria-label="Notes">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            onClick={() => onOpenNotes(p)}
+            data-tip="Notes"
+            aria-label="Notes"
+          >
             <IconNote size={16} />
           </ActionIcon>
         </Indicator>
         {p.rollup_stale && (
           <Tooltip label={p.rollup_error || "This minimeta's sheet is out of date"} multiline maw={320}>
-            <Badge color="red" variant="light" size="sm" leftSection={<IconAlertTriangle size={12} />} style={{ cursor: "default" }}>
+            <Badge
+              color="red"
+              variant="light"
+              size="sm"
+              leftSection={<IconAlertTriangle size={12} />}
+              style={{ cursor: "default" }}
+            >
               sheet stale
             </Badge>
           </Tooltip>
@@ -96,4 +115,4 @@ export function PuzzleRowActions({
       </Group>
     </Table.Td>
   );
-}
+});

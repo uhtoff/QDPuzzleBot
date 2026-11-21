@@ -1,0 +1,8 @@
+/* Stripe every other PUZZLE, not every other table row: a puzzle's expanded
+   mini panel is a second row, which would otherwise shift the stripes below
+   it. `tr.` lifts this just above Mantine's own row rule (one class, which
+   sets a transparent background and can load after this file), while staying
+   below its row hover (two classes), so hover still shows on top. */
+tr.puzzle-row-striped {
+  background-color: var(--table-striped-color);
+}

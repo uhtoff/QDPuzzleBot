@@ -1,0 +1,22 @@
+/* The one shared tooltip (see TipLayer.tsx). Matches Mantine's Tooltip look. */
+.tip-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 400; /* above modals (200) and popovers (300) */
+  pointer-events: none;
+  max-width: 320px;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  border-radius: var(--mantine-radius-default);
+  font-size: var(--mantine-font-size-sm);
+  line-height: var(--mantine-line-height-sm);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  background-color: var(--mantine-color-gray-9);
+  color: var(--mantine-color-white);
+}
+
+[data-mantine-color-scheme="dark"] .tip-layer {
+  background-color: var(--mantine-color-gray-2);
+  color: var(--mantine-color-black);
+}

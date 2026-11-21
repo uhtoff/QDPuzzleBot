@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, memo, useCallback, useMemo, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import {
   Badge,
@@ -18,19 +18,22 @@ import { VoiceBadge } from "./VoiceBadge";
 import { puzzleVoiceCount, voiceRowBg, type LiveVoice } from "../lib/voice";
 import { MetaBadge } from "./MetaBadge";
 import { MiniCountBadge } from "./MiniCountBadge";
-import { PriorityCell, SolveModal, StatusCell, TypeCell } from "./PuzzleEditCells";
+import { PriorityCell, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { MiniPuzzlePanel } from "./MiniPuzzlePanel";
 import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, formatPriority, formatStatus, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
 import { puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "./PuzzleFilterBar";
+import "./PuzzleTable.css";
 
 interface Props {
   detail: HuntDetail;
   puzzles: Puzzle[];
   live: Record<string, LiveActivity>;
   voice: LiveVoice;
+  onSolve: (puzzle: Puzzle) => void;
   onOpenNotes: (puzzle: Puzzle) => void;
+  onOpenChat: (puzzle: Puzzle) => void;
   /** Shared with the "By group" view, so a search survives switching views. */
   filter: PuzzleFilter;
   onFilterChange: (next: PuzzleFilter) => void;
@@ -95,6 +98,8 @@ function EdgeBadge({
   onPick: (edge: EdgeType) => void;
   onRemove: (edge?: EdgeType) => void;
 }) {
+  const [opened, setOpened] = useState(false);
+  const canEdit = editable && !!r.group_code;
   const code = edgeCode(r);
   const badge = (
     <Badge
@@ -102,14 +107,15 @@ function EdgeBadge({
       variant="light"
       color={edgeColor(r)}
       title={`group ${r.id} (${r.group_type ?? "?"}) · ${edgeTitle(r)}`}
-      style={editable && r.group_code ? { cursor: "pointer" } : undefined}
+      style={canEdit ? { cursor: "pointer" } : undefined}
+      onClick={canEdit && !opened ? () => setOpened(true) : undefined}
     >
       {r.name} [{code}]
     </Badge>
   );
-  if (!editable || !r.group_code) return badge;
+  if (!canEdit || !opened) return badge;
   return (
-    <Menu shadow="md" position="bottom-start" withinPortal>
+    <Menu opened={opened} onChange={setOpened} shadow="md" position="bottom-start" withinPortal>
       <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{r.name} tag</Menu.Label>
@@ -118,7 +124,10 @@ function EdgeBadge({
               <Menu.Item
                 key={o.edge}
                 disabled={r.edges.includes(o.edge)}
-                onClick={() => onPick(o.edge)}
+                onClick={() => {
+                  setOpened(false);
+                  onPick(o.edge);
+                }}
               >
                 {o.label}
               </Menu.Item>
@@ -130,7 +139,10 @@ function EdgeBadge({
                   <Menu.Item
                     key={o.edge}
                     leftSection={on ? "✓" : ""}
-                    onClick={() => (on ? onRemove(o.edge) : onPick(o.edge))}
+                    onClick={() => {
+                      setOpened(false);
+                      on ? onRemove(o.edge) : onPick(o.edge);
+                    }}
                   >
                     {o.label}
                   </Menu.Item>
@@ -143,7 +155,10 @@ function EdgeBadge({
                 key="none"
                 leftSection={r.edges.includes("none") ? "✓" : ""}
                 disabled={r.edges.includes("none")}
-                onClick={() => onPick("none")}
+                onClick={() => {
+                  setOpened(false);
+                  onPick("none");
+                }}
               >
                 Group only
               </Menu.Item>,
@@ -153,7 +168,13 @@ function EdgeBadge({
         {!r.is_target_of && (
           <>
             <Menu.Divider />
-            <Menu.Item color="red" onClick={() => onRemove()}>
+            <Menu.Item
+              color="red"
+              onClick={() => {
+                setOpened(false);
+                onRemove();
+              }}
+            >
               Remove from group
             </Menu.Item>
           </>
@@ -163,9 +184,191 @@ function EdgeBadge({
   );
 }
 
-export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes, filter, onFilterChange }: Props) {
+interface TableRowProps {
+  puzzle: Puzzle;
+  /** Alternates per puzzle (see PuzzleTable.css). */
+  striped: boolean;
+  editable: boolean;
+  canManage: boolean;
+  debugEdges: boolean;
+  huntUid: string;
+  liveAt: string | undefined;
+  voiceCount: number;
+  minisExpanded: boolean;
+  onToggleMinis: (puzzleId: number) => void;
+  onUpdateField: (puzzleId: number, patch: Record<string, string>) => void;
+  onRetagEdge: (puzzleId: number, metaCode: string, mode: "add" | "remove", edge?: EdgeType) => void;
+  onSolve: (puzzle: Puzzle) => void;
+  onOpenNotes: (puzzle: Puzzle) => void;
+  onOpenChat: (puzzle: Puzzle) => void;
+}
+
+const PuzzleTableRow = memo(function PuzzleTableRow({
+  puzzle: p,
+  striped,
+  editable,
+  canManage,
+  debugEdges,
+  huntUid,
+  liveAt,
+  voiceCount,
+  minisExpanded,
+  onToggleMinis,
+  onUpdateField,
+  onRetagEdge,
+  onSolve,
+  onOpenNotes,
+  onOpenChat,
+}: TableRowProps) {
+  const onStatusChange = useCallback(
+    (status: string) => onUpdateField(p.id, { status }),
+    [onUpdateField, p.id],
+  );
+  const onPriorityChange = useCallback(
+    (priority: string) => onUpdateField(p.id, { priority }),
+    [onUpdateField, p.id],
+  );
+  const onTypeSave = useCallback(
+    (puzzle_type: string) => onUpdateField(p.id, { puzzle_type }),
+    [onUpdateField, p.id],
+  );
+  const bandProps = p.is_minimeta
+    ? { onClick: () => onToggleMinis(p.id), style: { cursor: "pointer" as const } }
+    : {};
+  const activityText = relativeTime(
+    latestActivity(liveAt, p.last_activity?.at, p.activity?.last_sheet_edit_at),
+  );
+
+  return (
+    <Fragment>
+      <Table.Tr
+        bg={voiceRowBg(p.solved, voiceCount)}
+        className={striped ? "puzzle-row-striped" : undefined}
+      >
+        <Table.Td>
+          <PuzzleLinks puzzle={p} onOpenChat={onOpenChat} />
+        </Table.Td>
+        <Table.Td {...bandProps}>
+          <Group gap={6} wrap="nowrap">
+            <MetaBadge puzzle={p} />
+            <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
+            <MiniCountBadge puzzle={p} />
+            <VoiceBadge count={voiceCount} />
+          </Group>
+        </Table.Td>
+        {debugEdges && (
+          <Table.Td {...bandProps}>
+            {p.rounds.length ? (
+              <Group gap={4} wrap="wrap" onClick={(e) => e.stopPropagation()}>
+                {p.rounds.map((r) => (
+                  <EdgeBadge
+                    key={r.id}
+                    r={r}
+                    editable={canManage}
+                    onPick={(edge) => onRetagEdge(p.id, r.group_code as string, "add", edge)}
+                    onRemove={(edge) => onRetagEdge(p.id, r.group_code as string, "remove", edge)}
+                  />
+                ))}
+              </Group>
+            ) : (
+              <Text size="sm" c="dimmed">—</Text>
+            )}
+          </Table.Td>
+        )}
+        <Table.Td {...bandProps}>
+          <Text ff="monospace" size="sm">
+            {p.solution || ""}
+          </Text>
+        </Table.Td>
+        <Table.Td ta="right" {...bandProps}>
+          <Text size="sm" c="dimmed">
+            {p.solution ? answerLength(p.solution) : ""}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          {editable ? (
+            <StatusCell
+              value={p.status}
+              solved={p.solved}
+              onChange={onStatusChange}
+            />
+          ) : p.status ? (
+            <Badge variant="light" color={statusColor(p.status)}>
+              {formatStatus(p.status)}
+            </Badge>
+          ) : (
+            "—"
+          )}
+        </Table.Td>
+        <Table.Td>
+          {editable ? (
+            <PriorityCell
+              value={p.priority}
+              onChange={onPriorityChange}
+            />
+          ) : p.priority ? (
+            <Badge variant="dot" color={priorityColor(p.priority)}>
+              {formatPriority(p.priority)}
+            </Badge>
+          ) : (
+            "—"
+          )}
+        </Table.Td>
+        <Table.Td>
+          {editable ? (
+            <TypeCell
+              value={p.puzzle_type}
+              onSave={onTypeSave}
+            />
+          ) : (
+            <Text size="sm">{p.puzzle_type || "—"}</Text>
+          )}
+        </Table.Td>
+        <Table.Td>
+          <Group gap={6} wrap="nowrap">
+            <ActivitySparkline activity={p.activity} />
+            <Text size="sm" c="dimmed">
+              {activityText}
+            </Text>
+          </Group>
+        </Table.Td>
+        <PuzzleRowActions
+          puzzle={p}
+          editable={editable}
+          onSolve={onSolve}
+          onUnsolve={onSolve}
+          onOpenNotes={onOpenNotes}
+          huntUid={huntUid}
+        />
+      </Table.Tr>
+      {p.is_minimeta && minisExpanded && (
+        <Table.Tr>
+          <Table.Td colSpan={99} p={0}>
+            <MiniPuzzlePanel
+              parentId={p.id}
+              minis={p.mini_puzzles}
+              uid={huntUid}
+              canManage={canManage}
+            />
+          </Table.Td>
+        </Table.Tr>
+      )}
+    </Fragment>
+  );
+});
+
+export const PuzzleTable = memo(function PuzzleTable({
+  detail,
+  puzzles,
+  live,
+  voice,
+  onSolve,
+  onOpenNotes,
+  onOpenChat,
+  filter,
+  onFilterChange,
+}: Props) {
   const [debugEdges, setDebugEdges] = useState(false);
-  const [solvePuzzle, setSolvePuzzle] = useState<Puzzle | null>(null);
   const { expandedMinis, toggleMinis } = useMiniExpansion();
   const updateMut = useUpdatePuzzle(detail.hunt.uid);
   const retag = useRetagPuzzle(detail.hunt.uid);
@@ -174,17 +377,24 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes, filter,
   // already false for archived hunts and matches the backend's require_organiser gate.
   const canManage = detail.hunt.can_manage;
 
+  const { mutate: updateMutate } = updateMut;
+  const onUpdateField = useCallback(
+    (puzzleId: number, patch: Record<string, string>) =>
+      updateMutate({ puzzleId, patch }, { onError: notifyError }),
+    [updateMutate],
+  );
+
+  const { mutate: retagMutate } = retag;
+  const onRetagEdge = useCallback(
+    (puzzleId: number, metaCode: string, mode: "add" | "remove", edge?: EdgeType) =>
+      retagMutate({ puzzleId, metaCode, mode, edge }, { onError: notifyError }),
+    [retagMutate],
+  );
+
   const filtered = useMemo(
     () => sortPuzzles(puzzles.filter((p) => puzzleMatches(p, filter))),
     [puzzles, filter],
   );
-
-  function activityFor(p: Puzzle): string {
-    const liveHit = p.channel_id ? live[p.channel_id] : undefined;
-    return relativeTime(
-      latestActivity(liveHit?.at, p.last_activity?.at, p.activity?.last_sheet_edit_at),
-    );
-  }
 
   return (
     <>
@@ -206,7 +416,7 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes, filter,
       </PuzzleFilterBar>
 
       <Table.ScrollContainer minWidth={900}>
-        <Table striped highlightOnHover stickyHeader>
+        <Table highlightOnHover stickyHeader>
           <Table.Thead>
             <Table.Tr>
               <Table.Th w={110}>Links</Table.Th>
@@ -221,157 +431,30 @@ export function PuzzleTable({ detail, puzzles, live, voice, onOpenNotes, filter,
               <Table.Th w={90}>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
-          {filtered.map((p) => {
-              const bandProps = p.is_minimeta
-                ? { onClick: () => toggleMinis(p.id), style: { cursor: "pointer" as const } }
-                : {};
-              return (
-              <Table.Tbody key={p.id}>
-              <Table.Tr bg={voiceRowBg(p.solved, puzzleVoiceCount(p, voice))}>
-                <Table.Td>
-                  <PuzzleLinks
-                    puzzle={p}
-                    huntArchived={detail.hunt.archived}
-                  />
-                </Table.Td>
-                <Table.Td {...bandProps}>
-                  <Group gap={6} wrap="nowrap">
-                    <MetaBadge puzzle={p} />
-                    <Text fw={p.is_meta ? 600 : 400}>{p.name}</Text>
-                    <MiniCountBadge puzzle={p} />
-                    <VoiceBadge count={puzzleVoiceCount(p, voice)} />
-                  </Group>
-                </Table.Td>
-                {debugEdges && (
-                  <Table.Td {...bandProps}>
-                    {p.rounds.length ? (
-                      <Group gap={4} wrap="wrap" onClick={(e) => e.stopPropagation()}>
-                        {p.rounds.map((r) => (
-                          <EdgeBadge
-                            key={r.id}
-                            r={r}
-                            editable={canManage}
-                            onPick={(edge) =>
-                              retag.mutate(
-                                {
-                                  puzzleId: p.id,
-                                  metaCode: r.group_code as string,
-                                  mode: "add",
-                                  edge,
-                                },
-                                { onError: notifyError }
-                              )
-                            }
-                            onRemove={(edge) =>
-                              retag.mutate(
-                                {
-                                  puzzleId: p.id,
-                                  metaCode: r.group_code as string,
-                                  mode: "remove",
-                                  edge,
-                                },
-                                { onError: notifyError }
-                              )
-                            }
-                          />
-                        ))}
-                      </Group>
-                    ) : (
-                      <Text size="sm" c="dimmed">—</Text>
-                    )}
-                  </Table.Td>
-                )}
-                <Table.Td {...bandProps}>
-                  <Text ff="monospace" size="sm">
-                    {p.solution || ""}
-                  </Text>
-                </Table.Td>
-                <Table.Td ta="right" {...bandProps}>
-                  <Text size="sm" c="dimmed">
-                    {p.solution ? answerLength(p.solution) : ""}
-                  </Text>
-                </Table.Td>
-                <Table.Td>
-                  {editable ? (
-                    <StatusCell
-                      value={p.status}
-                      solved={p.solved}
-                      onChange={(status) =>
-                        updateMut.mutate({ puzzleId: p.id, patch: { status } }, { onError: notifyError })
-                      }
-                    />
-                  ) : p.status ? (
-                    <Badge variant="light" color={statusColor(p.status)}>
-                      {formatStatus(p.status)}
-                    </Badge>
-                  ) : (
-                    "—"
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  {editable ? (
-                    <PriorityCell
-                      value={p.priority}
-                      onChange={(priority) =>
-                        updateMut.mutate({ puzzleId: p.id, patch: { priority } }, { onError: notifyError })
-                      }
-                    />
-                  ) : p.priority ? (
-                    <Badge variant="dot" color={priorityColor(p.priority)}>
-                      {formatPriority(p.priority)}
-                    </Badge>
-                  ) : (
-                    "—"
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  {editable ? (
-                    <TypeCell
-                      value={p.puzzle_type}
-                      onSave={(puzzle_type) =>
-                        updateMut.mutate({ puzzleId: p.id, patch: { puzzle_type } }, { onError: notifyError })
-                      }
-                    />
-                  ) : (
-                    <Text size="sm">{p.puzzle_type || "—"}</Text>
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  <Group gap={6} wrap="nowrap">
-                    <ActivitySparkline activity={p.activity} />
-                    <Text size="sm" c="dimmed">
-                      {activityFor(p)}
-                    </Text>
-                  </Group>
-                </Table.Td>
-                <PuzzleRowActions
-                  puzzle={p}
-                  editable={editable}
-                  onSolve={setSolvePuzzle}
-                  onUnsolve={setSolvePuzzle}
-                  onOpenNotes={onOpenNotes}
-                  huntUid={detail.hunt.uid}
-                />
-              </Table.Tr>
-              {p.is_minimeta && expandedMinis.has(p.id) && (
-                <Table.Tr>
-                  <Table.Td colSpan={99} p={0}>
-                    <MiniPuzzlePanel
-                      parentId={p.id}
-                      minis={p.mini_puzzles}
-                      uid={detail.hunt.uid}
-                      canManage={detail.hunt.can_manage}
-                    />
-                  </Table.Td>
-                </Table.Tr>
-              )}
-              </Table.Tbody>
-            );
-            })}
+          <Table.Tbody>
+            {filtered.map((p, i) => (
+              <PuzzleTableRow
+                key={p.id}
+                puzzle={p}
+                striped={i % 2 === 0}
+                editable={editable}
+                canManage={canManage}
+                debugEdges={debugEdges}
+                huntUid={detail.hunt.uid}
+                liveAt={p.channel_id ? live[p.channel_id]?.at : undefined}
+                voiceCount={puzzleVoiceCount(p, voice)}
+                minisExpanded={expandedMinis.has(p.id)}
+                onToggleMinis={toggleMinis}
+                onUpdateField={onUpdateField}
+                onRetagEdge={onRetagEdge}
+                onSolve={onSolve}
+                onOpenNotes={onOpenNotes}
+                onOpenChat={onOpenChat}
+              />
+            ))}
+          </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
-
-      <SolveModal puzzle={solvePuzzle} uid={detail.hunt.uid} onClose={() => setSolvePuzzle(null)} />
     </>
   );
-}
+});

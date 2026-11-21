@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect } from "react";
 import {
   Badge,
   Button,
@@ -13,7 +13,6 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import type { Puzzle } from "../types";
@@ -34,79 +33,132 @@ export type SolveTarget = Pick<Puzzle, "id" | "name" | "solved" | "solution">;
  * the solve/unsolve machinery, not this field: while solved, only toggling
  * between them is offered; while unsolved, neither is offered (use the solve
  * action instead) since the backend now rejects both transitions.
+ *
+ * Mounts Mantine's Menu lazily on click so hundreds of idle table rows don't
+ * each instantiate a Floating-UI engine and menu item tree.
  */
-export function StatusCell({
+export const StatusCell = memo(function StatusCell({
   value,
   solved,
   onChange,
+  defaultOpened = false,
 }: {
   value: string | null;
   solved: boolean;
   onChange: (v: string) => void;
+  defaultOpened?: boolean;
 }) {
+  const [opened, setOpened] = useState(defaultOpened);
+  const badge = (
+    <Badge
+      variant="light"
+      color={statusColor(value)}
+      style={{ cursor: "pointer" }}
+      onClick={!opened ? () => setOpened(true) : undefined}
+    >
+      {formatStatus(value) || "set status"}
+    </Badge>
+  );
+  if (!opened) return badge;
   const options = solved ? SOLVED_STATUS_OPTIONS : UNSOLVED_STATUS_OPTIONS;
   return (
-    <Menu position="bottom-start" withinPortal shadow="md">
-      <Menu.Target>
-        <Badge variant="light" color={statusColor(value)} style={{ cursor: "pointer" }}>
-          {formatStatus(value) || "set status"}
-        </Badge>
-      </Menu.Target>
+    <Menu opened={opened} onChange={setOpened} position="bottom-start" withinPortal shadow="md">
+      <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
         {options.map((s) => (
-          <Menu.Item key={s} onClick={() => onChange(s)}>
+          <Menu.Item
+            key={s}
+            onClick={() => {
+              setOpened(false);
+              onChange(s);
+            }}
+          >
             {formatStatus(s)}
           </Menu.Item>
         ))}
       </Menu.Dropdown>
     </Menu>
   );
-}
+});
 
-export function PriorityCell({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
+export const PriorityCell = memo(function PriorityCell({
+  value,
+  onChange,
+  defaultOpened = false,
+}: {
+  value: string | null;
+  onChange: (v: string) => void;
+  defaultOpened?: boolean;
+}) {
+  const [opened, setOpened] = useState(defaultOpened);
+  const badge = (
+    <Badge
+      variant="dot"
+      color={priorityColor(value)}
+      style={{ cursor: "pointer" }}
+      onClick={!opened ? () => setOpened(true) : undefined}
+    >
+      {formatPriority(value) || "set"}
+    </Badge>
+  );
+  if (!opened) return badge;
   return (
-    <Menu position="bottom-start" withinPortal shadow="md">
-      <Menu.Target>
-        <Badge variant="dot" color={priorityColor(value)} style={{ cursor: "pointer" }}>
-          {formatPriority(value) || "set"}
-        </Badge>
-      </Menu.Target>
+    <Menu opened={opened} onChange={setOpened} position="bottom-start" withinPortal shadow="md">
+      <Menu.Target>{badge}</Menu.Target>
       <Menu.Dropdown>
         {PRIORITY_OPTIONS.map((p) => (
-          <Menu.Item key={p} onClick={() => onChange(p)}>
+          <Menu.Item
+            key={p}
+            onClick={() => {
+              setOpened(false);
+              onChange(p);
+            }}
+          >
             {formatPriority(p)}
           </Menu.Item>
         ))}
       </Menu.Dropdown>
     </Menu>
   );
-}
+});
 
 /** Click the type text to edit it inline. */
-export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: string) => void }) {
-  const [opened, { open, close }] = useDisclosure(false);
+export const TypeCell = memo(function TypeCell({
+  value,
+  onSave,
+  defaultOpened = false,
+}: {
+  value: string | null;
+  onSave: (v: string) => void;
+  defaultOpened?: boolean;
+}) {
+  const [opened, setOpened] = useState(defaultOpened);
   const [text, setText] = useState(value || "");
 
   function save() {
     onSave(text.trim());
-    close();
+    setOpened(false);
   }
 
+  const label = (
+    <Text
+      size="sm"
+      c={value ? undefined : "dimmed"}
+      style={{ cursor: "pointer" }}
+      onClick={() => {
+        setText(value || "");
+        setOpened((o) => !o);
+      }}
+    >
+      {value || "set type"}
+    </Text>
+  );
+
+  if (!opened) return label;
+
   return (
-    <Popover opened={opened} onClose={close} position="bottom-start" withArrow shadow="md">
-      <Popover.Target>
-        <Text
-          size="sm"
-          c={value ? undefined : "dimmed"}
-          style={{ cursor: "pointer" }}
-          onClick={() => {
-            setText(value || "");
-            open();
-          }}
-        >
-          {value || "set type"}
-        </Text>
-      </Popover.Target>
+    <Popover opened={opened} onClose={() => setOpened(false)} position="bottom-start" withArrow shadow="md">
+      <Popover.Target>{label}</Popover.Target>
       <Popover.Dropdown>
         <Group gap="xs">
           <TextInput
@@ -123,7 +175,7 @@ export function TypeCell({ value, onSave }: { value: string | null; onSave: (v: 
       </Popover.Dropdown>
     </Popover>
   );
-}
+});
 
 /**
  * Modal to solve, unsolve, or amend a puzzle's solution.

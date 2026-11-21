@@ -1,0 +1,13 @@
+/* Immediate press and pending-transition feedback on the hunt view switcher. */
+.hunt-view-tabs .mantine-SegmentedControl-label {
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+
+.hunt-view-tabs .mantine-SegmentedControl-label:active {
+  opacity: 0.55;
+  transform: scale(0.98);
+}
+
+.hunt-view-tabs[data-pending="true"] .mantine-SegmentedControl-label[data-active] {
+  opacity: 0.65;
+}
