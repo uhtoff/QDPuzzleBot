@@ -275,6 +275,12 @@ goes for the **Unassigned Feeders** tab: once a puzzle is assigned, its row and 
 are removed. Don't put columns between Source, Type and Content: the bot rewrites those
 columns, and anything inserted among them will be overwritten.
 
+**Don't rename a roll-up table.** Google Sheets shows a small toolbar at a table's top-left
+corner, with a menu that can rename the table. The bot finds its table by that name
+(`Contributions …` on a meta), so a renamed table stops updating — and the next refresh
+can add a second table and push the sheet's columns across. Sorting, filtering and
+resizing columns from that menu are fine; it's only the name that must stay.
+
 ### Changing your mind about what a puzzle is
 
 Target channels carry a leading emoji so you can spot them in the channel list: 🧩 a

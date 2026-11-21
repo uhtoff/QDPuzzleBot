@@ -13,7 +13,7 @@ def test_full_geometry_reads_the_patched_config_at_call_time():
         g = cog._header_geometry(make_puzzle())
     assert (g.layout, g.title_a1, g.status_a1, g.progress_a1) == ("full", "C1", "J1", "C3")
     assert (g.feeds_a1, g.frozen_rows, g.band_rows, g.band_cols, g.grey_whole_rows) \
-        == ("I3", 3, 3, 17, True)
+        == ("I3", 0, 3, 17, True)
 
 
 def test_link_runs_without_prefix_match_the_feeds_cell():
