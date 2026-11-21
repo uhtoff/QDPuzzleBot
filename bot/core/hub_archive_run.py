@@ -60,16 +60,21 @@ async def run_archive_to_hub(bot, service, guild, hunt, invoker, hub, hub_row, *
 
             report = await service.archive_hunt_to_hub(
                 guild, hunt, invoker, hub, hub_row, on_progress=on_progress)
-            summary = archive_summary(report)
+            base = archive_summary(report)
+            # The team server and the hub get different tails: "left this server /
+            # delete it" is only true of the team server.
+            summary = hub_summary = base
             if report.left_guild:
                 summary += "\nThe bot has left this server; its owner can now delete it."
             if report.failures:
                 summary += ("\nThe hunt hasn't been moved on the dashboard yet and the bot is staying: "
                             "re-run !archive_hunt_to_hub <hub id> from this hunt's general channel to finish.")
+                hub_summary += ("\nThe hunt hasn't been moved on the dashboard yet: re-run "
+                                "!archive_hunt_to_hub from the team server to finish.")
             hub_dest = hub.get_channel(report.hub_channel_id)
             if hub_dest is not None:
                 try:
-                    await hub_dest.send(summary)
+                    await hub_dest.send(hub_summary)
                 except discord.HTTPException:
                     logger.exception("archive_hunt_to_hub: could not post summary to hub channel %s", report.hub_channel_id)
             if status_channel is not None and status_channel is not hub_dest:

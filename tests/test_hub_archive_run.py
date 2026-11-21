@@ -49,6 +49,21 @@ async def test_runner_locks_posts_progress_and_summary():
     assert "H - me" in status_ch.send.await_args.args[0]
 
 
+async def test_left_guild_note_goes_to_the_team_server_only():
+    report = hunt_archive.HuntArchiveReport(final_name="H - me", hub_channel_id=3000, left_guild=True)
+    status_ch = _channel()
+    hub = MagicMock(); hub_dest = _channel(); hub.get_channel.return_value = hub_dest
+    with patch.object(hub_archive_run, "PuzzleJsonDb") as Db:
+        Db.get_all_from_hunt.return_value = []
+        await run_archive_to_hub(MagicMock(), _service(report), MagicMock(), _hunt(),
+                                 MagicMock(), hub, MagicMock(), status_channel=status_ch)
+    hub_msg = hub_dest.send.await_args.args[0]
+    team_msg = status_ch.send.await_args.args[0]
+    assert "H - me" in hub_msg and "H - me" in team_msg
+    assert "left this server" in team_msg
+    assert "left this server" not in hub_msg
+
+
 async def test_runner_falls_back_to_the_hub_archive_channel_for_status():
     report = hunt_archive.HuntArchiveReport(final_name="H - me", hub_channel_id=3000)
     hub = MagicMock(); archive_ch = _channel(); hub.get_channel.return_value = archive_ch
