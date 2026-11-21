@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
 import { useLingering } from "../hooks/useLingering";
+import "./PuzzleTable.css";
 import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
@@ -61,6 +62,8 @@ interface Props {
 
 interface RowProps {
   puzzle: Puzzle;
+  /** Alternates per puzzle (see PuzzleTable.css). */
+  striped: boolean;
   isNarrow: boolean;
   editable: boolean;
   huntUid: string;
@@ -77,6 +80,7 @@ interface RowProps {
 
 const BoardPuzzleRow = memo(function BoardPuzzleRow({
   puzzle: p,
+  striped,
   isNarrow,
   editable,
   huntUid,
@@ -104,7 +108,10 @@ const BoardPuzzleRow = memo(function BoardPuzzleRow({
 
   return (
     <Fragment>
-      <Table.Tr bg={voiceRowBg(p.solved, voiceCount)}>
+      <Table.Tr
+        bg={voiceRowBg(p.solved, voiceCount)}
+        className={striped ? "puzzle-row-striped" : undefined}
+      >
         {/* Kind strip — both layouts */}
         <Table.Td w={4} p={0} style={{ backgroundColor: rowKind ? kindColorVar(rowKind.color) : undefined }} />
         {isNarrow ? (
@@ -421,10 +428,11 @@ export const BoardGroup = memo(function BoardGroup({
       <Accordion.Panel>
         {showRows && (
           <>
-            <Table>
+            <Table highlightOnHover>
               <Table.Tbody>
-                {sortedRows.map((p) => (
+                {sortedRows.map((p, i) => (
                   <BoardPuzzleRow
+                    striped={i % 2 === 0}
                     key={`${group.tag_group_id}-${p.id}`}
                     puzzle={p}
                     isNarrow={isNarrow}

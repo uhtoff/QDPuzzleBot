@@ -45,6 +45,13 @@ import { ManageSection } from "../components/ManageSection";
 import { useActivityFeed, type LiveActivity } from "../hooks/useActivityFeed";
 import { useVoiceFeed } from "../hooks/useVoiceFeed";
 import { useLingering } from "../hooks/useLingering";
+import {
+  applyOverrides,
+  deriveOverrides,
+  loadCollapse,
+  saveCollapse,
+  type CollapseOverrides,
+} from "../lib/groupCollapse";
 import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { HuntDetail, Puzzle } from "../types";
@@ -55,8 +62,12 @@ interface BoardByGroupViewProps {
   allPuzzles: Puzzle[];
   filter: PuzzleFilter;
   onChangeFilter: (next: PuzzleFilter) => void;
-  openGroups: string[] | null;
-  onOpenGroupsChange: (next: string[]) => void;
+  /** Remembered open/collapse choices (see lib/groupCollapse). */
+  collapse: CollapseOverrides;
+  onCollapseChange: (next: CollapseOverrides) => void;
+  /** Open groups while a search is typed: not remembered, null = all matches open. */
+  searchOpen: string[] | null;
+  onSearchOpenChange: (next: string[]) => void;
   live: Record<string, LiveActivity>;
   voice: LiveVoice;
   isNarrow: boolean;
@@ -70,8 +81,10 @@ const BoardByGroupView = memo(function BoardByGroupView({
   allPuzzles,
   filter,
   onChangeFilter,
-  openGroups,
-  onOpenGroupsChange,
+  collapse,
+  onCollapseChange,
+  searchOpen,
+  onSearchOpenChange,
   live,
   voice,
   isNarrow,
@@ -113,8 +126,23 @@ const BoardByGroupView = memo(function BoardByGroupView({
     };
   }, [data.board, filter]);
 
-  const effectiveOpen = openGroups ?? defaultOpen;
+  // A typed search is a temporary "find it" mode: every match opens, and
+  // opening or collapsing there is not remembered. Otherwise the person's
+  // remembered choices adjust the default.
+  const searching = filter.search.trim() !== "";
+  const visibleIds = useMemo(() => boardGroups.map((g) => String(g.tag_group_id)), [boardGroups]);
+  const effectiveOpen = useMemo(
+    () => (searching ? searchOpen ?? defaultOpen : applyOverrides(defaultOpen, visibleIds, collapse)),
+    [searching, searchOpen, defaultOpen, visibleIds, collapse],
+  );
   const openSet = useMemo(() => new Set(effectiveOpen), [effectiveOpen]);
+  const onOpenGroupsChange = useCallback(
+    (next: string[]) => {
+      if (searching) onSearchOpenChange(next);
+      else onCollapseChange(deriveOverrides(collapse, defaultOpen, visibleIds, next));
+    },
+    [searching, onSearchOpenChange, onCollapseChange, collapse, defaultOpen, visibleIds],
+  );
 
   return (
     <Stack gap="xs">
@@ -195,7 +223,9 @@ export default function HuntBoard() {
   const [notesPuzzleId, setNotesPuzzleId] = useState<number | null>(null);
   const [chatPuzzleId, setChatPuzzleId] = useState<number | null>(null);
   const [solvePuzzleId, setSolvePuzzleId] = useState<number | null>(null);
-  const [openGroups, setOpenGroups] = useState<string[] | null>(null);
+  // By-group open/collapse choices, remembered per hunt in this browser.
+  const [collapse, setCollapse] = useState<CollapseOverrides>(() => loadCollapse(uid));
+  const [searchOpen, setSearchOpen] = useState<string[] | null>(null);
   const isNarrow = useMediaQuery("(max-width: 768px)") ?? false;
 
   // One filter for both "By group" and "All puzzles", so it survives switching views.
@@ -204,7 +234,8 @@ export default function HuntBoard() {
   // The route param can change without remounting (hunt to hunt), so reload then.
   useEffect(() => {
     setFilter(loadFilter(uid));
-    setOpenGroups(null);
+    setCollapse(loadCollapse(uid));
+    setSearchOpen(null);
     setVisitedViews(new Set(["board"]));
     setSelectedView("board");
     setRenderedView("board");
@@ -227,13 +258,21 @@ export default function HuntBoard() {
     },
     [uid],
   );
-  // A changed filter re-opens every group that still has matches.
+  // A changed search re-opens every group that still has matches.
   const changeFilter = useCallback(
     (next: PuzzleFilter) => {
       updateFilter(next);
-      setOpenGroups(null);
+      setSearchOpen(null);
     },
     [updateFilter],
+  );
+  // Saved in the setter, like the filter (see updateFilter).
+  const updateCollapse = useCallback(
+    (next: CollapseOverrides) => {
+      setCollapse(next);
+      saveCollapse(uid, next);
+    },
+    [uid],
   );
 
   // A flat, de-duplicated puzzle list for the "All puzzles" table.
@@ -367,8 +406,10 @@ export default function HuntBoard() {
               allPuzzles={allPuzzles}
               filter={filter}
               onChangeFilter={changeFilter}
-              openGroups={openGroups}
-              onOpenGroupsChange={setOpenGroups}
+              collapse={collapse}
+              onCollapseChange={updateCollapse}
+              searchOpen={searchOpen}
+              onSearchOpenChange={setSearchOpen}
               live={live}
               voice={voice}
               isNarrow={isNarrow}
