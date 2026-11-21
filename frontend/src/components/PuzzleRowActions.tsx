@@ -49,7 +49,7 @@ export const PuzzleRowActions = memo(function PuzzleRowActions({
             variant="subtle"
             color="green"
             onClick={() => onSolve(p)}
-            title="Mark solved"
+            data-tip="Mark solved"
             aria-label="Solve"
           >
             <IconCircleCheck size={17} />
@@ -60,7 +60,7 @@ export const PuzzleRowActions = memo(function PuzzleRowActions({
             variant="subtle"
             color="red"
             onClick={() => onUnsolve(p)}
-            title="Mark unsolved"
+            data-tip="Mark unsolved"
             aria-label="Unsolve"
           >
             <IconCircleX size={17} />
@@ -71,7 +71,7 @@ export const PuzzleRowActions = memo(function PuzzleRowActions({
             variant="subtle"
             color="blue"
             onClick={() => workOn({ id: p.id, sheet_url: sheetUrl, hunt_uid: huntUid })}
-            title="Work on this puzzle"
+            data-tip="Work on this puzzle"
             aria-label="Work on this puzzle"
           >
             <IconPlayerPlay size={16} />
@@ -82,7 +82,7 @@ export const PuzzleRowActions = memo(function PuzzleRowActions({
             variant="subtle"
             color="blue"
             onClick={() => openPuzzle(p.name, sheetUrl, puzzleUrl)}
-            title="Open puzzle as a tab group"
+            data-tip="Open puzzle as a tab group"
             aria-label="Open puzzle as a tab group"
           >
             <IconBrowserPlus size={16} />
@@ -93,7 +93,7 @@ export const PuzzleRowActions = memo(function PuzzleRowActions({
             variant="subtle"
             color="gray"
             onClick={() => onOpenNotes(p)}
-            title="Notes"
+            data-tip="Notes"
             aria-label="Notes"
           >
             <IconNote size={16} />

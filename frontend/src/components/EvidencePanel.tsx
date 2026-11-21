@@ -31,6 +31,7 @@ import {
 import { imageFromClipboard, notifyError } from "../util";
 import { puzzleOptions, puzzlesById } from "../lib/boardPuzzles";
 import { useOcrReplaceConfirm } from "../hooks/useOcrReplaceConfirm";
+import { useLingering } from "../hooks/useLingering";
 import { ConfirmModal } from "./ConfirmModal";
 import { MarkupModal } from "./MarkupModal";
 
@@ -59,6 +60,7 @@ export function EvidencePanel({ uid, detail }: Props) {
   const replaceClueImage = useReplaceClueImage(uid);
   const [markupItem, setMarkupItem] = useState<EvidenceItem | null>(null);
   const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
+  const deleteClue = useLingering(deleteItemId);
   const [filterSource, setFilterSource] = useState<string | null>(null);
   const [filterTarget, setFilterTarget] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
@@ -396,12 +398,13 @@ export function EvidencePanel({ uid, detail }: Props) {
         </Table>
       )}
       {clueOcrConfirm.confirmModal}
-      {deleteItemId != null && (
+      {deleteClue.value != null && (
         <ConfirmModal
-          opened
+          opened={deleteClue.opened}
           onClose={() => setDeleteItemId(null)}
           onConfirm={() => {
-            const id = deleteItemId;
+            const id = deleteClue.value;
+            if (id == null) return;
             setDeleteItemId(null);
             deleteEvidence.mutate(id, { onError: notifyError });
           }}

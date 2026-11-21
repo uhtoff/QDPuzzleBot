@@ -14,7 +14,7 @@ import { notifyError } from "../util";
  * Arrange-view dialogs that give a meta its own Discord category, or fold it
  * back into another group's category. Dashboard twins of
  * !extract_target_to_category and !consolidate_to; both say exactly what will
- * happen before anything moves. Mounted only while open.
+ * happen before anything moves. Mounted only while in use (see Lingering).
  */
 
 function NameList({ items }: { items: { id: number; name: string }[] }) {
@@ -29,10 +29,12 @@ function NameList({ items }: { items: { id: number; name: string }[] }) {
 
 export function ExtractCategoryModal({
   group,
+  opened,
   uid,
   onClose,
 }: {
   group: BoardGroup;
+  opened: boolean;
   uid: string;
   onClose: () => void;
 }) {
@@ -56,7 +58,7 @@ export function ExtractCategoryModal({
   }
 
   return (
-    <Modal opened onClose={onClose} title={`Give "${group.name}" its own category`} centered size="lg">
+    <Modal opened={opened} onClose={onClose} title={`Give "${group.name}" its own category`} centered size="lg">
       {preview.isLoading ? (
         <Group justify="center" p="md">
           <Loader size="sm" />
@@ -117,11 +119,13 @@ export function ExtractCategoryModal({
 
 export function FoldCategoryModal({
   group,
+  opened,
   groups,
   uid,
   onClose,
 }: {
   group: BoardGroup;
+  opened: boolean;
   /** Every board group; the destination choices are drawn from these. */
   groups: BoardGroup[];
   uid: string;
@@ -167,7 +171,7 @@ export function FoldCategoryModal({
   }
 
   return (
-    <Modal opened onClose={onClose} title={`Fold "${group.name}" into another category`} centered size="lg">
+    <Modal opened={opened} onClose={onClose} title={`Fold "${group.name}" into another category`} centered size="lg">
       <Stack gap="sm">
         <Text size="sm">
           This deletes <b>{group.name}</b>'s own Discord category and moves all of its channels

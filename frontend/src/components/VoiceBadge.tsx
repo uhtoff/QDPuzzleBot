@@ -12,7 +12,7 @@ export const VoiceBadge = memo(function VoiceBadge({ count }: { count: number })
       variant="light"
       leftSection={<IconHeadphones size={12} />}
       style={{ flexShrink: 0 }}
-      title={label}
+      data-tip={label}
       aria-label={label}
     >
       {count}

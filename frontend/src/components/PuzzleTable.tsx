@@ -24,6 +24,7 @@ import { PuzzleRowActions } from "./PuzzleRowActions";
 import { answerLength, formatPriority, formatStatus, notifyError, priorityColor, relativeTime, sortPuzzles, statusColor } from "../util";
 import { puzzleMatches, type PuzzleFilter } from "../lib/puzzleFilter";
 import { PuzzleFilterBar } from "./PuzzleFilterBar";
+import "./PuzzleTable.css";
 
 interface Props {
   detail: HuntDetail;
@@ -185,6 +186,8 @@ function EdgeBadge({
 
 interface TableRowProps {
   puzzle: Puzzle;
+  /** Alternates per puzzle (see PuzzleTable.css). */
+  striped: boolean;
   editable: boolean;
   canManage: boolean;
   debugEdges: boolean;
@@ -202,6 +205,7 @@ interface TableRowProps {
 
 const PuzzleTableRow = memo(function PuzzleTableRow({
   puzzle: p,
+  striped,
   editable,
   canManage,
   debugEdges,
@@ -237,7 +241,10 @@ const PuzzleTableRow = memo(function PuzzleTableRow({
 
   return (
     <Fragment>
-      <Table.Tr bg={voiceRowBg(p.solved, voiceCount)}>
+      <Table.Tr
+        bg={voiceRowBg(p.solved, voiceCount)}
+        className={striped ? "puzzle-row-striped" : undefined}
+      >
         <Table.Td>
           <PuzzleLinks puzzle={p} onOpenChat={onOpenChat} />
         </Table.Td>
@@ -409,7 +416,7 @@ export const PuzzleTable = memo(function PuzzleTable({
       </PuzzleFilterBar>
 
       <Table.ScrollContainer minWidth={900}>
-        <Table striped highlightOnHover stickyHeader>
+        <Table highlightOnHover stickyHeader>
           <Table.Thead>
             <Table.Tr>
               <Table.Th w={110}>Links</Table.Th>
@@ -425,10 +432,11 @@ export const PuzzleTable = memo(function PuzzleTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {filtered.map((p) => (
+            {filtered.map((p, i) => (
               <PuzzleTableRow
                 key={p.id}
                 puzzle={p}
+                striped={i % 2 === 0}
                 editable={editable}
                 canManage={canManage}
                 debugEdges={debugEdges}

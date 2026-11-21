@@ -44,6 +44,7 @@ import { GateHuntPanel } from "../components/GateHuntPanel";
 import { ManageSection } from "../components/ManageSection";
 import { useActivityFeed, type LiveActivity } from "../hooks/useActivityFeed";
 import { useVoiceFeed } from "../hooks/useVoiceFeed";
+import { useLingering } from "../hooks/useLingering";
 import { huntVoiceCount, type LiveVoice } from "../lib/voice";
 import { useViewAs, applyViewAs } from "../context/ViewAsContext";
 import type { HuntDetail, Puzzle } from "../types";
@@ -250,6 +251,11 @@ export default function HuntBoard() {
     [rawData, viewAs],
   );
 
+  // The chat dialog is mounted only while in use; useLingering keeps its fade.
+  const chat = useLingering(
+    chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null,
+  );
+
   const openNotes = useCallback((p: Puzzle) => setNotesPuzzleId(p.id), []);
   const openChat = useCallback((p: Puzzle) => setChatPuzzleId(p.id), []);
   const openSolve = useCallback((p: Puzzle) => setSolvePuzzleId(p.id), []);
@@ -274,7 +280,6 @@ export default function HuntBoard() {
   const activeControlView: BoardView = views.some((v) => v.value === selectedView) ? selectedView : "board";
   const shown: BoardView = views.some((v) => v.value === renderedView) ? renderedView : "board";
   const notesPuzzle = notesPuzzleId != null ? allPuzzles.find((p) => p.id === notesPuzzleId) ?? null : null;
-  const chatPuzzle = chatPuzzleId != null ? allPuzzles.find((p) => p.id === chatPuzzleId) ?? null : null;
   const solvePuzzle = solvePuzzleId != null ? allPuzzles.find((p) => p.id === solvePuzzleId) ?? null : null;
   const pct = data.summary.total ? Math.round((data.summary.solved / data.summary.total) * 100) : 0;
 
@@ -451,15 +456,15 @@ export default function HuntBoard() {
 
       <PuzzleDrawer puzzle={notesPuzzle} detail={data} voice={voice} onClose={() => setNotesPuzzleId(null)} />
       <SolveModal puzzle={solvePuzzle} uid={data.hunt.uid} onClose={() => setSolvePuzzleId(null)} />
-      {chatPuzzle && (
+      {chat.value && (
         <ChatViewer
-          opened
+          opened={chat.opened}
           onClose={() => setChatPuzzleId(null)}
-          channelId={chatPuzzle.channel_id}
+          channelId={chat.value.channel_id}
           live={!data.hunt.archived}
-          title={chatPuzzle.name}
-          discordDeepUrl={chatPuzzle.discord_deep_url}
-          discordUrl={chatPuzzle.discord_url}
+          title={chat.value.name}
+          discordDeepUrl={chat.value.discord_deep_url}
+          discordUrl={chat.value.discord_url}
         />
       )}
     </Stack>

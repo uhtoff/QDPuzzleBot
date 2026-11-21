@@ -12,7 +12,7 @@ export const MiniCountBadge = memo(function MiniCountBadge({ puzzle: p }: { puzz
       color="violet"
       variant="light"
       style={{ flexShrink: 0 }}
-      title={`${solved}/${p.mini_puzzles.length} minis solved`}
+      data-tip={`${solved}/${p.mini_puzzles.length} minis solved`}
       aria-label="Minis solved"
     >
       {solved}/{p.mini_puzzles.length}

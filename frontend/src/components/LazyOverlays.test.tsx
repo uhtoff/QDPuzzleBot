@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MantineProvider } from "@mantine/core";
-import { AddToGroupPicker } from "./AddToGroupPicker";
+import { Lingering } from "./Lingering";
 import { PriorityCell, StatusCell, TypeCell } from "./PuzzleEditCells";
 import { PuzzleLinks } from "./PuzzleLinks";
 import type { Puzzle } from "../types";
@@ -40,20 +40,25 @@ const SAMPLE_PUZZLE: Puzzle = {
 };
 
 describe("lazy row/card overlays", () => {
-  it("AddToGroupPicker renders nothing when closed", () => {
-    const html = wrap(
-      <AddToGroupPicker
-        opened={false}
-        onClose={() => {}}
-        puzzleId={1}
-        items={[{ code: "A", name: "Round A" }]}
-        ownTargetCode={null}
-        selfFeeds={false}
-        selfInforms={false}
-        onRetag={() => {}}
-      />,
+  // The picker (like every board dialog) no longer gates itself: the board
+  // mounts it through <Lingering>, which is what keeps closed dialogs out of
+  // the tree while still letting them fade. So the "nothing while closed"
+  // guarantee is asserted on Lingering, with an open case to prove the test
+  // can tell the difference.
+  it("Lingering renders nothing while its value is null, and its child once set", () => {
+    const closed = wrap(
+      <Lingering value={null as { name: string } | null}>
+        {(v) => <span>picker for {v.name}</span>}
+      </Lingering>,
     );
-    expect(html).toBe("");
+    expect(closed).toBe("");
+
+    const open = wrap(
+      <Lingering value={{ name: "Round A" }}>
+        {(v) => <span>picker for {v.name}</span>}
+      </Lingering>,
+    );
+    expect(open).toContain("picker for Round A");
   });
 
   it("StatusCell, PriorityCell, and TypeCell do not mount menus/popovers while closed", () => {
@@ -84,11 +89,11 @@ describe("lazy row/card overlays", () => {
     expect(typeOpen).toContain('aria-expanded="true"');
   });
 
-  it("PuzzleLinks renders native titles without mounting ChatViewer or Floating-UI tooltips", () => {
+  it("PuzzleLinks renders shared-tooltip text without mounting ChatViewer or Floating-UI tooltips", () => {
     const html = wrap(<PuzzleLinks puzzle={SAMPLE_PUZZLE} onOpenChat={() => {}} />);
-    expect(html).toContain('title="Spreadsheet"');
-    expect(html).toContain('title="Chat"');
-    expect(html).toContain('title="Puzzle page"');
+    expect(html).toContain('data-tip="Spreadsheet"');
+    expect(html).toContain('data-tip="Chat"');
+    expect(html).toContain('data-tip="Puzzle page"');
     expect(html).not.toContain("mantine-Modal");
   });
 });

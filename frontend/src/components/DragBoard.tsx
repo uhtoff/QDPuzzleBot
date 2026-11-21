@@ -52,6 +52,8 @@ import { getKind, kindColorVar } from "./MetaBadge";
 import { TypedConfirmModal } from "./TypedConfirmModal";
 import { DeleteRoundModal } from "./DeleteRoundModal";
 import { ExtractCategoryModal, FoldCategoryModal } from "./CategoryModals";
+import { Lingering } from "./Lingering";
+import { useLingering } from "../hooks/useLingering";
 
 interface MetaOption {
   code: string;
@@ -686,7 +688,10 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
   // The metapuzzle awaiting a convert-to-feeder confirm (null = modal closed).
   const [convertTarget, setConvertTarget] = useState<Puzzle | null>(null);
   // Preview the orphan impact only while the confirm modal is open for a target.
-  const convertPreview = useConvertToFeederPreview(convertTarget?.id ?? null, convertTarget != null);
+  // Dialogs are mounted only while in use; the lingering value keeps what they
+  // show (and this preview) steady through the close fade.
+  const convertShown = useLingering(convertTarget);
+  const convertPreview = useConvertToFeederPreview(convertShown.value?.id ?? null, convertShown.value != null);
   // Puzzle awaiting a delete confirm (null = modal closed).
   const [deleteTarget, setDeleteTarget] = useState<Puzzle | null>(null);
   // Minimeta awaiting a remove-status confirm (null = modal closed).
@@ -697,11 +702,12 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
   const [extractTarget, setExtractTarget] = useState<BoardGroup | null>(null);
   const [foldTarget, setFoldTarget] = useState<BoardGroup | null>(null);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
+  const deleteGroupShown = useLingering(deleteGroupTarget);
   // Puzzles a full delete actually removes (excludes shared feeders and foreign
   // targets, which are kept & relocated) — so the warning doesn't over-promise.
   const deleteGroupCount = useMemo(
-    () => (deleteGroupTarget ? fullDeletePuzzleCount(deleteGroupTarget) : 0),
-    [deleteGroupTarget],
+    () => (deleteGroupShown.value ? fullDeletePuzzleCount(deleteGroupShown.value) : 0),
+    [deleteGroupShown.value],
   );
   // Group type change awaiting a confirm (null = modal closed).
   const [changeTypeConfirm, setChangeTypeConfirm] = useState<{ group: BoardGroup; type: string; message: string } | null>(null);
@@ -716,8 +722,8 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
   const boardViewportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!deleteGroupTarget) setDeleteAllPuzzles(false);
-  }, [deleteGroupTarget]);
+    if (!deleteGroupShown.value) setDeleteAllPuzzles(false);
+  }, [deleteGroupShown.value]);
 
   const byId = useMemo(() => puzzlesById(detail.board), [detail.board]);
 
@@ -1080,46 +1086,50 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
         </DragOverlay>
       </DndContext>
 
-      {pickerState && pickerState.items.length > 0 && (
-        <AddToGroupPicker
-          mode={pickerState.mode}
-          opened
-          onClose={() => setPickerTarget(null)}
-          puzzleId={pickerState.puzzleId}
-          items={pickerState.items}
-          ownTargetCode={pickerState.mode === "add" ? pickerState.ownTargetCode : null}
-          selfFeeds={pickerState.mode === "add" ? pickerState.selfFeeds : false}
-          selfInforms={pickerState.mode === "add" ? pickerState.selfInforms : false}
-          onRetag={
-            pickerState.mode === "move"
-              ? (id, groupCode) => requestMove(id, groupCode)
-              : runRetag
-          }
-        />
-      )}
+      <Lingering value={pickerState && pickerState.items.length > 0 ? pickerState : null}>
+        {(picker, opened) => (
+          <AddToGroupPicker
+            mode={picker.mode}
+            opened={opened}
+            onClose={() => setPickerTarget(null)}
+            puzzleId={picker.puzzleId}
+            items={picker.items}
+            ownTargetCode={picker.mode === "add" ? picker.ownTargetCode : null}
+            selfFeeds={picker.mode === "add" ? picker.selfFeeds : false}
+            selfInforms={picker.mode === "add" ? picker.selfInforms : false}
+            onRetag={
+              picker.mode === "move"
+                ? (id, groupCode) => requestMove(id, groupCode)
+                : runRetag
+            }
+          />
+        )}
+      </Lingering>
 
-      {cardConfirm && (
-        <ConfirmModal
-          opened
-          onClose={() => setCardConfirm(null)}
-          onConfirm={() => {
-            cardConfirm.onConfirm();
-            setCardConfirm(null);
-          }}
-          title={cardConfirm.title}
-          message={cardConfirm.message}
-          confirmLabel="Confirm"
-          confirmColor="grape"
-        />
-      )}
+      <Lingering value={cardConfirm}>
+        {(action, opened) => (
+          <ConfirmModal
+            opened={opened}
+            onClose={() => setCardConfirm(null)}
+            onConfirm={() => {
+              action.onConfirm();
+              setCardConfirm(null);
+            }}
+            title={action.title}
+            message={action.message}
+            confirmLabel="Confirm"
+            confirmColor="grape"
+          />
+        )}
+      </Lingering>
 
-      {convertTarget && (
+      {convertShown.value && (
         <TypedConfirmModal
-          opened
+          opened={convertShown.opened}
           onClose={() => setConvertTarget(null)}
           onConfirm={runConvertToFeeder}
-          title={`Convert "${convertTarget.name}" to a feeder`}
-          confirmPhrase={convertTarget.name}
+          title={`Convert "${convertShown.value.name}" to a feeder`}
+          confirmPhrase={convertShown.value.name}
           confirmLabel="Convert to feeder"
           loading={convert.isPending}
         >
@@ -1149,77 +1159,85 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
         </TypedConfirmModal>
       )}
 
-      {deleteTarget && (
-        <TypedConfirmModal
-          opened
-          onClose={() => setDeleteTarget(null)}
-          onConfirm={runDeletePuzzle}
-          title={`Delete "${deleteTarget.name}"`}
-          confirmPhrase={deleteTarget.name}
-          confirmLabel="Delete puzzle"
-          loading={deletePuzzleMut.isPending}
-        >
-          <Text size="sm" c="red">
-            ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
-            This cannot be undone.
-          </Text>
-        </TypedConfirmModal>
-      )}
+      <Lingering value={deleteTarget}>
+        {(target, opened) => (
+          <TypedConfirmModal
+            opened={opened}
+            onClose={() => setDeleteTarget(null)}
+            onConfirm={runDeletePuzzle}
+            title={`Delete "${target.name}"`}
+            confirmPhrase={target.name}
+            confirmLabel="Delete puzzle"
+            loading={deletePuzzleMut.isPending}
+          >
+            <Text size="sm" c="red">
+              ⚠️ This permanently deletes the puzzle&rsquo;s Discord channel and Google sheet tab.
+              This cannot be undone.
+            </Text>
+          </TypedConfirmModal>
+        )}
+      </Lingering>
 
-      {removeMinimetaTarget && (
-        <TypedConfirmModal
-          opened
-          onClose={() => setRemoveMinimetaTarget(null)}
-          onConfirm={runRemoveMinimeta}
-          title={`Remove minimeta "${removeMinimetaTarget.name}"`}
-          confirmPhrase={removeMinimetaTarget.name}
-          confirmLabel="Remove minimeta"
-          loading={removeMinimeta.isPending}
-        >
-          <Text size="sm" c="red">
-            ⚠️ This deletes every mini-puzzle under &ldquo;{removeMinimetaTarget.name}&rdquo; —
-            each one&rsquo;s Discord thread and Google sheet tab — and reverts this puzzle to an
-            ordinary puzzle. This cannot be undone.
-          </Text>
-        </TypedConfirmModal>
-      )}
+      <Lingering value={removeMinimetaTarget}>
+        {(target, opened) => (
+          <TypedConfirmModal
+            opened={opened}
+            onClose={() => setRemoveMinimetaTarget(null)}
+            onConfirm={runRemoveMinimeta}
+            title={`Remove minimeta "${target.name}"`}
+            confirmPhrase={target.name}
+            confirmLabel="Remove minimeta"
+            loading={removeMinimeta.isPending}
+          >
+            <Text size="sm" c="red">
+              ⚠️ This deletes every mini-puzzle under &ldquo;{target.name}&rdquo; —
+              each one&rsquo;s Discord thread and Google sheet tab — and reverts this puzzle to an
+              ordinary puzzle. This cannot be undone.
+            </Text>
+          </TypedConfirmModal>
+        )}
+      </Lingering>
 
-      {dragConfirm && (
-        <ConfirmModal
-          opened
-          onClose={() => setDragConfirm(null)}
-          onConfirm={() => {
-            runRetag(dragConfirm.puzzleId, dragConfirm.groupCode, dragConfirm.mode);
-            setDragConfirm(null);
-          }}
-          title={dragConfirm.title}
-          message={dragConfirm.message}
-          confirmLabel="Move"
-          confirmColor="blue"
-        />
-      )}
+      <Lingering value={dragConfirm}>
+        {(move, opened) => (
+          <ConfirmModal
+            opened={opened}
+            onClose={() => setDragConfirm(null)}
+            onConfirm={() => {
+              runRetag(move.puzzleId, move.groupCode, move.mode);
+              setDragConfirm(null);
+            }}
+            title={move.title}
+            message={move.message}
+            confirmLabel="Move"
+            confirmColor="blue"
+          />
+        )}
+      </Lingering>
 
-      {changeTypeConfirm && (
-        <ConfirmModal
-          opened
-          onClose={() => setChangeTypeConfirm(null)}
-          onConfirm={() => {
-            runChangeType(changeTypeConfirm.group, changeTypeConfirm.type);
-            setChangeTypeConfirm(null);
-          }}
-          title={`Change type to ${changeTypeConfirm.type}`}
-          message={changeTypeConfirm.message}
-          confirmLabel="Change type"
-          confirmColor="grape"
-        />
-      )}
+      <Lingering value={changeTypeConfirm}>
+        {(change, opened) => (
+          <ConfirmModal
+            opened={opened}
+            onClose={() => setChangeTypeConfirm(null)}
+            onConfirm={() => {
+              runChangeType(change.group, change.type);
+              setChangeTypeConfirm(null);
+            }}
+            title={`Change type to ${change.type}`}
+            message={change.message}
+            confirmLabel="Change type"
+            confirmColor="grape"
+          />
+        )}
+      </Lingering>
 
-      {deleteGroupTarget && (
+      {deleteGroupShown.value && (
         <DeleteRoundModal
-          opened
+          opened={deleteGroupShown.opened}
           onClose={() => setDeleteGroupTarget(null)}
           onConfirm={runDeleteRound}
-          name={deleteGroupTarget.name}
+          name={deleteGroupShown.value.name}
           noun="group"
           puzzleCount={deleteGroupCount}
           loading={deleteRoundMut.isPending}
@@ -1228,17 +1246,22 @@ export const DragBoard = memo(function DragBoard({ detail, uid }: { detail: Hunt
         />
       )}
 
-      {extractTarget && (
-        <ExtractCategoryModal group={extractTarget} uid={uid} onClose={() => setExtractTarget(null)} />
-      )}
-      {foldTarget && (
-        <FoldCategoryModal
-          group={foldTarget}
-          groups={detail.board}
-          uid={uid}
-          onClose={() => setFoldTarget(null)}
-        />
-      )}
+      <Lingering value={extractTarget}>
+        {(group, opened) => (
+          <ExtractCategoryModal group={group} opened={opened} uid={uid} onClose={() => setExtractTarget(null)} />
+        )}
+      </Lingering>
+      <Lingering value={foldTarget}>
+        {(group, opened) => (
+          <FoldCategoryModal
+            group={group}
+            opened={opened}
+            groups={detail.board}
+            uid={uid}
+            onClose={() => setFoldTarget(null)}
+          />
+        )}
+      </Lingering>
     </Box>
   );
 });

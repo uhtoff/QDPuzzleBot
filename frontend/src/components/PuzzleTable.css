@@ -1,0 +1,6 @@
+/* Stripe every other PUZZLE, not every other table row: a puzzle's expanded
+   mini panel is a second row, which would otherwise shift the stripes below
+   it. Single-class specificity, so Mantine's row hover still shows on top. */
+.puzzle-row-striped {
+  background-color: var(--table-striped-color);
+}

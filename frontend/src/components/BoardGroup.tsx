@@ -1,5 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMiniExpansion } from "../hooks/useMiniExpansion";
+import { useLingering } from "../hooks/useLingering";
 import { useClipboard, useDisclosure } from "@mantine/hooks";
 import {
   Accordion,
@@ -228,6 +229,12 @@ export const BoardGroup = memo(function BoardGroup({
   const deleteRoundMut = useDeleteRound(detail.hunt.uid);
   const [deleteRoundOpen, setDeleteRoundOpen] = useState(false);
   const [deleteAllPuzzles, setDeleteAllPuzzles] = useState(false);
+  // Mounted only while in use, but kept through its close fade.
+  const deleteModal = useLingering(deleteRoundOpen ? true : null);
+  const deleteMounted = deleteModal.value != null;
+  // Rows are skipped while the group is collapsed, but must outlive the
+  // Accordion's collapse animation or it shrinks an already-empty panel.
+  const showRows = useLingering(isOpen ? true : null, 250).value != null;
   // A plain group / Unassigned Feeders has no target, so no kind bar — only a
   // group with a target (meta/capstone/metameta/runaround) carries one, in the
   // target puzzle's own kind colour. Mirrors the Arrange board's group lines.
@@ -236,15 +243,15 @@ export const BoardGroup = memo(function BoardGroup({
   // Puzzles a full delete actually removes (excludes shared feeders and foreign
   // targets, which are kept & relocated) — the warning must not over-promise.
   const deleteCount = useMemo(
-    () => (deleteRoundOpen ? fullDeletePuzzleCount(group) : 0),
-    [deleteRoundOpen, group],
+    () => (deleteMounted ? fullDeletePuzzleCount(group) : 0),
+    [deleteMounted, group],
   );
 
-  // Reset the scope choice whenever the modal closes, so a reopen (this round
+  // Reset the scope choice once the modal has gone, so a reopen (this round
   // or another) starts from "keep" rather than a stale "all" selection.
   useEffect(() => {
-    if (!deleteRoundOpen) setDeleteAllPuzzles(false);
-  }, [deleteRoundOpen]);
+    if (!deleteMounted) setDeleteAllPuzzles(false);
+  }, [deleteMounted]);
 
   const { mutate: updateMutate } = updateMut;
   const onStatusChange = useCallback(
@@ -254,8 +261,8 @@ export const BoardGroup = memo(function BoardGroup({
   );
 
   const sortedRows = useMemo(
-    () => (isOpen ? sortPuzzles(rows ?? group.puzzles, group.group_code) : []),
-    [isOpen, rows, group.puzzles, group.group_code],
+    () => (showRows ? sortPuzzles(rows ?? group.puzzles, group.group_code) : []),
+    [showRows, rows, group.puzzles, group.group_code],
   );
 
   function rebuild() {
@@ -353,7 +360,7 @@ export const BoardGroup = memo(function BoardGroup({
               e.stopPropagation();
               rebuild();
             }}
-            title="Rebuild this meta sheet"
+            data-tip="Rebuild this meta sheet"
             aria-label="Rebuild meta sheet"
           >
             <IconRefresh size={16} />
@@ -372,7 +379,7 @@ export const BoardGroup = memo(function BoardGroup({
                 group.puzzles.flatMap((p) => (p.sheet_url ? [p.sheet_url] : [])),
               );
             }}
-            title="Open round as a tab group"
+            data-tip="Open round as a tab group"
             aria-label="Open round as a tab group"
           >
             <IconBrowserPlus size={16} />
@@ -388,7 +395,7 @@ export const BoardGroup = memo(function BoardGroup({
               e.stopPropagation();
               answersOpened ? close() : openAnswers();
             }}
-            title={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
+            data-tip={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
             aria-label={answersOpened ? "Hide aggregated answers" : "View aggregated answers"}
           >
             <IconCopy size={16} />
@@ -404,7 +411,7 @@ export const BoardGroup = memo(function BoardGroup({
               e.stopPropagation();
               setDeleteRoundOpen(true);
             }}
-            title="Delete this round…"
+            data-tip="Delete this round…"
             aria-label="Delete round"
           >
             <IconTrash size={16} />
@@ -412,7 +419,7 @@ export const BoardGroup = memo(function BoardGroup({
         )}
       </Box>
       <Accordion.Panel>
-        {isOpen && (
+        {showRows && (
           <>
             <Table>
               <Table.Tbody>
@@ -454,7 +461,7 @@ export const BoardGroup = memo(function BoardGroup({
                     color="blue"
                     onClick={copyAnswers}
                     disabled={!answersQuery.data}
-                    title="Copy to clipboard"
+                    data-tip="Copy to clipboard"
                     aria-label="Copy answers"
                   >
                     {clipboard.copied ? <IconCircleCheck size={14} /> : <IconCopy size={14} />}
@@ -478,9 +485,9 @@ export const BoardGroup = memo(function BoardGroup({
         )}
       </Accordion.Panel>
 
-      {deleteRoundOpen && (
+      {deleteMounted && (
         <DeleteRoundModal
-          opened={deleteRoundOpen}
+          opened={deleteModal.opened}
           onClose={() => setDeleteRoundOpen(false)}
           onConfirm={runDeleteRound}
           name={group.name}

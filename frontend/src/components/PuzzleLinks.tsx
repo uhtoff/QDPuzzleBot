@@ -23,7 +23,7 @@ export const PuzzleLinks = memo(function PuzzleLinks({ puzzle, onOpenChat }: Pro
             target="_blank"
             variant="subtle"
             color="green"
-            title="Spreadsheet"
+            data-tip="Spreadsheet"
             aria-label="Spreadsheet"
           >
             <IconFileSpreadsheet size={16} />
@@ -35,7 +35,7 @@ export const PuzzleLinks = memo(function PuzzleLinks({ puzzle, onOpenChat }: Pro
           variant="subtle"
           color="indigo"
           onClick={() => onOpenChat(puzzle)}
-          title="Chat"
+          data-tip="Chat"
           aria-label="Chat"
         >
           <IconBrandDiscord size={16} />
@@ -48,7 +48,7 @@ export const PuzzleLinks = memo(function PuzzleLinks({ puzzle, onOpenChat }: Pro
           target="_blank"
           variant="subtle"
           color="gray"
-          title="Puzzle page"
+          data-tip="Puzzle page"
           aria-label="Puzzle page"
           onClick={(e) => openPageViaExtension(e, sheetUrl, pageUrl)}
         >

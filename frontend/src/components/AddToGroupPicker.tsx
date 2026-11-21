@@ -74,12 +74,9 @@ function buildRows(
   return rows;
 }
 
-export function AddToGroupPicker(props: AddToGroupPickerProps) {
-  if (!props.opened) return null;
-  return <AddToGroupPickerContent {...props} />;
-}
-
-function AddToGroupPickerContent({
+/** The board mounts this only while a picker is in use (see Lingering in
+ *  DragBoard), so it carries no closed-state gate of its own. */
+export function AddToGroupPicker({
   opened,
   onClose,
   puzzleId,
