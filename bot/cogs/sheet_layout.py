@@ -57,6 +57,16 @@ FROZEN_ROWS = 3
 COMPACT_GEOMETRY = HeaderGeometry("compact", "A1", "A2", None, "A3", 0, 3, 1, False)
 COMPACT_EXTRA_GEOMETRY = dataclasses.replace(COMPACT_GEOMETRY, feeds_a1=None, band_rows=2)
 
+# 0-based grid row of a compact target's roll-up Table header: row 5, leaving
+# row 4 blank under the three header cells. Sheets draws a Table's toolbar pill
+# over the row above the Table, which hid the header's links line (A3 / B3).
+# The spacer row takes the pill instead.
+# Only where the bot CREATES a Table: tabs made before this keep theirs at row
+# 4, and everything that later reads or writes a Table takes its position from
+# the sheet. (The full header keeps row 4 = FROZEN_ROWS: the overlap was not
+# seen there, probably because its header rows are frozen.)
+COMPACT_TABLE_ROW = 4
+
 # Static header labels shared by every puzzle tab.
 PUZZLE_TAB_CELLS = [
     {"a1": "A1", "value": "Puzzle Title:", "type": "stringValue", "bold": True},

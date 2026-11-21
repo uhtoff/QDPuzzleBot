@@ -2153,7 +2153,7 @@ class GoogleSheets(commands.Cog):
         compact_target = is_target \
             and self._header_geometry(puzzle, page_id).layout == HEADER_COMPACT
         if compact_target:
-            requests += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+            requests += self._contribution_table_requests(page_id, sheet_layout.COMPACT_TABLE_ROW)
             requests.append(self._hide_key_column_request(page_id))
         requests += extra_requests or []
         if requests:
@@ -2269,7 +2269,7 @@ class GoogleSheets(commands.Cog):
         if header_links is not None:
             reqs.append(self.header_links_request(
                 page_id, shift, header_links, sheet_layout.COMPACT_GEOMETRY))
-        reqs += self._contribution_table_requests(page_id, sheet_layout.FROZEN_ROWS)
+        reqs += self._contribution_table_requests(page_id, sheet_layout.COMPACT_TABLE_ROW)
         reqs.append(self._hide_key_column_request(page_id))
         await self.batch_update({"requests": reqs}, spreadsheet_id=spreadsheet_id)
 
